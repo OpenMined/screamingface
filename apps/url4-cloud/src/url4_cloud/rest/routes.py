@@ -1,9 +1,11 @@
-"""REST control plane — ``POST /token`` · ``GET /?q=`` · ``DELETE /`` (spec §5; protocol.md §7).
+"""The run-lifecycle REST surface: mint a capability token, start a run, stop a run.
 
-Deps (bus, job_runner, subscriber-gate, settings, clock) are read from ``request.app.state`` so the
-plane runs headless with injected fakes. Sync vs async is selected with RFC 7240 ``Prefer``; the
-sync hold is bounded by ``min(wait, SYNC_MAX_WAIT)`` and degrades to ``202`` past the bound; the
-terminal frame's status maps to the §5 outcome table. Every error is an RFC 9457 problem+json.
+Implements the transactional-HTTP half of the url4-cloud protocol (spec §4/§5): a token binds
+the caller to one topic, ``GET /`` starts the run for that topic (synchronously or async per
+RFC 7240 ``Prefer``), and ``DELETE /`` stops it and purges its stream. The streaming half (the
+WebSocket the caller attaches to observe the run) lives elsewhere; this module only schedules
+work onto it via ``JobRunner``/``EventConsumer`` and enforces that a subscriber is attached
+first.
 """
 
 import asyncio
@@ -13,6 +15,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Request, Response
 
+from url4.streaming.interfaces import (
+    EventConsumer,
+    JobAlreadyExists,
+    JobRunner,
+    JobRunnerAtCapacity,
+)
+from url4.streaming.protocol import ResultEvent, TerminatedEvent
+from url4.streaming.trace import valid_traceparent
 from url4_cloud.auth import (
     PROBLEM_MEDIA_TYPE,
     JwtCodec,
@@ -21,16 +31,11 @@ from url4_cloud.auth import (
     new_topic,
 )
 from url4_cloud.config import Settings
-from url4_cloud.jobs.port import JobAlreadyExists, JobRunner
+from url4_cloud.rest._credentials import forwarded_credential
 from url4_cloud.rest.interest import SubscriberGate
-from url4_cloud_nats import Bus
-from url4_streaming_protocol import ResultEvent, TerminatedEvent
 
 router = APIRouter()
 
-# INVARIANT: non-``succeeded`` terminal status → (HTTP status, title, detail) per spec §5. The App
-# is a gateway to the Job: a run failure is ``502``, the 16 h deadline is ``504``, a ``DELETE``-stop
-# is ``409``. ``succeeded`` is not here — it returns the Result body, not a problem.
 _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "failed": (502, "Bad Gateway", "the run failed"),
     "timed_out": (504, "Gateway Timeout", "the run exceeded its deadline"),
@@ -44,17 +49,27 @@ def _default_clock() -> datetime:
 
 @dataclass(frozen=True)
 class _Deps:
-    bus: Bus
+    """The run-scheduling collaborators a route handler needs, resolved from app state."""
+
+    stream: EventConsumer
     job_runner: JobRunner
     interest: SubscriberGate
     settings: Settings
 
 
 def _deps(request: Request) -> _Deps:
+    """Resolve ``_Deps`` from app state, or raise 503 if no job runner is configured."""
     state = request.app.state
+    job_runner = state.job_runner
+    if job_runner is None:
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="run scheduling is not configured (URL4_CLOUD_RUNNER)",
+        )
     return _Deps(
-        bus=state.bus,
-        job_runner=state.job_runner,
+        stream=state.stream,
+        job_runner=job_runner,
         interest=state.interest,
         settings=state.settings,
     )
@@ -62,12 +77,18 @@ def _deps(request: Request) -> _Deps:
 
 @dataclass(frozen=True)
 class _Prefer:
+    """The parsed RFC 7240 ``Prefer`` header for a start-run request."""
+
     respond_async: bool
     wait_s: float | None
 
 
 def _parse_prefer(raw: str) -> _Prefer:
-    """Parse an RFC 7240 ``Prefer`` header for ``respond-async`` and ``wait=<s>``."""
+    """Parse an RFC 7240 ``Prefer`` header into ``respond-async``/``wait=<seconds>`` flags.
+
+    Unknown tokens are ignored; a malformed ``wait`` value falls back to ``None`` (the
+    default synchronous bound), it never raises.
+    """
     respond_async = False
     wait_s: float | None = None
     for token in raw.split(","):
@@ -81,6 +102,7 @@ def _parse_prefer(raw: str) -> _Prefer:
 
 
 def _as_float(value: str) -> float | None:
+    """Best-effort ``float`` parse: returns ``None`` instead of raising on bad input."""
     try:
         return float(value.strip())
     except ValueError:
@@ -88,6 +110,7 @@ def _as_float(value: str) -> float | None:
 
 
 def _require_q(q: str | None) -> str:
+    """Return the url4 expression, or raise 400 if the ``q`` query parameter is missing/empty."""
     if not q:
         raise ProblemException(
             status=400,
@@ -97,8 +120,10 @@ def _require_q(q: str | None) -> str:
     return q
 
 
+# INVARIANT: a run must never be scheduled before a subscriber is attached to its topic —
+# otherwise the run's terminal frame could be produced with nothing observing the stream.
 async def _require_subscriber(interest: SubscriberGate, topic: str) -> None:
-    # WHY: spec §4 — no run begins with nobody listening; the WS must be attached first (428).
+    """Raise 428 unless a WebSocket subscriber is already attached to ``topic``."""
     if not await interest.has_subscriber(topic):
         raise ProblemException(
             status=428,
@@ -107,18 +132,48 @@ async def _require_subscriber(interest: SubscriberGate, topic: str) -> None:
         )
 
 
-def _schedule(deps: _Deps, topic: str, url4: str) -> None:
-    # INVARIANT: single-use — the deterministic Job name is the stateless "already ran" guard (§5).
-    if deps.job_runner.exists(topic):
+async def _schedule(
+    deps: _Deps,
+    topic: str,
+    url4: str,
+    *,
+    traceparent: str | None = None,
+    credential: str | None = None,
+    profile: str | None = None,
+) -> None:
+    """Schedule the run on the job runner, or raise 409 if one already exists for ``topic``.
+
+    Topics are single-shot: both the pre-check and the runner's own ``JobAlreadyExists`` guard
+    against a race collapse into the same 409 problem.
+    """
+    if await deps.job_runner.exists(topic):
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
     try:
-        deps.job_runner.schedule(topic, url4, deps.settings.job_deadline_s)
+        await deps.job_runner.schedule(
+            topic,
+            url4,
+            deps.settings.job_deadline_s,
+            traceparent=traceparent,
+            credential=credential,
+            profile=profile,
+        )
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
+    except JobRunnerAtCapacity as exc:
+        # WHY 503 and not 429: nothing about THIS caller or request was rate-limited — the
+        # substrate is saturated, and an identical retry later succeeds. Only a runner that owns a
+        # finite local resource (the in-process one) can raise this; a cluster-backed runner lets
+        # the scheduler queue instead.
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the runner is at capacity — retry shortly",
+            headers={"Retry-After": "1"},
+        ) from exc
 
 
 def _accepted(topic: str) -> Response:
-    """A ``202`` async handle: RFC 7240 ``Preference-Applied`` + RFC 8288 ``Link``/``Location``."""
+    """Build the 202 Accepted response, with ``Location``/``Link``/``Preference-Applied``."""
     location = f"/?topic={topic}"
     return Response(
         status_code=202,
@@ -130,28 +185,37 @@ def _accepted(topic: str) -> Response:
     )
 
 
-async def _scan_terminal(bus: Bus, topic: str) -> tuple[TerminatedEvent, ResultEvent | None]:
-    """Consume the topic from the start until the terminal frame; keep the last Result seen."""
+async def _scan_terminal(
+    stream: EventConsumer, topic: str
+) -> tuple[TerminatedEvent, ResultEvent | None]:
+    """Consume ``topic``'s stream from the start until its terminal frame, unbounded.
+
+    Returns the ``TerminatedEvent`` plus the last ``ResultEvent`` seen, if any. Callers that
+    need a time bound wrap this in ``_await_terminal``.
+    """
     result: ResultEvent | None = None
-    async for event in bus.subscribe(topic, from_sequence=None):
+    async for event in stream.subscribe(topic, from_sequence=None):
         if isinstance(event, ResultEvent):
             result = event
         elif isinstance(event, TerminatedEvent):
             return event, result
+    # AIDEV-NOTE: unreachable in practice — EventConsumer streams always end in a terminal
+    # frame (spec §5); this guards against a stream implementation that violates that.
     raise RuntimeError("stream ended before a terminal frame")  # pragma: no cover
 
 
 async def _await_terminal(
-    bus: Bus, topic: str, bound_s: float
+    stream: EventConsumer, topic: str, bound_s: float
 ) -> tuple[TerminatedEvent, ResultEvent | None] | None:
-    """The terminal frame within ``bound_s`` seconds, or ``None`` when the bound elapses first."""
+    """Bound ``_scan_terminal`` by ``bound_s`` seconds; returns ``None`` on timeout."""
     try:
-        return await asyncio.wait_for(_scan_terminal(bus, topic), timeout=bound_s)
+        return await asyncio.wait_for(_scan_terminal(stream, topic), timeout=bound_s)
     except TimeoutError:
         return None
 
 
 def _result_response(result: ResultEvent | None) -> Response:
+    """Build the 200 response body from the run's ``ResultEvent``, or an empty 200 if none."""
     if result is None:
         return Response(status_code=200)
     return Response(
@@ -162,25 +226,42 @@ def _result_response(result: ResultEvent | None) -> Response:
 
 
 def _terminal_response(terminated: TerminatedEvent, result: ResultEvent | None) -> Response:
+    """Map a terminal frame to its HTTP response: the Result body on success, else a problem."""
     status = terminated.data.status
     if status == "succeeded":
         return _result_response(result)
-    http_status, title, detail = _TERMINAL_PROBLEM[status]
+    # `.get` and not `[...]`: a terminal status added to the protocol but not mapped here would
+    # otherwise surface as an unhandled KeyError — a bare 500 with a traceback, rather than a
+    # response that still tells the caller the run ended and did not succeed.
+    http_status, title, detail = _TERMINAL_PROBLEM.get(
+        status,
+        (502, "Bad Gateway", f"the run ended with an unhandled terminal status: {status}"),
+    )
     raise ProblemException(status=http_status, title=title, detail=detail)
 
 
 async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
+    """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses.
+
+    The wait is capped at ``settings.sync_max_wait_s`` regardless of a caller-supplied
+    ``wait_s`` (RFC 7240 ``Prefer: wait=``), so a client can shorten but never lengthen it.
+    """
     cap = deps.settings.sync_max_wait_s
     bound = cap if wait_s is None else min(wait_s, cap)
-    outcome = await _await_terminal(deps.bus, topic, bound)
+    outcome = await _await_terminal(deps.stream, topic, bound)
     if outcome is None:
-        return _accepted(topic)  # degrade to async past the bound (spec §5, RFC 7240)
+        return _accepted(topic)
     return _terminal_response(outcome[0], outcome[1])
 
 
-@router.post("/token", tags=["Token"], summary="Mint a capability token")
+@router.post(
+    "/token",
+    tags=["Token"],
+    summary="Mint a capability token",
+    description="Generate a fresh topic and return its HS256 capability JWT (spec §4). No auth.",
+)
 async def mint_token(request: Request) -> dict[str, str]:
-    """Generate a fresh topic and return its HS256 capability JWT (spec §4). No auth."""
+    """Mint a fresh topic and its HS256 capability JWT. Unauthenticated (see route summary)."""
     settings: Settings = request.app.state.settings
     clock = getattr(request.app.state, "clock", _default_clock)
     codec = JwtCodec(secret=settings.jwt_secret, iat_window_s=settings.iat_window_s)
@@ -188,17 +269,13 @@ async def mint_token(request: Request) -> dict[str, str]:
 
 
 def _problem(description: str) -> dict[str, Any]:
-    # WHY: a raw problem+json content with the RFC 9457 Problem $ref — NOT FastAPI ``model=`` (which
-    # forces an application/json variant); Problem is registered in components by the OpenAPI
-    # customizer so the ref resolves (OME-552, spec §7).
+    """Build an OpenAPI response entry for an RFC 9457 problem, for use in ``responses=``."""
     return {
         "description": description,
         "content": {PROBLEM_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}}},
     }
 
 
-# INVARIANT: these OpenAPI responses mirror the runtime §5 outcomes — 200 Result / 202 async handle
-# / RFC 9457 problems. The handlers still return a bare Response; this is documentation only.
 _START_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {"description": "The run succeeded — the Result body."},
     202: {
@@ -224,9 +301,6 @@ _STOP_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-# WHY: the sync/async selector rides RFC 7240 `Prefer`; declaring it as a Header parameter (not a
-# raw `request.headers` read) puts it in the OpenAPI so Scalar renders an input + explains the two
-# modes (OME-555). `wait=<s>` caps the sync hold before it degrades to 202.
 _PREFER_DESC = (
     "RFC 7240 preference. Omit → synchronous: hold until the terminal frame (bounded by "
     "SYNC_MAX_WAIT), return the Result body. `respond-async` → asynchronous: 202 + Location/Link "
@@ -234,25 +308,83 @@ _PREFER_DESC = (
 )
 
 
-@router.get("/", tags=["Execution"], summary="Start a url4 run", responses=_START_RESPONSES)
+_START_DESC = (
+    "Start the run for the token's topic (spec §5).\n\n"
+    "Synchronous (default): hold until the terminal frame (bounded by ``SYNC_MAX_WAIT``) and "
+    "return the Result body, or an RFC 9457 problem. Asynchronous (``Prefer: respond-async``, or "
+    "once the sync bound elapses): return ``202`` + ``Location``/``Link``; the Result arrives on "
+    "the WebSocket stream. ``Prefer: wait=<seconds>`` caps the synchronous hold.\n\n"
+    "An inbound ``traceparent`` header, when strictly W3C-valid, is forwarded to the run so its "
+    "trace is adopted downstream; absent or malformed, nothing is forwarded — a fresh trace is "
+    'minted instead (W3C "restart" rule: garbage never propagates).\n\n'
+    "An inbound ``Authorization: Bearer <token>`` header — distinct from the ``URL4-Capability`` "
+    "topic token — is forwarded as the run's aigateway credential (identity forwarding, plan "
+    "§5.3 dec:A), with the optional ``X-Profile`` header as its routing profile; absent or a "
+    "non-Bearer scheme forwards no credential and the run's connector stays deny-by-default. An "
+    "inbound ``Cf-Access-Jwt-Assertion`` header (attached by the Cloudflare Access edge, not the "
+    "client) takes priority over ``Authorization`` when both are present. The credential is "
+    "never logged."
+)
+
+
+@router.get(
+    "/",
+    tags=["Execution"],
+    summary="Start a url4 run",
+    responses=_START_RESPONSES,
+    description=_START_DESC,
+)
 async def start_run(
     request: Request,
     claims: VerifiedClaims,
     q: str | None = None,
     prefer: Annotated[str | None, Header(alias="Prefer", description=_PREFER_DESC)] = None,
+    traceparent: Annotated[
+        str | None,
+        Header(alias="traceparent", description="W3C trace context to adopt for this run."),
+    ] = None,
+    authorization: Annotated[
+        str | None,
+        Header(
+            alias="Authorization",
+            description="Bearer aigateway credential to forward to the run's connector.",
+        ),
+    ] = None,
+    cf_access_jwt: Annotated[
+        str | None,
+        Header(
+            alias="Cf-Access-Jwt-Assertion",
+            description=(
+                "Cloudflare Access session JWT, attached by the edge — takes priority over "
+                "Authorization as the aigateway credential to forward."
+            ),
+        ),
+    ] = None,
+    x_profile: Annotated[
+        str | None,
+        Header(alias="X-Profile", description="Optional aigateway routing profile label."),
+    ] = None,
 ) -> Response:
-    """Start the run for the token's topic (spec §5).
+    """Require an attached subscriber, then schedule the run for the token's topic, forwarding
+    the adopted traceparent and resolved aigateway credential; hold for the terminal frame by
+    default, or return ``202`` immediately under ``Prefer: respond-async``.
 
-    Synchronous (default): hold until the terminal frame (bounded by ``SYNC_MAX_WAIT``) and return
-    the Result body, or an RFC 9457 problem. Asynchronous (``Prefer: respond-async``, or once the
-    sync bound elapses): return ``202`` + ``Location``/``Link``; the Result arrives on the WebSocket
-    stream. ``Prefer: wait=<seconds>`` caps the synchronous hold.
+    ``claims: VerifiedClaims`` is a FastAPI dependency, so JWT verification runs before this
+    body executes — no code path here touches the topic or a forwarded credential without an
+    already-verified capability token.
     """
     deps = _deps(request)
     topic = str(claims["sub"])
     url4 = _require_q(q)
     await _require_subscriber(deps.interest, topic)
-    _schedule(deps, topic, url4)
+    inbound_traceparent = valid_traceparent(traceparent)
+    credential = forwarded_credential(authorization, cf_access_jwt)
+    # WHY: a routing profile is only meaningful alongside a credential to route — without one,
+    # there is nothing for aigateway to route, so the profile is dropped rather than forwarded.
+    profile = x_profile if credential is not None else None
+    await _schedule(
+        deps, topic, url4, traceparent=inbound_traceparent, credential=credential, profile=profile
+    )
     pref = _parse_prefer(prefer or "")
     if pref.respond_async:
         return _accepted(topic)
@@ -260,10 +392,16 @@ async def start_run(
 
 
 @router.delete(
-    "/", tags=["Execution"], summary="Stop a run and purge its stream", responses=_STOP_RESPONSES
+    "/",
+    tags=["Execution"],
+    summary="Stop a run and purge its stream",
+    responses=_STOP_RESPONSES,
+    description=(
+        "Stop the Job for the token's topic and purge its stream (idempotent) → ``204`` (spec §5)."
+    ),
 )
 async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None = None) -> Response:
-    """Stop the Job for the token's topic and purge its stream (idempotent) → ``204`` (spec §5)."""
+    """Stop the run for the token's topic and purge its stream; raise 403 on a topic mismatch."""
     deps = _deps(request)
     sub = str(claims["sub"])
     if topic is not None and topic != sub:
@@ -272,6 +410,10 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             title="Forbidden",
             detail="the capability token is not authorized for that topic",
         )
-    deps.job_runner.stop(sub)
-    await deps.bus.purge(sub)
+    await deps.job_runner.stop(sub)
+    # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
+    # stream empties it but leaves the stream object, its consumer state and its filestore
+    # directory behind — one permanent stream per run, forever. `delete_stream` defaults to
+    # `purge` for adapters with nothing broker-side to reclaim, so both modes stay correct.
+    await deps.stream.delete_stream(sub)
     return Response(status_code=204)

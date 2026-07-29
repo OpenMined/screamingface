@@ -1,26 +1,13 @@
-"""Behaviour tests for the url4-cloud WebSocket bridge (OME-521; spec §6, docs/protocol.md §8).
-
-Headless: an :class:`InMemoryBus` and a fake ``JobRunner`` are injected via ``create_app`` — no
-live NATS/k8s. The bus is seeded through the ``TestClient`` blocking portal so its per-topic
-condition binds to the same event loop the ASGI app (and thus the WS endpoint) runs on.
-"""
-
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 import pytest
+from _fakes import RecordingJobRunner
 from fastapi import FastAPI, WebSocketDisconnect
 from fastapi.testclient import TestClient
 
-from url4_cloud.app import create_app
-from url4_cloud.auth import JwtCodec
-from url4_cloud.config import Settings
-from url4_cloud.jobs.port import JobStatus, job_name
-from url4_cloud.rest import DenyAllGate
-from url4_cloud.ws import ConnectionRegistry
-from url4_cloud_nats import InMemoryBus
-from url4_streaming_protocol import (
+from url4.streaming.protocol import (
     AttachData,
     AttachEvent,
     CostBreakdown,
@@ -35,38 +22,17 @@ from url4_streaming_protocol import (
     TerminatedEvent,
     TokenUsage,
 )
+from url4_cloud.app import create_app
+from url4_cloud.auth import JwtCodec
+from url4_cloud.config import Settings
+from url4_cloud.rest import DenyAllGate
+from url4_cloud.testing import InMemoryEventStream
+from url4_cloud.ws import ConnectionRegistry
 
 SECRET = "ws-unit-secret"
 WINDOW_S = 60
 SUBPROTOCOL = "cloudevents.json"
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
-
-
-# --- fakes ----------------------------------------------------------------
-
-
-class FakeJobRunner:
-    """A headless ``JobRunner`` that records stops (the WS ``StopEvent`` side effect)."""
-
-    def __init__(self) -> None:
-        self.stopped: list[str] = []
-        self.scheduled: list[tuple[str, str, int]] = []
-
-    def schedule(self, topic: str, url4: str, deadline_s: int) -> str:
-        self.scheduled.append((topic, url4, deadline_s))
-        return job_name(topic)
-
-    def stop(self, topic: str) -> None:
-        self.stopped.append(topic)
-
-    def exists(self, topic: str) -> bool:
-        return False
-
-    def status(self, topic: str) -> JobStatus:
-        return "running"
-
-
-# --- helpers --------------------------------------------------------------
 
 
 def _token(topic: str) -> str:
@@ -75,25 +41,26 @@ def _token(topic: str) -> str:
 
 def _make_app(
     *,
-    bus: InMemoryBus | None,
-    job_runner: FakeJobRunner | None = None,
+    stream: InMemoryEventStream | None,
+    job_runner: RecordingJobRunner | None = None,
     ws_heartbeat_s: float = 30.0,
 ) -> FastAPI:
     settings = Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S, ws_heartbeat_s=ws_heartbeat_s)
     return create_app(
         settings,
-        bus=bus,
-        job_runner=job_runner or FakeJobRunner(),
+        stream=stream,
+        job_runner=job_runner or RecordingJobRunner(),
         clock=lambda: T0,
     )
 
 
-def _seed(client: TestClient, bus: InMemoryBus, topic: str, events: list[OutboundFrame]) -> None:
-    # WHY: publish on the app's event loop (via the portal) so the bus condition binds there.
+def _seed(
+    client: TestClient, stream: InMemoryEventStream, topic: str, events: list[OutboundFrame]
+) -> None:
     portal = client.portal
     assert portal is not None
     for event in events:
-        portal.call(bus.publish, topic, event)
+        portal.call(stream.publish, topic, event)
 
 
 def _attach(from_sequence: int | None) -> dict[str, Any]:
@@ -147,15 +114,12 @@ def _terminated(topic: str) -> TerminatedEvent:
     )
 
 
-# --- streaming ------------------------------------------------------------
-
-
 def test_ws_streams_published_events_in_order_as_cloudevents_json() -> None:
     topic = "ws-order"
-    bus = InMemoryBus()
-    app = _make_app(bus=bus)
+    stream = InMemoryEventStream()
+    app = _make_app(stream=stream)
     with TestClient(app) as client:
-        _seed(client, bus, topic, [_started(topic), _cost(topic), _terminated(topic)])
+        _seed(client, stream, topic, [_started(topic), _cost(topic), _terminated(topic)])
         url = f"/ws?ticket={_token(topic)}"
         with client.websocket_connect(url, subprotocols=[SUBPROTOCOL]) as ws:
             ws.send_json(_attach(None))
@@ -164,17 +128,16 @@ def test_ws_streams_published_events_in_order_as_cloudevents_json() -> None:
     assert types == ["ai.url4.started", "ai.url4.cost.usage", "ai.url4.terminated"]
     assert [f["sequence"] for f in frames] == ["1", "2", "3"]
     assert all(f["specversion"] == "1.0" for f in frames)
-    # by_alias: the OTel gen_ai.* keys survive to the wire.
     assert frames[1]["data"]["gen_ai.provider.name"] == "anthropic"
     assert frames[1]["data"]["cost"]["total_usd"] == "0.0435"
 
 
 def test_ws_attach_from_sequence_replays_the_gap() -> None:
     topic = "ws-resume"
-    bus = InMemoryBus()
-    app = _make_app(bus=bus)
+    stream = InMemoryEventStream()
+    app = _make_app(stream=stream)
     with TestClient(app) as client:
-        _seed(client, bus, topic, [_started(topic), _cost(topic), _terminated(topic)])
+        _seed(client, stream, topic, [_started(topic), _cost(topic), _terminated(topic)])
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_json(_attach(2))
             frames = [ws.receive_json() for _ in range(2)]
@@ -184,8 +147,8 @@ def test_ws_attach_from_sequence_replays_the_gap() -> None:
 
 def test_ws_heartbeat_on_idle_connection() -> None:
     topic = "ws-heartbeat"
-    bus = InMemoryBus()
-    app = _make_app(bus=bus, ws_heartbeat_s=0.05)
+    stream = InMemoryEventStream()
+    app = _make_app(stream=stream, ws_heartbeat_s=0.05)
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             frame = ws.receive_json()
@@ -195,25 +158,22 @@ def test_ws_heartbeat_on_idle_connection() -> None:
 
 def test_ws_stop_event_stops_the_job() -> None:
     topic = "ws-stop"
-    bus = InMemoryBus()
-    runner = FakeJobRunner()
-    app = _make_app(bus=bus, job_runner=runner, ws_heartbeat_s=0.05)
+    stream = InMemoryEventStream()
+    runner = RecordingJobRunner()
+    app = _make_app(stream=stream, job_runner=runner, ws_heartbeat_s=0.05)
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_json(_stop())
-            # A heartbeat proves the inbound Stop was consumed and the socket is still live.
             assert ws.receive_json()["type"] == "ai.url4.heartbeat"
     assert runner.stopped == [topic]
 
 
 def test_ws_reattach_cancels_prior_subscription_and_replays() -> None:
-    # A second Attach re-subscribes (reconnect/resume): the prior pump is cancelled and the
-    # stream replays from the requested point. One seeded frame ⇒ the replay is deterministic.
     topic = "ws-reattach"
-    bus = InMemoryBus()
-    app = _make_app(bus=bus)
+    stream = InMemoryEventStream()
+    app = _make_app(stream=stream)
     with TestClient(app) as client:
-        _seed(client, bus, topic, [_started(topic)])
+        _seed(client, stream, topic, [_started(topic)])
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_json(_attach(None))
             first = ws.receive_json()
@@ -225,13 +185,9 @@ def test_ws_reattach_cancels_prior_subscription_and_replays() -> None:
 
 
 def test_ws_malformed_inbound_frames_nacked_stream_survives() -> None:
-    # Non-JSON text AND a well-formed-but-unknown frame are each nacked ai.url4.error(invalid_frame)
-    # — not fatal: the socket lives and idle heartbeats resume. OME-549 superseded the prior
-    # silent-drop contract; this covers the valid-JSON-but-unknown-`type` reject path (the non-JSON
-    # path is also asserted in test_ws_unparseable_frame_yields_invalid_frame_nack_and_survives).
     topic = "ws-malformed"
-    bus = InMemoryBus()
-    app = _make_app(bus=bus, ws_heartbeat_s=0.05)
+    stream = InMemoryEventStream()
+    app = _make_app(stream=stream, ws_heartbeat_s=0.05)
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_text("this is not json {{{")
@@ -244,16 +200,10 @@ def test_ws_malformed_inbound_frames_nacked_stream_survives() -> None:
     assert beat["type"] == "ai.url4.heartbeat"
 
 
-# --- error nacks ----------------------------------------------------------
-
-
 def test_ws_unparseable_frame_yields_invalid_frame_nack_and_survives() -> None:
-    # An unparseable inbound frame is nacked with ai.url4.error(invalid_frame) rather than dropped;
-    # the socket survives — the next idle beat still arrives. The nack is enqueued from the bad
-    # frame before the first heartbeat window elapses, so it is the first frame the client sees.
     topic = "ws-nack-parse"
-    bus = InMemoryBus()
-    app = _make_app(bus=bus, ws_heartbeat_s=0.05)
+    stream = InMemoryEventStream()
+    app = _make_app(stream=stream, ws_heartbeat_s=0.05)
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_text("{not json")
@@ -266,12 +216,10 @@ def test_ws_unparseable_frame_yields_invalid_frame_nack_and_survives() -> None:
 
 
 def test_ws_stop_without_runner_yields_unsupported_nack() -> None:
-    # No JobRunner configured ⇒ a valid Stop cannot act: the client is nacked ai.url4.error
-    # (unsupported) whose ref_id points back at the Stop's id (job_runner=None ⇒ create_app direct).
     topic = "ws-nack-stop"
-    bus = InMemoryBus()
+    stream = InMemoryEventStream()
     settings = Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S, ws_heartbeat_s=0.05)
-    app = create_app(settings, bus=bus, job_runner=None, clock=lambda: T0)
+    app = create_app(settings, stream=stream, job_runner=None, clock=lambda: T0)
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_json(_stop())
@@ -281,11 +229,8 @@ def test_ws_stop_without_runner_yields_unsupported_nack() -> None:
     assert nack["data"]["ref_id"] == "stp"
 
 
-# --- rejection paths ------------------------------------------------------
-
-
 def test_ws_invalid_ticket_is_rejected() -> None:
-    app = _make_app(bus=InMemoryBus())
+    app = _make_app(stream=InMemoryEventStream())
     with TestClient(app) as client:
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect("/ws?ticket=not-a-jwt") as ws:
@@ -293,7 +238,7 @@ def test_ws_invalid_ticket_is_rejected() -> None:
 
 
 def test_ws_missing_ticket_is_rejected() -> None:
-    app = _make_app(bus=InMemoryBus())
+    app = _make_app(stream=InMemoryEventStream())
     with TestClient(app) as client:
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect("/ws") as ws:
@@ -301,21 +246,18 @@ def test_ws_missing_ticket_is_rejected() -> None:
 
 
 def test_ws_without_bus_is_rejected() -> None:
-    app = _make_app(bus=None)
+    app = _make_app(stream=None)
     with TestClient(app) as client:
         with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect(f"/ws?ticket={_token('no-bus')}") as ws:
+            with client.websocket_connect(f"/ws?ticket={_token('no-stream')}") as ws:
                 ws.receive_json()
-
-
-# --- interest gate: a live WS flips the REST 428 (spec §2.1/§4) ------------
 
 
 def test_live_ws_enables_start_and_closing_it_restores_428() -> None:
     topic = "ws-gate"
-    bus = InMemoryBus()
-    runner = FakeJobRunner()
-    app = _make_app(bus=bus, job_runner=runner)
+    stream = InMemoryEventStream()
+    runner = RecordingJobRunner()
+    app = _make_app(stream=stream, job_runner=runner)
     headers = {"URL4-Capability": _token(topic)}
     with TestClient(app) as client:
         before = client.get("/", params={"q": "gpt()"}, headers=headers)
@@ -332,9 +274,6 @@ def test_live_ws_enables_start_and_closing_it_restores_428() -> None:
     assert runner.scheduled and runner.scheduled[0][0] == topic
 
 
-# --- registry + default gate ----------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_connection_registry_counts_live_subscribers() -> None:
     registry = ConnectionRegistry()
@@ -346,7 +285,6 @@ async def test_connection_registry_counts_live_subscribers() -> None:
     assert await registry.has_subscriber("t") is True
     registry.remove("t")
     assert await registry.has_subscriber("t") is False
-    # Removing an unknown topic is a harmless no-op.
     registry.remove("t")
     assert await registry.has_subscriber("t") is False
 

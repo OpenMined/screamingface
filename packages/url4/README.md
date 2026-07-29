@@ -40,7 +40,7 @@ print(evaluate_sync(text, io).text)
 # async code owns a Client (Client() with no io speaks real HTTP)
 async with Client(io) as client:
     res = await client.evaluate(text)
-    print(res.request)               # the canonical url4 text that ran
+    print(res.request)  # the canonical url4 text that ran
 ```
 
 The execution engine — DAG compilation, executor, lowering — lives one level down:

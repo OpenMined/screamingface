@@ -5,6 +5,7 @@ The `SHARED-LOOP`-marked regions of the sdlc-* skills must be verbatim-identical
 Exit 0 on parity, 1 on drift (with a unified diff), 2 on structural errors
 (missing file/markers or unbalanced marker pairs).
 """
+
 import difflib
 import pathlib
 import re
@@ -12,7 +13,9 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent  # .claude/
 SKILLS = ["sdlc-python", "sdlc-electron"]
-MARKER = re.compile(r"<!-- SHARED-LOOP:BEGIN -->\n(.*?)<!-- SHARED-LOOP:END -->", re.S)
+MARKER = re.compile(
+    r"<!-- SHARED-LOOP:BEGIN -->\n(.*?)<!-- SHARED-LOOP:END -->", re.DOTALL
+)
 
 
 def shared_regions(name: str) -> str:

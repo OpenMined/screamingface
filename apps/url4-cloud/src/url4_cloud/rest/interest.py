@@ -1,26 +1,24 @@
-"""The ``SubscriberGate`` port — the stateless NATS-interest check behind the ``428`` guard (§4).
+"""The port ``routes.py`` uses to check whether a topic has an attached WebSocket subscriber.
 
-A run must not begin with nobody listening (spec §4): ``GET`` is rejected ``428 Precondition
-Required`` unless a live subscriber already has interest in the topic. In prod this is a NATS
-subject-interest query; here it is a narrow injectable port (interface segregation — interest is
-not the pub/sub transport's job) so the REST layer stays headless and the real gate can wire in
-with the WebSocket bridge (OME-521) without touching this code.
+``start_run`` requires a subscriber to be attached before scheduling a run (spec precondition,
+returned as a 428 problem otherwise); the real implementation lives with the WebSocket transport
+and is wired into ``app.state.interest``.
 """
 
 from typing import Protocol
 
 
 class SubscriberGate(Protocol):
-    """Reports whether a live subscriber currently has interest in ``topic`` (spec §4)."""
+    """Port for checking whether a topic currently has an attached WebSocket subscriber."""
 
     async def has_subscriber(self, topic: str) -> bool: ...
 
 
 class DenyAllGate:
-    """Default gate: no subscriber is ever present.
+    """Fail-closed default: reports no topic as having a subscriber.
 
-    INVARIANT: a safe conservative default — until a real interest source is wired, every start is
-    rejected ``428`` rather than allowed to run unobserved. Never reports a false positive.
+    Used when no real gate has been wired into app state, so runs are refused rather than
+    started without anyone attached to observe them.
     """
 
     async def has_subscriber(self, topic: str) -> bool:

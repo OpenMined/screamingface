@@ -1,5 +1,3 @@
-"""Behaviour tests for the url4-cloud auth primitives (OME-517; docs/protocol.md §7)."""
-
 import re
 from datetime import UTC, datetime, timedelta
 
@@ -30,9 +28,6 @@ def _codec() -> JwtCodec:
     return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S)
 
 
-# --- token.py -------------------------------------------------------------
-
-
 def test_new_topic_is_64_alnum() -> None:
     topic = new_topic()
     assert re.fullmatch(r"[A-Za-z0-9]{64}", topic) is not None
@@ -40,9 +35,6 @@ def test_new_topic_is_64_alnum() -> None:
 
 def test_new_topic_is_non_repeating() -> None:
     assert new_topic() != new_topic()
-
-
-# --- jwt.py: sign / verify ------------------------------------------------
 
 
 def test_sign_verify_roundtrip() -> None:
@@ -76,8 +68,6 @@ def test_malformed_token_rejected() -> None:
 
 
 def test_missing_iat_rejected() -> None:
-    # WHY: forge a signature-valid token that omits `iat` — verify must reject on the claim, not
-    # on the signature (a token without a fresh-issue timestamp cannot be windowed).
     forged = pyjwt.encode({"sub": "topic"}, SECRET, algorithm="HS256")
     with pytest.raises(MissingIat):
         _codec().verify(forged, T0)
@@ -90,7 +80,6 @@ def test_iat_window_exceeded_rejected() -> None:
 
 
 def test_exp_boundary_rejected() -> None:
-    # exp == iat + window; at now == exp the token is expired (RFC 7519: valid requires now < exp).
     token = _codec().sign("topic", T0)
     with pytest.raises(TokenExpired):
         _codec().verify(token, T0 + timedelta(seconds=WINDOW_S))
@@ -105,9 +94,6 @@ def test_error_text_never_leaks_secret_or_token() -> None:
         assert token not in str(exc)
     else:  # pragma: no cover - guarded by the assertion above
         pytest.fail("expected IatWindowExceeded")
-
-
-# --- dependency + RFC 9457 problem+json -----------------------------------
 
 
 def _protected_app(now: datetime) -> FastAPI:
@@ -164,8 +150,6 @@ def test_dependency_error_body_omits_token() -> None:
 
 
 def test_dependency_ignores_authorization_bearer_header() -> None:
-    # INVARIANT: the capability rides URL4-Capability ONLY — a valid token on the primary
-    # Authorization slot is NOT accepted, so the two credentials never conflate (OME-556).
     token = _codec().sign("topic-abc", T0)
     client = TestClient(_protected_app(T0))
     resp = client.get("/protected", headers={"Authorization": f"Bearer {token}"})

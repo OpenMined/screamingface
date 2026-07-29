@@ -32,17 +32,26 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
           fi
           VERSION="${TAG#url4-cloud-v}"
-          MANIFEST=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' apps/url4-cloud/pyproject.toml)
-          if [ "$MANIFEST" != "$VERSION" ]; then
-            echo "::error::tag $TAG implies version $VERSION but apps/url4-cloud/pyproject.toml reports $MANIFEST"
+          # One shipped distribution now (the control plane and the run mode were merged into a
+          # single artifact), so there is exactly one version to agree with the tag, and one
+          # pyproject.toml holding it.
+          DECLARED=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' apps/url4-cloud/pyproject.toml)
+          if [ "$DECLARED" != "$VERSION" ]; then
+            echo "::error::tag $TAG implies version $VERSION but apps/url4-cloud/pyproject.toml reports $DECLARED"
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+  # ONE image, entered in either of two modes (`url4-cloud serve` / `url4-cloud run`). The
+  # Dockerfile uses the REPO ROOT as context: it COPYs packages/url4, which carries both the wire
+  # contract (`url4.streaming`) the control plane needs and the engine (`url4.dag`) the run mode
+  # needs.
   image:
     needs: verify
     runs-on: ubuntu-latest
+    env:
+      REPO: ghcr.io/openmined/screamingface-url4-cloud
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -53,18 +62,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # WHY: context is apps/url4-cloud (not repo root) — the Dockerfile COPYs `pyproject.toml`/`src`
-      # relative to the app dir, matching docker-compose.yml.
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: apps/url4-cloud
+          # Context is the REPO ROOT, not the app dir — the Dockerfile COPYs a path dependency
+          # (packages/url4) that lives outside its own directory, matching docker-compose.yml.
+          context: .
           file: apps/url4-cloud/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/openmined/screamingface-url4-cloud:${{ needs.verify.outputs.version }}
-            ghcr.io/openmined/screamingface-url4-cloud:latest
+            ${{ env.REPO }}:${{ needs.verify.outputs.version }}
+            ${{ env.REPO }}:latest
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.verify.outputs.version }}
@@ -96,7 +105,8 @@ jobs:
           name: ScreamingFace url4-cloud ${{ needs.verify.outputs.version }}
           draft: true
           body: |
-            Container image:
+            Container image (one artifact, two modes — `url4-cloud serve` and `url4-cloud run`;
+            the separate runner image is merged in as of this release):
             ```
             docker pull ghcr.io/openmined/screamingface-url4-cloud:${{ needs.verify.outputs.version }}
             ```

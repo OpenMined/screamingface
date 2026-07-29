@@ -36,7 +36,10 @@ stacks:
       - uv run ruff check
       - uv run ruff format --check
       - uv run pyright
-      - uv run pytest --cov=url4_cloud --cov=url4_cloud_nats --cov=url4_streaming_protocol --cov=url4_cloud_runner --cov-fail-under=80 -q
+      # One venv holds every distribution, so no runtime check can prove the boundaries —
+      # this gate keeps url4.streaming conceptual and every concrete adapter in its own deployable.
+      - python3 ../../.claude/scripts/check_layering.py
+      - uv run pytest --cov=url4_cloud --cov=url4.streaming --cov-fail-under=80 -q
 commit_refs: "Refs: OME-N"
 extra_anchors: []
 companion_skills:

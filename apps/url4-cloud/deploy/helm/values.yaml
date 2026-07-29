@@ -1,9 +1,30 @@
+# MUST STAY 1 until the subscriber gate is shared. Raising this is NOT safe today.
+#
+# WHY: the 428 gate ("attach a WebSocket before starting the run") is answered from
+# `ws/registry.py`, an IN-PROCESS dict of live connections — not from NATS. So with two replicas
+# and no session affinity, a WebSocket accepted on pod A and a `GET /?q=` routed to pod B gives a
+# permanent 428: the run can never start, and whether it works is a coin flip per request. The
+# App is stateless in every other respect, which is exactly what makes this one easy to miss.
+#
+# To go above 1, do ONE of:
+#   - implement the NATS interest check spec §4 actually specifies (consumer count for the
+#     topic), which makes the gate genuinely stateless; or
+#   - pin a client to one replica for the whole run: `sessionAffinity: ClientIP` on the Service
+#     AND matching affinity on the ingress/Gateway, which is a workaround, not a fix — it breaks
+#     again the moment that replica restarts.
+#
+# AIDEV-NOTE: going above 1 for an availability target? Add a PodDisruptionBudget at the same
+# time, or a node drain can still evict every replica at once. It is deliberately NOT shipped
+# here — at replicaCount 1 a PDB is either a placebo (maxUnavailable:1 permits a full outage)
+# or a deadlock (minAvailable:1 blocks drains forever), and this chart has no stated SLO to
+# size one against.
 replicaCount: 1
 
-# The one image carries both entrypoints (spec §1.1): the App (`url4-cloud`, this Deployment) and
-# the Runner (`url4-cloud-runner`, the Jobs the App schedules). The Runner reuses `image` unless
-# `runner.image` overrides it. Build-time OCI labels the image should carry are listed in README.md
-# (org.opencontainers.image.*).
+# ONE image, used two ways: the Deployment runs it as the control plane (`url4-cloud serve`),
+# and every Runner Job runs the SAME image in run mode (`url4-cloud run`) — see
+# `URL4_CLOUD_RUNNER_IMAGE` in configmap.yaml. There is no second `runner.image` block any more;
+# the two artifacts were merged, so they cannot drift out of version alignment. Build-time OCI
+# labels the image should carry are listed in README.md (org.opencontainers.image.*).
 image:
   repository: ghcr.io/openmined/screamingface-url4-cloud
   tag: ""            # defaults to .Chart.AppVersion
@@ -29,7 +50,12 @@ rbac:
 podAnnotations: {}
 podLabels: {}
 
-podSecurityContext: {}
+# Pod-level context. `seccompProfile` is not optional decoration: without it the pod is REJECTED
+# by any namespace labelled `pod-security.kubernetes.io/enforce: restricted`, so omitting it
+# quietly makes the chart undeployable into a properly locked-down namespace.
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   allowPrivilegeEscalation: false
@@ -42,9 +68,10 @@ securityContext:
 
 # App config → ConfigMap (env-prefixed URL4_CLOUD_*, consumed by url4_cloud.config.Settings).
 config:
-  # Where the App reaches NATS. Points at an in-cluster NATS Service (the dependency when
-  # nats.enabled, else an existing one). JetStream must be enabled on that NATS.
-  natsUrl: nats://url4-cloud-nats:4222
+  # Where the App reaches NATS. Empty + `nats.enabled` => built from `nats.fullnameOverride`;
+  # empty with the subchart off is a render-time failure (see the `url4-cloud.natsUrl` helper).
+  # JetStream must be enabled on whichever NATS this names.
+  natsUrl: ""
   # Stateless iat-capability window in seconds — start rejected when now-iat exceeds it (spec §4).
   iatWindowS: 60
   # Sync-hold cap (seconds); a run outliving it degrades to 202 async (spec §5).
@@ -53,8 +80,36 @@ config:
   wsHeartbeatS: 15
   # k8s Job activeDeadlineSeconds ceiling = 16h (spec §3); the Runner Job's hard timeout.
   jobDeadlineS: 57600
-  # Container port the App (uvicorn) listens on — see url4_cloud/cli.py.
-  port: 9108
+  # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
+  # image's own default. Must be one of the models that url4.toml declares.
+  aigatewayModel: ""
+  # Where scheduled Runner Jobs reach aigateway. Empty = forward nothing, and the Runner falls
+  # back to loopback (127.0.0.1:9105) — which inside a Job Pod is that Pod itself, so any
+  # deployment doing real inference MUST set this to the aigateway Service URL.
+  aigatewayBaseUrl: ""
+  # NOTE: there is deliberately no `port` here. The App serves on a hardcoded 9108 (cli.py) and
+  # reads no port from its environment, so a value could only ever misconfigure the containerPort
+  # away from the port actually being listened on. Use `service.port` to change what the cluster
+  # dials; the container side is fixed.
+
+# Tavily web tools (spec 2026-07-23) — lets the aigateway connector declare web_search/web_fetch
+# and run its bounded tool-calling loop. Disabled => the Runner never sees TAVILY_API_KEY and the
+# connector stays deny-by-default (dec:W5), with a request body identical to the no-tools shape.
+#
+# INVARIANT: the App attaches the Secret to each Runner Job by reference (envFrom.secretRef), never the
+# literal key — a Job spec is not a secret (readable with `get jobs`, echoed by `kubectl describe`
+# and the audit log). The App therefore never reads this value and needs NO extra RBAC, and
+# rotating the Secret takes effect on the next Job with no App restart.
+tavily:
+  enabled: false
+  # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
+  # / Sealed Secrets flow). Empty + enabled => the chart creates one from `apiKey` below.
+  # NOTE: the credential must be keyed `TAVILY_API_KEY` in the Secret — each Runner Job attaches
+  # it with `envFrom.secretRef`, which injects keys under their own names and cannot rename.
+  existingSecret: ""
+  # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
+  # pass it with `--set-file tavily.apiKey=<path>` or `--set`, or use `existingSecret`.
+  apiKey: ""
 
 # JWT topic-capability signing secret (spec §4). HS256; never logged. When `create: true` the chart
 # generates a random 64-char secret (reused across upgrades via lookup), else supply `existingSecret`.
@@ -68,8 +123,39 @@ service:
   type: ClusterIP
   port: 9108
 
+# Gateway API edge — the chart's preferred front door (see templates/httproute.yaml for WHY).
+# Mutually exclusive with `ingress` in practice: enable exactly one.
+#
+# PREREQUISITES the chart does NOT install: Gateway API CRDs, a GatewayClass, a controller, and
+# a Gateway object with a listener for `hostnames` below. TLS attaches to that listener.
+gateway:
+  enabled: false
+  annotations: {}
+  parentRef:
+    # The Gateway this route attaches to. Required when enabled — there is no sane default.
+    name: ""
+    namespace: ""      # empty => same namespace as the release
+    sectionName: ""    # empty => attach to every listener on that Gateway
+  hostnames:
+    - url4.screamingface.ai
+  # Empty => derived from `config.jobDeadlineS`, so the edge can never cut a stream before the
+  # Job behind it has ended. Override only to tighten. Values are Gateway API durations ("30s").
+  timeouts:
+    request: ""
+    backendRequest: ""
+
 ingress:
-  # REST + WebSocket share one HTTP route; Traefik upgrades WS on the same path (no extra annotation).
+  # DEPRECATED — kept for one release so existing deployments can migrate to `gateway` above
+  # without a flag day. REST + WebSocket share one HTTP route.
+  #
+  # INVARIANT: whichever controller serves this MUST have its response/idle timeouts raised
+  # above `config.jobDeadlineS`. Ingress cannot express that portably (it is a per-controller
+  # annotation, or static entrypoint config), which is precisely why `gateway` exists — if you
+  # stay on Ingress, that half of the edge contract is YOUR responsibility, not the chart's.
+  #
+  # Still the DEFAULT so an existing `helm upgrade` keeps its edge: flipping to `gateway` needs
+  # cluster prerequisites (CRDs, GatewayClass, Gateway) that this chart cannot install and cannot
+  # detect. Set `gateway.enabled=true` + `ingress.enabled=false` once they are in place.
   enabled: true
   className: traefik
   annotations:
@@ -89,8 +175,15 @@ resources:
     cpu: 100m
     memory: 128Mi
   limits:
-    cpu: 1000m
+    # Memory only. A CPU limit would CFS-throttle the event loop in latency spikes even on an
+    # idle node; the request already gives the scheduler what it needs.
     memory: 512Mi
+
+# Graceful shutdown, sized against the App's own behavior (see the Deployment's WHY): preStop
+# covers endpoint propagation, and the grace period must exceed preStop + the worst-case
+# `config.syncMaxWaitS` hold (30s) so a rollout never SIGKILLs mid-request.
+preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 45
 
 # The App implements /healthz (url4_cloud/app.py); probes target it (k8s probe convention, §9).
 livenessProbe:
@@ -113,11 +206,40 @@ readinessProbe:
 # the real per-request Job in code (K8sJobRunner._manifest) — this is the operator reference so the
 # scheduled shape (run-once, 16 h deadline, labels the RBAC must cover) is visible and reviewable.
 runner:
-  # Reference ConfigMap emission; the App never reads it, so it is inert and safe to disable.
-  renderTemplate: true
-  image: ""               # defaults to the App `image`
-  command:
-    - url4-cloud-runner
+  # Which JobRunner substrate the App schedules on (url4_cloud.config.RunnerBackend). `k8s` is the
+  # point of this chart; `none` degrades the App to a token-minting NATS bridge that cannot run.
+  backend: k8s
+  # NOTE: there is deliberately no `image` here any more. A Runner Job runs the App's OWN image
+  # (the `image:` block at the top of this file) in its run mode, so there is nothing left to
+  # configure separately — and nothing that can drift out of version alignment during an upgrade.
+  #
+  # NOTE: there is deliberately no `command` here either. The Job's command is the mode switch
+  # `["url4-cloud", "run"]`, pinned in code beside the Job spec that uses it
+  # (`adapters/k8s.py`). A value here rendered into nothing and was silently ignored, which is
+  # worse than not offering it. The entrypoint belongs to the image.
+  # The Runner Job's own requests/limits, forwarded into every scheduled Job. This is the
+  # workload that actually burns CPU/memory (it drives the url4 DAG engine and buffers model
+  # responses) — with nothing set it schedules BestEffort: placed blind, evicted first, and
+  # free to OOM the node it shares. Memory limit always; no CPU limit, so a run can burst into
+  # idle CPU instead of being CFS-throttled mid-inference.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  # Optional EXTENSION of how long finished Jobs are retained (seconds). Unset => the App derives
+  # `iatWindowS` + a 60s clock-skew margin (so 120s at the defaults).
+  #
+  # INVARIANT: the Job's deterministic name IS the single-use replay guard, so this may only ever
+  # be RAISED (e.g. to keep failed runs around for post-mortem); below `iatWindowS` the Job can be
+  # reclaimed while its token is still within `exp`, and is refused at startup.
+  #
+  # WHY it does NOT include jobDeadlineS: ttlSecondsAfterFinished counts from COMPLETION, and the
+  # Job already exists for the whole run — the guard only has to outlive the token, not the run.
+  # Including it retained ~960x more Job/Pod objects than needed (~14 KB of etcd per request), which
+  # is what actually caps this design's throughput.
+  jobTtlSeconds: ""
 
 # Optional in-cluster NATS (JetStream) subchart — default-disabled (see Chart.yaml). Enable only
 # after `helm dependency build`; otherwise reuse an existing NATS via `config.natsUrl`.
@@ -127,6 +249,14 @@ nats:
   config:
     jetstream:
       enabled: true
+  # WHY explicitly off: the subchart defaults `natsBox.enabled: true`, which adds a Deployment
+  # running `sleep infinity` with the `nats` CLI on board. Nothing in this stack talks to it —
+  # it is an interactive debugging shell with network access to the bus, so it is idle attack
+  # surface in every environment that is not someone's laptop. Turn it on deliberately and
+  # temporarily (`--set nats.natsBox.enabled=true`) when you need `nats stream report`, rather
+  # than carrying it by default.
+  natsBox:
+    enabled: false
 
 nodeSelector: {}
 tolerations: []

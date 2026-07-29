@@ -1,28 +1,23 @@
-"""``GET /ws`` — the CloudEvents WebSocket binding (subprotocol ``cloudevents.json``; §6, §8).
-
-A JWT capability *ticket* (query param — browsers cannot set WS request headers) selects
-the topic; the connection is registered as live interest (so the REST ``428`` guard opens, spec §4)
-and the :func:`run_bridge` engine streams the topic's ``Bus`` frames until the client disconnects.
-Deps come off ``websocket.app.state`` (bus / registry / job_runner / settings / clock) so the
-endpoint runs headless with injected fakes.
+"""FastAPI WS route: authenticates the connection via a short-lived ticket, resolves
+the caller's topic, then hands the accepted socket off to `Bridge` for the
+duration of the connection.
 """
 
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket
 
+from url4.streaming.interfaces import EventConsumer, JobRunner
 from url4_cloud.auth import AuthError, JwtCodec
 from url4_cloud.config import Settings
-from url4_cloud.jobs.port import JobRunner
 from url4_cloud.ws.bridge import run_bridge
 from url4_cloud.ws.registry import ConnectionRegistry
-from url4_cloud_nats import Bus
 
 router = APIRouter()
 
 _SUBPROTOCOL = "cloudevents.json"
-_POLICY_VIOLATION = 1008  # invalid/missing ticket (RFC 6455 close code)
-_INTERNAL_ERROR = 1011  # no bus configured
+_POLICY_VIOLATION = 1008
+_INTERNAL_ERROR = 1011
 
 
 def _default_clock() -> datetime:
@@ -30,6 +25,13 @@ def _default_clock() -> datetime:
 
 
 def _ticket_topic(websocket: WebSocket, ticket: str | None) -> str | None:
+    """Verify the connect-time ticket and derive the topic to subscribe to.
+
+    Returns None on a missing ticket or a failed verification (expired, bad
+    signature, outside the iat window); the caller treats both the same way —
+    closing the socket with a policy-violation code — so no distinction is made
+    between "no ticket" and "invalid ticket" here.
+    """
     if ticket is None:
         return None
     settings: Settings = websocket.app.state.settings
@@ -42,7 +44,9 @@ def _ticket_topic(websocket: WebSocket, ticket: str | None) -> str | None:
 
 
 async def _accept(websocket: WebSocket) -> None:
-    # CloudEvents WS binding: echo the subprotocol when offered (docs/protocol.md §8).
+    """Accept the handshake, echoing the `cloudevents.json` subprotocol back only if
+    the client actually offered it.
+    """
     offered = websocket.scope.get("subprotocols") or []
     subprotocol = _SUBPROTOCOL if _SUBPROTOCOL in offered else None
     await websocket.accept(subprotocol=subprotocol)
@@ -50,13 +54,19 @@ async def _accept(websocket: WebSocket) -> None:
 
 @router.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket, ticket: str | None = None) -> None:
-    """Verify the ticket, register interest, then bridge the topic's stream (spec §6)."""
+    """Entry point for `/ws` connections.
+
+    Closes with 1008 (policy violation) on a missing/invalid ticket, 1011
+    (internal error) if the app was wired up without an event stream, and
+    otherwise registers the topic, accepts the socket, and blocks for the
+    lifetime of the connection inside `run_bridge`.
+    """
     topic = _ticket_topic(websocket, ticket)
     if topic is None:
         await websocket.close(code=_POLICY_VIOLATION)
         return
-    bus: Bus | None = websocket.app.state.bus
-    if bus is None:
+    stream: EventConsumer | None = websocket.app.state.stream
+    if stream is None:
         await websocket.close(code=_INTERNAL_ERROR)
         return
     registry: ConnectionRegistry = websocket.app.state.registry
@@ -67,7 +77,10 @@ async def ws_endpoint(websocket: WebSocket, ticket: str | None = None) -> None:
     try:
         await _accept(websocket)
         await run_bridge(
-            websocket, bus, topic, job_runner=job_runner, clock=clock, heartbeat_s=heartbeat_s
+            websocket, stream, topic, job_runner=job_runner, clock=clock, heartbeat_s=heartbeat_s
         )
     finally:
+        # INVARIANT: the registry count is decremented exactly once per successful
+        # `add`, regardless of how the bridge exits (client disconnect, stream
+        # failure, or task cancellation).
         registry.remove(topic)

@@ -1,10 +1,6 @@
-"""AsyncAPI 3.0 authoring for the ``/ws`` channel (spec §12, docs/protocol.md §4, §8).
-
-Describes the single CloudEvents WebSocket channel over the same JSON-Schema set as the OpenAPI
-doc: outbound events are *received* by the client (app→client), inbound commands are *sent* by the
-client (client→app). Message payloads ``$ref`` the shared ``components.schemas`` so the REST and WS
-contracts never drift.
-"""
+"""Builds the AsyncAPI 3.0 document for the `/ws` telemetry channel: one CloudEvents 1.0
+message per protocol event, split into the `receiveTelemetry` (app→client) and `sendCommand`
+(client→app) operations. Served at `/asyncapi.json` as the companion to the OpenAPI doc."""
 
 from typing import Any
 
@@ -27,12 +23,15 @@ cost/heartbeat/result/terminated events and *sends* stop/attach commands.
 
 
 def _messages_map(events: tuple[type, ...]) -> dict[str, dict[str, Any]]:
-    """``{eventName: {$ref: #/components/messages/eventName}}`` for a channel's message list."""
+    """`$ref` each event name to its `components/messages` entry, for an operation's message
+    list."""
     return {e.__name__: {"$ref": f"#/components/messages/{e.__name__}"} for e in events}
 
 
 def _component_messages() -> dict[str, dict[str, Any]]:
-    """One AsyncAPI message per event, its payload ``$ref``-ing the shared schema."""
+    """Builds the `components/messages` map: one AsyncAPI message per protocol event, named by
+    its CloudEvents `type` (`EVENT_TYPE`) and pointing at the matching `components/schemas`
+    entry."""
     messages: dict[str, dict[str, Any]] = {}
     for event in (*OUTBOUND_EVENTS, *INBOUND_EVENTS):
         name = event.__name__
@@ -46,7 +45,7 @@ def _component_messages() -> dict[str, dict[str, Any]]:
 
 
 def build_asyncapi() -> dict[str, Any]:
-    """The full AsyncAPI 3.0 document for the ``/ws`` CloudEvents channel."""
+    """Assembles the full AsyncAPI 3.0 document served at `/asyncapi.json`."""
     all_messages = {**_messages_map(OUTBOUND_EVENTS), **_messages_map(INBOUND_EVENTS)}
     return {
         "asyncapi": ASYNCAPI_VERSION,

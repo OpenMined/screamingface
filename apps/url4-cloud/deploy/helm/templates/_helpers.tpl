@@ -46,9 +46,28 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
 {{- end -}}
 
-{{/* Runner image defaults to the App image (one image, two entrypoints — spec §1.1). */}}
-{{- define "url4-cloud.runnerImage" -}}
-{{- default (include "url4-cloud.image" .) .Values.runner.image -}}
+{{/*
+Where the App reaches NATS.
+
+WHY a helper and not a plain value: the previous default hardcoded `nats://url4-cloud-nats:4222`,
+which only resolves when the release happens to be named `url4-cloud` — the subchart's Service is
+`<release>-nats`. Enabling the subchart under any other release name pointed the App at a Service
+that does not exist, and nothing caught it until a live connect failed.
+
+We deliberately do NOT derive this from the subchart's own `nats.fullname` helper: that reaches
+into another chart's private template names and breaks on a dependency bump. Instead the operator
+states the Service name once (`nats.fullnameOverride`) and this fails at render time — at
+`helm install`, not on the first publish — if neither source is present.
+*/}}
+{{- define "url4-cloud.natsUrl" -}}
+{{- if .Values.config.natsUrl -}}
+{{- .Values.config.natsUrl -}}
+{{- else if .Values.nats.enabled -}}
+{{- $n := required "nats.fullnameOverride is required when nats.enabled=true (it fixes the Service name this URL is built from) — or set config.natsUrl explicitly" .Values.nats.fullnameOverride -}}
+{{- printf "nats://%s:4222" $n -}}
+{{- else -}}
+{{- fail "config.natsUrl is required when nats.enabled=false — the App has no bus to reach otherwise" -}}
+{{- end -}}
 {{- end -}}
 
 {{/* Name of the Secret holding the JWT signing secret (created here or supplied). */}}
@@ -57,5 +76,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "url4-cloud.fullname" . -}}
 {{- else -}}
 {{- required "auth.existingSecret is required when auth.create is false" .Values.auth.existingSecret -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Name of the Secret holding the Tavily web-tools key. An `existingSecret` wins (bring-your-own,
+the prod shape); otherwise the chart creates `<fullname>-tavily` from `tavily.apiKey`.
+Only referenced when `tavily.enabled` — the App names this Secret in each Runner Job's env and
+never reads it itself.
+*/}}
+{{- define "url4-cloud.tavilySecretName" -}}
+{{- if .Values.tavily.existingSecret -}}
+{{- .Values.tavily.existingSecret -}}
+{{- else -}}
+{{- printf "%s-tavily" (include "url4-cloud.fullname" .) -}}
 {{- end -}}
 {{- end -}}

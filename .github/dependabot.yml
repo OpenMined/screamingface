@@ -41,6 +41,14 @@ updates:
       url4-cloud-python:
         patterns: ["*"]
 
+  # The runtime image's base layers drift silently otherwise — they are pinned by tag, and
+  # nothing else in CI notices a new patch release of the base.
+  - package-ecosystem: "docker"
+    directory: "/apps/url4-cloud"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
   # Keep GitHub Actions pinned-version bumps current too (low volume).
   - package-ecosystem: "github-actions"
     directory: "/"

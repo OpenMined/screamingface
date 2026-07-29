@@ -1,0 +1,61 @@
+from typing import Any
+
+import pytest
+from _k8s_fakes import FakeCreatedJob, fake_created_job
+
+from url4_cloud import job_env
+from url4_cloud.adapters.k8s import K8sJobRunner
+
+pytestmark = pytest.mark.asyncio
+
+
+class _RecordingBatchApi:
+    def __init__(self) -> None:
+        self.created: list[dict[str, Any]] = []
+
+    def create_namespaced_job(
+        self, namespace: str, body: Any, *, _request_timeout: float | None = None
+    ) -> FakeCreatedJob:
+        self.created.append(dict(body))
+        return fake_created_job(f"uid-{body['metadata']['name']}")
+
+    def read_namespaced_job(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> Any:  # pragma: no cover
+        raise NotImplementedError
+
+    def delete_namespaced_job(
+        self,
+        name: str,
+        namespace: str,
+        *,
+        propagation_policy: str = "",
+        _request_timeout: float | None = None,
+    ) -> object:  # pragma: no cover
+        raise NotImplementedError
+
+
+def _pod_spec(api: _RecordingBatchApi) -> dict[str, Any]:
+    return api.created[0]["spec"]["template"]["spec"]
+
+
+async def test_runner_job_disables_service_link_env_injection() -> None:
+    api = _RecordingBatchApi()
+    await K8sJobRunner(api, image="url4-cloud:1").schedule("topic-a", "'hi'!'go'", 60)
+
+    assert _pod_spec(api)["enableServiceLinks"] is False
+
+
+async def test_runner_job_env_is_exactly_what_the_app_set() -> None:
+    """The App's explicit `env` is PER-RUN only; deploy-time values arrive via `envFrom`.
+
+    An exact-set assertion, so a deploy-time variable creeping back into `_env` fails here — that
+    would give one value two sources of truth, with the App's copy silently winning.
+    """
+    api = _RecordingBatchApi()
+    await K8sJobRunner(api, image="url4-cloud:1", env_configmap="rel-runner-env").schedule(
+        "topic-a", "'hi'!'go'", 60
+    )
+
+    names = {e["name"] for e in _pod_spec(api)["containers"][0]["env"]}
+    assert names == {job_env.TOPIC, job_env.EXPRESSION, job_env.JOB_DEADLINE_S}

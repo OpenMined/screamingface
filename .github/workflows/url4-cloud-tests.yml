@@ -3,10 +3,14 @@ on:
   push:
     paths:
       - "apps/url4-cloud/**"
+      # the wire contract (`url4.streaming`) and the engine both ship from here
+      - "packages/url4/**"
       - ".github/workflows/url4-cloud-tests.yml"
   pull_request:
     paths:
       - "apps/url4-cloud/**"
+      # the wire contract (`url4.streaming`) and the engine both ship from here
+      - "packages/url4/**"
       - ".github/workflows/url4-cloud-tests.yml"
   workflow_dispatch:
 
@@ -14,6 +18,11 @@ permissions:
   contents: read
   checks: write
   pull-requests: write
+
+# Rapid pushes to the same ref would otherwise run duplicate matrices to completion.
+concurrency:
+  group: url4-cloud-tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -29,19 +38,28 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
+      # longer matches pyproject.toml is invisible to every later step. That exact defect shipped
+      # once already (a package rename left the lock stale) and CI could not see it.
+      - name: Check the lockfile is current
+        run: uv lock --check
       - run: uv sync --dev
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run pyright
+      # One image holds both modes, so nothing at runtime proves the boundary — this is what
+      # keeps the run mode's import graph free of FastAPI/uvicorn/the kubernetes client, and the
+      # control plane free of the engine.
+      - name: Check layering
+        run: python3 ../../.claude/scripts/check_layering.py
       - name: Run unit tests with aggregate coverage
         run: |
           uv run pytest \
             --tb=short \
             --junitxml=results.xml \
             --cov=url4_cloud \
-            --cov=url4_cloud_nats \
-            --cov=url4_streaming_protocol \
-            --cov=url4_cloud_runner \
+            --cov=url4.streaming \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             --cov-fail-under=80 \
@@ -60,6 +78,119 @@ jobs:
           coverageFile: apps/url4-cloud/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           thresholdAll: 0.80
+
+  # The conformance suite's real-broker half (`STREAM_FACTORIES[JetStreamConsumer]`) is skipped
+  # wherever no NATS is reachable — which was everywhere. This job is the one place it runs.
+  # It is what would have caught frames never being acked and streams never being bounded: both
+  # are invisible against the in-memory double by construction.
+  conformance:
+    name: EventStream conformance (real NATS)
+    runs-on: ubuntu-latest
+    services:
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+        options: --name nats-conformance
+    defaults:
+      run:
+        working-directory: apps/url4-cloud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --dev
+      # The service container runs `nats-server` without -js, so JetStream must be enabled for
+      # the stream APIs the adapter uses. Running our own gives us that flag.
+      - name: Start NATS with JetStream
+        run: |
+          docker rm -f nats-conformance || true
+          docker run -d --name nats-js -p 4222:4222 nats:2.10-alpine -js
+          for _ in $(seq 1 30); do
+            (echo > /dev/tcp/127.0.0.1/4222) >/dev/null 2>&1 && break
+            sleep 1
+          done
+      - name: Run the adapter conformance suite against the real broker
+        run: |
+          uv run pytest -v \
+            tests/unit/test_stream_contract.py \
+            tests/unit/test_attach_from_sequence_bounds.py \
+            tests/unit/test_jetstream_subscribe_ensures_stream.py
+      # A skip here means the probe did not find the broker and the job proved nothing.
+      - name: Fail if the real-broker parameters were skipped
+        run: |
+          uv run pytest -q \
+            tests/unit/test_stream_contract.py \
+            tests/unit/test_attach_from_sequence_bounds.py \
+            | tee result.txt
+          if grep -qE "[0-9]+ skipped" result.txt; then
+            echo "::error::real-NATS conformance parameters were skipped — the broker was unreachable"
+            exit 1
+          fi
+
+  image:
+    name: Build the image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # WHY build on PRs at all: `592e4a89` rewrote the Dockerfile substantially (repo-root
+      # context, mirrored /app layout, editable path-dep resolution at runtime) and nothing built
+      # it until a release tag — so a break surfaced at release time, on the release path.
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/url4-cloud/Dockerfile
+          push: false
+          load: true
+          tags: url4-cloud:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Both argv modes must at least start from the built image: the entrypoint is the mode
+      # switch, so a broken one is a deployment that cannot run either half.
+      - name: Smoke both modes
+        run: |
+          docker run --rm url4-cloud:ci url4-cloud --help
+          docker run --rm url4-cloud:ci url4-cloud run --help
+
+  chart:
+    name: Render the Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      # `helm lint` alone reported "0 chart(s) failed" on a chart that cannot render at all —
+      # every template aborts on the `natsUrl` `fail` when it is unset. Templating is the check
+      # that actually exercises the templates; linting only reads them.
+      - name: Lint
+        run: helm lint apps/url4-cloud/deploy/helm
+      - name: Template with an external NATS
+        run: |
+          helm template url4-cloud apps/url4-cloud/deploy/helm \
+            --set config.natsUrl=nats://nats.example:4222 > /dev/null
+      # WHY no `helm dependency build`: the NATS subchart is already vendored at
+      # `charts/nats-1.2.2.tgz`, matching `Chart.lock`. `dependency build` re-resolves
+      # every dependency against its registered `helm repo`, which is not registered on a
+      # fresh runner — `Error: no repository definition for https://nats-io.github.io/...`
+      # — even though the vendored archive already satisfies the template. Templating reads
+      # straight from `charts/`, so nothing needs re-fetching here.
+      - name: Template with the bundled NATS subchart
+        run: |
+          helm template url4-cloud apps/url4-cloud/deploy/helm \
+            --set nats.enabled=true \
+            --set config.natsUrl=nats://url4-cloud-nats:4222 > /dev/null
+      # values.schema.json has additionalProperties:false, so a stale key must be rejected. If
+      # this ever SUCCEEDS, the schema stopped guarding the values file.
+      - name: A stale value must be refused
+        run: |
+          if helm template url4-cloud apps/url4-cloud/deploy/helm \
+               --set config.natsUrl=nats://x:4222 \
+               --set runner.image=stale/removed:v1 >/dev/null 2>&1; then
+            echo "::error::values.schema.json accepted a removed key (runner.image)"
+            exit 1
+          fi
 
   cost:
     name: CI cost diff

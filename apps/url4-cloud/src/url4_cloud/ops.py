@@ -1,11 +1,5 @@
-"""Ops + docs surface (spec §12, docs/protocol.md §9).
-
-k8s liveness/readiness probes (`/livez`, `/readyz`), an OpenMetrics scrape (`/metrics`), and
-**Scalar** references: `/scalar` (OpenAPI), `/asyncapi` (AsyncAPI 3.0 stream — the WS channel +
-message schemas), and `/docs` (a switcher over both). Scalar renders AsyncAPI 3.x since v1.61. All
-app-served and same-origin, so `docker compose` serves the viewers with no extra container. All
-read only ``request.app.state``.
-"""
+"""Operational and reference endpoints: liveness/readiness probes, the Prometheus scrape, and the
+unified Scalar-based API reference pages (OpenAPI + AsyncAPI)."""
 
 from typing import Any
 
@@ -20,9 +14,9 @@ router = APIRouter()
 
 
 # WHY: one Scalar reference (a static single-page embed that fetches specs at runtime; one script
-# tag, no build dependency) with a document SWITCHER — REST (OpenAPI) + Stream (AsyncAPI 3.x, which
-# Scalar renders like OpenAPI since v1.61) via the `sources` array. Same-origin, no @asyncapi
-# web-component; `/scalar` + `/asyncapi` render each spec directly (OME-566).
+# tag, no build dependency) with a document switcher — REST (OpenAPI) + Stream (AsyncAPI 3.x, which
+# Scalar renders like OpenAPI since v1.61) via the `sources` array, rather than the `@asyncapi`
+# web component (OME-566).
 _DOCS_HTML = """\
 <!doctype html>
 <html lang="en">
@@ -48,7 +42,7 @@ _DOCS_HTML = """\
 
 
 def _scalar_page(title: str, spec_url: str) -> str:
-    """A Scalar page for one spec — the direct ``/scalar`` and ``/asyncapi`` pages (OME-566)."""
+    """Render a single-spec Scalar reference page pointed at `spec_url`."""
     return f"""\
 <!doctype html>
 <html lang="en">
@@ -70,19 +64,19 @@ def _scalar_page(title: str, spec_url: str) -> str:
 
 @router.get("/livez", tags=["Ops"], summary="Liveness probe", include_in_schema=False)
 def livez() -> dict[str, str]:
-    """k8s liveness probe — the process is up (spec §9)."""
+    """Liveness probe: reports whether the process is up."""
     return {"status": "live"}
 
 
 @router.get("/readyz", tags=["Ops"], summary="Readiness probe", include_in_schema=False)
 def readyz() -> dict[str, str]:
-    """k8s readiness probe — the app is wired and can serve (spec §9)."""
+    """Readiness probe: reports whether the app is wired and ready to serve."""
     return {"status": "ready"}
 
 
 @router.get("/metrics", tags=["Ops"], summary="OpenMetrics scrape", include_in_schema=False)
 def metrics(request: Request) -> Response:
-    """Prometheus/OpenMetrics exposition of the request + gen_ai token counters (spec §9)."""
+    """Serve the OpenMetrics scrape. Returns 503 if `app.state.metrics` isn't wired."""
     state_metrics = getattr(request.app.state, "metrics", None)
     if not isinstance(state_metrics, Metrics):  # pragma: no cover - always wired by create_app
         return Response(status_code=503)
@@ -91,24 +85,24 @@ def metrics(request: Request) -> Response:
 
 @router.get("/docs", tags=["Ops"], summary="Unified API reference", include_in_schema=False)
 def docs() -> HTMLResponse:
-    """Serve the unified Scalar reference (OpenAPI + AsyncAPI switcher; spec §12, OME-565)."""
+    """Serve the unified Scalar reference with a switcher between the REST and Stream specs."""
     return HTMLResponse(_DOCS_HTML)
 
 
 @router.get("/scalar", tags=["Ops"], summary="OpenAPI reference", include_in_schema=False)
 def scalar() -> HTMLResponse:
-    """Serve the Scalar reference rendering ``/openapi.json`` (spec §12)."""
+    """Serve the Scalar reference for the OpenAPI (REST) spec."""
     return HTMLResponse(_scalar_page("url4-cloud API reference", "/openapi.json"))
 
 
 @router.get("/asyncapi", tags=["Ops"], summary="AsyncAPI reference", include_in_schema=False)
 def asyncapi_reference() -> HTMLResponse:
-    """Serve the Scalar reference rendering ``/asyncapi.json`` — the WS channel (spec §12)."""
+    """Serve the Scalar reference for the AsyncAPI (WS stream) spec."""
     return HTMLResponse(_scalar_page("url4-cloud AsyncAPI reference", "/asyncapi.json"))
 
 
 @router.get("/asyncapi.json", tags=["Ops"], summary="AsyncAPI 3.0 doc", include_in_schema=False)
 def asyncapi() -> JSONResponse:
-    """The AsyncAPI 3.0 doc for the ``/ws`` CloudEvents channel (spec §12)."""
+    """Serve the AsyncAPI 3.0 document describing the `/ws` CloudEvents channel."""
     doc: dict[str, Any] = build_asyncapi()
     return JSONResponse(doc)
