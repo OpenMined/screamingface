@@ -158,7 +158,7 @@ async def _lifespan(app):
         )
         # `auth_mode != "disabled"` is exactly the old `auth_enabled` truth value — the mode is
         # derived from it when only the legacy flag is set (see Settings._reconcile_auth_mode), so
-        # this keeps its behavior for `jwt` and extends the same treatment to `gateway_headers`.
+        # this keeps its behavior for `jwt` and extends the same treatment to `cloudflare_headers`.
         authenticating = app.state.settings.auth_mode != "disabled"
         if authenticating or app.state.settings.admin_password is not None:
             admin = await ensure_admin_account(app.state.settings.admin_password)
@@ -227,7 +227,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.state.settings = settings
     # Only the `disabled` mode makes every caller anonymous, so only it needs the loopback guard.
-    # `gateway_headers` authenticates from Envoy's headers and is meant to be reached over the
+    # `cloudflare_headers` authenticates from the injected header and is meant to be reached over
     # network — binding it to loopback would break the deployment it exists for.
     if settings.auth_mode == "disabled":
         app.add_middleware(AuthDisabledLocalOnlyMiddleware)

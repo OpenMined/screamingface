@@ -1,14 +1,14 @@
-"""The caller's verified identity travels from Envoy's headers to aigateway's request.
+"""The caller's verified identity travels from the mesh gateway's header to aigateway's request.
 
-Envoy strips and re-injects the gateway-identity headers from verified JWT claims
+Cloudflare Access authenticates at the edge and Envoy re-verifies that assertion before stripping
+any client-supplied copy and re-injecting `X-User-Email`
 (https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/), so what arrives at the App
 is trustworthy. It is NOT header pass-through: the App and the Runner Pod are different processes,
-and the outgoing aigateway request does not exist yet when the headers arrive. So identity is
-captured at the REST edge, serialized onto the run's environment, and re-rendered by the connector.
+and the outgoing aigateway request does not exist yet when the header arrives. So identity is
+captured at the REST edge, serialized onto the run's env, and re-rendered by the connector.
 
-These tests pin each hop of that chain separately, plus the two boundaries that make the chain
-safe: an absent header forwards nothing at all (rather than an empty value that would misreport the
-caller's KIND), and no inbound value can displace the run's own credential.
+These tests pin each hop of that chain separately, plus the two boundaries that make it safe: an
+absent header forwards nothing at all, and no inbound value can displace the run's own credential.
 """
 
 from __future__ import annotations
@@ -45,12 +45,7 @@ T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 TOKEN = "tok-identity"  # noqa: S105 - not a real credential, test fixture only
 MODEL = "anthropic/claude-haiku-4-5"
 
-IDENTITY = {
-    "X-User-Email": "someone@openmined.org",
-    "X-User-Id": "sub-123",
-    "X-Service-Id": "svc-abc",
-    "X-Tenant": "openmined",
-}
+IDENTITY = {"X-User-Email": "someone@openmined.org"}
 
 
 # --- the REST edge: headers -> the scheduled run --------------------------------------------
@@ -86,54 +81,50 @@ async def _start(runner: RecordingJobRunner, topic: str, **headers: str) -> http
         )
 
 
-async def test_identity_headers_reach_the_scheduled_run() -> None:
+async def test_the_identity_header_reaches_the_scheduled_run() -> None:
     runner = RecordingJobRunner()
 
-    resp = await _start(runner, "identity-all", **IDENTITY)
+    resp = await _start(runner, "identity-present", **IDENTITY)
 
     assert resp.status_code == 202
     assert runner.scheduled[0].identity == IDENTITY
 
 
-async def test_identity_headers_are_read_case_insensitively() -> None:
-    """HTTP header names are case-insensitive on the wire; the forwarded spelling is canonical.
-
-    Whatever casing Envoy happens to emit, exactly one spelling leaves for aigateway — otherwise a
-    reader there would have to match every variant.
-    """
+async def test_the_header_is_read_case_insensitively() -> None:
+    """Whatever casing the gateway emits, one canonical spelling leaves for aigateway."""
     runner = RecordingJobRunner()
 
-    await _start(runner, "identity-lower", **{"x-user-email": "a@b.c", "x-tenant": "openmined"})
+    await _start(runner, "identity-lower", **{"x-user-email": "a@b.c"})
 
-    assert runner.scheduled[0].identity == {"X-User-Email": "a@b.c", "X-Tenant": "openmined"}
-
-
-async def test_a_service_caller_forwards_only_the_headers_it_has() -> None:
-    """Which subset is present IS the caller's kind — automation has no ``X-User-Email``.
-
-    Forwarding an absent header as empty would make a service caller look like a human one with a
-    blank address, so absent headers are omitted rather than blanked.
-    """
-    runner = RecordingJobRunner()
-
-    await _start(runner, "identity-svc", **{"X-Service-Id": "svc-abc", "X-Tenant": "openmined"})
-
-    assert runner.scheduled[0].identity == {"X-Service-Id": "svc-abc", "X-Tenant": "openmined"}
+    assert runner.scheduled[0].identity == {"X-User-Email": "a@b.c"}
 
 
 async def test_a_blank_identity_header_is_dropped_not_forwarded_empty() -> None:
     runner = RecordingJobRunner()
 
-    await _start(runner, "identity-blank", **{"X-User-Email": "   ", "X-Tenant": "openmined"})
+    await _start(runner, "identity-blank", **{"X-User-Email": "   "})
 
-    assert runner.scheduled[0].identity == {"X-Tenant": "openmined"}
+    assert runner.scheduled[0].identity is None
 
 
-async def test_no_identity_headers_forwards_nothing() -> None:
+async def test_no_identity_header_forwards_nothing() -> None:
     """Absent identity is ``None`` — the same "nothing to forward" credential and profile use."""
     runner = RecordingJobRunner()
 
     await _start(runner, "identity-none")
+
+    assert runner.scheduled[0].identity is None
+
+
+async def test_the_dropped_headers_are_not_forwarded() -> None:
+    """Tenant and service-token headers are deliberately out of scope and must not travel.
+
+    Forwarding an unread header would put a caller attribute on the wire that nothing downstream
+    consumes, which reads to a later maintainer as though it were part of the contract.
+    """
+    runner = RecordingJobRunner()
+
+    await _start(runner, "identity-dropped", **{"X-Tenant": "openmined", "X-Service-Id": "svc-abc"})
 
     assert runner.scheduled[0].identity is None
 
@@ -146,10 +137,10 @@ async def test_identity_is_forwarded_without_a_credential() -> None:
     """
     runner = RecordingJobRunner()
 
-    await _start(runner, "identity-no-cred", **{"X-User-Email": "a@b.c"})
+    await _start(runner, "identity-no-cred", **IDENTITY)
 
     assert runner.scheduled[0].credential is None
-    assert runner.scheduled[0].identity == {"X-User-Email": "a@b.c"}
+    assert runner.scheduled[0].identity == IDENTITY
 
 
 # --- the env round trip: both adapters render one contract -----------------------------------
@@ -208,10 +199,11 @@ async def test_the_inprocess_adapter_renders_the_same_env_as_the_k8s_one() -> No
     assert job_env.identity_from_env(env) == IDENTITY
 
 
-async def test_a_run_without_identity_leaves_no_ambient_identity_behind() -> None:
-    """`_base_env` is the App's own environment, so a stale key there would leak across callers.
+async def test_this_requests_identity_replaces_any_ambient_one() -> None:
+    """`_base_env` is the App's own environment, so a stale key there must not reach this run.
 
-    A partial merge would be worse than either: one caller's email paired with another's tenant.
+    Left in place it would attribute one caller's run to whoever ran before them — the worst kind of
+    wrong, because the run succeeds and the audit trail simply names the wrong person.
     """
     stale = {job_env.IDENTITY_HEADER_ENV["X-User-Email"]: "previous@caller.test"}
     runner = InProcessJobRunner(
@@ -220,9 +212,23 @@ async def test_a_run_without_identity_leaves_no_ambient_identity_behind() -> Non
         base_env=stale,
     )
 
-    env = runner._env("t", "gpt(hi)", 60, None, None, None, {"X-Tenant": "openmined"})  # noqa: SLF001
+    env = runner._env("t", "gpt(hi)", 60, None, None, None, IDENTITY)  # noqa: SLF001
 
-    assert job_env.identity_from_env(env) == {"X-Tenant": "openmined"}
+    assert job_env.identity_from_env(env) == IDENTITY
+
+
+async def test_a_run_with_no_identity_clears_any_ambient_one() -> None:
+    """An unattributed run must be unattributed, not attributed to the ambient leftover."""
+    stale = {job_env.IDENTITY_HEADER_ENV["X-User-Email"]: "previous@caller.test"}
+    runner = InProcessJobRunner(
+        stream=InMemoryEventStream(),
+        executor_factory=lambda env: _CapturingExecutor(env),
+        base_env=stale,
+    )
+
+    env = runner._env("t", "gpt(hi)", 60, None, None, None, None)  # noqa: SLF001
+
+    assert job_env.identity_from_env(env) == {}
 
 
 class _CapturingExecutor(Executor):

@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-AuthMode = Literal["jwt", "gateway_headers", "disabled"]
+AuthMode = Literal["jwt", "cloudflare_headers", "disabled"]
 
 
 class Settings(BaseSettings):
@@ -38,9 +38,9 @@ class Settings(BaseSettings):
     """How the gateway establishes who is calling. The single source of truth in code.
 
     - ``jwt`` — verify the gateway's own bearer token (the historical behavior).
-    - ``gateway_headers`` — trust the identity headers Envoy injects
-      (:mod:`aigateway.core.auth.gateway_identity`). Sound ONLY while this port is unreachable
-      except through Envoy.
+    - ``cloudflare_headers`` — trust the identity header Envoy injects after re-verifying
+      Cloudflare Access's assertion (:mod:`aigateway.core.auth.cloudflare_identity`). Sound ONLY
+      while this port is unreachable except through that chain.
     - ``disabled`` — every caller is anonymous. Loopback-only, enforced by
       :class:`AuthDisabledLocalOnlyMiddleware`.
 
@@ -114,7 +114,7 @@ class Settings(BaseSettings):
 
         The two settings disagreeing is a hard error rather than a precedence rule: silently
         preferring either one would leave an operator who wrote ``AUTH_ENABLED=false`` alongside
-        ``AUTH_MODE=gateway_headers`` believing something about their auth posture that is false.
+        ``AUTH_MODE=cloudflare_headers`` believing something about their auth posture that is false.
         """
         explicit_mode = "auth_mode" in self.model_fields_set
         if not explicit_mode:

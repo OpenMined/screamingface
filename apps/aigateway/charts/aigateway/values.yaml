@@ -36,19 +36,19 @@ config:
   authEnabled: true
   # How the gateway establishes who is calling:
   #
-  #   gateway_headers  trust the identity headers the mesh injects (X-Tenant plus one of
-  #                    X-User-Id / X-User-Email / X-Service-Id). Envoy verifies the caller's token
-  #                    and re-injects these from the verified claims, so the gateway needs no token
-  #                    of its own. THE CLOUD DEFAULT.
+  #   cloudflare_headers  trust the `X-User-Email` header the mesh injects. Cloudflare Access
+  #                       authenticates at the edge and Envoy re-verifies that assertion before
+  #                       injecting it, so the gateway needs no token of its own. Service-token
+  #                       callers are NOT supported in this mode. THE CLOUD DEFAULT.
   #   jwt              verify the gateway's own bearer token (accounts + passwords + /v1/auth/login).
   #   disabled         every caller is anonymous; loopback-only, for local development.
   #
-  # INVARIANT: `gateway_headers` is safe ONLY while this Service is unreachable except through the
+  # INVARIANT: `cloudflare_headers` is safe ONLY while this Service is unreachable except through the
   # mesh. Two things enforce that, and both must hold: `ingress.enabled: false` (no direct route in)
   # and the `networkPolicy` below (only the declared peers may connect). The chart refuses to render
-  # `gateway_headers` together with an enabled Ingress, because that combination lets any caller set
-  # X-User-Email and become any principal.
-  authMode: gateway_headers
+  # `cloudflare_headers` together with an enabled Ingress, because that combination lets any caller
+  # set X-User-Email and become any principal.
+  authMode: cloudflare_headers
   jwtTtlSeconds: 86400
 
 # Only meaningful for the browser-facing OAuth flows, which are unreachable while the gateway is
@@ -76,12 +76,12 @@ service:
 # DISABLED BY DEFAULT — the gateway is an internal service.
 #
 # WHY the default flipped: nothing outside the cluster needs to reach this port. url4-cloud and the
-# Runner Pods call it over the cluster network, and with `config.authMode: gateway_headers` the
+# Runner Pods call it over the cluster network, and with `config.authMode: cloudflare_headers` the
 # absence of a public route is what makes the identity headers trustworthy — an Ingress here would
 # let anyone claim any principal with a single header.
 #
 # Enabling it is a deliberate act with a consequence: the chart will refuse to render unless you
-# also move `config.authMode` off `gateway_headers`. If you need the browser-facing flows (the
+# also move `config.authMode` off `cloudflare_headers`. If you need the browser-facing flows (the
 # provider-credential UI, OAuth callbacks), route them through the same mesh gateway that injects
 # identity rather than opening a second, unauthenticated front door.
 ingress:
@@ -130,7 +130,7 @@ migration:
   ttlSecondsAfterFinished: 600
   annotations: {}
 
-# Who may reach the gateway. With `config.authMode: gateway_headers` this is not hardening — it IS
+# Who may reach the gateway. With `config.authMode: cloudflare_headers` this is not hardening — it IS
 # the authentication boundary, which is why it defaults to on.
 networkPolicy:
   enabled: true

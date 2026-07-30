@@ -11,17 +11,18 @@ database:
   existingSecret: aigw-db
   existingSecretKey: database-url
 
-# The caller arrives already identified: the mesh gateway verifies their token and injects
-# X-Tenant + X-User-Id/X-User-Email/X-Service-Id, which this gateway reads directly.
+# The caller arrives already identified: Cloudflare Access authenticates them at the edge and the
+# mesh gateway re-verifies that assertion before injecting `X-User-Email`, which this gateway reads
+# directly. Automation using Cloudflare service tokens is not supported in this mode.
 config:
-  authMode: gateway_headers
+  authMode: cloudflare_headers
 
 # Internal-only. There is no public route to the gateway, and that is load-bearing rather than
 # incidental — it is what makes the injected identity headers unforgeable.
 ingress:
   enabled: false
 
-# The authentication boundary in `gateway_headers` mode: only the url4-cloud App and its Runner
+# The authentication boundary in `cloudflare_headers` mode: only the url4-cloud App and its Runner
 # Jobs may connect.
 #
 # WHY this is spelled out here rather than left to the chart default: this file previously set

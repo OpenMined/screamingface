@@ -1,6 +1,6 @@
 {{- if .Values.networkPolicy.enabled -}}
 {{/*
-Who may reach the gateway. In `gateway_headers` mode this policy IS the authentication boundary:
+Who may reach the gateway. In `cloudflare_headers` mode this policy IS the authentication boundary:
 the app trusts `X-User-Email` precisely because only these peers can present it.
 
 INVARIANT: this template must never render an ingress rule with no `from:`. A NetworkPolicy rule

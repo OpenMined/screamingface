@@ -326,11 +326,10 @@ _START_DESC = (
     "§5.3 dec:A), with the optional ``X-Profile`` header as its routing profile; absent or a "
     "non-Bearer scheme forwards no credential and the run's connector stays deny-by-default. "
     "The credential is never logged.\n\n"
-    "The gateway-identity headers (``X-User-Email``, ``X-User-Id``, ``X-Service-Id``, "
-    "``X-Tenant``) are read off the inbound request and carried to the run, which renders them "
-    "onto its aigateway calls. Envoy strips and re-injects them from verified claims, so a "
-    "client cannot forge them; whichever subset is present is forwarded, and absent ones are "
-    "omitted rather than sent empty."
+    "The caller's verified identity header (``X-User-Email``) is read off the inbound request and "
+    "carried to the run, which renders it onto its aigateway calls. Envoy strips and re-injects it "
+    "after re-verifying Cloudflare Access's assertion, so a client cannot forge it. Absent, the "
+    "run carries no identity and an aigateway in header mode rejects it."
 )
 
 

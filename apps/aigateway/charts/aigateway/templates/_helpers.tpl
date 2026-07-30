@@ -42,8 +42,8 @@ disabled
 {{/*
 Refuse the configurations that would quietly hand anyone any identity.
 
-INVARIANT: `gateway_headers` trusts `X-User-Email` and friends because the mesh guarantees a client
-cannot set them. Publishing an Ingress straight to this Service removes that guarantee — the port
+INVARIANT: `cloudflare_headers` trusts `X-User-Email` because the mesh guarantees a client cannot
+set it. Publishing an Ingress straight to this Service removes that guarantee — the port
 becomes directly reachable and a `curl -H 'X-User-Email: admin@…'` is a full impersonation. The
 chart cannot verify the mesh, but it CAN refuse the one combination that is unsafe on its face.
 */}}
@@ -51,8 +51,8 @@ chart cannot verify the mesh, but it CAN refuse the one combination that is unsa
 {{- if and (not .Values.config.authEnabled) (ne .Values.config.authMode "disabled") -}}
 {{- fail (printf "config.authEnabled=false conflicts with config.authMode=%q — authEnabled is the legacy spelling of authMode=disabled; set one or the other, not two that disagree" .Values.config.authMode) -}}
 {{- end -}}
-{{- if and (eq (include "aigateway.authMode" .) "gateway_headers") .Values.ingress.enabled -}}
-{{- fail "config.authMode=gateway_headers with ingress.enabled=true — header identity is only trustworthy while this Service is unreachable except through the mesh, and an Ingress makes it directly reachable, so any caller could set X-User-Email and become any principal. Either set ingress.enabled=false (keep aigateway internal) or use authMode=jwt." -}}
+{{- if and (eq (include "aigateway.authMode" .) "cloudflare_headers") .Values.ingress.enabled -}}
+{{- fail "config.authMode=cloudflare_headers with ingress.enabled=true — header identity is only trustworthy while this Service is unreachable except through the mesh, and an Ingress makes it directly reachable, so any caller could set X-User-Email and become any principal. Either set ingress.enabled=false (keep aigateway internal) or use authMode=jwt." -}}
 {{- end -}}
 {{- end -}}
 

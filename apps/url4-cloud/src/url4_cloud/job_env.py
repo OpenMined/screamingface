@@ -35,27 +35,27 @@ AIGATEWAY_PROFILE = "AIGATEWAY_PROFILE"
 IDENTITY_HEADER_ENV: Mapping[str, str] = MappingProxyType(
     {
         "X-User-Email": "URL4_CLOUD_IDENTITY_USER_EMAIL",
-        "X-User-Id": "URL4_CLOUD_IDENTITY_USER_ID",
-        "X-Service-Id": "URL4_CLOUD_IDENTITY_SERVICE_ID",
-        "X-Tenant": "URL4_CLOUD_IDENTITY_TENANT",
     }
 )
-"""The caller's VERIFIED identity, as the gateway-identity flow defines it, and the env name each
-header travels under.
+"""The caller's VERIFIED identity, and the env name it travels under.
 
-https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/ — Envoy clears every one of
-these headers off the inbound request and re-injects them from verified JWT claims, so by the time
-one reaches the App it is trustworthy and a client cannot forge it. A human caller carries
-``X-User-Email``, automation carries ``X-Service-Id``, and ``X-Tenant`` always appears; which
-subset is present is the caller's kind, so the absent ones are omitted rather than sent empty.
+https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/ — Cloudflare Access
+authenticates the caller at the edge, and Envoy re-verifies that assertion against Cloudflare's
+JWKS before clearing any client-supplied copy of this header and re-injecting it from the verified
+claims. By the time it reaches the App it is trustworthy and a client cannot forge it.
+
+WHY only the email: aigateway keys a caller's account on it, and an email is globally unique — so
+the flow's tenant header adds nothing to a key built from it. Cloudflare service tokens (which carry
+a `common_name` and no email) are out of scope until the gateway issues its own API keys, so
+automation is not identified here at all rather than half-identified.
 
 INVARIANT: this table is the ONLY place the header↔env correspondence is written. Both adapters
 render a Job's env from it and the run mode reads its env back through it, so a header added here
 reaches aigateway without touching either half.
 
-WHY plain env and not a Secret (unlike :data:`AIGATEWAY_TOKEN`): these are identity, not
-credentials — they authorize nothing on their own, and a Secret would imply a confidentiality they
-do not have. The accepted cost is that ``get jobs`` RBAC reveals the caller's email.
+WHY plain env and not a Secret (unlike :data:`AIGATEWAY_TOKEN`): this is identity, not a
+credential — it authorizes nothing on its own, and a Secret would imply a confidentiality it does
+not have. The accepted cost is that ``get jobs`` RBAC reveals the caller's email.
 """
 
 

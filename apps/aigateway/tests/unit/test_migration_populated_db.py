@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 APP_DIR = Path(__file__).resolve().parents[2]
 
 
@@ -108,3 +110,67 @@ def test_pre_0005_credential_blob_keeps_null_ciphertext_version(tmp_path: Path) 
         "ciphertext_version must NOT carry a SQL DEFAULT — the NULL legacy-plaintext"
         " fallback invariant (C13) depends on it"
     )
+
+
+class _FakeCapabilities:
+    def __init__(self, dialect: str) -> None:
+        self.dialect = dialect
+
+
+class _FakeClient:
+    def __init__(self, dialect: str) -> None:
+        self.capabilities = _FakeCapabilities(dialect)
+
+
+class _RecordingSchemaEditor:
+    """Captures the SQL a migration would run, without a database behind it."""
+
+    def __init__(self, dialect: str) -> None:
+        self.client = _FakeClient(dialect)
+        self.executed: list[str] = []
+
+    async def _run_sql(self, sql: str) -> None:
+        self.executed.append(sql)
+
+
+@pytest.mark.asyncio
+async def test_widening_the_username_is_a_no_op_on_sqlite() -> None:
+    """SQLite does not enforce VARCHAR length, and altering there would rebuild the table.
+
+    That rebuild drops `accounts`, which cascades through `oauth_connections.account_id` and
+    deletes every OAuth connection — the data loss `test_full_chain_applies_to_populated_database`
+    caught. The correct SQLite behaviour is to do nothing at all.
+    """
+    editor = _RecordingSchemaEditor("sqlite")
+
+    await _migration_0008().forwards(None, editor)
+
+    assert editor.executed == []
+
+
+@pytest.mark.asyncio
+async def test_widening_the_username_alters_the_column_on_postgres() -> None:
+    """Postgres DOES enforce the length, so the DDL must actually run there.
+
+    Without this the dialect guard could be inverted or over-broad and the migration would be a
+    no-op everywhere — shipping a column too narrow for the addresses it is meant to hold.
+    """
+    editor = _RecordingSchemaEditor("postgres")
+
+    await _migration_0008().forwards(None, editor)
+
+    assert len(editor.executed) == 1
+    assert "VARCHAR(255)" in editor.executed[0]
+    assert "accounts" in editor.executed[0]
+
+
+def _migration_0008():
+    """Import the migration by path: its module name starts with a digit, so `import` cannot."""
+    import importlib.util
+
+    path = APP_DIR / "src/aigateway/migrations/0008_widen_account_username.py"
+    spec = importlib.util.spec_from_file_location("migration_0008", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

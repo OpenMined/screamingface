@@ -127,10 +127,10 @@ service:
 # below (the chart fails if both are on). See templates/httproute.yaml for the timeout rationale.
 #
 # WHY the cloud shape prefers this over `ingress`: the mesh gateway in front of this route is what
-# establishes caller identity. It verifies the caller's token and injects X-Tenant plus one of
-# X-User-Id / X-User-Email / X-Service-Id, which the App forwards to each run and the run presents
-# to aigateway (https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/). Reached
-# through a plain Ingress instead, those headers never exist and every run is unattributed.
+# establishes caller identity. Cloudflare Access authenticates the caller at the edge, the gateway
+# re-verifies that assertion and injects `X-User-Email`, and the App forwards it to each run, which
+# presents it to aigateway (https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/).
+# Reached through a plain Ingress instead, that header never exists and every run is unattributed.
 #
 # WHY it is nevertheless `false` HERE: a Gateway API edge needs a `parentRef.name`, and there is no
 # sane default for it — an HTTPRoute with no parentRef attaches to no Gateway and silently serves

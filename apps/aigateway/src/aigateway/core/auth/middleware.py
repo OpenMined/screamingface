@@ -7,11 +7,8 @@ from uuid import UUID
 import jwt
 from fastapi import Depends, HTTPException, Request
 
-from .gateway_identity import (
-    HEADER_SERVICE_ID,
-    HEADER_TENANT,
+from .cloudflare_identity import (
     HEADER_USER_EMAIL,
-    HEADER_USER_ID,
     account_for_identity,
     identity_from_headers,
 )
@@ -43,13 +40,13 @@ async def current_account(request: Request) -> BaseAccount:
     mode = request.app.state.settings.auth_mode
     if mode == "disabled":
         return anonymous_account()
-    if mode == "gateway_headers":
-        return await _account_from_gateway_headers(request)
+    if mode == "cloudflare_headers":
+        return await _account_from_cloudflare_headers(request)
     return await _account_from_bearer_token(request)
 
 
-async def _account_from_gateway_headers(request: Request) -> BaseAccount:
-    """Resolve the caller from Envoy's verified identity headers.
+async def _account_from_cloudflare_headers(request: Request) -> BaseAccount:
+    """Resolve the caller from the identity header Envoy injects after verifying Cloudflare's token.
 
     INVARIANT: no-identity is a 401, never anonymous. Falling back to the anonymous account would
     turn a misconfigured mesh — Envoy bypassed, or not injecting — into a gateway that silently
@@ -60,9 +57,9 @@ async def _account_from_gateway_headers(request: Request) -> BaseAccount:
         raise HTTPException(
             status_code=401,
             detail=(
-                "Missing gateway identity headers — this gateway resolves the caller from "
-                f"{HEADER_TENANT} plus one of {HEADER_USER_ID}/{HEADER_USER_EMAIL}/"
-                f"{HEADER_SERVICE_ID}"
+                f"Missing {HEADER_USER_EMAIL} — this gateway resolves the caller from the identity "
+                "header the mesh gateway injects after verifying Cloudflare Access. Service-token "
+                "callers are not supported in this mode."
             ),
         )
     account = await account_for_identity(identity)

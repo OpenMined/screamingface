@@ -12,12 +12,12 @@
 # So `values.yaml` stays installable with no edge, and the cloud posture is opted into here.
 #
 # Pair this with the aigateway chart's own `values-prod.yaml`, which puts that gateway in
-# `gateway_headers` auth mode behind a fail-closed NetworkPolicy and removes its public Ingress.
+# `cloudflare_headers` auth mode behind a fail-closed NetworkPolicy and removes its public Ingress.
 
-# The mesh gateway is the front door, and injecting the identity headers is its load-bearing job:
-# it verifies the caller's token and re-injects X-Tenant plus one of X-User-Id / X-User-Email /
-# X-Service-Id. Served through a plain Ingress instead, those headers never exist, every run reaches
-# aigateway unattributed, and an aigateway in `gateway_headers` mode rejects it outright.
+# The mesh gateway is the front door, and injecting the identity header is its load-bearing job: it
+# re-verifies Cloudflare Access's assertion and re-injects `X-User-Email`. Served through a plain
+# Ingress instead, that header never exists, every run reaches aigateway unattributed, and an
+# aigateway in `cloudflare_headers` mode rejects it outright.
 gateway:
   enabled: true
   parentRef:
