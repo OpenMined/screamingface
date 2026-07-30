@@ -164,6 +164,34 @@ gateway:
     request: ""
     backendRequest: ""
 
+  # The identity-injecting half of the edge — an Envoy Gateway `SecurityPolicy` that re-verifies
+  # Cloudflare Access's assertion and turns the verified `email` claim into `X-User-Email`.
+  #
+  # WHY THE CHART OWNS THIS. It reads like cluster infrastructure, and the Gateway/GatewayClass/
+  # controller genuinely are. This object is not: it targets the HTTPRoute rendered right here by
+  # name, and its only per-environment inputs are two NON-SECRET strings. Left to hand-assembly it
+  # is the one piece whose absence FAILS OPEN — every other prerequisite announces itself (no
+  # GatewayClass, no address; no parentRef, no route), but a Gateway with no JWT filter installs
+  # cleanly, answers requests, and lets ANY caller set `X-User-Email` and become ANY principal.
+  # aigateway cannot tell the difference: `cloudflare_headers` mode trusts that header by design.
+  #
+  # PREREQUISITE: Envoy Gateway (the `SecurityPolicy` CRD is its extension, not core Gateway API).
+  # On another implementation leave this off and configure the equivalent JWT filter yourself —
+  # but do configure one, or do not run aigateway in `cloudflare_headers` mode.
+  cloudflareAccess:
+    enabled: false
+    # Your Cloudflare Access team domain, e.g. `acme.cloudflareaccess.com`. The issuer and the
+    # JWKS URL are both derived from it (`https://<teamDomain>` and
+    # `https://<teamDomain>/cdn-cgi/access/certs`) — Cloudflare fixes those paths, so accepting
+    # them separately would only create three ways to spell one team.
+    teamDomain: ""
+    # The Access application's AUD tag. REQUIRED and not merely advisory: without an audience
+    # check, ANY valid token from ANY application in the same Cloudflare team is accepted here.
+    audience: ""
+    # NOTE: the header name is deliberately NOT configurable. `X-User-Email` is the contract with
+    # aigateway (`core/auth/cloudflare_identity.py`), which reads that one name and no other, so a
+    # value here could only ever produce a mismatch that fails as a 401 at request time.
+
 ingress:
   # DEPRECATED and no longer the default. REST + WebSocket share one HTTP route.
   #

@@ -235,6 +235,23 @@
             }
           },
           "additionalProperties": false
+        },
+        "cloudflareAccess": {
+          "type": "object",
+          "description": "Envoy Gateway SecurityPolicy that re-verifies Cloudflare Access and injects X-User-Email.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "teamDomain": {
+              "type": "string",
+              "pattern": "^$|^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$"
+            },
+            "audience": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "allOf": [
@@ -267,6 +284,44 @@
             ],
             "description": "An HTTPRoute with no parentRef attaches to no Gateway and silently serves nothing."
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "cloudflareAccess": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            },
+            "required": [
+              "cloudflareAccess"
+            ]
+          },
+          "then": {
+            "properties": {
+              "cloudflareAccess": {
+                "properties": {
+                  "teamDomain": {
+                    "minLength": 1
+                  },
+                  "audience": {
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "teamDomain",
+                  "audience"
+                ]
+              }
+            }
+          },
+          "description": "A JWT filter with no team domain verifies nothing, and one with no audience accepts every application in the team."
         }
       ],
       "additionalProperties": false

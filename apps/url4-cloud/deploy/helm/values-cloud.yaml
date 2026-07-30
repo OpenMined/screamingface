@@ -2,6 +2,8 @@
 #
 #   helm install url4-cloud . -f values-cloud.yaml \
 #     --set gateway.parentRef.name=<your-gateway> \
+#     --set gateway.cloudflareAccess.teamDomain=<team>.cloudflareaccess.com \
+#     --set gateway.cloudflareAccess.audience=<access-application-AUD> \
 #     --set config.natsUrl=nats://<nats-service>:4222 \
 #     --set config.aigatewayBaseUrl=http://<aigw-service>:9105
 #
@@ -28,6 +30,17 @@ gateway:
     sectionName: ""
   hostnames:
     - url4.screamingface.ai
+  # ON by default in the cloud posture, and deliberately so: this is what makes `X-User-Email`
+  # mean anything. Without it the edge forwards whatever the client sent, and an aigateway in
+  # `cloudflare_headers` mode believes it.
+  #
+  # Both fields are empty for the same reason `parentRef.name` is — the chart cannot know your
+  # Cloudflare team or application, and `values.schema.json` refuses the install rather than
+  # letting a JWT filter render that verifies nothing. Supply them at install time.
+  cloudflareAccess:
+    enabled: true
+    teamDomain: ""
+    audience: ""
 
 # Exactly one front door. Ingress cannot express the long-lived WebSocket and blocking-REST timeouts
 # portably, and it is not the mesh gateway, so it injects no identity.
