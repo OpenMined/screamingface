@@ -14,10 +14,10 @@
  * rgb()/hsl() literals on color properties fail `npm run lint:css` — see stylelint.config.mjs.
  */
 
+/* Full-bleed by owner decision (OME-709): no max-width anywhere. Padding keeps content off the
+   window edge; nothing caps the measure. */
 .page {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: var(--spacing-4XL) var(--spacing-3XL);
+  padding: var(--spacing-3XL);
 }
 
 /* Upstream's h1 is 61px, sized for a marketing page. An admin console is dense working software
@@ -37,7 +37,6 @@
 }
 
 .lede {
-  max-width: 60ch;
   color: var(--text-body);
 }
 
@@ -345,7 +344,6 @@
 }
 
 .ui-empty-message {
-  max-width: 52ch;
   font-size: 14px;
   color: var(--text-body);
 }
@@ -412,18 +410,34 @@
 
 /* ── Search ─────────────────────────────────────────────────────────────────────────────────── */
 
+/* The button aligns to the INPUT, not to the field stack.
+   `.ui-field` renders label / control / hint as three rows, so `align-items: flex-end` on the row
+   put the button a hint's height below the input — visibly out of line. Instead the field grows
+   and the button is nudged down by exactly the label's line box, so the two share a row. */
 .accounts-search {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  /* `nowrap` with a SHRINKABLE basis on the field: inside the toolbar this form is sized to its
+     content, so allowing a wrap put the button on its own line whenever the two did not both fit.
+     Shrinking the input is the better trade — the button stays where the eye expects it. */
+  flex-wrap: nowrap;
+  align-items: flex-start;
   gap: var(--spacing-M);
+}
+
+.accounts-search .ui-btn {
+  /* label font-size 13px x line-height 1.4, plus the label's bottom gap — the offset that puts
+     this button's box on the same line as the input beside it. */
+  margin-top: calc(18px + var(--spacing-2XS));
 }
 
 /* The label sits above the input, so the row aligns on its baseline, not its box: `.ui-field`
    carries a bottom margin for stacked forms that would push the button out of line here. */
+/* `flex: 0 1` — a basis it may shrink from but never grow past. With `1 1` the field expanded to
+   fill the whole toolbar row and pushed the Search button onto a second line. This sizes the
+   control without reintroducing a `max-width` (removed everywhere by owner decision, OME-709). */
 .accounts-search-field {
-  flex: 1 1 320px;
-  max-width: 420px;
+  flex: 0 1 20rem;
+  min-width: 0;
   margin-bottom: 0;
 }
 
@@ -504,7 +518,6 @@
 }
 
 .accounts-section-lede {
-  max-width: 60ch;
   margin-bottom: var(--spacing-L);
   font-size: 14px;
   color: var(--text-body);
@@ -515,7 +528,6 @@
   flex-direction: column;
   align-items: flex-start;
   width: 100%;
-  max-width: 720px;
 }
 
 /* Two columns where there is room, one where there is not. Row spacing comes from `.ui-field`'s
@@ -534,4 +546,126 @@
 
 .accounts-retry {
   margin-top: var(--spacing-M);
+}
+
+/* ── App bar ────────────────────────────────────────────────────────────────────────────────── */
+
+/* Full width, like everything else. It exists to hold the theme switch and to say which system
+   you are looking at — an operator may have several gateways open. */
+.app-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-M);
+  padding: var(--spacing-S) var(--spacing-3XL);
+  border-bottom: 1px solid var(--surface-foreground-default);
+  background-color: var(--surface-background-bright);
+}
+
+.app-bar-mark {
+  font-family: var(--font-rubik), serif;
+  font-size: 15px;
+  color: var(--text-headline);
+}
+
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2XS);
+  padding: var(--spacing-2XS) var(--spacing-S);
+  border: 1px solid var(--surface-foreground-high);
+  border-radius: var(--border-radius-S);
+  background-color: var(--surface-background-default);
+  color: var(--text-body);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--transition-base);
+}
+
+.theme-switch:hover {
+  border-color: var(--color-green-600);
+}
+
+.theme-switch:focus-visible {
+  outline: 2px solid var(--color-teal-600);
+  outline-offset: 2px;
+}
+
+.theme-switch-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* ── New-tenant dialog ──────────────────────────────────────────────────────────────────────── */
+
+/* A native <dialog>: it brings focus trapping, Escape-to-close, inertness of the page behind it
+   and top-layer stacking with no library and no z-index arithmetic. */
+.tenant-dialog {
+  /* `margin: auto` restores the centering a native <dialog> does for itself. OMDS's reset sets
+     `* { margin: 0 }`, which strips it and leaves the modal pinned to the top-left corner. */
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--surface-foreground-default);
+  border-radius: var(--border-radius-S);
+  background-color: var(--surface-background-bright);
+  color: var(--text-body);
+  box-shadow: var(--shadow-lg);
+  width: min(46rem, calc(100vw - 2 * var(--spacing-3XL)));
+}
+
+.tenant-dialog::backdrop {
+  /* Token-driven: a literal rgba() here would be invisible to the OMDS gate. */
+  background-color: var(--color-grayscale-950);
+  opacity: 0.55;
+}
+
+.tenant-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-M);
+  padding: var(--spacing-L) var(--spacing-XL);
+  border-bottom: 1px solid var(--surface-foreground-low);
+}
+
+.tenant-dialog-title {
+  font-size: 20px;
+  margin: 0;
+}
+
+.tenant-dialog-body {
+  padding: var(--spacing-XL);
+}
+
+.tenant-dialog-close {
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-S);
+  background: none;
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: var(--spacing-2XS) var(--spacing-XS);
+  cursor: pointer;
+}
+
+.tenant-dialog-close:hover {
+  color: var(--text-headline);
+  border-color: var(--surface-foreground-high);
+}
+
+.tenant-dialog-close:focus-visible {
+  outline: 2px solid var(--color-teal-600);
+  outline-offset: 2px;
+}
+
+/* The list header carries the primary action, so it sits beside the count rather than at the
+   bottom of the page under the table. */
+.accounts-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-M);
+  flex-wrap: wrap;
 }

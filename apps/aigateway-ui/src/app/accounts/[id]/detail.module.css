@@ -97,7 +97,6 @@
 }
 
 .sectionLede {
-  max-width: 68ch;
   font-size: 14px;
   color: var(--text-body);
 }
@@ -123,7 +122,6 @@
 }
 
 .rowError {
-  max-width: 36ch;
   font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
@@ -143,7 +141,6 @@
 }
 
 .statusCopy {
-  max-width: 68ch;
   font-size: 14px;
   color: var(--text-body);
 }

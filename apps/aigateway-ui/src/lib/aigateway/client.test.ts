@@ -15,7 +15,7 @@ vi.mock("server-only", () => ({}));
 
 const headerStore = { value: null as string | null };
 vi.mock("next/headers", () => ({
-  headers: async () => ({ get: (_name: string) => headerStore.value }),
+  headers: async () => ({ get: () => headerStore.value }),
 }));
 
 const {

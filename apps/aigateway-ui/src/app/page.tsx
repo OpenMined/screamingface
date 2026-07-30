@@ -19,7 +19,7 @@ import { describeFailure } from "@/lib/auth";
 
 import { AccountsTable, summarizeAccounts } from "./accounts-table";
 import { createAccountAction } from "./actions";
-import { CreateAccountForm } from "./create-account-form";
+import { NewTenantDialog } from "./new-tenant-dialog";
 
 type SearchParams = { q?: string | string[] };
 
@@ -73,8 +73,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
           <div className="accounts-list">
             {/* A search box over an empty estate is furniture. It appears once there is something
                 to search, and stays put while a query is active so it can be cleared. */}
-            {total > 0 || query ? (
-              <form method="get" action="/" role="search" className="accounts-search">
+            <div className="accounts-toolbar">
+              {total > 0 || query ? (
+                <form method="get" action="/" role="search" className="accounts-search">
                 <Field
                   label="Search accounts"
                   hint="Matches the email address and the display name."
@@ -88,11 +89,15 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
                     placeholder="acme.org"
                   />
                 </Field>
-                <Button type="submit" variant="ghost">
-                  Search
-                </Button>
-              </form>
-            ) : null}
+                  <Button type="submit" variant="ghost">
+                    Search
+                  </Button>
+                </form>
+              ) : (
+                <span />
+              )}
+              <NewTenantDialog action={createAccountAction} />
+            </div>
 
             {accounts.length > 0 ? (
               <AccountsTable
@@ -102,7 +107,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
             ) : query ? (
               <EmptyState
                 title="No matching accounts"
-                message={`Nothing here has “${query}” in its address or display name. Search only looks at tenants this gateway already knows about — a new one has to be provisioned below.`}
+                message={`Nothing here has “${query}” in its address or display name. Search only looks at tenants this gateway already knows about — a new one has to be provisioned with “New tenant”.`}
                 action={
                   // No class: `.ui-empty-action` already owns the spacing under an empty state.
                   <form method="get" action="/">
@@ -115,22 +120,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
             ) : (
               <EmptyState
                 title="No accounts yet"
-                message="This gateway has no tenants. Provision the first one below, then attach its provider API key from the account's own page."
+                message="This gateway has no tenants. Provision the first one with “New tenant”, then attach its provider API key from the account's own page."
               />
             )}
           </div>
 
-          <section className="accounts-section" aria-labelledby="provision-heading">
-            <h2 className="accounts-heading" id="provision-heading">
-              Provision a tenant
-            </h2>
-            <p className="accounts-section-lede">
-              The address must be the one Cloudflare Access will verify — the gateway keys the
-              account on it, so a typo here is a tenant that can never sign in. The provider API key
-              is attached afterwards, from the account&rsquo;s own page.
-            </p>
-            <CreateAccountForm action={createAccountAction} />
-          </section>
         </div>
       )}
     </main>

@@ -32,7 +32,7 @@ const ALLOWED_KEYWORDS = [
   "none",
 ];
 
-export default {
+const config = {
   ignoreFiles: [
     ".next/**",
     "coverage/**",
@@ -88,3 +88,5 @@ export default {
     ],
   },
 };
+
+export default config;
