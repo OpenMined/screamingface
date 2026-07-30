@@ -156,11 +156,13 @@ async def _lifespan(app):
             credential_store,
             app.state.settings.jwt_secret,
         )
-        if app.state.settings.auth_enabled or app.state.settings.admin_password is not None:
+        # `auth_mode != "disabled"` is exactly the old `auth_enabled` truth value — the mode is
+        # derived from it when only the legacy flag is set (see Settings._reconcile_auth_mode), so
+        # this keeps its behavior for `jwt` and extends the same treatment to `gateway_headers`.
+        authenticating = app.state.settings.auth_mode != "disabled"
+        if authenticating or app.state.settings.admin_password is not None:
             admin = await ensure_admin_account(app.state.settings.admin_password)
-            bootstrap_account_id = (
-                str(admin.id) if app.state.settings.auth_enabled else str(ANONYMOUS_ACCOUNT_ID)
-            )
+            bootstrap_account_id = str(admin.id) if authenticating else str(ANONYMOUS_ACCOUNT_ID)
         else:
             bootstrap_account_id = str(ANONYMOUS_ACCOUNT_ID)
 
@@ -224,7 +226,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
     app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.state.settings = settings
-    if not settings.auth_enabled:
+    # Only the `disabled` mode makes every caller anonymous, so only it needs the loopback guard.
+    # `gateway_headers` authenticates from Envoy's headers and is meant to be reached over the
+    # network — binding it to loopback would break the deployment it exists for.
+    if settings.auth_mode == "disabled":
         app.add_middleware(AuthDisabledLocalOnlyMiddleware)
 
     registry = ProviderRegistry()

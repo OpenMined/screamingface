@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+AuthMode = Literal["jwt", "gateway_headers", "disabled"]
 
 
 class Settings(BaseSettings):
@@ -29,6 +32,23 @@ class Settings(BaseSettings):
         default=None, validation_alias="AIGATEWAY_PROVISIONING_TOKEN"
     )
     auth_enabled: bool = Field(default=True, validation_alias="AIGATEWAY_AUTH_ENABLED")
+    """LEGACY. Supplies the default for :attr:`auth_mode`; new deployments set the mode directly."""
+
+    auth_mode: AuthMode = Field(default="jwt", validation_alias="AIGW_AUTH_MODE")
+    """How the gateway establishes who is calling. The single source of truth in code.
+
+    - ``jwt`` — verify the gateway's own bearer token (the historical behavior).
+    - ``gateway_headers`` — trust the identity headers Envoy injects
+      (:mod:`aigateway.core.auth.gateway_identity`). Sound ONLY while this port is unreachable
+      except through Envoy.
+    - ``disabled`` — every caller is anonymous. Loopback-only, enforced by
+      :class:`AuthDisabledLocalOnlyMiddleware`.
+
+    WHY a mode rather than a second boolean: with ``auth_enabled`` plus a hypothetical
+    ``trust_headers`` flag, "false/false" would mean authenticate-nobody-and-trust-nothing — a
+    configuration that reads like the safe one and is in fact the most permissive. Three named
+    states make "trust everything" unreachable by accident.
+    """
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
@@ -84,6 +104,30 @@ class Settings(BaseSettings):
     request_cache_max_response_bytes: int = Field(
         default=1_000_000, gt=0, validation_alias="AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES"
     )
+
+    @model_validator(mode="after")
+    def _reconcile_auth_mode(self) -> Settings:
+        """Derive the mode from the legacy flag, and refuse a configuration that means both.
+
+        An existing deployment sets only ``AIGATEWAY_AUTH_ENABLED``, so that alone must keep
+        producing the behavior it always did — ``false`` there means anonymous, i.e. ``disabled``.
+
+        The two settings disagreeing is a hard error rather than a precedence rule: silently
+        preferring either one would leave an operator who wrote ``AUTH_ENABLED=false`` alongside
+        ``AUTH_MODE=gateway_headers`` believing something about their auth posture that is false.
+        """
+        explicit_mode = "auth_mode" in self.model_fields_set
+        if not explicit_mode:
+            if not self.auth_enabled:
+                self.auth_mode = "disabled"
+            return self
+        if not self.auth_enabled and self.auth_mode != "disabled":
+            raise ValueError(
+                "AIGATEWAY_AUTH_ENABLED=false conflicts with "
+                f"AIGW_AUTH_MODE={self.auth_mode!r} — drop AIGATEWAY_AUTH_ENABLED and let "
+                "AIGW_AUTH_MODE be the only auth setting"
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_request_cache_ttls(self) -> Settings:
