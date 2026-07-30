@@ -39,6 +39,14 @@
       "tag-separator": "-",
       "include-component-in-tag": true,
       "version-file": "apps/url4-cloud/pyproject.toml"
+    },
+    "apps/scoreboard": {
+      "release-type": "python",
+      "package-name": "scoreboard",
+      "component": "scoreboard",
+      "tag-separator": "-",
+      "include-component-in-tag": true,
+      "version-file": "apps/scoreboard/pyproject.toml"
     }
   }
 }
