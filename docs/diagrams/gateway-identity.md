@@ -16,11 +16,13 @@ Contract: <https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/>
 Envoy **clears all four off the inbound request** before re-injecting them, so a client cannot forge
 them. That guarantee is what everything below rests on.
 
-Regenerate the images after editing any `.mmd`:
+The `.mmd` files are the source of truth; the committed `.svg`/`.png` beside them were rendered
+with `@mermaid-js/mermaid-cli` (`mmdc -i <file>.mmd -o <file>.svg`, and again with `-s 2` for the
+PNG). Re-render after editing one, and keep the inline block below in step with it.
 
-```sh
-python3 docs/diagrams/gateway-identity.gen.py
-```
+> The SVGs contain `<foreignObject>`, which is what makes `<b>` and wrapped labels work. They render
+> in a browser, on GitHub and in any docs site, but a plain SVG rasterizer drops the text — use the
+> PNG there.
 
 ---
 

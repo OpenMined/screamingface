@@ -1,12 +1,12 @@
 ---
-ticket: OME-TBD
+ticket: OME-684
 stack: url4-cloud
 status: in_progress
 started: 2026-07-29
 finished:
 ---
 
-# OME-TBD — Propagate the PULSE gateway-identity headers to aigateway
+# OME-684 — Propagate the PULSE gateway-identity headers to aigateway
 
 ## Intent
 
@@ -70,7 +70,7 @@ Headers carried: `X-User-Email`, `X-User-Id`, `X-Service-Id`, `X-Tenant`.
     the `identity` parameter is declared in a local `IdentityAwareJobRunner` subclass instead.
   - Absent identity normalizes to `None`, not `{}` — one representation for "nothing to forward",
     matching `credential`/`profile`. Two existing tests asserted this and were left untouched.
-  - No Linear issue filed (owner deferred it); ticket id still `OME-TBD`.
+  - No Linear issue filed (owner deferred it); ticket id still `OME-684`.
 
 ## Not done — needed before this is usable end to end
 

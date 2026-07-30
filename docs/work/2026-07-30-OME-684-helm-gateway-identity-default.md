@@ -1,12 +1,12 @@
 ---
-ticket: OME-TBD
+ticket: OME-684
 stack: repo
 status: in_progress
 started: 2026-07-30
 finished:
 ---
 
-# OME-TBD — Make gateway-identity the default cloud deployment shape
+# OME-684 — Make gateway-identity the default cloud deployment shape
 
 ## Intent
 

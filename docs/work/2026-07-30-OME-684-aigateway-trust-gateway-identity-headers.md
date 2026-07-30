@@ -1,16 +1,16 @@
 ---
-ticket: OME-TBD
+ticket: OME-684
 stack: aigateway
 status: in_progress
 started: 2026-07-30
 finished:
 ---
 
-# OME-TBD — aigateway trusts the PULSE gateway-identity headers
+# OME-684 — aigateway trusts the PULSE gateway-identity headers
 
 ## Intent
 
-Sibling of the url4-cloud half (`2026-07-29-OME-TBD-url4-cloud-identity-header-propagation.md`),
+Sibling of the url4-cloud half (`2026-07-29-OME-684-url4-cloud-identity-header-propagation.md`),
 which now sends `X-User-Email` / `X-User-Id` / `X-Service-Id` / `X-Tenant` on every
 `POST /v1/chat/completions`. aigateway currently ignores them and authenticates with its own JWT,
 so the identity arrives and is dropped. This makes aigateway resolve the caller from those headers.
@@ -63,7 +63,7 @@ because it still receives a real `Account`.
   - Username is a hash (`gw:<sha256[:32]>`) rather than the readable identity: `Account.username`
     is `max_length=64` and a tenant plus a long email exceeds it. The readable form is in
     `display_name`.
-  - No Linear issue filed (owner deferred it); ticket id still `OME-TBD`.
+  - No Linear issue filed (owner deferred it); ticket id still `OME-684`.
 
 ## Verified end state
 

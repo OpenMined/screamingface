@@ -1,12 +1,12 @@
 ---
-ticket: OME-TBD
+ticket: OME-684
 stack: repo
 status: in_progress
 started: 2026-07-30
 finished:
 ---
 
-# OME-TBD — Diagrams for the gateway-identity workflow
+# OME-684 — Diagrams for the gateway-identity workflow
 
 ## Intent
 
@@ -20,14 +20,13 @@ are different Pods, so it is captured, serialized into the Job spec, and re-rend
 - `docs/diagrams/gateway-identity-flow.mmd` — sequence: what each hop carries.
 - `docs/diagrams/gateway-identity-topology.mmd` — deployment: who may reach aigateway and why.
 - `docs/diagrams/gateway-identity-auth-modes.mmd` — the three auth modes and the refused combinations.
-- `docs/diagrams/gateway-identity.gen.py` — regenerates SVG + PNG from the `.mmd` sources.
 - `docs/diagrams/gateway-identity-*.svg` / `.png` — the committed renders (repo convention).
 - `docs/diagrams/gateway-identity.md` — index page embedding the mermaid inline.
 
-WHY `.mmd` + a generator rather than the hand-written SVG style of
-`url4-cloud-execution-flows.gen.py`: mermaid stays diffable and renders inline on GitHub, so the
-source a developer edits is the source that is reviewed. The generator keeps the committed
-SVG/PNG in step with it.
+WHY `.mmd` rather than the hand-written SVG style of `url4-cloud-execution-flows.gen.py`: mermaid
+stays diffable and renders inline on GitHub, so the source a developer edits is the source that is
+reviewed. Rendering is a plain `mmdc` invocation, documented in the index page — a committed
+generator script was tried and removed at the owner's request.
 
 ## Test plan
 
