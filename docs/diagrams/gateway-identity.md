@@ -88,8 +88,18 @@ pool. Tortoise creates inside a transaction and re-fetches on `IntegrityError`.
 ## 2 · Deployment topology
 
 Trusting `X-User-Email` is only sound while aigateway cannot be reached except by the peers that
-carry verified identity. Two chart settings enforce that, and both must hold: no Ingress, and a
-fail-closed NetworkPolicy.
+carry verified identity. Three things enforce that, and all must hold: no Ingress, a fail-closed
+NetworkPolicy, and — in the gateway process itself — `AIGW_ALLOWED_NETWORKS`.
+
+The third exists because the first two are *deployment* configuration, and one of them can be
+declined by the cluster (see the precondition note below). `AIGW_ALLOWED_NETWORKS` is a list of CIDR
+networks; a request whose TCP peer falls outside every one of them is refused **403 before the
+identity header is read**. It is mandatory in this mode: `create_app` raises without it and the
+chart fails the render, because "which networks?" has no answer the gateway can safely guess.
+
+The peer is the TCP peer, never `X-Forwarded-For`. Deciding whether to trust one forgeable header by
+reading a second, equally forgeable one would be circular — a deployment behind a proxy declares the
+proxy's own address instead.
 
 [`gateway-identity-topology.svg`](gateway-identity-topology.svg) · [PNG](gateway-identity-topology.png)
 
@@ -103,7 +113,7 @@ flowchart TB
             ENVOY["Envoy / Gateway API<br/><b>re-verifies Cloudflare Access,<br/>injects X-User-Email</b><br/>chart: values-cloud.yaml"]
             APP["url4-cloud App<br/>app.kubernetes.io/name: url4-cloud<br/>HTTPRoute target"]
             JOB["Runner Jobs<br/>app.kubernetes.io/name: url4-runner<br/>one Pod per run"]
-            AIGW["aigateway<br/>ClusterIP only, port 9105<br/><b>AIGW_AUTH_MODE=cloudflare_headers</b>"]
+            AIGW["aigateway<br/>ClusterIP only, port 9105<br/><b>AIGW_AUTH_MODE=cloudflare_headers</b><br/>AIGW_ALLOWED_NETWORKS=Pod CIDR"]
             DB[("Postgres<br/>credential_blobs<br/>AES-256-GCM")]
         end
         OTHER["any other Pod<br/>(other namespace or unlabelled)"]
@@ -116,7 +126,7 @@ flowchart TB
     APP -->|"schedules, passing identity<br/>as plain Job env"| JOB
     APP -->|"catalog: GET /v1/models<br/>NetworkPolicy: ALLOWED"| AIGW
     JOB -->|"POST /v1/chat/completions<br/>NetworkPolicy: ALLOWED"| AIGW
-    OTHER -.->|"NetworkPolicy: DENIED<br/>fail-closed, non-empty from:"| AIGW
+    OTHER -.->|"NetworkPolicy: DENIED<br/>fail-closed, non-empty from:<br/><b>and 403 if the CNI lets it through</b>"| AIGW
     NET -.->|"NO Ingress<br/>ingress.enabled=false"| AIGW
     AIGW -->|"egress open by design"| PROV
     AIGW --> DB
@@ -142,10 +152,14 @@ elements are ORed — so splitting them would mean "any pod in that namespace OR
 i.e. the whole namespace. Two entries are needed because the App and the Runner Jobs share no label.
 
 > **Unverified precondition.** A NetworkPolicy only restricts traffic if the cluster's CNI enforces
-> it; some do not, and then the object is decoration. Since this policy *is* the authentication
-> boundary in `cloudflare_headers` mode, test it: from a Pod in another namespace,
-> `curl -H 'X-User-Email: …' http://<aigw-svc>:9105/v1/chat/completions` must **time out**. If it
-> answers, header identity is not safe in that cluster.
+> it; some do not, and then the object is decoration. Test it: from a Pod in another namespace,
+> `curl -H 'X-User-Email: …' http://<aigw-svc>:9105/v1/chat/completions` must **time out**.
+>
+> If it answers, the CNI is not enforcing the policy — but the request still gets **403** from
+> `AIGW_ALLOWED_NETWORKS` unless that Pod's address is inside a declared network. That is the point
+> of the in-process check: it converts a silent cluster-wide impersonation hole into a refusal.
+> Narrow `config.allowedNetworks` from the shipped private ranges to your actual Pod CIDR and the
+> two guards stop overlapping so generously.
 
 ## 3 · Auth modes and the refused configurations
 
@@ -156,7 +170,9 @@ i.e. the whole namespace. Two entries are needed because the App and the Runner 
 flowchart TB
     REQ(["Request reaches aigateway"]) --> MODE{"AIGW_AUTH_MODE"}
 
-    MODE -->|cloudflare_headers<br/><b>cloud default</b>| H1{"X-User-Email present?"}
+    MODE -->|cloudflare_headers<br/><b>cloud default</b>| N1{"TCP peer inside<br/>AIGW_ALLOWED_NETWORKS?"}
+    N1 -->|no| N403["<b>403</b><br/>checked BEFORE the header is read —<br/>the peer, never X-Forwarded-For<br/>(holds even where the CNI ignores<br/>the NetworkPolicy)"]
+    N1 -->|yes| H1{"X-User-Email present?"}
     H1 -->|no| H401["<b>401</b><br/>never anonymous — a shared principal<br/>would pool every caller's credentials<br/>(service tokens land here too)"]
     H1 -->|yes| HACC["CloudflareIdentity →<br/>get_or_create(username=email)<br/>honours is_active"]
     HACC --> OK(["credential lookup for<br/>THAT principal"])
@@ -172,6 +188,7 @@ flowchart TB
         R1["authMode=cloudflare_headers<br/>+ ingress.enabled=true<br/><br/>a direct route in means anyone<br/>can set X-User-Email"]
         R2["authEnabled=false<br/>+ authMode≠disabled<br/><br/>two settings disagreeing about<br/>the auth posture"]
         R3["networkPolicy.enabled=true<br/>with no peers declared<br/><br/>an ingress rule with no from:<br/>admits every source"]
+        R4["authMode=cloudflare_headers<br/>+ no allowedNetworks<br/><br/>create_app refuses too — a<br/>CrashLoop caught at render time"]
     end
 
     classDef ok fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#e2e8f0
@@ -180,8 +197,8 @@ flowchart TB
     classDef local fill:#083344,stroke:#22d3ee,stroke-width:2px,color:#e2e8f0
 
     class OK,HACC ok
-    class H401,J401,R1,R2,R3 bad
-    class MODE,H1,J1 dec
+    class H401,J401,N403,R1,R2,R3,R4 bad
+    class MODE,H1,J1,N1 dec
     class D1 local
 ```
 

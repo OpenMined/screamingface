@@ -51,6 +51,9 @@ chart cannot verify the mesh, but it CAN refuse the one combination that is unsa
 {{- if and (not .Values.config.authEnabled) (ne .Values.config.authMode "disabled") -}}
 {{- fail (printf "config.authEnabled=false conflicts with config.authMode=%q — authEnabled is the legacy spelling of authMode=disabled; set one or the other, not two that disagree" .Values.config.authMode) -}}
 {{- end -}}
+{{- if and (eq (include "aigateway.authMode" .) "cloudflare_headers") (not .Values.config.allowedNetworks) -}}
+{{- fail "config.authMode=cloudflare_headers with no config.allowedNetworks — the gateway trusts X-User-Email from any caller that can reach it, so the networks allowed to present it must be declared. The app refuses to start without AIGW_ALLOWED_NETWORKS; failing the render surfaces it here instead of as a CrashLoopBackOff. Set config.allowedNetworks to your cluster's Pod CIDR." -}}
+{{- end -}}
 {{- if and (eq (include "aigateway.authMode" .) "cloudflare_headers") .Values.ingress.enabled -}}
 {{- fail "config.authMode=cloudflare_headers with ingress.enabled=true — header identity is only trustworthy while this Service is unreachable except through the mesh, and an Ingress makes it directly reachable, so any caller could set X-User-Email and become any principal. Either set ingress.enabled=false (keep aigateway internal) or use authMode=jwt." -}}
 {{- end -}}

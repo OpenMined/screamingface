@@ -20,7 +20,9 @@ The account this produces is an ordinary `Account` row, so everything downstream
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from ipaddress import IPv4Network, IPv6Address, IPv6Network, ip_address
 
 from .models import Account, BaseAccount
 
@@ -32,6 +34,35 @@ token's `common_name` — both dropped here: the email is globally unique, so a 
 a key built from it, and service-token callers are out of scope until the gateway issues its own API
 keys for them. A caller presenting no email is rejected rather than guessed at.
 """
+
+
+def peer_in_networks(host: str | None, networks: Sequence[IPv4Network | IPv6Network]) -> bool:
+    """Whether the connecting peer falls inside one of ``networks``.
+
+    ``host`` is the TCP peer (`request.client.host`).
+
+    INVARIANT: never `X-Forwarded-For`, and never any other header. This check exists because
+    `X-User-Email` is forgeable by anyone who can reach the port; deciding whether to trust it from
+    a second header that is forgeable in exactly the same way would be circular, and would restore
+    the hole it closes. A deployment behind a proxy must declare the PROXY's address here.
+
+    Fails closed on every uncertainty: no peer, an unparseable peer, or no declared networks all
+    return False. The last should be unreachable in a real `cloudflare_headers` deployment —
+    `create_app` refuses to build one without networks — but if it is ever reached, by a test or by
+    settings mutated after construction, denying is the only safe answer.
+    """
+    if host is None or not networks:
+        return False
+    try:
+        peer = ip_address(host)
+    except ValueError:
+        return False
+    # A dual-stack cluster reports an IPv4 peer as `::ffff:10.1.2.3`. Comparing that against an
+    # IPv4 network returns False (`__contains__` short-circuits on version), so without this the
+    # gateway would refuse every legitimate caller on such a cluster.
+    if isinstance(peer, IPv6Address) and peer.ipv4_mapped is not None:
+        peer = peer.ipv4_mapped
+    return any(peer in network for network in networks)
 
 
 @dataclass(frozen=True, slots=True)

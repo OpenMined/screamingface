@@ -16,5 +16,8 @@ data:
   # both but rejects them when they disagree, so a chart sending both would have two ways to say
   # one thing — the chart resolves the pair and sends only the mode.
   AIGW_AUTH_MODE: {{ include "aigateway.authMode" . | quote }}
+  # Comma-separated, because the app parses a list rather than JSON. Emitted in every mode; only
+  # `cloudflare_headers` reads it, and only there is it mandatory.
+  AIGW_ALLOWED_NETWORKS: {{ join "," .Values.config.allowedNetworks | quote }}
   AIGATEWAY_JWT_TTL_SECONDS: {{ .Values.config.jwtTtlSeconds | quote }}
   AIGATEWAY_PUBLIC_URL: {{ .Values.publicUrl | quote }}

@@ -49,6 +49,23 @@ config:
   # `cloudflare_headers` together with an enabled Ingress, because that combination lets any caller
   # set X-User-Email and become any principal.
   authMode: cloudflare_headers
+  # Peers allowed to present `X-User-Email`, as CIDR networks. Required by `cloudflare_headers`;
+  # ignored by the other modes. The app refuses to start without it, and the chart refuses to
+  # render — the gateway cannot trust the header without knowing who may present it.
+  #
+  # WHY this exists on top of the `networkPolicy` below: a NetworkPolicy restricts nothing unless
+  # the cluster's CNI enforces it, and where it does not, the policy is decoration and any
+  # reachable caller could become any principal. This check runs in the process, so it holds
+  # either way. Defence in depth, not a replacement.
+  #
+  # The default is the private ranges, which covers every usual Pod CIDR (plus 100.64.0.0/10, used
+  # by some CNIs). NARROW IT to your cluster's actual Pod CIDR — the default admits any private
+  # address that can reach the Service, which is wider than the two workloads that should.
+  allowedNetworks:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
   jwtTtlSeconds: 86400
 
 # Only meaningful for the browser-facing OAuth flows, which are unreachable while the gateway is

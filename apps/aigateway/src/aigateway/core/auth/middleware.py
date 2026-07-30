@@ -11,6 +11,7 @@ from .cloudflare_identity import (
     HEADER_USER_EMAIL,
     account_for_identity,
     identity_from_headers,
+    peer_in_networks,
 )
 from .jwt import decode_token
 from .models import Account, BaseAccount
@@ -51,7 +52,26 @@ async def _account_from_cloudflare_headers(request: Request) -> BaseAccount:
     INVARIANT: no-identity is a 401, never anonymous. Falling back to the anonymous account would
     turn a misconfigured mesh — Envoy bypassed, or not injecting — into a gateway that silently
     serves every unauthenticated caller as one shared principal, pooling their credentials.
+
+    INVARIANT: the peer network is checked BEFORE the header is read. The header is only meaningful
+    from a caller the deployment vouches for, so an untrusted peer is refused without its identity
+    claim ever being consulted.
     """
+    settings = request.app.state.settings
+    if not peer_in_networks(
+        request.client.host if request.client is not None else None,
+        settings.allowed_networks,
+    ):
+        # 403, not 401: this caller is not unidentified, they are not entitled to be believed —
+        # and no credential they could present would change that. The message names neither the
+        # peer nor the trusted ranges, so a probe learns nothing about the topology.
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This gateway accepts header identity only from the networks it was configured "
+                "to trust."
+            ),
+        )
     identity = identity_from_headers(request.headers)
     if identity is None:
         raise HTTPException(

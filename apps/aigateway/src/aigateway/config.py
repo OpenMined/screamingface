@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Literal
+from ipaddress import IPv4Network, IPv6Network, ip_network
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 AuthMode = Literal["jwt", "cloudflare_headers", "disabled"]
 
@@ -49,6 +50,21 @@ class Settings(BaseSettings):
     configuration that reads like the safe one and is in fact the most permissive. Three named
     states make "trust everything" unreachable by accident.
     """
+    # WHY `NoDecode`: pydantic-settings JSON-decodes complex field types read from the environment,
+    # so without it `AIGW_ALLOWED_NETWORKS=10.0.0.0/8` fails as malformed JSON before the validator
+    # below ever runs. The value is a comma-separated list, not JSON.
+    allowed_networks: Annotated[tuple[IPv4Network | IPv6Network, ...], NoDecode] = Field(
+        default=(), validation_alias="AIGW_ALLOWED_NETWORKS"
+    )
+    """Peers that may present an identity header, as CIDR networks. Only read in
+    ``cloudflare_headers`` mode, where it is mandatory.
+
+    INVARIANT: this is defence in depth BEHIND the deployment's NetworkPolicy, and the only half of
+    that pair which cannot be declined — a NetworkPolicy restricts nothing unless the cluster's CNI
+    enforces it, and where it does not, `X-User-Email` alone would let any reachable caller become
+    any principal.
+    """
+
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
@@ -128,6 +144,21 @@ class Settings(BaseSettings):
                 "AIGW_AUTH_MODE be the only auth setting"
             )
         return self
+
+    @field_validator("allowed_networks", mode="before")
+    @classmethod
+    def _parse_allowed_networks(cls, value: object) -> object:
+        """Parse the comma-separated CIDR list.
+
+        `strict=True` deliberately: it rejects a value with host bits set (`192.168.0.0/8`) instead
+        of widening it to the enclosing network (`192.0.0.0/8`), which would silently trust sixteen
+        million addresses the operator never named.
+        """
+        if not isinstance(value, str):
+            return value
+        return tuple(
+            ip_network(entry, strict=True) for part in value.split(",") if (entry := part.strip())
+        )
 
     @model_validator(mode="after")
     def _validate_request_cache_ttls(self) -> Settings:

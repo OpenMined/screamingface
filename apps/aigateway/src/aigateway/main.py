@@ -231,6 +231,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # network — binding it to loopback would break the deployment it exists for.
     if settings.auth_mode == "disabled":
         app.add_middleware(AuthDisabledLocalOnlyMiddleware)
+    elif settings.auth_mode == "cloudflare_headers" and not settings.allowed_networks:
+        # WHY refuse to build rather than default to something permissive: in this mode the network
+        # IS the authentication boundary, and "which networks?" has no answer the gateway can
+        # safely guess. An operator cannot obtain the trust without stating who they trust. The
+        # deployment fails here, at import, rather than serving every reachable caller.
+        raise ValueError(
+            "AIGW_AUTH_MODE=cloudflare_headers trusts the X-User-Email header from any caller that "
+            "can reach this port, so the callers allowed to present it must be declared: set "
+            "AIGW_ALLOWED_NETWORKS to the CIDR networks of the url4-cloud App and its Runner Pods "
+            "(e.g. your cluster's Pod CIDR)"
+        )
 
     registry = ProviderRegistry()
     load_plugins(registry)

@@ -180,7 +180,11 @@ def client(
 
     from aigateway.main import create_app
 
-    with TestClient(create_app()) as test_client:
+    # A routable peer plus the network that contains it, so tests exercising `cloudflare_headers`
+    # mode take the production-shaped path. Starlette defaults the peer to `("testclient", 50000)`,
+    # which is not an address, and the header-mode guard fails closed on anything it cannot parse.
+    monkeypatch.setenv("AIGW_ALLOWED_NETWORKS", "10.0.0.0/8")
+    with TestClient(create_app(), client=("10.1.2.3", 50000)) as test_client:
         yield test_client
     asyncio.run(Tortoise.close_connections())
 
