@@ -33,7 +33,7 @@ def _html_200_handler(request: httpx.Request) -> httpx.Response:
 async def _error_from(handler) -> ResolutionError:
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://aigw")
     async with client:
-        world = await build_aigateway_world(_CFG, token=_TOKEN, client=client)
+        world = await build_aigateway_world(_CFG, client=client)
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
     return exc_info.value

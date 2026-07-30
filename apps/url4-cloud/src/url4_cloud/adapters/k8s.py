@@ -1,9 +1,14 @@
 """Kubernetes adapter for the `JobRunner` port (`url4.streaming.interfaces`): schedules one
-Batch v1 Job per run, maps its live status to `JobStatus` (spec §3), and — via Core v1 —
-manages the optional per-run credential Secret a Job's env forwards from."""
+Batch v1 Job per run and maps its live status to `JobStatus` (spec §3).
+
+INVARIANT: a Job carries NO aigateway credential. This adapter only ever runs in the deployed
+topology, where aigateway is in `cloudflare_headers` mode and resolves the caller from the
+verified `X-User-Email` header — it never reads `Authorization`. A forwarded token would be
+unread by its recipient, unobtainable by the caller (aigateway has no public ingress there), and
+would cost a per-run Secret plus the RBAC to write one.
+"""
 
 import asyncio
-import contextlib
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
@@ -22,12 +27,6 @@ RUNNER_LABELS = {
     "app.kubernetes.io/part-of": "url4-cloud",
     "app.kubernetes.io/component": "job",
 }
-
-_CREDENTIAL_SECRET_KEY = "token"
-
-
-def _credential_secret_name(job_name_: str) -> str:
-    return f"{job_name_}-cred"
 
 
 # WHY: narrow structural Protocols instead of the generated `kubernetes` client models — only
@@ -54,16 +53,6 @@ class _JobView(Protocol):
     def status(self) -> _JobStatusView | None: ...
 
 
-class _CreatedObjectMeta(Protocol):
-    @property
-    def uid(self) -> str: ...
-
-
-class _CreatedJob(Protocol):
-    @property
-    def metadata(self) -> _CreatedObjectMeta: ...
-
-
 # `_request_timeout` is the generated kubernetes client's per-call deadline. It is spelled out in
 # these Protocols (rather than passed through an untyped `**kwargs`) so that a call site which
 # forgets it is a type error: every one of these is a blocking round trip running on a
@@ -71,7 +60,7 @@ class _CreatedJob(Protocol):
 class BatchV1JobsClient(Protocol):
     def create_namespaced_job(
         self, namespace: str, body: Mapping[str, object], *, _request_timeout: float | None = None
-    ) -> _CreatedJob: ...
+    ) -> object: ...
     def read_namespaced_job(
         self, name: str, namespace: str, *, _request_timeout: float | None = None
     ) -> _JobView: ...
@@ -85,15 +74,6 @@ class BatchV1JobsClient(Protocol):
         *,
         propagation_policy: str,
         _request_timeout: float | None = None,
-    ) -> object: ...
-
-
-class CoreV1SecretsClient(Protocol):
-    def create_namespaced_secret(
-        self, namespace: str, body: Mapping[str, object], *, _request_timeout: float | None = None
-    ) -> object: ...
-    def delete_namespaced_secret(
-        self, name: str, namespace: str, *, _request_timeout: float | None = None
     ) -> object: ...
 
 
@@ -141,12 +121,9 @@ class K8sJobRunner(IdentityAwareJobRunner):
         env_secrets: Sequence[str] = (),
         resources: Mapping[str, Mapping[str, str]] | None = None,
         job_ttl_s: int | None = None,
-        min_job_ttl_s: int | None = None,
-        secrets_client: CoreV1SecretsClient | None = None,
         request_timeout_s: float | None = None,
     ) -> None:
         self._client = client
-        self._secrets_client = secrets_client
         self._request_timeout_s = request_timeout_s
         self._image = image
         self._namespace = namespace
@@ -154,11 +131,6 @@ class K8sJobRunner(IdentityAwareJobRunner):
         self._env_configmap = env_configmap
         self._env_secrets = list(env_secrets)
         self._resources = resources
-        if job_ttl_s is not None and min_job_ttl_s is not None and job_ttl_s < min_job_ttl_s:
-            raise ValueError(
-                f"job_ttl_s={job_ttl_s} is below min_job_ttl_s={min_job_ttl_s} (the token's own "
-                f"lifetime) — a Job reclaimed while its token is still valid re-opens replay"
-            )
         self._job_ttl_s = job_ttl_s
 
     async def schedule(
@@ -172,11 +144,13 @@ class K8sJobRunner(IdentityAwareJobRunner):
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
     ) -> str:
-        """Creates the Job (and, if a credential is given, its owned Secret).
+        """Creates the Job.
+
+        `credential` is accepted for port compatibility and DELIBERATELY DROPPED: see the module
+        INVARIANT. A caller that still sends `Authorization` is not an error — aigateway would
+        ignore the token anyway — so the run proceeds on its verified identity alone.
 
         Raises:
-            RuntimeError: a credential was given but no `secrets_client` was configured — this
-                adapter refuses to fall back to injecting it as a plaintext Job env value.
             JobAlreadyExists: a Job for this topic already exists (409 from the API server).
         """
         return await asyncio.to_thread(
@@ -185,7 +159,6 @@ class K8sJobRunner(IdentityAwareJobRunner):
             url4,
             deadline_s,
             traceparent=traceparent,
-            credential=credential,
             profile=profile,
             identity=identity,
         )
@@ -197,91 +170,32 @@ class K8sJobRunner(IdentityAwareJobRunner):
         deadline_s: int,
         *,
         traceparent: str | None = None,
-        credential: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
     ) -> str:
-        if credential and self._secrets_client is None:
-            raise RuntimeError(
-                "K8sJobRunner received a credential to forward but no secrets_client was "
-                "configured — refusing to inject it as a plaintext Job env value"
-            )
         name = job_name(topic)
         try:
-            created = self._client.create_namespaced_job(
+            self._client.create_namespaced_job(
                 self._namespace,
-                self._manifest(
-                    name, topic, url4, deadline_s, traceparent, credential, profile, identity
-                ),
+                self._manifest(name, topic, url4, deadline_s, traceparent, profile, identity),
                 _request_timeout=self._request_timeout_s,
             )
         except ApiException as exc:
             if exc.status == _CONFLICT:
                 raise JobAlreadyExists(name) from exc
             raise
-        if credential:
-            try:
-                self._create_credential_secret(name, created, credential)
-            except ApiException:
-                with contextlib.suppress(ApiException):
-                    self._delete_job(name)
-                raise
         return name
-
-    def _create_credential_secret(
-        self, job_name_: str, created_job: _CreatedJob, credential: str
-    ) -> None:
-        assert self._secrets_client is not None
-        self._secrets_client.create_namespaced_secret(
-            self._namespace,
-            {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "type": "Opaque",
-                "metadata": {
-                    "name": _credential_secret_name(job_name_),
-                    "labels": RUNNER_LABELS,
-                    "ownerReferences": [
-                        {
-                            "apiVersion": "batch/v1",
-                            "kind": "Job",
-                            "name": job_name_,
-                            "uid": created_job.metadata.uid,
-                            "controller": True,
-                            "blockOwnerDeletion": True,
-                        }
-                    ],
-                },
-                "stringData": {_CREDENTIAL_SECRET_KEY: credential},
-            },
-            _request_timeout=self._request_timeout_s,
-        )
 
     async def stop(self, topic: str) -> None:
         await asyncio.to_thread(self._stop_blocking, topic)
 
     def _stop_blocking(self, topic: str) -> None:
         name = job_name(topic)
-        # WHY the Job goes first now: deleting the Secret first leaves a window in which the Job
-        # still exists but its `secretKeyRef` target does not. If the Job delete then fails, the
-        # run is left permanently unable to start its container instead of simply still running.
         try:
             self._delete_job(name)
         except ApiException as exc:
             if exc.status != _NOT_FOUND:
                 raise
-        # The Secret carries an ownerReference on the Job, so k8s GC reclaims it on its own; this
-        # is the prompt path, and a 404 here just means GC won the race.
-        if self._secrets_client is not None:
-            try:
-                self._secrets_client.delete_namespaced_secret(
-                    _credential_secret_name(name),
-                    self._namespace,
-                    _request_timeout=self._request_timeout_s,
-                )
-            except ApiException as exc:
-                if exc.status != _NOT_FOUND:
-                    raise
 
     def _delete_job(self, name: str) -> None:
         """Delete a Job AND the Pod running it.
@@ -320,12 +234,10 @@ class K8sJobRunner(IdentityAwareJobRunner):
 
     def _env(
         self,
-        name: str,
         topic: str,
         url4: str,
         deadline_s: int,
         traceparent: str | None,
-        credential: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
     ) -> list[dict[str, object]]:
@@ -341,25 +253,14 @@ class K8sJobRunner(IdentityAwareJobRunner):
         forwarded_traceparent = valid_traceparent(traceparent)
         if forwarded_traceparent is not None:
             env.append({"name": job_env.TRACEPARENT, "value": forwarded_traceparent})
-        if credential:
-            env.append(
-                {
-                    "name": job_env.AIGATEWAY_TOKEN,
-                    "valueFrom": {
-                        "secretKeyRef": {
-                            "name": _credential_secret_name(name),
-                            "key": _CREDENTIAL_SECRET_KEY,
-                        }
-                    },
-                }
-            )
         if profile is not None:
             env.append({"name": job_env.AIGATEWAY_PROFILE, "value": profile})
-        # Plain `value`, deliberately — unlike the credential above, identity authorizes nothing on
-        # its own, and a Secret would imply a confidentiality it does not have (see
-        # `job_env.IDENTITY_HEADER_ENV`). It is absent from `job_env.SECRET` for the same reason,
-        # which is what lets `test_job_env_contract` keep asserting that every SECRET name travels
-        # by reference.
+        # Plain `value`, deliberately — identity authorizes nothing on its own, and a Secret would
+        # imply a confidentiality it does not have (see `job_env.IDENTITY_HEADER_ENV`). It is
+        # absent from `job_env.SECRET` for the same reason, which is what lets
+        # `test_job_env_contract` keep asserting that every SECRET name travels by reference.
+        # INVARIANT: no bearer-token entry is ever emitted here — see the module
+        # docstring. That is what makes `job_env.SECRET` vacuous for this adapter.
         env.extend(
             {"name": name, "value": value}
             for name, value in job_env.identity_to_env(identity or {}).items()
@@ -386,7 +287,6 @@ class K8sJobRunner(IdentityAwareJobRunner):
         url4: str,
         deadline_s: int,
         traceparent: str | None = None,
-        credential: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
     ) -> dict[str, object]:
@@ -397,9 +297,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
             "name": "runner",
             "image": self._image,
             "command": self._command,
-            "env": self._env(
-                name, topic, url4, deadline_s, traceparent, credential, profile, identity
-            ),
+            "env": self._env(topic, url4, deadline_s, traceparent, profile, identity),
             "securityContext": {
                 "allowPrivilegeEscalation": False,
                 "capabilities": {"drop": ["ALL"]},

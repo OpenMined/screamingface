@@ -26,11 +26,12 @@ EXPRESSION = "URL4_CLOUD_EXPRESSION"
 JOB_DEADLINE_S = "URL4_CLOUD_JOB_DEADLINE_S"
 TRACEPARENT = "URL4_CLOUD_TRACEPARENT"
 
-AIGATEWAY_TOKEN = "AIGATEWAY_TOKEN"
-"""The CALLER's forwarded credential — a per-Job Secret created and deleted around one run."""
-
 AIGATEWAY_PROFILE = "AIGATEWAY_PROFILE"
-"""Per-request profile selection; absent means the gateway's default."""
+"""Per-request profile selection; absent means the gateway's default.
+
+Orthogonal to identity: it selects WHICH of the resolved account's stored credentials to use, not
+who the caller is, so it is forwarded on its own merits.
+"""
 
 IDENTITY_HEADER_ENV: Mapping[str, str] = MappingProxyType(
     {
@@ -53,9 +54,13 @@ INVARIANT: this table is the ONLY place the header↔env correspondence is writt
 render a Job's env from it and the run mode reads its env back through it, so a header added here
 reaches aigateway without touching either half.
 
-WHY plain env and not a Secret (unlike :data:`AIGATEWAY_TOKEN`): this is identity, not a
-credential — it authorizes nothing on its own, and a Secret would imply a confidentiality it does
-not have. The accepted cost is that ``get jobs`` RBAC reveals the caller's email.
+WHY plain env and not a Secret: this is identity, not a credential — it authorizes nothing on its
+own, and a Secret would imply a confidentiality it does not have. The accepted cost is that
+``get jobs`` RBAC reveals the caller's email.
+
+INVARIANT: this is now the ONLY thing url4-cloud forwards about a caller. aigateway runs either
+``cloudflare_headers`` (deployed — reads this header) or ``disabled`` (local — anonymous). Neither
+reads ``Authorization``, so no bearer token is carried anywhere in this app.
 """
 
 
@@ -114,12 +119,17 @@ DEFAULT_NATS_URL = "nats://localhost:4222"
 drift — every reader of the variable needs the same answer for "and if it is absent?"."""
 
 # --- the sets the adapters and their tests are keyed off -------------------------------------
-SECRET = frozenset({AIGATEWAY_TOKEN})
+SECRET: frozenset[str] = frozenset()
 """Values that must NEVER appear literally in a Job spec.
 
 A Job object is not a secret store — it is readable with ``get jobs`` RBAC alone, echoed by
-``kubectl describe``/``-o yaml``, and captured in the create-call audit log. These travel by
-reference (``valueFrom.secretKeyRef``); `test_job_env_contract.py` pins that, keyed off this set.
+``kubectl describe``/``-o yaml``, and captured in the create-call audit log. Anything listed here
+must travel by reference (``valueFrom.secretKeyRef``); `test_job_env_contract.py` pins that, keyed
+off this set.
+
+Currently EMPTY, and that is the point: the caller's bearer token was the only member, and no run
+carries one any more (see :data:`IDENTITY_HEADER_ENV`). The set stays so the contract test keeps
+holding — re-adding a per-run secret must go through it rather than around it.
 """
 
 REQUIRED = frozenset({TOPIC, EXPRESSION})
@@ -131,7 +141,6 @@ WRITTEN_BY_APP = frozenset(
         EXPRESSION,
         JOB_DEADLINE_S,
         TRACEPARENT,
-        AIGATEWAY_TOKEN,
         AIGATEWAY_PROFILE,
         *IDENTITY_HEADER_ENV.values(),
     }
@@ -148,7 +157,6 @@ __all__ = [
     "AIGATEWAY_BASE_URL",
     "AIGATEWAY_MODEL",
     "AIGATEWAY_PROFILE",
-    "AIGATEWAY_TOKEN",
     "DEFAULT_NATS_URL",
     "DEPLOY_TIME",
     "EXPRESSION",

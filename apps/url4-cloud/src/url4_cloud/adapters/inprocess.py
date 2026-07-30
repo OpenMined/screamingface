@@ -126,7 +126,6 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         url4: str,
         deadline_s: int,
         traceparent: str | None,
-        credential: str | None,
         profile: str | None,
         identity: Mapping[str, str] | None = None,
     ) -> dict[str, str]:
@@ -143,17 +142,12 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         forwarded = valid_traceparent(traceparent)
         if forwarded is not None:
             env[job_env.TRACEPARENT] = forwarded
-        # WHY the fallback: prod forwards the caller's credential into a per-Job Secret, and there
-        # is no Secret here. A request-supplied credential still wins, so the forwarding path is
-        # genuinely exercised; falling back to the process's own token is what lets a plain curl
-        # work in dev instead of requiring every caller to mint one.
-        if credential:
-            env[job_env.AIGATEWAY_TOKEN] = credential
+        # INVARIANT: the request's profile REPLACES the ambient one rather than inheriting it. A
+        # profile left over in `_base_env` would silently route one caller's run through a profile
+        # they never asked for — the same reasoning as the identity reset below.
         if profile is not None:
             env[job_env.AIGATEWAY_PROFILE] = profile
-        elif credential:
-            # A profile inherited from the ambient env would silently route a request-supplied
-            # credential through a profile its caller never asked for.
+        else:
             env.pop(job_env.AIGATEWAY_PROFILE, None)
         # INVARIANT: the request's identity REPLACES the ambient one rather than merging with it.
         # `_base_env` is this process's own environment, so a leftover identity key there would
@@ -189,7 +183,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         existing = self._tasks.get(name)
         if existing is not None and not existing.done():
             raise JobAlreadyExists(name)
-        env = self._env(topic, url4, deadline_s, traceparent, credential, profile, identity)
+        env = self._env(topic, url4, deadline_s, traceparent, profile, identity)
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a
         # failure inside the run terminates the topic properly. See `Url4Executor._resolve_world`.

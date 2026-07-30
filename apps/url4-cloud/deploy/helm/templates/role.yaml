@@ -1,10 +1,11 @@
 {{- if .Values.rbac.create -}}
 # Namespace-scoped RBAC bootstrap (spec §9): the least privilege the stateless App needs to run
 # Runner Jobs ONLY in its own namespace. Verbs mirror what K8sJobRunner calls exactly —
-# create/get/list/watch/delete on batch/jobs; get/list on pods (+ pods/log) for status & logs;
-# create/delete (deliberately NOT get/list) on secrets — the App creates a per-run Secret to
-# forward a caller's aigateway/CF Access credential into the Job by REFERENCE rather than as a
-# plaintext Job env value (never a `get`: the App writes the credential, it never reads one back).
+# create/get/list/watch/delete on batch/jobs; get/list on pods (+ pods/log) for status & logs.
+#
+# NO secrets verbs: a Runner Job carries no aigateway credential at all. aigateway runs in
+# `cloudflare_headers` mode here and resolves the caller from the verified identity header, so
+# there is nothing per-run to store by reference and the App never touches the Secret API.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -35,11 +36,4 @@ rules:
       - pods/log
     verbs:
       - get
-  - apiGroups:
-      - ""
-    resources:
-      - secrets
-    verbs:
-      - create
-      - delete
 {{- end }}

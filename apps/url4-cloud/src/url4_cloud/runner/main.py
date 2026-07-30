@@ -94,16 +94,15 @@ def build_executor(
     async def _world() -> World:
         resolved = config if config is not None else load_config(env)
         section = resolved.aigateway
-        token = env.get(job_env.AIGATEWAY_TOKEN)
         if section is None:
-            # WHY: a world with no [aigateway] table is a legitimate tokenless world; the node
-            # itself denies everything undeclared.
+            # WHY: a world with no [aigateway] table is a legitimate empty world; the node itself
+            # denies everything undeclared.
             return deny_by_default_world(), None
-        if not token:
-            raise RunnerConfigError(
-                f"[aigateway] is declared but {job_env.AIGATEWAY_TOKEN} is unset — "
-                "a declared gateway world cannot run without its token"
-            )
+        # WHY no credential check here any more: aigateway runs `cloudflare_headers` when deployed
+        # and `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to
+        # demand. Identity is forwarded when present and simply absent locally, where every caller
+        # is anonymous. The old unconditional token requirement made every deployed run fail
+        # before it issued a single request, because a deployed caller has no way to obtain one.
         world = await build_aigateway_world(
             AigatewayConfig(
                 base_url=section.base_url,
@@ -112,7 +111,6 @@ def build_executor(
                 allow_outbound=section.allow_outbound,
                 timeout_s=section.timeout_s,
             ),
-            token=token,
             profile=env.get(job_env.AIGATEWAY_PROFILE),
             identity_headers=job_env.identity_from_env(env),
             client=client,

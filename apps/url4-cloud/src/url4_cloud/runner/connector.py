@@ -117,8 +117,8 @@ class _ModelEndpoint:
     """The handler registered on every declared route.
 
     A class rather than a closure: the node holds this for the whole run either way, so the
-    `__slots__` fields below — `_token` included — are retained for the run's duration just as
-    a closure would retain them; that is not what the class buys. What it avoids is pinning
+    `__slots__` fields below are retained for the run's duration just as a closure would retain
+    them; that is not what the class buys. What it avoids is pinning
     `build_aigateway_world`'s *other* frame locals along with them — e.g. `owns_client`,
     `client`, `tavily_client` — which a closure would keep alive for the whole run even though
     `__call__` never touches them, but this class holds only the fields it actually needs.
@@ -132,7 +132,6 @@ class _ModelEndpoint:
         "_routes",
         "_tavily_api_key",
         "_tavily_http",
-        "_token",
     )
 
     def __init__(
@@ -140,7 +139,6 @@ class _ModelEndpoint:
         *,
         http_client: httpx.AsyncClient,
         cfg: AigatewayConfig,
-        token: str,
         profile: str | None,
         routes: dict[str, ModelSpec],
         tavily_http: httpx.AsyncClient | None,
@@ -149,7 +147,6 @@ class _ModelEndpoint:
     ) -> None:
         self._http_client = http_client
         self._cfg = cfg
-        self._token = token
         self._profile = profile
         self._routes = routes
         self._tavily_http = tavily_http
@@ -163,7 +160,6 @@ class _ModelEndpoint:
         return await _chat_completion_loop(
             http_client=self._http_client,
             cfg=self._cfg,
-            token=self._token,
             profile=self._profile,
             model=spec.id,
             messages=_messages(request.context, request.intent),
@@ -177,7 +173,6 @@ class _ModelEndpoint:
 async def build_aigateway_world(
     cfg: AigatewayConfig,
     *,
-    token: str,
     profile: str | None = None,
     client: httpx.AsyncClient | None = None,
     tavily_api_key: str | None = None,
@@ -189,7 +184,7 @@ async def build_aigateway_world(
     ``identity_headers`` is the caller's verified identity (canonical header name → value, see
     `url4_cloud.job_env.IDENTITY_HEADER_ENV`), rendered onto every chat-completions request this
     world makes. It is per-RUN rather than per-call: one run has exactly one caller, so the
-    endpoint holds it for the run's duration exactly as it holds `token` and `profile`.
+    endpoint holds it for the run's duration exactly as it holds `profile`.
 
     Raises:
         RunnerConfigError: no models are declared, or `default_model` is not among them.
@@ -218,7 +213,6 @@ async def build_aigateway_world(
     call_model = _ModelEndpoint(
         http_client=http_client,
         cfg=cfg,
-        token=token,
         profile=profile,
         routes=routes,
         tavily_http=tavily_http,
@@ -315,7 +309,6 @@ async def _chat_completion_loop(
     *,
     http_client: httpx.AsyncClient,
     cfg: AigatewayConfig,
-    token: str,
     profile: str | None,
     model: str,
     messages: list[dict],
@@ -338,7 +331,7 @@ async def _chat_completion_loop(
     """
     offer_tools = web_tools and tavily_http is not None
     extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if offer_tools else {}
-    headers = _headers(token, profile, identity_headers)
+    headers = _headers(profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
         resp = await http_client.post(
             "/v1/chat/completions",
@@ -523,19 +516,21 @@ def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
 
 
 def _headers(
-    token: str, profile: str | None, identity_headers: Mapping[str, str] | None = None
+    profile: str | None, identity_headers: Mapping[str, str] | None = None
 ) -> dict[str, str]:
     """The outgoing aigateway headers: the caller's identity, then the values this world owns.
 
-    INVARIANT: the gateway-owned headers are written LAST. `identity_headers` reaches here from an
-    inbound request, and although Envoy guarantees a client cannot forge the identity headers
-    themselves, nothing guarantees the mapping holds ONLY those keys — so `Authorization` and
-    `X-Profile` are applied over it rather than under it, and no inbound value can displace this
-    run's credential. Same ordering rule the aigateway provider plugins apply to their own
-    gateway-owned headers.
+    INVARIANT: the gateway-owned header is written LAST. `identity_headers` reaches here from an
+    inbound request, and although Envoy guarantees a client cannot forge the identity header
+    itself, nothing guarantees the mapping holds ONLY that key — so `X-Profile` is applied over it
+    rather than under it, and no inbound value can displace this run's routing choice. Same
+    ordering rule the aigateway provider plugins apply to their own gateway-owned headers.
+
+    WHY no `Authorization`: aigateway runs `cloudflare_headers` when deployed and `disabled`
+    locally. Neither mode reads a bearer token, and a deployed caller cannot obtain one, so the
+    run carries none at all.
     """
     headers = dict(identity_headers or {})
-    headers["Authorization"] = f"Bearer {token}"
     if profile is not None:
         headers["X-Profile"] = profile
     return headers

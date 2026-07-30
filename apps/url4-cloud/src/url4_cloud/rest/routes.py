@@ -33,7 +33,6 @@ from url4_cloud.auth import (
 )
 from url4_cloud.config import Settings
 from url4_cloud.ports import IdentityAwareJobRunner
-from url4_cloud.rest._credentials import bearer_token
 from url4_cloud.rest.interest import SubscriberGate
 
 router = APIRouter()
@@ -140,7 +139,6 @@ async def _schedule(
     url4: str,
     *,
     traceparent: str | None = None,
-    credential: str | None = None,
     profile: str | None = None,
     identity: Mapping[str, str] | None = None,
 ) -> None:
@@ -157,7 +155,6 @@ async def _schedule(
             url4,
             deps.settings.job_deadline_s,
             traceparent=traceparent,
-            credential=credential,
             profile=profile,
             identity=identity,
         )
@@ -321,11 +318,8 @@ _START_DESC = (
     "An inbound ``traceparent`` header, when strictly W3C-valid, is forwarded to the run so its "
     "trace is adopted downstream; absent or malformed, nothing is forwarded — a fresh trace is "
     'minted instead (W3C "restart" rule: garbage never propagates).\n\n'
-    "An inbound ``Authorization: Bearer <token>`` header — distinct from the ``URL4-Capability`` "
-    "topic token — is forwarded as the run's aigateway credential (identity forwarding, plan "
-    "§5.3 dec:A), with the optional ``X-Profile`` header as its routing profile; absent or a "
-    "non-Bearer scheme forwards no credential and the run's connector stays deny-by-default. "
-    "The credential is never logged.\n\n"
+    "The optional ``X-Profile`` header selects which of the resolved caller's stored aigateway "
+    "credentials to route through; absent, the gateway's default profile applies.\n\n"
     "The caller's verified identity header (``X-User-Email``) is read off the inbound request and "
     "carried to the run, which renders it onto its aigateway calls. Envoy strips and re-injects it "
     "after re-verifying Cloudflare Access's assertion, so a client cannot forge it. Absent, the "
@@ -349,49 +343,35 @@ async def start_run(
         str | None,
         Header(alias="traceparent", description="W3C trace context to adopt for this run."),
     ] = None,
-    authorization: Annotated[
-        str | None,
-        Header(
-            alias="Authorization",
-            description="Bearer aigateway credential to forward to the run's connector.",
-        ),
-    ] = None,
     x_profile: Annotated[
         str | None,
         Header(alias="X-Profile", description="Optional aigateway routing profile label."),
     ] = None,
 ) -> Response:
     """Require an attached subscriber, then schedule the run for the token's topic, forwarding
-    the adopted traceparent and resolved aigateway credential; hold for the terminal frame by
+    the adopted traceparent and the caller's verified identity; hold for the terminal frame by
     default, or return ``202`` immediately under ``Prefer: respond-async``.
 
     ``claims: VerifiedClaims`` is a FastAPI dependency, so JWT verification runs before this
-    body executes — no code path here touches the topic or a forwarded credential without an
-    already-verified capability token.
+    body executes — no code path here touches the topic without an already-verified capability
+    token.
     """
     deps = _deps(request)
     topic = str(claims["sub"])
     url4 = _require_q(q)
     await _require_subscriber(deps.interest, topic)
     inbound_traceparent = valid_traceparent(traceparent)
-    credential = bearer_token(authorization)
-    # WHY: a routing profile is only meaningful alongside a credential to route — without one,
-    # there is nothing for aigateway to route, so the profile is dropped rather than forwarded.
-    profile = x_profile if credential is not None else None
-    # WHY read these off `request` instead of declaring four more `Header(...)` params: the gateway
-    # owns them, not the caller, so there is no client-facing contract for a signature to document —
-    # and unlike the profile above, identity is forwarded regardless of whether a credential is,
-    # because it says who called rather than which credential to route.
-    # `or None`: absent identity is None, the same "nothing to forward" every other optional
-    # forwarded value uses — one representation rather than an empty mapping meaning the same thing.
+    # WHY read identity off `request` instead of declaring another `Header(...)` param: the mesh
+    # gateway owns it, not the caller, so there is no client-facing contract for a signature to
+    # document. `or None`: absent identity is None, the same "nothing to forward" every other
+    # optional forwarded value uses — one representation rather than an empty mapping meaning it.
     identity = job_env.identity_from_headers(request.headers) or None
     await _schedule(
         deps,
         topic,
         url4,
         traceparent=inbound_traceparent,
-        credential=credential,
-        profile=profile,
+        profile=x_profile,
         identity=identity,
     )
     pref = _parse_prefer(prefer or "")

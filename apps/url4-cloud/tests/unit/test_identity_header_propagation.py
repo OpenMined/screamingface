@@ -194,7 +194,7 @@ async def test_the_inprocess_adapter_renders_the_same_env_as_the_k8s_one() -> No
         executor_factory=lambda env: _CapturingExecutor(env),
     )
 
-    env = runner._env("t", "gpt(hi)", 60, None, None, None, IDENTITY)  # noqa: SLF001
+    env = runner._env("t", "gpt(hi)", 60, None, None, IDENTITY)  # noqa: SLF001
 
     assert job_env.identity_from_env(env) == IDENTITY
 
@@ -212,7 +212,7 @@ async def test_this_requests_identity_replaces_any_ambient_one() -> None:
         base_env=stale,
     )
 
-    env = runner._env("t", "gpt(hi)", 60, None, None, None, IDENTITY)  # noqa: SLF001
+    env = runner._env("t", "gpt(hi)", 60, None, None, IDENTITY)  # noqa: SLF001
 
     assert job_env.identity_from_env(env) == IDENTITY
 
@@ -226,7 +226,7 @@ async def test_a_run_with_no_identity_clears_any_ambient_one() -> None:
         base_env=stale,
     )
 
-    env = runner._env("t", "gpt(hi)", 60, None, None, None, None)  # noqa: SLF001
+    env = runner._env("t", "gpt(hi)", 60, None, None, None)  # noqa: SLF001
 
     assert job_env.identity_from_env(env) == {}
 
@@ -271,9 +271,7 @@ async def _run_once(identity: dict[str, str] | None) -> httpx.Request:
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(
-            cfg, token=TOKEN, client=client, identity_headers=identity
-        )
+        world = await build_aigateway_world(cfg, client=client, identity_headers=identity)
         await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
     assert len(gw.requests) == 1
     return gw.requests[0]
@@ -284,7 +282,7 @@ async def test_the_connector_renders_identity_onto_the_chat_completions_request(
 
     for header, value in IDENTITY.items():
         assert request.headers[header] == value
-    assert request.headers["authorization"] == f"Bearer {TOKEN}"
+    assert "authorization" not in request.headers
     assert json.loads(request.content)["model"] == MODEL
 
 
@@ -295,15 +293,24 @@ async def test_a_run_with_no_identity_sends_no_identity_headers() -> None:
         assert header not in request.headers
 
 
-async def test_an_inbound_header_cannot_displace_the_runs_own_credential() -> None:
+async def test_an_inbound_header_cannot_displace_the_runs_own_profile() -> None:
     """Gateway-owned headers are written LAST.
 
-    Envoy guarantees the identity headers themselves are not forged, but nothing guarantees the
-    mapping reaching the connector holds ONLY those keys — so `Authorization` must win regardless.
+    Envoy guarantees the identity header itself is not forged, but nothing guarantees the mapping
+    reaching the connector holds ONLY that key — so `X-Profile` must win regardless.
     """
-    request = await _run_once({**IDENTITY, "Authorization": "Bearer attacker-token"})
+    gw = _MockAigateway()
+    cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
+    async with gw.client() as client:
+        world = await build_aigateway_world(
+            cfg,
+            client=client,
+            profile="gateway-owned",
+            identity_headers={**IDENTITY, "X-Profile": "attacker-profile"},
+        )
+        await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
 
-    assert request.headers["authorization"] == f"Bearer {TOKEN}"
+    assert gw.requests[0].headers["x-profile"] == "gateway-owned"
 
 
 # --- the contract sets ----------------------------------------------------------------------

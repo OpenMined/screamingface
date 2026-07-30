@@ -102,27 +102,25 @@ async def test_a_job_without_a_configured_secret_attaches_none() -> None:
     assert "envFrom" not in _container(api)
 
 
-async def test_the_deploy_time_secret_does_not_disturb_the_per_run_credential() -> None:
-    # Two different mechanisms on one Job: the Tavily Secret rides `envFrom` (deploy-time), the
-    # caller's token stays an explicit `valueFrom.secretKeyRef` into a per-Job Secret.
+async def test_the_deploy_time_secret_is_the_jobs_only_secret_reference() -> None:
+    # The Tavily Secret rides `envFrom` (deploy-time). Nothing per-run does: a run carries no
+    # aigateway credential, so no `valueFrom.secretKeyRef` should appear in the container env.
     api = _RecordingBatchApi()
     runner = K8sJobRunner(
         api,
         image="url4-cloud:kind",
         env_secrets=("s",),
-        secrets_client=_RecordingSecretsApi(),
     )
 
-    await runner.schedule("topic-c", "(x)!go", 60, credential="cred-1")
+    await runner.schedule("topic-c", "(x)!go", 60)
 
     assert _entry(api, runner_job_env.TOPIC) == {
         "name": runner_job_env.TOPIC,
         "value": "topic-c",
     }
-    token = _entry(api, runner_job_env.AIGATEWAY_TOKEN)
-    assert token is not None
-    assert "value" not in token
-    assert token["valueFrom"]["secretKeyRef"]["key"] == "token"
+    container = api.created[0]["spec"]["template"]["spec"]["containers"][0]
+    assert all("valueFrom" not in entry for entry in container["env"])
+    assert container["envFrom"] == [{"secretRef": {"name": "s"}}]
 
 
 def test_settings_build_a_runner_carrying_the_secret_name() -> None:
@@ -131,7 +129,6 @@ def test_settings_build_a_runner_carrying_the_secret_name() -> None:
     runner = build_job_runner(
         settings,
         k8s_client_factory=_RecordingBatchApi,
-        k8s_secrets_client_factory=_RecordingSecretsApi,
     )
 
     assert isinstance(runner, K8sJobRunner)
@@ -142,7 +139,6 @@ def test_settings_without_a_secret_name_attach_no_secret() -> None:
     runner = build_job_runner(
         Settings(runner="k8s"),
         k8s_client_factory=_RecordingBatchApi,
-        k8s_secrets_client_factory=_RecordingSecretsApi,
     )
 
     assert isinstance(runner, K8sJobRunner)

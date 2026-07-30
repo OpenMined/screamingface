@@ -70,35 +70,12 @@ class FakeBatchV1:
         return {}
 
 
-class FakeCoreV1Secrets:
-    def __init__(self) -> None:
-        self.secrets: dict[str, dict] = {}
-        self.deleted: list[str] = []
-
-    def create_namespaced_secret(
-        self, namespace: str, body, *, _request_timeout: float | None = None
-    ) -> dict:
-        name = body["metadata"]["name"]
-        self.secrets[name] = body
-        return body
-
-    def delete_namespaced_secret(
-        self, name: str, namespace: str, *, _request_timeout: float | None = None
-    ) -> dict:
-        if name not in self.secrets:
-            raise ApiException(status=404)
-        del self.secrets[name]
-        self.deleted.append(name)
-        return {}
-
-
-def _runner(client: FakeBatchV1, secrets_client: FakeCoreV1Secrets | None = None) -> K8sJobRunner:
+def _runner(client: FakeBatchV1) -> K8sJobRunner:
     return K8sJobRunner(
         client,
         image="registry/url4-cloud:1",
         namespace="url4",
         env_configmap="url4-cloud-runner-env",
-        secrets_client=secrets_client if secrets_client is not None else FakeCoreV1Secrets(),
     )
 
 
@@ -139,87 +116,33 @@ def _container_env(client: FakeBatchV1, name: str) -> dict[str, str]:
     return {e["name"]: e["value"] for e in _container_env_entries(client, name) if "value" in e}
 
 
-async def test_schedule_with_credential_and_profile_sets_env() -> None:
+async def test_schedule_omits_the_aigateway_profile_when_none_was_asked_for() -> None:
     client = FakeBatchV1()
-    secrets = FakeCoreV1Secrets()
-    runner = _runner(client, secrets)
-    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60, credential="tok", profile="p")
+    name = await _runner(client).schedule(TOPIC, "chat(hi)", deadline_s=60)
 
-    env = _container_env(client, name)
-    assert job_env.AIGATEWAY_TOKEN not in env
-    assert env[job_env.AIGATEWAY_PROFILE] == "p"
-
-    entries = {e["name"]: e for e in _container_env_entries(client, name)}
-    token_ref = entries[job_env.AIGATEWAY_TOKEN]["valueFrom"]["secretKeyRef"]
-    assert token_ref == {"name": f"{name}-cred", "key": "token"}
-    assert secrets.secrets[f"{name}-cred"]["stringData"] == {"token": "tok"}
-    owner_ref = secrets.secrets[f"{name}-cred"]["metadata"]["ownerReferences"][0]
-    assert owner_ref["name"] == name
-    assert owner_ref["uid"] == f"uid-{name}"
+    assert job_env.AIGATEWAY_PROFILE not in _container_env(client, name)
 
 
-async def test_schedule_without_credential_omits_aigateway_env() -> None:
+async def test_schedule_forwards_the_profile() -> None:
     client = FakeBatchV1()
-    secrets = FakeCoreV1Secrets()
-    runner = _runner(client, secrets)
-    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+    name = await _runner(client).schedule(TOPIC, "chat(hi)", deadline_s=60, profile="p")
 
-    env = _container_env(client, name)
-    assert job_env.AIGATEWAY_TOKEN not in env
-    assert job_env.AIGATEWAY_PROFILE not in env
-    assert secrets.secrets == {}
+    assert _container_env(client, name)[job_env.AIGATEWAY_PROFILE] == "p"
 
 
-async def test_schedule_with_credential_but_no_secrets_client_fails_loud() -> None:
+# INVARIANT: a Job never carries an aigateway bearer token, however the caller supplied one.
+# aigateway is in `cloudflare_headers` mode in this topology and does not read `Authorization`,
+# so forwarding one would store an unread secret and require Secret-write RBAC to do it.
+async def test_a_supplied_credential_is_dropped_rather_than_forwarded() -> None:
     client = FakeBatchV1()
-    runner = K8sJobRunner(client, image="registry/url4-cloud:1", namespace="url4")
+    name = await _runner(client).schedule(
+        TOPIC, "chat(hi)", deadline_s=60, credential="tok", profile="p"
+    )
 
-    with pytest.raises(RuntimeError, match="secrets_client"):
-        await runner.schedule(TOPIC, "chat(hi)", deadline_s=60, credential="tok")
-
-    assert client.jobs == {}
-
-
-async def test_stop_deletes_the_credential_secret_alongside_the_job() -> None:
-    client = FakeBatchV1()
-    secrets = FakeCoreV1Secrets()
-    runner = _runner(client, secrets)
-    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60, credential="tok")
-    assert f"{name}-cred" in secrets.secrets
-
-    await runner.stop(TOPIC)
-
-    assert f"{name}-cred" not in secrets.secrets
-    assert client.deleted == [name]
-    await runner.stop(TOPIC)
-
-
-async def test_stop_without_a_forwarded_credential_never_touches_secrets() -> None:
-    client = FakeBatchV1()
-    secrets = FakeCoreV1Secrets()
-    runner = _runner(client, secrets)
-    await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
-
-    await runner.stop(TOPIC)
-
-    assert secrets.deleted == []
-
-
-async def test_secret_create_failure_deletes_the_just_created_job_and_reraises() -> None:
-    class BoomSecrets(FakeCoreV1Secrets):
-        def create_namespaced_secret(
-            self, namespace: str, body, *, _request_timeout: float | None = None
-        ) -> dict:
-            raise ApiException(status=500)
-
-    client = FakeBatchV1()
-    runner = _runner(client, BoomSecrets())
-
-    with pytest.raises(ApiException):
-        await runner.schedule(TOPIC, "chat(hi)", deadline_s=60, credential="tok")
-
-    assert client.jobs == {}
-    assert client.deleted == [job_name(TOPIC)]
+    entries = _container_env_entries(client, name)
+    assert not any("TOKEN" in e["name"] for e in entries)
+    assert all("valueFrom" not in e for e in entries), "no Job env may reference a Secret"
+    assert "tok" not in str(client.jobs[name])
 
 
 async def test_schedule_twice_is_the_stateless_single_use_guard() -> None:
@@ -417,25 +340,13 @@ async def test_runner_job_ttl_is_forwarded_so_finished_jobs_are_reclaimed() -> N
     assert client.jobs[name]["spec"]["ttlSecondsAfterFinished"] == 57660
 
 
-def test_runner_rejects_a_job_ttl_below_min_job_ttl_at_construction() -> None:
-    with pytest.raises(ValueError, match="job_ttl_s=30 is below min_job_ttl_s=60"):
-        K8sJobRunner(
-            FakeBatchV1(),
-            image="registry/url4-cloud:1",
-            namespace="url4",
-            job_ttl_s=30,
-            min_job_ttl_s=60,
-        )
-
-
-async def test_runner_accepts_a_job_ttl_at_or_above_min_job_ttl() -> None:
+async def test_runner_accepts_a_configured_job_ttl() -> None:
     client = FakeBatchV1()
     runner = K8sJobRunner(
         client,
         image="registry/url4-cloud:1",
         namespace="url4",
         job_ttl_s=60,
-        min_job_ttl_s=60,
     )
     name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
     assert client.jobs[name]["spec"]["ttlSecondsAfterFinished"] == 60
@@ -467,26 +378,3 @@ async def test_stop_deletes_the_pod_too_not_just_the_job() -> None:
     await runner.stop(TOPIC)
 
     assert api.delete_policies == ["Background"]
-
-
-async def test_stop_deletes_the_job_before_its_credential_secret() -> None:
-    """Ordering matters: a Job whose `secretKeyRef` target is already gone cannot start its
-    container, so deleting the Secret first turns a failed Job-delete into a permanently stuck run
-    rather than one that is merely still running. The Secret's ownerReference means k8s reclaims
-    it regardless, so the Job is the one that has to go first."""
-    api = FakeBatchV1()
-    secrets = FakeCoreV1Secrets()
-    runner = K8sJobRunner(api, image="runner:test", secrets_client=secrets)
-    await runner.schedule(TOPIC, "/m('x')!'go'", 60, credential="tok")
-
-    order: list[str] = []
-    api_delete, secret_delete = api.delete_namespaced_job, secrets.delete_namespaced_secret
-    api.delete_namespaced_job = lambda *a, **k: (order.append("job"), api_delete(*a, **k))[1]  # type: ignore[method-assign]
-    secrets.delete_namespaced_secret = lambda *a, **k: (  # type: ignore[method-assign]
-        order.append("secret"),
-        secret_delete(*a, **k),
-    )[1]
-
-    await runner.stop(TOPIC)
-
-    assert order == ["job", "secret"]
