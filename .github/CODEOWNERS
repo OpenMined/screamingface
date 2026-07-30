@@ -8,6 +8,7 @@
 
 # Deployable apps
 /apps/aigateway/                 @HupBaHa
+/apps/aigateway-ui/              @HupBaHa
 /apps/scoreboard/                @HupBaHa
 /apps/screamingface-studio/      @itstauq
 /apps/url4-cloud/                @sergio-bershadsky

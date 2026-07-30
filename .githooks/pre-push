@@ -15,6 +15,7 @@ run_stack() {
   fi
 }
 run_stack apps/aigateway aigateway
+run_stack apps/aigateway-ui aigateway-ui
 run_stack apps/scoreboard scoreboard
 run_stack packages/url4 url4
 run_stack apps/url4-cloud url4-cloud

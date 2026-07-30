@@ -13,6 +13,7 @@ This guide covers running the repo's code from source and the git workflow.
 |------|---------|-------|
 | uv | latest | Python toolchain/installer. `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Python | ≥ 3.12 | `uv` installs and pins this for you; no system Python needed. |
+| Node | 22 | Only for the `aigateway-ui` stack. Version pinned in `apps/aigateway-ui/.nvmrc` (`nvm use`); npm ships with it. |
 
 ## Get the code
 
@@ -25,13 +26,19 @@ git config core.hooksPath .githooks   # enables the pre-commit guard (blocks com
 ## Stacks
 
 The repo is organised as **stacks**, not just apps — each is self-contained with its own
-`pyproject.toml`, lockfile, tests, and README. The stack name is what the tooling takes.
+manifest, lockfile, tests, and README. The stack name is what the tooling takes.
 
 | Stack | Root | What it is |
 |---|---|---|
 | `aigateway` | `apps/aigateway` | LiteLLM-based AI Gateway — provider OAuth, encrypted credential store (service, port 9105) |
+| `aigateway-ui` | `apps/aigateway-ui` | Admin console for gateway accounts and their provider API keys (Next.js service, port 9107) |
 | `scoreboard` | `apps/scoreboard` | Public benchmark scoreboard + demo portal (service, port 9106) |
+| `url4-cloud` | `apps/url4-cloud` | Single-process REST + WebSocket url4 execution app (service, port 9108) |
 | `url4` | `packages/url4` | url4 expression protocol — grammar, parser, AST, interpreter (library) |
+
+Every stack but `aigateway-ui` is Python + uv; `aigateway-ui` is TypeScript + npm. The runner
+below takes either — it reads each stack's gate list from the card rather than assuming a
+toolchain.
 
 The canonical list lives in [`.claude/sdlc.local.md`](.claude/sdlc.local.md).
 
@@ -43,6 +50,13 @@ cd apps/aigateway
 uv sync
 uv run uvicorn aigateway.main:app --port 9105 --reload
 curl -sf http://localhost:9105/healthz   # liveness check
+
+# aigateway-ui — admin console for accounts + provider API keys (port 9107)
+# Needs a reachable aigateway; it calls the admin API server-side and never from the browser.
+cd apps/aigateway-ui
+nvm use && npm ci
+AIGATEWAY_ADMIN_BASE_URL=http://localhost:9105 npm run dev
+curl -sf http://localhost:9107/healthz   # liveness check
 
 # Scoreboard — public benchmark scoreboard + demo portal (port 9106)
 cd apps/scoreboard
@@ -59,7 +73,7 @@ uv sync
 **One command per stack — the gates CI runs, in CI's order, plus one CI doesn't:**
 
 ```bash
-uv run .claude/scripts/run_gates.py <stack>   # aigateway | scoreboard | url4
+uv run .claude/scripts/run_gates.py <stack>   # aigateway | aigateway-ui | scoreboard | url4 | url4-cloud
 ```
 
 It resolves the stack from [`.claude/sdlc.local.md`](.claude/sdlc.local.md), runs its gates
@@ -76,6 +90,16 @@ ALL GATES GREEN
 
 Coverage floors differ by stack (`url4` is 95, the services are 80) — another reason to use
 the runner rather than reconstructing the command by hand.
+
+`aigateway-ui` runs a different gate list for the same reasons, and the runner knows it:
+
+```
+✓ npm ci            # install FROM the lockfile; fails if package.json disagrees
+✓ npm run lint      # eslint
+✓ npm run typecheck # tsc --noEmit
+✓ npm run test:ci   # vitest + coverage floor 80
+ALL GATES GREEN
+```
 
 The **append-only check** is the runner's own — CI does not run it. It guards prior tests from
 being edited or deleted, so a change can't quietly weaken the suite it inherited. If you
@@ -146,6 +170,7 @@ conventional commits → PR. The agent contract is documented in
 | Stack | How |
 |---|---|
 | `apps/aigateway` | release-please manages the release PR; merging it tags `aigateway-v*`, which builds the GHCR image + Helm chart (`release-aigateway.yml`). |
+| `apps/aigateway-ui` | release-please manages the release PR; merging it tags `aigateway-ui-v*`. The image/chart build lands with the console itself (OME-708) — until then the tag is a version marker only. |
 | `apps/scoreboard` | manual tag `scoreboard-v*` triggers `release-scoreboard.yml` (GHCR image + Helm chart). |
 | `packages/url4` | tag `url4-v*` triggers `release-url4.yml` — verify + build + `twine check`, then publish via PyPI Trusted Publishing. The publish step needs a one-time owner setup (PyPI project + Trusted Publisher + the `pypi` GitHub Environment); until that lands, verify and build still run and only publish fails. See the workflow header. |
 

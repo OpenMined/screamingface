@@ -1,0 +1,118 @@
+/* ══════════════════════════════════════════════════════════════════
+   TYPOGRAPHY.CSS — Font declarations and type scale utilities
+   ══════════════════════════════════════════════════════════════════ */
+
+/*
+  FONT LOADING — Google Fonts scaffold placeholder
+  Loaded via <link> in Base.astro.
+  TODO: Replace with self-hosted woff2 files per Decision #18 before production.
+  Files go in astro-scaffold/public/fonts/
+
+  Self-hosted pattern (uncomment when woff2 files are available):
+
+  @font-face {
+    font-family: var(--font-rubik);
+    src: url('/fonts/rubik-400.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: var(--font-inter);
+    src: url('/fonts/inter-300.woff2') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: var(--font-inter);
+    src: url('/fonts/inter-400.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: var(--font-inter);
+    src: url('/fonts/inter-500.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: var(--font-inter);
+    src: url('/fonts/inter-600.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: var(--font-inter);
+    src: url('/fonts/inter-700.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+*/
+
+
+/* ── Type scale utility classes ──────────────────────────────────── */
+
+.text-subtitle {
+  font-family: var(--font-inter), sans-serif;
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-subtle);
+}
+
+/* Eyebrow: semantic hook only — inherits all body styles, no extra CSS needed */
+.text-eyebrow {
+  /* Inherits: Inter 400, 16px, 1.5 lh, --text-body */
+}
+
+.text-meta {
+  font-family: var(--font-inter), sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-body);
+}
+
+.text-meta-error {
+  font-family: var(--font-inter), sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-red-500);
+}
+
+
+/* ── Prose heading scale ─────────────────────────────────────────── */
+/* Heading type-scale for long-form `.prose` content (blog posts,
+   whitepapers, letters, …). Spacing/rhythm for prose lives in global.css. */
+
+.prose h2 { font-size: 47px; }
+.prose h3 { font-size: 36px; }
+.prose h4 { font-size: 27px; line-height: 1.3; }
+/* h5/h6 switch to Inter 600 in prose context */
+.prose h5 { font-family: var(--font-inter), sans-serif; font-size: 20px; font-weight: 600; line-height: 1.5; }
+.prose h6 { font-family: var(--font-inter), sans-serif; font-size: 18px; font-weight: 600; line-height: 1.5; }
+
+@media (max-width: 991px) {
+  .prose h2 { font-size: 36px; }
+  .prose h3 { font-size: 28px; }
+  .prose h4 { font-size: 25px; }
+  .prose h5 { font-size: 19px; }
+  .prose h6 { font-size: 17px; }
+}
+
+@media (max-width: 767px) {
+  .prose h2 { font-size: 28px; }
+  .prose h3 { font-size: 24px; }
+  .prose h4 { font-size: 22px; }
+  .prose h5 { font-size: 18px; }
+  .prose h6 { font-size: 16px; }
+}

@@ -1,0 +1,52 @@
+/*
+ * App-level stylesheet. The design system itself is vendored, not written here — see
+ * src/brand/README.md for the upstream commit and the one documented divergence.
+ *
+ * Order matters: tokens define the custom properties, global applies resets and element
+ * defaults on top of them, typography adds the scale utilities.
+ */
+@import "../brand/tokens/tokens.css";
+@import "../brand/tokens/global.css";
+@import "../brand/tokens/typography.css";
+
+/*
+ * Everything below is app-specific and MUST reference an OMDS token. Raw hex, named colors and
+ * rgb()/hsl() literals on color properties fail `npm run lint:css` — see stylelint.config.mjs.
+ */
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--spacing-4XL) var(--spacing-3XL);
+}
+
+/* Upstream's h1 is 61px, sized for a marketing page. An admin console is dense working software
+   read at a desk, so the page title steps down to the h4 size while keeping Rubik and the
+   heading token. */
+.page-title {
+  font-size: 27px;
+  margin-bottom: var(--spacing-M);
+}
+
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  margin-bottom: var(--spacing-S);
+}
+
+.lede {
+  max-width: 60ch;
+  color: var(--text-body);
+}
+
+.notice {
+  margin-top: var(--spacing-3XL);
+  padding: var(--spacing-M) var(--spacing-L);
+  border: 1px solid var(--surface-foreground-default);
+  border-radius: var(--border-radius-S);
+  background: var(--surface-foreground-lowest);
+  color: var(--text-body);
+  font-size: 14px;
+}

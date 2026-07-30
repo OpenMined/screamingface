@@ -1,0 +1,38 @@
+{
+  "name": "aigateway-ui",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 9107",
+    "build": "next build",
+    "start": "next start -p 9107",
+    "lint": "eslint",
+    "lint:css": "stylelint \"src/**/*.css\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:ci": "vitest run --coverage --reporter=default --reporter=junit --outputFile=results.xml"
+  },
+  "dependencies": {
+    "next": "16.2.10",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^3.0.5",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "jsdom": "^26.0.0",
+    "stylelint": "^16.10.0",
+    "stylelint-declaration-strict-value": "^1.10.6",
+    "typescript": "^5",
+    "vitest": "^3.0.5"
+  }
+}
