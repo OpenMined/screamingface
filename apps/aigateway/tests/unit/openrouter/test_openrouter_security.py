@@ -88,7 +88,7 @@ def test_trusted_attribution_overrides_caller_headers(
                     "x-title": "evil",
                     "Authorization": "Bearer sk-evil",
                     "X-Api-Key": "sk-evil",
-                    "X-Trace-Id": "trace-123",  # ordinary caller header survives
+                    "X-Trace-Id": "trace-123",
                 }
             },
         )
@@ -97,7 +97,7 @@ def test_trusted_attribution_overrides_caller_headers(
     assert headers["HTTP-Referer"] == "https://screamingface.ai"
     assert headers["X-OpenRouter-Title"] == "ScreamingFace"
     assert headers["X-Title"] == "ScreamingFace"
-    assert headers["X-Trace-Id"] == "trace-123"
+    assert "X-Trace-Id" not in headers
     assert "evil" not in json.dumps(headers).lower()
     assert not any(key.lower() in {"authorization", "x-api-key"} for key in headers)
 
@@ -140,29 +140,71 @@ def test_nested_fallbacks_and_model_list_never_reach_litellm(
 def test_ordinary_openrouter_fields_pass_through(
     enabled_openrouter, credential_blobs, authenticated_client
 ) -> None:
-    """D7 local BYOK: legitimate OpenRouter extensions survive to dispatch."""
+    """D7 local BYOK: schema-backed sampling fields survive to dispatch.
+
+    Scope narrowed by OME-646: the four native routing controls this also covered are
+    no longer forwarded — they are refused, and are asserted as such below.
+    """
     _create_connection(authenticated_client)
     captured: dict = {}
-    provider_prefs = {"order": ["anthropic"], "allow_fallbacks": False}
     with patch("litellm.acompletion", _fake_acompletion(captured)):
-        resp = _post_chat(
-            authenticated_client,
-            {
-                "provider": provider_prefs,
-                "plugins": [{"id": "web"}],
-                "route": "fallback",
-                "models": ["openrouter/anthropic/claude-opus-4.8"],
-                "temperature": 0.25,
-                "max_tokens": 64,
-            },
-        )
+        resp = _post_chat(authenticated_client, {"temperature": 0.25, "max_tokens": 64})
     assert resp.status_code == 200, resp.text
-    assert captured["provider"] == provider_prefs
-    assert captured["plugins"] == [{"id": "web"}]
-    assert captured["route"] == "fallback"
-    assert captured["models"] == ["openrouter/anthropic/claude-opus-4.8"]
     assert captured["temperature"] == 0.25
     assert captured["max_tokens"] == 64
+
+
+# --- provider-native routing controls are OUT of scope (OME-646) ----------------
+#
+# WHY these four are refused rather than forwarded: each was enabled by a rule carrying
+# NO validation schema, so the gateway authorized a path and forwarded arbitrary nested
+# JSON verbatim. An enabled ordinary parameter must declare a gateway-owned validation
+# schema (§Definition of done), and `route`/`models`/`provider.allow_fallbacks` are
+# fallback and routing controls that the task's excluded scope names outright. Either
+# classification forbids the rule as written, so the rules were removed.
+#
+# INVARIANT: this closes an asymmetry with the test above it —
+# test_nested_fallbacks_and_model_list_never_reach_litellm strips LiteLLM's own
+# `fallbacks`/`model_list` because a caller could redirect dispatch with them, while
+# `route: "fallback"` + `models: [...]` is OpenRouter's server-side spelling of the same
+# capability. The gateway blocked one and forwarded the other.
+_NATIVE_ROUTING_CONTROLS = {
+    "provider": {"order": ["anthropic"], "allow_fallbacks": False},
+    "plugins": [{"id": "web"}],
+    "route": "fallback",
+    "models": ["openrouter/anthropic/claude-opus-4.8"],
+}
+
+
+@pytest.mark.parametrize(("path", "value"), sorted(_NATIVE_ROUTING_CONTROLS.items()))
+def test_native_routing_controls_are_refused(
+    path, value, enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    resp = _post_chat(authenticated_client, {path: value})
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unsupported_parameters"
+    # Fail closed and SAY SO: the field is named, never silently dropped.
+    assert detail["rejected"] == {path: "unknown"}
+
+
+def test_the_refusal_of_a_native_routing_control_precedes_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    # Ordering proof without instrumentation: a tripwire on the provider's body
+    # preparation fires if classification let the request through to the provider.
+    _create_connection(authenticated_client)
+
+    def _tripwire(_self, _body):
+        raise AssertionError("prepare_chat_body ran on a refused routing control")
+
+    target = "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin"
+    with patch(f"{target}.prepare_chat_body", _tripwire):
+        resp = _post_chat(authenticated_client, {"route": "fallback"})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "unsupported_parameters"
 
 
 def test_caller_api_key_never_reaches_dispatch(

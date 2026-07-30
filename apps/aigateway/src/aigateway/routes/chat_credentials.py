@@ -16,9 +16,10 @@ from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
-from ..core.plugin_base import credential_strategy_from
+from ..core.plugin_base import ProviderPluginBase, credential_strategy_from
 from ..core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 from ..core.profile_models import (
+    AuthMode,
     AuthType,
     Profile,
     ProfileDefaults,
@@ -27,6 +28,55 @@ from ..core.profile_models import (
 )
 
 _DEFAULT_PROFILE_NAME = "default"
+
+
+def auth_mode_for_target(
+    profile: Profile | None,
+    connection: OAuthConnection | None,
+) -> AuthType:
+    """Resolve the REAL auth mode for a resolved chat/contract target.
+
+    INVARIANT: the auth mode is never caller-declared — it is derived solely from
+    the stored connection/profile. A connection's own ``auth_type`` wins; a bare
+    profile uses its ``auth_type``; with neither resolved, oauth is the safe
+    default. Single source so chat dispatch and the detailed contract cannot
+    disagree about which mode a profile uses.
+    """
+    if connection is not None:
+        return connection.auth_type or "oauth"
+    if profile is not None:
+        return profile.auth_type
+    return "oauth"
+
+
+def resolved_auth_mode(
+    profile: Profile | None,
+    connection: OAuthConnection | None,
+    *,
+    plugin: ProviderPluginBase,
+) -> AuthMode:
+    """Resolve the auth mode the PARAMETER CONTRACT and dispatch are matched against.
+
+    Same resolution as ``auth_mode_for_target`` for anything with a stored
+    credential, widened by one outcome: a provider that declares no credential
+    type at all resolves to ``"none"`` instead of the ``"oauth"`` fiction (OME-636).
+
+    # WHY this is a separate function rather than a wider return on
+    # ``auth_mode_for_target``: that function also feeds credential-strategy
+    # selection, which has no ``"none"`` branch and cannot grow one. Splitting
+    # keeps the credential path structurally unable to receive a mode it could
+    # not serve, instead of relying on a runtime check.
+    # INVARIANT: ``"none"`` comes from the PROVIDER's declaration, never from an
+    # absent profile. Gemini also permits a profile-less request, so triggering on
+    # the missing profile would silently drop a credentialed provider into no-auth.
+    """
+    if connection is None and profile is None:
+        profileless_mode = plugin.profileless_auth_mode()
+        if profileless_mode is not None:
+            return profileless_mode
+        if plugin.available_auth_modes() == ("none",):
+            return "none"
+    return auth_mode_for_target(profile, connection)
 
 
 _BUCKET_A_FIELDS = (
@@ -179,10 +229,10 @@ def _strategy_for_credential_target(
     auth_type: AuthType
     if connection is not None:
         credential_name = credential_key_for(account_id, connection.id)
-        auth_type = connection.auth_type or "oauth"
+        auth_type = auth_mode_for_target(profile, connection)
     elif profile is not None:
         credential_name = credential_name_for(account_id, profile_name)
-        auth_type = profile.auth_type
+        auth_type = auth_mode_for_target(profile, connection)
     else:
         return None, None, "oauth"
     # Share ONE strategy instance per credential across concurrent requests so its
@@ -236,8 +286,28 @@ async def _mark_profile_error_fresh(
         pass
 
 
-def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any) -> dict[str, Any]:
-    """Body wins per field. Fields the body omits get the profile default."""
+def _apply_defaults(
+    body: dict[str, Any], defaults: ProfileDefaults, plugin: Any
+) -> tuple[dict[str, Any], frozenset[str]]:
+    """Body wins per field. Fields the body omits get the profile default.
+
+    Returns the merged body together with the CLASSIFIER REQUEST PATHS this call
+    wrote, so a later parameter rejection can be attributed to the stored profile
+    instead of to the request (OME-638).
+
+    # INVARIANT: the reported paths are request paths, NOT ``ProfileDefaults``
+    # field names — ``timeout_seconds`` is reported as ``timeout``, the name the
+    # classifier sees. A set keyed by the field name could never match a rejected
+    # path, so every profile fault would be silently blamed on the caller.
+    # INVARIANT: a default only ever occupies a path the body omitted. That is what
+    # makes the returned set a sound attribution rather than a guess, and it is why
+    # the caller-supplied paths and these paths are always disjoint.
+    # AIDEV-NOTE: the ``model`` default is unreachable from /v1/chat/completions —
+    # the route rejects a body whose ``model`` is missing or not provider-prefixed
+    # well before this runs, so ``"model" not in body`` is never true there. It
+    # stays because this helper merges ProfileDefaults as a whole.
+    """
+    written: set[str] = set()
     if (
         defaults.system_prompt
         and not _has_system_message(body)
@@ -248,6 +318,7 @@ def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any
             {"role": "system", "content": defaults.system_prompt},
             *body["messages"],
         ]
+        written.add("messages")
     for field in _BUCKET_A_FIELDS:
         gateway_field = "timeout" if field == "timeout_seconds" else field
         if not _should_apply_profile_default(plugin, field):
@@ -255,7 +326,8 @@ def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any
         value = getattr(defaults, field)
         if value is not None and gateway_field not in body:
             body[gateway_field] = value
-    return body
+            written.add(gateway_field)
+    return body, frozenset(written)
 
 
 async def _inject_credentials(

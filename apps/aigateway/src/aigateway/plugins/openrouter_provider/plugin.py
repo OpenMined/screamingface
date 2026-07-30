@@ -24,18 +24,38 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
-from fastapi import HTTPException
-
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.parameter_discovery import DiscoverySourceRef
+from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
     ProviderPluginBase,
 )
-from aigateway.core.provider_errors import NonRetryableProviderError
+from aigateway.core.standard_parameters import (
+    direct_parameter_observations,
+    tool_parameter_observations,
+)
 
 from .api_key_validation import OpenRouterApiKeyValidator
+from .discovery import (
+    LOCAL_SOURCE,
+    MODEL_SOURCE,
+    REVIEWED_ENDPOINT_OBSERVATIONS,
+    SNAPSHOT_SOURCE_REVISION,
+    discover_openrouter_snapshot,
+)
+from .dispatch_errors import (
+    _embedded_error_exception,
+    _invalid_model_error,
+    _unsafe_litellm_state_error,
+)
+from .litellm_controls import (
+    _has_unsafe_litellm_global_state,
+    _strip_openrouter_litellm_controls,
+)
+from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
 from .provenance import converter_error_status, is_http200_body_error
 from .response_errors import (
     _embedded_error_status as _embedded_error_status,
@@ -53,12 +73,35 @@ from .settings import (
 )
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderDiscoverySnapshot,
+        ProviderParameterObservation,
+        ToolCapability,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
+    from aigateway.core.profile_models import AuthMode
 
 
 def _credential_service_for(profile_name: str) -> str:
     """Namespace the stored credential slot by provider + profile/connection."""
     return f"aigateway:openrouter:{profile_name}"
+
+
+def _upstream_model_for_discovery(model: str) -> str | None:
+    """The upstream catalog key for a gateway id, or None when there is none.
+
+    ONE predicate shared by ``chat_discovery_source`` and
+    ``discover_chat_parameter_snapshot``: the source declaration and the fetch must
+    agree on exactly which ids are discoverable, or the runtime sees a provider that
+    promised evidence and then reported NO ATTEMPT. It applies the SAME strip as
+    ``prepare_chat_body``, so discovery and dispatch also agree on model identity.
+    """
+    if not model.startswith(GATEWAY_MODEL_PREFIX):
+        return None
+    upstream = model[len(GATEWAY_MODEL_PREFIX) :]
+    return upstream if is_valid_upstream_model_id(upstream) else None
 
 
 # D7: the gateway owns routing — every dispatch goes to the official API base.
@@ -73,6 +116,29 @@ _TRUSTED_ATTRIBUTION = {
     "X-OpenRouter-Title": "ScreamingFace",
     "X-Title": "ScreamingFace",
 }
+
+# OME-651: the gateway-owned strict-routing policy, forced on EVERY chat dispatch.
+#
+# WHY: OpenRouter defaults ``provider.require_parameters`` to false and documents
+# that an endpoint which does not support a supplied parameter may still receive the
+# request and ignore the unknown field. Without this, gateway acceptance, a published
+# ``enabled`` status and a successful projection can all hold while the parameter has
+# no effect — HTTP 200, silently wrong. Per-model evidence cannot close the gap: one
+# OpenRouter model is served by several endpoints with different parameter support,
+# so only the provider knows which one can honor this request.
+#
+# INVARIANT: a successful OpenRouter completion means the selected endpoint declared
+# support for EVERY supplied parameter. The alternative is an explicit provider
+# refusal, never a silent discard.
+#
+# AIDEV-NOTE: this is policy, NOT a projected caller parameter — which is why it sits
+# beside ``api_base``/``extra_headers`` rather than in ``extra_body`` (the projection's
+# native-target output). The two are equivalent on the wire: litellm folds a non-OpenAI
+# dispatch kwarg into ``extra_body``, then the OpenRouter transform flattens
+# ``extra_body`` onto the top level. That double indirection is a litellm behaviour, not
+# a promise, so ``test_openrouter_strict_routing`` pins the FINAL wire JSON against the
+# installed version — if it ever changes, strictness would vanish silently.
+_STRICT_ROUTING_PROVIDER = {"require_parameters": True}
 
 # Caller copies of auth, host/framing, and attribution headers are dropped
 # before the gateway injects its own (D7). Lower-cased for comparison.
@@ -93,139 +159,6 @@ _STRIPPED_CALLER_HEADERS = frozenset(
         "x-title",
     }
 )
-
-_LITELLM_GLOBAL_CALLBACK_FIELDS = (
-    "callbacks",
-    "input_callback",
-    "success_callback",
-    "failure_callback",
-    "_async_input_callback",
-    "_async_success_callback",
-    "_async_failure_callback",
-)
-
-_LITELLM_GLOBAL_RULE_FIELDS = ("pre_call_rules", "post_call_rules")
-
-_OPENROUTER_LITELLM_CONTROL_FIELDS = frozenset(
-    {
-        "litellm_credential_name",
-        "guardrails",
-        "guardrail_config",
-        "disable_global_guardrails",
-        "prompt_id",
-        "prompt_variables",
-        "prompt_label",
-        "prompt_version",
-        "caching",
-        "cache_key",
-        "preset_cache_key",
-    }
-)
-
-_OPENROUTER_METADATA_CONTROL_FIELDS = frozenset(
-    {"disable_global_guardrails", "guardrails", "previous_models"}
-)
-
-_OPENROUTER_NESTED_METADATA_CONTROL_FIELDS = frozenset({"disable_global_guardrails", "guardrails"})
-
-
-def _invalid_model_error() -> HTTPException:
-    # Gateway-authored message only — never echo the raw caller value.
-    return HTTPException(
-        status_code=400,
-        detail={
-            "code": "invalid_model",
-            "provider": "openrouter",
-            "message": (
-                "model must be 'openrouter/<author>/<model>' with an optional single ':variant'"
-            ),
-        },
-    )
-
-
-class _UnsafeLiteLLMStateError(HTTPException):
-    """A pre-dispatch global-state conflict that the retry loop must not repeat."""
-
-    aigw_non_retryable = True
-
-
-def _unsafe_litellm_state_error() -> _UnsafeLiteLLMStateError:
-    return _UnsafeLiteLLMStateError(
-        status_code=503,
-        detail={
-            "code": "provider_unavailable",
-            "message": "OpenRouter dispatch is unavailable",
-        },
-    )
-
-
-def _has_unsafe_litellm_global_state(litellm: Any, model: object) -> bool:
-    """Detect process-global controls that can observe or reroute BYOK calls."""
-    aliases = getattr(litellm, "model_alias_map", None)
-    if isinstance(model, str) and isinstance(aliases, Mapping) and model in aliases:
-        return True
-    if getattr(litellm, "model_fallbacks", None):
-        return True
-    if any(bool(getattr(litellm, field, None)) for field in _LITELLM_GLOBAL_RULE_FIELDS):
-        return True
-    for field in _LITELLM_GLOBAL_CALLBACK_FIELDS:
-        callbacks = getattr(litellm, field, None)
-        if callbacks and any(callback != "cache" for callback in callbacks):
-            return True
-    return False
-
-
-def _strip_openrouter_litellm_controls(body: dict[str, Any]) -> dict[str, Any]:
-    """Remove LiteLLM orchestration selectors without changing other providers."""
-    out = {
-        key: value for key, value in body.items() if key not in _OPENROUTER_LITELLM_CONTROL_FIELDS
-    }
-    metadata = out.get("metadata")
-    if not isinstance(metadata, Mapping):
-        return out
-    sanitized_metadata = {
-        key: value
-        for key, value in metadata.items()
-        if key not in _OPENROUTER_METADATA_CONTROL_FIELDS
-    }
-    for nested_key in ("requester_metadata", "user_api_key_metadata"):
-        nested_metadata = sanitized_metadata.get(nested_key)
-        if isinstance(nested_metadata, Mapping):
-            sanitized_metadata[nested_key] = {
-                key: value
-                for key, value in nested_metadata.items()
-                if key not in _OPENROUTER_NESTED_METADATA_CONTROL_FIELDS
-            }
-    out["metadata"] = sanitized_metadata
-    return out
-
-
-def _embedded_error_exception(status: int | None) -> HTTPException:
-    """Sanitized gateway error for an embedded provider failure.
-
-    Only the numeric status survives; raw provider message/metadata is
-    discarded. Malformed/status-less embedded errors map to 502 (D9).
-
-    # INVARIANT (CODE-2): the upstream call already returned this payload, so
-    # the error is non-retryable — an embedded 429/503/529 must make exactly
-    # one upstream call. No Retry-After is invented: the embedded JSON schema
-    # was not shown to carry one; validated hints survive only on actual
-    # transport exceptions.
-    """
-    resolved = status if status is not None else 502
-    code = "provider_error"
-    if resolved == 401:
-        code = "auth_required"
-    elif resolved == 400:
-        code = "bad_request"
-    elif resolved == 429:
-        code = "rate_limited"
-    elif resolved >= 500 and status is not None:
-        code = "provider_unavailable"
-    return NonRetryableProviderError(
-        status_code=resolved,
-        detail={"code": code, "message": "OpenRouter reported a provider error"},
-    )
 
 
 class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
@@ -278,6 +211,113 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # (policy), 408/429/5xx (transient) must not invalidate a valid key.
         return status_code == 401
 
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-479: one provider-local source drives summary, detail, and
+        # fail-closed dispatch. Adding a parameter is a change here, never in core.
+        return openrouter_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def validate_chat_parameter_combination(
+        self,
+        body: Mapping[str, Any],
+        *,
+        model: str,
+        auth_mode: AuthMode,
+    ) -> None:
+        del model, auth_mode
+        if "top_logprobs" in body and body.get("logprobs") is not True:
+            raise IncompatibleParametersError(
+                ("logprobs", "top_logprobs"),
+                reason="top_logprobs_requires_logprobs_true",
+            )
+
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-583: OpenRouter is OpenAI-compatible; the installed litellm openrouter
+        # transform forwards OpenAI tools (§9), so it advertises the `function` type.
+        return openrouter_chat_parameter_tools(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-479 §5.3: labelled-local endpoint evidence (NO network) so the detail
+        # contract shows every accepted field with its gateway status — an unruled
+        # field (e.g. top_p) stays visible-but-DISABLED (projection_not_implemented),
+        # while a ruled+observed field (temperature, provider_params.top_k) is
+        # ENABLED and carries its provenance. The live per-model catalog overlays
+        # this via discover_chat_parameter_snapshot when request-path discovery is
+        # wired; endpoint-level evidence is model-independent, so it does not vary
+        # by model here.
+        # OME-583: tools + tool_choice are ALSO ruled → ENABLED, evidenced here (same
+        # labelled-local source) so every enabled tool path is fully backed (§4.4).
+        # OME-584: response_format is likewise ruled → ENABLED, evidenced here.
+        # OME-585: seed is already evidenced by the sampling constant; n (a non-sampling
+        # control) is evidenced here alongside response_format — both ruled → ENABLED.
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        return (
+            REVIEWED_ENDPOINT_OBSERVATIONS
+            + tool_parameter_observations(
+                openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
+                source=LOCAL_SOURCE,
+            )
+            + direct_parameter_observations(
+                ("response_format", "n", "logprobs", "top_logprobs"), source=LOCAL_SOURCE
+            )
+        )
+
+    def chat_discovery_source(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> DiscoverySourceRef | None:
+        # OME-632: the catalog is public and auth-INDEPENDENT — OpenRouter publishes
+        # one row per model whichever credential dispatch will use — so the resolved
+        # mode is accepted for port conformance and deliberately ignored.
+        # OME-629: declare the public catalog BEFORE any fetch, so the observation
+        # cache can judge a stored entry's trustworthiness without paying for a
+        # round trip. The revision names the reading as well as the source.
+        # INVARIANT: the SAME predicate gates both hooks — a model this provider
+        # cannot dispatch has nothing to discover. Owning it here (rather than only
+        # in the fetch) makes "declared a source, then reported NOT ATTEMPTED"
+        # structurally unreachable, which is the one inconsistency the runtime
+        # cannot distinguish from a real outage.
+        # AIDEV-NOTE (OME-647): ``source`` is the provider's CACHE-KEY label, not a
+        # published claim about which document an observation came from — that
+        # provenance rides on each observation. The snapshot now draws on the
+        # catalog AND the OpenAPI document, and the REVISION names the pair.
+        if _upstream_model_for_discovery(model) is None:
+            return None
+        return DiscoverySourceRef(source=MODEL_SOURCE, revision=SNAPSHOT_SOURCE_REVISION)
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+        auth_type: AuthMode | None = None,
+    ) -> ProviderDiscoverySnapshot | None:
+        # OME-479 §5.1: the DYNAMIC source. Strip the gateway prefix to the
+        # upstream id the public catalog is keyed by — the SAME rule as
+        # prepare_chat_body, so discovery and dispatch agree on identity. A value
+        # that is not a valid gateway id is not dispatchable, so there is nothing
+        # to discover: return None WITHOUT opening a connection — NOT ATTEMPTED,
+        # which is a different claim from "attempted and failed".
+        # INVARIANT: never enables a parameter (only a rule does); off the chat
+        # dispatch path; a sanitized DiscoveryError from the fetch PROPAGATES so
+        # the cache can degrade honestly rather than store a failure as fresh.
+        upstream = _upstream_model_for_discovery(model)
+        if upstream is None:
+            return None
+        return await discover_openrouter_snapshot(upstream, client=client, limits=limits)
+
+    def strip_provider_dispatch_controls(self, body: dict[str, Any]) -> dict[str, Any]:
+        # OME-479: neutralize LiteLLM orchestration selectors BEFORE the
+        # fail-closed classifier, so they are structurally authorized (§4.5 tier a)
+        # rather than 400-rejected as unknown params. prepare_chat_body repeats
+        # this strip (idempotent) as defense in depth.
+        return _strip_openrouter_litellm_controls(body)
+
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = _strip_openrouter_litellm_controls(body)
         model = out.get("model")
@@ -302,6 +342,12 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # value; request-local api_base beats every LiteLLM global/env
         # fallback (litellm 1.87.0 main.py precedence).
         out["api_base"] = OFFICIAL_API_BASE
+        # OME-651: assignment, never a merge. The classifier already refuses a caller
+        # `provider` as unknown, so nothing should be here — but the two layers are
+        # deliberately independent, and a merge would let a `require_parameters: false`
+        # that ever slipped through survive. A fresh dict per request keeps one caller
+        # from mutating the policy the next one gets.
+        out["provider"] = dict(_STRICT_ROUTING_PROVIDER)
         return out
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:

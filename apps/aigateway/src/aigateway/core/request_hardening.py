@@ -7,7 +7,7 @@ before profile lookup, cache planning, or credential access.
 ``DISPATCH_CONTROL_FIELDS`` is the known LiteLLM control plane: fields that
 redirect routing (``api_base``/``base_url``/``fallbacks``/``model_list`` are
 credential-exfiltration vectors), smuggle credentials (``api_key``,
-``headers``), disable safety (``ssl_verify``), forge accounting
+``headers``/``extra_headers``), disable safety (``ssl_verify``), forge accounting
 (``*_cost_per_*``), or bend dispatch behavior (retry/mock/drop controls).
 Stripping is silent in local mode — legitimate provider fields (OpenRouter
 ``provider``/``plugins``/``route``/``models``, tools, sampling params) pass
@@ -66,6 +66,7 @@ DISPATCH_CONTROL_FIELDS: frozenset[str] = frozenset(
         "api_base",
         "base_url",
         "headers",
+        "extra_headers",
         "model_list",
         "fallbacks",
         "context_window_fallbacks",
@@ -162,4 +163,23 @@ def chat_body_shape_error(body: object) -> str | None:
     # bool is checked with `is not` on type: `stream: 1` must not pass as truthy.
     if "stream" in body and type(body["stream"]) is not bool:
         return "stream must be a boolean"
+    tools = body.get("tools")
+    if isinstance(tools, list):
+        for tool in tools:
+            if not isinstance(tool, Mapping) or tool.get("type") != "function":
+                continue
+            function = tool.get("function")
+            name = function.get("name") if isinstance(function, Mapping) else None
+            # INVARIANT: an accepted function tool must survive provider adaptation;
+            # Gemini-family adapters deliberately skip nameless declarations.
+            if not isinstance(name, str) or not name.strip():
+                return "each function tool must include a non-empty function.name"
+    response_format = body.get("response_format")
+    if isinstance(response_format, Mapping) and response_format.get("type") == "json_schema":
+        json_schema = response_format.get("json_schema")
+        schema = json_schema.get("schema") if isinstance(json_schema, Mapping) else None
+        # INVARIANT: LiteLLM omits Ollama's `format` when this schema is absent,
+        # silently turning a structured-output request into free-form generation.
+        if not isinstance(schema, Mapping):
+            return "response_format.json_schema.schema must be an object"
     return None

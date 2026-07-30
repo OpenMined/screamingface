@@ -1,107 +1,50 @@
+"""The provider-plugin base: auth, model registration, and dispatch.
+
+FEATURE: everything a plugin does OTHER than describe its chat-parameter
+contract — contributing models, producing credentials, exchanging OAuth codes,
+mounting auth routes, and dispatching a completion.
+
+AIDEV-NOTE: this is the LOWER half of ``ProviderPluginBase``, not a second port.
+Plugins subclass ``ProviderPluginBase`` (in ``._contract``), which extends this
+class; nothing subclasses ``ProviderPluginCore`` directly, and it is deliberately
+NOT re-exported from the package. The two halves exist only to keep each file
+within the repository's 450-line limit.
+
+WHY the contract half is the SUBCLASS rather than a sibling mixin: its
+derivations READ the capability declarations defined here —
+``available_auth_modes`` calls ``supports_api_key`` and ``oauth_config``, and
+``chat_transport_capabilities`` calls ``supports_chat_streaming``. A mixin would
+have to redeclare all three, giving every one of those defaults two definitions
+that could drift apart. Inheritance resolves them with none.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from .api_key_validation import ApiKeyValidator
+from ..api_key_validation import ApiKeyValidator
+from ._ports import (
+    CredentialStrategy,
+    ModelEntry,
+    OAuthCodeExchangeRequest,
+    OAuthConfig,
+    PluginSettings,
+)
 
 if TYPE_CHECKING:
-    from .credential_blob.store import CredentialBlobStore
-    from .oauth.identity import AccountIdentity
-    from .profile_index import ProfileIndexStore
-    from .profile_models import AuthType
+    from ..credential_blob.store import CredentialBlobStore
+    from ..oauth.identity import AccountIdentity
+    from ..profile_index import ProfileIndexStore
+    from ..profile_models import AuthMode, AuthType
 
 
-class PluginSettings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
+class ProviderPluginCore[TSettings: PluginSettings](ABC):
+    """The auth, model-registration and dispatch half of the plugin contract.
 
-
-@dataclass(frozen=True)
-class ModelEntry:
-    """Single entry contributed to LiteLLM's model_list.
-
-    Maps directly onto the dict shape that `litellm.Router(model_list=...)`
-    expects. `model_name` is the user-facing alias; `litellm_params.model`
-    is the fully-qualified provider/model string.
-    """
-
-    model_name: str
-    litellm_params: dict[str, Any]
-
-
-class CredentialStrategy(ABC):
-    """Per-provider credential producer (the auth "port").
-
-    Implementations own credential reads, refresh-on-401 with locking, and
-    any provider-specific header construction. The auth bridge calls
-    `get_authorization_header()` right before LiteLLM dispatches a request.
-    Implementations may be OAuth-backed (token refresh) or API-key-backed
-    (no refresh; `refresh_credentials` is a no-op).
-    """
-
-    @abstractmethod
-    async def get_authorization_header(self) -> dict[str, str]:
-        """Return headers to merge into the upstream request.
-
-        Example: ``{"Authorization": "Bearer ..."}``.
-        """
-
-    async def invalidate(self) -> None:
-        """Drop any cached token. Called after a 401 from upstream."""
-
-    @abstractmethod
-    async def persist_credentials(self, credentials: dict[str, Any]) -> None:
-        """Persist newly exchanged provider credentials for this profile."""
-
-    @abstractmethod
-    async def delete_credentials(self) -> None:
-        """Delete persisted provider credentials for this profile."""
-
-    @abstractmethod
-    async def refresh_credentials(self) -> None:
-        """Refresh persisted provider credentials for this profile."""
-
-
-# Back-compat alias: existing plugins/tests import the port under its original
-# OAuth-specific name. New code should use CredentialStrategy.
-OAuthStrategy = CredentialStrategy
-
-
-@dataclass(frozen=True)
-class OAuthConfig:
-    """Provider-level OAuth metadata used to drive the start + callback flow."""
-
-    authorize_url: str
-    token_url: str
-    client_id: str
-    scopes: list[str]
-    redirect_path: str  # absolute path on the gateway callback surface
-    extra_authorize_params: dict[str, str] | None = None
-    loopback_redirect_ports: list[int] | None = None
-
-
-@dataclass(frozen=True)
-class OAuthCodeExchangeRequest:
-    """Provider-owned authorization-code exchange input."""
-
-    code: str
-    code_verifier: str
-    redirect_uri: str
-    state: str
-    http_client_factory: Any | None = None
-
-
-class ProviderPluginBase[TSettings: PluginSettings](ABC):
-    """Contract for an aigateway provider plugin.
-
-    Each plugin owns: model contributions, the OAuth strategy, and the
-    auth UI router. The gateway core loads plugins, builds a litellm
-    Router from their combined model lists, and mounts each auth router
-    under `/v1/auth/{custom_llm_provider}`.
+    Not a port of its own: see the module docstring. ``ProviderPluginBase``
+    extends this class and is the name every plugin subclasses.
     """
 
     custom_llm_provider: str
@@ -113,6 +56,15 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
     @abstractmethod
     def register_models(self) -> list[ModelEntry]:
         """Return the model_list entries this plugin contributes."""
+
+    def conformance_models(self) -> list[ModelEntry]:
+        """Return deterministic model representatives for contract conformance.
+
+        The default is the production catalog. Providers whose catalog requires a
+        live local process may override with test-only representatives; runtime
+        registration and route validation must continue to call ``register_models``.
+        """
+        return self.register_models()
 
     def oauth_config(self) -> OAuthConfig | None:
         """Return provider OAuth metadata, or None for no-auth providers (e.g. local Ollama)."""
@@ -197,6 +149,23 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         subscription endpoint is OAuth-only and rejects raw keys)."""
         return False
 
+    def strip_provider_dispatch_controls(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Remove caller-supplied LiteLLM control-plane fields THIS provider owns.
+
+        # WHY: the global ``strip_dispatch_controls`` covers provider-neutral
+        # control fields; a provider that dispatches through a shared LiteLLM
+        # surface (e.g. OpenRouter) may also expose orchestration selectors
+        # (caching/guardrails/prompt-management/named-credential) that are not
+        # model parameters. Those must be neutralized BEFORE the OME-479
+        # fail-closed classifier runs, so the classifier only ever adjudicates
+        # genuine model-parameter candidates — plan §4.5 tier (a): transport /
+        # gateway-owned fields are authorized structurally, not via a rule.
+        # INVARIANT: the returned body carries no field this provider will refuse
+        # to forward; the strip is idempotent (``prepare_chat_body`` may repeat it
+        # as defense in depth). Default: identity — a provider opts in by override.
+        """
+        return body
+
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Apply provider-specific request normalization before dispatch."""
         return body
@@ -208,6 +177,10 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
     def allows_chatless_profile(self) -> bool:
         """Whether chat may proceed when no gateway OAuth profile exists."""
         return False
+
+    def profileless_auth_mode(self) -> AuthMode | None:
+        """Return the runtime-selected auth mode when no stored target exists."""
+        return None
 
     def invalidate_profile_session(self, _profile_name: str) -> None:
         """Drop provider-owned per-profile chat/session cache, if any."""
@@ -248,52 +221,3 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
     ) -> None:
         """Populate provider-owned profile metadata at startup, if any."""
         return None
-
-
-def credential_service_provider_for(plugin: Any, provider: str) -> str:
-    getter = getattr(plugin, "credential_service_provider", None)
-    if callable(getter):
-        value = getter()
-        if isinstance(value, str) and value:
-            return value
-    return provider
-
-
-def credential_strategy_from(
-    plugin: Any,
-    profile_name: str,
-    *,
-    auth_type: AuthType = "oauth",
-    credential_store: CredentialBlobStore | None = None,
-    http_client_factory: Any | None = None,
-) -> CredentialStrategy | None:
-    """Resolve a plugin's credential strategy, tolerating duck-typed plugins
-    that only implement the legacy ``oauth_strategy_for`` hook (mirrors
-    ``credential_service_provider_for``)."""
-    resolver: Callable[..., CredentialStrategy | None] | None = getattr(
-        plugin, "credential_strategy_for", None
-    )
-    if callable(resolver):
-        return resolver(
-            profile_name,
-            auth_type=auth_type,
-            credential_store=credential_store,
-            http_client_factory=http_client_factory,
-        )
-    if auth_type == "api_key":
-        api_resolver: Callable[..., CredentialStrategy | None] | None = getattr(
-            plugin, "api_key_strategy_for", None
-        )
-        if callable(api_resolver):
-            return api_resolver(profile_name, credential_store=credential_store)
-        return None
-    legacy: Callable[..., CredentialStrategy | None] | None = getattr(
-        plugin, "oauth_strategy_for", None
-    )
-    if callable(legacy):
-        return legacy(
-            profile_name,
-            credential_store=credential_store,
-            http_client_factory=http_client_factory,
-        )
-    return None

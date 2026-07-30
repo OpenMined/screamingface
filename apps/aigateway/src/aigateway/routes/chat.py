@@ -29,6 +29,12 @@ from litellm.exceptions import (
 )
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.parameter_projection import (
+    IncompatibleParametersError,
+    UnsupportedParametersError,
+    caller_cache_bypass_paths,
+    classify_and_project_chat_parameters,
+)
 from ..core.registry import ProviderRegistry
 from ..core.request_cache.keys import parse_cache_controls
 from ..core.request_cache.store import RequestCacheStore
@@ -37,6 +43,7 @@ from .chat_credentials import (
     _apply_defaults,
     _credential_target_for_chat,
     _inject_credentials,
+    resolved_auth_mode,
 )
 from .chat_dispatch import (
     _dispatch_with_backpressure,
@@ -51,6 +58,63 @@ from .chat_dispatch import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _parameter_rejection_exception(
+    exc: UnsupportedParametersError,
+    *,
+    provider: str,
+    profile_name: str,
+    default_paths: frozenset[str],
+) -> HTTPException:
+    """Render a classification failure against the source that actually caused it.
+
+    WHY two codes (OME-638): profile defaults are classified in the SAME pass as
+    caller fields, so one rejection map can mix an operator-configuration fault
+    with a request fault. Reporting a stored default under
+    ``unsupported_parameters`` would send the caller hunting through a request
+    that does not contain the named field, so a rejection caused solely by
+    defaults gets its own code and names the profile instead. 400 either way,
+    matching ``api_key_not_supported`` — stored configuration this provider
+    cannot serve is a bad request, not a server fault.
+
+    INVARIANT: the caller-facing ``rejected`` map lists only paths the CALLER
+    supplied. Defaults occupy only omitted paths, so the two sets are disjoint and
+    neither error can echo the other's fields.
+
+    WHY a caller fault wins when both are present: the request has to be fixed
+    regardless, and it is the only half the caller can act on. The profile half is
+    logged for the operator rather than dropped.
+    """
+    caller_rejected = {
+        path: reason for path, reason in exc.rejected.items() if path not in default_paths
+    }
+    if caller_rejected:
+        return HTTPException(
+            status_code=400,
+            detail={
+                "code": "unsupported_parameters",
+                "provider": provider,
+                "rejected": caller_rejected,
+                "message": (
+                    "one or more parameters are not enabled for this model; "
+                    "see the model parameter contract"
+                ),
+            },
+        )
+    return HTTPException(
+        status_code=400,
+        detail={
+            "code": "invalid_profile_defaults",
+            "provider": provider,
+            "profile": profile_name,
+            "rejected": exc.rejected,
+            "message": (
+                "the stored profile defaults are not enabled for this model; "
+                "see the model parameter contract"
+            ),
+        },
+    )
 
 
 @router.post("/v1/chat/completions")
@@ -94,7 +158,106 @@ async def chat_completions(request: Request, response: Response, current: Curren
         plugin=plugin,
     )
 
-    body = plugin.prepare_chat_body(_apply_defaults(body, defaults, plugin))
+    # OME-479 §4.5 tier (a): neutralize this provider's own LiteLLM control-plane
+    # fields (caching/guardrails/prompt-management/named-credential selectors)
+    # BEFORE classification, so they are authorized structurally instead of being
+    # rejected as unknown model params. Pairs with the provider-neutral
+    # strip_dispatch_controls already applied at ingress; the default is identity.
+    body = plugin.strip_provider_dispatch_controls(body)
+
+    auth_mode = resolved_auth_mode(profile, connection, plugin=plugin)
+
+    # OME-638: merge the gateway-trusted profile defaults BEFORE classification, so
+    # a stored default is authorized by the same rule set, the same schema and the
+    # same resolved auth mode as a caller-supplied value — one pass, one projection,
+    # no second validation path to drift. Placed after both control-plane strips so
+    # those keep seeing caller input only; ProfileDefaults is a closed model of six
+    # typed fields and can carry no dispatch control.
+    # INVARIANT: the body still wins per field, so a default occupies only a path
+    # the caller omitted — which is what makes ``default_paths`` a sound attribution.
+    body, default_paths = _apply_defaults(body, defaults, plugin)
+
+    # OME-479 §4.5: classify every optional parameter against the provider's enabled
+    # rule set for the REAL (never caller-declared) auth mode, and project accepted
+    # fields into a fresh normalized body. This runs before provider normalization,
+    # cache planning, and (crucially) credential injection — so unknown, disabled,
+    # wrong-auth, malformed and duplicate-channel parameters fail closed with
+    # HTTP-safe paths before any credential is read or any provider is dispatched.
+    rules = tuple(plugin.chat_parameter_rules(model=model, auth_type=auth_mode))
+    # The caller-visible parameter view, kept before projection replaces it: it is
+    # what the published contract describes, and therefore what the cache decision
+    # below must be taken from.
+    caller_parameters = body
+    try:
+        body = classify_and_project_chat_parameters(
+            body,
+            rules=rules,
+            auth_mode=auth_mode,
+        )
+    except UnsupportedParametersError as exc:
+        rejected_defaults = sorted(default_paths & exc.rejected.keys())
+        if rejected_defaults:
+            # The caller cannot fix a stored default and may never see it (a caller
+            # fault outranks it in the response), so it goes to the operator's own
+            # channel. Reason codes only — the classifier never carries raw values.
+            logger.warning(
+                "profile defaults rejected provider=%s account=%s profile=%s paths=%s",
+                provider,
+                account_id,
+                profile_name,
+                ",".join(rejected_defaults),
+            )
+        raise _parameter_rejection_exception(
+            exc,
+            provider=provider,
+            profile_name=profile_name,
+            default_paths=default_paths,
+        ) from None
+
+    # OME-640: a per-path rule cannot say "these two accepted fields cannot travel
+    # together on THIS model under THIS auth mode", so the provider gets one seam
+    # to say it — on the projected body, still ahead of provider preparation,
+    # cache planning, credential access and dispatch. The default accepts
+    # everything, so a provider that states no cross-field constraint is unaffected.
+    try:
+        plugin.validate_chat_parameter_combination(body, model=model, auth_mode=auth_mode)
+    except IncompatibleParametersError as exc:
+        if default_paths & set(exc.paths):
+            # A stored default can be one half of the conflict, and the caller may
+            # not know it exists — so the operator gets their own channel, exactly
+            # as for a rejected default. Paths and the provider's own reason only.
+            logger.warning(
+                "profile defaults in a refused parameter combination "
+                "provider=%s account=%s profile=%s paths=%s",
+                provider,
+                account_id,
+                profile_name,
+                ",".join(sorted(default_paths & set(exc.paths))),
+            )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "incompatible_parameters",
+                "provider": provider,
+                "conflict": list(exc.paths),
+                "message": exc.reason,
+            },
+        ) from None
+
+    # OME-479 §4.6 (closure Unit 1): resolve the cache POLICY from the accepted
+    # caller-visible contract, while that view still exists. prepare_chat_body may
+    # remove, rename, flatten or nest an accepted field (anthropic drops
+    # reasoning_effort="none", which is what omission already means), and the body
+    # it hands to the key builder would then be indistinguishable from a bare
+    # prompt — silently making a request the contract calls `bypass` cacheable.
+    # INVARIANT: what the detailed contract publishes for a request path and what
+    # the pipeline does with that path are derived from the SAME rule, so they
+    # cannot drift per provider or per value.
+    cache_bypass_paths = caller_cache_bypass_paths(
+        caller_parameters, rules=rules, auth_mode=auth_mode
+    )
+
+    body = plugin.prepare_chat_body(body)
 
     # Cache key is computed from the normalized body, before credential
     # injection, so no secret-bearing field can ever participate in the key.
@@ -105,6 +268,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         provider=provider,
         body=body,
         controls=cache_controls,
+        bypass_paths=cache_bypass_paths,
     )
 
     if body.get("stream") and not plugin.supports_chat_streaming():

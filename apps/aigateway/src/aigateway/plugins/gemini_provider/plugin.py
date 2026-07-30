@@ -14,6 +14,7 @@ from aigateway.core.google_code_assist import (
     extract_account_identity,
 )
 from aigateway.core.oauth.identity import AccountIdentity
+from aigateway.core.parameter_discovery import DiscoverySourceRef
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
@@ -21,6 +22,7 @@ from aigateway.core.plugin_base import (
     OAuthConfig,
     ProviderPluginBase,
 )
+from aigateway.core.standard_parameters import tool_parameter_observations
 
 from .api_key_validation import GeminiApiKeyValidator
 from .auth import (
@@ -29,7 +31,19 @@ from .auth import (
     credential_service_for,
     exchange_authorization_code,
 )
-from .chat_handler import ensure_litellm_gemini_provider_registered, get_litellm_gemini_handler
+from .chat_handler import (
+    _env_api_key,
+    ensure_litellm_gemini_provider_registered,
+    get_litellm_gemini_handler,
+)
+from .discovery import (
+    CODE_ASSIST_SOURCE,
+    DISCOVERY_SOURCE,
+    DISCOVERY_SOURCE_REVISION,
+    GEMINI_CODE_ASSIST_OBSERVATIONS,
+    GEMINI_DISCOVERY_STATIC_OBSERVATIONS,
+    discover_gemini_snapshot,
+)
 from .models import MODELS
 from .oauth_config import (
     GEMINI_AUTHORIZE_EXTRA_PARAMS,
@@ -39,10 +53,19 @@ from .oauth_config import (
     GEMINI_SCOPES,
     GEMINI_TOKEN_URL,
 )
+from .parameters import gemini_chat_parameter_rules, gemini_chat_parameter_tools
 from .settings import GeminiPluginSettings
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderDiscoverySnapshot,
+        ProviderParameterObservation,
+        ToolCapability,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
+    from aigateway.core.profile_models import AuthMode
 
 
 _CLIENT_AUTH_HEADER_NAMES = CLIENT_AUTH_HEADER_NAMES
@@ -166,6 +189,11 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
     def allows_chatless_profile(self) -> bool:
         return True
 
+    def profileless_auth_mode(self) -> AuthMode | None:
+        # INVARIANT: this is the same selector the handler consults before
+        # dispatching to the public generativelanguage endpoint.
+        return "api_key" if _env_api_key() is not None else None
+
     def supports_chat_streaming(self) -> bool:
         return False
 
@@ -174,6 +202,88 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
 
     def invalidate_profile_session(self, profile_name: str) -> None:
         get_litellm_gemini_handler().invalidate_session(profile_name)
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-479 §Phase 9: Gemini's proven sampling fields, each pinned through
+        # build_generate_content_body's generationConfig. A rule is the ONLY thing
+        # that enables a parameter; every other caller field fails closed at
+        # classification. Both auth paths share the builder, so rules apply to both.
+        return gemini_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-583: build_generate_content_body maps tools[] → functionDeclarations (§9),
+        # so Gemini advertises the `function` tool type (tool_choice stays unruled).
+        return gemini_chat_parameter_tools(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-479 §Phase 9 step 2: evidence is AUTH-SCOPED. The api-key path talks to
+        # the public generativelanguage API, which publishes a Discovery schema
+        # (source "gemini:discovery" — the richer surface). The OAuth path talks to
+        # the Code Assist envelope, which has NO public schema, so its only honest
+        # evidence is the reviewed builder mapping (source "gemini:code-assist" — a
+        # strict subset). This is why public Discovery never overclaims OAuth.
+        # OME-583: the `tools` request path is evidenced HERE too (tool_choice=False —
+        # Gemini has no toolConfig home), carrying THAT mode's label so the auth-scoped
+        # source invariant holds; the sampling-evidence discovery constants stay pure.
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        tools = gemini_chat_parameter_tools(model=model, auth_type=auth_type)
+        if auth_type == "oauth":
+            return GEMINI_CODE_ASSIST_OBSERVATIONS + tool_parameter_observations(
+                tools, source=CODE_ASSIST_SOURCE, tool_choice=False
+            )
+        return GEMINI_DISCOVERY_STATIC_OBSERVATIONS + tool_parameter_observations(
+            tools, source=DISCOVERY_SOURCE, tool_choice=False
+        )
+
+    def _discovers(self, model: str, auth_type: AuthMode | None) -> bool:
+        """Is the PUBLIC Discovery document evidence about THIS contract read?
+
+        # INVARIANT: the ONE predicate behind both discovery hooks. Owning it here
+        # rather than in each makes "declared a source, then reported NOT ATTEMPTED"
+        # structurally unreachable — the one inconsistency the runtime cannot
+        # distinguish from a real outage.
+        # WHY the api-key mode only: that path talks to the public
+        # generativelanguage API, which publishes this document. The OAuth path talks
+        # to the Code Assist envelope, which publishes NO schema — inferring one
+        # upstream's surface from another's would be exactly the overclaim the two
+        # source labels exist to prevent. An unresolved mode fails closed.
+        """
+        return auth_type == "api_key" and model.startswith(f"{self.custom_llm_provider}/")
+
+    def chat_discovery_source(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> DiscoverySourceRef | None:
+        # OME-632: declared BEFORE any fetch, so the observation cache can judge a
+        # stored entry's trustworthiness without paying for a round trip. Returning
+        # None on the OAuth path costs nothing AND publishes no freshness window —
+        # the honest report for a contract no fetch stands behind.
+        if not self._discovers(model, auth_type):
+            return None
+        return DiscoverySourceRef(source=DISCOVERY_SOURCE, revision=DISCOVERY_SOURCE_REVISION)
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+        auth_type: AuthMode | None = None,
+    ) -> ProviderDiscoverySnapshot | None:
+        # OME-479 §Phase 9: the DYNAMIC source. The document is model-INDEPENDENT, so
+        # the model only decides WHETHER this provider is being asked, not what is
+        # fetched — the evidence lands endpoint-scoped.
+        # INVARIANT: never enables a parameter (only a rule does); off the chat
+        # dispatch path; a sanitized DiscoveryError PROPAGATES so the cache can
+        # degrade honestly rather than store a failure as fresh.
+        if not self._discovers(model, auth_type):
+            return None
+        return await discover_gemini_snapshot(client=client, limits=limits)
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = dict(body)

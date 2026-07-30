@@ -20,21 +20,44 @@ Key design points (validated against litellm 1.87.0):
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.parameter_discovery import DiscoverySourceRef
+from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
     ProviderPluginBase,
 )
+from aigateway.core.standard_parameters import (
+    direct_parameter_observations,
+    tool_parameter_observations,
+)
 
 from .api_key_validation import HuggingFaceApiKeyValidator
-from .settings import HuggingFacePluginSettings
+from .discovery import (
+    HF_STATIC_PARAM_OBSERVATIONS,
+    ROUTER_SOURCE,
+    ROUTER_SOURCE_REVISION,
+    STATIC_SOURCE,
+    discover_huggingface_snapshot,
+)
+from .parameters import huggingface_chat_parameter_rules, huggingface_chat_parameter_tools
+from .settings import HuggingFacePluginSettings, pinned_router_target
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderDiscoverySnapshot,
+        ProviderParameterObservation,
+        ToolCapability,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
+    from aigateway.core.profile_models import AuthMode
 
 # Caller-supplied copies of these are stripped before the gateway injects its own
 # credential, so a client can never smuggle auth material to the upstream router.
@@ -81,6 +104,105 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # 401 => bad/missing token (invalidate). 403 is ambiguous (model-access vs
         # token permission) and must not invalidate a valid stored credential.
         return status_code == 401
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-479 §6.2: HF's OpenAI-compatible sampling fields, each proven through
+        # the installed final transform. A rule is the ONLY thing that enables a
+        # parameter; every other caller field fails closed at classification.
+        return huggingface_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def validate_chat_parameter_combination(
+        self,
+        body: Mapping[str, Any],
+        *,
+        model: str,
+        auth_mode: AuthMode,
+    ) -> None:
+        del model, auth_mode
+        if "top_logprobs" in body and body.get("logprobs") is not True:
+            raise IncompatibleParametersError(
+                ("logprobs", "top_logprobs"),
+                reason="top_logprobs_requires_logprobs_true",
+            )
+
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-583: HF's OpenAI-compatible router forwards tools/tool_choice through the
+        # installed transform (§9), so function calling is a first-class capability —
+        # reported in supported_tools and the detail contract's tools section.
+        return huggingface_chat_parameter_tools(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-479 §5.1/§6.2: HF's catalog carries NO parameter list, so the ONLY
+        # honest parameter evidence is labelled-static — the standard OpenAI sampling
+        # fields the INSTALLED transform accepts (source "huggingface:static", NO
+        # network). This makes the detail contract show every accepted field with its
+        # gateway status: temperature/max_tokens are ALSO ruled → ENABLED with this
+        # provenance; the rest stay visible-but-DISABLED (projection_not_implemented).
+        # Endpoint-level evidence is model-independent, so it does not vary by model.
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        # OME-583: the tools/tool_choice request-path observations are contributed here
+        # (mirroring the tool rules) so §4.4 holds — every enabled tool path has a rule,
+        # a schema, AND an observation — WITHOUT polluting the sampling-field constant.
+        # OME-584: response_format is contributed the same way (ruled → ENABLED, evidenced).
+        # OME-585: seed is already evidenced by the sampling constant; n (a non-sampling
+        # control) is evidenced here alongside response_format — both ruled → ENABLED.
+        return (
+            HF_STATIC_PARAM_OBSERVATIONS
+            + tool_parameter_observations(
+                huggingface_chat_parameter_tools(model=model, auth_type=auth_type),
+                source=STATIC_SOURCE,
+            )
+            + direct_parameter_observations(
+                ("response_format", "n", "logprobs", "top_logprobs"), source=STATIC_SOURCE
+            )
+        )
+
+    def chat_discovery_source(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> DiscoverySourceRef | None:
+        # OME-632: Hugging Face is api-key only and its router catalog is public, so
+        # the resolved mode cannot change the evidence — accepted for port
+        # conformance and deliberately ignored.
+        # OME-631: declare the public router catalog BEFORE any fetch, so the
+        # observation cache can judge a stored entry's trustworthiness without
+        # paying for a round trip.
+        # INVARIANT: the SAME predicate gates both hooks. Owning it here (rather
+        # than only in the fetch) makes "declared a source, then reported NOT
+        # ATTEMPTED" structurally unreachable — the one inconsistency the runtime
+        # cannot distinguish from a real outage.
+        if pinned_router_target(model) is None:
+            return None
+        return DiscoverySourceRef(source=ROUTER_SOURCE, revision=ROUTER_SOURCE_REVISION)
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+        auth_type: AuthMode | None = None,
+    ) -> ProviderDiscoverySnapshot | None:
+        # OME-479 §6.2: the DYNAMIC source. The catalog is keyed by the bare
+        # <org>/<model>, and the pinned :<backend> selects one row inside it — so a
+        # gateway id that pins no backend has nothing single-backend to discover and
+        # returns None WITHOUT opening a connection (NOT ATTEMPTED, a different
+        # claim from "attempted and failed").
+        # INVARIANT: never enables a parameter or a tool (only a rule does); off the
+        # chat dispatch path; a sanitized DiscoveryError PROPAGATES so the cache can
+        # degrade honestly rather than store a failure as fresh.
+        target = pinned_router_target(model)
+        if target is None:
+            return None
+        upstream, backend = target
+        return await discover_huggingface_snapshot(
+            upstream, backend=backend, client=client, limits=limits
+        )
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = dict(body)

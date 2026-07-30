@@ -1,10 +1,16 @@
 # aigateway
 
 LiteLLM-compatible AI gateway. Exposes an OpenAI-shape `/v1/chat/completions`
-endpoint and dispatches to upstream providers (Anthropic, OpenAI, Gemini,
-Ollama, …) via [LiteLLM](https://github.com/BerriAI/litellm). Provider
-concerns — OAuth tokens, refresh, response shaping — live in self-contained
-plugins under `src/aigateway/plugins/`.
+endpoint and dispatches through registered provider plugins via
+[LiteLLM](https://github.com/BerriAI/litellm). The registered providers are
+Anthropic, Antigravity, Codex, Gemini CLI, Hugging Face, Ollama and OpenRouter.
+
+The request *shape* is OpenAI-compatible; the provider set is not. Codex targets
+its own ChatGPT subscription backend, which is distinct from the OpenAI Platform
+API — AIGateway does not currently include a first-class OpenAI Platform
+provider. Provider concerns — OAuth tokens, refresh, response shaping — live in
+self-contained plugins under `src/aigateway/plugins/`; every direct subpackage
+exposing a `PLUGIN` attribute is discovered automatically.
 
 Local development uses SQLite at `sqlite://./aigateway.sqlite3` by default.
 Hosted deployments should set `AIGATEWAY_DATABASE_URL` to Postgres.

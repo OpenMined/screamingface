@@ -173,11 +173,17 @@ def _resolve_cache_plan(
     provider: str,
     body: dict[str, Any],
     controls: CacheControls,
+    bypass_paths: tuple[str, ...] = (),
 ) -> tuple[CacheKeyResult | None, str, str]:
     """Decide cache participation for this request.
 
     Returns ``(key, status, reason)`` where ``key`` is None whenever the
     request bypasses the cache. Status/reason feed the X-AIGW-Cache headers.
+
+    ``bypass_paths`` are the accepted CALLER-VISIBLE request paths whose rule
+    declares ``cache_behavior="bypass"`` (see
+    ``core.parameter_projection.caller_cache_bypass_paths``). They are the
+    contract's own promise, carried past provider preparation.
     """
     settings = request.app.state.settings
     if not settings.request_cache_enabled:
@@ -192,6 +198,20 @@ def _resolve_cache_plan(
     )
     if isinstance(built, CacheBypass):
         return None, "bypass", built.reason
+    if bypass_paths:
+        # WHY (OME-479 §4.6, closure Unit 1): ``build_cache_key`` judges the body
+        # AFTER ``plugin.prepare_chat_body``, so a hook that REMOVES an accepted
+        # output-affecting field hands it a body indistinguishable from a bare
+        # prompt — and the request silently borrowed the bare request's entry
+        # while the published contract said ``bypass``. The caller-visible
+        # contract decides; the key builder stays the second line of defence for
+        # anything preparation ADDS.
+        # INVARIANT: this branch can only ever ADD a bypass. Every request that
+        # bypassed before still bypasses, with its original reason intact.
+        # The reason code is the existing "the cache cannot key this request"
+        # vocabulary — the same one an unremoved ``temperature`` already reports —
+        # so the caller-facing header does not gain a second word for one fact.
+        return None, "bypass", "unsupported_fields"
     return built, "miss", ""
 
 

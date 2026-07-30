@@ -13,16 +13,28 @@ from aigateway.core.plugin_base import (
     OAuthConfig,
     ProviderPluginBase,
 )
+from aigateway.core.standard_parameters import tool_parameter_observations
 
 from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import chat_completion, chat_completion_stream
+from .discovery import STATIC_SOURCE, anthropic_static_param_observations
+from .parameters import anthropic_chat_parameter_rules, anthropic_chat_parameter_tools
 from .settings import AnthropicPluginSettings
+from .thinking import raise_on_thinking_conflict
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderParameterObservation,
+        ToolCapability,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
+    from aigateway.core.profile_models import AuthMode
 
 
 def _api_key_headers(api_key: str) -> dict[str, str]:
@@ -97,6 +109,48 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # gateway profile default enables Anthropic thinking on every request and
         # burns the Claude Code rate-limit pool unexpectedly.
         return field != "reasoning_effort"
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-479: one provider-local source drives summary, detail, and dispatch.
+        return anthropic_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-583: Anthropic validates OpenAI-style function tools through the installed
+        # AnthropicConfig transform (§9), so it advertises the `function` tool type.
+        return anthropic_chat_parameter_tools(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-479 §5.1/§6.3: Anthropic has NO live discovery (no credentialed Models-API
+        # probe in v1), so the ONLY honest parameter evidence is reviewed labelled-static
+        # — the standard chat fields the INSTALLED transform accepts (source
+        # "anthropic:static", NO network). Endpoint-level evidence is model-independent,
+        # so it does not vary by model. This makes the detail contract show every accepted
+        # field with its gateway status: temperature/top_p/max_tokens/reasoning_effort are
+        # ALSO ruled → ENABLED with this provenance; native provider_params.top_k is ruled
+        # for api_key only (ENABLED there, visible-but-DISABLED under OAuth); stop is ALSO
+        # ruled → ENABLED under both modes with this provenance (OME-582); tools +
+        # tool_choice are ALSO ruled → ENABLED under both modes (OME-583), evidenced here
+        # so every enabled tool path is fully backed (§4.4).
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        return anthropic_static_param_observations(model) + tool_parameter_observations(
+            anthropic_chat_parameter_tools(model=model, auth_type=auth_type),
+            source=STATIC_SOURCE,
+        )
+
+    def validate_chat_parameter_combination(
+        self, body: Mapping[str, Any], *, model: str, auth_mode: AuthMode
+    ) -> None:
+        # OME-640: reasoning_effort and max_tokens each validate alone, but on a
+        # manual-thinking model the effort becomes a thinking budget Anthropic
+        # requires max_tokens to exceed. The rule is model- and auth-specific, so
+        # it lives beside the parameter rules rather than in the classifier.
+        raise_on_thinking_conflict(body, model=model, auth_mode=auth_mode)
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         # Claude-Code attribution moved to dispatch time (chat_handler):

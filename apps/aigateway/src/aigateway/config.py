@@ -85,6 +85,47 @@ class Settings(BaseSettings):
         default=1_000_000, gt=0, validation_alias="AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES"
     )
 
+    # Bounded public-catalog discovery behind /v1/model-parameters (OME-479 §5.2,
+    # §5.3). Enabled by default: the evidence it gathers can only RESTRICT what a
+    # contract claims, so running without it is the more permissive state, not the
+    # safer one. It never touches the chat path, never sees a credential, and
+    # degrades to the static observations when a source is unreachable.
+    discovery_enabled: bool = Field(default=True, validation_alias="AIGW_DISCOVERY_ENABLED")
+    discovery_cache_ttl_seconds: float = Field(
+        default=900.0,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_DISCOVERY_CACHE_TTL_SECONDS",
+    )
+    # How long a last-good snapshot may still be served, LABELLED STALE, after the
+    # TTL expires and the source fails. Zero disables fail-soft entirely.
+    discovery_cache_stale_ttl_seconds: float = Field(
+        default=3600.0,
+        ge=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_DISCOVERY_CACHE_STALE_TTL_SECONDS",
+    )
+    # Suppress repeated sequential dials during a source outage without delaying
+    # recovery for more than a small, operator-controlled window.
+    discovery_cache_failure_ttl_seconds: float = Field(
+        default=5.0,
+        ge=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_DISCOVERY_CACHE_FAILURE_TTL_SECONDS",
+    )
+    discovery_cache_max_entries: int = Field(
+        default=512, gt=0, validation_alias="AIGW_DISCOVERY_CACHE_MAX_ENTRIES"
+    )
+    discovery_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_DISCOVERY_TIMEOUT_SECONDS",
+    )
+    discovery_max_bytes: int = Field(
+        default=1_000_000, gt=0, validation_alias="AIGW_DISCOVERY_MAX_BYTES"
+    )
+
     @model_validator(mode="after")
     def _validate_request_cache_ttls(self) -> Settings:
         if self.request_cache_default_ttl_seconds > self.request_cache_max_ttl_seconds:
