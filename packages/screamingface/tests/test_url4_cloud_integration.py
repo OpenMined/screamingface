@@ -1,0 +1,45 @@
+"""Opt-in verification against the real url4-cloud execution lifecycle."""
+
+from __future__ import annotations
+
+import os
+from contextlib import closing
+
+import pytest
+
+from screamingface._evaluation import _candidate_from_engine, _operation_from_engine
+from screamingface._transport import Url4CloudTransport
+
+_ENGINE_URL = os.environ.get("SCREAMINGFACE_URL4_CLOUD_INTEGRATION_URL")
+_URL4 = os.environ.get(
+    "SCREAMINGFACE_URL4_CLOUD_INTEGRATION_URL4",
+    "('transport smoke')!'return the input'",
+)
+
+pytestmark = pytest.mark.skipif(
+    _ENGINE_URL is None,
+    reason="set SCREAMINGFACE_URL4_CLOUD_INTEGRATION_URL to test a real url4-cloud runner",
+)
+
+
+def test_real_url4_cloud_runner_completes_the_confirmed_transport_lifecycle() -> None:
+    assert _ENGINE_URL is not None
+    candidate = _candidate_from_engine(
+        name="transport-smoke",
+        kind="model",
+        models=("transport/static-input",),
+        url4=_URL4,
+        operations=(
+            _operation_from_engine(
+                id="op_transport_smoke",
+                kind="model",
+                label="transport smoke",
+                depends_on=(),
+            ),
+        ),
+    )
+
+    with closing(Url4CloudTransport(_ENGINE_URL)) as transport:
+        outcome = transport.run(candidate, None)
+
+    assert outcome.result_body.strip()

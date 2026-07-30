@@ -1,0 +1,314 @@
+"""Private compiled-Evaluation values and validation."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Literal, NoReturn
+
+from url4 import Url4Error, build, render
+
+from screamingface._named_values import _NamedValues
+from screamingface.discovery import BenchmarkInfo
+from screamingface.fusion import Fusion
+from screamingface.model import Model
+from screamingface.recipe import Recipe
+
+type CandidateKind = Literal["model", "fusion"]
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Operation:
+    """One Engine-derived logical unit in a Candidate URL4 DAG."""
+
+    id: str
+    kind: str
+    label: str
+    depends_on: tuple[str, ...]
+
+    def __init__(self) -> NoReturn:
+        raise TypeError("Operation values are derived internally; they are not constructed")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Candidate:
+    """One internally compiled, independently runnable Candidate."""
+
+    name: str
+    kind: CandidateKind
+    models: tuple[str, ...]
+    url4: str
+    operations: tuple[Operation, ...]
+
+    def __init__(self) -> NoReturn:
+        raise TypeError("Candidate values are derived internally; they are not constructed")
+
+    def __repr__(self) -> str:
+        return (
+            f"Candidate(name={self.name!r}, kind={self.kind!r}, "
+            f"models={len(self.models)}, operations={len(self.operations)})"
+        )
+
+
+class _Candidates(_NamedValues[Candidate]):
+    """Ordered compiled Candidates behind one Evaluation."""
+
+    def __init__(self, values: Sequence[Candidate]) -> None:
+        super().__init__(
+            values,
+            empty_message="an Evaluation requires at least one Candidate",
+            item_type=Candidate,
+            type_message="Evaluation candidates must be compiled Candidate values",
+            duplicate_label="Candidate",
+        )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class _Evaluation:
+    """One private, compiled Candidate comparison."""
+
+    benchmark: BenchmarkInfo
+    limit: int | None
+    case_count: int
+    candidates: _Candidates
+    capability_profile: str
+    required_capabilities: tuple[str, ...]
+    _operation_count_items: tuple[tuple[str, int], ...] = field(repr=False)
+
+    def __init__(self) -> NoReturn:
+        raise TypeError("Evaluation values are derived internally; they are not constructed")
+
+    @property
+    def operation_counts(self) -> Mapping[str, int]:
+        return MappingProxyType(dict(self._operation_count_items))
+
+    def __repr__(self) -> str:
+        names = ", ".join(candidate.name for candidate in self.candidates)
+        return (
+            f"_Evaluation(benchmark={self.benchmark.id!r}, "
+            f"cases={self.case_count}, candidates=[{names}])"
+        )
+
+
+def _operation_from_engine(
+    *,
+    id: str,
+    kind: str,
+    label: str,
+    depends_on: Sequence[str],
+) -> Operation:
+    """Build a validated Operation from the Engine inspection response."""
+
+    operation_id = _nonblank(id, "Operation id")
+    dependencies = _unique_texts(
+        depends_on,
+        "Operation depends_on",
+        allow_empty=True,
+    )
+    if operation_id in dependencies:
+        raise ValueError("an Operation cannot depend on itself")
+    operation = object.__new__(Operation)
+    object.__setattr__(operation, "id", operation_id)
+    object.__setattr__(operation, "kind", _nonblank(kind, "Operation kind"))
+    object.__setattr__(operation, "label", _nonblank(label, "Operation label"))
+    object.__setattr__(operation, "depends_on", dependencies)
+    return operation
+
+
+def _candidate_from_engine(
+    *,
+    name: str,
+    kind: CandidateKind,
+    models: Sequence[str],
+    url4: str,
+    operations: Sequence[Operation],
+) -> Candidate:
+    """Build a validated Candidate from one Engine inspection response."""
+
+    selected_kind = _candidate_kind(kind)
+    selected_models = _unique_texts(models, "Candidate models")
+    if selected_kind == "model" and len(selected_models) != 1:
+        raise ValueError("a planned Model Candidate must contain exactly one model route")
+    candidate = object.__new__(Candidate)
+    object.__setattr__(candidate, "name", _nonblank(name, "Candidate name"))
+    object.__setattr__(candidate, "kind", selected_kind)
+    object.__setattr__(candidate, "models", selected_models)
+    object.__setattr__(candidate, "url4", _canonical_url4(url4, "Candidate"))
+    object.__setattr__(candidate, "operations", _operation_dag(operations))
+    return candidate
+
+
+def _evaluation_from_engine(
+    *,
+    benchmark: BenchmarkInfo,
+    limit: int | None,
+    case_count: int,
+    candidates: Sequence[Candidate],
+    capability_profile: str,
+    required_capabilities: Sequence[str],
+    operation_counts: Mapping[str, int],
+) -> _Evaluation:
+    """Build one validated private Evaluation after no-spend compilation."""
+
+    if not isinstance(benchmark, BenchmarkInfo):
+        raise TypeError("Evaluation benchmark must be an sf.BenchmarkInfo")
+    _validate_limit(limit)
+    selected_count = _positive_count(case_count, "Evaluation case_count")
+    expected_count = benchmark.case_count if limit is None else min(limit, benchmark.case_count)
+    if selected_count != expected_count:
+        raise ValueError("Evaluation case_count must match its Benchmark and limit")
+    evaluation = object.__new__(_Evaluation)
+    values = {
+        "benchmark": benchmark,
+        "limit": limit,
+        "case_count": selected_count,
+        "candidates": _Candidates(candidates),
+        "capability_profile": _nonblank(capability_profile, "Evaluation capability_profile"),
+        "required_capabilities": _unique_texts(
+            required_capabilities,
+            "Evaluation required_capabilities",
+            allow_empty=True,
+        ),
+        "_operation_count_items": _operation_counts(operation_counts),
+    }
+    for name, value in values.items():
+        object.__setattr__(evaluation, name, value)
+    return evaluation
+
+
+def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
+    if isinstance(value, Recipe):
+        values = (value,)
+    elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        values = tuple(value)
+    else:
+        raise TypeError("candidates must be an sf.Model, sf.Fusion, or ordered sequence")
+    if not values:
+        raise ValueError("an Evaluation requires at least one Candidate")
+    if any(not isinstance(candidate, Model | Fusion) for candidate in values):
+        raise TypeError("candidates must contain only sf.Model or sf.Fusion values")
+    names: set[str] = set()
+    for candidate in values:
+        if candidate.name in names:
+            raise ValueError(f"duplicate Candidate name {candidate.name!r}")
+        names.add(candidate.name)
+    return values
+
+
+def _validate_limit(limit: int | None) -> None:
+    if limit is None:
+        return
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise TypeError("limit must be a positive integer or None")
+    if limit < 1:
+        raise ValueError("limit must be a positive integer or None")
+
+
+def _operation_dag(values: Sequence[Operation]) -> tuple[Operation, ...]:
+    operations = _operation_values(values)
+    _require_acyclic(operations)
+    return operations
+
+
+def _operation_values(values: Sequence[Operation]) -> tuple[Operation, ...]:
+    try:
+        operations = tuple(values)
+    except TypeError as exc:
+        raise TypeError("Candidate operations must be an ordered sequence") from exc
+    if not operations:
+        raise ValueError("a Candidate requires at least one Operation")
+    if any(not isinstance(operation, Operation) for operation in operations):
+        raise TypeError("Candidate operations must contain only sf.Operation values")
+
+    operation_ids = tuple(operation.id for operation in operations)
+    if len(operation_ids) != len(set(operation_ids)):
+        raise ValueError("Candidate Operation IDs must be unique")
+    known_ids = set(operation_ids)
+    if unknown := {
+        dependency
+        for operation in operations
+        for dependency in operation.depends_on
+        if dependency not in known_ids
+    }:
+        raise ValueError(f"Candidate Operation has unknown dependency {min(unknown)!r}")
+    return operations
+
+
+def _require_acyclic(operations: tuple[Operation, ...]) -> None:
+    # INVARIANT: operation identity, not URL equality, defines the Candidate DAG.
+    remaining = {operation.id: set(operation.depends_on) for operation in operations}
+    resolved: set[str] = set()
+    while ready := {
+        operation_id for operation_id, dependencies in remaining.items() if dependencies <= resolved
+    }:
+        resolved.update(ready)
+        for operation_id in ready:
+            del remaining[operation_id]
+    if remaining:
+        raise ValueError("Candidate Operations must form an acyclic DAG; cycle detected")
+
+
+def _positive_count(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{label} must be a positive integer")
+    if value < 1:
+        raise ValueError(f"{label} must be a positive integer")
+    return value
+
+
+def _candidate_kind(value: object) -> CandidateKind:
+    if value == "model":
+        return "model"
+    if value == "fusion":
+        return "fusion"
+    raise ValueError("Candidate kind must be 'model' or 'fusion'")
+
+
+def _nonblank(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string")
+    if not value.strip():
+        raise ValueError(f"{label} must be a non-empty string")
+    return value.strip()
+
+
+def _unique_texts(
+    values: object,
+    label: str,
+    *,
+    allow_empty: bool = False,
+) -> tuple[str, ...]:
+    if isinstance(values, str | bytes) or not isinstance(values, Sequence):
+        raise TypeError(f"{label} must be an ordered sequence of strings")
+    selected = tuple(_nonblank(value, label) for value in values)
+    if not selected and not allow_empty:
+        raise ValueError(f"{label} must not be empty")
+    if len(selected) != len(set(selected)):
+        raise ValueError(f"{label} must be unique")
+    return selected
+
+
+def _operation_counts(values: object) -> tuple[tuple[str, int], ...]:
+    if not isinstance(values, Mapping):
+        raise TypeError("Evaluation operation_counts must be a mapping")
+    selected: list[tuple[str, int]] = []
+    for name, count in values.items():
+        operation = _nonblank(name, "Evaluation operation count name")
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise TypeError("Evaluation operation counts must be non-negative integers")
+        if count < 0:
+            raise ValueError("Evaluation operation counts must be non-negative integers")
+        selected.append((operation, count))
+    return tuple(selected)
+
+
+def _canonical_url4(value: object, label: str) -> str:
+    selected = _nonblank(value, f"{label} URL4")
+    try:
+        return render(build(selected))
+    except Url4Error as exc:
+        raise ValueError(f"{label} URL4 must be valid URL4: {exc}") from exc
+
+
+__all__: list[str] = []
