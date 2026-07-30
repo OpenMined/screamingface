@@ -782,13 +782,13 @@ function RunDetail({
               <TabsList className="gap-0 rounded-lg bg-muted/60 p-0.5">
                 <TabsTrigger
                   value="local"
-                  className="h-7 rounded-md border-0 px-3 py-1.5 data-[state=active]:border-transparent data-[state=active]:bg-card data-[state=active]:shadow-sm"
+                  className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border-0 px-3 py-1.5 data-[state=active]:border-transparent data-[state=active]:bg-card data-[state=active]:shadow-sm"
                 >
                   My Runs
                 </TabsTrigger>
                 <TabsTrigger
                   value="public"
-                  className="h-7 rounded-md border-0 px-3 py-1.5 data-[state=active]:border-transparent data-[state=active]:bg-card data-[state=active]:shadow-sm"
+                  className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border-0 px-3 py-1.5 data-[state=active]:border-transparent data-[state=active]:bg-card data-[state=active]:shadow-sm"
                 >
                   <Globe className="size-3" />
                   Public
