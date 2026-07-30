@@ -1,0 +1,151 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/openmined/screamingface-aigateway-ui
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  # 1000 is the `node` user the image runs as — the node base images ship it, which is why the
+  # Dockerfile uses it rather than creating one. Changing this number without changing the image
+  # gives a Pod that cannot read its own application files.
+  runAsUser: 1000
+
+config:
+  port: 9107
+  logLevel: info
+
+# WHERE THE ADMIN API IS. The console is a Backend-for-Frontend: every call to `/v1/admin` is made
+# by THIS Pod, server-side, and the browser never learns this address.
+#
+# The two charts install as separate releases, so this chart cannot derive the gateway's Service
+# name — that name is `<gateway release>-aigateway`, and only the operator knows the release name.
+# The default assumes the release name this repo uses throughout (`aigw`); if you installed the
+# gateway under another name, set `serviceName` or `baseUrl`.
+aigateway:
+  # Explicit URL. Wins over everything below when set — for a gateway outside this cluster, or
+  # behind a name the selectors here cannot express.
+  baseUrl: ""
+  # Otherwise the URL is built as http://<serviceName>.<namespace>.svc.cluster.local:<port>
+  serviceName: aigw-aigateway
+  # Empty => this release's namespace, the usual single-namespace install.
+  namespace: ""
+  port: 9105
+
+# Extra environment variables appended verbatim to the container.
+#
+# NOTE — do NOT set AIGATEWAY_DEV_USER_EMAIL here. It is the local-development escape hatch that
+# supplies a caller identity when no `X-User-Email` header is present, and the app honours it only
+# when NODE_ENV is not "production" (the image sets production, so it is inert). Putting it in a
+# chart is a request for it to become load-bearing somewhere it must never be.
+extraEnv: []
+
+service:
+  type: ClusterIP
+  port: 9107
+
+# DISABLED BY DEFAULT, and enabling it FAILS THE RENDER.
+#
+# This is not caution, it is the same invariant that governs aigateway: the console trusts
+# `X-User-Email` because the mesh gateway verifies Cloudflare Access and injects it, stripping any
+# client-supplied copy. An Ingress straight to this Service removes that guarantee — port 9107
+# becomes directly reachable and `curl -H 'X-User-Email: <any admin>'` is full admin
+# impersonation: create tenants, attach provider API keys, read every account.
+#
+# Route the console through the same mesh gateway that injects identity. There is no configuration
+# of this chart under which a second, unauthenticated front door is correct, which is why the
+# template refuses rather than warns — and why this block carries no className/hosts/tls: the
+# chart ships no Ingress template at all. The key exists so the refusal is discoverable at the
+# place an operator would go to turn it on.
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Both probes hit /healthz, which deliberately does NOT call aigateway — a liveness probe that
+# fails when a dependency is down turns one unhealthy backend into a restart loop across every UI
+# Pod, which is strictly worse than serving an error page.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+# Who may reach the console, and where the console may go.
+#
+# INGRESS IS THE AUTHENTICATION BOUNDARY, exactly as it is for aigateway: this app trusts the
+# identity header, so "who can open a connection to port 9107" is the same question as "who can be
+# an admin". No peers are shipped by default because only the operator knows how their mesh
+# gateway is labelled — and rather than render a policy with an empty `from:` (which admits
+# EVERY source, the precise opposite of enabling it), the template fails and names what to set.
+#
+# EGRESS IS NARROW, and deliberately unlike aigateway's `- {}`. The gateway's egress is open
+# because its job is dialling provider APIs whose address ranges are not knowable. The console
+# dials exactly one service plus DNS, so it gets exactly that.
+networkPolicy:
+  enabled: true
+  # Namespace holding the mesh gateway. Empty => this release's namespace.
+  clientNamespace: ""
+  # `app.kubernetes.io/name` of each Pod allowed to reach the console — normally the mesh
+  # gateway's data plane. Each entry becomes ONE `from` element carrying BOTH the namespace and
+  # pod selector; splitting them would mean "any pod in that namespace OR any pod with that label
+  # anywhere", i.e. the whole namespace.
+  clientPodNames: []
+  # Extra CIDRs, e.g. a mesh gateway outside the cluster network.
+  ingressCIDRs: []
+  # Escape hatch: raw NetworkPolicyPeer entries appended verbatim.
+  allowFrom: []
+
+  egress:
+    # `app.kubernetes.io/name` carried by the aigateway Pods. Set by the aigateway chart from its
+    # own chart name, so this is stable unless that chart's `nameOverride` is used.
+    gatewayPodName: aigateway
+    # Empty => this release's namespace.
+    gatewayNamespace: ""
+    # DNS must be allowed explicitly. Once a Pod has ANY egress rule, everything unnamed is
+    # denied — including cluster DNS, without which the gateway's Service name never resolves and
+    # every admin call fails with EAI_AGAIN rather than a connection error.
+    dns:
+      enabled: true
+      namespace: kube-system
+    # Raw NetworkPolicyPeer entries appended verbatim to the egress allowance.
+    allowTo: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

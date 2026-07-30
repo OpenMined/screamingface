@@ -31,6 +31,8 @@ ScreamingFace is a **polyglot monorepo** worked on by multiple developers concur
 
 CI is **path-filtered**: a PR only triggers the workflow(s) for the paths it touches. A PR touching two apps runs both lanes. Each `<component>-tests.yml` also self-triggers when its own YAML changes.
 
+**Helm charts are gated separately** by `charts.yml`, filtered on `apps/*/charts/**`. It is its own workflow because `paths:` is workflow-level — a chart job inside an app's lane would run that app's whole test suite on every chart edit — and because its checks are about the **pair** of charts (the console must point at the Service the gateway renders; the gateway must admit the label the console's Pods carry), which neither app's lane owns. It runs `.github/scripts/verify_chart_wiring.py`, which renders and asserts on parsed YAML. `helm lint` alone is not a gate: it reports "0 chart(s) failed" for a chart that cannot render at all.
+
 ## 4. Adding a new component (any stack: Python / Go / JS / TS)
 
 Bring whatever stack fits; satisfy this **invariant contract** so the coordination machinery sees it:

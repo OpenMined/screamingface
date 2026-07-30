@@ -1,0 +1,89 @@
+name: Charts
+
+# The aigateway chart was previously linted ONLY inside release-aigateway.yml, which runs after a
+# release tag — so a chart change in a pull request had no gate at all and a broken chart was
+# discovered at deploy time. This lane moves that check to the PR.
+#
+# Its own workflow rather than jobs inside aigateway-tests.yml / aigateway-ui-tests.yml because
+# `paths:` filters are workflow-level: putting a chart job in each app's lane would make every
+# chart edit run both full application test suites, and the checks here are about the PAIR of
+# charts anyway — neither app's lane owns them.
+#
+# SECURITY: nothing here interpolates `github.event.*`. The only expression is `github.ref` in the
+# concurrency group, which is a ref name and never attacker-authored free text.
+on:
+  push:
+    paths:
+      - "apps/aigateway/charts/**"
+      - "apps/aigateway-ui/charts/**"
+      - "apps/aigateway-ui/Dockerfile"
+      - ".github/scripts/verify_chart_wiring.py"
+      - ".github/workflows/charts.yml"
+  pull_request:
+    paths:
+      - "apps/aigateway/charts/**"
+      - "apps/aigateway-ui/charts/**"
+      - "apps/aigateway-ui/Dockerfile"
+      - ".github/scripts/verify_chart_wiring.py"
+      - ".github/workflows/charts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: charts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    name: Lint and verify chart wiring
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+
+      # Kept because it catches malformed Chart.yaml and stray files, but NOT relied on: `helm
+      # lint` reports "0 chart(s) failed" for a chart that cannot render at all, since it reads
+      # templates without executing them. The verify step below is what actually exercises them.
+      - name: Lint
+        run: |
+          helm lint apps/aigateway/charts/aigateway
+          helm lint apps/aigateway/charts/db
+          helm lint apps/aigateway-ui/charts/aigateway-ui
+
+      # Renders both charts and asserts on the parsed output — including the cross-chart
+      # properties neither chart can check alone: the console points at the Service the gateway
+      # renders, and the gateway admits the label the console's Pods carry.
+      - name: Verify chart wiring
+        run: python3 .github/scripts/verify_chart_wiring.py
+
+      # The prod values file overrides clientPodNames wholesale, so nothing above exercises it.
+      - name: Render the prod values
+        run: |
+          helm template aigw apps/aigateway/charts/aigateway \
+            --values apps/aigateway/charts/aigateway/values-prod.yaml > /dev/null
+
+  image:
+    name: Build the console image
+    runs-on: ubuntu-latest
+    # The chart is only deployable if the image it names can be built. Nothing else in CI compiles
+    # this Dockerfile — aigateway-ui-tests.yml runs `next build` on the host, which exercises the
+    # app but not the multi-stage copy of .next/standalone, .next/static and public/ that the
+    # runtime stage depends on. Omitting any of those three produces an image that starts cleanly
+    # and serves a broken page.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/aigateway-ui/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

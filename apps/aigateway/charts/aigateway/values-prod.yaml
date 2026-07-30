@@ -16,14 +16,20 @@ database:
 # directly. Automation using Cloudflare service tokens is not supported in this mode.
 config:
   authMode: cloudflare_headers
+  # DELIBERATELY EMPTY HERE. The admin allowlist is a deployment-specific list of real people, so
+  # it is set at install time (`--set-string 'config.adminEmails[0]=…'` or a private values file),
+  # not committed. Left empty the admin API answers 503 to everyone, which is the correct posture
+  # for a file that cannot know who the operators are — the console will report "admin API
+  # disabled" rather than silently letting anyone in.
+  adminEmails: []
 
 # Internal-only. There is no public route to the gateway, and that is load-bearing rather than
 # incidental — it is what makes the injected identity headers unforgeable.
 ingress:
   enabled: false
 
-# The authentication boundary in `cloudflare_headers` mode: only the url4-cloud App and its Runner
-# Jobs may connect.
+# The authentication boundary in `cloudflare_headers` mode: only the url4-cloud App, its Runner
+# Jobs, and the admin console may connect.
 #
 # WHY this is spelled out here rather than left to the chart default: this file previously set
 # `enabled: true` and nothing else, and the template omitted `from:` when no CIDRs were given —
@@ -35,3 +41,5 @@ networkPolicy:
   clientPodNames:
     - url4-cloud
     - url4-runner
+    # The admin console (OME-710) — a BFF, so it is its Pod that connects here, not a browser.
+    - aigateway-ui
