@@ -16,12 +16,14 @@ INVARIANT (SOLID/hexagonal): this package contains NO provider-name switch and
 NO central provider inventory. Each plugin owns and selects its own rules; the
 algebra here is provider-agnostic.
 
-AIDEV-NOTE (OME-602): the implementation is split across ``_types`` (vocabulary
-and value objects) and ``_algebra`` (the pure derivations) to keep each file
-within the repository's 450-line limit. That layout is an implementation detail
-— THIS module is the public surface, and every name below is importable exactly
-as it was from the former single ``chat_parameters`` module. Import from here,
-never from a half; a name may move between halves without notice.
+AIDEV-NOTE (OME-602, extended OME-704): the implementation is split across
+``_types`` (vocabulary and value objects), ``_schema`` (``ParameterSchema`` and
+the value-validation vocabulary) and ``_algebra`` (the pure derivations) to keep
+each file within the repository's 450-line limit. That layout is an
+implementation detail — THIS module is the public surface, and every name below
+is importable exactly as it was from the former single ``chat_parameters``
+module. Import from here, never from a half; a name may move between halves
+without notice.
 """
 
 from ._algebra import (
@@ -31,6 +33,12 @@ from ._algebra import (
     overlay_observations,
     overlay_tool_capabilities,
     supported_tool_types,
+)
+from ._schema import (
+    ParameterSchema,
+    ParameterValidationError,
+    SchemaItemType,
+    SchemaType,
 )
 from ._types import (
     GATEWAY_OWNED_FIELDS,
@@ -42,15 +50,11 @@ from ._types import (
     ParameterContractEntry,
     ParameterProjectionRule,
     ParameterRuleError,
-    ParameterSchema,
-    ParameterValidationError,
     ProjectionKind,
     ProviderDiscoverySnapshot,
     ProviderParameterObservation,
     ProviderSupport,
     ProviderToolObservation,
-    SchemaItemType,
-    SchemaType,
     ToolCapability,
     TransportCapability,
     stream_transport_capability,

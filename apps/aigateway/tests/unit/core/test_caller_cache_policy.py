@@ -97,6 +97,17 @@ def test_a_malformed_wrapper_addresses_nothing() -> None:
     assert _policy(body, rules=(_native("provider_params.top_k", "extra_body.top_k"),)) == ()
 
 
+def test_a_dotted_top_level_key_addresses_nothing() -> None:
+    # OME-704: a top-level key spelled "provider_params.<leaf>" is not a caller
+    # addressing form — classification rejects it, so it can never reach cache
+    # planning. The two enumerations stay a true pair (see the anti-drift lock
+    # below): if only one of them kept treating it as an address, the docstring
+    # claim "the caller-visible addressing forms, and only those" would be false.
+    body = {**_PROMPT, "provider_params.top_k": 1}
+    rules = (_native("provider_params.top_k", "extra_body.top_k"),)
+    assert _policy(body, rules=rules) == ()
+
+
 def test_a_rule_outside_this_auth_mode_is_not_a_bypass_path() -> None:
     # The field is rejected by classification under this mode, so the request
     # never dispatches; the policy agrees it authorizes nothing here.
