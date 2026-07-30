@@ -170,7 +170,7 @@ conventional commits → PR. The agent contract is documented in
 | Stack | How |
 |---|---|
 | `apps/aigateway` | release-please manages the release PR; merging it tags `aigateway-v*`, which builds the GHCR image + Helm chart (`release-aigateway.yml`). |
-| `apps/aigateway-ui` | release-please manages the release PR; merging it tags `aigateway-ui-v*`. The `Dockerfile` and Helm chart exist (OME-710) and are built on every PR by `charts.yml`, but no workflow yet publishes them on that tag — so the tag is still a version marker only. |
+| `apps/aigateway-ui` | release-please manages the release PR; merging it tags `aigateway-ui-v*`, which builds the multi-arch GHCR image + Helm chart (`release-aigateway-ui.yml`). Unlike aigateway it is **not** mirrored to the public `sf-installer` repo — the console is internal operator tooling, not part of a product install. |
 | `apps/scoreboard` | manual tag `scoreboard-v*` triggers `release-scoreboard.yml` (GHCR image + Helm chart). |
 | `packages/url4` | tag `url4-v*` triggers `release-url4.yml` — verify + build + `twine check`, then publish via PyPI Trusted Publishing. The publish step needs a one-time owner setup (PyPI project + Trusted Publisher + the `pypi` GitHub Environment); until that lands, verify and build still run and only publish fails. See the workflow header. |
 

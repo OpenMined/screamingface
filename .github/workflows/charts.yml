@@ -19,6 +19,10 @@ on:
       - "apps/aigateway-ui/Dockerfile"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
+      # The verifier compares the chart's image against the image this lane publishes. A chart
+      # naming an image nobody pushes is installable and permanently ImagePullBackOff, so editing
+      # the lane has to re-run the comparison.
+      - ".github/workflows/release-aigateway-ui.yml"
   pull_request:
     paths:
       - "apps/aigateway/charts/**"
@@ -26,6 +30,10 @@ on:
       - "apps/aigateway-ui/Dockerfile"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
+      # The verifier compares the chart's image against the image this lane publishes. A chart
+      # naming an image nobody pushes is installable and permanently ImagePullBackOff, so editing
+      # the lane has to re-run the comparison.
+      - ".github/workflows/release-aigateway-ui.yml"
   workflow_dispatch:
 
 permissions:

@@ -269,6 +269,25 @@ check(
     "the console's port IS the port the gateway's Service listens on",
 )
 
+print("\nthe release lane")
+# A chart naming an image nobody publishes is installable and permanently ImagePullBackOff, and
+# neither the chart nor the workflow can notice on its own — renaming either side is a silent
+# break. This is the only place the two are compared.
+lane = yaml.safe_load((REPO / ".github/workflows/release-aigateway-ui.yml").read_text())
+published_image = lane["env"]["IMAGE"]
+console_image = c_deployment["spec"]["template"]["spec"]["containers"][0]["image"]
+check(
+    console_image.rsplit(":", 1)[0] == published_image,
+    f"the chart's image ({console_image.rsplit(':', 1)[0]}) IS the one the release lane publishes",
+)
+# `helm package --app-version "$VERSION"` sets appVersion from the tag, and the chart's image
+# helper falls back to appVersion when image.tag is empty — so a released chart pins the exact
+# version that release built, without the values file naming a version at all.
+check(
+    console_image.rsplit(":", 1)[1] != "" and ":" in console_image,
+    "the chart pins an image TAG rather than leaving it floating at :latest",
+)
+
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:
     print("\nFAILED:")
