@@ -1,0 +1,33 @@
+%%{init: {"theme": "base",  "themeVariables": {"primaryColor": "#0f172a", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#34d399", "lineColor": "#94a3b8", "actorBorder": "#34d399", "actorTextColor": "#e2e8f0", "noteBkgColor": "#1e293b", "noteTextColor": "#e2e8f0", "noteBorderColor": "#fb923c", "signalTextColor": "#0f172a"}}}%%
+sequenceDiagram
+    autonumber
+    actor C as Client
+    participant E as Envoy
+    participant A as url4-cloud App
+    participant J as Job spec (env)
+    participant R as Runner Pod
+    participant G as aigateway
+    participant P as Provider
+
+    C->>E: GET /?q=(url4 expression)<br/>+ the caller's own token
+    Note over E,A: Envoy verifies the token, STRIPS any client-sent<br/>X-* identity header, then re-injects them from the<br/>verified claims. A client cannot forge these.
+    E->>A: GET /?q=(url4 expression)<br/>X-Tenant + X-User-Id / X-User-Email<br/>(or X-Service-Id for automation)<br/>+ URL4-Capability, Authorization, X-Profile
+
+    Note over A,J: job_env.identity_from_headers()<br/>canonical name → value · blank counts as absent<br/>nothing present → None, and nothing is forwarded
+    A->>J: schedule(identity=…)<br/>identity_to_env() → URL4_CLOUD_IDENTITY_*<br/>PLAIN env: identity is not a credential
+
+    Note over A,R: THIS is why it is not header forwarding —<br/>the outgoing aigateway request does not exist yet.<br/>The App and the Runner are different Pods.
+
+    J->>R: Pod starts with that env
+    Note over R,G: job_env.identity_from_env() →<br/>build_aigateway_world(identity_headers=…)<br/>held for the whole run, like token and profile
+
+    R->>G: POST /v1/chat/completions<br/>identity headers, THEN Authorization + X-Profile<br/>(gateway-owned last, so no inbound value wins)
+
+    Note over G,P: current_account() in gateway_headers mode:<br/>identity_from_headers() → GatewayIdentity →<br/>account_id = uuid5(ns, tenant ∥ kind ∥ subject)<br/>get-or-create the Account, honouring is_active
+    G->>P: provider call with THAT principal's credential
+    P-->>G: completion
+    G-->>R: OpenAI-shaped response + usage
+    R-->>E: run frames over NATS → WebSocket
+    E-->>C: Result / Terminated
+
+    Note over G,P: No identity headers in this mode → 401.<br/>Never anonymous: one shared principal<br/>would pool every caller's credentials.

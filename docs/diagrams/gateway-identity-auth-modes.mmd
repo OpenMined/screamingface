@@ -1,0 +1,31 @@
+%%{init: {"theme": "base",  "themeVariables": {"primaryColor": "#0f172a", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#34d399", "lineColor": "#94a3b8", "clusterBkg": "#111c2e", "clusterBorder": "#475569", "fontSize": "14px"}}}%%
+flowchart TB
+    REQ(["Request reaches aigateway"]) --> MODE{"AIGW_AUTH_MODE"}
+
+    MODE -->|gateway_headers<br/><b>cloud default</b>| H1{"X-Tenant present<br/>AND one subject header?"}
+    H1 -->|no| H401["<b>401</b><br/>never anonymous — a shared principal<br/>would pool every caller's credentials"]
+    H1 -->|yes| HACC["GatewayIdentity → uuid5 account<br/>get-or-create, honours is_active"]
+    HACC --> OK(["credential lookup for<br/>THAT principal"])
+
+    MODE -->|jwt| J1{"Valid bearer token<br/>for an active Account?"}
+    J1 -->|no| J401["<b>401</b>"]
+    J1 -->|yes| OK
+
+    MODE -->|disabled<br/><b>local only</b>| D1["anonymous account<br/>+ loopback-only middleware<br/>(client IP AND Host must be loopback)"]
+    D1 --> OK
+
+    subgraph REFUSED["Configurations the Helm chart REFUSES to render"]
+        R1["authMode=gateway_headers<br/>+ ingress.enabled=true<br/><br/>a direct route in means anyone<br/>can set X-User-Email"]
+        R2["authEnabled=false<br/>+ authMode≠disabled<br/><br/>two settings disagreeing about<br/>the auth posture"]
+        R3["networkPolicy.enabled=true<br/>with no peers declared<br/><br/>an ingress rule with no from:<br/>admits every source"]
+    end
+
+    classDef ok fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#e2e8f0
+    classDef bad fill:#3f1d1d,stroke:#f87171,stroke-width:2px,color:#fecaca
+    classDef dec fill:#1e293b,stroke:#fb923c,stroke-width:2px,color:#e2e8f0
+    classDef local fill:#083344,stroke:#22d3ee,stroke-width:2px,color:#e2e8f0
+
+    class OK,HACC ok
+    class H401,J401,R1,R2,R3 bad
+    class MODE,H1,J1 dec
+    class D1 local
