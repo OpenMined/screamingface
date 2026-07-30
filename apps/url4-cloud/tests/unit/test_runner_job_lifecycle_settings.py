@@ -102,7 +102,6 @@ async def test_k8s_runner_job_carries_the_configured_resources_and_ttl() -> None
     runner = build_job_runner(
         settings,
         k8s_client_factory=lambda: client,
-        k8s_secrets_client_factory=FakeCoreV1Secrets,
     )
     assert runner is not None
     name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=57600)
@@ -119,7 +118,6 @@ async def test_k8s_runner_job_without_configured_resources_still_gets_its_ttl() 
     runner = build_job_runner(
         _k8s_settings(),
         k8s_client_factory=lambda: client,
-        k8s_secrets_client_factory=FakeCoreV1Secrets,
     )
     assert runner is not None
     name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)

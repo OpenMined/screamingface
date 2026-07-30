@@ -93,9 +93,12 @@ uv run url4-cloud   # serve on :9108 (`serve` is the default subcommand)
 ## Local mode
 
 ```sh
-export AIGATEWAY_TOKEN=...          # forwarded to aigateway; per-request headers still win
 uv run url4-cloud serve --local     # loopback only, :9108
 ```
+
+Local mode expects aigateway to run with authentication **disabled** (`AIGW_AUTH_MODE=disabled`),
+where every caller is anonymous. Nothing needs a token: url4-cloud carries no aigateway credential
+in either mode.
 
 No Kubernetes, no NATS: `InProcessJobRunner` spawns each run as an `asyncio` task and
 `InMemoryEventStream` carries its frames, with real sequence numbers, replay-from and purge.
@@ -107,7 +110,7 @@ What differs from a deployed App — and nothing else does:
 | --- | --- | --- |
 | Run substrate | `K8sJobRunner` (one batch/v1 Job per run) | `InProcessJobRunner` (one `asyncio.Task`) |
 | Event stream | JetStream | `InMemoryEventStream` |
-| Credential | per-run Secret, `valueFrom.secretKeyRef` | per-run env, falling back to the process `AIGATEWAY_TOKEN` |
+| Caller identity | the verified `X-User-Email` Envoy injects | none — aigateway is anonymous |
 | Admission | the cluster queues surplus Jobs | `local_max_concurrent_runs`, else `503` + `Retry-After` |
 | JWT secret | `_require_prod_secret` refuses the dev default | dev default allowed, so the bind is loopback-only |
 
@@ -122,18 +125,18 @@ installed by the wheel, so in a checkout local mode falls back to the checkout's
 ## Model catalog — `GET /v1/models`
 
 Discover which models an expression can address, proxied from aigateway's own `/v1/models` and
-served from a per-credential cache. Design: `docs/spec/2026-07-26-url4-cloud-model-catalog-spec.md`
+served from a per-caller cache. Design: `docs/spec/2026-07-26-url4-cloud-model-catalog-spec.md`
 · OME-625.
 
-**A credential is required.** Send the one you already have — behind Cloudflare Access the edge
-attaches `Cf-Access-Jwt-Assertion` for you, so a browser needs no extra code:
+The caller is the verified `X-User-Email` the mesh gateway injects. Deployed, Envoy always supplies
+it. Locally, aigateway runs with auth disabled and none is needed:
 
 ```sh
-curl -H "Authorization: Bearer $AIGATEWAY_TOKEN" http://localhost:9108/v1/models
+curl http://localhost:9108/v1/models
 ```
 
-url4-cloud verifies nothing and **stores no aigateway credential of its own** — it forwards yours
-and aigateway decides. Consequences worth knowing:
+url4-cloud verifies nothing and **stores no aigateway credential of its own** — it forwards the
+caller's identity and aigateway decides, including whether an absent identity is acceptable. Consequences worth knowing:
 
 - **The answer is per credential.** Two callers can legitimately get different catalogs, which is
   what keeps this correct under either aigateway credential mode (`byok` / `shared`). Responses are

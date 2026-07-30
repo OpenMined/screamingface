@@ -9,6 +9,7 @@ first.
 """
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -18,11 +19,11 @@ from fastapi import APIRouter, Header, Request, Response
 from url4.streaming.interfaces import (
     EventConsumer,
     JobAlreadyExists,
-    JobRunner,
     JobRunnerAtCapacity,
 )
 from url4.streaming.protocol import ResultEvent, TerminatedEvent
 from url4.streaming.trace import valid_traceparent
+from url4_cloud import job_env
 from url4_cloud.auth import (
     PROBLEM_MEDIA_TYPE,
     JwtCodec,
@@ -31,7 +32,7 @@ from url4_cloud.auth import (
     new_topic,
 )
 from url4_cloud.config import Settings
-from url4_cloud.rest._credentials import forwarded_credential
+from url4_cloud.ports import IdentityAwareJobRunner
 from url4_cloud.rest.interest import SubscriberGate
 
 router = APIRouter()
@@ -52,7 +53,7 @@ class _Deps:
     """The run-scheduling collaborators a route handler needs, resolved from app state."""
 
     stream: EventConsumer
-    job_runner: JobRunner
+    job_runner: IdentityAwareJobRunner
     interest: SubscriberGate
     settings: Settings
 
@@ -138,8 +139,8 @@ async def _schedule(
     url4: str,
     *,
     traceparent: str | None = None,
-    credential: str | None = None,
     profile: str | None = None,
+    identity: Mapping[str, str] | None = None,
 ) -> None:
     """Schedule the run on the job runner, or raise 409 if one already exists for ``topic``.
 
@@ -154,8 +155,8 @@ async def _schedule(
             url4,
             deps.settings.job_deadline_s,
             traceparent=traceparent,
-            credential=credential,
             profile=profile,
+            identity=identity,
         )
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
@@ -317,13 +318,12 @@ _START_DESC = (
     "An inbound ``traceparent`` header, when strictly W3C-valid, is forwarded to the run so its "
     "trace is adopted downstream; absent or malformed, nothing is forwarded — a fresh trace is "
     'minted instead (W3C "restart" rule: garbage never propagates).\n\n'
-    "An inbound ``Authorization: Bearer <token>`` header — distinct from the ``URL4-Capability`` "
-    "topic token — is forwarded as the run's aigateway credential (identity forwarding, plan "
-    "§5.3 dec:A), with the optional ``X-Profile`` header as its routing profile; absent or a "
-    "non-Bearer scheme forwards no credential and the run's connector stays deny-by-default. An "
-    "inbound ``Cf-Access-Jwt-Assertion`` header (attached by the Cloudflare Access edge, not the "
-    "client) takes priority over ``Authorization`` when both are present. The credential is "
-    "never logged."
+    "The optional ``X-Profile`` header selects which of the resolved caller's stored aigateway "
+    "credentials to route through; absent, the gateway's default profile applies.\n\n"
+    "The caller's verified identity header (``X-User-Email``) is read off the inbound request and "
+    "carried to the run, which renders it onto its aigateway calls. Envoy strips and re-injects it "
+    "after re-verifying Cloudflare Access's assertion, so a client cannot forge it. Absent, the "
+    "run carries no identity and an aigateway in header mode rejects it."
 )
 
 
@@ -343,47 +343,36 @@ async def start_run(
         str | None,
         Header(alias="traceparent", description="W3C trace context to adopt for this run."),
     ] = None,
-    authorization: Annotated[
-        str | None,
-        Header(
-            alias="Authorization",
-            description="Bearer aigateway credential to forward to the run's connector.",
-        ),
-    ] = None,
-    cf_access_jwt: Annotated[
-        str | None,
-        Header(
-            alias="Cf-Access-Jwt-Assertion",
-            description=(
-                "Cloudflare Access session JWT, attached by the edge — takes priority over "
-                "Authorization as the aigateway credential to forward."
-            ),
-        ),
-    ] = None,
     x_profile: Annotated[
         str | None,
         Header(alias="X-Profile", description="Optional aigateway routing profile label."),
     ] = None,
 ) -> Response:
     """Require an attached subscriber, then schedule the run for the token's topic, forwarding
-    the adopted traceparent and resolved aigateway credential; hold for the terminal frame by
+    the adopted traceparent and the caller's verified identity; hold for the terminal frame by
     default, or return ``202`` immediately under ``Prefer: respond-async``.
 
     ``claims: VerifiedClaims`` is a FastAPI dependency, so JWT verification runs before this
-    body executes — no code path here touches the topic or a forwarded credential without an
-    already-verified capability token.
+    body executes — no code path here touches the topic without an already-verified capability
+    token.
     """
     deps = _deps(request)
     topic = str(claims["sub"])
     url4 = _require_q(q)
     await _require_subscriber(deps.interest, topic)
     inbound_traceparent = valid_traceparent(traceparent)
-    credential = forwarded_credential(authorization, cf_access_jwt)
-    # WHY: a routing profile is only meaningful alongside a credential to route — without one,
-    # there is nothing for aigateway to route, so the profile is dropped rather than forwarded.
-    profile = x_profile if credential is not None else None
+    # WHY read identity off `request` instead of declaring another `Header(...)` param: the mesh
+    # gateway owns it, not the caller, so there is no client-facing contract for a signature to
+    # document. `or None`: absent identity is None, the same "nothing to forward" every other
+    # optional forwarded value uses — one representation rather than an empty mapping meaning it.
+    identity = job_env.identity_from_headers(request.headers) or None
     await _schedule(
-        deps, topic, url4, traceparent=inbound_traceparent, credential=credential, profile=profile
+        deps,
+        topic,
+        url4,
+        traceparent=inbound_traceparent,
+        profile=x_profile,
+        identity=identity,
     )
     pref = _parse_prefer(prefer or "")
     if pref.respond_async:

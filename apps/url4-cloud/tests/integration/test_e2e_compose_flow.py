@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -6,7 +7,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from url4.streaming.interfaces import JobRunner, JobStatus, job_name
+from url4.streaming.interfaces import JobStatus, job_name
 from url4.streaming.protocol import (
     AttachData,
     AttachEvent,
@@ -20,6 +21,7 @@ from url4.streaming.protocol import (
 from url4_cloud.app import create_app
 from url4_cloud.auth import JwtCodec
 from url4_cloud.config import Settings
+from url4_cloud.ports import IdentityAwareJobRunner
 from url4_cloud.testing import InMemoryEventStream
 from url4_cloud.testing.mock_runner import publish_mock_run
 
@@ -30,7 +32,7 @@ EXPR = "(gpt,claude)!'hi'"
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 
 
-class MockRunnerJobRunner(JobRunner):
+class MockRunnerJobRunner(IdentityAwareJobRunner):
     def __init__(self, stream: InMemoryEventStream) -> None:
         self._stream = stream
         self.scheduled: list[tuple[str, str, int]] = []
@@ -46,6 +48,7 @@ class MockRunnerJobRunner(JobRunner):
         traceparent: str | None = None,
         credential: str | None = None,
         profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
     ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
         self._tasks.append(asyncio.ensure_future(publish_mock_run(self._stream, topic, url4)))

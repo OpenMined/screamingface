@@ -117,52 +117,16 @@ async def test_schedule_builds_the_same_job_env_contract_a_job_would_get() -> No
     stream = InMemoryEventStream()
     runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_BASE_URL: "http://gw"})
 
-    await runner.schedule(
-        TOPIC, "/m('x')!'go'", 42, traceparent=None, credential="tok", profile="p"
-    )
+    await runner.schedule(TOPIC, "/m('x')!'go'", 42, traceparent=None, profile="p")
     await _drain_until_terminal(stream, TOPIC)
 
     env = seen[0]
     assert env[job_env.TOPIC] == TOPIC
     assert env[job_env.EXPRESSION] == "/m('x')!'go'"
     assert env[job_env.JOB_DEADLINE_S] == "42"
-    assert env[job_env.AIGATEWAY_TOKEN] == "tok"
     assert env[job_env.AIGATEWAY_PROFILE] == "p"
     # the ambient deploy-time half survives, exactly as `envFrom` would supply it
     assert env[job_env.AIGATEWAY_BASE_URL] == "http://gw"
-
-
-async def test_request_credential_wins_over_the_process_credential() -> None:
-    """The forwarding path is genuinely exercised locally — that is the point of per-run env."""
-    stream = InMemoryEventStream()
-    runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_TOKEN: "process-token"})
-
-    await runner.schedule(TOPIC, "q", 10, credential="caller-token")
-    await _drain_until_terminal(stream, TOPIC)
-
-    assert seen[0][job_env.AIGATEWAY_TOKEN] == "caller-token"
-
-
-async def test_process_credential_is_the_fallback_when_none_is_forwarded() -> None:
-    """What makes a plain curl work in dev without minting an aigateway credential per request."""
-    stream = InMemoryEventStream()
-    runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_TOKEN: "process-token"})
-
-    await runner.schedule(TOPIC, "q", 10, credential=None)
-    await _drain_until_terminal(stream, TOPIC)
-
-    assert seen[0][job_env.AIGATEWAY_TOKEN] == "process-token"
-
-
-async def test_a_forwarded_credential_does_not_inherit_the_ambient_profile() -> None:
-    """An ambient profile would route the CALLER's credential through a profile they never chose."""
-    stream = InMemoryEventStream()
-    runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_PROFILE: "ambient"})
-
-    await runner.schedule(TOPIC, "q", 10, credential="caller-token", profile=None)
-    await _drain_until_terminal(stream, TOPIC)
-
-    assert job_env.AIGATEWAY_PROFILE not in seen[0]
 
 
 async def test_a_malformed_traceparent_is_dropped_rather_than_forwarded() -> None:

@@ -66,10 +66,9 @@ async def _scheduled_env(**extra: Any) -> dict[str, dict[str, Any]]:
     runner = K8sJobRunner(
         api,
         image="runner:test",
-        secrets_client=_RecordingSecretsApi(),
         **extra,
     )
-    await runner.schedule(TOPIC, EXPRESSION, 60, credential="forwarded-token", profile="prof")
+    await runner.schedule(TOPIC, EXPRESSION, 60, profile="prof")
     container = api.created[0]["spec"]["template"]["spec"]["containers"][0]  # type: ignore[index]
     return {entry["name"]: entry for entry in container["env"]}  # type: ignore[index]
 

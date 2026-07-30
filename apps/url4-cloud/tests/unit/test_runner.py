@@ -294,9 +294,9 @@ def _stub_aigateway_client() -> httpx.AsyncClient:
 
 
 @pytest.mark.asyncio
-async def test_build_executor_with_token_returns_executor_over_the_aigateway_world() -> None:
+async def test_build_executor_returns_an_executor_over_the_aigateway_world() -> None:
     async with _stub_aigateway_client() as client:
-        executor = build_executor({job_env.AIGATEWAY_TOKEN: "tok"}, _declared(), client=client)
+        executor = build_executor({}, _declared(), client=client)
 
         assert isinstance(executor, Url4Executor)
         frames = [f async for f in executor.execute(f"/{_MODEL}(ctx)!go")]
@@ -316,15 +316,19 @@ async def test_a_config_with_no_aigateway_table_is_deny_by_default() -> None:
             pass
 
 
+# INVARIANT: a declared gateway world runs with NO credential of any kind. aigateway is in
+# `cloudflare_headers` mode when deployed (it reads the identity header) and `disabled` locally
+# (every caller is anonymous) — neither reads `Authorization`, and a deployed caller has no way to
+# obtain a token. Demanding one here previously failed every deployed run before its first request.
 @pytest.mark.asyncio
-async def test_a_declared_gateway_without_a_token_fails_inside_execute() -> None:
-    # Raised from `execute`, NOT from `build_executor`: anything thrown before
-    # `lifecycle.run` publishes leaves the topic empty and the client on heartbeats forever.
-    executor = build_executor({}, _declared())
+async def test_a_declared_gateway_runs_without_any_credential() -> None:
+    client, posts = _recording_aigateway_client()
+    executor = build_executor({}, _declared(), client=client)
 
-    with pytest.raises(RunnerConfigError, match=job_env.AIGATEWAY_TOKEN):
-        async for _ in executor.execute(f"/{_MODEL}(ctx)!go"):
-            pass
+    async for _ in executor.execute(f"/{_MODEL}(ctx)!go"):
+        pass
+
+    assert posts, "the run must reach aigateway rather than failing on a missing token"
 
 
 def _recording_aigateway_client() -> tuple[httpx.AsyncClient, list[dict]]:
@@ -357,7 +361,7 @@ async def test_build_executor_with_tavily_key_declares_web_tools() -> None:
     client, posts = _recording_aigateway_client()
     async with client, _unused_tavily_client() as tclient:
         executor = build_executor(
-            {job_env.AIGATEWAY_TOKEN: "tok", job_env.TAVILY_API_KEY: "tvly-x"},
+            {job_env.TAVILY_API_KEY: "tvly-x"},
             _declared(web_tools=True),
             client=client,
             tavily_client=tclient,
@@ -378,7 +382,7 @@ async def test_build_executor_declares_no_tools_for_a_route_that_did_not_opt_in(
     client, posts = _recording_aigateway_client()
     async with client, _unused_tavily_client() as tclient:
         executor = build_executor(
-            {job_env.AIGATEWAY_TOKEN: "tok", job_env.TAVILY_API_KEY: "tvly-x"},
+            {job_env.TAVILY_API_KEY: "tvly-x"},
             _declared(web_tools=False),
             client=client,
             tavily_client=tclient,
@@ -395,7 +399,7 @@ async def test_build_executor_declares_no_tools_for_a_route_that_did_not_opt_in(
 async def test_build_executor_without_tavily_key_declares_no_tools() -> None:
     client, posts = _recording_aigateway_client()
     async with client:
-        executor = build_executor({job_env.AIGATEWAY_TOKEN: "tok"}, _declared(), client=client)
+        executor = build_executor({}, _declared(), client=client)
         async for _ in executor.execute(f"/{_MODEL}(ctx)!go"):
             pass
 

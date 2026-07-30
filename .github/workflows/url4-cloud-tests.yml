@@ -181,6 +181,46 @@ jobs:
           helm template url4-cloud apps/url4-cloud/deploy/helm \
             --set nats.enabled=true \
             --set config.natsUrl=nats://url4-cloud-nats:4222 > /dev/null
+      # The cloud posture lives in its own values file (it needs a Gateway name the chart cannot
+      # know), so nothing above exercises it — bare `helm template` renders no HTTPRoute at all.
+      # Without this step `values-cloud.yaml` could drift out of the schema unnoticed until a deploy.
+      - name: Template the cloud values (Gateway API edge)
+        run: |
+          rendered=$(helm template url4-cloud apps/url4-cloud/deploy/helm \
+            -f apps/url4-cloud/deploy/helm/values-cloud.yaml \
+            --set gateway.parentRef.name=ci-gateway \
+            --set gateway.cloudflareAccess.teamDomain=ci.cloudflareaccess.com \
+            --set gateway.cloudflareAccess.audience=ci-aud \
+            --set config.natsUrl=nats://nats.example:4222)
+          echo "$rendered" | grep -q 'kind: HTTPRoute' || { echo "::error::values-cloud.yaml rendered no HTTPRoute"; exit 1; }
+          # The cloud posture must ship the identity filter, not just the route. Its ABSENCE is the
+          # one prerequisite that fails open: the edge would forward a client-supplied
+          # X-User-Email and aigateway in `cloudflare_headers` mode would believe it.
+          echo "$rendered" | grep -q 'kind: SecurityPolicy' || { echo "::error::values-cloud.yaml rendered no SecurityPolicy — the edge would not verify Cloudflare Access"; exit 1; }
+          echo "$rendered" | grep -q 'header: X-User-Email' || { echo "::error::the SecurityPolicy does not inject X-User-Email, which is the contract aigateway reads"; exit 1; }
+      # A JWT filter with no team domain verifies nothing and one with no audience accepts every
+      # application in the Cloudflare team, so values.schema.json refuses both. If this ever
+      # SUCCEEDS, an install could render an edge that authenticates nobody.
+      - name: An enabled Cloudflare Access filter with no team domain must be refused
+        run: |
+          if helm template url4-cloud apps/url4-cloud/deploy/helm \
+               --set gateway.enabled=true \
+               --set gateway.parentRef.name=ci-gateway \
+               --set gateway.cloudflareAccess.enabled=true \
+               --set config.natsUrl=nats://x:4222 >/dev/null 2>&1; then
+            echo "::error::values.schema.json accepted cloudflareAccess.enabled=true with an empty teamDomain/audience"
+            exit 1
+          fi
+      # An enabled Gateway edge with no parentRef attaches to nothing and silently serves no
+      # traffic, so values.schema.json refuses it. If this ever SUCCEEDS, that guard is gone.
+      - name: An enabled Gateway with no parentRef must be refused
+        run: |
+          if helm template url4-cloud apps/url4-cloud/deploy/helm \
+               --set gateway.enabled=true \
+               --set config.natsUrl=nats://x:4222 >/dev/null 2>&1; then
+            echo "::error::values.schema.json accepted gateway.enabled=true with an empty parentRef.name"
+            exit 1
+          fi
       # values.schema.json has additionalProperties:false, so a stale key must be rejected. If
       # this ever SUCCEEDS, the schema stopped guarding the values file.
       - name: A stale value must be refused

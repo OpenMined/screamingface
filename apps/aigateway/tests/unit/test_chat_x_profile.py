@@ -304,7 +304,7 @@ def test_chat_cannot_use_other_accounts_oauth_connection(
 
 
 def test_chat_uses_oauth_connection_for_anonymous_local_mode(credential_blobs, client) -> None:
-    client.app.state.settings.auth_enabled = False
+    client.app.state.settings.auth_mode = "disabled"
     account_id = str(ANONYMOUS_ACCOUNT_ID)
     connection = client.portal.call(_create_active_connection, account_id)
     _seed_authenticated_connection(credential_blobs, account_id, connection.id)

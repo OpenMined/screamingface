@@ -23,7 +23,7 @@ adapters/{factory,k8s,jetstream},job_env,subjects}.py`,
 | Component | k8s object | Role |
 |---|---|---|
 | Client | (browser/CLI, off‑cluster) | Holds the topic capability JWT; opens the WS; issues `GET /?q=`. |
-| Ingress / Cloudflare Access edge | `Ingress` (Traefik in the kind chart; CF Access in prod) | TLS termination; in the CF variant attaches `Cf-Access-Jwt-Assertion` (the aigateway identity). |
+| Ingress | `Ingress` (Traefik in the kind chart) | TLS termination. |
 | url4‑cloud App | `Deployment` + `Service` + `ServiceAccount`/`Role`/`RoleBinding` (namespace‑scoped `batch/jobs`) | Stateless FastAPI control plane: mints tokens, hosts REST + WS, schedules Runner Jobs, bridges NATS→WS. Configured by `ConfigMap` + `Secret` (`URL4_CLOUD_*`). |
 | NATS JetStream | `nats-io` subchart (or external via `config.natsUrl`) | Per‑topic append log; server‑assigned monotonic `sequence` = CloudEvents `sequence`. |
 | K8s API server | (cluster) | `batch/v1` Job create/read/delete — the only k8s API the App calls. |
@@ -66,15 +66,16 @@ sequenceDiagram
     App-->>Client: 101 Switching Protocols + heartbeats
 
     Note over Client,K8s: Phase 2 — start the run (REST control plane)
-    Client->>+Edge: GET /?q=<url4 expr><br/>URL4-Capability: <jwt><br/>Authorization: Bearer <aigateway-cred><br/>X-Profile: <opt><br/>traceparent: <W3C opt><br/>Prefer: respond-async|wait=<s>
-    Edge->>+App: GET /?q=...
+    Client->>+Edge: GET /?q=<url4 expr><br/>URL4-Capability: <jwt><br/>X-Profile: <opt><br/>traceparent: <W3C opt><br/>Prefer: respond-async|wait=<s>
+    Note right of Edge: Envoy verifies Cloudflare Access,<br/>strips any client copy and re-injects X-User-Email
+    Edge->>+App: GET /?q=...<br/>X-User-Email: <verified>
     App->>App: auth dep verifies URL4-Capability JWT → VerifiedClaims; topic = sub
     App->>App: _require_q(q); _require_subscriber(interest, topic)
     App->>Reg: interest.has_subscriber(topic)
     Note right of Reg: no WS attached ⇒ 428 Precondition Required
-    App->>App: _forwarded_credential(cf_access_jwt ?? bearer); profile
+    App->>App: job_env.identity_from_headers(request.headers); profile
     App->>App: _schedule: job_runner.exists(topic)? ⇒ 409 single-use guard
-    App->>+K8s: create_namespaced_job(<manifest>)<br/>image = URL4_CLOUD_RUNNER_IMAGE (the App's own),<br/>command = ["url4-cloud", "run"]<br/>env: URL4_CLOUD_TOPIC/EXPRESSION/<br/>JOB_DEADLINE_S, NATS_URL, AIGATEWAY_BASE_URL,<br/>TRACEPARENT, AIGATEWAY_TOKEN, AIGATEWAY_PROFILE,<br/>TAVILY_API_KEY (secretKeyRef)<br/>backoffLimit:0, restartPolicy:Never,<br/>activeDeadlineSeconds=deadline_s, ttl
+    App->>+K8s: create_namespaced_job(<manifest>)<br/>image = URL4_CLOUD_RUNNER_IMAGE (the App's own),<br/>command = ["url4-cloud", "run"]<br/>env: URL4_CLOUD_TOPIC/EXPRESSION/<br/>JOB_DEADLINE_S, NATS_URL, AIGATEWAY_BASE_URL,<br/>TRACEPARENT, AIGATEWAY_PROFILE,<br/>URL4_CLOUD_IDENTITY_USER_EMAIL,<br/>TAVILY_API_KEY (secretKeyRef)<br/>backoffLimit:0, restartPolicy:Never,<br/>activeDeadlineSeconds=deadline_s, ttl
     K8s-->>App: 201 (job url4-<hash> created) OR 409 ⇒ JobAlreadyExists
     alt async (Prefer: respond-async) OR sync bound elapsed
         App--xClient: 202 Accepted + Location/Link/Preference-Applied
@@ -102,7 +103,7 @@ sequenceDiagram
         Runner->>Runner: url4.dag.run(url4, io=node, observer=_Bridge)
         Note right of Runner: sync Observer → async generator bridge
         Runner->>+Conn: node dispatches processor route /<provider>/<model>
-        Conn->>+AGW: POST /v1/chat/completions<br/>{model, messages[, tools]}<br/>Bearer AIGATEWAY_TOKEN, X-Profile
+        Conn->>+AGW: POST /v1/chat/completions<br/>{model, messages[, tools]}<br/>X-User-Email, X-Profile
         opt web tools enabled (Tavily key present)
             AGW-->>Conn: choices[0].message.tool_calls
             par parallel tool execution
@@ -174,23 +175,29 @@ The run‑root `trace_id` is adopted from a valid inbound `traceparent` (W3C "re
 malformed/absent never propagates — a fresh trace is minted instead), while `root_span_id` is
 always freshly minted here.
 
-## 5. Identity forwarding (the credential hop)
+## 5. Identity forwarding (the caller hop)
 
-A second, distinct credential — separate from the URL4‑capability topic token — rides the
-`GET /?q=` call into the Runner and on to aigateway (`rest/routes.py::_forwarded_credential`):
+Who is calling — separate from the URL4‑capability topic token — rides the `GET /?q=` call into
+the Runner and on to aigateway (`job_env.IDENTITY_HEADER_ENV`):
 
-1. `Cf-Access-Jwt-Assertion` (attached by the Cloudflare Access edge after browser OTP login)
-   **wins** when present; else a client `Authorization: Bearer <token>` is used.
-2. It is forwarded verbatim into the Job env as `AIGATEWAY_TOKEN` (never logged — treated like
-   `AIGATEWAY_SECRET_KEY`), with `AIGATEWAY_PROFILE` from `X-Profile`.
+1. `X-User-Email` is the only source. Cloudflare Access authenticates at the edge, Envoy
+   re-verifies that assertion against Cloudflare's JWKS, strips any client-supplied copy and
+   re-injects the header from the verified claims — so a client cannot forge it.
+2. It is NOT plain header pass-through: the App and the Runner are different Pods and the outgoing
+   request does not exist yet. The App serializes it into the Job spec as
+   `URL4_CLOUD_IDENTITY_USER_EMAIL` (plain env, not a Secret — identity authorizes nothing on its
+   own), and the Runner re-renders it. `AIGATEWAY_PROFILE` comes from `X-Profile` the same way.
 3. The run mode's `build_executor` (`runner/main.py`) branches on the declared world in
    `url4.toml`:
    - an `[aigateway]` table → `build_aigateway_world` builds a `Url4Node` whose declared routes
-     call `POST /v1/chat/completions` with `Authorization: Bearer <AIGATEWAY_TOKEN>` and
-     `X-Profile`. A declared table with no token is a `RunnerConfigError`, not a silent downgrade;
+     call `POST /v1/chat/completions` with `X-User-Email` and `X-Profile`;
    - no table → the run's IO is `deny_by_default_world()` (empty `StaticIOLayer` — no routes,
      no holdings, no fetch map).
-4. aigateway is the **only** consumer that verifies the credential; the App never inspects it.
+4. **No bearer token is carried anywhere.** aigateway runs `cloudflare_headers` when deployed
+   (it reads the identity header) and `disabled` locally (every caller is anonymous); neither
+   mode reads `Authorization`, and a deployed caller has no way to obtain a token because
+   aigateway has no public ingress. aigateway remains the only consumer that decides whether the
+   caller is acceptable — the App never inspects or verifies identity.
 
 ## 6. Web tools (optional Tavily agentic loop)
 
