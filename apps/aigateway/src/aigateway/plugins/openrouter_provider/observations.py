@@ -16,8 +16,6 @@ from __future__ import annotations
 from aigateway.core.chat_parameters import ProviderParameterObservation, ProviderSupport
 from aigateway.core.parameter_projection import WRAPPER_KEY
 
-from .routing_policy import ROUTING_CONTROL_LEAVES, ROUTING_CONTROLS
-
 MODEL_SOURCE = "openrouter:models"
 ENDPOINT_SOURCE = "openrouter:openapi"
 
@@ -40,10 +38,20 @@ ROUTING_POLICY_SOURCE = "openrouter:routing-policy"
 # is what lets ``top_k`` show a clean observed→ruled promotion while standard
 # fields (``top_p``) surface observed-but-unruled at their identity path.
 # AIDEV-NOTE: grows with each native rule added in parameters.py; keep in sync.
-# The routing-policy leaves are folded in from their single source of truth rather
-# than restated, so the two files cannot disagree about which fields ride the
-# wrapper (``wrapper_path_conflicts`` is the cross-check that would catch it).
-_WRAPPED_NATIVE_PARAMS: frozenset[str] = frozenset({"top_k"}) | ROUTING_CONTROL_LEAVES
+# Routing-policy evidence is an independently reviewed inventory, not generated from
+# the rule table it corroborates. The contract suite requires exact set equality, so
+# adding a rule without evidence (or evidence without a rule) fails visibly while the
+# two claims remain independently inspectable.
+_ROUTING_POLICY_EVIDENCE_ORDER = (
+    "sort",
+    "max_price_prompt",
+    "max_price_completion",
+    "data_collection",
+    "zdr",
+)
+ROUTING_POLICY_EVIDENCE_LEAVES: frozenset[str] = frozenset(_ROUTING_POLICY_EVIDENCE_ORDER)
+
+_WRAPPED_NATIVE_PARAMS: frozenset[str] = frozenset({"top_k"}) | ROUTING_POLICY_EVIDENCE_LEAVES
 
 
 def _request_path(catalog_param: str) -> str:
@@ -67,10 +75,10 @@ def _observation(
 # the claim, exactly as _REVIEWED_ENDPOINT_PARAMS backs the sampling inventory.
 # INVARIANT: an observation NEVER enables a field — the rules in parameters.py do.
 # This exists so an ENABLED routing control is not published with "unknown/none"
-# provider evidence, and it is derived from ROUTING_CONTROLS so a control can never
-# be ruled-but-unevidenced (the registry conformance sweep enforces that pairing).
+# provider evidence. The independent inventory above plus contract conformance tests
+# make a ruled-but-unevidenced control fail rather than self-corroborate.
 ROUTING_POLICY_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = tuple(
-    _observation(control.leaf, source=ROUTING_POLICY_SOURCE) for control in ROUTING_CONTROLS
+    _observation(leaf, source=ROUTING_POLICY_SOURCE) for leaf in _ROUTING_POLICY_EVIDENCE_ORDER
 )
 
 

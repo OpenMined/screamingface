@@ -12,7 +12,7 @@ under the existing ``provider_params`` wrapper:
     provider_params.zdr                  -> provider.zdr               (boolean)
 
 STORY: as an authenticated researcher I cap what a benchmark run may pay per
-token and forbid endpoints that collect my prompts — and I cannot, through those
+million tokens and forbid endpoints that collect my prompts — and I cannot, through those
 same controls, pin a provider, order providers, enable fallbacks, or otherwise
 reach the control plane the gateway owns.
 
@@ -42,6 +42,7 @@ from aigateway.core.parameter_projection import (
     classify_and_project_chat_parameters,
 )
 from aigateway.core.profile_models import AuthType
+from aigateway.plugins.openrouter_provider import observations as openrouter_observations
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 
 _MODEL = "openrouter/anthropic/claude-fable-5"
@@ -81,6 +82,13 @@ def _rejected(wrapper: dict[str, Any]) -> dict[str, str]:
 
 def _rule_by_path() -> dict[str, Any]:
     return {rule.request_path: rule for rule in _rules()}
+
+
+def test_reviewed_routing_evidence_is_an_explicit_inventory() -> None:
+    # Evidence must not be generated from the rules it is meant to corroborate.
+    # Equality is the conformance tripwire; the two inventories remain independently
+    # reviewable and either side fails when a control is added only once.
+    assert openrouter_observations.ROUTING_POLICY_EVIDENCE_LEAVES == frozenset(_TARGETS)
 
 
 # --- admission: sort ----------------------------------------------------------

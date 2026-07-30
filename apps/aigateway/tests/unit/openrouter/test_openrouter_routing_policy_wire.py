@@ -259,19 +259,17 @@ def test_the_price_reaching_the_wire_is_a_string_not_a_number() -> None:
 # --- strictness cannot be removed or relaxed ----------------------------------
 
 
-def test_strictness_is_forced_even_when_the_projection_carries_it_as_false() -> None:
-    # `require_parameters` is GATEWAY-owned, so a value already present on the
-    # projected object is not "unexpected" — it is simply overridden. This is the
-    # second, independent layer: the classifier already refuses a caller `provider`.
-    plugin = OpenRouterProviderPlugin()
-    body = plugin.prepare_chat_body(
-        {
-            "model": _MODEL,
-            "messages": list(_MESSAGES),
-            "provider": {"require_parameters": False},
-        }
-    )
-    assert body["provider"] == _STRICT
+@pytest.mark.parametrize("value", [False, True])
+def test_projected_strictness_is_refused_as_an_internal_mismatch(value: bool) -> None:
+    # `require_parameters` is GATEWAY-owned and reconstruction adds it itself. Seeing
+    # it in projected state means the classifier and boundary disagree, so silently
+    # overwriting even the strict value would hide a projection regression.
+    error = _prepare_with_provider({"require_parameters": value})
+    assert error.status_code == 503
+    assert error.detail == {
+        "code": "provider_unavailable",
+        "message": "OpenRouter dispatch is unavailable",
+    }
 
 
 def test_strictness_survives_beside_every_reconstructed_control() -> None:

@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from aigateway.core.chat_parameters import inline_supported_parameters
@@ -356,20 +357,20 @@ def test_a_caller_cannot_relax_strict_routing_alongside_top_p(
     assert captured == {}
 
 
-def test_the_boundary_overwrites_a_provider_that_reaches_it_with_top_p_present() -> None:
-    # Second, independent layer: even handed a body that already carries a
-    # permissive `provider`, preparation ASSIGNS the policy rather than merging.
+def test_the_boundary_refuses_a_provider_that_reaches_it_with_top_p_present() -> None:
+    # Second, independent layer: a projected gateway-owned member is a mismatch;
+    # reconstruction may not overwrite it even when an unrelated field is valid.
     plugin = OpenRouterProviderPlugin()
-    body = plugin.prepare_chat_body(
-        {
-            "model": _MODEL,
-            "messages": list(_MESSAGES),
-            "top_p": 0.9,
-            "provider": {"require_parameters": False},
-        }
-    )
-    assert body["provider"] == _STRICT
-    assert body["top_p"] == 0.9
+    with pytest.raises(HTTPException) as exc:
+        plugin.prepare_chat_body(
+            {
+                "model": _MODEL,
+                "messages": list(_MESSAGES),
+                "top_p": 0.9,
+                "provider": {"require_parameters": False},
+            }
+        )
+    assert exc.value.status_code == 503
 
 
 # (9) Observed cache behaviour matches the published declaration

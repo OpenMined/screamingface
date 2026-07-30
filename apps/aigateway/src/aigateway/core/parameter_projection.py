@@ -178,13 +178,13 @@ def caller_cache_bypass_paths(
     decision from the SAME rule set the contract is derived from, so the two
     cannot disagree.
 
-    INVARIANT: computed from the CALLER-VISIBLE body — before projection to
-    provider targets and before ``plugin.prepare_chat_body``. A provider hook may
-    remove, rename, flatten or nest an accepted field on its way to the wire
-    (Anthropic drops ``reasoning_effort == "none"``, which means exactly what
-    omission means); none of that may turn a declared-bypass request into a
-    cacheable one. Scanning the POST-preparation body cannot express this: the
-    stripped body is, by construction, indistinguishable from a bare one.
+    INVARIANT: computed from the CALLER-VISIBLE body preserved before projection to
+    provider targets. The route invokes this only after ``plugin.prepare_chat_body``
+    has accepted the projected state, but it passes that preserved view rather than
+    the prepared body. A provider hook may remove, rename, flatten or nest an accepted
+    field on its way to the wire (Anthropic drops ``reasoning_effort == "none"``, which
+    means exactly what omission means); none of that may turn a declared-bypass
+    request into a cacheable one.
 
     INVARIANT: reads ``rule.cache_behavior`` rather than assuming it. A ``keyed``
     or ``transport_only`` rule is not a bypass path — the registry conformance
