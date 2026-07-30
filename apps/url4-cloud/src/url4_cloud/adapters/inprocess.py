@@ -18,7 +18,6 @@ from url4.streaming.interfaces import (
     EventPublisher,
     Executor,
     JobAlreadyExists,
-    JobRunner,
     JobRunnerAtCapacity,
     JobStatus,
     job_name,
@@ -26,6 +25,7 @@ from url4.streaming.interfaces import (
 from url4.streaming.lifecycle import run as lifecycle_run
 from url4.streaming.trace import valid_traceparent
 from url4_cloud import job_env
+from url4_cloud.ports import IdentityAwareJobRunner
 
 _logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def _map_status(task: asyncio.Task[None] | None) -> JobStatus:
     return _terminal_status(task)
 
 
-class InProcessJobRunner(JobRunner):
+class InProcessJobRunner(IdentityAwareJobRunner):
     """`JobRunner` backed by a `dict[str, asyncio.Task]`, one task per run.
 
     Differs from `K8sJobRunner` in two ways that follow from the substrate rather than from
@@ -128,6 +128,7 @@ class InProcessJobRunner(JobRunner):
         traceparent: str | None,
         credential: str | None,
         profile: str | None,
+        identity: Mapping[str, str] | None = None,
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -154,6 +155,13 @@ class InProcessJobRunner(JobRunner):
             # A profile inherited from the ambient env would silently route a request-supplied
             # credential through a profile its caller never asked for.
             env.pop(job_env.AIGATEWAY_PROFILE, None)
+        # INVARIANT: the request's identity REPLACES the ambient one rather than merging with it.
+        # `_base_env` is this process's own environment, so a leftover identity key there would
+        # otherwise leak one caller's identity onto another caller's run — and a partial merge is
+        # worse than either, since it would pair one caller's email with another's tenant.
+        for name in job_env.IDENTITY_HEADER_ENV.values():
+            env.pop(name, None)
+        env.update(job_env.identity_to_env(identity or {}))
         return env
 
     # --- the JobRunner port -----------------------------------------------------------------
@@ -167,6 +175,7 @@ class InProcessJobRunner(JobRunner):
         traceparent: str | None = None,
         credential: str | None = None,
         profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -180,7 +189,7 @@ class InProcessJobRunner(JobRunner):
         existing = self._tasks.get(name)
         if existing is not None and not existing.done():
             raise JobAlreadyExists(name)
-        env = self._env(topic, url4, deadline_s, traceparent, credential, profile)
+        env = self._env(topic, url4, deadline_s, traceparent, credential, profile, identity)
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a
         # failure inside the run terminates the topic properly. See `Url4Executor._resolve_world`.

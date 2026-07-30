@@ -9,9 +9,10 @@ from typing import Protocol
 
 from kubernetes.client import ApiException
 
-from url4.streaming.interfaces import JobAlreadyExists, JobRunner, JobStatus, job_name
+from url4.streaming.interfaces import JobAlreadyExists, JobStatus, job_name
 from url4.streaming.trace import valid_traceparent
 from url4_cloud import job_env
+from url4_cloud.ports import IdentityAwareJobRunner
 
 _CONFLICT = 409
 _NOT_FOUND = 404
@@ -120,7 +121,7 @@ def _map_status(job: _JobView | None) -> JobStatus:
     return "running" if (view and view.active) else "scheduled"
 
 
-class K8sJobRunner(JobRunner):
+class K8sJobRunner(IdentityAwareJobRunner):
     """Implements `JobRunner` by scheduling one Kubernetes Batch v1 Job per run. The Job's name
     is derived deterministically from the topic (`job_name`), so `schedule`/`stop`/`status` all
     address the same object without any separate lookup table."""
@@ -169,6 +170,7 @@ class K8sJobRunner(JobRunner):
         traceparent: str | None = None,
         credential: str | None = None,
         profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
     ) -> str:
         """Creates the Job (and, if a credential is given, its owned Secret).
 
@@ -185,6 +187,7 @@ class K8sJobRunner(JobRunner):
             traceparent=traceparent,
             credential=credential,
             profile=profile,
+            identity=identity,
         )
 
     def _schedule_blocking(
@@ -196,6 +199,7 @@ class K8sJobRunner(JobRunner):
         traceparent: str | None = None,
         credential: str | None = None,
         profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
     ) -> str:
         if credential and self._secrets_client is None:
             raise RuntimeError(
@@ -206,7 +210,9 @@ class K8sJobRunner(JobRunner):
         try:
             created = self._client.create_namespaced_job(
                 self._namespace,
-                self._manifest(name, topic, url4, deadline_s, traceparent, credential, profile),
+                self._manifest(
+                    name, topic, url4, deadline_s, traceparent, credential, profile, identity
+                ),
                 _request_timeout=self._request_timeout_s,
             )
         except ApiException as exc:
@@ -321,6 +327,7 @@ class K8sJobRunner(JobRunner):
         traceparent: str | None,
         credential: str | None = None,
         profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
     ) -> list[dict[str, object]]:
         # INVARIANT: PER-RUN values only. Everything constant for a deployment (the NATS URL, the
         # aigateway base URL and model, the Tavily key) arrives through `envFrom` — Helm owns both
@@ -348,6 +355,15 @@ class K8sJobRunner(JobRunner):
             )
         if profile is not None:
             env.append({"name": job_env.AIGATEWAY_PROFILE, "value": profile})
+        # Plain `value`, deliberately — unlike the credential above, identity authorizes nothing on
+        # its own, and a Secret would imply a confidentiality it does not have (see
+        # `job_env.IDENTITY_HEADER_ENV`). It is absent from `job_env.SECRET` for the same reason,
+        # which is what lets `test_job_env_contract` keep asserting that every SECRET name travels
+        # by reference.
+        env.extend(
+            {"name": name, "value": value}
+            for name, value in job_env.identity_to_env(identity or {}).items()
+        )
         return env
 
     def _env_from(self) -> list[dict[str, object]]:
@@ -372,6 +388,7 @@ class K8sJobRunner(JobRunner):
         traceparent: str | None = None,
         credential: str | None = None,
         profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
     ) -> dict[str, object]:
         """Builds the Job manifest: a hardened, single-attempt Pod (no restarts, no privilege
         escalation, non-root, read-only rootfs) running `self._command` with per-run env layered
@@ -380,7 +397,9 @@ class K8sJobRunner(JobRunner):
             "name": "runner",
             "image": self._image,
             "command": self._command,
-            "env": self._env(name, topic, url4, deadline_s, traceparent, credential, profile),
+            "env": self._env(
+                name, topic, url4, deadline_s, traceparent, credential, profile, identity
+            ),
             "securityContext": {
                 "allowPrivilegeEscalation": False,
                 "capabilities": {"drop": ["ALL"]},

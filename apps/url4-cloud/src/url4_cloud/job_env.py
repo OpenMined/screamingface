@@ -17,6 +17,9 @@ format.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
+
 # --- per-run: written by the App onto the Job spec -------------------------------------------
 TOPIC = "URL4_CLOUD_TOPIC"
 EXPRESSION = "URL4_CLOUD_EXPRESSION"
@@ -28,6 +31,68 @@ AIGATEWAY_TOKEN = "AIGATEWAY_TOKEN"
 
 AIGATEWAY_PROFILE = "AIGATEWAY_PROFILE"
 """Per-request profile selection; absent means the gateway's default."""
+
+IDENTITY_HEADER_ENV: Mapping[str, str] = MappingProxyType(
+    {
+        "X-User-Email": "URL4_CLOUD_IDENTITY_USER_EMAIL",
+        "X-User-Id": "URL4_CLOUD_IDENTITY_USER_ID",
+        "X-Service-Id": "URL4_CLOUD_IDENTITY_SERVICE_ID",
+        "X-Tenant": "URL4_CLOUD_IDENTITY_TENANT",
+    }
+)
+"""The caller's VERIFIED identity, as the gateway-identity flow defines it, and the env name each
+header travels under.
+
+https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/ — Envoy clears every one of
+these headers off the inbound request and re-injects them from verified JWT claims, so by the time
+one reaches the App it is trustworthy and a client cannot forge it. A human caller carries
+``X-User-Email``, automation carries ``X-Service-Id``, and ``X-Tenant`` always appears; which
+subset is present is the caller's kind, so the absent ones are omitted rather than sent empty.
+
+INVARIANT: this table is the ONLY place the header↔env correspondence is written. Both adapters
+render a Job's env from it and the run mode reads its env back through it, so a header added here
+reaches aigateway without touching either half.
+
+WHY plain env and not a Secret (unlike :data:`AIGATEWAY_TOKEN`): these are identity, not
+credentials — they authorize nothing on their own, and a Secret would imply a confidentiality they
+do not have. The accepted cost is that ``get jobs`` RBAC reveals the caller's email.
+"""
+
+
+def identity_from_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    """The identity headers present on an inbound request, canonical name → value.
+
+    ``headers`` must look up case-insensitively (Starlette's ``Headers`` does); HTTP header names
+    are case-insensitive on the wire, but the value returned here is keyed by the canonical casing
+    so the outgoing request renders one spelling regardless of what arrived.
+
+    A present-but-blank header is dropped: it carries no identity, and forwarding it would let a
+    downstream reader see the header and conclude the caller is of that kind.
+    """
+    return {
+        header: stripped
+        for header in IDENTITY_HEADER_ENV
+        if (stripped := (headers.get(header) or "").strip())
+    }
+
+
+def identity_to_env(identity: Mapping[str, str]) -> dict[str, str]:
+    """Render an identity mapping as the Job env keys that carry it. Unknown headers are dropped."""
+    return {
+        IDENTITY_HEADER_ENV[header]: value
+        for header, value in identity.items()
+        if value and header in IDENTITY_HEADER_ENV
+    }
+
+
+def identity_from_env(env: Mapping[str, str]) -> dict[str, str]:
+    """Read an identity mapping back out of a run's environment, canonical header name → value."""
+    return {
+        header: stripped
+        for header, name in IDENTITY_HEADER_ENV.items()
+        if (stripped := (env.get(name) or "").strip())
+    }
+
 
 # --- per-deploy: named by the chart, injected via envFrom ------------------------------------
 NATS_URL = "URL4_CLOUD_NATS_URL"
@@ -61,7 +126,15 @@ REQUIRED = frozenset({TOPIC, EXPRESSION})
 """Absent ⇒ run mode raises ``RunnerConfigError`` at boot. Every adapter must write these."""
 
 WRITTEN_BY_APP = frozenset(
-    {TOPIC, EXPRESSION, JOB_DEADLINE_S, TRACEPARENT, AIGATEWAY_TOKEN, AIGATEWAY_PROFILE}
+    {
+        TOPIC,
+        EXPRESSION,
+        JOB_DEADLINE_S,
+        TRACEPARENT,
+        AIGATEWAY_TOKEN,
+        AIGATEWAY_PROFILE,
+        *IDENTITY_HEADER_ENV.values(),
+    }
 )
 """The per-run subset. A key the App writes that is NOT in here reaches nothing — the direction
 that breaks silently is an unread WRITE, not an unwritten READ (which simply falls back)."""
@@ -79,6 +152,7 @@ __all__ = [
     "DEFAULT_NATS_URL",
     "DEPLOY_TIME",
     "EXPRESSION",
+    "IDENTITY_HEADER_ENV",
     "JOB_DEADLINE_S",
     "NATS_URL",
     "REQUIRED",
@@ -88,4 +162,7 @@ __all__ = [
     "TOPIC",
     "TRACEPARENT",
     "WRITTEN_BY_APP",
+    "identity_from_env",
+    "identity_from_headers",
+    "identity_to_env",
 ]

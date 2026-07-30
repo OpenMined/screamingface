@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import httpx
@@ -126,6 +127,7 @@ class _ModelEndpoint:
     __slots__ = (
         "_cfg",
         "_http_client",
+        "_identity_headers",
         "_profile",
         "_routes",
         "_tavily_api_key",
@@ -143,6 +145,7 @@ class _ModelEndpoint:
         routes: dict[str, ModelSpec],
         tavily_http: httpx.AsyncClient | None,
         tavily_api_key: str | None,
+        identity_headers: Mapping[str, str] | None = None,
     ) -> None:
         self._http_client = http_client
         self._cfg = cfg
@@ -151,6 +154,7 @@ class _ModelEndpoint:
         self._routes = routes
         self._tavily_http = tavily_http
         self._tavily_api_key = tavily_api_key
+        self._identity_headers = identity_headers
 
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
@@ -166,6 +170,7 @@ class _ModelEndpoint:
             tavily_http=self._tavily_http,
             tavily_api_key=self._tavily_api_key,
             web_tools=spec.web_tools,
+            identity_headers=self._identity_headers,
         )
 
 
@@ -177,8 +182,14 @@ async def build_aigateway_world(
     client: httpx.AsyncClient | None = None,
     tavily_api_key: str | None = None,
     tavily_client: httpx.AsyncClient | None = None,
+    identity_headers: Mapping[str, str] | None = None,
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
+
+    ``identity_headers`` is the caller's verified identity (canonical header name → value, see
+    `url4_cloud.job_env.IDENTITY_HEADER_ENV`), rendered onto every chat-completions request this
+    world makes. It is per-RUN rather than per-call: one run has exactly one caller, so the
+    endpoint holds it for the run's duration exactly as it holds `token` and `profile`.
 
     Raises:
         RunnerConfigError: no models are declared, or `default_model` is not among them.
@@ -212,6 +223,7 @@ async def build_aigateway_world(
         routes=routes,
         tavily_http=tavily_http,
         tavily_api_key=tavily_api_key,
+        identity_headers=identity_headers or None,
     )
 
     # WHY: `outbound=StaticIOLayer()` denies every absolute-URL fetch: an unmapped target raises
@@ -310,6 +322,7 @@ async def _chat_completion_loop(
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     web_tools: bool,
+    identity_headers: Mapping[str, str] | None = None,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
@@ -325,7 +338,7 @@ async def _chat_completion_loop(
     """
     offer_tools = web_tools and tavily_http is not None
     extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if offer_tools else {}
-    headers = _headers(token, profile)
+    headers = _headers(token, profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
         resp = await http_client.post(
             "/v1/chat/completions",
@@ -509,8 +522,20 @@ def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
     return messages
 
 
-def _headers(token: str, profile: str | None) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {token}"}
+def _headers(
+    token: str, profile: str | None, identity_headers: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """The outgoing aigateway headers: the caller's identity, then the values this world owns.
+
+    INVARIANT: the gateway-owned headers are written LAST. `identity_headers` reaches here from an
+    inbound request, and although Envoy guarantees a client cannot forge the identity headers
+    themselves, nothing guarantees the mapping holds ONLY those keys — so `Authorization` and
+    `X-Profile` are applied over it rather than under it, and no inbound value can displace this
+    run's credential. Same ordering rule the aigateway provider plugins apply to their own
+    gateway-owned headers.
+    """
+    headers = dict(identity_headers or {})
+    headers["Authorization"] = f"Bearer {token}"
     if profile is not None:
         headers["X-Profile"] = profile
     return headers

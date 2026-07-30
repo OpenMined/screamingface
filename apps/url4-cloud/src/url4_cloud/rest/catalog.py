@@ -53,6 +53,7 @@ _CREDENTIAL_DESC = (
     "Bearer aigateway credential. Forwarded upstream verbatim — url4-cloud never verifies it."
 )
 
+
 @router.get(
     "/v1/models",
     tags=["Catalog"],

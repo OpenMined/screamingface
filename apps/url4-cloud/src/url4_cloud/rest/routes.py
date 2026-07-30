@@ -9,6 +9,7 @@ first.
 """
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -18,11 +19,11 @@ from fastapi import APIRouter, Header, Request, Response
 from url4.streaming.interfaces import (
     EventConsumer,
     JobAlreadyExists,
-    JobRunner,
     JobRunnerAtCapacity,
 )
 from url4.streaming.protocol import ResultEvent, TerminatedEvent
 from url4.streaming.trace import valid_traceparent
+from url4_cloud import job_env
 from url4_cloud.auth import (
     PROBLEM_MEDIA_TYPE,
     JwtCodec,
@@ -31,6 +32,7 @@ from url4_cloud.auth import (
     new_topic,
 )
 from url4_cloud.config import Settings
+from url4_cloud.ports import IdentityAwareJobRunner
 from url4_cloud.rest._credentials import bearer_token
 from url4_cloud.rest.interest import SubscriberGate
 
@@ -52,7 +54,7 @@ class _Deps:
     """The run-scheduling collaborators a route handler needs, resolved from app state."""
 
     stream: EventConsumer
-    job_runner: JobRunner
+    job_runner: IdentityAwareJobRunner
     interest: SubscriberGate
     settings: Settings
 
@@ -140,6 +142,7 @@ async def _schedule(
     traceparent: str | None = None,
     credential: str | None = None,
     profile: str | None = None,
+    identity: Mapping[str, str] | None = None,
 ) -> None:
     """Schedule the run on the job runner, or raise 409 if one already exists for ``topic``.
 
@@ -156,6 +159,7 @@ async def _schedule(
             traceparent=traceparent,
             credential=credential,
             profile=profile,
+            identity=identity,
         )
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
@@ -321,7 +325,12 @@ _START_DESC = (
     "topic token — is forwarded as the run's aigateway credential (identity forwarding, plan "
     "§5.3 dec:A), with the optional ``X-Profile`` header as its routing profile; absent or a "
     "non-Bearer scheme forwards no credential and the run's connector stays deny-by-default. "
-    "The credential is never logged."
+    "The credential is never logged.\n\n"
+    "The gateway-identity headers (``X-User-Email``, ``X-User-Id``, ``X-Service-Id``, "
+    "``X-Tenant``) are read off the inbound request and carried to the run, which renders them "
+    "onto its aigateway calls. Envoy strips and re-injects them from verified claims, so a "
+    "client cannot forge them; whichever subset is present is forwarded, and absent ones are "
+    "omitted rather than sent empty."
 )
 
 
@@ -370,8 +379,21 @@ async def start_run(
     # WHY: a routing profile is only meaningful alongside a credential to route — without one,
     # there is nothing for aigateway to route, so the profile is dropped rather than forwarded.
     profile = x_profile if credential is not None else None
+    # WHY read these off `request` instead of declaring four more `Header(...)` params: the gateway
+    # owns them, not the caller, so there is no client-facing contract for a signature to document —
+    # and unlike the profile above, identity is forwarded regardless of whether a credential is,
+    # because it says who called rather than which credential to route.
+    # `or None`: absent identity is None, the same "nothing to forward" every other optional
+    # forwarded value uses — one representation rather than an empty mapping meaning the same thing.
+    identity = job_env.identity_from_headers(request.headers) or None
     await _schedule(
-        deps, topic, url4, traceparent=inbound_traceparent, credential=credential, profile=profile
+        deps,
+        topic,
+        url4,
+        traceparent=inbound_traceparent,
+        credential=credential,
+        profile=profile,
+        identity=identity,
     )
     pref = _parse_prefer(prefer or "")
     if pref.respond_async:

@@ -114,6 +114,7 @@ def build_executor(
             ),
             token=token,
             profile=env.get(job_env.AIGATEWAY_PROFILE),
+            identity_headers=job_env.identity_from_env(env),
             client=client,
             tavily_api_key=env.get(job_env.TAVILY_API_KEY),
             tavily_client=tavily_client,
