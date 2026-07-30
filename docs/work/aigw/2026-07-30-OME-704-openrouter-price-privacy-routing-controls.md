@@ -17,9 +17,9 @@ control plane. Five caller-visible leaves under the existing `provider_params` w
 logical OpenRouter controls; AIGateway validates each leaf, then reconstructs the upstream
 `provider` policy itself from an explicit allowlist and forces `require_parameters=true`.
 
-Approved artifacts: Linear OME-704 (parent OME-479) plus
-`.agent-team-AIGW/expose-validated-openrouter-price-and-privacy-routing-controls-per-request/`
-(task definition + implementation plan, both reviewed 2026-07-30).
+Approved artifacts: Linear OME-704 (parent OME-479) plus the owner-approved task definition
+and implementation plan for this issue — planning artifacts kept outside the repository,
+both reviewed 2026-07-30.
 
 ## Planned changes
 

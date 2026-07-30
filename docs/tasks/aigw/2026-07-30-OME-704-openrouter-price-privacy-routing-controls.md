@@ -46,8 +46,8 @@ catalog pricing acquisition, and OpenRouter `reasoning_effort`.
 
 ## Artifacts
 
-- Task definition + implementation plan:
-  `.agent-team-AIGW/expose-validated-openrouter-price-and-privacy-routing-controls-per-request/`
+- Task definition + implementation plan: owner-approved planning artifacts for OME-704,
+  kept outside the repository (both reviewed 2026-07-30)
 - Work ledger: `docs/work/aigw/2026-07-30-OME-704-openrouter-price-privacy-routing-controls.md`
 
 ## Status
