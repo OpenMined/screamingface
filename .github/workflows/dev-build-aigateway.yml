@@ -1,0 +1,41 @@
+# Dev image on every merge to main (path-filtered): immutable main-<shortsha> tags
+# so a dev environment can track main automatically. Release builds are untouched
+# — this never tags 'latest' and never publishes charts. Single-arch (amd64) for
+# speed; dev clusters are amd64.
+name: Dev build aigateway
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/aigateway/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: dev-build-aigateway-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          # Context is the repo root — matches the release workflows (url4-cloud's
+          # Dockerfile COPYs packages/url4 from outside its own directory).
+          context: .
+          file: apps/aigateway/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/openmined/screamingface-aigateway:main-${{ steps.sha.outputs.short }}
+          cache-from: type=gha,scope=dev-aigateway
+          cache-to: type=gha,scope=dev-aigateway,mode=max
