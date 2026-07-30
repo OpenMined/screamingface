@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from url4.streaming.interfaces import JobRunner
-from url4_cloud.adapters.k8s import BatchV1JobsClient, CoreV1SecretsClient, K8sJobRunner
+from url4_cloud.adapters.k8s import BatchV1JobsClient, K8sJobRunner
 from url4_cloud.config import Settings
 
 # WHY a timeout at all: `K8sJobRunner` offloads its blocking calls to a worker thread, so a
@@ -49,17 +49,10 @@ def _in_cluster_batch_client() -> BatchV1JobsClient:  # pragma: no cover - live 
     return cast(BatchV1JobsClient, BatchV1Api(_in_cluster_api_client()))
 
 
-def _in_cluster_secrets_client() -> CoreV1SecretsClient:  # pragma: no cover - live cluster (INFRA)
-    from kubernetes.client import CoreV1Api
-
-    return cast(CoreV1SecretsClient, CoreV1Api(_in_cluster_api_client()))
-
-
 def build_job_runner(
     settings: Settings,
     *,
     k8s_client_factory: Callable[[], BatchV1JobsClient] = _in_cluster_batch_client,
-    k8s_secrets_client_factory: Callable[[], CoreV1SecretsClient] = _in_cluster_secrets_client,
 ) -> JobRunner | None:
     """Selects the `JobRunner` adapter for `settings.runner`.
 
@@ -78,7 +71,5 @@ def build_job_runner(
             env_secrets=(settings.tavily_secret_name,) if settings.tavily_secret_name else (),
             resources=settings.runner_resources,
             job_ttl_s=settings.effective_job_ttl_s,
-            min_job_ttl_s=settings.iat_window_s,
-            secrets_client=k8s_secrets_client_factory(),
         )
     return None

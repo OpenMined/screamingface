@@ -12,7 +12,9 @@ def test_missing_authorization_rejected(client) -> None:
 
 
 def test_auth_disabled_returns_anonymous_account_without_token(client, monkeypatch) -> None:
-    client.app.state.settings.auth_enabled = False
+    # `auth_mode` is the source of truth in code; the legacy `auth_enabled` only supplies its
+    # default at construction, so flipping that alone no longer changes an already-built app.
+    client.app.state.settings.auth_mode = "disabled"
 
     async def fail_lookup(*_args, **_kwargs):
         raise AssertionError("disabled auth should not look up accounts")

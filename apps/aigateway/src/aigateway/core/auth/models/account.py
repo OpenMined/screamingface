@@ -11,7 +11,9 @@ class BaseAccount(Model):
         abstract = True
 
     id = fields.UUIDField(pk=True, default=uuid.uuid4)
-    username = fields.CharField(max_length=64, unique=True, index=True)
+    # 255, not 64: a Cloudflare-identified account is keyed on its username, and that username is
+    # the verified email address, which RFC 5321 allows up to 254 characters. See migration 0008.
+    username = fields.CharField(max_length=255, unique=True, index=True)
     password_hash = fields.CharField(max_length=255)
     display_name = fields.CharField(max_length=255, null=True)
     created_at = fields.DatetimeField(auto_now_add=True)

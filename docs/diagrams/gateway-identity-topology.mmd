@@ -1,0 +1,40 @@
+%%{init: {"theme": "base",  "themeVariables": {"primaryColor": "#0f172a", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#34d399", "lineColor": "#94a3b8", "clusterBkg": "#111c2e", "clusterBorder": "#475569", "fontSize": "14px"}}}%%
+flowchart TB
+    NET([Internet])
+
+    subgraph CL["Kubernetes cluster"]
+        subgraph NSA["namespace: url4-cloud"]
+            ENVOY["Envoy / Gateway API<br/><b>re-verifies Cloudflare Access,<br/>injects X-User-Email</b><br/>chart: values-cloud.yaml"]
+            APP["url4-cloud App<br/>app.kubernetes.io/name: url4-cloud<br/>HTTPRoute target"]
+            JOB["Runner Jobs<br/>app.kubernetes.io/name: url4-runner<br/>one Pod per run"]
+            AIGW["aigateway<br/>ClusterIP only, port 9105<br/><b>AIGW_AUTH_MODE=cloudflare_headers</b><br/>AIGW_ALLOWED_NETWORKS=Pod CIDR"]
+            DB[("Postgres<br/>credential_blobs<br/>AES-256-GCM")]
+        end
+        OTHER["any other Pod<br/>(other namespace or unlabelled)"]
+    end
+
+    PROV(["Provider APIs<br/>Anthropic · Google · OpenRouter"])
+
+    NET -->|"HTTPS + caller token"| ENVOY
+    ENVOY -->|"HTTPRoute<br/>+ X-User-Email (verified)"| APP
+    APP -->|"schedules, passing identity<br/>as plain Job env"| JOB
+    APP -->|"catalog: GET /v1/models<br/>NetworkPolicy: ALLOWED"| AIGW
+    JOB -->|"POST /v1/chat/completions<br/>NetworkPolicy: ALLOWED"| AIGW
+    OTHER -.->|"NetworkPolicy: DENIED<br/>fail-closed, non-empty from:<br/><b>and 403 if the CNI lets it through</b>"| AIGW
+    NET -.->|"NO Ingress<br/>ingress.enabled=false"| AIGW
+    AIGW -->|"egress open by design"| PROV
+    AIGW --> DB
+
+    classDef edge fill:#1e293b,stroke:#fb923c,stroke-width:2px,color:#e2e8f0
+    classDef app fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#e2e8f0
+    classDef gw fill:#083344,stroke:#22d3ee,stroke-width:3px,color:#e2e8f0
+    classDef denied fill:#3f1d1d,stroke:#f87171,stroke-width:2px,color:#fecaca
+    classDef ext fill:#1e293b,stroke:#94a3b8,stroke-width:1px,color:#e2e8f0
+
+    class ENVOY edge
+    class APP,JOB app
+    class AIGW gw
+    class OTHER denied
+    class NET,PROV,DB ext
+
+    linkStyle 5,6 stroke:#f87171,stroke-width:2px

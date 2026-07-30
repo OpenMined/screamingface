@@ -91,7 +91,6 @@ def test_the_factory_threads_the_configmap_name_from_settings() -> None:
     runner = build_job_runner(
         settings,
         k8s_client_factory=_RecordingBatchApi,
-        k8s_secrets_client_factory=_RecordingSecretsApi,
     )
 
     assert isinstance(runner, K8sJobRunner)

@@ -1,0 +1,48 @@
+# The DEFAULT shape for a cloud deployment of url4-cloud (OME-684).
+#
+#   helm install url4-cloud . -f values-cloud.yaml \
+#     --set gateway.parentRef.name=<your-gateway> \
+#     --set gateway.cloudflareAccess.teamDomain=<team>.cloudflareaccess.com \
+#     --set gateway.cloudflareAccess.audience=<access-application-AUD> \
+#     --set config.natsUrl=nats://<nats-service>:4222 \
+#     --set config.aigatewayBaseUrl=http://<aigw-service>:9105
+#
+# WHY this lives in its own file rather than in values.yaml: the edge needs a `parentRef.name`, and
+# a chart cannot know the name of a Gateway object it does not install. Defaulting `enabled: true`
+# with an empty name made the chart's own values violate `values.schema.json` — an HTTPRoute with no
+# parentRef attaches to no Gateway and silently serves nothing, which the schema exists to prevent.
+# So `values.yaml` stays installable with no edge, and the cloud posture is opted into here.
+#
+# Pair this with the aigateway chart's own `values-prod.yaml`, which puts that gateway in
+# `cloudflare_headers` auth mode behind a fail-closed NetworkPolicy and removes its public Ingress.
+
+# The mesh gateway is the front door, and injecting the identity header is its load-bearing job: it
+# re-verifies Cloudflare Access's assertion and re-injects `X-User-Email`. Served through a plain
+# Ingress instead, that header never exists, every run reaches aigateway unattributed, and an
+# aigateway in `cloudflare_headers` mode rejects it outright.
+gateway:
+  enabled: true
+  parentRef:
+    # MUST be set at install time — the name of the Gateway this HTTPRoute attaches to. Left empty,
+    # the schema refuses the install rather than letting the route attach to nothing.
+    name: ""
+    namespace: ""
+    sectionName: ""
+  hostnames:
+    - url4.screamingface.ai
+  # ON by default in the cloud posture, and deliberately so: this is what makes `X-User-Email`
+  # mean anything. Without it the edge forwards whatever the client sent, and an aigateway in
+  # `cloudflare_headers` mode believes it.
+  #
+  # Both fields are empty for the same reason `parentRef.name` is — the chart cannot know your
+  # Cloudflare team or application, and `values.schema.json` refuses the install rather than
+  # letting a JWT filter render that verifies nothing. Supply them at install time.
+  cloudflareAccess:
+    enabled: true
+    teamDomain: ""
+    audience: ""
+
+# Exactly one front door. Ingress cannot express the long-lived WebSocket and blocking-REST timeouts
+# portably, and it is not the mesh gateway, so it injects no identity.
+ingress:
+  enabled: false

@@ -11,20 +11,27 @@ database:
   existingSecret: aigw-db
   existingSecretKey: database-url
 
-ingress:
-  enabled: true
-  className: traefik
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  hosts:
-    - host: gateway.screamingface.ai
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: aigw-tls
-      hosts:
-        - gateway.screamingface.ai
+# The caller arrives already identified: Cloudflare Access authenticates them at the edge and the
+# mesh gateway re-verifies that assertion before injecting `X-User-Email`, which this gateway reads
+# directly. Automation using Cloudflare service tokens is not supported in this mode.
+config:
+  authMode: cloudflare_headers
 
+# Internal-only. There is no public route to the gateway, and that is load-bearing rather than
+# incidental — it is what makes the injected identity headers unforgeable.
+ingress:
+  enabled: false
+
+# The authentication boundary in `cloudflare_headers` mode: only the url4-cloud App and its Runner
+# Jobs may connect.
+#
+# WHY this is spelled out here rather than left to the chart default: this file previously set
+# `enabled: true` and nothing else, and the template omitted `from:` when no CIDRs were given —
+# which rendered a policy that admitted every source in the cluster while reading, in this file,
+# as though prod were the locked-down environment. The template now refuses to render an empty
+# peer set, and the peers are named explicitly so the intent is visible at the deployment level.
 networkPolicy:
   enabled: true
+  clientPodNames:
+    - url4-cloud
+    - url4-runner

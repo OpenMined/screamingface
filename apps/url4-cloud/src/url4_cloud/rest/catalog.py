@@ -17,15 +17,16 @@ Every response is tied to the caller's credential, which is why ``Cache-Control`
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import JSONResponse
 
+from url4_cloud import job_env
 from url4_cloud.auth import ProblemException
 from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.catalog.port import CatalogError, Credential
-from url4_cloud.rest._credentials import forwarded_credential
 
 logger = logging.getLogger(__name__)
 
@@ -33,59 +34,43 @@ router = APIRouter()
 
 # INVARIANT: names every header that can change the response body. Without it a shared cache is
 # free to serve one caller's catalog to another — the header-level counterpart of keying the cache
-# by credential (spec §5.2, §6.3).
-_VARY = "Authorization, Cf-Access-Jwt-Assertion, X-Profile"
+# by caller (spec §5.2, §6.3).
+_VARY = "X-Profile, X-User-Email"
 
 # RFC 9110 §11.6.1: a 401 must carry a challenge. `Bearer` with no realm is deliberate — a realm
-# would name this deployment's identity provider to an unauthenticated caller.
+# would name this deployment's identity provider to an unauthenticated caller. Only used to relay
+# an upstream refusal now; this route no longer refuses anyone itself.
 _CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
 _MODELS_RESPONSES: dict[int | str, dict[str, object]] = {
-    200: {"description": "The models this credential can address."},
+    200: {"description": "The models this caller can address."},
     304: {"description": "The catalog is unchanged since the supplied `If-None-Match`."},
-    401: {"description": "No aigateway credential was supplied, or aigateway refused it."},
+    401: {"description": "aigateway refused the caller's identity."},
     502: {"description": "aigateway returned an unusable catalog."},
     503: {"description": "The catalog is not configured on this deployment."},
     504: {"description": "aigateway did not respond in time."},
 }
 
-_CREDENTIAL_DESC = (
-    "Bearer aigateway credential. Forwarded upstream verbatim — url4-cloud never verifies it."
-)
-_CF_DESC = (
-    "Cloudflare Access session JWT, attached by the edge — takes priority over Authorization, "
-    "on the precondition that this deployment's ingress guarantees all traffic transits CF "
-    "Access (this code neither verifies that nor strips a client-forged copy of this header)."
-)
-
 
 @router.get(
     "/v1/models",
     tags=["Catalog"],
-    summary="List the models this credential can address",
+    summary="List the models this caller can address",
     responses=_MODELS_RESPONSES,
     description=(
-        "Proxy aigateway's model listing for the caller's own credential, from a per-credential "
-        "cache.\n\n"
-        "A credential is required: either ``Authorization: Bearer <token>`` or the "
-        "``Cf-Access-Jwt-Assertion`` header Cloudflare Access attaches at the edge (which wins "
-        "when both are present, matching ``GET /?q=``, on the precondition that this "
-        "deployment's ingress guarantees all traffic transits CF Access — an edge/network-"
-        "topology guarantee this code does not itself verify). url4-cloud holds no credential "
-        "of its own and verifies neither value — aigateway does.\n\n"
-        "The body is aigateway's, verbatim. Responses are cached per credential, so "
+        "Proxy aigateway's model listing for the caller's own identity, from a per-caller cache."
+        "\n\n"
+        "The caller is the verified ``X-User-Email`` the mesh gateway injects, matching "
+        "``GET /?q=``. url4-cloud verifies nothing and holds no credential of its own — aigateway "
+        "decides, and refuses the request itself when its mode requires an identity that is "
+        "absent. Locally, where aigateway runs with auth disabled, no identity is needed.\n\n"
+        "The body is aigateway's, verbatim. Responses are cached per caller, so "
         "``Cache-Control`` is ``private`` and ``ETag``/``If-None-Match`` are scoped to that "
         "caller's catalog."
     ),
 )
 async def list_models(
     request: Request,
-    authorization: Annotated[
-        str | None, Header(alias="Authorization", description=_CREDENTIAL_DESC)
-    ] = None,
-    cf_access_jwt: Annotated[
-        str | None, Header(alias="Cf-Access-Jwt-Assertion", description=_CF_DESC)
-    ] = None,
     x_profile: Annotated[
         str | None, Header(alias="X-Profile", description="Optional aigateway routing profile.")
     ] = None,
@@ -93,18 +78,16 @@ async def list_models(
         str | None, Header(alias="If-None-Match", description="Conditional-request validator.")
     ] = None,
 ) -> Response:
-    """Proxy aigateway's model listing for the caller's own credential, from a per-credential cache.
+    """Proxy aigateway's model listing for the caller's own identity, from a per-caller cache.
 
-    A credential is required: either ``Authorization: Bearer <token>`` or the
-    ``Cf-Access-Jwt-Assertion`` header Cloudflare Access attaches at the edge (which wins when both
-    are present, matching ``GET /?q=``). url4-cloud holds no credential of its own and verifies
-    neither value — aigateway does.
+    The caller is the verified ``X-User-Email`` the mesh gateway injects, matching ``GET /?q=``.
+    url4-cloud verifies nothing and holds no credential of its own — aigateway does.
 
-    The body is aigateway's, verbatim. Responses are cached per credential, so ``Cache-Control`` is
+    The body is aigateway's, verbatim. Responses are cached per caller, so ``Cache-Control`` is
     ``private`` and ``ETag``/``If-None-Match`` are scoped to that caller's catalog.
     """
     service = _require_service(request)
-    credential = _require_credential(authorization, cf_access_jwt, x_profile)
+    credential = _caller(x_profile, request.headers)
     try:
         catalog = await service.fetch(credential)
     except CatalogError as exc:
@@ -146,27 +129,20 @@ def _require_service(request: Request) -> CatalogService:
     return service
 
 
-def _require_credential(
-    authorization: str | None, cf_access_jwt: str | None, profile: str | None
-) -> Credential:
-    """Resolve the caller's credential, or a 401 — without ever calling upstream.
+def _caller(profile: str | None, headers: Mapping[str, str]) -> Credential:
+    """Resolve who is asking, from the verified identity header the mesh gateway injects.
 
-    INVARIANT: rejecting here rather than forwarding an empty credential is what makes an
-    unauthenticated request cost aigateway nothing (spec §11 acceptance 2).
+    WHY there is no 401 here any more: url4-cloud cannot know which auth mode aigateway is in, and
+    an absent identity is legitimate in one of them. Deployed, Envoy always injects the header and
+    an aigateway in ``cloudflare_headers`` mode 401s a request without it — upstream, where the
+    decision belongs. Locally, aigateway runs ``disabled``: every caller is anonymous, no identity
+    exists to send, and rejecting here would make the endpoint permanently unusable in dev.
 
-    Raises:
-        ProblemException: 401 with a ``WWW-Authenticate: Bearer`` header if neither header
-            supplies a usable credential.
+    AIDEV-NOTE: this drops the old "an unauthenticated request costs aigateway nothing" short
+    circuit (spec §11 acceptance 2), which was only sound while a bearer token was mandatory. The
+    flood protection that remains is `catalog.cache`'s entry cap and single-flight bulkhead.
     """
-    token = forwarded_credential(authorization, cf_access_jwt)
-    if token is None:
-        raise ProblemException(
-            status=401,
-            title="Unauthorized",
-            detail="an aigateway credential is required to list models",
-            headers=_CHALLENGE,
-        )
-    return Credential.derive(token, profile)
+    return Credential.derive(profile, job_env.identity_from_headers(headers))
 
 
 def _validator_matches(if_none_match: str | None, etag: str) -> bool:

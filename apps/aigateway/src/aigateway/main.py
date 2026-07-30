@@ -164,11 +164,13 @@ async def _lifespan(app):
             credential_store,
             app.state.settings.jwt_secret,
         )
-        if app.state.settings.auth_enabled or app.state.settings.admin_password is not None:
+        # `auth_mode != "disabled"` is exactly the old `auth_enabled` truth value — the mode is
+        # derived from it when only the legacy flag is set (see Settings._reconcile_auth_mode), so
+        # this keeps its behavior for `jwt` and extends the same treatment to `cloudflare_headers`.
+        authenticating = app.state.settings.auth_mode != "disabled"
+        if authenticating or app.state.settings.admin_password is not None:
             admin = await ensure_admin_account(app.state.settings.admin_password)
-            bootstrap_account_id = (
-                str(admin.id) if app.state.settings.auth_enabled else str(ANONYMOUS_ACCOUNT_ID)
-            )
+            bootstrap_account_id = str(admin.id) if authenticating else str(ANONYMOUS_ACCOUNT_ID)
         else:
             bootstrap_account_id = str(ANONYMOUS_ACCOUNT_ID)
 
@@ -264,8 +266,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
     app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.state.settings = settings
-    if not settings.auth_enabled:
+    # Only the `disabled` mode makes every caller anonymous, so only it needs the loopback guard.
+    # `cloudflare_headers` authenticates from the injected header and is meant to be reached over
+    # network — binding it to loopback would break the deployment it exists for.
+    if settings.auth_mode == "disabled":
         app.add_middleware(AuthDisabledLocalOnlyMiddleware)
+    elif settings.auth_mode == "cloudflare_headers" and not settings.allowed_networks:
+        # WHY refuse to build rather than default to something permissive: in this mode the network
+        # IS the authentication boundary, and "which networks?" has no answer the gateway can
+        # safely guess. An operator cannot obtain the trust without stating who they trust. The
+        # deployment fails here, at import, rather than serving every reachable caller.
+        raise ValueError(
+            "AIGW_AUTH_MODE=cloudflare_headers trusts the X-User-Email header from any caller that "
+            "can reach this port, so the callers allowed to present it must be declared: set "
+            "AIGW_ALLOWED_NETWORKS to the CIDR networks of the url4-cloud App and its Runner Pods "
+            "(e.g. your cluster's Pod CIDR)"
+        )
 
     registry = ProviderRegistry()
     load_plugins(registry)

@@ -103,7 +103,7 @@ part of the cache key — not by branching on the mode.
 
 | # | Fork | Decision | Rationale |
 |---|---|---|---|
-| **D1** | Authentication | **A credential is required.** The endpoint accepts the same credential headers `start_run` accepts (`Authorization: Bearer`, `Cf-Access-Jwt-Assertion`, `X-Profile`) and forwards them upstream. No credential ⇒ 401. | Owner confirmed callers are authenticated before reaching url4-cloud (`CF → apigw → url4-cloud`). Behind Cloudflare Access the browser sends nothing extra — the edge attaches the assertion — so the requirement is free at the client. url4-cloud still verifies nothing; aigateway remains the sole verifier, exactly as with `_forwarded_credential` (`rest/routes.py:136`). |
+| **D1** | Authentication | **A credential is required.** The endpoint accepts the same credential headers `start_run` accepts (`Authorization: Bearer`, `X-Profile`) and forwards them upstream. No credential ⇒ 401. | Owner confirmed callers are authenticated before reaching url4-cloud (`apigw → url4-cloud`). url4-cloud verifies nothing; aigateway remains the sole verifier, exactly as with `bearer_token` (`rest/_credentials.py`). |
 | **D2** | Service credential | **None.** url4-cloud stores no aigateway credential. | Directly follows from D1: with no anonymous path there is nothing for a service credential to serve. This is the decision's main prize — **no new secret, no chart Secret reference, no rotation story** in an app that holds none today. |
 | **D3** | Cache key | **Identity-keyed.** Key = SHA-256 of `(credential, profile)`. | The only design correct under both modes (§2.1). Also the natural consequence of D1: the credential is already on the request. |
 | **D4** | Scope | **Backend endpoint only.** The Runner's `_list_models` is untouched. | Keeps the blast radius reviewable; avoids a Runner→backend dependency on the run-critical path. |
@@ -111,14 +111,13 @@ part of the cache key — not by branching on the mode.
 
 ## 4. Credential resolution
 
-Reuses the precedence `start_run` already established, so the two entry points cannot drift:
+Reuses the rule `start_run` already established, so the two entry points cannot drift:
 
-1. `Cf-Access-Jwt-Assertion` — edge-attached by Cloudflare Access; wins when present.
-2. `Authorization: Bearer <token>` — the direct/service-caller fallback.
-3. Neither → **401** (§5.3).
+1. `Authorization: Bearer <token>` — the only credential source.
+2. Absent, or a non-Bearer scheme → **401** (§5.3).
 
 `X-Profile` is forwarded and participates in the cache key. A profile label with no credential
-to scope is discarded along with the request itself, since (3) already rejects it — consistent
+to scope is discarded along with the request itself, since (2) already rejects it — consistent
 with `start_run`'s rule at `rest/routes.py:349`.
 
 The credential is never logged, never placed in a metric label, and never echoed in a response.
@@ -130,8 +129,7 @@ The cache key is a **hash**, so raw credentials are never held as dict keys.
 
 ```http
 GET /v1/models HTTP/1.1
-Authorization: Bearer <aigateway credential>     ; one of these two is required
-Cf-Access-Jwt-Assertion: <access jwt>            ; edge-attached; wins over Authorization
+Authorization: Bearer <aigateway credential>     ; required
 X-Profile: <routing profile>                     ; optional
 If-None-Match: "a3f1c09e4b2d7f81"                ; optional
 ```
@@ -143,7 +141,7 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 ETag: "a3f1c09e4b2d7f81"
 Cache-Control: private, max-age=247
-Vary: Authorization, Cf-Access-Jwt-Assertion, X-Profile
+Vary: Authorization, X-Profile
 ```
 ```json
 {
@@ -255,9 +253,7 @@ Five composed behaviours:
    serialise unrelated accounts.
 3. **Stale-on-error.** A refresh that fails while that key has a previous entry serves it and
    logs a warning; the cache never fails open into "no models". Bounded by
-   `models_cache_stale_max_s` (default 3600s). This mirrors `CloudflareAccessJwks._refresh`
-   (`cf_access/jwks.py:93`), which already established this discipline in this codebase —
-   serve cached, refuse cold.
+   `models_cache_stale_max_s` (default 3600s) — serve cached, refuse cold.
 4. **Per-key failure backoff** (`models_cache_error_backoff_s`, default 30s). Single-flight
    collapses *concurrent* misses; this bounds *sequential* ones.
 5. **Bounded LRU** (`models_cache_max_entries`, default 256) — see §7.
@@ -329,8 +325,8 @@ purposes — see the `AIDEV-NOTE` in `catalog/aigateway.py`).
 ### Open question for the user-facing direction
 
 There is **no CORS handling anywhere in url4-cloud** — not in the app, not in the chart. Any
-browser client on a different origin will be blocked, and the required `Authorization` /
-`Cf-Access-Jwt-Assertion` headers guarantee a preflight. This is pre-existing and applies equally
+browser client on a different origin will be blocked, and the required `Authorization`
+header guarantees a preflight. This is pre-existing and applies equally
 to `POST /token` and `GET /?q=`, so it is out of scope here, but it is the next thing a
 browser-based consumer will hit. It needs its own ticket and a deliberate origin allowlist —
 never `*`, since these are credentialed requests.

@@ -52,7 +52,7 @@ class _MockAigateway:
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        assert request.headers["authorization"] == f"Bearer {_TOKEN}"
+        assert "authorization" not in request.headers
         if request.url.path == "/v1/models":
             return httpx.Response(
                 200,
@@ -183,7 +183,7 @@ async def test_declared_models_register_routes_one_to_one() -> None:
     gw = _MockAigateway(("anthropic/claude-haiku-4-5", "openrouter/gpt-4o"))
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         assert set(world.node.processor_routes()) == {
             "/anthropic/claude-haiku-4-5",
@@ -197,7 +197,7 @@ async def test_the_world_never_asks_the_gateway_for_its_catalog() -> None:
     gw = _MockAigateway(("anthropic/claude-haiku-4-5",))
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        await build_aigateway_world(cfg, client=client)
 
     assert not any(r.url.path == "/v1/models" for r in gw.requests)
 
@@ -208,7 +208,7 @@ async def test_no_bare_alias_is_registered_for_a_prefixed_id() -> None:
     gw = _MockAigateway(("openrouter/openai/gpt-5.5", "codex/gpt-5.5"))
     cfg = AigatewayConfig(models=gw.models, default_model="codex/gpt-5.5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         assert set(world.node.processor_routes()) == {
             "/openrouter/openai/gpt-5.5",
@@ -220,7 +220,7 @@ async def test_a_bare_short_name_no_longer_resolves_to_a_prefixed_model() -> Non
     gw = _MockAigateway(("codex/gpt-5.5",))
     cfg = AigatewayConfig(models=gw.models, default_model="codex/gpt-5.5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         fanout = "(/codex/gpt-5.5(ctx)!probe)!combine"
         with pytest.raises(ResolutionError) as exc_info:
@@ -239,7 +239,7 @@ async def test_both_qualified_processor_forms_select_the_named_model(
     gw = _MockAigateway(("anthropic/claude-haiku-4-5", "openrouter/gpt-4o"))
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         await url4_run(_FANOUT, io=world.node, processor=processor_value)
 
@@ -251,7 +251,7 @@ async def test_bare_reduce_with_no_processor_uses_the_default_model() -> None:
     gw = _MockAigateway(("anthropic/claude-haiku-4-5", "openrouter/gpt-4o"))
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         await url4_run(_FANOUT, io=world.node)
 
@@ -265,7 +265,7 @@ async def test_handler_returns_the_completion_content() -> None:
     )
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         result = await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
 
@@ -277,7 +277,7 @@ async def test_usage_is_reported_for_this_route_via_the_engine_observer() -> Non
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     recorder = _Recorder()
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node, observer=recorder)
 
@@ -295,7 +295,7 @@ async def test_usage_provider_is_anthropic_for_a_bare_unprefixed_model() -> None
     cfg = AigatewayConfig(models=gw.models, default_model="claude-haiku-4-5")
     recorder = _Recorder()
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         await url4_run("/claude-haiku-4-5(ctx)!go", io=world.node, observer=recorder)
 
@@ -309,7 +309,7 @@ async def test_a_shared_bare_name_across_providers_stays_addressable_by_full_id(
     gw = _MockAigateway(("anthropic/x", "openrouter/x"))
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/x")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         assert set(world.node.processor_routes()) == {"/anthropic/x", "/openrouter/x"}
 
@@ -324,7 +324,7 @@ async def test_unregistered_model_id_fails_before_any_completion_call() -> None:
     gw = _MockAigateway(("anthropic/claude-haiku-4-5",))
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         fanout = "(/anthropic/claude-haiku-4-5(ctx)!probe)!combine"
         with pytest.raises(ResolutionError) as exc_info:
@@ -353,7 +353,7 @@ async def test_aigateway_http_errors_map_to_resolution_error(
     )
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
@@ -369,7 +369,7 @@ async def test_default_model_must_be_one_of_the_declared_models() -> None:
     )
     async with gw.client() as client:
         with pytest.raises(RunnerConfigError, match="anthropic/claude-haiku-4-5"):
-            await build_aigateway_world(cfg, token=_TOKEN, client=client)
+            await build_aigateway_world(cfg, client=client)
 
 
 async def test_owned_client_is_created_and_closed_by_aclose() -> None:
@@ -378,7 +378,7 @@ async def test_owned_client_is_created_and_closed_by_aclose() -> None:
         models=(ModelSpec(id="anthropic/claude-haiku-4-5"),),
     )
 
-    world = await build_aigateway_world(cfg, token=_TOKEN)
+    world = await build_aigateway_world(cfg)
 
     assert world._owns_client is True
     assert world._client.is_closed is False
@@ -392,7 +392,7 @@ async def test_injected_client_is_not_closed_by_aclose() -> None:
     gw = _MockAigateway(("anthropic/claude-haiku-4-5",))
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         assert world._owns_client is False
 
@@ -418,14 +418,14 @@ async def test_a_bad_default_model_is_rejected_before_any_client_is_created() ->
         mock.patch.object(httpx.AsyncClient, "__init__", _spy_init),
         pytest.raises(RunnerConfigError, match="not/in-catalog"),
     ):
-        await build_aigateway_world(cfg, token=_TOKEN)
+        await build_aigateway_world(cfg)
 
     assert created == []
 
 
 async def test_declaring_no_models_is_a_config_error() -> None:
     with pytest.raises(RunnerConfigError, match="declares no models"):
-        await build_aigateway_world(AigatewayConfig(models=()), token=_TOKEN)
+        await build_aigateway_world(AigatewayConfig(models=()))
 
 
 async def test_malformed_completion_response_raises_resolution_error() -> None:
@@ -434,7 +434,7 @@ async def test_malformed_completion_response_raises_resolution_error() -> None:
     )
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
@@ -457,7 +457,7 @@ async def test_no_usage_block_reports_no_usage_event_but_still_returns_content()
     cfg = AigatewayConfig(models=gw.models, default_model="anthropic/claude-haiku-4-5")
     recorder = _Recorder()
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         result = await url4_run(
             "/anthropic/claude-haiku-4-5(ctx)!go", io=world.node, observer=recorder
@@ -475,7 +475,7 @@ async def test_no_tools_when_tavily_key_absent() -> None:
     gw = _MockAigateway((_MODEL,), responses={_MODEL: "plain answer"}, web_tools=True)
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         assert world.web_tools_enabled is False
         await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -494,7 +494,7 @@ async def test_no_tools_when_the_route_did_not_opt_in() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         # The WORLD can serve web tools; this ROUTE still does not ask for them.
@@ -518,7 +518,7 @@ async def test_opted_in_and_opted_out_routes_coexist_in_one_world() -> None:
     )
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         await url4_run(f"/{plain}(ctx)!go", io=world.node)
@@ -534,7 +534,7 @@ async def test_tools_declared_when_tavily_key_present() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         assert world.web_tools_enabled is True
@@ -566,7 +566,7 @@ async def test_web_search_loop_executes_tavily_search_then_answers() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -600,7 +600,7 @@ async def test_web_fetch_loop_executes_tavily_extract_then_answers() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -636,7 +636,7 @@ async def test_parallel_tool_calls_both_executed_in_one_turn() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -670,7 +670,7 @@ async def test_usage_accumulates_across_round_trips_on_same_span() -> None:
     recorder = _Recorder()
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=recorder)
@@ -696,7 +696,7 @@ async def test_tavily_http_failure_fed_back_to_model_not_raised() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -721,7 +721,7 @@ async def test_unknown_tool_name_fed_back_to_model() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -745,7 +745,7 @@ async def test_invalid_tool_arguments_fed_back_to_model() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -764,7 +764,7 @@ async def test_max_iterations_exceeded_raises_resolution_error() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL, web_tool_max_iterations=2)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         with pytest.raises(ResolutionError) as exc_info:
@@ -787,7 +787,7 @@ async def test_extract_content_tolerates_content_none_with_tool_calls() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -799,7 +799,7 @@ async def test_malformed_neither_content_nor_tool_calls_still_raises() -> None:
     gw = _MockAigateway((_MODEL,), responses={_MODEL: {"choices": [{"message": {}}]}})
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
+        world = await build_aigateway_world(cfg, client=client)
 
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -810,7 +810,7 @@ async def test_malformed_neither_content_nor_tool_calls_still_raises() -> None:
 
 async def test_owned_tavily_client_closed_on_aclose() -> None:
     cfg = AigatewayConfig(default_model=_MODEL, models=(ModelSpec(id=_MODEL),))
-    world = await build_aigateway_world(cfg, token=_TOKEN, tavily_api_key=_TAVILY_TOKEN)
+    world = await build_aigateway_world(cfg, tavily_api_key=_TAVILY_TOKEN)
 
     assert world._owns_tavily_client is True
     assert world._tavily_client is not None
@@ -828,7 +828,7 @@ async def test_injected_tavily_client_not_closed_on_aclose() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         assert world._owns_tavily_client is False
@@ -858,7 +858,7 @@ async def test_tavily_search_formats_results_as_title_url_content_blocks() -> No
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -885,7 +885,7 @@ async def test_tavily_extract_reports_failed_urls_in_tool_result() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
@@ -909,13 +909,13 @@ async def test_tavily_key_never_sent_to_aigateway() -> None:
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
         world = await build_aigateway_world(
-            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+            cfg, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
         )
 
         await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
 
     for req in gw.posts_to(_MODEL):
-        assert req.headers["authorization"] == f"Bearer {_TOKEN}"
+        assert "authorization" not in req.headers
         assert _TAVILY_TOKEN not in str(req.headers) + req.content.decode("utf-8", errors="ignore")
 
 

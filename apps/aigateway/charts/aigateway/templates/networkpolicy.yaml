@@ -1,4 +1,38 @@
 {{- if .Values.networkPolicy.enabled -}}
+{{/*
+Who may reach the gateway. In `cloudflare_headers` mode this policy IS the authentication boundary:
+the app trusts `X-User-Email` precisely because only these peers can present it.
+
+INVARIANT: this template must never render an ingress rule with no `from:`. A NetworkPolicy rule
+that omits `from:` admits EVERY source — so the previous version, which dropped `from:` whenever
+`ingressCIDRs` was empty while `values-prod.yaml` enabled the policy with no CIDRs, was an
+allow-all wearing the name of a restriction. An empty peer set now fails the render instead.
+
+INVARIANT: each client contributes ONE `from` element carrying BOTH its `namespaceSelector` and its
+`podSelector`. Selectors within one element are ANDed; separate elements are ORed. Splitting them
+across two elements would mean "any pod in that namespace OR any pod with that label anywhere" —
+i.e. the whole namespace, which is the hole this policy exists to close.
+
+The peers are the url4-cloud App (it proxies the model catalog) and the Runner Pods (they make the
+chat-completions calls). They share no label — the App carries the url4-cloud chart's name and the
+Jobs carry `url4-runner` (`adapters/k8s.py` RUNNER_LABELS) — so each needs its own element.
+*/}}
+{{- $ns := .Values.networkPolicy.clientNamespace | default .Release.Namespace -}}
+{{- $peers := list -}}
+{{- range .Values.networkPolicy.clientPodNames -}}
+{{- $peers = append $peers (dict
+      "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $ns))
+      "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" .))) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.ingressCIDRs -}}
+{{- $peers = append $peers (dict "ipBlock" (dict "cidr" .)) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.allowFrom -}}
+{{- $peers = append $peers . -}}
+{{- end -}}
+{{- if not $peers -}}
+{{- fail "networkPolicy.enabled=true but no peers are declared — a NetworkPolicy ingress rule with no `from:` admits every source, the opposite of what enabling this is for. Set networkPolicy.clientPodNames (and/or ingressCIDRs / allowFrom), or set networkPolicy.enabled=false and restrict the gateway some other way." -}}
+{{- end -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,13 +50,10 @@ spec:
     - ports:
         - protocol: TCP
           port: {{ .Values.config.port }}
-      {{- if .Values.networkPolicy.ingressCIDRs }}
       from:
-        {{- range .Values.networkPolicy.ingressCIDRs }}
-        - ipBlock:
-            cidr: {{ . | quote }}
-        {{- end }}
-      {{- end }}
+        {{- toYaml $peers | nindent 8 }}
   egress:
+    # Unrestricted by design: this gateway's whole job is calling third-party provider APIs
+    # (Anthropic, Google, OpenRouter, …), whose address ranges are not knowable here.
     - {}
 {{- end }}

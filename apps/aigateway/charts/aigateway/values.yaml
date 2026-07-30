@@ -31,9 +31,58 @@ config:
   host: 0.0.0.0
   port: 9105
   logLevel: info
+  # DEPRECATED — the legacy spelling of `authMode`. `false` still means `authMode: disabled`.
+  # Setting it false AND naming a non-disabled `authMode` fails the render rather than picking one.
   authEnabled: true
+  # How the gateway establishes who is calling:
+  #
+  #   cloudflare_headers  trust the `X-User-Email` header the mesh injects. Cloudflare Access
+  #                       authenticates at the edge and Envoy re-verifies that assertion before
+  #                       injecting it, so the gateway needs no token of its own. Service-token
+  #                       callers are NOT supported in this mode. THE CLOUD DEFAULT.
+  #   jwt              verify the gateway's own bearer token (accounts + passwords + /v1/auth/login).
+  #   disabled         every caller is anonymous; loopback-only, for local development.
+  #
+  # INVARIANT: `cloudflare_headers` is safe ONLY while this Service is unreachable except through the
+  # mesh. Two things enforce that, and both must hold: `ingress.enabled: false` (no direct route in)
+  # and the `networkPolicy` below (only the declared peers may connect). The chart refuses to render
+  # `cloudflare_headers` together with an enabled Ingress, because that combination lets any caller
+  # set X-User-Email and become any principal.
+  authMode: cloudflare_headers
+  # Peers allowed to present `X-User-Email`, as CIDR networks. Required by `cloudflare_headers`;
+  # ignored by the other modes. The app refuses to start without it, and the chart refuses to
+  # render — the gateway cannot trust the header without knowing who may present it.
+  #
+  # WHY this exists on top of the `networkPolicy` below: a NetworkPolicy restricts nothing unless
+  # the cluster's CNI enforces it, and where it does not, the policy is decoration and any
+  # reachable caller could become any principal. This check runs in the process, so it holds
+  # either way. Defence in depth, not a replacement.
+  #
+  # The default is the private ranges, which covers every usual Pod CIDR (plus 100.64.0.0/10, used
+  # by some CNIs). NARROW IT to your cluster's actual Pod CIDR — the default admits any private
+  # address that can reach the Service, which is wider than the two workloads that should.
+  allowedNetworks:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
   jwtTtlSeconds: 86400
+  # Provider plugins that ship disabled and need an operator to turn them on.
+  #
+  # WHY this is here at all: the ConfigMap emits a FIXED key set and the Deployment has no
+  # `extraEnv`, so before this block there was NO values path to enable OpenRouter — a deployer
+  # had to `kubectl set env` the live Deployment, which a later `helm upgrade` silently reverts.
+  # A stock install served zero OpenRouter models and nothing said why.
+  #
+  # NOTE: only the on/off switch belongs in the chart. API keys are per-ACCOUNT credentials held
+  # in `credential_blobs` (AES-256-GCM) and provisioned over the API, never chart config — a key
+  # here would be one shared credential for every caller, which is the opposite of what the
+  # per-principal credential model exists to do.
+  openrouter:
+    enabled: false
 
+# Only meaningful for the browser-facing OAuth flows, which are unreachable while the gateway is
+# internal-only (see `ingress` below). Kept so a deployment that re-exposes the gateway has it.
 publicUrl: https://gateway.screamingface.ai
 
 database:
@@ -62,8 +111,19 @@ service:
   type: ClusterIP
   port: 9105
 
+# DISABLED BY DEFAULT — the gateway is an internal service.
+#
+# WHY the default flipped: nothing outside the cluster needs to reach this port. url4-cloud and the
+# Runner Pods call it over the cluster network, and with `config.authMode: cloudflare_headers` the
+# absence of a public route is what makes the identity headers trustworthy — an Ingress here would
+# let anyone claim any principal with a single header.
+#
+# Enabling it is a deliberate act with a consequence: the chart will refuse to render unless you
+# also move `config.authMode` off `cloudflare_headers`. If you need the browser-facing flows (the
+# provider-credential UI, OAuth callbacks), route them through the same mesh gateway that injects
+# identity rather than opening a second, unauthenticated front door.
 ingress:
-  enabled: true
+  enabled: false
   className: traefik
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
@@ -108,9 +168,28 @@ migration:
   ttlSecondsAfterFinished: 600
   annotations: {}
 
+# Who may reach the gateway. With `config.authMode: cloudflare_headers` this is not hardening — it IS
+# the authentication boundary, which is why it defaults to on.
 networkPolicy:
-  enabled: false
+  enabled: true
+  # Namespace holding the url4-cloud App and its Runner Jobs. Empty => this release's namespace,
+  # which is the usual single-namespace install. Matched on the `kubernetes.io/metadata.name` label
+  # Kubernetes sets on every namespace.
+  clientNamespace: ""
+  # `app.kubernetes.io/name` of each client Pod allowed in `clientNamespace`. Two entries because
+  # the App and the Runner Jobs share no label: the App carries the url4-cloud chart's name, and
+  # each Job carries `url4-runner` (adapters/k8s.py RUNNER_LABELS).
+  #
+  # Every entry becomes its own `from` element pairing the namespace AND pod selector, so a name
+  # here admits only that workload in that namespace — never the whole namespace.
+  clientPodNames:
+    - url4-cloud
+    - url4-runner
+  # Extra CIDRs, e.g. a mesh gateway outside the cluster network.
   ingressCIDRs: []
+  # Escape hatch: raw NetworkPolicyPeer entries appended verbatim, for a topology the two settings
+  # above cannot express (a differently-labelled client, a second namespace).
+  allowFrom: []
 
 nodeSelector: {}
 tolerations: []

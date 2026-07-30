@@ -1,6 +1,6 @@
 import os
 import socket
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal, NamedTuple
@@ -15,7 +15,6 @@ from url4.streaming.interfaces import (
     ExecStep,
     Executor,
     JobAlreadyExists,
-    JobRunner,
     JobStatus,
     TraceContext,
     job_name,
@@ -31,6 +30,7 @@ from url4.streaming.protocol import (
 from url4.streaming.protocol.taxonomy import CostBreakdown
 from url4.streaming.testing import TAKE_TIMEOUT_S, take
 from url4_cloud.adapters.jetstream import JetStreamConsumer, JetStreamPublisher
+from url4_cloud.ports import IdentityAwareJobRunner
 from url4_cloud.testing import InMemoryEventStream
 
 NATS_URL = os.environ.get("URL4_CLOUD_TEST_NATS_URL", "nats://localhost:4222")
@@ -117,9 +117,10 @@ class ScheduledRun(NamedTuple):
     traceparent: str | None
     credential: str | None
     profile: str | None
+    identity: Mapping[str, str] | None = None
 
 
-class RecordingJobRunner(JobRunner):
+class RecordingJobRunner(IdentityAwareJobRunner):
     def __init__(self, *, exists: bool = False, conflict_on_schedule: bool = False) -> None:
         self._exists = exists
         self._conflict = conflict_on_schedule
@@ -135,11 +136,12 @@ class RecordingJobRunner(JobRunner):
         traceparent: str | None = None,
         credential: str | None = None,
         profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)
         self.scheduled.append(
-            ScheduledRun(topic, url4, deadline_s, traceparent, credential, profile)
+            ScheduledRun(topic, url4, deadline_s, traceparent, credential, profile, identity)
         )
         return job_name(topic)
 

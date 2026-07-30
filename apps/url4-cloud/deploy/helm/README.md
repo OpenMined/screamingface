@@ -101,8 +101,9 @@ The `RoleBinding` targets the App's `ServiceAccount` (the Deployment's subject).
 the calls `url4_cloud.adapters.k8s.K8sJobRunner` makes, and the Role covers the labels the App stamps
 on the Jobs it creates (`url4_cloud.adapters.k8s.RUNNER_LABELS`).
 
-Note the App needs **no** `get secrets`: the Tavily credential travels into each Job as a
-`secretKeyRef`, so the App names the Secret without ever reading it.
+Note the App needs **no** secrets verbs at all. The Tavily credential is deploy-time and rides
+`envFrom`, so the App only names the Secret; and a Runner Job carries no aigateway credential to
+store, because aigateway resolves the caller from the verified `X-User-Email` header instead.
 
 ## The Runner Job
 

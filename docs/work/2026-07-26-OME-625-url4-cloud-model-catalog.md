@@ -40,10 +40,9 @@ and keeps its own `_list_models` (owner, 2026-07-26).
 **r3 in full:**
 
 - **A credential is required.** Accepts the same headers `start_run` accepts
-  (`Authorization: Bearer`, `Cf-Access-Jwt-Assertion`, `X-Profile`) and forwards them upstream.
+  (`Authorization: Bearer`, `X-Profile`) and forwards them upstream.
   No credential ⇒ 401 + `WWW-Authenticate: Bearer`, no upstream call. url4-cloud verifies
-  nothing; aigateway remains the sole verifier. Behind Cloudflare Access the browser sends
-  nothing extra, so the requirement is free at the client.
+  nothing; aigateway remains the sole verifier.
 - **No service credential — no new secret.** url4-cloud holds no aigateway credential, needs no
   chart Secret reference, and gains no rotation story. This is r3's main prize.
 - **Identity-keyed cache** (SHA-256 of credential+profile). Correct under `byok` (answer is per
@@ -94,7 +93,7 @@ RED first, per batch. Headline cases:
    `CatalogRejected` · 5xx ⇒ `CatalogBadResponse` · timeout ⇒ `CatalogUnavailable` · header
    forwarding · no token in logs.
 4. **Route** (`TestClient`) — 200 shape · **two credentials ⇒ different bodies** ·
-   `Cf-Access-Jwt-Assertion` wins over `Authorization` · **no credential ⇒ 401 +
+   **no credential ⇒ 401 +
    `WWW-Authenticate`, upstream never called** · `Vary` always present · `Cache-Control` always
    `private` · ETag / `If-None-Match` ⇒ 304 · `max-age` decays · 503 unconfigured · 401/502/504
    mapping · never 500 · in `app.openapi()`.

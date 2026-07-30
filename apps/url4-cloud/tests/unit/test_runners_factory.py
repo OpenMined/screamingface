@@ -63,12 +63,10 @@ def test_k8s_runner_is_built_from_settings() -> None:
     runner = build_job_runner(
         settings,
         k8s_client_factory=lambda: (loaded.append(True), _FakeBatchApi())[1],
-        k8s_secrets_client_factory=_FakeCoreV1Api,
     )
 
     assert isinstance(runner, K8sJobRunner)
     assert loaded == [True]
-    assert isinstance(runner._secrets_client, _FakeCoreV1Api)
     assert runner._namespace == "url4-prod"
     assert runner._image == "ghcr.io/openmined/url4-cloud:1.2.3"
     # The Job runs the App's OWN image in run mode, so the command IS the mode switch.
