@@ -136,9 +136,11 @@ either layer; all `apps/aigateway` gates green via `run_gates.py aigateway`.
 
   Docs: `docs/openrouter-routing-controls.md` (161, new) + `README.md` (+9, link).
 
-- **Commits:** `837969e5` — `feat(aigateway): validated OpenRouter price and privacy routing
-  controls` (`Refs: OME-704`). 21 files, +2859/-208. Pre-commit hooks green (trailing
-  whitespace, end-of-file, large files, merge conflicts, ruff check, ruff format).
+- **Commits:** `92f8c446` — `feat(aigateway): validated OpenRouter price and privacy routing
+  controls` (`Refs: OME-704`). 21 files, +2862/-208. Pre-commit hooks green (trailing
+  whitespace, end-of-file, large files, merge conflicts, ruff check, ruff format). This sha is
+  recorded by a small follow-up `docs(aigateway):` commit, since a commit cannot contain its own
+  hash; the branch squash-merges to one commit on `main` per repo policy.
   **Not pushed** — no upstream, no PR yet; push is a separate authorization.
 
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` → **ALL GATES
