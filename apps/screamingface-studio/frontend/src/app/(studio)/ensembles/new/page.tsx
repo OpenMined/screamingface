@@ -753,7 +753,15 @@ function RunDetail({
           Run history
         </Button>
 
-        <section className="mb-8 max-w-3xl">
+        <section className="mb-14 max-w-3xl">
+          <div className="mb-4">
+            <p className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+              Scoreboard
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              How this run ranks
+            </p>
+          </div>
           <div className="mb-3 flex items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-xs text-muted-foreground">
@@ -893,15 +901,22 @@ function RunDetail({
           </div>
         </section>
 
-        <section className="mb-8 max-w-3xl">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">Questions</p>
-            <p className="text-xs text-muted-foreground">
+        <section className="mb-14 border-t pt-10">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                Inspect results
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Per-question answers and reasoning
+              </p>
+            </div>
+            <p className="shrink-0 text-xs text-muted-foreground">
               {questions.length} of {run.sampleSize.toLocaleString()} loaded
             </p>
           </div>
-          <div className="flex h-96 overflow-hidden rounded-xl border">
-            <div className="flex w-60 shrink-0 flex-col overflow-y-auto border-r">
+          <div className="flex h-[30rem] min-h-[60vh] overflow-hidden rounded-xl border">
+            <div className="flex w-72 shrink-0 flex-col overflow-y-auto border-r">
               {questions.map((item) => (
                 <button
                   type="button"

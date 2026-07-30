@@ -41,3 +41,12 @@ have **finished**, and **how many questions** are done (X / N) — beyond today'
   code/gate level here; owner can eyeball the animation in-app.
 - **Deviations:** running-state JSX wrapped in an IIFE to compute question-count locals; the judge is
   an arbitration indicator only (not added to `modelResults`).
+
+## Follow-up refinement (owner, 2026-07-30)
+
+Clarified the run-detail view: part 1 now has a **Scoreboard** kicker ("How this run ranks") over the
+ranking table; part 2 an **Inspect results** kicker ("Per-question answers and reasoning") separated
+by a hairline + spacing so it reads as its own component. Space: the inspect box is taller
+(`h-[30rem] min-h-[60vh]`), the question list wider (`w-72`), and the section spans the full container
+so the reasoning pane gets more room. Presentational only. Commit: `feat(desktop): clarify run-detail
+scoreboard vs inspect-results + use space better`, `Refs: OME-663`.
