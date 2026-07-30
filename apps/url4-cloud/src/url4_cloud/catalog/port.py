@@ -1,8 +1,8 @@
 """The model-catalog port — the contract the cache and the aigateway adapter share (spec §6.2).
 
 FEATURE: model-catalog discovery. ``GET /v1/models`` on url4-cloud answers "which models can I
-address?" by forwarding the caller's own aigateway credential upstream and caching the result per
-credential.
+address?" by forwarding the caller's own verified identity upstream and caching the result per
+caller.
 
 STORY: as a client composing a url4 expression, I ask url4-cloud which model paths exist before I
 reference one, instead of guessing and failing at run time.
@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
-
-from pydantic import SecretStr
 
 # WHY 32 hex (128 bits) for the cache key: it must be collision-free across concurrent callers,
 # since a collision would serve one caller another's catalog. 16 hex for the ETag is fine by
@@ -41,30 +40,45 @@ _KEY_SEPARATOR = "\x00"
 class Credential:
     """A caller-supplied aigateway identity, plus the cache key derived from it.
 
-    INVARIANT: ``token`` is a :class:`~pydantic.SecretStr`, never a bare ``str`` — this object
-    reaches log records, tracebacks and exception reprs, and a bare str would print the secret.
-    Reach for the raw value only at the moment of building the upstream header.
+    The caller is described by the verified ``identity`` headers Envoy injects (deployed), or by
+    nothing at all (local, where aigateway runs ``disabled`` and every caller is anonymous). No
+    bearer token is carried: neither aigateway mode this app targets reads ``Authorization``.
+
+    INVARIANT: an empty identity is a legitimate value, and it gets its OWN cache key — anonymous
+    responses must never be served to an identified caller, or vice versa.
     """
 
-    token: SecretStr
     profile: str | None
     key: str
+    identity: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
-    def derive(cls, token: str, profile: str | None = None) -> Credential:
-        """Build a credential and its cache key from a raw token.
+    def derive(
+        cls,
+        profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
+    ) -> Credential:
+        """Build a credential and its cache key from the caller's profile and verified identity.
 
-        INVARIANT: the key is a *digest*, never the token itself. Two reasons — the raw token must
-        never sit in a dict key where a heap dump or debugger would surface it, and a digest is
-        fixed-length, so per-entry memory cannot be chosen by whoever sends the token (spec §7).
+        INVARIANT: the key is a *digest*, and it is fixed-length — so per-entry memory cannot be
+        chosen by whoever sends the headers (spec §7).
+
+        INVARIANT: the identity is part of the key material. Two callers distinguished ONLY by
+        their verified email must not share a cache entry, or one principal is served the other's
+        catalog.
         """
-        # WHY: separate token and profile with a NUL byte before hashing so distinct
-        # (token, profile) pairs can't collide by concatenating to the same string.
-        material = f"{token}{_KEY_SEPARATOR}{profile or ''}".encode()
+        # WHY: NUL-separate every component before hashing so distinct tuples can't collide by
+        # concatenating to the same string. The identity is sorted so an equal mapping always
+        # yields an equal key regardless of insertion order.
+        identity = dict(identity or {})
+        identity_material = _KEY_SEPARATOR.join(
+            f"{name}={identity[name]}" for name in sorted(identity)
+        )
+        material = f"{profile or ''}{_KEY_SEPARATOR}{identity_material}".encode()
         return cls(
-            token=SecretStr(token),
             profile=profile,
             key=hashlib.sha256(material).hexdigest()[:_KEY_LENGTH],
+            identity=identity,
         )
 
 

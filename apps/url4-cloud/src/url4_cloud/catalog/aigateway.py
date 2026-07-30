@@ -78,8 +78,16 @@ class AigatewayCatalogSource:
 
 
 def _headers(credential: Credential) -> dict[str, str]:
-    """Build the upstream request headers, forwarding the credential's token and profile."""
-    headers = {"Authorization": f"Bearer {credential.token.get_secret_value()}"}
+    """Build the upstream request headers from the credential's identity and profile.
+
+    INVARIANT: the gateway-owned header is written LAST, mirroring ``runner.connector._headers`` —
+    the identity mapping is not guaranteed to hold only identity keys, so no value in it can
+    displace ``X-Profile``.
+
+    No ``Authorization``: a deployed aigateway (``cloudflare_headers``) reads only the identity
+    header, and a local one (``disabled``) reads nothing at all.
+    """
+    headers = dict(credential.identity)
     if credential.profile is not None:
         headers["X-Profile"] = credential.profile
     return headers
