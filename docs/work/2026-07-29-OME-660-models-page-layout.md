@@ -42,3 +42,12 @@ the model **library** (selected models + Build), with the selected provider's mo
   screenshot (connected/model-grid state needs interaction — owner can eyeball).
 - **Deviations:** connect UI surfaced in the main header (a `w-64` rail row can't hold an API-key
   input cleanly); rounded shadcn styling kept (brand re-skin out of scope).
+
+## Follow-up refinement (owner, 2026-07-30)
+
+Replaced the top library bar with a **starred-models** model: a per-model **star** toggle (reusing
+`library` as the starred set), a **★ Starred** rail entry listing starred models with per-model
+**checkboxes**, and a **Compose a Fusion** action that stays **disabled until ≥1 is selected** (then
+composes from the checked subset). Selected models no longer pop above the available ones. Renamed
+"Build a Fusion" → **"Compose a Fusion"**. Commit: `feat(desktop): starred-models library +
+compose-from-selection on the Models page`, `Refs: OME-660`.
