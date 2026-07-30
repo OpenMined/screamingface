@@ -1,3 +1,4 @@
+{{- include "aigateway.validateAuth" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,6 +9,12 @@ data:
   AIGW_HOST: {{ .Values.config.host | quote }}
   AIGW_PORT: {{ .Values.config.port | quote }}
   AIGW_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
-  AIGATEWAY_AUTH_ENABLED: {{ .Values.config.authEnabled | quote }}
+  # How the caller is established. Resolved from `config.authMode`, with the legacy
+  # `config.authEnabled: false` still meaning `disabled` (see the `aigateway.authMode` helper).
+  #
+  # INVARIANT: `AIGATEWAY_AUTH_ENABLED` is deliberately NOT emitted alongside it. The app accepts
+  # both but rejects them when they disagree, so a chart sending both would have two ways to say
+  # one thing — the chart resolves the pair and sends only the mode.
+  AIGW_AUTH_MODE: {{ include "aigateway.authMode" . | quote }}
   AIGATEWAY_JWT_TTL_SECONDS: {{ .Values.config.jwtTtlSeconds | quote }}
   AIGATEWAY_PUBLIC_URL: {{ .Values.publicUrl | quote }}

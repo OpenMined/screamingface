@@ -23,6 +23,39 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: screamingface
 {{- end -}}
 
+{{/*
+The resolved auth mode — the ONE place the chart decides how the gateway authenticates.
+
+`config.authEnabled` is the legacy boolean and still means what it always did: false => every
+caller is anonymous, which is the `disabled` mode. Resolving it here (rather than emitting both
+variables) keeps a single value on the wire, so the app's own conflict check cannot be tripped by
+a chart that says "enabled: true" and "mode: disabled" in two different keys.
+*/}}
+{{- define "aigateway.authMode" -}}
+{{- if not .Values.config.authEnabled -}}
+disabled
+{{- else -}}
+{{- .Values.config.authMode -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Refuse the configurations that would quietly hand anyone any identity.
+
+INVARIANT: `gateway_headers` trusts `X-User-Email` and friends because the mesh guarantees a client
+cannot set them. Publishing an Ingress straight to this Service removes that guarantee — the port
+becomes directly reachable and a `curl -H 'X-User-Email: admin@…'` is a full impersonation. The
+chart cannot verify the mesh, but it CAN refuse the one combination that is unsafe on its face.
+*/}}
+{{- define "aigateway.validateAuth" -}}
+{{- if and (not .Values.config.authEnabled) (ne .Values.config.authMode "disabled") -}}
+{{- fail (printf "config.authEnabled=false conflicts with config.authMode=%q — authEnabled is the legacy spelling of authMode=disabled; set one or the other, not two that disagree" .Values.config.authMode) -}}
+{{- end -}}
+{{- if and (eq (include "aigateway.authMode" .) "gateway_headers") .Values.ingress.enabled -}}
+{{- fail "config.authMode=gateway_headers with ingress.enabled=true — header identity is only trustworthy while this Service is unreachable except through the mesh, and an Ingress makes it directly reachable, so any caller could set X-User-Email and become any principal. Either set ingress.enabled=false (keep aigateway internal) or use authMode=jwt." -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "aigateway.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "aigateway.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}

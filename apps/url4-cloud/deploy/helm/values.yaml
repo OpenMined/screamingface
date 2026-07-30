@@ -123,13 +123,25 @@ service:
   type: ClusterIP
   port: 9108
 
-# Gateway API edge — the chart's preferred front door (see templates/httproute.yaml for WHY).
-# Mutually exclusive with `ingress` in practice: enable exactly one.
+# Gateway API edge — the DEFAULT front door (see templates/httproute.yaml for the timeout rationale).
+# Mutually exclusive with `ingress` below: enable exactly one, and the chart fails if both are on.
 #
-# PREREQUISITES the chart does NOT install: Gateway API CRDs, a GatewayClass, a controller, and
-# a Gateway object with a listener for `hostnames` below. TLS attaches to that listener.
+# WHY this is the default rather than `ingress`: the mesh gateway in front of this route is what
+# establishes caller identity. It verifies the caller's token and injects X-Tenant plus one of
+# X-User-Id / X-User-Email / X-Service-Id, which the App forwards to each run and the run presents
+# to aigateway (https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/). Reached
+# through a plain Ingress instead, those headers never exist and every run is unattributed.
+#
+# PREREQUISITES the chart does NOT install: Gateway API CRDs, a GatewayClass, a controller, and a
+# Gateway object with a listener for `hostnames` below. TLS attaches to that listener. Because the
+# chart can neither install nor detect them, `parentRef.name` is required and an install without
+# these prerequisites fails loudly rather than coming up with no edge.
+#
+# NOTE: nothing about identity is configured here. The four headers are per-REQUEST and travel as
+# per-run Job env the App writes itself (`url4_cloud/job_env.py`), so there is no chart value for
+# them — the only thing the chart decides is that requests arrive through a gateway that injects them.
 gateway:
-  enabled: false
+  enabled: true
   annotations: {}
   parentRef:
     # The Gateway this route attaches to. Required when enabled — there is no sane default.
@@ -145,18 +157,21 @@ gateway:
     backendRequest: ""
 
 ingress:
-  # DEPRECATED — kept for one release so existing deployments can migrate to `gateway` above
-  # without a flag day. REST + WebSocket share one HTTP route.
+  # DEPRECATED and no longer the default. REST + WebSocket share one HTTP route.
   #
   # INVARIANT: whichever controller serves this MUST have its response/idle timeouts raised
   # above `config.jobDeadlineS`. Ingress cannot express that portably (it is a per-controller
   # annotation, or static entrypoint config), which is precisely why `gateway` exists — if you
   # stay on Ingress, that half of the edge contract is YOUR responsibility, not the chart's.
   #
-  # Still the DEFAULT so an existing `helm upgrade` keeps its edge: flipping to `gateway` needs
-  # cluster prerequisites (CRDs, GatewayClass, Gateway) that this chart cannot install and cannot
-  # detect. Set `gateway.enabled=true` + `ingress.enabled=false` once they are in place.
-  enabled: true
+  # AND the larger cost: an Ingress is not the mesh gateway, so no identity headers are injected.
+  # Runs served this way reach aigateway with no caller identity, which a gateway configured for
+  # header identity rejects outright. Staying on Ingress means also running aigateway in `jwt` mode.
+  #
+  # An existing deployment upgrading from a version where this was the default must either set the
+  # Gateway prerequisites and keep the new default, or set `ingress.enabled=true` +
+  # `gateway.enabled=false` here to pin the old edge.
+  enabled: false
   className: traefik
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
