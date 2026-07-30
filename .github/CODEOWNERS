@@ -9,6 +9,7 @@
 # Deployable apps
 /apps/aigateway/                 @HupBaHa
 /apps/scoreboard/                @HupBaHa
+/apps/screamingface-studio/      @itstauq
 /apps/url4-cloud/                @sergio-bershadsky
 
 # Product public docs
