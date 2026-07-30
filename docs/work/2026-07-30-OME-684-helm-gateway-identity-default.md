@@ -71,11 +71,30 @@ a public traefik Ingress, and its NetworkPolicy FAILS OPEN (`templates/networkpo
     `jwt`+Ingress is allowed; a CIDR-only peer set renders.
 - **Deviations:** none.
 
+## Correction after CI (2026-07-30)
+
+`gateway.enabled: true` in `values.yaml` was **wrong** and CI caught it: with `parentRef.name`
+empty, the chart's own default values violate its own `values.schema.json`, so `helm lint` and every
+bare `helm template` fail. The schema is right to refuse it — its own comment says an HTTPRoute with
+no parentRef "attaches to no Gateway and silently serves nothing", and fabricating a default Gateway
+name would produce exactly that.
+
+I missed it locally because I only ever linted with `--set gateway.parentRef.name=…`, never at bare
+defaults, which is how CI runs it.
+
+Fix: `values.yaml` goes back to `gateway.enabled: false` (edge-less but installable, `ingress` still
+false), and the cloud posture moves into a new `values-cloud.yaml` that names a real Gateway —
+mirroring how the aigateway chart carries its posture in `values-prod.yaml`. Two CI steps added so
+the file cannot rot: one templating `values-cloud.yaml` and asserting an HTTPRoute renders, one
+asserting `gateway.enabled=true` with an empty `parentRef.name` is still refused.
+
+Net effect for a cloud deployer is unchanged — they pass `-f values-cloud.yaml`. What changed is
+that a bare `helm install` now yields no edge instead of a failed render.
+
 ## Consequences a deployer must know
 
-- **url4-cloud will not install without `gateway.parentRef.name`.** With `gateway.enabled` now the
-  default, the values schema rejects an empty name (`/gateway/parentRef/name: minLength`). Loud, not
-  silent — but it does mean a bare `helm install` fails until the Gateway is named.
+- **The cloud edge is opt-in via `values-cloud.yaml`**, and `gateway.parentRef.name` must be set at
+  install time. A bare `helm install` renders no HTTPRoute and no Ingress — a Service-only install.
 - **`helm upgrade` on an existing install loses its traefik edge**, because the Ingress is no longer
   rendered. Pin the old shape with `ingress.enabled=true` + `gateway.enabled=false`.
 - **aigateway's public host is gone.** Anything depending on `gateway.screamingface.ai` — the
