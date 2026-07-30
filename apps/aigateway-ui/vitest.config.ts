@@ -20,7 +20,14 @@ export default defineConfig({
       // jsdom would also nest <html>/<body> inside a document, which React rejects. `next build`
       // is what proves it: a bad font loader or a malformed metadata export fails the build.
       // Everything with behaviour stays inside the threshold.
-      exclude: ["src/app/layout.tsx"],
+      exclude: [
+        "src/app/layout.tsx",
+        // Generated type declarations from aigateway's OpenAPI — no runtime code at all,
+        // so it can only ever report 0% and drag the real number down.
+        "src/lib/aigateway/schema.d.ts",
+        // Vendored OMDS tokens; upstream's code, not ours to test.
+        "src/brand/**",
+      ],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },
   },

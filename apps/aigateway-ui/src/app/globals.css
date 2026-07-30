@@ -50,3 +50,488 @@
   color: var(--text-body);
   font-size: 14px;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   UI PRIMITIVES — the classes src/components/ui.tsx renders. Nothing else may use the `ui-`
+   prefix; a page that needs a one-off adds its own class and passes it through `className`.
+
+   Two rules run through all of it:
+   • Density. Upstream sizes controls for a marketing page (48px inputs, 16px type). An operator
+     scanning forty tenants needs rows, not posters, so controls step down to 36px / 14px.
+   • Contrast over decoration. Tone (good/bad/error) is carried by borders and by the text itself,
+     never by coloured body copy: the tinted palette steps are static values that do not follow
+     the theme, so tone-coloured text drops below 4.5:1 in one mode or the other.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Button ─────────────────────────────────────────────────────────────────────────────────── */
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-S);
+  min-height: 36px;
+  padding: var(--spacing-XS) var(--spacing-L);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-S);
+  font-family: var(--font-inter), sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-base),
+    border-color var(--transition-base),
+    color var(--transition-base);
+}
+
+.ui-btn:focus-visible {
+  outline: 2px solid var(--color-teal-600);
+  outline-offset: 2px;
+}
+
+.ui-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ui-btn-primary {
+  background-color: var(--button-dark-color);
+  color: var(--button-light-color);
+  box-shadow: var(--shadow-sm);
+}
+
+/* OMDS hover is green-600. Its text stays dark rather than following --button-light-color:
+   light-on-green-600 is 3.2:1, dark-on-green-600 is 5.7:1. */
+.ui-btn-primary:hover:not(:disabled) {
+  background-color: var(--color-green-600);
+  color: var(--color-grayscale-950);
+}
+
+.ui-btn-primary:active:not(:disabled) {
+  background-color: var(--color-teal-700);
+  color: var(--color-grayscale-50);
+}
+
+.ui-btn-ghost {
+  background-color: transparent;
+  color: var(--text-headline);
+  border-color: var(--border-color);
+}
+
+/* Hover reads as green on the border, not on the label — green-600 text on the page surface is
+   3.2:1, which fails AA at 14px. */
+.ui-btn-ghost:hover:not(:disabled) {
+  background-color: var(--surface-foreground-lowest);
+  border-color: var(--color-green-600);
+}
+
+.ui-btn-ghost:active:not(:disabled) {
+  border-color: var(--color-teal-700);
+}
+
+.ui-btn-danger {
+  background-color: transparent;
+  color: var(--color-red-600);
+  border-color: var(--color-red-600);
+}
+
+/* Destructive stays red through hover — turning it green on the way to deleting a credential
+   would be a lie about what the button does. */
+.ui-btn-danger:hover:not(:disabled) {
+  background-color: var(--color-red-600);
+  color: var(--color-grayscale-00);
+}
+
+.ui-btn-danger:active:not(:disabled) {
+  background-color: var(--color-red-700);
+  color: var(--color-grayscale-00);
+}
+
+/* ── Field ──────────────────────────────────────────────────────────────────────────────────── */
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2XS);
+  margin-bottom: var(--spacing-L);
+}
+
+/* Resets upstream's `label { padding-left: 5px; margin-bottom: 8px }` — the flex gap owns the
+   spacing here, and a hanging indent misaligns the label from its control. */
+.ui-field-label {
+  padding-left: 0;
+  margin-bottom: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-headline);
+}
+
+/* --text-subtle would be the obvious token for a hint and is deliberately not used: it is
+   3.6:1 on the page surface, below AA for 12px text. */
+.ui-field-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-body);
+}
+
+.ui-field-error {
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--color-red-600);
+}
+
+/* ── Form controls ──────────────────────────────────────────────────────────────────────────── */
+
+.ui-control {
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--spacing-M);
+  font-family: var(--font-inter), sans-serif;
+  font-size: 14px;
+  color: var(--text-body);
+  background-color: var(--surface-background-bright);
+  border: 1px solid var(--surface-foreground-high);
+  border-radius: var(--border-radius-S);
+  box-shadow: none;
+  transition:
+    border-color var(--transition-base),
+    outline-color var(--transition-base);
+}
+
+.ui-control:focus-visible {
+  outline: 2px solid var(--color-teal-600);
+  outline-offset: 1px;
+  border-color: var(--color-teal-600);
+}
+
+.ui-control:disabled {
+  cursor: not-allowed;
+  color: var(--color-interactive-disabled);
+  background-color: var(--surface-foreground-lowest);
+}
+
+.ui-control[aria-invalid="true"] {
+  border-color: var(--color-red-600);
+}
+
+/* Wins over the vendored `[data-theme="dark"] input` rule, which would otherwise sink the control
+   into the page background instead of raising it off it. */
+[data-theme="dark"] .ui-control {
+  background-color: var(--surface-background-bright);
+  border-color: var(--surface-foreground-highest);
+}
+
+/* `.ui-input` and `.ui-thead` carry no declarations on purpose: both elements are fully described
+   by `.ui-control` / `.ui-th`, and the extra class is the hook a page uses to reach one of them
+   (`.accounts-form .ui-input { … }`) without inventing a selector on the bare element. */
+
+/* Room for the vendored chevron, repositioned for the shorter control. */
+.ui-select {
+  padding-right: var(--spacing-4XL);
+  background-position: right var(--spacing-M) center;
+}
+
+.ui-textarea {
+  height: auto;
+  min-height: 88px;
+  padding: var(--spacing-S) var(--spacing-M);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* ── Table ──────────────────────────────────────────────────────────────────────────────────── */
+
+.ui-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--surface-foreground-default);
+  border-radius: var(--border-radius-S);
+  background-color: var(--surface-background-bright);
+  box-shadow: var(--shadow-sm);
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.ui-th {
+  padding: var(--spacing-S) var(--spacing-M);
+  text-align: left;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-body);
+  background-color: var(--surface-foreground-lowest);
+  border-bottom: 1px solid var(--surface-foreground-high);
+}
+
+.ui-td {
+  padding: var(--spacing-S) var(--spacing-M);
+  vertical-align: top;
+  color: var(--text-body);
+  border-bottom: 1px solid var(--surface-foreground-default);
+}
+
+.ui-tbody .ui-tr:last-child .ui-td {
+  border-bottom: none;
+}
+
+.ui-tbody .ui-tr:hover {
+  background-color: var(--surface-foreground-lowest);
+}
+
+/* ── Notice ─────────────────────────────────────────────────────────────────────────────────── */
+
+.ui-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2XS);
+  padding: var(--spacing-M) var(--spacing-L);
+  border: 1px solid var(--surface-foreground-default);
+  border-left-width: 4px;
+  border-radius: var(--border-radius-S);
+  background-color: var(--surface-foreground-lowest);
+  color: var(--text-body);
+  font-size: 14px;
+}
+
+.ui-notice-info {
+  border-left-color: var(--color-teal-600);
+}
+
+.ui-notice-success {
+  border-left-color: var(--color-green-600);
+}
+
+.ui-notice-error {
+  border-left-color: var(--color-red-600);
+}
+
+.ui-notice-title {
+  font-weight: 600;
+  color: var(--text-headline);
+}
+
+.ui-notice-body {
+  color: var(--text-body);
+}
+
+/* ── EmptyState ─────────────────────────────────────────────────────────────────────────────── */
+
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-S);
+  padding: var(--spacing-4XL) var(--spacing-2XL);
+  text-align: center;
+  border: 1px dashed var(--surface-foreground-high);
+  border-radius: var(--border-radius-S);
+  background-color: var(--surface-background-bright);
+}
+
+.ui-empty-title {
+  font-family: var(--font-rubik), serif;
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--text-headline);
+}
+
+.ui-empty-message {
+  max-width: 52ch;
+  font-size: 14px;
+  color: var(--text-body);
+}
+
+.ui-empty-action {
+  margin-top: var(--spacing-S);
+}
+
+/* ── Badge ──────────────────────────────────────────────────────────────────────────────────── */
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-3XS) var(--spacing-S);
+  border: 1px solid var(--surface-foreground-high);
+  border-radius: var(--border-radius-full);
+  background-color: var(--surface-foreground-lowest);
+  color: var(--text-headline);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.ui-badge-neutral {
+  border-color: var(--surface-foreground-high);
+}
+
+.ui-badge-good {
+  border-color: var(--color-green-600);
+}
+
+.ui-badge-bad {
+  border-color: var(--color-red-600);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   ACCOUNTS PAGE — src/app/page.tsx, src/app/accounts-table.tsx, src/app/create-account-form.tsx.
+
+   Vertical rhythm is owned by two flex columns rather than by per-block margins: the blocks on
+   this page appear and disappear (no search box over an empty estate, no table when the gateway
+   refuses), and margins that must be cancelled for every combination go stale the first time a
+   block moves. A `gap` cannot leave a stray margin behind on a block that did not render.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+.accounts-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4XL);
+  margin-top: var(--spacing-3XL);
+}
+
+/* Search and the results it filters are one unit, and sit closer together than the page's
+   sections do. */
+.accounts-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-M);
+}
+
+.accounts-failure {
+  margin-top: var(--spacing-3XL);
+}
+
+/* ── Search ─────────────────────────────────────────────────────────────────────────────────── */
+
+.accounts-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--spacing-M);
+}
+
+/* The label sits above the input, so the row aligns on its baseline, not its box: `.ui-field`
+   carries a bottom margin for stacked forms that would push the button out of line here. */
+.accounts-search-field {
+  flex: 1 1 320px;
+  max-width: 420px;
+  margin-bottom: 0;
+}
+
+/* ── Table ──────────────────────────────────────────────────────────────────────────────────── */
+
+/* A caption rather than a paragraph above the table: it is the table's accessible name, so a
+   screen reader announces "12 accounts" on entering the grid instead of leaving the count as a
+   loose sentence somewhere before it. */
+.accounts-caption {
+  padding: var(--spacing-S) var(--spacing-M);
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-body);
+  background-color: var(--surface-background-bright);
+  border-bottom: 1px solid var(--surface-foreground-default);
+}
+
+/* The address cell is a `<th scope="row">` for navigation, not for emphasis — so it drops the
+   column header's uppercase strip and reads as an ordinary cell. */
+.accounts-table .ui-tbody .ui-th {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+  vertical-align: top;
+  background-color: transparent;
+  border-bottom: 1px solid var(--surface-foreground-default);
+}
+
+.accounts-table .ui-tbody .ui-tr:last-child .ui-th {
+  border-bottom: none;
+}
+
+/* Hover moves the underline to green, not the label: green-600 text on this surface is 3.2:1 and
+   fails AA at 14px, while an underline is a non-text indicator and only owes 3:1. */
+.accounts-link {
+  color: var(--text-headline);
+  text-decoration: underline;
+  text-decoration-color: var(--surface-foreground-highest);
+  text-underline-offset: 3px;
+  border-radius: var(--border-radius-XS);
+  transition: text-decoration-color var(--transition-base);
+}
+
+.accounts-link:hover {
+  text-decoration-color: var(--color-green-600);
+}
+
+.accounts-link:focus-visible {
+  outline: 2px solid var(--color-teal-600);
+  outline-offset: 2px;
+}
+
+/* Italic, not a lighter colour: --text-subtle is 3.6:1 here, and a missing display name is worth
+   reading, not worth hiding. */
+.accounts-blank {
+  font-style: italic;
+}
+
+.accounts-when {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Provision section ──────────────────────────────────────────────────────────────────────── */
+
+.accounts-section {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Upstream's h2 is 47px, sized for a marketing page. Same reasoning as `.page-title`: this is
+   dense working software, so a section heading steps down to the h5 size. */
+.accounts-heading {
+  font-size: 21px;
+  margin-bottom: var(--spacing-S);
+}
+
+.accounts-section-lede {
+  max-width: 60ch;
+  margin-bottom: var(--spacing-L);
+  font-size: 14px;
+  color: var(--text-body);
+}
+
+.accounts-create {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 720px;
+}
+
+/* Two columns where there is room, one where there is not. Row spacing comes from `.ui-field`'s
+   own bottom margin, which is why only the column gap is set. */
+.accounts-create-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  column-gap: var(--spacing-L);
+  width: 100%;
+}
+
+.accounts-create-notice {
+  width: 100%;
+  margin-bottom: var(--spacing-L);
+}
+
+.accounts-retry {
+  margin-top: var(--spacing-M);
+}

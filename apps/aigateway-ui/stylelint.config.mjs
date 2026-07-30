@@ -60,6 +60,22 @@ export default {
       },
     ],
 
+    // Closes a hole the OME-708 review PROVED, not inferred. `declaration-strict-value` is scoped
+    // to color-ish properties, and `color-no-hex`/`color-named` only see hex and names — so a
+    // functional literal on a SHORTHAND slipped through every check:
+    //     outline: 2px solid rgb(56 140 168);
+    //     border-left: 4px solid hsl(200 50% 40%);
+    //     box-shadow: 0 0 0 2px rgb(...);
+    // which is exactly the form every focus ring in this app is written in. Widening COLOR_PROPS
+    // instead would false-positive on `border: 1px solid var(--x)`, so the ban is on the functions.
+    "function-disallowed-list": [
+      ["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color"],
+      {
+        message:
+          "OMDS: no functional color literals. Use var(--…) from tokens.css — a shorthand like `border: 1px solid rgb(…)` evades the other rules.",
+      },
+    ],
+
     "scale-unlimited/declaration-strict-value": [
       COLOR_PROPS,
       {
