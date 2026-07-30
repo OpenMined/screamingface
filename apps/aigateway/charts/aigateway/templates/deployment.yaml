@@ -66,6 +66,20 @@ spec:
                   name: {{ include "aigateway.authSecretName" . }}
                   key: {{ .Values.auth.provisioningTokenKey }}
                   optional: true
+            {{- if .Values.auth.secretKeyKey }}
+            # AIGATEWAY_SECRET_KEY: the AES-256-GCM master key for credential_blobs.
+            # Hosted/multi-replica deployments MUST set this (README §security) — without
+            # it each process mints its own key and credentials written by one replica
+            # are unreadable by another. Opt-in: render only when secretKeyKey is set.
+            - name: AIGATEWAY_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway.authSecretName" . }}
+                  key: {{ .Values.auth.secretKeyKey }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

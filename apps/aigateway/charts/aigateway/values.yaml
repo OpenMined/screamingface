@@ -49,6 +49,14 @@ auth:
   adminPasswordKey: admin-password
   provisioningToken: ""
   provisioningTokenKey: provisioning-token
+  # Key (inside existingSecret) holding the AES master key for credential_blobs
+  # (env AIGATEWAY_SECRET_KEY; base64 of exactly 32 bytes). Empty = not rendered
+  # (single-replica dev keeps today's behavior). Set for any hosted deployment.
+  secretKeyKey: ""
+
+# Extra environment variables appended verbatim to the container (e.g. provider
+# enablement flags such as AIGW_OPENROUTER_ENABLED). List of EnvVar objects.
+extraEnv: []
 
 service:
   type: ClusterIP
