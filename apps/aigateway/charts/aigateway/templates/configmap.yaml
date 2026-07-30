@@ -21,3 +21,7 @@ data:
   AIGW_ALLOWED_NETWORKS: {{ join "," .Values.config.allowedNetworks | quote }}
   AIGATEWAY_JWT_TTL_SECONDS: {{ .Values.config.jwtTtlSeconds | quote }}
   AIGATEWAY_PUBLIC_URL: {{ .Values.publicUrl | quote }}
+  # The OpenRouter plugin's own gate (`AIGW_OPENROUTER_` prefix). Emitted in every case so the
+  # value is declared rather than defaulted-by-absence: a disabled plugin contributes no models
+  # and holds no credential strategy, so `false` is a real posture, not a missing key.
+  AIGW_OPENROUTER_ENABLED: {{ .Values.config.openrouter.enabled | quote }}

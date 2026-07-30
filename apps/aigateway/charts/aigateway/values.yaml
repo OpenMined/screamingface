@@ -67,6 +67,19 @@ config:
     - 192.168.0.0/16
     - 100.64.0.0/10
   jwtTtlSeconds: 86400
+  # Provider plugins that ship disabled and need an operator to turn them on.
+  #
+  # WHY this is here at all: the ConfigMap emits a FIXED key set and the Deployment has no
+  # `extraEnv`, so before this block there was NO values path to enable OpenRouter — a deployer
+  # had to `kubectl set env` the live Deployment, which a later `helm upgrade` silently reverts.
+  # A stock install served zero OpenRouter models and nothing said why.
+  #
+  # NOTE: only the on/off switch belongs in the chart. API keys are per-ACCOUNT credentials held
+  # in `credential_blobs` (AES-256-GCM) and provisioned over the API, never chart config — a key
+  # here would be one shared credential for every caller, which is the opposite of what the
+  # per-principal credential model exists to do.
+  openrouter:
+    enabled: false
 
 # Only meaningful for the browser-facing OAuth flows, which are unreachable while the gateway is
 # internal-only (see `ingress` below). Kept so a deployment that re-exposes the gateway has it.
