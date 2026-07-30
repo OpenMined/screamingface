@@ -87,7 +87,7 @@ curl -sX POST http://localhost:9105/v1/accounts \
 ```
 
 If you expose aigateway to the public internet, you MUST front it with
-rate-limiting such as Cloudflare or `nginx limit_req`. v1 does not implement
+rate-limiting such as a CDN edge or `nginx limit_req`. v1 does not implement
 application-level rate limiting on `/v1/auth/login`.
 
 Multi-worker deployments (`uvicorn --workers N` or a process manager equivalent)

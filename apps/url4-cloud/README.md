@@ -125,8 +125,7 @@ Discover which models an expression can address, proxied from aigateway's own `/
 served from a per-credential cache. Design: `docs/spec/2026-07-26-url4-cloud-model-catalog-spec.md`
 · OME-625.
 
-**A credential is required.** Send the one you already have — behind Cloudflare Access the edge
-attaches `Cf-Access-Jwt-Assertion` for you, so a browser needs no extra code:
+**A credential is required**, as `Authorization: Bearer <token>`. Send the one you already have:
 
 ```sh
 curl -H "Authorization: Bearer $AIGATEWAY_TOKEN" http://localhost:9108/v1/models

@@ -112,7 +112,7 @@ included in `create_app` beside `rest_router`.
 ```python
 @router.get("/v1/models", tags=["Catalog"], summary="List addressable models",
             responses=_MODELS_RESPONSES)
-async def list_models(request, authorization=Header(None), cf_access_jwt=Header(None),
+async def list_models(request, authorization=Header(None),
                       x_profile=Header(None), if_none_match=Header(None)) -> Response
 ```
 
@@ -122,13 +122,13 @@ async def list_models(request, authorization=Header(None), cf_access_jwt=Header(
   guard).
 - `CatalogError` → `ProblemException` with the status the error carries; upstream detail logged,
   never returned.
-- Always sets `Vary: Authorization, Cf-Access-Jwt-Assertion, X-Profile` and
+- Always sets `Vary: Authorization, X-Profile` and
   `Cache-Control: private, max-age=<remaining, floored at 0>`.
 - `If-None-Match` matching that caller's ETag → `304`, no body. Weak-comparison-safe (tolerate a
   `W/` prefix) per RFC 9110 §13.1.2, which specifies weak comparison for `If-None-Match`.
 
 **RED** (`TestClient`, injected fake catalog): 200 + shape · **two different `Authorization`
-values ⇒ different bodies** · `Cf-Access-Jwt-Assertion` wins over `Authorization` · no credential
+values ⇒ different bodies** · no credential
 ⇒ 401 + `WWW-Authenticate`, upstream never called · `Vary` always present · `Cache-Control`
 always `private` · ETag stable across a repeat · `If-None-Match` ⇒ 304 · `max-age` decreases as
 the injected clock advances · `CatalogRejected` ⇒ 401 · `CatalogBadResponse` ⇒ 502 ·
@@ -153,8 +153,8 @@ aigateway credential** (asserts spec acceptance #10 stays true).
 ## Batch 6 — docs
 
 - `apps/url4-cloud/README.md` + the served OpenAPI description: document the endpoint, that a
-  credential is required, that Cloudflare Access satisfies it with no client change, and that the
-  answer is *per credential*.
+  credential is required as `Authorization: Bearer <token>`, and that the answer is
+  *per credential*.
 - Helm chart values for the five cache settings. **No Secret reference needed** — r3 introduces
   no secret.
 

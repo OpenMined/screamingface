@@ -31,7 +31,7 @@ from url4_cloud.auth import (
     new_topic,
 )
 from url4_cloud.config import Settings
-from url4_cloud.rest._credentials import forwarded_credential
+from url4_cloud.rest._credentials import bearer_token
 from url4_cloud.rest.interest import SubscriberGate
 
 router = APIRouter()
@@ -320,10 +320,8 @@ _START_DESC = (
     "An inbound ``Authorization: Bearer <token>`` header — distinct from the ``URL4-Capability`` "
     "topic token — is forwarded as the run's aigateway credential (identity forwarding, plan "
     "§5.3 dec:A), with the optional ``X-Profile`` header as its routing profile; absent or a "
-    "non-Bearer scheme forwards no credential and the run's connector stays deny-by-default. An "
-    "inbound ``Cf-Access-Jwt-Assertion`` header (attached by the Cloudflare Access edge, not the "
-    "client) takes priority over ``Authorization`` when both are present. The credential is "
-    "never logged."
+    "non-Bearer scheme forwards no credential and the run's connector stays deny-by-default. "
+    "The credential is never logged."
 )
 
 
@@ -350,16 +348,6 @@ async def start_run(
             description="Bearer aigateway credential to forward to the run's connector.",
         ),
     ] = None,
-    cf_access_jwt: Annotated[
-        str | None,
-        Header(
-            alias="Cf-Access-Jwt-Assertion",
-            description=(
-                "Cloudflare Access session JWT, attached by the edge — takes priority over "
-                "Authorization as the aigateway credential to forward."
-            ),
-        ),
-    ] = None,
     x_profile: Annotated[
         str | None,
         Header(alias="X-Profile", description="Optional aigateway routing profile label."),
@@ -378,7 +366,7 @@ async def start_run(
     url4 = _require_q(q)
     await _require_subscriber(deps.interest, topic)
     inbound_traceparent = valid_traceparent(traceparent)
-    credential = forwarded_credential(authorization, cf_access_jwt)
+    credential = bearer_token(authorization)
     # WHY: a routing profile is only meaningful alongside a credential to route — without one,
     # there is nothing for aigateway to route, so the profile is dropped rather than forwarded.
     profile = x_profile if credential is not None else None

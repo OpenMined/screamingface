@@ -16,9 +16,8 @@ Five behaviours compose here, each closing a specific failure:
 - **Bounded LRU + an upstream semaphore** — distinct keys bypass single-flight entirely, so these
   are what bound memory and upstream load under a flood of distinct credentials.
 
-AIDEV-NOTE: the stale-on-error discipline here deliberately mirrors
-``aigateway.core.auth.cf_access.jwks.CloudflareAccessJwks._refresh`` — serve what is cached, refuse
-when cold, never fail open. If you change one, look at the other.
+AIDEV-NOTE: the stale-on-error discipline is deliberate — serve what is cached, refuse when cold,
+never fail open. A refresh failure must not degrade into "this credential can address no models".
 """
 
 from __future__ import annotations

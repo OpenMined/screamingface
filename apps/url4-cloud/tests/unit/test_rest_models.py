@@ -70,10 +70,7 @@ async def test_the_response_carries_etag_cache_control_and_vary() -> None:
         response = await client.get("/v1/models", headers=auth(TOKEN_A))
     assert response.headers["ETag"].startswith('"')
     assert response.headers["Cache-Control"] == "private, max-age=247"
-    vary = response.headers["Vary"]
-    assert "Authorization" in vary
-    assert "Cf-Access-Jwt-Assertion" in vary
-    assert "X-Profile" in vary
+    assert response.headers["Vary"] == "Authorization, X-Profile"
 
 
 async def test_max_age_reflects_the_remaining_ttl() -> None:
@@ -91,14 +88,16 @@ async def test_two_credentials_receive_different_catalogs() -> None:
     assert catalog.seen[0].key != catalog.seen[1].key
 
 
-async def test_cloudflare_access_assertion_wins_over_authorization() -> None:
+async def test_an_access_proxy_assertion_header_is_not_a_credential() -> None:
+    # Authorization is the ONLY credential source. A fronting proxy's assertion
+    # header must be inert, not merely undocumented — otherwise it could quietly
+    # become meaningful again.
     catalog = FakeCatalog()
     async with client_for(build_app(catalog)) as client:
-        await client.get(
-            "/v1/models",
-            headers={**auth(TOKEN_A), "Cf-Access-Jwt-Assertion": "cf-jwt"},
-        )
-    assert catalog.seen[0].token.get_secret_value() == "cf-jwt"
+        response = await client.get("/v1/models", headers={"Cf-Access-Jwt-Assertion": "cf-jwt"})
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert catalog.seen == []
 
 
 async def test_the_profile_becomes_part_of_the_identity() -> None:
@@ -135,10 +134,10 @@ async def test_a_refused_credential_yields_401_with_a_challenge() -> None:
 
 
 async def test_the_401_body_does_not_describe_the_upstream_configuration() -> None:
-    catalog = FakeCatalog(error=CatalogRejected("aud mismatch for team acme.cloudflareaccess.com"))
+    catalog = FakeCatalog(error=CatalogRejected("token audience mismatch for issuer example-idp"))
     async with client_for(build_app(catalog)) as client:
         response = await client.get("/v1/models", headers=auth(TOKEN_A))
-    assert "cloudflareaccess" not in response.text
+    assert "example-idp" not in response.text
 
 
 @pytest.mark.parametrize(

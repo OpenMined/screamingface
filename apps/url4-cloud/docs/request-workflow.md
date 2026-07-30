@@ -23,7 +23,7 @@ adapters/{factory,k8s,jetstream},job_env,subjects}.py`,
 | Component | k8s object | Role |
 |---|---|---|
 | Client | (browser/CLI, off‑cluster) | Holds the topic capability JWT; opens the WS; issues `GET /?q=`. |
-| Ingress / Cloudflare Access edge | `Ingress` (Traefik in the kind chart; CF Access in prod) | TLS termination; in the CF variant attaches `Cf-Access-Jwt-Assertion` (the aigateway identity). |
+| Ingress | `Ingress` (Traefik in the kind chart) | TLS termination. |
 | url4‑cloud App | `Deployment` + `Service` + `ServiceAccount`/`Role`/`RoleBinding` (namespace‑scoped `batch/jobs`) | Stateless FastAPI control plane: mints tokens, hosts REST + WS, schedules Runner Jobs, bridges NATS→WS. Configured by `ConfigMap` + `Secret` (`URL4_CLOUD_*`). |
 | NATS JetStream | `nats-io` subchart (or external via `config.natsUrl`) | Per‑topic append log; server‑assigned monotonic `sequence` = CloudEvents `sequence`. |
 | K8s API server | (cluster) | `batch/v1` Job create/read/delete — the only k8s API the App calls. |
@@ -72,7 +72,7 @@ sequenceDiagram
     App->>App: _require_q(q); _require_subscriber(interest, topic)
     App->>Reg: interest.has_subscriber(topic)
     Note right of Reg: no WS attached ⇒ 428 Precondition Required
-    App->>App: _forwarded_credential(cf_access_jwt ?? bearer); profile
+    App->>App: bearer_token(authorization); profile
     App->>App: _schedule: job_runner.exists(topic)? ⇒ 409 single-use guard
     App->>+K8s: create_namespaced_job(<manifest>)<br/>image = URL4_CLOUD_RUNNER_IMAGE (the App's own),<br/>command = ["url4-cloud", "run"]<br/>env: URL4_CLOUD_TOPIC/EXPRESSION/<br/>JOB_DEADLINE_S, NATS_URL, AIGATEWAY_BASE_URL,<br/>TRACEPARENT, AIGATEWAY_TOKEN, AIGATEWAY_PROFILE,<br/>TAVILY_API_KEY (secretKeyRef)<br/>backoffLimit:0, restartPolicy:Never,<br/>activeDeadlineSeconds=deadline_s, ttl
     K8s-->>App: 201 (job url4-<hash> created) OR 409 ⇒ JobAlreadyExists
@@ -177,10 +177,10 @@ always freshly minted here.
 ## 5. Identity forwarding (the credential hop)
 
 A second, distinct credential — separate from the URL4‑capability topic token — rides the
-`GET /?q=` call into the Runner and on to aigateway (`rest/routes.py::_forwarded_credential`):
+`GET /?q=` call into the Runner and on to aigateway (`rest/_credentials.py::bearer_token`):
 
-1. `Cf-Access-Jwt-Assertion` (attached by the Cloudflare Access edge after browser OTP login)
-   **wins** when present; else a client `Authorization: Bearer <token>` is used.
+1. The client's `Authorization: Bearer <token>` is the only source; a non‑Bearer scheme or an
+   absent header forwards no credential and the run's connector stays deny‑by‑default.
 2. It is forwarded verbatim into the Job env as `AIGATEWAY_TOKEN` (never logged — treated like
    `AIGATEWAY_SECRET_KEY`), with `AIGATEWAY_PROFILE` from `X-Profile`.
 3. The run mode's `build_executor` (`runner/main.py`) branches on the declared world in

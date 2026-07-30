@@ -537,7 +537,7 @@ def _json_or_raise(resp: httpx.Response) -> dict:
 def _raise_for_status(resp: httpx.Response) -> None:
     """Turn a non-2xx (or redirected) aigateway response into a `ResolutionError`.
 
-    A redirect is treated as an access-proxy interception, not a real aigateway response.
+    A redirect is treated as an interception by a fronting proxy, not a real aigateway response.
     For a 4xx/5xx, the error `code`/`message` prefer the response's own `detail` payload when
     present; `permanent` is `False` only for 429 and 5xx, so those (and only those) are
     eligible for retry upstream.

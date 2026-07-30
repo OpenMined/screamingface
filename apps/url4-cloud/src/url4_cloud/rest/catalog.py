@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from url4_cloud.auth import ProblemException
 from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.catalog.port import CatalogError, Credential
-from url4_cloud.rest._credentials import forwarded_credential
+from url4_cloud.rest._credentials import bearer_token
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ router = APIRouter()
 # INVARIANT: names every header that can change the response body. Without it a shared cache is
 # free to serve one caller's catalog to another — the header-level counterpart of keying the cache
 # by credential (spec §5.2, §6.3).
-_VARY = "Authorization, Cf-Access-Jwt-Assertion, X-Profile"
+_VARY = "Authorization, X-Profile"
 
 # RFC 9110 §11.6.1: a 401 must carry a challenge. `Bearer` with no realm is deliberate — a realm
 # would name this deployment's identity provider to an unauthenticated caller.
@@ -52,12 +52,6 @@ _MODELS_RESPONSES: dict[int | str, dict[str, object]] = {
 _CREDENTIAL_DESC = (
     "Bearer aigateway credential. Forwarded upstream verbatim — url4-cloud never verifies it."
 )
-_CF_DESC = (
-    "Cloudflare Access session JWT, attached by the edge — takes priority over Authorization, "
-    "on the precondition that this deployment's ingress guarantees all traffic transits CF "
-    "Access (this code neither verifies that nor strips a client-forged copy of this header)."
-)
-
 
 @router.get(
     "/v1/models",
@@ -67,12 +61,8 @@ _CF_DESC = (
     description=(
         "Proxy aigateway's model listing for the caller's own credential, from a per-credential "
         "cache.\n\n"
-        "A credential is required: either ``Authorization: Bearer <token>`` or the "
-        "``Cf-Access-Jwt-Assertion`` header Cloudflare Access attaches at the edge (which wins "
-        "when both are present, matching ``GET /?q=``, on the precondition that this "
-        "deployment's ingress guarantees all traffic transits CF Access — an edge/network-"
-        "topology guarantee this code does not itself verify). url4-cloud holds no credential "
-        "of its own and verifies neither value — aigateway does.\n\n"
+        "A credential is required: ``Authorization: Bearer <token>``, matching ``GET /?q=``. "
+        "url4-cloud holds no credential of its own and verifies nothing — aigateway does.\n\n"
         "The body is aigateway's, verbatim. Responses are cached per credential, so "
         "``Cache-Control`` is ``private`` and ``ETag``/``If-None-Match`` are scoped to that "
         "caller's catalog."
@@ -83,9 +73,6 @@ async def list_models(
     authorization: Annotated[
         str | None, Header(alias="Authorization", description=_CREDENTIAL_DESC)
     ] = None,
-    cf_access_jwt: Annotated[
-        str | None, Header(alias="Cf-Access-Jwt-Assertion", description=_CF_DESC)
-    ] = None,
     x_profile: Annotated[
         str | None, Header(alias="X-Profile", description="Optional aigateway routing profile.")
     ] = None,
@@ -95,16 +82,14 @@ async def list_models(
 ) -> Response:
     """Proxy aigateway's model listing for the caller's own credential, from a per-credential cache.
 
-    A credential is required: either ``Authorization: Bearer <token>`` or the
-    ``Cf-Access-Jwt-Assertion`` header Cloudflare Access attaches at the edge (which wins when both
-    are present, matching ``GET /?q=``). url4-cloud holds no credential of its own and verifies
-    neither value — aigateway does.
+    A credential is required: ``Authorization: Bearer <token>``, matching ``GET /?q=``.
+    url4-cloud holds no credential of its own and verifies nothing — aigateway does.
 
     The body is aigateway's, verbatim. Responses are cached per credential, so ``Cache-Control`` is
     ``private`` and ``ETag``/``If-None-Match`` are scoped to that caller's catalog.
     """
     service = _require_service(request)
-    credential = _require_credential(authorization, cf_access_jwt, x_profile)
+    credential = _require_credential(authorization, x_profile)
     try:
         catalog = await service.fetch(credential)
     except CatalogError as exc:
@@ -146,19 +131,17 @@ def _require_service(request: Request) -> CatalogService:
     return service
 
 
-def _require_credential(
-    authorization: str | None, cf_access_jwt: str | None, profile: str | None
-) -> Credential:
+def _require_credential(authorization: str | None, profile: str | None) -> Credential:
     """Resolve the caller's credential, or a 401 — without ever calling upstream.
 
     INVARIANT: rejecting here rather than forwarding an empty credential is what makes an
     unauthenticated request cost aigateway nothing (spec §11 acceptance 2).
 
     Raises:
-        ProblemException: 401 with a ``WWW-Authenticate: Bearer`` header if neither header
-            supplies a usable credential.
+        ProblemException: 401 with a ``WWW-Authenticate: Bearer`` header if the header does
+            not supply a usable credential.
     """
-    token = forwarded_credential(authorization, cf_access_jwt)
+    token = bearer_token(authorization)
     if token is None:
         raise ProblemException(
             status=401,

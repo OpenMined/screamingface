@@ -1,4 +1,4 @@
-"""A fronting access proxy (CF Access) must fail with a NAMED error, not a raw decode crash.
+"""A fronting proxy or SSO gateway must fail with a NAMED error, not a raw decode crash.
 
 These used to drive the `/v1/models` catalog fetch at world-build time. Endpoints are declared
 now and that fetch is gone, so the same interception is exercised where it can still happen:
@@ -21,7 +21,7 @@ _CFG = AigatewayConfig(base_url="http://aigw", default_model=_MODEL, models=(Mod
 def _redirect_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(
         302,
-        headers={"location": "https://team.cloudflareaccess.com/cdn-cgi/access/login/x"},
+        headers={"location": "https://sso.example.com/login"},
         text="<html><head><title>302 Found</title></head><body></body></html>",
     )
 

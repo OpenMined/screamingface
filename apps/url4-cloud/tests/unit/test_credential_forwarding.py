@@ -114,53 +114,11 @@ async def test_non_bearer_authorization_schedules_with_no_credential() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cf_access_jwt_assertion_forwards_as_the_credential() -> None:
-    topic = "cred-topic-cf-access"
-    runner = RecordingJobRunner()
-    app = _app(runner)
-    cf_jwt = "cf-access-session-jwt"  # noqa: S105 - test fixture, not a real credential
-
-    async with _client(app) as client:
-        resp = await client.get(
-            "/",
-            params={"q": "gpt(hi)"},
-            headers={
-                "URL4-Capability": _token(topic),
-                "Prefer": "respond-async",
-                "Cf-Access-Jwt-Assertion": cf_jwt,
-            },
-        )
-
-    assert resp.status_code == 202
-    assert runner.scheduled[0].credential == cf_jwt
-
-
-@pytest.mark.asyncio
-async def test_cf_access_jwt_assertion_takes_priority_over_client_authorization() -> None:
-    topic = "cred-topic-cf-access-priority"
-    runner = RecordingJobRunner()
-    app = _app(runner)
-    cf_jwt = "cf-access-session-jwt"  # noqa: S105
-
-    async with _client(app) as client:
-        resp = await client.get(
-            "/",
-            params={"q": "gpt(hi)"},
-            headers={
-                "URL4-Capability": _token(topic),
-                "Prefer": "respond-async",
-                "Authorization": f"Bearer {TOKEN}",
-                "Cf-Access-Jwt-Assertion": cf_jwt,
-            },
-        )
-
-    assert resp.status_code == 202
-    assert runner.scheduled[0].credential == cf_jwt
-
-
-@pytest.mark.asyncio
-async def test_blank_cf_access_header_falls_back_to_authorization() -> None:
-    topic = "cred-topic-cf-access-blank"
+async def test_an_access_proxy_assertion_header_is_not_a_credential() -> None:
+    # Authorization is the ONLY credential source. A fronting proxy's assertion
+    # header must be inert, not merely undocumented — otherwise it could quietly
+    # become meaningful again.
+    topic = "cred-topic-assertion-header"
     runner = RecordingJobRunner()
     app = _app(runner)
 
@@ -171,13 +129,12 @@ async def test_blank_cf_access_header_falls_back_to_authorization() -> None:
             headers={
                 "URL4-Capability": _token(topic),
                 "Prefer": "respond-async",
-                "Authorization": f"Bearer {TOKEN}",
-                "Cf-Access-Jwt-Assertion": "",
+                "Cf-Access-Jwt-Assertion": "cf-access-session-jwt",
             },
         )
 
     assert resp.status_code == 202
-    assert runner.scheduled[0].credential == TOKEN
+    assert runner.scheduled[0].credential is None
 
 
 @pytest.mark.asyncio
