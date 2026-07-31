@@ -269,16 +269,52 @@ check(
     "the console's port IS the port the gateway's Service listens on",
 )
 
-print("\nthe release lane")
+print("\nthe publishing lanes")
 # A chart naming an image nobody publishes is installable and permanently ImagePullBackOff, and
 # neither the chart nor the workflow can notice on its own — renaming either side is a silent
-# break. This is the only place the two are compared.
+# break. This is the only place they are compared.
 lane = yaml.safe_load((REPO / ".github/workflows/release-aigateway-ui.yml").read_text())
 published_image = lane["env"]["IMAGE"]
 console_image = c_deployment["spec"]["template"]["spec"]["containers"][0]["image"]
 check(
     console_image.rsplit(":", 1)[0] == published_image,
     f"the chart's image ({console_image.rsplit(':', 1)[0]}) IS the one the release lane publishes",
+)
+
+# The dev lane feeds the dev cluster (OME-714, following #452). It pushes the same repository under
+# a main-<sha> tag to two registries, so the chart can be pointed at either by overriding
+# image.repository/tag. What must hold is that the GHCR name is the same repository the chart and
+# the release lane already agree on — a dev image under a different name is one the chart can never
+# be pointed at without editing values.
+dev_lane = yaml.safe_load(
+    (REPO / ".github/workflows/dev-build-aigateway-ui.yml").read_text()
+)
+dev_tags = [
+    t.strip()
+    for t in dev_lane["jobs"]["image"]["steps"][-1]["with"]["tags"].split("\n")
+    if t.strip()
+]
+check(
+    any(t.rsplit(":", 1)[0] == published_image for t in dev_tags),
+    "the dev lane pushes the SAME image repository the chart and release lane name",
+)
+check(
+    all(":main-" in t for t in dev_tags)
+    and not any(t.endswith(":latest") for t in dev_tags),
+    "the dev lane publishes only immutable main-<sha> tags — never :latest",
+)
+
+# A shared GHA cache scope between images with disjoint layer sets (uv/Python vs node/Next.js) is
+# not incorrect, but it is pure eviction pressure with no hits. Cheap to assert, easy to get wrong
+# by copying a sibling lane.
+scopes = {}
+for wf in sorted((REPO / ".github/workflows").glob("dev-build-*.yml")):
+    spec = yaml.safe_load(wf.read_text())
+    step = spec["jobs"]["image"]["steps"][-1]["with"]
+    scopes[wf.name] = step.get("cache-to", "")
+check(
+    len(set(scopes.values())) == len(scopes),
+    f"every dev-build lane has its OWN cache scope ({len(scopes)} lanes, {len(set(scopes.values()))} distinct)",
 )
 # `helm package --app-version "$VERSION"` sets appVersion from the tag, and the chart's image
 # helper falls back to appVersion when image.tag is empty — so a released chart pins the exact
