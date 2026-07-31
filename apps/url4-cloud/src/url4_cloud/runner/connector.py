@@ -177,6 +177,7 @@ class _ModelEndpoint:
             profile=self._profile,
             model=spec.id,
             messages=_messages(request.context, request.intent),
+            params=request.params,
             tavily_http=self._tavily_http,
             tavily_api_key=self._tavily_api_key,
             web_tools=spec.web_tools,
@@ -445,6 +446,55 @@ def _build_tavily_client(
     return client, owns
 
 
+RUNNER_OWNED_FIELDS = frozenset({"model", "messages", "tools", "tool_choice", "stream"})
+"""Request fields an EXPRESSION may never set — they belong to the runner, not the caller.
+
+``model`` would let an expression address one route and run another, breaking the "a route path
+is exactly '/' + the gateway id" invariant that `url4.toml` and `routes_for` rest on. ``messages``
+is built from the resolved context and intent. ``tools``/``tool_choice`` are the per-route
+``web_tools`` opt-in, which is what keeps a configured Tavily key from silently changing every
+model's payload. ``stream`` would break `_parse_choice`.
+
+Everything else is forwarded: the GATEWAY is the authority on which parameters exist and which
+values are legal (`core/standard_parameters.py` plus each provider's rules), and it fails closed
+on an unknown field. A second allowlist here would be a copy of that contract, free to drift
+from it — the same reason `register_commands` translates the engine's error instead of
+restating its rules.
+"""
+
+
+def _model_params(params: Mapping[str, str]) -> dict[str, object]:
+    """The caller's `;k=v` chain as a JSON-typed request fragment.
+
+    INVARIANT: values are COERCED, not passed through as text. url4 hands params over as
+    ``Mapping[str, str]``, while the gateway's schemas are strictly typed
+    (``isinstance(v, (int, float)) and not isinstance(v, bool)``), so a forwarded ``"0.2"``
+    would fail closed against ``TEMPERATURE_SCHEMA`` — no better than dropping it.
+
+    JSON is the coercion rule rather than a per-field type table, so enabling a parameter stays
+    a gateway-local edit. A value that is not JSON stays the string it was, which is what a
+    scalar ``stop`` or any enum-valued field needs.
+
+    Raises:
+        ResolutionError: the expression set a runner-owned field. Loud on purpose — dropping it
+            silently would let the expression read as though it had pinned something it had not.
+    """
+    owned = sorted(set(params) & RUNNER_OWNED_FIELDS)
+    if owned:
+        raise ResolutionError(
+            f"expression may not set {', '.join(owned)} — "
+            f"{'it is' if len(owned) == 1 else 'they are'} owned by the runner's declared world"
+        )
+    return {key: _coerce_param(value) for key, value in params.items()}
+
+
+def _coerce_param(value: str) -> object:
+    try:
+        return json.loads(value)
+    except ValueError:
+        return value
+
+
 async def _chat_completion_loop(
     *,
     http_client: httpx.AsyncClient,
@@ -452,6 +502,7 @@ async def _chat_completion_loop(
     profile: str | None,
     model: str,
     messages: list[dict],
+    params: Mapping[str, str] = {},  # noqa: B006 - read-only, never mutated
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     web_tools: bool,
@@ -471,12 +522,18 @@ async def _chat_completion_loop(
     """
     offer_tools = web_tools and tavily_http is not None
     extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if offer_tools else {}
+    # Coerced ONCE, outside the loop: the value is turn-invariant, and a tool-calling turn
+    # re-posts — sampling parameters must hold on every hop, or the final answer is produced
+    # under different settings from the ones the expression pinned.
+    sampling = _model_params(params)
     headers = _headers(profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
         resp = await http_client.post(
             "/v1/chat/completions",
             headers=headers,
-            json={"model": model, "messages": messages, **extra},
+            # `extra` LAST: the route's declared tools are not the caller's to override.
+            # `_model_params` already rejects them, so this is defense in depth.
+            json={"model": model, "messages": messages, **sampling, **extra},
         )
         _raise_for_status(resp)
         data = _json_or_raise(resp)

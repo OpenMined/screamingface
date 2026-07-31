@@ -174,7 +174,7 @@ id = "openrouter/google/gemini-3.1-pro-preview"
 #          v:1.0:/openrouter/google/gemini-3.1-pro-preview(
 #            answer:1.0:$answer, criterion_id:1.0:$cid, criterion:1.0:$crit
 #          )!'Meets this ONE criterion? Reply JSON {"criterion_id":"…","criterion_status":"MET"|"UNMET"}'
-#          ;temperature=0.2;reasoning=low,
+#          ;temperature=0.2;max_tokens=8192,
 #          pass:1.0:$item
 #        )!'collect'
 #      )!'criterion'
@@ -204,6 +204,19 @@ id = "openrouter/google/gemini-3.1-pro-preview"
 #
 #   (1,2,3)*        judge_runs=3. The passes are byte-identical on purpose — independence comes
 #                   from judge temperature, not from varying the prompt.
+#
+#   ;k=v            reaches the gateway request body (`connector._model_params`), JSON-coerced —
+#                   the gateway's schemas are strictly typed, so "0.2" as text fails closed. The
+#                   runner refuses only the fields IT owns (model / messages / tools /
+#                   tool_choice / stream); everything else is the gateway's to validate, and it
+#                   rejects an unknown field with a named 400.
+#
+# CAVEAT (judge_reasoning): arXiv:2602.11685 §4.2 also pins `judge_reasoning: "low"`, and this
+# expression does NOT carry it. `reasoning_effort` is absent from the OpenRouter plugin's rule
+# set (`plugins/openrouter_provider/parameters.py`), and unknown parameters fail closed — so
+# `;reasoning=low` would now turn every judge call into a 400 rather than being ignored. Enabling
+# it is a provider-local rule + schema in aigateway; until then this run deviates from the paper
+# on that one setting, and a published score must say so.
 #
 # `/draco/criteria/<case>` is emitted WEIGHT-FREE by `prepare.py`, and the weighted rubric is
 # deliberately NOT a declared route: `official` grading keeps the judge blind to weights.
