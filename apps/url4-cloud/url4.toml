@@ -107,11 +107,146 @@ web_tools = true
 id = "openrouter/anthropic/claude-fable-5"
 web_tools = true
 
-# RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not
-# parse them yet; declaring one is a loud config error, never a silent no-op:
+# The DRACO judge. arXiv:2602.11685 §4.2 PINS this model, and a different judge materially
+# changes the scores — so a benchmark expression names it explicitly rather than inheriting
+# `default_route`. Seeded in aigateway's `_default_model_slugs()`; the two lists must agree or
+# `test_declared_models_match_aigateway.py` fails.
 #
-#   [data]        "/corpus/papers" = { file = "…", media_type = "application/json" }
-#   [commands]    "/python" = ["python3", "/opt/tools/run.py", "{intent}"]
+# web_tools stays OFF, deliberately: the judge sees only the answer and one criterion. Giving it
+# retrieval would let it check claims against the live web, which is a DIFFERENT benchmark from
+# the one the paper defines.
+[[aigateway.models]]
+id = "openrouter/google/gemini-3.1-pro-preview"
+
+# --- [commands] — local subprocess routes --------------------------------------------------
+#
+# A route path mapped to an operator-owned argv template, exec'd directly (no shell). stdout is
+# the result; a non-zero exit is a 502. The template sees the same surface a Python handler
+# would, each token substituted ONCE, in the operator's template only — token-shaped text in
+# caller input stays literal:
+#
+#   {intent}          the resolved intent
+#   {context}         the resolved context — ALSO piped to the command's stdin
+#   {param:<name>}    one decoded protocol param (`/benchmark?operation=grade`); "" if absent
+#   {params}          every param as JSON
+#
+# CAVEAT: protocol params are STATIC — they are never `$`-substituted from scope (see
+# `dag/nodes._wire_params`), so `{param:…}` can only carry run-constants. Per-item data must
+# ride in `{context}`/stdin or the intent.
+#
+# Three spellings; only the table form can declare a per-route timeout (default 120s):
+#
+#   [commands]
+#   "/upper"     = ["tr", "a-z", "A-Z"]
+#   "/echo"      = "cat -"
+#   "/benchmark" = { argv = ["python3", "/opt/bench/run.py", "--op", "{param:operation}"], timeout_s = 300.0 }
+#
+# The script must be baked into the image: a Job's rootfs is read-only apart from /tmp.
+
+[commands]
+# The all-calls bridge. A reduce dispatches to the processor only when EVERY source is a CALL,
+# and `$` is legal in a DATA path but illegal in a CALL path — so a per-item artifact cannot be
+# addressed directly and still keep the reduce dispatching. `cat` echoes the resolved context
+# (which arrives on stdin), turning a dynamic data fetch into a call:
+#
+#   rubric:1.0:/read(/draco/rubrics/$item.id)!'get'
+#
+# INVARIANT: this route reads NOTHING of its own — it has no file argument and no network. It is
+# a shim over the engine's own resolution, so it cannot widen what an expression can reach.
+"/read" = ["cat"]
+
+# The cross-row reducer. Reached as `…!/benchmark(aggregate)!'x'`, where the engine replaces the
+# intent with the JSON array of every row's judge output. `{context}` is the operation token
+# ("aggregate"); `{intent}` is that array.
+#
+# The DRACO expression it reduces — the paper's OFFICIAL protocol (arXiv:2602.11685 §4.2): one
+# judge call PER CRITERION, three independent passes each, and the ensemble answered ONCE per
+# case. Three nesting levels.
+#
+#   (/draco/cases*(
+#      answer:0.0:/claude-sonnet-4-5(
+#        m0:1.0:/claude-opus-4-8($item.input)!'Answer completely.'
+#      )!'Synthesize the strongest answer.',
+#      graded:1.0:/draco/criteria/$item.id*(
+#        cid:1.0:/read($item.id)!'get',
+#        crit:1.0:/read($item.requirement)!'get',
+#        runs:1.0:(1,2,3)*(
+#          v:1.0:/openrouter/google/gemini-3.1-pro-preview(
+#            answer:1.0:$answer, criterion_id:1.0:$cid, criterion:1.0:$crit
+#          )!'Meets this ONE criterion? Reply JSON {"criterion_id":"…","criterion_status":"MET"|"UNMET"}'
+#          ;temperature=0.2;reasoning=low,
+#          pass:1.0:$item
+#        )!'collect'
+#      )!'criterion'
+#    )!'case')!/benchmark(aggregate)!'x'
+#
+# Five things in that shape are load-bearing:
+#
+#   EXPLICIT JUDGE  the judge is a NAMED route, not `default_route`. That is what lets a
+#                   benchmark pin its own judge (the paper fixes DRACO's, and a different judge
+#                   materially changes the scores) without an image rebuild or a deploy change —
+#                   and it is the ONLY way judge parameters reach the model, since the per-row
+#                   reduce hop carries no params.
+#
+#   pass:1.0:$item  a JOIN ANCHOR, and it is not optional. With the judge call as the body's only
+#                   source, every source is a call, the all-calls rule fires the per-row reduce,
+#                   and `default_route` REPLACES all three grades with its own output — a run that
+#                   still reports success. One data sibling degrades the reduce to a text join, so
+#                   the judge's JSON survives. It also records the run index.
+#
+#   criterion_id    the judge must be TOLD which criterion it is grading or it cannot echo the id
+#                   back, and every verdict collapses onto one criterion: n_runs inflates, coverage
+#                   collapses, axes vanish — all while looking like a clean result. The id is
+#                   opaque, so this leaks no weight.
+#
+#   answer:0.0:     instrumental — referenced as $answer, kept OUT of the row text. A 0.0 binding
+#                   is still in scope; weight 0.0 excludes from the CONTEXT, not from `$name`.
+#
+#   (1,2,3)*        judge_runs=3. The passes are byte-identical on purpose — independence comes
+#                   from judge temperature, not from varying the prompt.
+#
+# `/draco/criteria/<case>` is emitted WEIGHT-FREE by `prepare.py`, and the weighted rubric is
+# deliberately NOT a declared route: `official` grading keeps the judge blind to weights.
+#
+# CAVEAT (N4): the row array reaches the script through argv, which caps near 2 MB. Keep judge
+# explanations out of the per-row payload or a 100-case run fails with E2BIG.
+# INVARIANT: no --rubrics here. The `[data]` routes get absolute paths from `prepare --out`, so
+# the rubrics path must come from the SAME deployment — it resolves from `URL4_BENCHMARK_RUBRICS`
+# (the benchmark image sets it; a local run exports it). Baking the container path into this file
+# made the two disagree the moment the runner ran outside the image, and the aggregate then found
+# no rubrics and returned a terminated-SUCCEEDED run scoring nothing. Observed live 2026-07-31.
+"/benchmark" = { argv = [
+  "python3", "-m", "url4_cloud.benchmarks.draco.aggregate",
+  "--operation", "{context}",
+  "--args", "{intent}",
+], timeout_s = 120.0 }
+
+# --- [data] — read-only artifacts at their own url4 addresses ------------------------------
+#
+# Each entry declares ONE artifact at ONE exact path. Routing is exact-match — there is no
+# prefix or wildcard form — so a benchmark with N cases declares N rubric entries. Generate
+# this table at image build from the dataset rather than hand-writing it.
+#
+#   [data]
+#   "/draco/cases"      = { file = "/opt/bench/cases.json", media_type = "application/json" }
+#   "/draco/rubrics/42" = { file = "/opt/bench/rubrics/42.md" }
+#   "/motd"             = "inline string shorthand"
+#   "/rows"             = { command = ["./rows.sh"], media_type = "application/json" }
+#
+# Exactly one of value/file/command per entry. `file` is re-read PER REQUEST, so editing an
+# artifact needs no restart. `media_type` is load-bearing for a collection: a one-line JSON
+# array served as text/plain collapses to a SINGLE element, which silently iterates once over a
+# blob instead of once per case.
+#
+# CAVEAT — the all-calls rule. A reduce dispatches to the processor only when EVERY source is a
+# CALL. A bare data source makes it degrade to a text join instead, silently. And `$` is legal
+# in a data path but ILLEGAL in a call path, so a per-item artifact needs a static call wrapping
+# a dynamic fetch:
+#
+#   rubric:1.0:/read(/draco/rubrics/$item.id)!'get'     # with [commands] "/read" = ["cat"]
+#
+# RESERVED — still carried by the format but not parsed; declaring one is a loud config error:
+#
 #   [holdings]    default = { file = "…" }
 #   [identities]
 #
