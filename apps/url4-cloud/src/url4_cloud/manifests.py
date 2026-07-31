@@ -14,9 +14,29 @@ INVARIANT: every entry's registry key equals the `id:` line inside its own text.
 keyed by id, and the route serves the value for that key, so a mismatch would hand a caller a
 manifest naming a benchmark they did not ask for.
 
-AIDEV-NOTE: `routes` here must match what the benchmark image's `url4.toml` actually declares
-(`prepare.render_data_table`). Nothing enforces that yet — a pinning test in the spirit of
-`test_declared_models_match_aigateway.py` is the right home for it once a second benchmark lands.
+A manifest describes the BENCHMARK PROTOCOL — what a faithful run requires — not what any one
+deployment currently delivers. Two fields say more than the stack guarantees today, and neither
+gap is visible in a result:
+
+* `tools` names the retrieval a DRACO candidate is meant to have. Retrieval IS enabled on the
+  three routes a solo or `fable_plus_gpt` candidate answers with (`native_web_search` in the
+  image's `url4.toml`, verified live), but the four models the remaining fusions use are
+  declared with it OFF pending a live check — so those answer from weights alone. The paper
+  treats retrieval as mandatory.
+* `judge_reasoning: "low"` is pinned by arXiv:2602.11685 §4.2 and is deliberately ABSENT here
+  rather than advertised-and-unhonored: `reasoning_effort` has no OpenRouter rule, and the
+  gateway fails closed on an unknown parameter.
+
+AIDEV-NOTE: two things here are unenforced and will drift.
+
+1. `routes` must match what the benchmark image's `url4.toml` actually declares
+   (`prepare.render_data_table`).
+2. `cases` is the UPSTREAM dataset's size. The image is built with `prepare --limit`
+   (`Dockerfile.benchmark` `ARG LIMIT`), so a limited image serves fewer cases than this claims —
+   a probe image built with `LIMIT=3` still advertises 100.
+
+A pinning test in the spirit of `test_declared_models_match_aigateway.py` is the right home for
+both once a second benchmark lands. Until then the numbers here are a claim, not a guarantee.
 """
 
 from __future__ import annotations
@@ -28,6 +48,7 @@ id: draco-lite
 title: DRACO Lite
 description: Research-quality rubric evaluation.
 dataset: perplexity-ai/draco
+dataset_split: test
 cases: 100
 grading: rubric
 grading_mode: official
