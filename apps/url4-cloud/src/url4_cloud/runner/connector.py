@@ -85,7 +85,55 @@ weights alone, which is indistinguishable in the result.
 """
 
 
-def _native_web_search(cfg: AigatewayConfig) -> dict[str, object]:
+WEB_SEARCH_POLICY_PARAM = "web_search_policy"
+"""Names a declared `[data]` route holding this call's retrieval policy.
+
+    …!'answer';web_search_policy=/draco/policy/retrieval
+
+WHY an ADDRESS rather than the list: protocol params are parse-time CONSTANTS (the compiler
+copies `node.params` verbatim, and `$` substitution reaches only the packed context and text
+templates), so a list interpolated from scope is not expressible. A path IS a constant while its
+contents are not — which is what lets a benchmark ship its own blocklist without an engine
+change, and lets the SAME model routes serve benchmarks that disagree about what to exclude.
+
+WHY it belongs in the expression and not in operator config: the scoreboard hashes
+`url4_expression` into a recipe identity. A blocklist carried in config is invisible there, so a
+run with retrieval unguarded would hash IDENTICALLY to an honest one.
+
+``none`` selects no benchmark policy. It cannot disable the DEPLOYMENT's list, which is
+enforcement rather than default — see `_native_web_search`.
+"""
+
+WEB_SEARCH_EXCLUDE_PARAM = "web_search_exclude"
+"""Ad-hoc additional exclusions, COLON-separated: ``;web_search_exclude=a.test:b.test``.
+
+AIDEV-NOTE — the separator is `:` and a COMMA IS A TRAP. A source list splits on `,` at depth 0
+BEFORE a param value is read, so `;web_search_exclude=a.test,b.test` parses as the value
+`a.test` plus a whole extra SOURCE `b.test` — which is then packed into the model's context.
+Measured; pinned by `test_a_comma_separated_value_is_silently_truncated`. The runner cannot
+detect this: by the time it sees the params, the comma is gone. Same shape as the
+`;iteration.slice=0,5` trap. Prefer a declared policy route over a long ad-hoc chain.
+
+AIDEV-NOTE: deliberately NOT the gateway's own `web_search_excluded_domains`, which stays
+runner-owned and loudly rejected (`RUNNER_OWNED_FIELDS`, pinned by `test_model_params`). That
+field is the gateway's; an expression setting it would be overwritten by the runner's value on
+the body merge — accepted at parse, then silently discarded. This is a different thing: a
+runner-INTERPRETED request that is UNIONed with the other layers and rendered into the gateway
+field by `_native_web_search`. Same capability, no shared name, no weakened invariant.
+"""
+
+POLICY_NONE = "none"
+
+_RUNNER_INTERPRETED_PARAMS = frozenset(
+    {WEB_SEARCH_PARAM, WEB_SEARCH_POLICY_PARAM, WEB_SEARCH_EXCLUDE_PARAM}
+)
+"""Params the runner CONSUMES. Forwarded, each would be an unknown gateway field and fail closed
+on every call that carried it."""
+
+
+def _native_web_search(
+    cfg: AigatewayConfig, extra_domains: Sequence[str] = ()
+) -> dict[str, object]:
     """Ask the GATEWAY for provider-side retrieval — nothing provider-specific here.
 
     `web_search` is aigateway's provider-agnostic vocabulary: the gateway decides which
@@ -93,14 +141,24 @@ def _native_web_search(cfg: AigatewayConfig) -> dict[str, object]:
     provider's payload here instead would put OpenRouter knowledge in the runner and duplicate a
     contract the gateway already owns — the layering rule this repo states as core-defines-ports.
 
-    `web_search_excluded_domains` is UNIONed with the deployment's own list by the gateway, so
-    this can only ever tighten the guard. It is operator config, never expression-supplied: the
-    motivating case is a benchmark candidate that must not retrieve the rubric it is graded
-    against, and a blocklist a caller can rewrite is not a blocklist.
+    Three layers compose, and only ever by UNION — a caller can tighten the guard and can never
+    loosen it:
+
+    * the deployment's list (aigateway settings) — ENFORCEMENT, unreachable from an expression;
+    * this Job's `cfg` list;
+    * the expression's policy route and any ad-hoc `web_search_exclude`, both in ``extra_domains``.
+
+    INVARIANT: assembled ONCE here and rendered into the gateway field by the runner. The body is
+    merged with `extra` last, so a caller-supplied copy of the gateway's own field would be
+    overwritten — which is why that name stays runner-owned and this path exists instead.
+
+    The gateway then unions its deployment list on top, so a benchmark policy layers under a
+    leaderboard's mandatory floor rather than replacing it.
     """
     body: dict[str, object] = {"web_search": True}
-    if cfg.web_search_excluded_domains:
-        body["web_search_excluded_domains"] = list(cfg.web_search_excluded_domains)
+    domains = sorted({*cfg.web_search_excluded_domains, *extra_domains})
+    if domains:
+        body["web_search_excluded_domains"] = domains
     return body
 
 
@@ -191,6 +249,7 @@ class _ModelEndpoint:
         "_cfg",
         "_http_client",
         "_identity_headers",
+        "_policy",
         "_profile",
         "_routes",
         "_tavily_api_key",
@@ -207,6 +266,7 @@ class _ModelEndpoint:
         tavily_http: httpx.AsyncClient | None,
         tavily_api_key: str | None,
         identity_headers: Mapping[str, str] | None = None,
+        policy: RetrievalPolicyResolver | None = None,
     ) -> None:
         self._http_client = http_client
         self._cfg = cfg
@@ -215,6 +275,7 @@ class _ModelEndpoint:
         self._tavily_http = tavily_http
         self._tavily_api_key = tavily_api_key
         self._identity_headers = identity_headers
+        self._policy = policy
 
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
@@ -232,6 +293,7 @@ class _ModelEndpoint:
             tavily_api_key=self._tavily_api_key,
             web_tools=spec.web_tools,
             identity_headers=self._identity_headers,
+            policy=self._policy,
         )
 
 
@@ -280,6 +342,85 @@ def register_data(node: Url4Node, data: Sequence[DataSpec]) -> None:
             node.data(spec.path, provider, media_type=spec.media_type)
         except ValueError as exc:
             raise RunnerConfigError(f"[data] {spec.path!r} is not registrable: {exc}") from exc
+
+
+class RetrievalPolicyResolver:
+    """Dereferences a `;web_search_policy=<path>` into that policy's excluded domains.
+
+    FEATURE: a benchmark declares its blocklist at its own url4 address, so per-benchmark
+    policies share one set of model routes.
+    STORY: as a benchmark author I need the guard that stops a candidate retrieving its own
+    rubric to travel WITH the benchmark, and to be visible in the expression that ran.
+
+    INVARIANT: resolution is bounded to declared `[data]` routes BY CONSTRUCTION. The providers
+    are built from the parsed data table, not from the node's router, so a model route, a command
+    route, or a traversal-shaped path is simply ABSENT — there is no check to forget, and the
+    runner never re-enters the node it is currently serving.
+
+    Results are memoized for the world's lifetime. A benchmark image is immutable, so staleness
+    is unreachable in production, and a DRACO run would otherwise re-read the file on every
+    answering call. TRADEOFF: a LOCAL run that edits a policy file needs a restart, which differs
+    from `[data]` routes generally (a `file` provider is re-read per request).
+    """
+
+    __slots__ = ("_cache", "_providers")
+
+    def __init__(self, data: Sequence[DataSpec] = ()) -> None:
+        self._providers = {
+            spec.path: make_data_provider(
+                ProviderSpec(
+                    value=spec.value,
+                    file=spec.file,
+                    command=spec.command,
+                    media_type=spec.media_type,
+                ),
+                spec.timeout_s,
+            )
+            for spec in data
+        }
+        self._cache: dict[str, tuple[str, ...]] = {}
+
+    async def resolve(self, path: str) -> tuple[str, ...]:
+        """The policy's excluded domains.
+
+        Raises:
+            ResolutionError: the path is not a declared `[data]` route, or what it serves is not
+                a usable policy. NEVER returns an empty tuple on failure — empty means "retrieve
+                unguarded", and the run would report success carrying an inflated score.
+        """
+        cached = self._cache.get(path)
+        if cached is not None:
+            return cached
+        provider = self._providers.get(path)
+        if provider is None:
+            raise ResolutionError(
+                f"{WEB_SEARCH_POLICY_PARAM}={path!r} is not a declared [data] route — a retrieval "
+                "policy is an artifact the benchmark image declares, like its cases and criteria"
+            )
+        domains = _parse_policy(await provider(), path)
+        self._cache[path] = domains
+        return domains
+
+
+def _parse_policy(raw: str, path: str) -> tuple[str, ...]:
+    """Read ``{"id": …, "excluded_domains": [...]}`` out of a policy artifact.
+
+    An OBJECT rather than a bare array so a policy can version itself (`id` is what a published
+    score cites) and later carry other retrieval settings without a second route.
+    """
+    try:
+        document = json.loads(raw)
+    except ValueError as exc:
+        raise ResolutionError(
+            f"{WEB_SEARCH_POLICY_PARAM}={path!r} does not serve JSON: {exc}"
+        ) from None
+    domains = document.get("excluded_domains") if isinstance(document, Mapping) else None
+    if not isinstance(domains, list) or not all(isinstance(item, str) for item in domains):
+        raise ResolutionError(
+            f"{WEB_SEARCH_POLICY_PARAM}={path!r} must declare `excluded_domains` as a list of "
+            "strings — the gateway's schema is strictly typed and would fail closed one hop later"
+        )
+    return tuple(domains)
 
 
 def build_local_world(
@@ -349,6 +490,9 @@ async def build_aigateway_world(
         tavily_http=tavily_http,
         tavily_api_key=tavily_api_key,
         identity_headers=identity_headers or None,
+        # Built from the SAME declared table `register_data` registers, so a policy can only ever
+        # name an artifact this world already serves.
+        policy=RetrievalPolicyResolver(data),
     )
 
     # WHY: `outbound=StaticIOLayer()` denies every absolute-URL fetch: an unmapped target raises
@@ -511,7 +655,7 @@ def _model_params(params: Mapping[str, str]) -> dict[str, object]:
         ResolutionError: the expression set a runner-owned field. Loud on purpose — dropping it
             silently would let the expression read as though it had pinned something it had not.
     """
-    params = {k: v for k, v in params.items() if k != WEB_SEARCH_PARAM}
+    params = {k: v for k, v in params.items() if k not in _RUNNER_INTERPRETED_PARAMS}
     owned = sorted(set(params) & RUNNER_OWNED_FIELDS)
     if owned:
         raise ResolutionError(
@@ -528,6 +672,62 @@ def _coerce_param(value: str) -> object:
         return value
 
 
+def _caller_exclusions(params: Mapping[str, str]) -> tuple[str, ...]:
+    """``;web_search_exclude=a.test:b.test`` as a tuple.
+
+    Split explicitly rather than through `_coerce_param`: `json.loads` leaves the value a STRING,
+    and the gateway's array schema would then fail closed.
+
+    COLON, not comma — see `WEB_SEARCH_EXCLUDE_PARAM`. A comma splits the enclosing source list
+    first, so it silently truncates the value AND injects the remainder as a source.
+    """
+    raw = params.get(WEB_SEARCH_EXCLUDE_PARAM)
+    if not raw:
+        return ()
+    return tuple(item.strip() for item in raw.split(":") if item.strip())
+
+
+async def _retrieval_exclusions(
+    params: Mapping[str, str], policy: RetrievalPolicyResolver | None, *, native: bool
+) -> tuple[str, ...]:
+    """The expression's contribution to this call's blocklist: its policy plus any ad-hoc adds.
+
+    Raises:
+        ResolutionError: either option was named on a call that will not run PROVIDER-side
+            retrieval. Domain exclusion is a control the searching provider honours, so on a
+            `web_tools` route (where the RUNNER searches) or a route that does not retrieve at
+            all, a declared policy would be accepted and never enforced — which is precisely the
+            failure this parameter exists to close, not an instance of it.
+    """
+    path = params.get(WEB_SEARCH_POLICY_PARAM)
+    ad_hoc = _caller_exclusions(params)
+    if not native:
+        named = [
+            name
+            for name, value in (
+                (WEB_SEARCH_POLICY_PARAM, path),
+                (WEB_SEARCH_EXCLUDE_PARAM, ad_hoc),
+            )
+            if value
+        ]
+        if named:
+            raise ResolutionError(
+                f"{', '.join(named)} needs provider-side retrieval, which this route does not "
+                "run — declare `native_web_search` on its [[aigateway.models]] entry, or drop "
+                "the option rather than letting it read as an enforced guard"
+            )
+        return ()
+    if path is None or path == POLICY_NONE:
+        # WHY `none` cannot mean "unguarded": it drops only the BENCHMARK's list. The deployment's
+        # is enforcement and is unreachable from any expression.
+        return ad_hoc
+    if policy is None:
+        raise ResolutionError(
+            f"{WEB_SEARCH_POLICY_PARAM}={path!r} but this world declares no [data] routes"
+        )
+    return (*await policy.resolve(path), *ad_hoc)
+
+
 async def _chat_completion_loop(
     *,
     http_client: httpx.AsyncClient,
@@ -541,6 +741,7 @@ async def _chat_completion_loop(
     tavily_api_key: str | None,
     web_tools: bool,
     identity_headers: Mapping[str, str] | None = None,
+    policy: RetrievalPolicyResolver | None = None,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
@@ -562,10 +763,13 @@ async def _chat_completion_loop(
     wants_search = _wants_web_search(params, spec)
     native = wants_search and bool(spec and spec.native_web_search)
     offer_tools = wants_search and web_tools and tavily_http is not None
+    # Resolved BEFORE the loop with the sampling params: a tool-calling turn re-posts, and the
+    # blocklist must hold on every hop or a later turn retrieves what the first one was denied.
+    exclusions = await _retrieval_exclusions(params, policy, native=native)
     if native:
         # A gateway-level flag, not a tools payload: no `tool_choice` (the OpenAI selection
         # control does not govern provider-run retrieval) and no collision with function calling.
-        extra: dict[str, object] = _native_web_search(cfg)
+        extra: dict[str, object] = _native_web_search(cfg, exclusions)
     elif offer_tools:
         extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"}
     else:

@@ -97,7 +97,7 @@ def test_the_generated_table_is_valid_toml_for_many_cases(tmp_path: Path) -> Non
     prepare.build([_row(f"Q{i}") for i in range(50)], tmp_path, "/draco")
 
     table = tomllib.loads((tmp_path / "url4.data.toml").read_text())["data"]
-    assert len(table) == 51  # 50 criteria files + cases
+    assert len(table) == 52  # 50 criteria files + cases + the retrieval policy
 
 
 def test_the_weighted_rubric_is_NOT_declared_as_a_route(tmp_path: Path) -> None:
