@@ -1,0 +1,20 @@
+{{- include "aigateway-ui.validateExposure" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aigateway-ui.fullname" . }}
+  labels:
+    {{- include "aigateway-ui.labels" . | nindent 4 }}
+data:
+  # Where the admin API is. Read ONLY by server-side code (`src/lib/aigateway/client.ts`, which
+  # opens with `import "server-only"`), so this address never reaches a browser — that is the
+  # whole point of the console being a BFF rather than a client-side app.
+  AIGATEWAY_ADMIN_BASE_URL: {{ include "aigateway-ui.gatewayBaseUrl" . | quote }}
+  # The standalone Next.js server binds `localhost` unless told otherwise, which inside a
+  # container accepts nothing from outside it. The image already sets both; repeated here so the
+  # rendered manifest states the port rather than depending on an image default that could change
+  # without this chart noticing.
+  PORT: {{ .Values.config.port | quote }}
+  HOSTNAME: "0.0.0.0"
+  NODE_ENV: "production"
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}

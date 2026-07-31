@@ -1,0 +1,318 @@
+/* ══════════════════════════════════════════════════════════════════
+   TOKENS.CSS — OpenMined Design System
+   All CSS custom properties — canonical source for all token values
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+
+  /* ── 1. PALETTE ─────────────────────────────────────────────────── */
+
+  /* GRAYSCALE (18 steps — grayscale-550 added; not in brand doc) */
+  --color-grayscale-00:   #ffffff;
+  --color-grayscale-50:   #fcfcfd;
+  --color-grayscale-100:  #f7f6f9;
+  --color-grayscale-150:  #f4f3f6;
+  --color-grayscale-200:  #f1f0f4;
+  --color-grayscale-300:  #ecebef;
+  --color-grayscale-400:  #cfcdd6;
+  --color-grayscale-500:  #b4b0bf;
+  --color-grayscale-550:  #868394;   /* NEW — not in brand doc; fills hardcoded gap */
+  --color-grayscale-600:  #5e5a72;
+  --color-grayscale-700:  #464257;
+  --color-grayscale-750:  #353243;
+  --color-grayscale-800:  #2e2b3b;
+  --color-grayscale-850:  #272532;
+  --color-grayscale-900:  #23202c;
+  --color-grayscale-950:  #17161d;
+  --color-grayscale-1000: #000000;
+
+  /* GOLD (11 steps) */
+  --color-gold-50:   #fef9f0;
+  --color-gold-100:  #fef2e2;
+  --color-gold-200:  #fce5c5;
+  --color-gold-300:  #fbdaac;
+  --color-gold-400:  #f9cd8f;
+  --color-gold-500:  #f8c073;
+  --color-gold-600:  #f5a22e;
+  --color-gold-700:  #d17e0a;
+  --color-gold-800:  #885207;
+  --color-gold-900:  #442903;
+  --color-gold-950:  #221502;
+
+  /* ORANGE (11 steps — 600 corrected from live CSS bug #c74c0a) */
+  --color-orange-50:   #fef5f0;
+  --color-orange-100:  #feece2;
+  --color-orange-200:  #fcd5c0;
+  --color-orange-300:  #fac1a3;
+  --color-orange-400:  #f9ab81;
+  --color-orange-500:  #f79763;
+  --color-orange-600:  #f46a20;   /* CORRECTED — live CSS had #c74c0a (copy-paste bug) */
+  --color-orange-700:  #c74c0a;
+  --color-orange-800:  #833207;
+  --color-orange-900:  #441a03;
+  --color-orange-950:  #220d02;
+
+  /* RED (11 steps) */
+  --color-red-50:   #faf0f2;
+  --color-red-100:  #f5e0e5;
+  --color-red-200:  #ebc2ca;
+  --color-red-300:  #e0a3b0;
+  --color-red-400:  #d68595;
+  --color-red-500:  #cc677b;
+  --color-red-600:  #b73d56;
+  --color-red-700:  #8a2e40;
+  --color-red-800:  #5c1f2b;
+  --color-red-900:  #2e0f15;
+  --color-red-950:  #17080b;
+
+  /* VIOLET (11 steps) */
+  --color-violet-50:   #f4f0f4;
+  --color-violet-100:  #e9e1ea;
+  --color-violet-200:  #d5c7d6;
+  --color-violet-300:  #bea9c1;
+  --color-violet-400:  #a88bac;
+  --color-violet-500:  #937098;
+  --color-violet-600:  #76587a;
+  --color-violet-700:  #59425c;
+  --color-violet-800:  #3c2d3e;
+  --color-violet-900:  #1d151e;
+  --color-violet-950:  #0e0b0f;
+
+  /* BLUE (11 steps) */
+  --color-blue-50:   #eef0f6;
+  --color-blue-100:  #e1e4ef;
+  --color-blue-200:  #c3c8df;
+  --color-blue-300:  #a6adcf;
+  --color-blue-400:  #8892bf;
+  --color-blue-500:  #6976ae;
+  --color-blue-600:  #4f5b92;
+  --color-blue-700:  #3b446d;
+  --color-blue-800:  #272d49;
+  --color-blue-900:  #141724;
+  --color-blue-950:  #090a11;
+
+  /* TEAL (11 steps — primary interactive family) */
+  --color-teal-50:   #ecf5f9;
+  --color-teal-100:  #ddeef3;
+  --color-teal-200:  #badde8;
+  --color-teal-300:  #98cbdc;
+  --color-teal-400:  #75bad1;
+  --color-teal-500:  #52a8c5;
+  --color-teal-600:  #388ca8;   /* Focus / Active state */
+  --color-teal-700:  #2a697e;   /* Active state (pressed) */
+  --color-teal-800:  #1c4654;
+  --color-teal-900:  #0e232a;
+  --color-teal-950:  #061013;
+
+  /* GREEN (11 steps) */
+  --color-green-50:   #ecf8f6;
+  --color-green-100:  #def2ee;
+  --color-green-200:  #b9e4dc;
+  --color-green-300:  #97d8cb;
+  --color-green-400:  #76cbba;
+  --color-green-500:  #53bea9;
+  --color-green-600:  #3c9f8b;   /* Hover state */
+  --color-green-700:  #2d7668;
+  --color-green-800:  #1d4e44;
+  --color-green-900:  #0f2924;
+  --color-green-950:  #071310;
+
+  /* LIME (11 steps) */
+  --color-lime-50:   #f4faf4;
+  --color-lime-100:  #eaf6ea;
+  --color-lime-200:  #d5ecd4;
+  --color-lime-300:  #c0e3bf;
+  --color-lime-400:  #aadaaa;
+  --color-lime-500:  #96d195;
+  --color-lime-600:  #64bb62;
+  --color-lime-700:  #429541;
+  --color-lime-800:  #2c642b;
+  --color-lime-900:  #163216;
+  --color-lime-950:  #0b190b;
+
+  /* YELLOW (11 steps) */
+  --color-yellow-50:   #fdfaf1;
+  --color-yellow-100:  #fcf7e8;
+  --color-yellow-200:  #faf0d1;
+  --color-yellow-300:  #f7e8ba;
+  --color-yellow-400:  #f5e0a3;
+  --color-yellow-500:  #f2d98c;
+  --color-yellow-600:  #eac248;
+  --color-yellow-700:  #cea017;
+  --color-yellow-800:  #896b10;
+  --color-yellow-900:  #453508;
+  --color-yellow-950:  #201904;
+
+
+  /* ── 2. GRADIENTS ───────────────────────────────────────────────── */
+  /* Stop colors are verbatim from brand doc — do not substitute var() refs */
+  --gradient-gold-orange:  linear-gradient(67deg, #F8C073 0%, #F79763 99.29%);
+  --gradient-orange-red:   linear-gradient(67deg, #F79763 0%, #CC677B 99.29%);
+  --gradient-red-violet:   linear-gradient(67deg, #CC677B 0%, #6976AE 99.29%);
+  --gradient-violet-blue:  linear-gradient(67deg, #6976AE 0%, #52A8C5 99.29%);
+  --gradient-teal-green:   linear-gradient(67deg, #52A8C5 0%, #53BEA9 99.29%);
+  --gradient-green-lime:   linear-gradient(67deg, #53BEA9 0%, #96D195 99.29%);
+  --gradient-lime-yellow:  linear-gradient(67deg, #96D195 0%, #F2D98C 99.29%);
+
+
+  /* ── 3. SEMANTIC SURFACE TOKENS (light mode defaults) ────────────── */
+
+  /* Page-level surface tokens — respond to [data-theme="dark"] */
+  --surface-background-default:  var(--color-grayscale-50);
+  --surface-background-bright:   var(--color-grayscale-00);
+  --surface-background-dim:      var(--color-grayscale-150);
+  --surface-foreground-lowest:   var(--color-grayscale-100);
+  --surface-foreground-low:      var(--color-grayscale-200);
+  --surface-foreground-default:  var(--color-grayscale-300);
+  --surface-foreground-high:     var(--color-grayscale-400);
+  --surface-foreground-highest:  var(--color-grayscale-500);
+
+  /* Dark surface set — parallel token set for always-dark or invert sections.
+     In light mode these are dark values. In dark mode they flip to light values.
+     Components consuming --dark-surface-* naturally invert with the page theme. */
+  --dark-surface-background-default:  var(--color-grayscale-800);
+  --dark-surface-background-bright:   var(--color-grayscale-700);
+  --dark-surface-background-dim:      var(--color-grayscale-950);
+  --dark-surface-foreground-lowest:   var(--color-grayscale-900);
+  --dark-surface-foreground-low:      var(--color-grayscale-850);
+  --dark-surface-foreground-default:  var(--color-grayscale-750);
+  --dark-surface-foreground-high:     var(--color-grayscale-700);
+  --dark-surface-foreground-highest:  var(--color-grayscale-600);
+
+
+  /* ── 5. TEXT SEMANTIC TOKENS ────────────────────────────────────── */
+  --text-headline:       var(--color-grayscale-850);
+  --text-body:           var(--color-grayscale-750);
+  --text-headline-light: var(--color-grayscale-50);   /* text on dark surfaces */
+  --text-body-light:     var(--color-grayscale-400);  /* text on dark surfaces */
+  --text-subtle:         var(--color-grayscale-550);  /* placeholders, subtle links — static; does not theme-switch */
+
+
+  /* ── 5b. BORDER TOKEN ────────────────────────────────────────────── */
+  /* Themed structural border color — dark on light surfaces, light on dark.
+     Updates automatically with the page theme via --text-headline.
+     Use for: section card outlines, row dividers, form input borders.
+     Do NOT use in always-dark sections (footer, etc.) — those must use
+     explicit palette tokens since they don't participate in the theme switch. */
+  --border-color: var(--text-headline);
+
+
+  /* ── 6. BUTTON TOKENS ───────────────────────────────────────────── */
+  --button-dark-color:   var(--color-grayscale-850);  /* button bg (default) */
+  --button-light-color:  var(--color-grayscale-50);   /* button text (default) */
+
+
+  /* ── 7. INTERACTIVE STATE TOKENS ────────────────────────────────── */
+  --color-interactive-default:  var(--color-grayscale-850);
+  --color-interactive-hover:    var(--color-green-600);    /* #3c9f8b */
+  --color-interactive-focus:    var(--color-teal-600);     /* #388ca8 */
+  --color-interactive-active:   var(--color-teal-700);     /* #2a697e */
+  --color-interactive-disabled: var(--color-grayscale-400); /* #cfcdd6 */
+
+
+  /* ── 8. SPACING (12-step scale) ─────────────────────────────────── */
+  --spacing-3XS:  2px;
+  --spacing-2XS:  4px;
+  --spacing-XS:   6px;
+  --spacing-S:    8px;
+  --spacing-M:    12px;
+  --spacing-L:    16px;
+  --spacing-XL:   20px;
+  --spacing-2XL:  24px;
+  --spacing-3XL:  32px;
+  --spacing-4XL:  40px;
+  --spacing-5XL:  48px;   /* NEW — was missing from live CSS */
+  --spacing-full: 88px;   /* CHANGED — was 99px in brand doc and live CSS */
+
+
+  /* ── 9. BORDER RADIUS ───────────────────────────────────────────── */
+  --border-radius-XS:   2px;
+  --border-radius-S:    6px;   /* most-used: cards, inputs, buttons */
+  --border-radius-M:    8px;   /* defined but no confirmed component usage — U-7 */
+  --border-radius-L:    16px;
+  --border-radius-XL:   32px;
+  --border-radius-full: 999px;
+
+
+  /* ── 10. SHADOWS ────────────────────────────────────────────────── */
+  /* Base: --color-grayscale-700 (#464257) — closest palette match to live #433e56 */
+  --shadow-sm:  0 2px 4px #46425729;
+  --shadow-md:  0 16px 32px -4px #4642571a, 0 2px 4px #4642570a;
+  --shadow-lg:  0 24px 48px -8px #4642571f, 0 2px 4px #4642570a;
+
+
+  /* ── 11. Z-INDEX ────────────────────────────────────────────────── */
+  --z-below:    -1;     /* background extension tricks */
+  --z-card:      5;     /* full-cover card links, WebGL canvas */
+  --z-base:     10;     /* general elevated element — U-8: specific selector unconfirmed */
+  --z-sticky:  100;     /* sticky header */
+  --z-dropdown: 1000;   /* filter dropdowns, popovers */
+  --z-overlay:  9999;   /* sticky article TOC, modals */
+
+
+  /* ── 12. TRANSITIONS ────────────────────────────────────────────── */
+  --transition-base:  0.4s ease;   /* buttons, links, social icons, surfaces */
+  --transition-theme: 0.4s ease;   /* theme switch — applied to bg/color on body/sections */
+
+
+  /* ── 13. CONTAINER & GRID ───────────────────────────────────────── */
+  --container-full:  1300px;   /* 12-column grid max-width */
+  --container-xfull: 1400px;   /* wide bands: footer bar, full-bleed sections with gutters */
+
+  /* 12-column grid system — two usage modes:
+     1. CSS Grid: apply .grid-12 to the container, use grid-column spans on
+        children (e.g. grid-column: 2 / 12 for 10-col content with 1-col
+        breathing room each side). See .grid-12 in global.css.
+     2. Max-width: use --col-N as max-width on a centered block (e.g.
+        max-width: var(--col-10)) when proportional column structure isn't
+        needed — hero content, bio blocks, etc.
+     Column math: (1300 - 11 × 20) / 12 = 90px per column. */
+  --grid-gap:       20px;
+  --grid-col-width: calc((var(--container-full) - 11 * var(--grid-gap)) / 12); /* 90px */
+
+  --col-10: calc(10 * var(--grid-col-width) + 9  * var(--grid-gap)); /* 1080px */
+  --col-8:  calc(8  * var(--grid-col-width) + 7  * var(--grid-gap)); /*  860px */
+  --col-6:  calc(6  * var(--grid-col-width) + 5  * var(--grid-gap)); /*  640px */
+  --col-4:  calc(4  * var(--grid-col-width) + 3  * var(--grid-gap)); /*  420px */
+
+  /* ── 14. BREAKPOINTS ────────────────────────────────────────────── */
+  /* Canonical max-width breakpoints for all OpenMined projects. NOTE: CSS
+     @media queries cannot read custom properties, so media queries must still
+     use the literal px values below. These tokens document the canonical set
+     and power any JS that needs the same thresholds (matchMedia, etc.). */
+  --breakpoint-lg: 991px;   /* tablet / below desktop — .grid-12 collapses here */
+  --breakpoint-md: 767px;   /* below tablet */
+  --breakpoint-sm: 479px;   /* phones */
+}
+
+
+/* ── 4. DARK MODE OVERRIDES ─────────────────────────────────────── */
+[data-theme="dark"] {
+  --surface-background-default:  var(--color-grayscale-800);
+  --surface-background-bright:   var(--color-grayscale-700);
+  --surface-background-dim:      var(--color-grayscale-950);
+  --surface-foreground-lowest:   var(--color-grayscale-900);
+  --surface-foreground-low:      var(--color-grayscale-850);
+  --surface-foreground-default:  var(--color-grayscale-750);
+  --surface-foreground-high:     var(--color-grayscale-700);
+  --surface-foreground-highest:  var(--color-grayscale-600);
+
+  /* Dark surface set flips in dark mode — invert sections now show light surfaces */
+  --dark-surface-background-default:  var(--color-grayscale-50);
+  --dark-surface-background-bright:   var(--color-grayscale-00);
+  --dark-surface-background-dim:      var(--color-grayscale-150);
+  --dark-surface-foreground-lowest:   var(--color-grayscale-100);
+  --dark-surface-foreground-low:      var(--color-grayscale-200);
+  --dark-surface-foreground-default:  var(--color-grayscale-300);
+  --dark-surface-foreground-high:     var(--color-grayscale-400);
+  --dark-surface-foreground-highest:  var(--color-grayscale-500);
+
+  --text-headline:       var(--color-grayscale-50);
+  --text-body:           var(--color-grayscale-400);
+  --text-headline-light: var(--color-grayscale-850);
+  --text-body-light:     var(--color-grayscale-750);
+  /* --text-subtle intentionally omitted — static value, does not switch */
+
+  --button-dark-color:   var(--color-grayscale-50);
+  --button-light-color:  var(--color-grayscale-800);
+}

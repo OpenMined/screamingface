@@ -19,6 +19,15 @@ data:
   # Comma-separated, because the app parses a list rather than JSON. Emitted in every mode; only
   # `cloudflare_headers` reads it, and only there is it mandatory.
   AIGW_ALLOWED_NETWORKS: {{ join "," .Values.config.allowedNetworks | quote }}
+  # Who may drive the `/v1/admin` surface. Comma-separated for the same reason as the line above:
+  # the field is declared `Annotated[frozenset[str], NoDecode]`, and without `NoDecode`
+  # pydantic-settings would JSON-decode a complex type from the environment and reject a comma
+  # list as malformed JSON before any validator ran.
+  #
+  # Emitted even when empty, and that empty value is a real posture rather than a missing key: no
+  # entries means the admin API answers 503 to everyone, so the surface ships OFF. Sending the key
+  # regardless keeps "nobody may administer" a stated decision instead of an accident of absence.
+  AIGATEWAY_ADMIN_EMAILS: {{ join "," .Values.config.adminEmails | quote }}
   AIGATEWAY_JWT_TTL_SECONDS: {{ .Values.config.jwtTtlSeconds | quote }}
   AIGATEWAY_PUBLIC_URL: {{ .Values.publicUrl | quote }}
   # The OpenRouter plugin's own gate (`AIGW_OPENROUTER_` prefix). Emitted in every case so the

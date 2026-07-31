@@ -41,6 +41,18 @@ updates:
       url4-cloud-python:
         patterns: ["*"]
 
+  # The repo's only npm tree that is a deployable component. `apps/screamingface-studio/frontend`
+  # is deliberately NOT listed — it has no CI lane, so a dependency bump there would land with
+  # nothing to verify it.
+  - package-ecosystem: "npm"
+    directory: "/apps/aigateway-ui"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      aigateway-ui-npm:
+        patterns: ["*"]
+
   # The runtime image's base layers drift silently otherwise — they are pinned by tag, and
   # nothing else in CI notices a new patch release of the base.
   - package-ecosystem: "docker"

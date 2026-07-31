@@ -1,0 +1,71 @@
+# Dev image on every merge to main (path-filtered): immutable main-<shortsha> tags
+# so a dev environment can track main automatically. Release builds are untouched
+# — this never tags 'latest' and never publishes charts. Single-arch (amd64) for
+# speed; dev clusters are amd64.
+#
+# WHY the console needs this at all (OME-714): it is a BFF whose only job is calling aigateway's
+# /v1/admin surface, so the two deploy as a PAIR. Without this lane the gateway gets a fresh
+# main-<sha> image on every merge and the console gets none, which means a dev cluster can only run
+# a console from a tagged release against a gateway from main. They drift by construction — and the
+# admin API is exactly where that bites, since no release tag contains it yet.
+#
+# SECURITY: no `run:` block interpolates a `${{ }}` expression and no event payload is read at all.
+# The one `run:` uses GITHUB_SHA, an environment variable set by the runner, not attacker-authored
+# text. Azure access is OIDC-only (`id-token: write`); the three `vars.AZURE_*` are non-secret
+# identifiers, not credentials.
+name: Dev build aigateway-ui
+on:
+  push:
+    branches: [main]
+    # Matches the sibling lanes' bare `apps/<name>/**` rather than excluding charts/. A chart-only
+    # edit does rebuild an image whose content cannot have changed, which is wasteful but harmless
+    # (the tag is keyed on the commit, so nothing is overwritten). A divergent filter here would be
+    # a subtle inconsistency that invites someone to "fix" it back later.
+    paths:
+      - "apps/aigateway-ui/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+  id-token: write # OIDC → Azure; no stored credentials
+concurrency:
+  group: dev-build-aigateway-ui-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Platform registry (ACR) — the dev cluster pulls from here. OIDC only:
+      # sp-screamingface-ci is federated to this repo's main branch and holds
+      # AcrPush on acropenmined and nothing else. No secrets are stored here;
+      # the three vars below are non-secret identifiers.
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az acr login --name acropenmined
+      - uses: docker/build-push-action@v6
+        with:
+          # Context is the repo root — matches the release workflows and this app's Dockerfile,
+          # which COPYs apps/aigateway-ui/ from there.
+          context: .
+          file: apps/aigateway-ui/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/openmined/screamingface-aigateway-ui:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-aigateway-ui:main-${{ steps.sha.outputs.short }}
+          # Its OWN scope, not the aigateway one. The two images share no layers — uv/Python
+          # against node/Next.js — so a shared scope would be pure eviction pressure with no hits.
+          cache-from: type=gha,scope=dev-aigateway-ui
+          cache-to: type=gha,scope=dev-aigateway-ui,mode=max

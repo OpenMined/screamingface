@@ -1233,6 +1233,30 @@ async def set_profile_api_key(
     request: Request,
     current: CurrentAccount,
 ) -> dict:
+    """Create or update the CALLER's own API-key profile.
+
+    A thin wrapper over :func:`upsert_api_key_profile`; the tenant-facing contract is simply
+    "whatever that does, to my own account".
+    """
+    return await upsert_api_key_profile(
+        request,
+        provider=provider,
+        name=name,
+        account_id=str(current.id),
+        raw_api_key=body.api_key,
+        defaults=body.defaults,
+    )
+
+
+async def upsert_api_key_profile(
+    request: Request,
+    *,
+    provider: str,
+    name: str,
+    account_id: str,
+    raw_api_key: SecretStr,
+    defaults: ProfileDefaults | None,
+) -> dict:
     """Create or update a profile that authenticates with a raw API key.
 
     No OAuth round-trip: the profile is AUTHENTICATED as soon as the key is
@@ -1241,14 +1265,18 @@ async def set_profile_api_key(
     never returned in responses or logs; the profile carries only a masked
     display label of the last 4 characters (``account_label = "API key ····WXYZ"``),
     the same last-4 convention used by Stripe/AWS/GitHub.
+
+    WHY `account_id` is a parameter rather than read from the caller: the admin console writes
+    keys on a tenant's behalf (`OME-706`). Both routes MUST share this implementation — it carries
+    the OME-307 transaction-ordering invariants below, and a second copy of them written for the
+    admin path would be a second place for them to rot.
     """
     plugin = _registry(request).get(provider)
     if plugin is None:
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": provider}
         )
-    api_key = normalize_api_key(body.api_key)
-    account_id = str(current.id)
+    api_key = normalize_api_key(raw_api_key)
     strategy = _credential_strategy_for_app(
         request.app, plugin, provider, account_id, name, auth_type="api_key"
     )
@@ -1272,8 +1300,8 @@ async def set_profile_api_key(
             provider=provider,
             name=name,
         )
-    if body.defaults is not None:
-        profile.defaults = body.defaults
+    if defaults is not None:
+        profile.defaults = defaults
     profile.auth_type = "api_key"
     profile.state = ProfileState.AUTHENTICATED
     profile.last_refreshed_at = datetime.now(UTC)
@@ -1333,10 +1361,24 @@ async def set_profile_api_key(
 
 @router.delete("/v1/auth/{provider}/profiles/{name}", status_code=204)
 async def delete_profile(provider: str, name: str, request: Request, current: CurrentAccount):
+    """Delete the CALLER's own profile. Thin wrapper over the shared implementation."""
+    await delete_profile_for_account(
+        request, provider=provider, name=name, account_id=str(current.id)
+    )
+
+
+async def delete_profile_for_account(
+    request: Request, *, provider: str, name: str, account_id: str
+) -> None:
+    """Remove one profile and its credential.
+
+    WHY `account_id` is a parameter: the admin console deletes on a tenant's behalf (`OME-706`).
+    The transaction-ordering invariants below are the reason both paths must share this rather
+    than each writing their own delete.
+    """
     plugin = _registry(request).get(provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
-    account_id = str(current.id)
     idx = _index_store(request)
     p = await idx.get(account_id, provider, name)
     if p is None:

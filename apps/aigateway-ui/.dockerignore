@@ -1,0 +1,25 @@
+# Paths are relative to the REPO ROOT — that is the build context (see Dockerfile).
+#
+# node_modules is the load-bearing entry: without it the host's tree (built against the host's
+# platform) is copied into the builder stage and shadows the one `npm ci` just resolved for linux.
+# The failure is not a missing module but a native binary for the wrong OS, which surfaces as an
+# opaque runtime error rather than a build error.
+**/node_modules
+**/.next
+**/coverage
+**/results.xml
+
+**/.git
+**/.env
+**/.env.*
+**/*.log
+
+# Other components of the monorepo. The build only ever COPYs apps/aigateway-ui, so shipping the
+# rest of the repo to the daemon is pure transfer cost.
+apps/aigateway
+apps/scoreboard
+apps/url4-cloud
+packages
+docs
+.docs
+.claude
