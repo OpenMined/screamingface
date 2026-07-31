@@ -49,7 +49,16 @@ EXCLUDED_DOMAINS = (
     "huggingface.co/datasets/perplexity-ai/draco",
     "openrouter.ai/blog/announcements/fusion-beats-frontier",
     "paperswithcode.com/dataset/draco",
+    # Upstream's entry, kept verbatim so our list stays comparable with the reference harness.
+    # It is a MONTH PREFIX (arXiv ids are YYMM.NNNNN), so it blocks all of September 2025.
     "arxiv.org/abs/2509",
+    # The DRACO paper ITSELF — "DRACO: a Cross-Domain Benchmark for Deep Research Accuracy,
+    # Completeness, and Objectivity", submitted 2026-02-12 (verified against arXiv 2026-07-31).
+    # WHY this is a separate entry: the upstream prefix above covers 2025-09 and the paper is
+    # 2026-02, so upstream blocks a month that holds nothing and leaves the paper reachable. A
+    # candidate reading the benchmark's own paper is the leak this list exists to stop, and it
+    # INFLATES the score, so it never looks like a bug.
+    "arxiv.org/abs/2602.11685",
 )
 """The blocklist a DRACO candidate answers under, copied from
 `screamingface-benchmarks/benchmarks_config/draco.yaml`.
@@ -65,11 +74,16 @@ claimed path prefixes could not match; that reading came from a probe run while 
 still emitting the WRONG WIRE KEY (`excluded_domains` for `exclude_domains`), so it measured the
 typo rather than the value shape. Retracted.
 
-AIDEV-NOTE — one CONTENT question is still open. `arxiv.org/abs/2509` is annotated "DRACO paper
-preprint range" upstream, but the paper is cited as arXiv:**2602.11685** throughout this repo, so
-that entry may guard the wrong range. The benchmarks repo itself calls the whole list "our best
-guess" — OpenRouter never published theirs. Because the policy is DATA, correcting it is an
-artifact edit rather than a code release.
+RESOLVED 2026-07-31 — upstream's `arxiv.org/abs/2509` is annotated "DRACO paper preprint range"
+but arXiv ids are `YYMM.NNNNN`, so it covers September 2025 while the paper is **2602.11685**,
+submitted 2026-02-12 (verified against arXiv). Upstream therefore blocks a month that holds
+nothing and leaves the paper itself reachable. Both entries are kept: theirs so the list stays
+comparable with the reference harness, ours so the guard actually holds.
+
+AIDEV-NOTE: the benchmarks repo calls the whole list "our best guess" — OpenRouter never
+published theirs — so treat it as a floor, not a ceiling. Extend it from the audit logs in eval
+JSONLs (`tool_calls` in metadata) as real leak sources turn up. Because the policy is DATA,
+each addition is an artifact edit rather than a code release.
 """
 
 
