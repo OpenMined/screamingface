@@ -6,11 +6,25 @@ the App **Deployment · Service · ConfigMap · Secret**, one of two edge object
 (**ServiceAccount · Role · RoleBinding**) that lets the App schedule Runner Jobs in its own
 namespace.
 
-**One image, two modes.** The Deployment runs `url4-cloud` (which defaults to `serve`); every
-Runner Job runs the **same** image with `command: ["url4-cloud", "run"]`. There is no second
-`runner.image` block and no separate template helper for it any more — `URL4_CLOUD_RUNNER_IMAGE`
-renders from the App's own `image:` block via `url4-cloud.image`, so the two can no longer drift
-out of version alignment.
+**One image, two modes — by default.** The Deployment runs `url4-cloud` (which defaults to
+`serve`); every Runner Job runs the **same** image with `command: ["url4-cloud", "run"]`.
+`URL4_CLOUD_RUNNER_IMAGE` renders via `url4-cloud.runnerImage`, which falls back to the App's own
+`image:` block, so by default the two cannot drift out of version alignment.
+
+**Splitting the Runner image.** `runner.image` overrides it, for the one case that needs it: a
+benchmark image (`Dockerfile.benchmark`) bakes a dataset **and its private rubrics** onto the base.
+The Runner executes the run and reads them; the control plane terminates client connections, so a
+rubric on its disk is one bug away from reaching the client it is being withheld from.
+
+```yaml
+runner:
+  image:
+    repository: ghcr.io/openmined/screamingface-url4-cloud-draco   # tag omitted on purpose
+```
+
+`runner.image.tag` defaults to the **App image's resolved tag**, not `latest` — a benchmark image
+is built `FROM` a specific base tag, so overriding `repository` alone keeps the pair moving as one
+version. Set `tag` as well only for a staged rollout, which knowingly opts out of that pairing.
 
 ## Install
 
@@ -114,11 +128,12 @@ maintained as a second definition.)
 
 What the App schedules:
 
-- the App's **own image** in run mode — `command: ["url4-cloud", "run"]`, pinned in
+- the App's own image in run mode by default — `command: ["url4-cloud", "run"]`, pinned in
   `url4_cloud.adapters.k8s` rather than in values: the command is the mode switch and nothing
   else, so a chart override could only ever name a mode the image does not have. The image
-  reference itself stays a value (`URL4_CLOUD_RUNNER_IMAGE`, rendered from `image:`) so a staged
-  rollout can still pin Jobs to a different tag than the Deployment
+  reference itself stays a value (`URL4_CLOUD_RUNNER_IMAGE`, rendered via
+  `url4-cloud.runnerImage`) so a staged rollout can pin Jobs to a different tag than the
+  Deployment, and `runner.image` can point them at a benchmark image entirely (see above)
 - run-once — `backoffLimit: 0`, `restartPolicy: Never` (retry = new token, new job; spec §2.3)
 - `activeDeadlineSeconds` = `config.jobDeadlineS`, surfacing as `timed_out`
 - `enableServiceLinks: false` — kubelet's legacy Docker-link vars would export
