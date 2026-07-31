@@ -1,9 +1,9 @@
 ---
 ticket: OME-713
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-07-31
-finished:
+finished: 2026-07-31
 ---
 
 # OME-713 — Version, schema-tag, and pin case provenance in the benchmark manifest
@@ -49,7 +49,10 @@ already tolerates the new fields).
   versioned `id`, `provenance:` block, `_cases_revision` sha256 helper), `definition.py` +
   `smoke.py` (`BENCHMARK_VERSION = 1`), `test_draco.py` (+3 tests, pure append — 0 deletions
   in the diff).
-- **Commits:** none by agreement — owner reviews the working-tree diff first.
+- **Commits:** `7f625e1f` feat(url4-cloud): versioned exam identity, schema tag, and case
+  provenance in the benchmark manifest · `f87c5d07` chore: local dev setup for the notebook
+  e2e flow — both pushed to `upstream/OME-605-screamingface-client-v1` (owner-requested;
+  Keelan reviews on his branch).
 - **Gates:** ruff check ✓ · ruff format ✓ on all touched files · pyright ✓ (0 errors) ·
   pytest 542 passed / 2 failed / coverage 94.87% (≥80). The 2 test failures, the 2
   format failures (aigateway-connector files), and the layering violation

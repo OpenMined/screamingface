@@ -1,7 +1,7 @@
 ---
 id: OME-713
 linear_url: https://linear.app/openmined/issue/OME-713/version-schema-tag-and-pin-case-provenance-in-the-benchmark-manifest
-status: in_progress
+status: in_review
 type: feature
 priority: 2
 labels: [url4-cloud, agentic, autonomous]
