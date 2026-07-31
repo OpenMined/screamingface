@@ -139,6 +139,10 @@ class _SpanState:
     start: datetime
     parent_span_id: str | None
     usage: tuple[str, str, int, int] | None = field(default=None)
+    # Held beside `usage` rather than widening that tuple: it is the only one of these fields
+    # that can legitimately be absent (a provider need not echo a model), so a 5th positional
+    # slot would read as "unknown" and "not reported" interchangeably.
+    response_model: str | None = field(default=None)
     # INVARIANT: a LIST, accumulated — one span can make several model calls (the web-tools loop
     # is the normal case), and each round trip's reason is separately auditable.
     #
@@ -245,6 +249,10 @@ class _RunState:
             prior_in + event.input_tokens,
             prior_out + event.output_tokens,
         )
+        # Last writer wins, and a silent event never erases a known one: across the tool loop's
+        # round trips every response names the same model, so the only way these differ is a
+        # provider that stopped reporting mid-loop.
+        span.response_model = event.response_model or span.response_model
 
     def _finish(self, event: NodeFinished) -> list[Traced]:
         span = self.spans.pop(event.span_id, None)
@@ -262,7 +270,11 @@ class _RunState:
             operation=kind,
             provider=usage[0] if usage else None,
             request_model=usage[1] if usage else None,
-            response_model=usage[1] if usage else None,
+            # INVARIANT: left absent when the provider did not name a model. It previously
+            # repeated `request_model`, which made an alias silently resolving to a different
+            # snapshot — the one thing this field exists to reveal — indistinguishable from
+            # the provider serving exactly what was asked for.
+            response_model=span.response_model,
             input_tokens=usage[2] if usage else None,
             output_tokens=usage[3] if usage else None,
             # Empty -> None so the attribute is simply ABSENT rather than an empty list, matching
