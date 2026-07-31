@@ -48,6 +48,10 @@ def _default_model_slugs() -> list[str]:
 
     All were present in the live OpenRouter catalog on 2026-07-15 (the judge added
     2026-07-31); re-check at release. Never treat this list as an authorization boundary.
+
+    Validation here is purely SYNTACTIC (`is_valid_upstream_model_id`, D8) — nothing checks a
+    slug against the live catalog, so a typo in one of these surfaces as a dispatch failure
+    inside a user's expression, not at boot. Re-checking at release is the only guard.
     """
     return [
         "openrouter/anthropic/claude-fable-5",
@@ -89,6 +93,12 @@ class OpenRouterPluginSettings(PluginSettings):
     enabled: bool = False
     default_models: list[str] = Field(default_factory=_default_model_slugs)
     validation_model: str = "openrouter/openrouter/free"
+    # Domains server-side web search must never retrieve from, for EVERY caller of this
+    # deployment. A caller's own `web_search_excluded_domains` is UNIONed with this, never
+    # substituted for it, so a caller can tighten the guard and can never loosen it — which is
+    # what keeps it a guard rather than a suggestion. Empty by default: exclusions are a
+    # deployment policy, and inventing one here would silently shape everyone's retrieval.
+    web_search_excluded_domains: list[str] = Field(default_factory=list)
 
     @field_validator("default_models")
     @classmethod

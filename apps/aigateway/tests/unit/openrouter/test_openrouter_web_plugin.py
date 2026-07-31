@@ -1,0 +1,162 @@
+"""Server-side web search: caller intent in, the provider's native envelope out.
+
+FEATURE: a caller asks OpenRouter to retrieve before answering with `web_search: true`.
+STORY: as a benchmark author, a published retrieval-bearing score was produced on the provider's
+own search; a client-side loop over a different backend is a different experiment.
+
+WHY the caller does NOT send `plugins` — OpenRouter's own spelling. `plugins` is an
+extensibility ENVELOPE: carrying arbitrary provider extensions is its whole purpose, so no
+schema can bound it without defeating it, and OME-646 removed it for exactly that reason. It
+stays refused (`test_openrouter_security`). The caller sends a BOOLEAN, which is bounded
+completely, and `prepare_chat_body` assigns the envelope from gateway-owned policy — the same
+two-layer shape `provider` already uses.
+
+WHY not `tools: [{"type": "openrouter:web_search"}]` either — measured against the live API on
+2026-07-31, same model and prompt: that spelling returns HTTP 200 with zero `annotations`, no
+web-search line in `cost_details`, and an answer from the model's training cutoff. The emitted
+`plugins` returned 4 annotations at ~255x the cost with current facts. A surface that 200s
+without working is the worst failure shape available, so both halves are pinned here.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from aigateway.plugins.openrouter_provider.parameters import (
+    openrouter_chat_parameter_rules,
+    openrouter_chat_parameter_tools,
+)
+from aigateway.plugins.openrouter_provider.plugin import _apply_web_search
+
+_MODEL = "openrouter/google/gemini-3-flash-preview"
+
+
+class _Settings:
+    def __init__(self, excluded: list[str] | None = None) -> None:
+        self.web_search_excluded_domains = excluded or []
+
+
+def _rule(path: str):
+    for rule in openrouter_chat_parameter_rules(model=_MODEL, auth_type="api_key"):
+        if rule.request_path == path:
+            return rule
+    return None
+
+
+def _prepared(body: dict[str, Any], settings: _Settings | None = None) -> dict[str, Any]:
+    out = dict(body)
+    _apply_web_search(out, settings or _Settings())
+    return out
+
+
+# --- the caller-facing contract --------------------------------------------------
+
+
+def test_web_search_is_enabled_as_a_plain_boolean() -> None:
+    """A boolean is bounded COMPLETELY — there is no nested JSON for a caller to smuggle."""
+    rule = _rule("web_search")
+
+    assert rule is not None
+    assert rule.parameter_schema is not None
+    assert rule.parameter_schema.type == "boolean"
+
+
+def test_caller_exclusions_are_a_bounded_string_array() -> None:
+    rule = _rule("web_search_excluded_domains")
+
+    assert rule is not None
+    assert rule.parameter_schema is not None
+    assert rule.parameter_schema.type == "array"
+    assert rule.parameter_schema.item_type == "string"
+
+
+def test_the_native_envelope_stays_refused_as_a_caller_path() -> None:
+    """INVARIANT: enabling web search must not re-open `plugins`. If this ever passes with a
+    rule present, a caller can hand OpenRouter arbitrary extensions again."""
+    assert _rule("plugins") is None
+
+
+def test_the_routing_controls_ome_646_removed_stay_removed() -> None:
+    for path in ("provider", "route", "models"):
+        assert _rule(path) is None, path
+
+
+def test_the_inert_server_tool_types_stay_unadvertised() -> None:
+    """`tools_schema` gates each item's `type`, so leaving these out is what makes a caller
+    sending one fail closed instead of paying for a silent no-op."""
+    enabled = {
+        tool.tool_type
+        for tool in openrouter_chat_parameter_tools(model=_MODEL, auth_type="api_key")
+    }
+
+    assert "openrouter:web_search" not in enabled
+    assert "openrouter:web_fetch" not in enabled
+    assert "function" in enabled
+
+
+# --- the translation -------------------------------------------------------------
+
+
+def test_true_becomes_the_providers_web_plugin() -> None:
+    out = _prepared({"web_search": True})
+
+    assert out["plugins"] == [{"id": "web", "engine": "native"}]
+
+
+def test_the_caller_facing_keys_never_reach_the_wire() -> None:
+    """Neither is an OpenRouter field; leaving one on the body sends an unknown parameter."""
+    out = _prepared({"web_search": True, "web_search_excluded_domains": ["a.test"]})
+
+    assert "web_search" not in out
+    assert "web_search_excluded_domains" not in out
+
+
+def test_false_and_absent_both_send_no_plugin() -> None:
+    assert "plugins" not in _prepared({"web_search": False})
+    assert "plugins" not in _prepared({})
+
+
+def test_exclusions_alone_do_not_switch_retrieval_on() -> None:
+    """Only `web_search` decides. Otherwise a stray exclusions list would silently start
+    retrieving — and paying."""
+    out = _prepared({"web_search_excluded_domains": ["a.test"]})
+
+    assert "plugins" not in out
+    assert "web_search_excluded_domains" not in out
+
+
+# --- the exclusion union ---------------------------------------------------------
+
+
+def test_deployment_exclusions_apply_without_the_caller_asking() -> None:
+    out = _prepared({"web_search": True}, _Settings(["rubric.test"]))
+
+    assert out["plugins"][0]["excluded_domains"] == ["rubric.test"]
+
+
+def test_caller_exclusions_are_added_to_the_deployments() -> None:
+    out = _prepared(
+        {"web_search": True, "web_search_excluded_domains": ["extra.test"]},
+        _Settings(["rubric.test"]),
+    )
+
+    assert out["plugins"][0]["excluded_domains"] == ["extra.test", "rubric.test"]
+
+
+def test_a_caller_cannot_drop_a_deployment_exclusion() -> None:
+    """INVARIANT: UNION, never substitution. The motivating case is a benchmark candidate that
+    must not retrieve the rubric it is graded against — a guard a caller can shorten is not a
+    guard, and the caller supplying its own list is exactly when it would try."""
+    out = _prepared(
+        {"web_search": True, "web_search_excluded_domains": ["unrelated.test"]},
+        _Settings(["rubric.test"]),
+    )
+
+    assert "rubric.test" in out["plugins"][0]["excluded_domains"]
+
+
+def test_no_exclusions_omits_the_field_rather_than_sending_an_empty_list() -> None:
+    """An empty list reads to the provider as 'exclude nothing' rather than 'use your default'."""
+    out = _prepared({"web_search": True})
+
+    assert "excluded_domains" not in out["plugins"][0]
