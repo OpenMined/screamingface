@@ -133,10 +133,13 @@ def test_unknown_key_in_the_aigateway_table_is_rejected() -> None:
 
 
 def test_reserved_tables_fail_loudly_rather_than_being_ignored() -> None:
-    # `[data]`/`[commands]`/`[holdings]`/`[identities]` are reserved in the format but not
-    # parsed yet — silently ignoring them would look like they worked.
+    # `[holdings]`/`[identities]` are reserved in the format but not parsed yet — silently
+    # ignoring them would look like they worked.
+    # AIDEV-NOTE: this used `[data]` as its example until `[data]` was landed; the example moved
+    # to `[holdings]` so the test keeps asserting the reserved-table RULE rather than a table
+    # that is now supported. `[commands]` and `[data]` have their own coverage.
     with pytest.raises(RunnerConfigError, match="not supported yet"):
-        _parse(_MINIMAL + '\n[data]\n"/corpus" = { value = "x" }\n')
+        _parse(_MINIMAL + '\n[holdings]\ndefault = { value = "x" }\n')
 
 
 def test_unknown_top_level_table_is_rejected() -> None:

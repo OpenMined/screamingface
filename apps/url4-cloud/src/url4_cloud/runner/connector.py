@@ -8,16 +8,30 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import httpx
 
+# AIDEV-NOTE: `_serve` is a PRIVATE CLI module in `packages/url4` and this reaches into it
+# deliberately. `make_command_handler` is in that module's own `__all__`, so the symbol is stable
+# even though the module path is not — and duplicating it here would fork a subprocess-exec
+# factory whose invariants (argv list never a shell string; single-pass token substitution over
+# the operator's template only) must not exist in two copies. This mirrors the note in
+# `config.py`: the Runner is the SECOND consumer of `_serve`, and the agreed threshold for
+# promoting a shared public module is a THIRD. Promote this import then, not before.
+from url4.cli._serve import ProviderSpec, make_command_handler, make_data_provider
 from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
 from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
-from url4_cloud.runner.config import ModelSpec, RunnerConfigError, routes_for
+from url4_cloud.runner.config import (
+    CommandSpec,
+    DataSpec,
+    ModelSpec,
+    RunnerConfigError,
+    routes_for,
+)
 
 _WEB_TOOLS = [
     {
@@ -170,6 +184,67 @@ class _ModelEndpoint:
         )
 
 
+def register_commands(node: Url4Node, commands: Sequence[CommandSpec]) -> None:
+    """Register each declared `[commands]` route as a subprocess endpoint on ``node``.
+
+    INVARIANT: the ENGINE owns which paths are registrable (the eval path is dispatched by the
+    node itself; a path cannot be claimed twice). Restating those rules in `config.py` would let
+    the two drift, so the engine's `ValueError` is translated here instead — the operator gets a
+    `RunnerConfigError` naming the offending route either way.
+    """
+    for command in commands:
+        try:
+            node.endpoint(command.path)(make_command_handler(command.argv, command.timeout_s))
+        except ValueError as exc:
+            raise RunnerConfigError(
+                f"[commands] {command.path!r} is not registrable: {exc}"
+            ) from exc
+
+
+def register_data(node: Url4Node, data: Sequence[DataSpec]) -> None:
+    """Register each declared `[data]` route as a read-only artifact on ``node``.
+
+    Provider construction reuses `_serve`'s tested factory rather than reimplementing
+    per-request file reads and subprocess handling — those behaviours are the contract
+    (`file` is live; `command` gets empty stdin), and a second copy would drift from it.
+
+    INVARIANT: registrability is the ENGINE's rule, as in `register_commands` — the eval path is
+    the node's own, and a path cannot be claimed twice. Its `ValueError` is translated so the
+    operator sees a `RunnerConfigError` naming the route.
+    """
+    for spec in data:
+        provider = make_data_provider(
+            ProviderSpec(
+                value=spec.value,
+                file=spec.file,
+                command=spec.command,
+                media_type=spec.media_type,
+            ),
+            spec.timeout_s,
+        )
+        try:
+            node.data(spec.path, provider, media_type=spec.media_type)
+        except ValueError as exc:
+            raise RunnerConfigError(f"[data] {spec.path!r} is not registrable: {exc}") from exc
+
+
+def build_local_world(
+    commands: Sequence[CommandSpec] = (), data: Sequence[DataSpec] = ()
+) -> Url4Node:
+    """A world with declared routes and nothing else — no models, no outbound fetches.
+
+    WHY this exists: a config declaring only `[commands]` and/or `[data]` is legitimate (a Job
+    that shells out or serves artifacts and never calls a model), and before those tables were
+    parsed the absence of `[aigateway]` could only mean "deny everything". `StaticIOLayer` keeps
+    the deny-by-default outbound posture, so the ONLY thing this world adds over
+    `deny_by_default_world` is the declared routes.
+    """
+    node = Url4Node("local", outbound=StaticIOLayer())
+    register_commands(node, commands)
+    register_data(node, data)
+    return node
+
+
 async def build_aigateway_world(
     cfg: AigatewayConfig,
     *,
@@ -178,6 +253,8 @@ async def build_aigateway_world(
     tavily_api_key: str | None = None,
     tavily_client: httpx.AsyncClient | None = None,
     identity_headers: Mapping[str, str] | None = None,
+    commands: Sequence[CommandSpec] = (),
+    data: Sequence[DataSpec] = (),
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
@@ -230,6 +307,11 @@ async def build_aigateway_world(
     )
     for path in routes:
         node.endpoint(path)(call_model)
+    # INVARIANT: commands are registered AFTER the model routes, so a path claimed by both is
+    # rejected by the engine here rather than silently shadowing a model. `config` already
+    # rejects that pair with a better message; this is the backstop for a world built directly.
+    register_commands(node, commands)
+    register_data(node, data)
     return AigatewayWorld(
         node=node,
         _client=http_client,
