@@ -7,7 +7,6 @@ import pytest
 from url4_cloud import job_env
 from url4_cloud.runner.config import (
     AigatewaySection,
-    CommandSpec,
     ModelSpec,
     RunnerConfig,
     RunnerConfigError,
@@ -100,34 +99,6 @@ def test_absent_aigateway_table_is_a_valid_tokenless_world() -> None:
     assert parse_config({}, {}).aigateway is None
 
 
-def test_parses_command_routes_as_argv_without_a_shell() -> None:
-    config = _parse(
-        """
-timeout = 45
-
-[commands]
-"/benchmark" = ["python", "-m", "benchmark", "--params", "{params}"]
-"/echo" = "python -m echo"
-"""
-    )
-
-    assert config.commands == (
-        CommandSpec(
-            path="/benchmark",
-            argv=("python", "-m", "benchmark", "--params", "{params}"),
-        ),
-        CommandSpec(path="/echo", argv=("python", "-m", "echo")),
-    )
-    assert config.command_timeout_s == 45.0
-
-
-def test_commands_can_extend_an_aigateway_world() -> None:
-    config = _parse(_MINIMAL + '\n[commands]\n"/benchmark" = ["benchmark"]\n')
-
-    assert config.aigateway is not None
-    assert config.commands == (CommandSpec("/benchmark", ("benchmark",)),)
-
-
 # --- validation -----------------------------------------------------------------
 
 
@@ -162,10 +133,13 @@ def test_unknown_key_in_the_aigateway_table_is_rejected() -> None:
 
 
 def test_reserved_tables_fail_loudly_rather_than_being_ignored() -> None:
-    # `[data]`/`[holdings]`/`[identities]` are reserved in the format but not parsed yet —
-    # silently ignoring them would look like they worked.
+    # `[holdings]`/`[identities]` are reserved in the format but not parsed yet — silently
+    # ignoring them would look like they worked.
+    # AIDEV-NOTE: this used `[data]` as its example until `[data]` was landed; the example moved
+    # to `[holdings]` so the test keeps asserting the reserved-table RULE rather than a table
+    # that is now supported. `[commands]` and `[data]` have their own coverage.
     with pytest.raises(RunnerConfigError, match="not supported yet"):
-        _parse(_MINIMAL + '\n[data]\n"/corpus" = { value = "x" }\n')
+        _parse(_MINIMAL + '\n[holdings]\ndefault = { value = "x" }\n')
 
 
 def test_unknown_top_level_table_is_rejected() -> None:
@@ -176,29 +150,6 @@ def test_unknown_top_level_table_is_rejected() -> None:
 def test_models_must_be_a_list() -> None:
     with pytest.raises(RunnerConfigError, match="list"):
         _parse('[aigateway]\ndefault_route = "/x"\nmodels = "x"\n')
-
-
-@pytest.mark.parametrize(
-    ("toml_text", "message"),
-    [
-        ('commands = "not-a-table"\n', "must be a table"),
-        ('[commands]\n"benchmark" = ["python"]\n', "must start with"),
-        ('[commands]\n"/v1" = ["python"]\n', "reserved"),
-        ('[commands]\n"/v1/child" = ["python"]\n', "reserved"),
-        ('[commands]\n"/benchmark" = []\n', "empty argv"),
-        ('[commands]\n"/benchmark" = [1]\n', "all be strings"),
-        ('[commands]\n"/benchmark" = 1\n', "string or list"),
-        ('timeout = 0\n[commands]\n"/benchmark" = ["python"]\n', "must be positive"),
-    ],
-)
-def test_invalid_command_config_fails_before_execution(toml_text: str, message: str) -> None:
-    with pytest.raises(RunnerConfigError, match=message):
-        _parse(toml_text)
-
-
-def test_command_and_model_routes_cannot_collide() -> None:
-    with pytest.raises(RunnerConfigError, match="clash"):
-        _parse(_MINIMAL + '\n[commands]\n"/claude-haiku-4-5" = ["python"]\n')
 
 
 # --- per-route capability tables ------------------------------------------------

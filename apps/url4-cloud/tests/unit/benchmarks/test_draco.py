@@ -31,7 +31,7 @@ def test_registry_exposes_the_real_draco_lite_descriptor() -> None:
     assert benchmark.title == "DRACO Lite"
     assert b"route: /benchmark" in benchmark.manifest
     assert b"criteria_per_case: 10" in benchmark.manifest
-    assert benchmark.manifest.count(b"model: anthropic/claude-haiku-4-5") == 2
+    assert benchmark.manifest.count(b"model: openrouter/anthropic/claude-haiku-4-5") == 2
 
 
 def test_draco_judge_model_params_are_accepted_by_aigateway() -> None:

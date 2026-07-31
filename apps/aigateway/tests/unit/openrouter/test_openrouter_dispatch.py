@@ -19,15 +19,14 @@ from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_mo
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
+# AIDEV-NOTE: a hand-copy of `_default_model_slugs()`. It duplicates production ON PURPOSE — the
+# point is to fail when the seed list changes, which a shared import would hide. Adding a seed is
+# therefore expected to touch this pin; the judge below was added 2026-07-31 for DRACO.
 _SEEDS = [
     "openrouter/anthropic/claude-fable-5",
     "openrouter/openai/gpt-5.5",
     "openrouter/anthropic/claude-opus-4.8",
     "openrouter/google/gemini-3.1-pro-preview",
-    "openrouter/google/gemini-3-flash-preview",
-    "openrouter/moonshotai/kimi-k2.6",
-    "openrouter/deepseek/deepseek-v4-pro",
-    "openrouter/qwen/qwen3.6-plus",
 ]
 
 

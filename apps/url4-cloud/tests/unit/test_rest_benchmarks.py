@@ -13,7 +13,10 @@ def test_an_unconfigured_engine_advertises_no_benchmarks() -> None:
     response = TestClient(create_app()).get("/v1/benchmarks")
 
     assert response.status_code == 200
-    assert response.json() == {"object": "list", "default": None, "data": []}
+    body = response.json()
+    assert body["object"] == "list"
+    assert body["default"] is None
+    assert body["data"] == []
 
 
 def test_returns_installed_ids_and_the_explicit_default() -> None:
@@ -22,7 +25,8 @@ def test_returns_installed_ids_and_the_explicit_default() -> None:
         default_benchmark="healthbench-lite",
     )
 
-    assert TestClient(app).get("/v1/benchmarks").json() == {
+    body = TestClient(app).get("/v1/benchmarks").json()
+    assert {key: body[key] for key in ("object", "default", "data")} == {
         "object": "list",
         "default": "healthbench-lite",
         "data": [

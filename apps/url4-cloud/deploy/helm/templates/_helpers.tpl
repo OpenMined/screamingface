@@ -47,6 +47,26 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
+The image a Runner Job runs. Defaults to the App's own image (one artifact, two modes); a
+deployment may override it to ship a Job-only payload the control plane must not carry.
+
+The ONLY intended override is a benchmark image (`Dockerfile.benchmark`), which layers a dataset
+— including the private rubrics — onto the base. The Runner executes the run and needs them; the
+control plane terminates client connections and must never hold a rubric on disk.
+
+WHY `tag` falls back to the APP's resolved tag rather than to `latest`: a benchmark image is built
+`FROM` a specific base tag, so the two are a matched pair. Overriding `repository` alone therefore
+keeps the Job and the App on one version — which is the drift protection the merged-image design
+was built for, kept intact while allowing the split payload.
+*/}}
+{{- define "url4-cloud.runnerImage" -}}
+{{- $override := (.Values.runner).image | default dict -}}
+{{- $repo := $override.repository | default .Values.image.repository -}}
+{{- $tag := $override.tag | default (default .Chart.AppVersion .Values.image.tag) -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+
+{{/*
 Where the App reaches NATS.
 
 WHY a helper and not a plain value: the previous default hardcoded `nats://url4-cloud-nats:4222`,

@@ -1,6 +1,6 @@
 """OpenRouter plugin settings (OME-428 Phase 2, plan D2/D8).
 
-Pins: disabled-by-default, env overrides via AIGW_OPENROUTER_*, the full DRACO
+Pins: disabled-by-default, env overrides via AIGW_OPENROUTER_*, the three URL4
 seed gateway IDs, and the D8 upstream model-ID syntax validator.
 """
 
@@ -14,15 +14,14 @@ from aigateway.plugins.openrouter_provider.settings import (
     is_valid_upstream_model_id,
 )
 
+# AIDEV-NOTE: a hand-copy of `_default_model_slugs()`. It duplicates production ON PURPOSE — the
+# point is to fail when the seed list changes, which a shared import would hide. Adding a seed is
+# therefore expected to touch this pin; the judge below was added 2026-07-31 for DRACO.
 _SEEDS = [
     "openrouter/anthropic/claude-fable-5",
     "openrouter/openai/gpt-5.5",
     "openrouter/anthropic/claude-opus-4.8",
     "openrouter/google/gemini-3.1-pro-preview",
-    "openrouter/google/gemini-3-flash-preview",
-    "openrouter/moonshotai/kimi-k2.6",
-    "openrouter/deepseek/deepseek-v4-pro",
-    "openrouter/qwen/qwen3.6-plus",
 ]
 
 
@@ -30,7 +29,7 @@ def test_enabled_defaults_false() -> None:
     assert OpenRouterPluginSettings().enabled is False
 
 
-def test_default_models_are_the_full_draco_seeds() -> None:
+def test_default_models_are_exactly_the_declared_seeds() -> None:
     assert OpenRouterPluginSettings().default_models == _SEEDS
 
 

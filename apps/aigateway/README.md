@@ -53,12 +53,23 @@ uv sync
 
 # Apply migrations for a persistent local DB. Re-running is safe.
 # If your DB URL is in .env, export it first: set -a && source .env && set +a
-uv run tortoise -c aigateway.db.TORTOISE_CONFIG migrate
+uv run aigateway migrate
 
 uv run uvicorn aigateway.main:app --port 9105 --reload
 
 # Sanity check
 curl -sf http://localhost:9105/healthz
+```
+
+`aigateway migrate` runs the same `python -m tortoise -c aigateway.db.TORTOISE_CONFIG migrate`
+command the Helm chart's pre-install/pre-upgrade Job runs
+(`charts/aigateway/templates/job-migrate.yaml`) — the same path production already applies,
+reachable without remembering the module invocation. It also works through the Docker image's
+`ENTRYPOINT ["aigateway"]`, which has no equivalent Job outside Helm:
+
+```bash
+docker run --rm -e AIGATEWAY_DATABASE_URL=... aigateway:dev migrate
+docker run -e AIGATEWAY_DATABASE_URL=... -p 9105:9105 aigateway:dev
 ```
 
 On first boot with auth enabled, set `AIGATEWAY_ADMIN_PASSWORD` to choose the

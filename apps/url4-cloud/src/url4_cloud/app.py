@@ -24,7 +24,7 @@ from url4_cloud.connections import build_connections
 from url4_cloud.connections.port import Connections
 from url4_cloud.metrics import MetricsMiddleware, build_metrics, register_catalog_metrics
 from url4_cloud.ops import router as ops_router
-from url4_cloud.rest import SubscriberGate, benchmark_router, catalog_router, connection_router
+from url4_cloud.rest import SubscriberGate, benchmarks_router, catalog_router, connection_router
 from url4_cloud.rest import router as rest_router
 from url4_cloud.schemas import customize_openapi
 from url4_cloud.ws import ConnectionRegistry
@@ -65,10 +65,7 @@ def create_app(  # noqa: PLR0915 - explicit composition root wiring
     app.state.catalog = catalog
     app.state.connections = connections
     app.state.benchmarks = _benchmarks(benchmarks)
-    app.state.default_benchmark = _default_benchmark(
-        default_benchmark,
-        app.state.benchmarks,
-    )
+    app.state.default_benchmark = _default_benchmark(default_benchmark, app.state.benchmarks)
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
@@ -83,7 +80,7 @@ def create_app(  # noqa: PLR0915 - explicit composition root wiring
     app.include_router(router)
     app.include_router(rest_router)
     app.include_router(catalog_router)
-    app.include_router(benchmark_router)
+    app.include_router(benchmarks_router)
     app.include_router(connection_router)
     app.include_router(ws_router)
     app.include_router(ops_router)
@@ -109,10 +106,7 @@ def _benchmarks(values: tuple[Benchmark, ...]) -> dict[str, Benchmark]:
     return result
 
 
-def _default_benchmark(
-    value: str | None,
-    benchmarks: dict[str, Benchmark],
-) -> str | None:
+def _default_benchmark(value: str | None, benchmarks: dict[str, Benchmark]) -> str | None:
     """Validate the explicit evaluation default once, at composition."""
 
     if not benchmarks:

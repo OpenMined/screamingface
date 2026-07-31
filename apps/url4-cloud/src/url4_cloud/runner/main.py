@@ -16,9 +16,12 @@ import httpx
 from url4.streaming.lifecycle import run
 from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
-from url4_cloud.runner.commands import build_command_world, install_command_routes
 from url4_cloud.runner.config import RunnerConfig, RunnerConfigError, load_config
-from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.runner.connector import (
+    AigatewayConfig,
+    build_aigateway_world,
+    build_local_world,
+)
 from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world
 
 
@@ -96,12 +99,11 @@ def build_executor(
         resolved = config if config is not None else load_config(env)
         section = resolved.aigateway
         if section is None:
-            if resolved.commands:
-                return (
-                    build_command_world(resolved.commands, timeout_s=resolved.command_timeout_s),
-                    None,
-                )
-            # WHY: a world with neither [aigateway] nor [commands] is a legitimate empty world.
+            # WHY: a world with no [aigateway] table is a legitimate world, not necessarily an
+            # empty one — a Job may declare only `[commands]` and/or `[data]` and never call a
+            # model. With none of the three, the node denies everything undeclared, as always.
+            if resolved.commands or resolved.data:
+                return build_local_world(resolved.commands, resolved.data), None
             return deny_by_default_world(), None
         # WHY no credential check here any more: aigateway runs `cloudflare_headers` when deployed
         # and `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to
@@ -121,11 +123,8 @@ def build_executor(
             client=client,
             tavily_api_key=env.get(job_env.TAVILY_API_KEY),
             tavily_client=tavily_client,
-        )
-        install_command_routes(
-            world.node,
-            resolved.commands,
-            timeout_s=resolved.command_timeout_s,
+            commands=resolved.commands,
+            data=resolved.data,
         )
         return world.node, world.aclose
 
