@@ -154,6 +154,29 @@ WEB_SEARCH_EXCLUDED_DOMAINS_PARAM = "web_search_excluded_domains"
 # among them, despite being valid on the inert `openrouter:web_search` tools surface.
 _WEB_SEARCH_POLICY: dict[str, object] = {"id": "web", "engine": "native"}
 
+EXCLUDE_DOMAINS_KEY = "exclude_domains"
+"""OpenRouter's wire spelling for the blocklist. NOT `excluded_domains`.
+
+AIDEV-NOTE: this was `excluded_domains` from `26858fc1` until 2026-07-31, and it silently did
+NOTHING for that whole time. OpenRouter does not validate the `plugins` envelope — a deliberately
+invented key returns HTTP 200 exactly like a real one (measured) — so the wrong spelling produced
+a normal answer, a normal bill, and zero exclusion. Every benchmark candidate could reach the
+rubric it was being graded against, which INFLATES scores and therefore never looks like a bug.
+
+MEASURED 2026-07-31, live, against `google/gemini-3-flash-preview` (exa) and `openai/gpt-5.5`
+(native), counting citations from hosts we asked to exclude:
+
+    exclude_domains  = every cited host  ->  0 blocked-host citations   (both engines)
+    excluded_domains = every cited host  ->  unchanged from baseline    (both engines)
+    exclude_domains  = one host          ->  that host alone disappears (rules out search noise)
+
+INVARIANT: a status code can never verify this key. Assert on an EFFECT — annotations, cost, or a
+changed answer. `test_the_wire_key_is_openrouters_spelling` pins the name so a rename fails loudly
+instead of quietly restoring the bug. The documented keys are `engine`, `max_results`,
+`search_prompt`, `include_domains` and `exclude_domains`; path prefixes and wildcards are
+supported values (`openai.com/blog`, `*.substack.com`).
+"""
+
 
 def _apply_web_search(body: dict[str, Any], settings: Any) -> None:
     """Translate the caller's `web_search` intent into OpenRouter's `plugins` envelope.
@@ -173,7 +196,7 @@ def _apply_web_search(body: dict[str, Any], settings: Any) -> None:
     excluded = sorted({*deployment_excluded, *caller_excluded})
     plugin = dict(_WEB_SEARCH_POLICY)
     if excluded:
-        plugin["excluded_domains"] = excluded
+        plugin[EXCLUDE_DOMAINS_KEY] = excluded
     # Assignment, never a merge — as with `provider`. A `plugins` that somehow survived the
     # classifier must not be extended by this, only replaced.
     body["plugins"] = [plugin]

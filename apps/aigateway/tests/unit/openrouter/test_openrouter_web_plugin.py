@@ -26,7 +26,7 @@ from aigateway.plugins.openrouter_provider.parameters import (
     openrouter_chat_parameter_rules,
     openrouter_chat_parameter_tools,
 )
-from aigateway.plugins.openrouter_provider.plugin import _apply_web_search
+from aigateway.plugins.openrouter_provider.plugin import EXCLUDE_DOMAINS_KEY, _apply_web_search
 
 _MODEL = "openrouter/google/gemini-3-flash-preview"
 
@@ -131,7 +131,7 @@ def test_exclusions_alone_do_not_switch_retrieval_on() -> None:
 def test_deployment_exclusions_apply_without_the_caller_asking() -> None:
     out = _prepared({"web_search": True}, _Settings(["rubric.test"]))
 
-    assert out["plugins"][0]["excluded_domains"] == ["rubric.test"]
+    assert out["plugins"][0]["exclude_domains"] == ["rubric.test"]
 
 
 def test_caller_exclusions_are_added_to_the_deployments() -> None:
@@ -140,7 +140,7 @@ def test_caller_exclusions_are_added_to_the_deployments() -> None:
         _Settings(["rubric.test"]),
     )
 
-    assert out["plugins"][0]["excluded_domains"] == ["extra.test", "rubric.test"]
+    assert out["plugins"][0]["exclude_domains"] == ["extra.test", "rubric.test"]
 
 
 def test_a_caller_cannot_drop_a_deployment_exclusion() -> None:
@@ -152,11 +152,36 @@ def test_a_caller_cannot_drop_a_deployment_exclusion() -> None:
         _Settings(["rubric.test"]),
     )
 
-    assert "rubric.test" in out["plugins"][0]["excluded_domains"]
+    assert "rubric.test" in out["plugins"][0]["exclude_domains"]
 
 
 def test_no_exclusions_omits_the_field_rather_than_sending_an_empty_list() -> None:
     """An empty list reads to the provider as 'exclude nothing' rather than 'use your default'."""
     out = _prepared({"web_search": True})
 
+    # Both spellings: the emitted one must be absent, and the historical typo must never return.
+    assert EXCLUDE_DOMAINS_KEY not in out["plugins"][0]
+    assert "excluded_domains" not in out["plugins"][0]
+
+
+def test_the_wire_key_is_openrouters_spelling() -> None:
+    """INVARIANT: the blocklist rides `exclude_domains`. `excluded_domains` is IGNORED.
+
+    This is pinned by name because no status code can catch it. OpenRouter does not validate the
+    `plugins` envelope — an invented key returns HTTP 200 exactly like a real one — so the wrong
+    spelling produced a normal answer, a normal bill, and no exclusion at all, from `26858fc1`
+    until 2026-07-31.
+
+    MEASURED live on both engines: `exclude_domains` drove blocked-host citations to zero, while
+    `excluded_domains` left them identical to baseline. Excluding a single host removed exactly
+    that host, which is what rules out search noise as the explanation.
+
+    A benchmark candidate that can reach its own rubric scores HIGHER, so this failure never looks
+    like a bug from the outside. If a future change renames this key, this test fails loudly
+    instead of the guard going quiet again.
+    """
+    out = _prepared({"web_search": True}, _Settings(["rubric.test"]))
+
+    assert EXCLUDE_DOMAINS_KEY == "exclude_domains"
+    assert out["plugins"][0]["exclude_domains"] == ["rubric.test"]
     assert "excluded_domains" not in out["plugins"][0]
