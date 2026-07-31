@@ -47,7 +47,8 @@ def _default_model_slugs() -> list[str]:
     """URL4 leaf seeds in gateway form — recommended bootstrap metadata (D8).
 
     All were present in the live OpenRouter catalog on 2026-07-15 (the judge added
-    2026-07-31); re-check at release. Never treat this list as an authorization boundary.
+    2026-07-31, the remaining DRACO lineup the same day); re-check at release. Never treat this
+    list as an authorization boundary.
 
     Validation here is purely SYNTACTIC (`is_valid_upstream_model_id`, D8) — nothing checks a
     slug against the live catalog, so a typo in one of these surfaces as a dispatch failure
@@ -62,6 +63,17 @@ def _default_model_slugs() -> list[str]:
         # seeded here rather than left to a deployment. `apps/url4-cloud/url4.toml` declares the
         # matching route; `test_declared_models_match_aigateway.py` fails if the two drift.
         "openrouter/google/gemini-3.1-pro-preview",
+        # AIDEV-NOTE: the rest of the DRACO candidate lineup — the four models that appear in
+        # `screamingface-benchmarks/benchmarks_config/draco.yaml` but nowhere above. Seeded for
+        # the same reason as the judge: the BENCHMARK pins its lineup (7 solos + 9 fusions, whose
+        # published scores are per-configuration), so which models exist is not a deployment
+        # choice. Without these, `budget_trio`, `pareto_cross`, `pareto_lean`, `beat_runner_up`
+        # and `best_open_source` cannot be addressed at all — routing is exact-match, so an
+        # undeclared model is not a degraded run, it is a `ResolutionError`.
+        "openrouter/google/gemini-3-flash-preview",
+        "openrouter/moonshotai/kimi-k2.6",
+        "openrouter/deepseek/deepseek-v4-pro",
+        "openrouter/qwen/qwen3.6-plus",
     ]
 
 
