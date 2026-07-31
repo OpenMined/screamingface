@@ -603,7 +603,7 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.140.7"
+version = "0.140.12"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
@@ -612,9 +612,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e1/33/e0dfa29ccce4eb8c9a073f9e557b0d6bacbb3aa32e7ad595f678de4d036a/fastapi-0.140.7.tar.gz", hash = "sha256:09a640af2d29006345e1f28e4f031fa60f89b1a75d29f26070f3afa677d66cce", size = 422051, upload-time = "2026-07-27T17:34:45.908Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/ce/851adac8e8729345e9b7c39caefbd41bb7f5eb17ced096dcda703bbb067b/fastapi-0.140.12.tar.gz", hash = "sha256:0f47004002992e833e73414db7df7b75fab2302f9d0fff5483db944fb38dbb0c", size = 423512, upload-time = "2026-07-28T15:05:47.285Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/0e/00cddd6b8668884e9c7588ab0eeb73becbd1efa3eaead34397f2e9a8de49/fastapi-0.140.7-py3-none-any.whl", hash = "sha256:960bb9696d8fd19dff488aa4f67f276364542cfcce9f7e68a82fe49dce126626", size = 131085, upload-time = "2026-07-27T17:34:47.036Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/1c/e384acdc2ef5c195914c4f01cb5b138486f3fc79e65627e327bbf2fae2f5/fastapi-0.140.12-py3-none-any.whl", hash = "sha256:2b84a1745e81c158fd44cc37e60c0bbe6685449484f5e4de56c531b4d4bd0455", size = 131225, upload-time = "2026-07-28T15:05:48.592Z" },
 ]
 
 [[package]]
@@ -2363,7 +2363,7 @@ dev = [
     { name = "ruff", specifier = ">=0.15.13" },
     { name = "url4", extras = ["streaming"] },
 ]
-notebook = [{ name = "graphviz", specifier = ">=0.20" }]
+notebook = [{ name = "graphviz", specifier = ">=0.21" }]
 
 [[package]]
 name = "url4-cloud"
@@ -2400,7 +2400,7 @@ examples = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", specifier = ">=0.136.1" },
+    { name = "fastapi", specifier = ">=0.140.12" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "kubernetes", specifier = ">=31.0.0" },
     { name = "nats-py", specifier = ">=2.9.0" },
@@ -2409,7 +2409,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.14.1" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "url4", extras = ["streaming"], editable = "../../packages/url4" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.47.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.51.0" },
 ]
 
 [package.metadata.requires-dev]
