@@ -47,7 +47,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -77,14 +77,14 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # QEMU for the arm64 leg. Matching aigateway's platform set matters here: the two run as a
       # pair in one cluster, and a console that exists only for amd64 would silently constrain
       # where the pair can be scheduled.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -92,7 +92,7 @@ jobs:
       # The repository root IS the build context — the Dockerfile COPYs apps/aigateway-ui/ from
       # there, matching apps/aigateway/Dockerfile.
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/aigateway-ui/Dockerfile
@@ -110,9 +110,9 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       # Kept for malformed-Chart.yaml coverage but NOT the gate: `helm lint` reports
       # "0 chart(s) failed" for a chart that cannot render at all, because it reads templates
@@ -161,14 +161,14 @@ jobs:
     needs: [verify, image, chart]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Draft, matching release-aigateway.yml — a human decides when the release goes public.
       #
       # Deliberately NO sf-installer mirror. That repo is the public installer for ScreamingFace;
       # this console is internal operator tooling reachable only through Cloudflare Access, and
       # listing it there would present an admin surface as part of the product install.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.verify.outputs.tag }}
           name: ScreamingFace AI Gateway UI ${{ needs.verify.outputs.version }}
