@@ -1,0 +1,421 @@
+/* ══════════════════════════════════════════════════════════════════
+   GLOBAL.CSS — Resets, base element styles, section theming
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── CSS Reset ───────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; }
+img, picture, video, canvas, svg { display: block; max-width: 100%; }
+input, button, textarea, select { font: inherit; }
+p, h1, h2, h3, h4, h5, h6 { overflow-wrap: break-word; }
+#root, #__next { isolation: isolate; }
+
+
+/* ── Body defaults ───────────────────────────────────────────────── */
+body {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.5;
+  color: var(--text-body);
+  background-color: var(--surface-background-default);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Explicit re-declaration ensures these re-evaluate --text-body at their own
+   position in the tree, picking up any [data-section] context overrides. */
+p, li, td, th, label { color: var(--text-body); }
+
+
+/* ── Heading defaults ────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-headline);
+  letter-spacing: 0;
+}
+
+h1 { font-family: var(--font-rubik), serif; font-size: 61px; font-weight: 400; line-height: 1.2; }
+h2 { font-family: var(--font-rubik), serif; font-size: 47px; font-weight: 400; line-height: 1.2; }
+h3 { font-family: var(--font-rubik), serif; font-size: 36px; font-weight: 400; line-height: 1.2; }
+h4 { font-family: var(--font-rubik), serif; font-size: 27px; font-weight: 400; line-height: 1.2; }
+
+/* Site page H5/H6 use Inter 400 — prose context switches to Inter 600 via .prose */
+h5 { font-family: var(--font-inter), sans-serif; font-size: 21px; font-weight: 400; line-height: 1.4; }
+h6 { font-family: var(--font-inter), sans-serif; font-size: 20px; font-weight: 400; line-height: 1.5; }
+
+
+/* ── Global keyframe animations ──────────────────────────────────── */
+@keyframes underlineIn {
+  0%  { background-size: 0% 100%;   background-position: left bottom }
+  to  { background-size: 100% 100%; background-position: left bottom }
+}
+
+@keyframes underlineOut {
+  0%  { background-size: 100% 100%; background-position: right bottom }
+  to  { background-size: 0% 100%;   background-position: right bottom }
+}
+
+@keyframes underlineInGreen {
+  0% {
+    background-image: linear-gradient(transparent calc(100% - 1px), var(--color-green-600) 1px);
+    background-size: 0% 100%;
+    background-position: left bottom;
+  }
+  to {
+    background-image: linear-gradient(transparent calc(100% - 1px), var(--color-green-600) 1px);
+    background-size: 100% 100%;
+    background-position: left bottom;
+  }
+}
+
+@keyframes fade-in {
+  0%  { opacity: 0 }
+  to  { opacity: 1 }
+}
+
+
+/* Bare content links are NOT styled globally — they get the animated
+   underline only inside `.prose` (see “Prose / long-form content”). Use
+   <Link variant="inline"> for an inline underline link outside prose. */
+
+
+/* ── Theme transition ────────────────────────────────────────────── */
+body,
+header,
+footer,
+section,
+main,
+nav {
+  transition: background-color var(--transition-theme), color var(--transition-theme);
+}
+
+
+/* ── Section theming ─────────────────────────────────────────────── */
+
+/* always-dark: locked dark surface regardless of page theme */
+[data-section="always-dark"] {
+  --surface-background-default:  var(--color-grayscale-800);
+  --surface-background-bright:   var(--color-grayscale-700);
+  --surface-background-dim:      var(--color-grayscale-950);
+  --surface-foreground-lowest:   var(--color-grayscale-900);
+  --surface-foreground-low:      var(--color-grayscale-850);
+  --surface-foreground-default:  var(--color-grayscale-750);
+  --surface-foreground-high:     var(--color-grayscale-700);
+  --surface-foreground-highest:  var(--color-grayscale-600);
+  --text-headline:               var(--color-grayscale-50);
+  --text-body:                   var(--color-grayscale-400);
+  --text-headline-light:         var(--color-grayscale-850);
+  --text-body-light:             var(--color-grayscale-750);
+  --button-dark-color:           var(--color-grayscale-50);
+  --button-light-color:          var(--color-grayscale-800);
+  color-scheme: dark;
+}
+
+/* always-light: locked light surface regardless of page theme.
+   Mirrors always-dark. Use on cards, panels, or any element that must
+   always display on a light surface — ensures dark text on light bg in both modes. */
+[data-section="always-light"] {
+  --surface-background-default:  var(--color-grayscale-50);
+  --surface-background-bright:   var(--color-grayscale-00);
+  --surface-background-dim:      var(--color-grayscale-150);
+  --surface-foreground-lowest:   var(--color-grayscale-100);
+  --surface-foreground-low:      var(--color-grayscale-200);
+  --surface-foreground-default:  var(--color-grayscale-300);
+  --surface-foreground-high:     var(--color-grayscale-400);
+  --surface-foreground-highest:  var(--color-grayscale-500);
+  --text-headline:               var(--color-grayscale-850);
+  --text-body:                   var(--color-grayscale-750);
+  --text-headline-light:         var(--color-grayscale-50);
+  --text-body-light:             var(--color-grayscale-400);
+  --button-dark-color:           var(--color-grayscale-850);
+  --button-light-color:          var(--color-grayscale-50);
+  color-scheme: light;
+}
+
+/* invert: remaps --surface-* to --dark-surface-* which flip with the page theme */
+[data-section="invert"] {
+  --surface-background-default:  var(--dark-surface-background-default);
+  --surface-background-bright:   var(--dark-surface-background-bright);
+  --surface-background-dim:      var(--dark-surface-background-dim);
+  --surface-foreground-lowest:   var(--dark-surface-foreground-lowest);
+  --surface-foreground-low:      var(--dark-surface-foreground-low);
+  --surface-foreground-default:  var(--dark-surface-foreground-default);
+  --surface-foreground-high:     var(--dark-surface-foreground-high);
+  --surface-foreground-highest:  var(--dark-surface-foreground-highest);
+  --text-headline:               var(--text-headline-light);
+  --text-body:                   var(--text-body-light);
+}
+
+
+/* ── Container utilities ─────────────────────────────────────────── */
+.container {
+  width: 100%;
+  max-width: var(--container-full);
+  margin-inline: auto;
+  padding-inline: var(--spacing-XL);
+}
+
+.container-xfull {
+  width: 100%;
+  max-width: var(--container-xfull);
+  margin-inline: auto;
+  padding-inline: var(--spacing-XL);
+}
+
+/* 12-column CSS grid. Use when a section needs proportional column structure
+   (bordered cards, subgrid content insets, etc.). Children use grid-column to
+   address tracks — e.g. grid-column: 2 / 12 for 10-col content with 1-col
+   breathing room each side. Row gap omitted; sections own vertical rhythm.
+   Alternative: for a simple content-width constraint without a grid, use
+   max-width: var(--col-N) + margin-inline: auto instead (no .grid-12 needed).
+   Global mobile collapse to 1fr — override per component if spacing must persist
+   at narrow viewports (see HomeFederatedNetwork for the pattern). */
+.grid-12 {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  column-gap: var(--grid-gap);
+}
+
+@media (max-width: 991px) {
+  .grid-12 {
+    grid-template-columns: 1fr;
+    row-gap: var(--grid-gap);
+  }
+}
+
+
+/* ── Logo theming ────────────────────────────────────────────────── */
+.logo-white { display: none; }
+[data-theme="dark"] .logo-white { display: block; }
+[data-theme="dark"] .logo-color { display: none; }
+
+
+/* ── Absolute cover link ─────────────────────────────────────────── */
+.absolute-link {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  z-index: var(--z-card);
+}
+
+
+/* ── Animated line link ──────────────────────────────────────────── */
+.animated-line,
+.animated-in-out,
+.link-inline {
+  background-image: linear-gradient(transparent calc(100% - 1px), currentColor 1px);
+  padding-bottom: 2px;
+  background-repeat: no-repeat;
+  background-size: 0% 100%;
+  background-position: left bottom;
+  text-decoration: none;
+  display: inline;
+  color: var(--text-body);
+  animation: underlineIn 0.4s ease forwards;
+}
+
+.animated-line:hover,
+.animated-in-out:hover,
+.link-inline:hover {
+  animation: underlineOut 0.4s ease forwards,
+             underlineInGreen 0.4s ease forwards 0.4s;
+}
+
+/* Nav link — composes with .animated-line for the underline */
+.link-nav {
+  display: inline-block;
+  text-decoration: none;
+  color: var(--text-body);
+  position: relative;
+}
+
+/* Subtle link — muted, fades on hover */
+.link-subtle {
+  color: var(--text-subtle);
+  text-decoration: none;
+  transition: opacity var(--transition-base);
+}
+.link-subtle:hover { opacity: 0.7; }
+
+
+/* ── Form base styles ────────────────────────────────────────────── */
+input,
+textarea,
+select {
+  height: 48px;
+  padding: 0 15px;
+  font-size: 16px;
+  font-family: inherit;
+  background-color: var(--surface-background-default);
+  color: var(--text-body);
+  border: none;
+  border-radius: var(--border-radius-S);
+  box-shadow: var(--shadow-md);
+  width: 100%;
+}
+
+textarea {
+  height: auto;
+  padding: 15px;
+  resize: vertical;
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23868394' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 15px center;
+  padding-right: 40px;
+}
+
+::placeholder { color: var(--text-subtle); }
+
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+  background-color: var(--surface-background-dim);
+}
+
+label {
+  display: block;
+  font-family: var(--font-inter), sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--text-body);
+  padding-left: 5px;
+  margin-bottom: 8px;
+}
+
+
+/* ── Code blocks ─────────────────────────────────────────────────── */
+code {
+  background: var(--surface-foreground-default);
+  color: var(--text-body);
+  border-radius: 3px;
+  padding: 0.2em 0.3em;
+  font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+  font-size: 1em;
+  line-height: 1.5;
+}
+
+pre {
+  background-color: var(--color-grayscale-950);
+  border-radius: var(--border-radius-S);
+  padding: 1em 1.25em;
+  overflow-x: auto;
+}
+
+pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  color: var(--color-grayscale-50);
+}
+
+
+/* ── Blockquote ──────────────────────────────────────────────────── */
+blockquote {
+  font-family: var(--font-inter), sans-serif;
+  font-size: 16px;
+  border-left: 1px solid var(--text-headline);
+  padding-left: var(--spacing-L);
+  margin-block: var(--spacing-L) var(--spacing-3XL);
+}
+
+
+/* ── Prose / long-form content ────────────────────────────────────────
+   `.prose` is the article-style scope: blog posts, whitepapers, public
+   letters, manifestos — any long-form content authored as raw markup.
+   It styles only *bare* elements, so embedded components (which always
+   carry a class) keep their own styling and never inherit prose rules.
+   Bare content links get the animated underline here and ONLY here.
+   (Type-scale sizing for prose headings lives in typography.css.) */
+
+/* Content links — animated underline. `:not([class])` targets authored
+   <a> only; component links (.button, .link-nav, …) are left untouched. */
+.prose a:not([class]) {
+  background-image: linear-gradient(transparent calc(100% - 1px), currentColor 1px);
+  background-repeat: no-repeat;
+  background-size: 0% 100%;
+  background-position: left bottom;
+  padding-bottom: 2px;
+  text-decoration: none;
+  color: var(--text-body);
+  animation: underlineIn 0.4s ease forwards;
+}
+.prose a:not([class]):hover {
+  animation: underlineOut 0.4s ease forwards,
+             underlineInGreen 0.4s ease 0.4s forwards;
+}
+
+/* Exception: links wrapping <sup> footnote markers — skip the underline */
+.prose a:not([class]):has(sup) {
+  background-image: none;
+  opacity: 0.8;
+  transition: opacity var(--transition-base);
+}
+.prose a:not([class]):has(sup):hover { opacity: 1; }
+
+.prose p {
+  margin-bottom: var(--spacing-L);
+  color: var(--text-body);
+}
+.prose p:last-child { margin-bottom: 0; }
+
+.prose h2,
+.prose h3 {
+  margin-top: var(--spacing-3XL);
+  margin-bottom: var(--spacing-L);
+}
+
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin-top: var(--spacing-2XL);
+  margin-bottom: var(--spacing-L);
+}
+
+.prose :is(h2, h3, h4, h5, h6):first-child { margin-top: 0; }
+
+.prose ul,
+.prose ol {
+  padding-left: var(--spacing-2XL);
+  margin-bottom: var(--spacing-L);
+  color: var(--text-body);
+}
+
+.prose li { margin-bottom: var(--spacing-S); }
+.prose li:last-child { margin-bottom: 0; }
+
+.prose figure { margin-bottom: var(--spacing-2XL); }
+
+.prose img {
+  border-radius: var(--border-radius-S);
+  width: 100%;
+  height: auto;
+}
+
+.prose figcaption {
+  font-family: var(--font-inter), sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text-body);
+  padding-block: 10px;
+}
+
+/* ── Section defaults ────────────────────────────────────────────── */
+section {
+  background-color: var(--surface-background-default);
+}
+
+
+/* ── Scroll margin for sticky nav ────────────────────────────────── */
+[id] {
+  scroll-margin-top: 128px;
+}
+
+@media (max-width: 991px) {
+  [id] { scroll-margin-top: 88px; }
+}

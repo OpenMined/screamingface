@@ -65,6 +65,22 @@ class Settings(BaseSettings):
     any principal.
     """
 
+    # WHY `NoDecode`: same trap as `allowed_networks` above — pydantic-settings would JSON-decode
+    # this before the validator runs, so `AIGATEWAY_ADMIN_EMAILS=a@x,b@y` would fail as malformed
+    # JSON. The value is a comma-separated list, not JSON.
+    admin_emails: Annotated[frozenset[str], NoDecode] = Field(
+        default=frozenset(), validation_alias="AIGATEWAY_ADMIN_EMAILS"
+    )
+    """Addresses allowed to reach ``/v1/admin``. Empty (the default) disables that API entirely.
+
+    WHY a second gate on top of identity: `cloudflare_headers` mode makes EVERY caller who clears
+    Cloudflare Access an ordinary `Account`. That is right for the inference surface and wrong for
+    an administrative one, where a caller reads and mutates OTHER accounts' credentials.
+
+    INVARIANT: membership here grants no account. An admin is not a tenant — see
+    :mod:`aigateway.core.auth.admin`.
+    """
+
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
@@ -200,6 +216,22 @@ class Settings(BaseSettings):
         return tuple(
             ip_network(entry, strict=True) for part in value.split(",") if (entry := part.strip())
         )
+
+    @field_validator("admin_emails", mode="before")
+    @classmethod
+    def _parse_admin_emails(cls, value: object) -> object:
+        """Parse the comma-separated address list into a case-folded set.
+
+        Lowercased to match `CloudflareIdentity.username`, which lowercases because mail domains
+        are case-insensitive. An allowlist stored in a different normal form than the identity it
+        is compared against would silently fail to match the first operator who typed a capital.
+
+        Empty entries are dropped rather than kept: a trailing comma would otherwise put `""` in
+        the set, which a blank header could match if one ever reached the comparison.
+        """
+        if not isinstance(value, str):
+            return value
+        return frozenset(entry.lower() for part in value.split(",") if (entry := part.strip()))
 
     @model_validator(mode="after")
     def _validate_request_cache_ttls(self) -> Settings:

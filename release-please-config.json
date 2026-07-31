@@ -47,6 +47,12 @@
       "tag-separator": "-",
       "include-component-in-tag": true,
       "version-file": "apps/scoreboard/pyproject.toml"
+    },
+    "apps/aigateway-ui": {
+      "package-name": "aigateway-ui",
+      "component": "aigateway-ui",
+      "tag-separator": "-",
+      "include-component-in-tag": true
     }
   }
 }

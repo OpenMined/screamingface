@@ -28,6 +28,8 @@ from aigateway.core.chat_parameters import (
 )
 from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
+    _project,
+    _TargetCollision,
     classify_and_project_chat_parameters,
     wrapper_path_conflicts,
 )
@@ -204,28 +206,92 @@ def test_provider_params_must_be_an_object() -> None:
 
 
 def test_duplicate_channel_to_the_same_target_rejects() -> None:
-    # ONE legitimate rule reached via TWO caller encodings — the flat dot-key
-    # top-level form and the nested provider_params wrapper — resolves to the SAME
-    # provider target; supplying both is ambiguous and must reject rather than
-    # silently drop one. This is the still-reachable duplicate_channel case.
+    # Two accepted channels resolving to ONE provider-body location must reject
+    # rather than silently drop one, in BOTH collision shapes: an occupied leaf,
+    # and an intermediate segment blocked by a non-dict.
     #
     # WHY (OME-597): two DISTINCT rules sharing one target can no longer occur —
-    # normalize_rules now rejects that at CONSTRUCTION (load time), proven by the
-    # duplicate-provider-target tests in test_chat_parameter_contract.py. Both
-    # protections are required and complementary: load-time rejects a conflicting
-    # rule config; this runtime guard rejects two encodings of one legitimate rule.
+    # normalize_rules rejects both an exact duplicate target and a PREFIX overlap
+    # (`extra_body` vs `extra_body.top_k`) at CONSTRUCTION, proven by the
+    # duplicate-provider-target tests in test_chat_parameter_contract.py. A rule
+    # also cannot target a gateway-owned field (_check_consistency).
+    #
+    # AIDEV-NOTE (OME-704): the LAST route that reached this guard through
+    # classify_and_project_chat_parameters was one rule addressed twice — via the
+    # flat dot-key top-level key AND the wrapper. That key is no longer a caller
+    # addressing form at all (see the dotted-alias tests below), so with a valid
+    # rule set the guard is now defence in depth and is exercised at its own layer.
+    # It is deliberately KEPT: it is the primitive that makes "one target, one
+    # writer" true no matter what a future addressing form does.
+    occupied_leaf: dict[str, object] = {}
+    _project(occupied_leaf, "extra_body.top_k", 40)
+    assert occupied_leaf == {"extra_body": {"top_k": 40}}
+    with pytest.raises(_TargetCollision):
+        _project(occupied_leaf, "extra_body.top_k", 50)
+
+    blocked_container: dict[str, object] = {"extra_body": "not-a-dict"}
+    with pytest.raises(_TargetCollision):
+        _project(blocked_container, "extra_body.top_k", 40)
+    # The blocking value is never overwritten: the guard refuses the write rather
+    # than replacing whatever already occupies the path.
+    assert blocked_container == {"extra_body": "not-a-dict"}
+
+
+# --- the wrapper is the ONLY addressing form (OME-704) ------------------------
+
+
+def test_a_dotted_top_level_key_is_not_a_wrapper_alias() -> None:
+    # A provider_native rule's request_path IS the string "provider_params.top_k",
+    # so a TOP-LEVEL key spelled that way used to match the rule directly and
+    # dispatch — an undocumented second addressing form for every wrapped native
+    # field, on every provider, outside the documented contract.
+    # INVARIANT: the provider_params OBJECT is the only caller addressing form.
+    rules = (_native("provider_params.top_k", "extra_body.top_k", schema=_INT),)
+    with pytest.raises(UnsupportedParametersError) as exc:
+        _classify(
+            {"model": "p/m", "messages": [], "provider_params.top_k": 40},
+            rules=rules,
+        )
+    assert exc.value.rejected == {"provider_params.top_k": "unknown"}
+
+
+def test_a_dotted_top_level_key_rejects_even_when_the_wrapper_is_also_present() -> None:
+    # The dotted key is refused on its own terms, so it cannot smuggle a second
+    # value in beside a legitimate wrapper entry.
     rules = (_native("provider_params.top_k", "extra_body.top_k", schema=_INT),)
     with pytest.raises(UnsupportedParametersError) as exc:
         _classify(
             {
                 "model": "p/m",
                 "messages": [],
-                "provider_params.top_k": 40,  # flat dot-key encoding
-                "provider_params": {"top_k": 50},  # nested wrapper encoding
+                "provider_params.top_k": 40,
+                "provider_params": {"top_k": 50},
             },
             rules=rules,
         )
-    assert exc.value.rejected == {"provider_params.top_k": "duplicate_channel"}
+    assert exc.value.rejected == {"provider_params.top_k": "unknown"}
+
+
+def test_an_unruled_dotted_top_level_key_also_rejects() -> None:
+    # The guard is structural, not rule-dependent: it fires before rule resolution,
+    # so a dotted key naming a path NO rule owns rejects the same way. One reason
+    # code for one structural mistake.
+    with pytest.raises(UnsupportedParametersError) as exc:
+        _classify(
+            {"model": "p/m", "messages": [], "provider_params.mystery": 1},
+            rules=(_native("provider_params.top_k", "extra_body.top_k", schema=_INT),),
+        )
+    assert exc.value.rejected == {"provider_params.mystery": "unknown"}
+
+
+def test_the_wrapper_form_still_dispatches_after_the_dotted_guard() -> None:
+    # The guard must not cost the documented form anything.
+    out = _classify(
+        {"model": "p/m", "messages": [], "provider_params": {"top_k": 40}},
+        rules=(_native("provider_params.top_k", "extra_body.top_k", schema=_INT),),
+    )
+    assert out["extra_body"] == {"top_k": 40}
+    assert "provider_params" not in out
 
 
 def test_all_rejections_are_reported_together_and_sorted() -> None:

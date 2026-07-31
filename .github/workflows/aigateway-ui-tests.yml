@@ -1,0 +1,102 @@
+name: aigateway-ui Tests
+on:
+  push:
+    paths:
+      - "apps/aigateway-ui/**"
+      - ".github/workflows/aigateway-ui-tests.yml"
+  pull_request:
+    paths:
+      - "apps/aigateway-ui/**"
+      - ".github/workflows/aigateway-ui-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+# Rapid pushes to the same ref would otherwise run duplicate jobs to completion.
+concurrency:
+  group: aigateway-ui-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/aigateway-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: apps/aigateway-ui/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/aigateway-ui/package-lock.json
+      # `npm ci` — never `npm install` — because it INSTALLS FROM THE LOCKFILE and fails outright
+      # when package.json and the lock disagree. `npm install` would silently rewrite the lock in
+      # CI, so a drifted lockfile would never be visible here. The Python lanes gate the same
+      # property with `uv lock --check`.
+      - name: Install from the lockfile
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      # Raw colors are un-shippable on a brand surface. This is OMDS's own gate, vendored with the
+      # tokens: no hex, no named color, no rgb()/hsl() literal on a color property — only var().
+      # Without it "use semantic tokens" is a review note nobody enforces.
+      - name: Lint styles (OMDS token gate)
+        run: npm run lint:css
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Run unit tests with coverage
+        run: npm run test:ci
+      - name: Test report
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: aigateway-ui Test Results
+          path: apps/aigateway-ui/results.xml
+          reporter: java-junit
+      - name: Coverage report
+        uses: orgoro/coverage@v3.2
+        if: always() && github.event_name == 'pull_request'
+        with:
+          coverageFile: apps/aigateway-ui/coverage/cobertura-coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.80
+
+  # `next build` is the only thing that exercises the root layout's font loaders and metadata
+  # export — both are declarative, so no unit test reaches them (see the coverage exclusion in
+  # vitest.config.ts). It also catches a Server/Client Component boundary violation, which type
+  # checking does not.
+  build:
+    name: Build the app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/aigateway-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: apps/aigateway-ui/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/aigateway-ui/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  cost:
+    name: CI cost diff
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: HupBaHa/cost-diff@v0.1.2
+        with:
+          current-job-id: ${{ job.check_run_id }}
+          baseline-event: push
+          comment-mode: update

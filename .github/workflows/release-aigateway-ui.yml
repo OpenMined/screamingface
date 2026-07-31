@@ -1,0 +1,197 @@
+name: Release AI Gateway UI
+
+# Publishes the admin console's container image and Helm chart. release-please owns the version:
+# merging its release PR bumps apps/aigateway-ui/package.json and pushes an `aigateway-ui-v*` tag,
+# which is what triggers this. Before this lane existed that tag published nothing, so it was a
+# version marker with no artefacts behind it (OME-711).
+#
+# Mirrors release-aigateway.yml. Four deliberate differences, each with a reason:
+#
+#   1. The chart render passes values. `charts/aigateway-ui` REFUSES to render when
+#      networkPolicy.clientPodNames is empty — a NetworkPolicy ingress rule with no `from:` admits
+#      every source, and this console trusts X-User-Email. A copy of the aigateway chart step would
+#      fail here and read as a broken workflow rather than a chart doing its job.
+#   2. The version comes from package.json via `jq`, not from pyproject.toml via `awk`.
+#   3. NO publish to the public OpenMined/sf-installer repo. The console is internal operator
+#      tooling behind Cloudflare Access, not part of a product install; mirroring it there would
+#      advertise an admin surface to the wrong audience.
+#   4. The tag filter is disjoint from release-aigateway.yml's by construction — `aigateway-v*`
+#      does not match `aigateway-ui-v0.1.0`, since the literal prefixes diverge at `v` vs `u`.
+#      Verified with two independent matchers rather than reasoned about.
+#
+# SECURITY: no `run:` block interpolates a `${{ }}` expression. The only free-text input is
+# `inputs.tag` on workflow_dispatch; it reaches the shell through an `env:` binding and is quoted
+# at every use, so a tag containing shell metacharacters is data rather than code.
+
+on:
+  push:
+    tags: ["aigateway-ui-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. aigateway-ui-v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/openmined/screamingface-aigateway-ui
+  CHART: apps/aigateway-ui/charts/aigateway-ui
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#aigateway-ui-v}"
+          # `jq`, not a regex: package.json is structured data, and a "version" line can also
+          # appear inside a dependency entry. Preinstalled on GitHub-hosted runners.
+          MANIFEST=$(jq -r .version apps/aigateway-ui/package.json)
+          # Catches a tag pushed by hand that disagrees with what release-please wrote. Publishing
+          # an image labelled with a version its own manifest contradicts is worse than publishing
+          # nothing, because the disagreement is then baked into an immutable artefact.
+          if [ "$MANIFEST" != "$VERSION" ]; then
+            echo "::error::tag $TAG implies version $VERSION but apps/aigateway-ui/package.json reports $MANIFEST"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # QEMU for the arm64 leg. Matching aigateway's platform set matters here: the two run as a
+      # pair in one cluster, and a console that exists only for amd64 would silently constrain
+      # where the pair can be scheduled.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The repository root IS the build context — the Dockerfile COPYs apps/aigateway-ui/ from
+      # there, matching apps/aigateway/Dockerfile.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/aigateway-ui/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.verify.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  chart:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      # Kept for malformed-Chart.yaml coverage but NOT the gate: `helm lint` reports
+      # "0 chart(s) failed" for a chart that cannot render at all, because it reads templates
+      # without executing them.
+      - name: Lint
+        run: helm lint "$CHART"
+
+      # THE VALUES ARE REQUIRED, and their absence is the chart working correctly rather than a
+      # defect to route around. `networkPolicy.clientPodNames` has no default because only a
+      # deployment knows how its mesh gateway is labelled, and the template fails rather than
+      # render an ingress rule with no `from:` — which would admit every source, on a console that
+      # trusts X-User-Email. The placeholder below exercises the templates; it is not a deployment
+      # default, and nothing consumes this rendering.
+      - name: Render
+        run: |
+          set -euo pipefail
+          helm template aigw-ui "$CHART" \
+            --namespace aigw \
+            --set 'networkPolicy.clientPodNames[0]=ci-placeholder-gateway' >/tmp/aigw-ui.yaml
+
+      # Both --version and --app-version come from the tag, so the packaged chart cannot disagree
+      # with the image it names. Chart.yaml's own numbers are a development placeholder.
+      - name: Package Helm chart
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/charts
+          helm package "$CHART" \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
+            --destination dist/charts
+
+      - name: Log in to GHCR for Helm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+
+      - name: Push Helm chart
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: helm push "dist/charts/aigateway-ui-$VERSION.tgz" oci://ghcr.io/openmined/screamingface/charts
+
+  release:
+    needs: [verify, image, chart]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Draft, matching release-aigateway.yml — a human decides when the release goes public.
+      #
+      # Deliberately NO sf-installer mirror. That repo is the public installer for ScreamingFace;
+      # this console is internal operator tooling reachable only through Cloudflare Access, and
+      # listing it there would present an admin surface as part of the product install.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.verify.outputs.tag }}
+          name: ScreamingFace AI Gateway UI ${{ needs.verify.outputs.version }}
+          draft: true
+          body: |
+            Admin console for gateway tenants and their provider API keys.
+
+            Container image:
+            ```
+            docker pull ${{ env.IMAGE }}:${{ needs.verify.outputs.version }}
+            ```
+
+            Helm chart:
+            ```
+            helm pull oci://ghcr.io/openmined/screamingface/charts/aigateway-ui --version ${{ needs.verify.outputs.version }}
+            ```
+
+            The chart needs two values it cannot guess — `aigateway.serviceName` (it cannot learn
+            the gateway release's name) and `networkPolicy.clientPodNames` (your mesh gateway's
+            label). It fails the render rather than defaulting the second, because a NetworkPolicy
+            with no peers admits every source and this console trusts `X-User-Email`.
+
+            The gateway release also needs `config.adminEmails` set, or its `/v1/admin` surface
+            answers 503 to everyone. See `apps/aigateway-ui/charts/aigateway-ui/README.md`.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

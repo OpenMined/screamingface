@@ -39,6 +39,7 @@ from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .db import close_db, init_db
 from .routes import (
     accounts,
+    admin,
     api_key_validation,
     auth,
     auth_session,
@@ -169,8 +170,12 @@ async def _lifespan(app):
         # this keeps its behavior for `jwt` and extends the same treatment to `cloudflare_headers`.
         authenticating = app.state.settings.auth_mode != "disabled"
         if authenticating or app.state.settings.admin_password is not None:
-            admin = await ensure_admin_account(app.state.settings.admin_password)
-            bootstrap_account_id = str(admin.id) if authenticating else str(ANONYMOUS_ACCOUNT_ID)
+            # Named `admin_account`, not `admin`: the `admin` ROUTER module is imported at module
+            # scope, and a local of that name shadows it for the rest of this function.
+            admin_account = await ensure_admin_account(app.state.settings.admin_password)
+            bootstrap_account_id = (
+                str(admin_account.id) if authenticating else str(ANONYMOUS_ACCOUNT_ID)
+            )
         else:
             bootstrap_account_id = str(ANONYMOUS_ACCOUNT_ID)
 
@@ -258,6 +263,24 @@ def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
     )
 
 
+def _describe_admin_security(app: FastAPI) -> None:
+    """Wrap `app.openapi` so the admin operations declare the identity header they require.
+
+    Wrapping rather than pre-building: FastAPI generates the document lazily on first request and
+    caches it on `app.openapi_schema`, so building it here would freeze a schema that later router
+    additions could not reach. The cache check keeps this a one-time cost, matching FastAPI's own
+    behaviour.
+    """
+    build = app.openapi
+
+    def openapi_with_admin_security() -> dict:
+        if app.openapi_schema is None:
+            app.openapi_schema = admin.describe_admin_security(build())
+        return app.openapi_schema
+
+    app.openapi = openapi_with_admin_security  # type: ignore[method-assign]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings()
@@ -310,6 +333,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth_session.router)
     app.include_router(accounts.router)
+    app.include_router(admin.router)
+    _describe_admin_security(app)
     app.include_router(api_key_validation.router)
     app.include_router(auth.router)
     app.include_router(oauth_connections.router)

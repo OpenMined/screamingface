@@ -1,0 +1,91 @@
+{{- if .Values.networkPolicy.enabled -}}
+{{/*
+Who may reach the console, and where the console may go.
+
+INVARIANT (ingress): this policy is the authentication boundary, not hardening. The console trusts
+`X-User-Email` precisely because only the mesh gateway can present it — anyone else who can open a
+connection to port 9107 can claim to be any admin.
+
+INVARIANT (no empty `from:`): a NetworkPolicy ingress rule that omits `from:` admits EVERY source.
+Rendering one because no peers happened to be configured would be an allow-all wearing the name of
+a restriction, so an empty peer set fails the render instead. This mirrors aigateway's policy,
+which learned it the same way.
+
+INVARIANT (one element per peer): each client contributes ONE `from` element carrying BOTH its
+namespaceSelector and its podSelector. Selectors inside one element are ANDed; separate elements
+are ORed. Splitting them would mean "any pod in that namespace OR any pod with that label
+anywhere" — the whole namespace, which is the hole this exists to close.
+
+EGRESS is narrow, deliberately unlike aigateway's `- {}`. The gateway's egress is open because its
+job is dialling provider APIs whose ranges cannot be known here. The console dials one Service and
+DNS, so it is allowed one Service and DNS.
+*/}}
+{{- $ns := .Values.networkPolicy.clientNamespace | default .Release.Namespace -}}
+{{- $peers := list -}}
+{{- range .Values.networkPolicy.clientPodNames -}}
+{{- $peers = append $peers (dict
+      "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $ns))
+      "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" .))) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.ingressCIDRs -}}
+{{- $peers = append $peers (dict "ipBlock" (dict "cidr" .)) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.allowFrom -}}
+{{- $peers = append $peers . -}}
+{{- end -}}
+{{- if not $peers -}}
+{{- fail "networkPolicy.enabled=true but no peers are declared — a NetworkPolicy ingress rule with no `from:` admits every source, and this console trusts the X-User-Email header, so that means any caller in the cluster could become any admin. Name your mesh gateway in networkPolicy.clientPodNames (and/or ingressCIDRs / allowFrom), or set networkPolicy.enabled=false and restrict the console some other way." -}}
+{{- end -}}
+{{- $gwNs := .Values.networkPolicy.egress.gatewayNamespace | default .Release.Namespace -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aigateway-ui.fullname" . }}
+  labels:
+    {{- include "aigateway-ui.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "aigateway-ui.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.config.port }}
+      from:
+        {{- toYaml $peers | nindent 8 }}
+  egress:
+    # The admin API. The only thing this console has to say to anything.
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.aigateway.port }}
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gwNs }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Values.networkPolicy.egress.gatewayPodName }}
+    {{- if .Values.networkPolicy.egress.dns.enabled }}
+    # Cluster DNS. Explicit because once a Pod has ANY egress rule everything unnamed is denied,
+    # DNS included — and the failure then is not "cannot connect" but EAI_AGAIN on resolving the
+    # gateway's Service name, which reads like a wrong address rather than a blocked packet.
+    # Both protocols: DNS is UDP until a response exceeds 512 bytes, then the resolver retries
+    # over TCP, so a UDP-only rule works until it intermittently does not.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.egress.dns.namespace }}
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.allowTo }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+{{- end }}

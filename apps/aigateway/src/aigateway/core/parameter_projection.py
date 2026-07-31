@@ -152,6 +152,11 @@ def _addressed_request_paths(body: Mapping[str, Any]) -> Iterable[str]:
     for key in body:
         if key == WRAPPER_KEY or key in GATEWAY_OWNED_FIELDS:
             continue
+        if key.startswith(_WRAPPER_PREFIX):
+            # Not an addressing form (OME-704) — classification rejects it, so it
+            # can never reach cache planning. Mirrored here to keep this
+            # enumeration and the classifier's inline one a true pair.
+            continue
         yield key
     wrapper = body.get(WRAPPER_KEY)
     if isinstance(wrapper, Mapping):
@@ -173,13 +178,13 @@ def caller_cache_bypass_paths(
     decision from the SAME rule set the contract is derived from, so the two
     cannot disagree.
 
-    INVARIANT: computed from the CALLER-VISIBLE body — before projection to
-    provider targets and before ``plugin.prepare_chat_body``. A provider hook may
-    remove, rename, flatten or nest an accepted field on its way to the wire
-    (Anthropic drops ``reasoning_effort == "none"``, which means exactly what
-    omission means); none of that may turn a declared-bypass request into a
-    cacheable one. Scanning the POST-preparation body cannot express this: the
-    stripped body is, by construction, indistinguishable from a bare one.
+    INVARIANT: computed from the CALLER-VISIBLE body preserved before projection to
+    provider targets. The route invokes this only after ``plugin.prepare_chat_body``
+    has accepted the projected state, but it passes that preserved view rather than
+    the prepared body. A provider hook may remove, rename, flatten or nest an accepted
+    field on its way to the wire (Anthropic drops ``reasoning_effort == "none"``, which
+    means exactly what omission means); none of that may turn a declared-bypass
+    request into a cacheable one.
 
     INVARIANT: reads ``rule.cache_behavior`` rather than assuming it. A ``keyed``
     or ``transport_only`` rule is not a bypass path — the registry conformance
@@ -261,6 +266,20 @@ def classify_and_project_chat_parameters(
     for key, value in body.items():
         if key == WRAPPER_KEY:
             continue  # consumed in the wrapper pass below; never splatted.
+        if key.startswith(_WRAPPER_PREFIX):
+            # INVARIANT (OME-704): the provider_params OBJECT is the ONLY caller
+            # addressing form for a provider-native field. A provider_native rule's
+            # request_path IS the string "provider_params.<leaf>", so without this
+            # guard a TOP-LEVEL key spelled that way matches the rule directly and
+            # dispatches — an undocumented second addressing form for every wrapped
+            # field on every provider, outside the published contract and outside
+            # every wrapper-shaped protection built on top of it.
+            #
+            # Structural, so it fires BEFORE rule resolution: a dotted top-level key
+            # is malformed addressing whether or not any rule owns that path, and one
+            # structural mistake gets one reason code.
+            rejected[key] = _REASON_UNKNOWN
+            continue
         if key in GATEWAY_OWNED_FIELDS:
             # A provider rule must never also claim a gateway-owned field.
             if key in fresh:

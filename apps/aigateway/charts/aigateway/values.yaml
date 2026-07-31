@@ -66,6 +66,19 @@ config:
     - 172.16.0.0/12
     - 192.168.0.0/16
     - 100.64.0.0/10
+  # Who may administer — the `/v1/admin` surface the aigateway-ui console drives (OME-706).
+  #
+  # This is a SECOND gate, not the same one as `allowedNetworks`. Header identity says *who you
+  # are*; this says *whether you may create tenants and attach provider API keys to them*. An
+  # address on `allowedNetworks` is an authenticated caller, nothing more.
+  #
+  # EMPTY IS THE SAFE DEFAULT AND IT IS NOT A NO-OP: with no entries the admin API answers 503
+  # ("Admin API is disabled") to everyone, so a stock install ships the surface switched off rather
+  # than open. Populate it deliberately.
+  #
+  # Matched case-insensitively (the app lowercases both sides), so an entry cannot fail to match a
+  # caller by case alone.
+  adminEmails: []
   jwtTtlSeconds: 86400
   # Provider plugins that ship disabled and need an operator to turn them on.
   #
@@ -176,15 +189,22 @@ networkPolicy:
   # which is the usual single-namespace install. Matched on the `kubernetes.io/metadata.name` label
   # Kubernetes sets on every namespace.
   clientNamespace: ""
-  # `app.kubernetes.io/name` of each client Pod allowed in `clientNamespace`. Two entries because
-  # the App and the Runner Jobs share no label: the App carries the url4-cloud chart's name, and
-  # each Job carries `url4-runner` (adapters/k8s.py RUNNER_LABELS).
+  # `app.kubernetes.io/name` of each client Pod allowed in `clientNamespace`. They share no label,
+  # so each needs naming: the url4-cloud App carries its chart's name, each Runner Job carries
+  # `url4-runner` (adapters/k8s.py RUNNER_LABELS), and the admin console carries `aigateway-ui`.
   #
   # Every entry becomes its own `from` element pairing the namespace AND pod selector, so a name
   # here admits only that workload in that namespace — never the whole namespace.
+  #
+  # `aigateway-ui` is the admin console (OME-710). It is a BFF: the browser never reaches this
+  # Service, the console's Pod does, so the console is a network client like any other and must be
+  # named here. Omitting it does not degrade the console — it is denied at the CNI, which surfaces
+  # as a connect timeout in the console with NOTHING in this gateway's logs, because the packet
+  # never arrives. Drop the entry if you do not deploy the console.
   clientPodNames:
     - url4-cloud
     - url4-runner
+    - aigateway-ui
   # Extra CIDRs, e.g. a mesh gateway outside the cluster network.
   ingressCIDRs: []
   # Escape hatch: raw NetworkPolicyPeer entries appended verbatim, for a topology the two settings

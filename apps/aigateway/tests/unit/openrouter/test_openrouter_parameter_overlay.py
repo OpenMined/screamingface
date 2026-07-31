@@ -149,7 +149,16 @@ def test_observations_are_labelled_local_not_fabricated_per_model() -> None:
     sources = {p["provider"]["source"] for p in params.values()}
     # only labelled-local ("openrouter:static") or rule-only ("none") provenance;
     # never the live "openrouter:models" catalog label without a network fetch.
-    assert sources <= {"openrouter:static", "none"}
+    #
+    # AIDEV-NOTE (OME-704): "openrouter:routing-policy" joined the allowlist. It is
+    # a REVIEWED labelled-local label like openrouter:static — a different reviewed
+    # SURFACE (routing behaviour vs the model's sampling inventory), deliberately
+    # kept distinct so a stale review is attributable. The protection is unchanged:
+    # this stays a CLOSED set, so a fabricated or live label still fails, and adding
+    # a member is a reviewed act. The live labels are now also asserted directly, so
+    # the test states its own invariant instead of only implying it.
+    assert sources <= {"openrouter:static", "openrouter:routing-policy", "none"}
+    assert sources.isdisjoint({"openrouter:models", "openrouter:openapi"})
 
 
 # --- OME-583: function calling (tools + tool_choice) overlay -----------------

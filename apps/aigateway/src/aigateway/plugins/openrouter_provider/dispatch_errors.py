@@ -47,6 +47,34 @@ def _unsafe_litellm_state_error() -> _UnsafeLiteLLMStateError:
     )
 
 
+class _UnexpectedRoutingPolicyError(HTTPException):
+    """A projected ``provider`` policy the gateway did not build. Never retried."""
+
+    aigw_non_retryable = True
+
+
+def _unexpected_routing_policy_error() -> _UnexpectedRoutingPolicyError:
+    """OME-704: the provider boundary could not reconstruct a routing policy.
+
+    INVARIANT: takes NO arguments. There is nothing a caller value or a projected
+    key could add to this response that would not be a leak — the whole reason it
+    exists is that the gateway found something it does not recognize, and naming
+    that something would describe internal projection state to a client.
+
+    Deliberately INDISTINGUISHABLE from ``_unsafe_litellm_state_error``: both are
+    "the gateway will not dispatch this", and a client that could tell them apart
+    could probe which internal guard it tripped. It is non-retryable because the
+    mismatch is deterministic — the same request rebuilt the same way fails again.
+    """
+    return _UnexpectedRoutingPolicyError(
+        status_code=503,
+        detail={
+            "code": "provider_unavailable",
+            "message": "OpenRouter dispatch is unavailable",
+        },
+    )
+
+
 def _embedded_error_exception(status: int | None) -> HTTPException:
     """Sanitized gateway error for an embedded provider failure.
 

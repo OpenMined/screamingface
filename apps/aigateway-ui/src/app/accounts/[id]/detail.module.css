@@ -1,0 +1,152 @@
+/*
+ * Tenant detail page — one-off layout classes.
+ *
+ * A CSS Module rather than more globals: these names describe this page only, and scoping them
+ * keeps them out of the `ui-` vocabulary that src/components/ui.tsx owns.
+ *
+ * Every colour is an OMDS token. Raw hex, named colours and rgb()/hsl() literals fail
+ * `npm run lint:css` — see stylelint.config.mjs.
+ */
+
+.breadcrumb {
+  margin-bottom: var(--spacing-L);
+  font-size: 13px;
+}
+
+.backLink {
+  color: var(--text-body);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  border-radius: var(--border-radius-XS);
+  transition:
+    color var(--transition-base),
+    border-color var(--transition-base);
+}
+
+.backLink:hover {
+  color: var(--text-headline);
+  border-bottom-color: var(--color-green-600);
+}
+
+.backLink:focus-visible {
+  outline: 2px solid var(--color-teal-600);
+  outline-offset: 2px;
+}
+
+/* The tenant's uuid, under the heading. Operators paste it into gateway URLs and log queries, so
+   it is selectable text rather than a tooltip. */
+.identity {
+  margin-bottom: var(--spacing-2XL);
+  font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+  font-size: 13px;
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--spacing-L) var(--spacing-2XL);
+  padding: var(--spacing-L) var(--spacing-XL);
+  border: 1px solid var(--surface-foreground-default);
+  border-radius: var(--border-radius-S);
+  background-color: var(--surface-background-bright);
+  box-shadow: var(--shadow-sm);
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3XS);
+}
+
+/* Matches `.ui-th` so a fact label and a column header read as the same kind of thing. */
+.factLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-body);
+}
+
+.factValue {
+  font-size: 14px;
+  color: var(--text-headline);
+  overflow-wrap: anywhere;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-M);
+  margin-top: var(--spacing-4XL);
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-M);
+}
+
+/* Upstream's h2 is 47px, sized for a marketing page. Same step-down, same reason, as
+   `.page-title` in globals.css: this is dense working software read at a desk. */
+.sectionTitle {
+  font-size: 20px;
+}
+
+.sectionLede {
+  font-size: 14px;
+  color: var(--text-body);
+}
+
+/* The masked label ("API key ····WXYZ") is a fixed-width string an operator compares against
+   another one, so it is set in mono and never wrapped mid-value. */
+.labelCell {
+  font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+  white-space: nowrap;
+}
+
+.rowActions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-2XS);
+}
+
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-S);
+}
+
+.rowError {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-red-600);
+}
+
+.statusPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-M);
+  padding: var(--spacing-L) var(--spacing-XL);
+  border: 1px solid var(--surface-foreground-default);
+  border-radius: var(--border-radius-S);
+  background-color: var(--surface-background-bright);
+  box-shadow: var(--shadow-sm);
+}
+
+.statusCopy {
+  font-size: 14px;
+  color: var(--text-body);
+}
+
+.statusActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-S);
+}
