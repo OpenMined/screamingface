@@ -140,6 +140,45 @@ _TRUSTED_ATTRIBUTION = {
 # installed version — if it ever changes, strictness would vanish silently.
 _STRICT_ROUTING_PROVIDER = {"require_parameters": True}
 
+# --- server-side web search: caller intent -> the provider's native envelope ------------------
+#
+# The caller says `web_search: true`. OpenRouter's spelling is `plugins: [{"id": "web", ...}]`,
+# an extensibility envelope that stays REFUSED as a caller path (OME-646) — so the translation
+# happens HERE, in the same hook and by the same rule as `provider`: the gateway ASSIGNS the
+# native field, the caller can never reach it.
+WEB_SEARCH_PARAM = "web_search"
+WEB_SEARCH_EXCLUDED_DOMAINS_PARAM = "web_search_excluded_domains"
+
+# Gateway-owned plugin options. `native` routes to each provider's own search engine — one of
+# exactly five OpenRouter accepts (native|exa|firecrawl|parallel|perplexity); `auto` is NOT
+# among them, despite being valid on the inert `openrouter:web_search` tools surface.
+_WEB_SEARCH_POLICY: dict[str, object] = {"id": "web", "engine": "native"}
+
+
+def _apply_web_search(body: dict[str, Any], settings: Any) -> None:
+    """Translate the caller's `web_search` intent into OpenRouter's `plugins` envelope.
+
+    INVARIANT: both caller-facing keys are POPPED. Neither is an OpenRouter field, and leaving
+    one on the body would reach the wire as an unknown parameter.
+
+    INVARIANT: exclusions are a UNION of the deployment's own list and the caller's, so a caller
+    can only ever TIGHTEN the guard. The motivating case is a benchmark candidate that must not
+    retrieve the rubric it is graded against — a blocklist a caller could shorten is not one.
+    """
+    wanted = body.pop(WEB_SEARCH_PARAM, None)
+    caller_excluded = body.pop(WEB_SEARCH_EXCLUDED_DOMAINS_PARAM, None) or []
+    if wanted is not True:
+        return
+    deployment_excluded = list(getattr(settings, "web_search_excluded_domains", None) or [])
+    excluded = sorted({*deployment_excluded, *caller_excluded})
+    plugin = dict(_WEB_SEARCH_POLICY)
+    if excluded:
+        plugin["excluded_domains"] = excluded
+    # Assignment, never a merge — as with `provider`. A `plugins` that somehow survived the
+    # classifier must not be extended by this, only replaced.
+    body["plugins"] = [plugin]
+
+
 # Caller copies of auth, host/framing, and attribution headers are dropped
 # before the gateway injects its own (D7). Lower-cased for comparison.
 _STRIPPED_CALLER_HEADERS = frozenset(
@@ -263,7 +302,15 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                 source=LOCAL_SOURCE,
             )
             + direct_parameter_observations(
-                ("response_format", "n", "logprobs", "top_logprobs"), source=LOCAL_SOURCE
+                (
+                    "response_format",
+                    "n",
+                    "logprobs",
+                    "top_logprobs",
+                    "web_search",
+                    "web_search_excluded_domains",
+                ),
+                source=LOCAL_SOURCE,
             )
         )
 
@@ -348,6 +395,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # that ever slipped through survive. A fresh dict per request keeps one caller
         # from mutating the policy the next one gets.
         out["provider"] = dict(_STRICT_ROUTING_PROVIDER)
+        _apply_web_search(out, self.settings)
         return out
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:

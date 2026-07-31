@@ -29,6 +29,8 @@ from aigateway.core.standard_parameters import (
     TEMPERATURE_SCHEMA,
     TOP_LOGPROBS_SCHEMA,
     TOP_P_SCHEMA,
+    WEB_SEARCH_EXCLUDED_DOMAINS_SCHEMA,
+    WEB_SEARCH_SCHEMA,
     direct_rule,
     function_calling_rules,
     provider_native_rule,
@@ -51,7 +53,27 @@ OPENROUTER_TOP_K_SCHEMA = ParameterSchema(type="integer", minimum=0)
 # WITH tool_choice.
 _TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
     ToolCapability(tool_type="function", provider_support="supported", gateway_status="enabled"),
+    # AIDEV-NOTE: `openrouter:web_search` / `openrouter:web_fetch` are deliberately ABSENT.
+    # OpenRouter documents them as a server-tool surface and ACCEPTS them with HTTP 200 — but
+    # measured against the live API on 2026-07-31 they are silently INERT: zero `annotations`,
+    # no web-search line in `cost_details`, and an answer written from the model's training
+    # cutoff. Server-side web search is reached through the `web_search` rule below, which
+    # `plugin.prepare_chat_body` translates into the field that actually retrieves. Enabling a
+    # tool type the provider ignores would authorize a request that costs normal money and never
+    # searches — the worst failure shape, because it returns 200 and reads like a real answer.
 )
+
+# --- server-side web search --------------------------------------------------
+# OpenRouter retrieves through `plugins: [{"id": "web", ...}]`, and `plugins` stays REFUSED as a
+# caller path (OME-646, pinned by `test_openrouter_security`). That is not an obstacle worked
+# around here — it is correct, and the reason is worth stating: `plugins` is an extensibility
+# ENVELOPE. Carrying arbitrary provider extensions is its entire purpose, so no schema can bound
+# it without defeating it, and a rule enabling it forwards nested JSON verbatim.
+#
+# The caller instead says `web_search: true` — bounded completely, because it is a boolean — and
+# `plugin.prepare_chat_body` ASSIGNS the `plugins` payload from gateway-owned policy, the same
+# two-layer shape `provider` already uses: the classifier refuses the native field, the provider
+# sets it. The caller can never reach the envelope.
 
 _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
@@ -125,6 +147,20 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     ),
     # OME-583: tools + tool_choice (OpenAI-native, §9 proof).
     *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),
+    # Server-side web search — the caller-facing half. `direct` is the ADDRESSING kind, not the
+    # wire shape: `prepare_chat_body` consumes both fields and emits `plugins` in their place,
+    # so neither name reaches OpenRouter. Verified live 2026-07-31 (litellm 1.87.0) that the
+    # emitted `plugins` retrieves: same prompt, with it a current cited answer, without it the
+    # model's training cutoff.
+    direct_rule(
+        "web_search", auth_modes=_AUTH, schema=WEB_SEARCH_SCHEMA, projection_revision=_REVISION
+    ),
+    direct_rule(
+        "web_search_excluded_domains",
+        auth_modes=_AUTH,
+        schema=WEB_SEARCH_EXCLUDED_DOMAINS_SCHEMA,
+        projection_revision=_REVISION,
+    ),
 )
 
 
