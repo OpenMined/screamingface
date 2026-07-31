@@ -43,7 +43,7 @@ under both runtimes. Per route, not global — see :class:`CommandSpec`."""
 
 _AIGATEWAY_KEYS = frozenset({"base_url", "default_route", "models", "allow_outbound", "timeout_s"})
 _MODEL_KEYS = frozenset({"id", "web_tools", "native_web_search"})
-_COMMAND_KEYS = frozenset({"argv", "timeout_s"})
+_COMMAND_KEYS = frozenset({"argv", "timeout_s", "stdin"})
 _DATA_KEYS = frozenset({"value", "file", "command", "media_type", "timeout_s"})
 _DATA_SOURCES = ("value", "file", "command")
 _RESERVED_TABLES = frozenset({"holdings", "identities"})
@@ -116,11 +116,24 @@ class CommandSpec:
     genuinely different budgets — a rubric judge that calls a model outruns any bound that must
     still keep a fast data-shaping command honest. A single global value can only be wrong for
     one of them.
+
+    ``stdin`` selects which half of the request is PIPED — ``"context"`` (the default, and the
+    only behaviour before this existed) or ``"intent"``. A route whose payload is engine-supplied
+    needs the latter: a cross-row reducer receives the JSON array of every row result as its
+    intent, and a single argv token is capped by the kernel at 131,072 bytes, so argv is not a
+    channel that payload fits in. Choosing the pipe does not withdraw ``{context}`` from argv.
+
+    INVARIANT: the legal VALUES are the engine's (``_serve.COMMAND_STDIN_SOURCES``) and are NOT
+    restated here. This module may not import url4 at all — the importer set is pinned by
+    `test_only_url4_executor_module_imports_url4` — and a copy would be free to drift, so
+    `connector.register_commands` passes the string through and translates the engine's
+    `ValueError`, exactly as it already does for `node.endpoint`'s registrability rules.
     """
 
     path: str
     argv: tuple[str, ...]
     timeout_s: float = DEFAULT_COMMAND_TIMEOUT_S
+    stdin: str = "context"
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,7 +258,26 @@ def _command_table(path: str, table: Mapping[str, object]) -> CommandSpec:
     if "argv" not in table:
         raise RunnerConfigError(f"[commands] {path!r} is missing its `argv`")
     timeout_s = _command_timeout(path, table.get("timeout_s"))
-    return CommandSpec(path=path, argv=_argv(path, table["argv"]), timeout_s=timeout_s)
+    return CommandSpec(
+        path=path,
+        argv=_argv(path, table["argv"]),
+        timeout_s=timeout_s,
+        stdin=_command_stdin(path, table.get("stdin")),
+    )
+
+
+def _command_stdin(path: str, value: object) -> str:
+    """The TYPE is this module's business; the VALUE SET is the engine's (see `CommandSpec`).
+
+    A non-string is caught here because it is a config-shape error like any other — `stdin = true`
+    is a plausible typo, and letting it reach the engine would surface as a confusing repr in a
+    message about allowed source names.
+    """
+    if value is None:
+        return "context"
+    if not isinstance(value, str):
+        raise RunnerConfigError(f"[commands] {path!r} stdin must be a string, got {value!r}")
+    return value
 
 
 def _command_timeout(path: str, value: object) -> float:
