@@ -1,145 +1,207 @@
 ---
-description: ScreamingFace brand & design system — the single visual law for ALL UI/UX work in this repo (website, app, cloud, demos, charts, components, copy). Use whenever building, styling, or reviewing any frontend surface; choosing colors, type, or spacing; or making a design/layout/visual decision. Overrides shadcn/Tailwind defaults. Parsed from brand.screamingface.ai.
+description: ScreamingFace brand & design system (SFDS v2) — the single visual law for ALL UI/UX work in this repo (website, leaderboard, scoreboard, studio, admin consoles, demos, charts, copy). Use whenever building, styling, or reviewing any frontend surface; choosing colors, type, or spacing; or making a design/layout/visual decision. Overrides shadcn/Tailwind defaults. Parsed from brand.screamingface.ai.
 user_invocable: true
 ---
 
 # ScreamingFace Design System
 
-This is the canonical look-and-rules for everything we ship. The audience is **policy and science leadership, not only developers**, so the surface has to **earn trust at a glance**. One system, applied everywhere — website, Electron app, cloud webapp, demos, charts, and copy.
+**SFDS v2.0** — the canonical look-and-rules for everything we ship. The audience is **policy and
+science leadership, not only developers**, so the surface has to **earn trust at a glance**. One
+system, applied everywhere — website, leaderboard, scoreboard, studio, admin tooling, demos, charts,
+and copy.
 
-> **The direction — "infra-retro-modern."** The precision of a developer-infrastructure tool with a terminal-retro backbone: **monospace structure, hairline rules, square corners, true white and true dark.** Color is rationed — it appears only to help the reader follow the story. Retro, not messy. We argue that AI should be *honest*; the surface should feel honest too.
+> **The direction — "infra-retro-modern."** Developer-infrastructure precision with a terminal-retro
+> backbone: **mono structure, hairline rules, square corners, true white and true dark.** Colour is
+> rationed — it appears only to help the reader follow the story. We argue that AI should be
+> *honest*; the surface should feel honest too.
 
-When you touch any UI/UX, follow this skill over framework defaults. The exact tokens and component CSS are in `reference/` — read them when you need precise values.
+The exact tokens and component CSS are in `reference/`; **`reference/PROVENANCE.md` records the
+version and a copy-pasteable drift check.** Those files are verbatim copies of the live system, so
+they are the answer, not a paraphrase — read them when you need precise values.
+
+## READ THIS FIRST — the two registers
+
+v2 ships **two registers**, and picking the wrong one is the single most likely way to get a surface
+confidently wrong.
+
+| register | how | `--accent` is | use for |
+|---|---|---|---|
+| **app** | **the default** — nothing to set | **blue** `#4b91f0` | product UI: studio, admin consoles, dashboards, forms, tables |
+| **marketing** | `data-brand="marketing"` on the root | **gold** `#ec9f3f` | leaderboard, landing pages, brand surfaces |
+
+`[data-brand="marketing"]` overrides **only** the accent-family aliases. Everything else — neutrals,
+success, danger, type, spacing — is identical in both.
+
+**In the app register, gold is not the accent.** Gold is `--brand`/`--gain`, and it is *rationed to
+the win*: the leading leaderboard row, the SOTA counter. A product surface with no "win" in it — an
+admin console, a settings page — should contain **no gold at all**. It is mostly neutral with blue
+interaction.
+
+If you find yourself painting a product surface gold because "gold is the ScreamingFace colour",
+stop. That is the marketing register leaking into a place the system deliberately kept quiet.
 
 ## The five principles
 
-1. **Evidence over adjectives.** Lead with the number, the run, the source. If we can't back it up, we don't say it.
-2. **Structure you can see.** Hierarchy comes from type and rules, not decoration.
-3. **Color means something.** Greys carry the page; the accent only marks the thing the reader should understand.
-4. **Legible at small sizes.** This holds dense tables and footnotes. Type is chosen for that.
-5. **Light and dark are equals.** Both are designed, not one tinted from the other.
+1. **Evidence over adjectives.** Lead with the number, the run, the source.
+2. **Structure you can see.** Hierarchy from type and rules, not decoration.
+3. **Colour means something.** Neutrals carry the page; colour marks the thing that matters.
+4. **Legible at small sizes.** This holds dense tables and footnotes.
+5. **Light and dark are equals.** Both designed, not one tinted from the other.
 
-## Anti-rules — NOT vibe-coded (hard rules, not suggestions)
-
-The fastest way to look auto-generated in 2026 is to accept the defaults. **Never do the left column. Do the right.**
+## Anti-rules — hard rules, not suggestions
 
 | NEVER | INSTEAD |
 | --- | --- |
-| Gradients — **especially blue→purple**. | Flat color fills only. |
-| Rounded corners. Radius is `0`. | Square edges + hairline borders. |
-| Drop shadows, glows, glassmorphism, blur. | Depth from spacing and rules, not shadow. |
-| Gradient or glowing text. | Real type hierarchy; one accent for the story. |
-| Emoji as bullets, ✨ decoration. | The 😱 mark, once — never as decoration. |
-| **Purple. Any purple.** | The greyscale palette + the one semantic accent. |
-| Hero + three feature cards + bento grid. | Left-aligned, document-like, generous space. |
-| The default **shadcn / "clean modern SaaS" look**. | Monospace structure; deliberate, defensible choices. |
-| Lorem, fake logos, vanity metrics, undefined acronyms. | Real data, real labels, real receipts. |
-| Motion to impress. | Motion only where it clarifies. |
+| Serif in product UI chrome, table cells, or buttons. | Plex Sans. Parastoo is **display/marketing only**. |
+| Mono at display size. | Mono for data, labels, IDs, receipts. |
+| More than two font families on one surface. | Pick two and hold the line. |
+| Rounded corners. Radius is `0`. | Square edges + hairline borders. `--radius-window` (10px) is terminal chrome **only**. |
+| Drop shadows on components. | Depth from the seam, not blur. `--shadow-window` is used exactly **once** (the terminal window). |
+| Gradients. | The one sanctioned gradient is `--fusion-grad`, on the leading leaderboard row only. |
+| Fake small-caps or stretched type. | Real weights: 400 / 500 / 600. |
+| Caps typed into repeating labels. | Sentence case + a coloured square for state. Caps only via CSS `text-transform`, on tiny labels. |
+| Recolouring, boxing, or redrawing the 😱 mark. | System emoji exactly as shipped. |
+| Recolouring or distorting a model provider's logo. | As shipped — see `assets/model-logos/`. |
+| Text carrying a gradient, a solid step, or a non-text role. | Contracted text roles only (machine-linted upstream). |
+| Cycling status colours as chart series. | The `--data-*` categorical palette, in fixed order. |
+| The stock shadcn / "clean modern SaaS" look. | Mono structure; deliberate, defensible choices. |
 
-**These override shadcn/Tailwind defaults.** When working in the React/Tailwind/shadcn app or cloud webapp: restyle primitives to these tokens (square corners, hairline borders, no shadow, semantic colors) — do **not** ship the stock component look.
+**These override shadcn/Tailwind defaults.** Restyle primitives to these tokens — do not ship the
+stock component look.
 
-## Color — semantic tokens only
+## Colour — semantic roles, never raw values
 
-Components reference **semantic** tokens (`var(--ink)`, `var(--gain)`…), **never raw hex and never a primitive directly.** The page is **near-monochrome on purpose.** Only two roles carry chromatic meaning:
+Components reference **semantic** roles, never a hex and never a primitive step directly. Each role
+carries a full ladder: `-bg-subtle`, `-component`, `-component-hover`, `-component-active`,
+`-border-subtle`, `-border`, `-border-strong`, `-focus-ring`, `-solid`, `-solid-hover`, `-text-low`,
+`-text-high`, `-contrast-text`, `-text`.
 
-- **`--gain`** (green) = the model can read the source → correct / SOTA / the win.
-- **`--blind`** (red) = guessing without the source → the "before".
-- **`--mark`** (😱 amber) = a UI spark only. **Never** use it to encode data.
+| role | light solid | dark solid | means |
+|---|---|---|---|
+| `--accent` | `#4b91f0` blue | `#75affe` | **interaction** — buttons, links, focus (app register) |
+| `--brand` | `#ec9f3f` gold | `#e2a35b` | brand presence; constant across surfaces |
+| `--gain` | `#ec9f3f` gold | `#e2a35b` | **the win** — SOTA, leading row. Rationed. |
+| `--success` | `#64e47d` green | — | verified, reproduced, healthy, active |
+| `--warning` | `#efbd41` | — | needs attention |
+| `--danger` | `#ff0325` red | — | destructive, failed, blocked |
+| `--info` | `#4b91f0` | — | neutral notice (same family as accent) |
 
-Everything else is greyscale (`--bg`, `--surface`, `--surface-2`, `--ink`, `--ink-2`, `--ink-3`, `--line`, `--line-2`).
+Neutrals: `--bg` (page floor) · `--surface` (panels, sealed by `--border`) · `--surface-2` (wells,
+inputs, tracks, sealed by `--border-strong`) · `--border`, `--border-2` · `--text`, `--text-2`.
+Plus `--focus` for the ring.
 
-| token | light | dark | role |
-| --- | --- | --- | --- |
-| `--bg` | `#ffffff` | `#0a0b0d` | page background (true white / true dark) |
-| `--surface` | `#f6f6f7` | `#131519` | raised panel / code / hover |
-| `--surface-2` | `#efeff1` | `#1a1d22` | second surface |
-| `--ink` | `#16181d` | `#e8eaed` | primary text |
-| `--ink-2` | `#585d67` | `#9aa0aa` | secondary text |
-| `--ink-3` | `#8b909a` | `#686e78` | muted / labels / captions |
-| `--line` | `#e6e7ea` | `#20232a` | hairline border |
-| `--line-2` | `#d4d6db` | `#2c303a` | stronger divider |
-| `--gain` | `#0f7a3d` | `#35d07f` | correct / SOTA / win |
-| `--gain-bg` | `#e8f3ec` | `#11241b` | SOTA row / gain note tint |
-| `--blind` | `#b23b3b` | `#f0726f` | guessing / before |
-| `--blind-bg` | `#f6e7e6` | `#2a1715` | blind tint |
-| `--mark` | `#c9821f` | `#e0a23c` | 😱 UI spark — never data |
+**Green ≠ gold.** Green marks *verified*; gold marks *the win*. They are not interchangeable.
 
-**Charts comparing many series** use the 8-color categorical palette `--cat-blue, --cat-green, --cat-amber, --cat-rust, --cat-teal, --cat-rose, --cat-brown, --cat-slate` — colorblind-aware, **no purple**, assigned **in that order**, theme-shared, and kept distinct from `--gain`/`--blind`. Full set in `reference/tokens.json` / `reference/tokens.css`.
+**Contrast is engineered on APCA**: `-text-low` targets Lc 75, `-text-high` Lc 90. Use the ladder
+rather than picking whichever step looks right.
 
-## Type — four families, strict roles
+**Charts** use the `--data-*` categorical palette (azure, green, rose, orange, … — **no purple**) in
+fixed order, with 5-step ramps for magnitude. Triple-encode (hue + marker shape + direct end-label)
+so colour-blind readers never lose the thread. Never conflate series colour with status colour.
+
+### v1 → v2 bridge — one trap
+
+`tokens.css` still resolves the v1 names (`--ink`, `--ink-2`, `--ink-3`, `--line`, `--line-2`,
+`--gain`, `--gain-bg`, `--blind`, `--blind-bg`, `--mark`, `--cat-*`), so v1 surfaces keep working.
+
+**But `--gain` now resolves to GOLD, where in v1 it was green.** A v1 surface using `--gain` to mean
+"success" is now saying "this is the win". Migrate those to `--success-*`.
+
+## Type — three families, strict roles
 
 | family | token | used for |
 | --- | --- | --- |
-| **EB Garamond** (old-style serif) | `--f-display` | **h1 / display only.** Timeless, credible — deliberately *not* a tech/mono serif. |
-| **IBM Plex Sans** | `--f-sans` | body prose, dense small text |
-| **IBM Plex Mono** | `--f-mono` | data, labels, code, h2, the rail, chart text |
-| **Rubik** | `--f-wordmark` | the wordmark / logo lockup **only** (OpenMined family) |
+| **Parastoo** (500 display) | `--f-display` | **hero/display only, marketing only.** Never in product chrome, tables or buttons. |
+| **IBM Plex Sans** (400/500/600) | `--f-sans` | load-bearing UI, body, dense data, **and the wordmark** |
+| **IBM Plex Mono** (500/600) | `--f-mono` | data, labels, receipts, IDs, code, chart text |
 
-**Seven sizes, one job each** (one of these maps to everything):
+Nine sizes, one job each: `--text-hero` (clamp 44–76, Parastoo) · `--text-display` 38 (Parastoo) ·
+`--text-metric` 30 (Mono) · `--text-title` 24 · `--text-lead` 20 · `--text-body` 16 · `--text-sm` 13
+· `--text-micro` 12 (Mono) · `--text-label` 11 (Mono).
 
-| token | size | role |
-| --- | --- | --- |
-| `--text-display` | 38px | h1 (Garamond) |
-| `--text-metric` | 30px | big stat numbers (Mono) |
-| `--text-lead` | 20px | the one opening line (Sans) |
-| `--text-body` | 16px | all prose (Sans) |
-| `--text-sm` | 13px | captions, tables, climb, buttons |
-| `--text-micro` | 12px | chart ticks/labels, rail, footer (Mono) |
-| `--text-label` | 11px | ALL uppercase labels: eyebrow, h2, kickers, table headers (Mono) |
+Weights: 400 body/data · 500 emphasis, buttons, active nav · 600 sans titles · 500 display.
+All-caps labels are mono + `--tracking-label`. Mono enforces
+`font-variant-numeric: tabular-nums slashed-zero` — tabular keeps columns aligned, the slashed zero
+disambiguates `0` from `O` in run IDs and receipts.
 
-All-caps labels use **mono + `--tracking-label` (0.1em)**. Big numbers use `font-variant-numeric: tabular-nums`. Weights are only 400 / 500 / 600.
+**A product surface uses two families: Plex Sans and Plex Mono.** That is the whole palette.
 
 ## Spacing, layout, geometry
 
-- **4px spacing scale**: `--space-1`(4) … `--space-12`(96). Use these for all padding / margin / gap.
-- **Column**: `--col` 760px (reading), `--col-wide` 1000px (dense). Content is left-aligned and document-like.
-- **Square**: `--radius-none` is `0`. **No exceptions.**
-- **Borders**: `--border-hairline` 1px (default), `--border-strong` 2px (emphasis accents, e.g. the left rule on a note).
-- **Rail**: a sticky 44px (`--rail-h`) mono header — wordmark, crumbs, theme toggle. See `.rail` in `reference/style.css`.
+- **4px scale**: `--space-1` (4) … `--space-12` (96). All padding/margin/gap.
+- **Columns**: `--col` 760px (prose), `.band` 1140px (specimens, galleries). `--col-wide` 1000px
+  survives from v1.
+- **Square**: `--radius-none` is `0`. `--radius-window` (10px) is terminal chrome only.
+- **Borders**: `--border-hairline` 1px default, `--border-strong` 2px. A border is one step stronger
+  than the fill it seals.
+- **Elevation reads from the seam, not blur.** Ground → `--bg`; Panel → `--surface` + `--border`;
+  Inset → `--surface-2` + `--border-strong`; Float → `--shadow-window`, terminal only.
 
 ## Component recipes
 
-Reach for these before inventing anything. Each lives in `reference/style.css`; structures are in the parsed demo/viz pages.
+Reach for these before inventing anything; all live in `reference/style.css`.
 
-- **`.stats`** — 3-up big-number row. The win number gets `.gain`. Use for the headline metrics ("45% → 91%").
-- **`table` + `tr.sota`** — leaderboard of reproducible runs. Mono, `--text-sm`, numeric columns get `.num` (right-aligned tabular-nums). The SOTA/best row is `tr.sota` (gain-bg tint + inset gain bar on the first cell).
-- **`.climb`** — staged horizontal-bar progression (label / track / value rows under `.stage-head` group headers). Fill variants: `.base` (frontier alone), `.ens` (ensemble), `.priv` (one model + source), `.sota` (the win). Use to show "why it climbs".
-- **`.deltawrap`** — before / `+Δ` / after big-delta panels. `.cell.before .big` is `--blind`, `.cell.after .big` is `--gain`, the `.mid` cell holds the delta. Use for "one thing changed".
-- **`figure` + `.svg-*` hooks** — charts (e.g. accuracy×cost Pareto). All chart text is mono/micro. Use the theme hooks (`.svg-ink`, `.svg-line`, `.svg-axis`, `.svg-gain`, `.svg-blind`, `.svg-base`) so SVGs follow the theme. Draw markers **after** lines; circles get a `--bg` halo via `paint-order: stroke`. Caption in `figcaption`.
-- **`.note` / `.note.gain`** — callout with a strong left rule + `.kicker` label. `.gain` variant for the positive "what this means" note.
-- **`.btn` / `.btn.ghost`** — square mono buttons (solid ink fill / outline ghost), invert on hover.
-- **`pre` with `.ok` / `.dim`** — terminal-style command blocks ("run it yourself"). `.ok` = gain, `.dim` = muted.
+- **Buttons** — `.btn` base, then `.btn--primary` (accent-solid fill, contrast text), `.btn--sec`
+  (accent outline, transparent fill), `.btn--link` (underline, no box), plain `.btn` (ink fill).
+  `.sm` matches input height.
+- **`table` + `th`/`td`** — hairline rows, tabular figures. The SOTA row takes `--gain` (gold) —
+  **leaderboards only**; an admin table has no SOTA row.
+- **`.badge`** — `.badge--ok` / `.badge--bad`, plus `.badge-verified` (green ✓, trust) and
+  `.badge-sota` (gold, leaderboard only).
+- **`.markbox`** — row-level ✓/✗ square, 16px (`.sm` 14px), `--ok`/`--bad` variants.
+- **`.checkbox` / `.checkbox-box`** — the one toggle: drawn square, accent fill + geometric check.
+- **`.status`** — inline square signal; the off-state word drops to a whisper tone.
+- **`.kicker`** — mono, uppercase, 0.14em tracking, `--gain-text-low`.
+- **`.note`** — callout with a strong left rule.
+- **`.lead`, `.meta`, `.mono`, `.faint`, `.eyebrow`, `.kv`** — text roles.
+- **`.rail` / `.masthead`** — sticky 44px (`--rail-h`) mono header.
 
-A full canonical page shell (fonts + tokens + rail + masthead + a `.stats` block + theme toggle) is in `reference/starter.html` — copy it as the skeleton for any new static surface.
+Leaderboard-only, do not reach for on a product surface: `.stats`, `.climb`, `.deltawrap`,
+`.badge-sota`, `.o-mark`, `.fusion-flow`, `.logo-*`.
 
-## Voice (copy is design too)
+## Icons
 
-Per OpenMined: **concise, credible, helpful.** Write to be useful, not to sound impressive.
+**Remix Icon** (Apache-2.0), self-hosted — no CDN. Sizes 16/20/24, default 24 (`--ic`).
+Fill-based (`fill="currentColor"`): set the colour, the icon follows.
 
-| do | don't |
-| --- | --- |
-| Lead with the outcome, then how it works | Overclaim or speculate |
-| Show receipts — numbers, links, names | Buzzwords / corporate jargon |
-| Plain language; define acronyms once | Fear-based messaging |
-| Center the reader and the outcome | Center ourselves |
+## Voice and capitalisation
 
-**Titles must pass four tests:** can you visualize it; is it falsifiable; could anyone else say it (if yes, too generic); is it true. Draft 5–10 before choosing.
+Concise, credible, helpful. Lead with the outcome; show receipts; plain language; centre the reader.
+
+| case | where | rule |
+|---|---|---|
+| **Sentence case** | default — buttons, titles, body, tooltips, labels, errors | first word capitalised |
+| **UPPERCASE** | eyebrows, section labels, table headers, kickers | mono, tracked, ≤3 words, **CSS `text-transform` only — never typed** |
+| **lowercase** | code, SDK/API names, env vars, IDs, receipts | match real casing |
+| **As-branded** | proper nouns | ScreamingFace · OpenMined · benchmark names |
+
+All-caps costs dyslexic readers 13–18% reading speed, and typed caps reach screen readers as caps —
+hence CSS-only, tiny labels only.
+
+**Titles must pass four tests:** can you visualise it; is it falsifiable; could anyone else say it
+(if yes, too generic); is it true.
 
 ## Self-check before you finish
 
-Run this against your own output — every "yes" in the left list is a violation to fix:
+Every "yes" on the left is a violation:
 
-- [ ] Any **purple** anywhere?
-- [ ] Any gradient, drop shadow, glow, blur, or glassmorphism?
-- [ ] Any **rounded corner** (radius ≠ 0)?
-- [ ] Color used for anything **other than** gain (green), blind (red), or the 😱 mark (amber)?
-- [ ] A **raw hex** or a primitive token where a semantic token belongs?
-- [ ] **EB Garamond** used anywhere but an h1? Mono used for a big display headline?
-- [ ] Lorem / fake logos / vanity or placeholder metrics / undefined acronyms left in?
-- [ ] Did you verify **both light and dark**? (They are co-equal — check the toggle.)
-- [ ] Is depth coming from shadow instead of spacing + hairlines?
-- [ ] Is the layout a hero + 3-cards + bento, or the stock shadcn "clean SaaS" look?
+- [ ] Wrong **register** — gold accent on a product surface, or blue on marketing?
+- [ ] **Gold anywhere it isn't "the win"?**
+- [ ] Serif in chrome, a table cell, or a button? Mono at display size?
+- [ ] More than two families on this surface?
+- [ ] Any **rounded corner** outside terminal chrome? Any shadow outside the terminal window?
+- [ ] Any gradient that isn't `--fusion-grad` on a leading row?
+- [ ] A **raw hex**, or a primitive step where a semantic role belongs?
+- [ ] `--gain` used to mean "success"? (v1 habit — it is gold now; use `--success-*`.)
+- [ ] Typed ALL-CAPS instead of CSS `text-transform`?
+- [ ] Lorem / fake logos / placeholder metrics / undefined acronyms?
+- [ ] Did you verify **both light and dark**?
 
 ## Source & drift
 
-Canonical source: **`brand.screamingface.ai`** (password `letmein`) and the external **`screamingface-brand`** repo. The files in `reference/` (`tokens.json`, `tokens.css`, `style.css`, `starter.html`) are a **snapshot dated 2026-06-11**. If they diverge from the live site, the live site / brand repo wins — re-pull and update this snapshot.
+Canonical source: **`brand.screamingface.ai`** and the external **`screamingface-brand`** repo. The
+system renders live from `tokens.json`, so the site never drifts from itself.
+
+`reference/` holds **verbatim** copies — see **`reference/PROVENANCE.md`** for the version string
+and a copy-pasteable drift check. If they diverge, **the live site wins**: re-pull and update this
+file in the same change.
