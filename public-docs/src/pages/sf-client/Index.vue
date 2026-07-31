@@ -12,7 +12,7 @@ sf.config(engine="http://127.0.0.1:4404")
 members = ["openrouter/openai/gpt-5.5", "openrouter/google/gemini-3-flash-preview"]
 fusion = sf.Fusion("pair", members=members, reducer=sf.reducers.MajorityVote())
 report = sf.benchmarks.load("gpqa@1").evaluate(fusion, first=10)
-report.score, report.baseline, report.gain`
+print(report.score, report.baseline, report.gain)`
 </script>
 
 <template>
@@ -30,12 +30,24 @@ report.score, report.baseline, report.gain`
 
     <h2>The headline number</h2>
 
-    <blockquote>
-      <strong>Pending a verified run.</strong> A quotable gain figure needs a full
-      <code>draco@1</code> evaluation — 100 cases with five independent judge passes per criterion.
-      Single-case <code>draco-lite</code> runs move too much between runs to publish, so no number
-      is claimed here yet.
-    </blockquote>
+    <p>
+      On <strong>DRACO</strong>, a 100-task deep-research benchmark, the strongest fusion scored
+      <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model —
+      <strong>+8.4 points</strong>. Five separate fusions beat every individual model, so it is not
+      one lucky pairing, and a fusion of three cheaper models reached 58.5%, ahead of Claude Opus
+      4.8 alone at 51.8%.
+    </p>
+
+    <p>
+      Source:
+      <a
+        href="https://andrewtrask.substack.com/p/6-weeks-ago-frontier-ai-labs-lost"
+        target="_blank"
+        rel="noopener"
+        >~6 weeks ago… frontier AI labs lost the “deep research” frontier</a
+      >, Andrew Trask. Scores are mean normalized score across completed tasks, judged by
+      <code>gemini-3.1-pro-preview</code>.
+    </p>
 
     <h2>The smallest example</h2>
 
@@ -46,6 +58,13 @@ report.score, report.baseline, report.gain`
       member on the same cases, and <code>gain</code> is the difference between them. A positive
       gain means the ensemble beat every model inside it.
     </p>
+
+    <blockquote>
+      <strong>Designed for notebooks.</strong> Scripts work, but you lose most of the feedback:
+      <code>sf.connect()</code> renders an interactive provider panel, and models, fusions,
+      benchmarks and reports each render a rich card. In a terminal those become plain text, so
+      remember to <code>print()</code> anything you want to see.
+    </blockquote>
 
     <h2>How it works</h2>
 
