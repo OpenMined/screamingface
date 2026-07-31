@@ -21,7 +21,7 @@ from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.metrics import MetricsMiddleware, build_metrics, register_catalog_metrics
 from url4_cloud.ops import router as ops_router
-from url4_cloud.rest import SubscriberGate, catalog_router
+from url4_cloud.rest import SubscriberGate, benchmarks_router, catalog_router
 from url4_cloud.rest import router as rest_router
 from url4_cloud.schemas import customize_openapi
 from url4_cloud.ws import ConnectionRegistry
@@ -71,6 +71,7 @@ def create_app(
     app.include_router(router)
     app.include_router(rest_router)
     app.include_router(catalog_router)
+    app.include_router(benchmarks_router)
     app.include_router(ws_router)
     app.include_router(ops_router)
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
