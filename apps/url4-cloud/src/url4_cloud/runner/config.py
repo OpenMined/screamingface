@@ -42,7 +42,7 @@ DEFAULT_COMMAND_TIMEOUT_S = 120.0
 under both runtimes. Per route, not global — see :class:`CommandSpec`."""
 
 _AIGATEWAY_KEYS = frozenset({"base_url", "default_route", "models", "allow_outbound", "timeout_s"})
-_MODEL_KEYS = frozenset({"id", "web_tools"})
+_MODEL_KEYS = frozenset({"id", "web_tools", "native_web_search"})
 _COMMAND_KEYS = frozenset({"argv", "timeout_s"})
 _DATA_KEYS = frozenset({"value", "file", "command", "media_type", "timeout_s"})
 _DATA_SOURCES = ("value", "file", "command")
@@ -68,10 +68,28 @@ class ModelSpec:
     same way — so it is opted INTO per route, never inherited from the mere presence of a
     Tavily key. An operator who supplies a key but declares no `web_tools = true` route gets
     exactly the plain completions they declared.
+
+    TWO RETRIEVAL MECHANISMS, one per route, never both:
+
+    * ``web_tools`` — a CLIENT-SIDE loop. The runner declares OpenAI-shape functions, the model
+      asks, and the runner executes the search against Tavily and feeds results back. Works for
+      any provider that can call a function, which is why it stays: most providers have no
+      server-side search of their own.
+    * ``native_web_search`` — the PROVIDER runs it. The runner asks the GATEWAY for retrieval
+      with a provider-agnostic flag, and the gateway translates it into whatever that provider
+      calls it; nothing here knows one provider's spelling. No runner loop, no second search
+      backend, and the provider's own controls (notably domain exclusion) apply.
+
+    Prefer native where a provider offers it: it is the surface a published benchmark score was
+    produced on, and a client-side loop over a different search backend is a different
+    experiment. Declaring BOTH is rejected at parse — one request would then ask the provider to
+    search AND hand the model functions to search with, so the turn retrieves twice and bills
+    for both.
     """
 
     id: str
     web_tools: bool = False
+    native_web_search: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -418,12 +436,28 @@ def _model_table(table: Mapping[str, object]) -> ModelSpec:
     raw_id = table.get("id")
     if raw_id is None:
         raise RunnerConfigError("[[aigateway.models]] entry is missing its `id`")
-    web_tools = table.get("web_tools", False)
-    if not isinstance(web_tools, bool):
+    web_tools = _model_flag(table, "web_tools")
+    native_web_search = _model_flag(table, "native_web_search")
+    # INVARIANT: one route, one retrieval mechanism. Both would ask the provider to search AND
+    # hand the model functions to search with, so the turn retrieves twice and bills for both.
+    # Caught here, at parse, like every other route conflict — the alternative surfaces as a
+    # doubled bill and a doubled latency nobody attributes.
+    if web_tools and native_web_search:
         raise RunnerConfigError(
-            f"[[aigateway.models]] web_tools must be a boolean, got {web_tools!r}"
+            f"[[aigateway.models]] {raw_id!r} declares both web_tools and native_web_search — "
+            "a route serves ONE retrieval mechanism. Use native_web_search where the provider "
+            "runs the search itself, web_tools where the runner must drive it."
         )
-    return ModelSpec(id=_model_id(str(raw_id)), web_tools=web_tools)
+    return ModelSpec(
+        id=_model_id(str(raw_id)), web_tools=web_tools, native_web_search=native_web_search
+    )
+
+
+def _model_flag(table: Mapping[str, object], key: str) -> bool:
+    value = table.get(key, False)
+    if not isinstance(value, bool):
+        raise RunnerConfigError(f"[[aigateway.models]] {key} must be a boolean, got {value!r}")
+    return value
 
 
 def _model_id(model: str) -> str:
