@@ -155,6 +155,35 @@ native_web_search = true
 [[aigateway.models]]
 id = "openrouter/google/gemini-3.1-pro-preview"
 
+# --- the rest of the DRACO candidate lineup -------------------------------------------------
+#
+# `budget_trio`, `pareto_cross`, `pareto_lean`, `beat_runner_up` and `best_open_source` are
+# defined over these four. Routing is exact-match, so before they were declared those five
+# fusions could not be addressed at all — a `ResolutionError`, not a degraded run.
+#
+# Retrieval stays OFF on all four pending a LIVE check, and that is a real gap, not an oversight.
+# They are OpenRouter routes, so `native_web_search = true` is the right declaration and the same
+# one the three answering routes above carry — but no one has yet confirmed that these specific
+# models accept OpenRouter's server-side tool entries. The DRACO harness ran them with retrieval,
+# so the expectation is that they do; the rule this file follows is that expectation is not
+# verification.
+#
+# Turning each on is a ONE-LINE reviewable change once checked. Until then these answer from
+# weights alone, which scores well below the reference chart for reasons unrelated to the
+# candidate — so `budget_trio`, `pareto_*` and `best_open_source` are addressable but not yet
+# publishable.
+[[aigateway.models]]
+id = "openrouter/google/gemini-3-flash-preview"
+
+[[aigateway.models]]
+id = "openrouter/moonshotai/kimi-k2.6"
+
+[[aigateway.models]]
+id = "openrouter/deepseek/deepseek-v4-pro"
+
+[[aigateway.models]]
+id = "openrouter/qwen/qwen3.6-plus"
+
 # --- [commands] — local subprocess routes --------------------------------------------------
 #
 # A route path mapped to an operator-owned argv template, exec'd directly (no shell). stdout is
