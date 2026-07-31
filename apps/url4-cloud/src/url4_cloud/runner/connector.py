@@ -66,6 +66,44 @@ _WEB_TOOLS = [
 ]
 
 
+WEB_SEARCH_PARAM = "web_search"
+"""The expression-level retrieval toggle: ``…!'answer';web_search=false``.
+
+INTERPRETED by the runner, never copied through. The gateway has a `web_search` field of its
+own and the names deliberately match — but the expression's value decides WHETHER this call
+retrieves, while the gateway's field is set by `_native_web_search` only after the route's
+declared mechanism has been resolved. Forwarding the raw string would send `"false"`, which is
+a truthy JSON string, and switch retrieval ON where the expression asked for it off.
+
+It OVERRIDES the route's declaration rather than replacing it: absent means "whatever the route
+declares", so an expression that says nothing about retrieval behaves exactly as it did before
+this existed.
+
+Asking a route that declares NO mechanism to search is an error, not a silent no-op — the
+alternative is an expression that reads as though it retrieved and an answer written from
+weights alone, which is indistinguishable in the result.
+"""
+
+
+def _native_web_search(cfg: AigatewayConfig) -> dict[str, object]:
+    """Ask the GATEWAY for provider-side retrieval — nothing provider-specific here.
+
+    `web_search` is aigateway's provider-agnostic vocabulary: the gateway decides which
+    provider can retrieve and translates the flag into that provider's own spelling. Building a
+    provider's payload here instead would put OpenRouter knowledge in the runner and duplicate a
+    contract the gateway already owns — the layering rule this repo states as core-defines-ports.
+
+    `web_search_excluded_domains` is UNIONed with the deployment's own list by the gateway, so
+    this can only ever tighten the guard. It is operator config, never expression-supplied: the
+    motivating case is a benchmark candidate that must not retrieve the rubric it is graded
+    against, and a blocklist a caller can rewrite is not a blocklist.
+    """
+    body: dict[str, object] = {"web_search": True}
+    if cfg.web_search_excluded_domains:
+        body["web_search_excluded_domains"] = list(cfg.web_search_excluded_domains)
+    return body
+
+
 @dataclass(frozen=True)
 class AigatewayConfig:
     """The resolved aigateway world settings a run needs — routes, timeouts, and the optional
@@ -96,6 +134,17 @@ class AigatewayConfig:
     #   concurrently, so an unbounded fan-out is an unbounded burst of upstream requests.
     web_tool_max_result_bytes: int = 32_768
     web_tool_max_calls_per_turn: int = 8
+    # --- native (provider-side) web search, for `native_web_search = true` routes ------------
+    # INVARIANT: OPERATOR-owned, never expression-supplied. This is a leak guard — a benchmark
+    # candidate must not be able to retrieve the rubric it is graded against — and a guard a
+    # caller can rewrite is not a guard. The gateway UNIONs it with the deployment's own list,
+    # so this can only tighten. Empty omits the field entirely rather than sending an empty
+    # list, which would read as "exclude nothing" instead of "use the deployment's".
+    #
+    # WHY no engine/max_results here: those are the PROVIDER's own options, and aigateway owns
+    # them. A runner that set them would be re-specifying one provider's envelope through a
+    # flag whose whole point is that it names no provider.
+    web_search_excluded_domains: tuple[str, ...] = ()
 
 
 @dataclass
@@ -178,6 +227,7 @@ class _ModelEndpoint:
             model=spec.id,
             messages=_messages(request.context, request.intent),
             params=request.params,
+            spec=spec,
             tavily_http=self._tavily_http,
             tavily_api_key=self._tavily_api_key,
             web_tools=spec.web_tools,
@@ -446,14 +496,21 @@ def _build_tavily_client(
     return client, owns
 
 
-RUNNER_OWNED_FIELDS = frozenset({"model", "messages", "tools", "tool_choice", "stream"})
+RUNNER_OWNED_FIELDS = frozenset(
+    {"model", "messages", "tools", "tool_choice", "stream", "web_search_excluded_domains"}
+)
 """Request fields an EXPRESSION may never set — they belong to the runner, not the caller.
 
 ``model`` would let an expression address one route and run another, breaking the "a route path
-is exactly '/' + the gateway id" invariant that `url4.toml` and `routes_for` rest on. ``messages``
-is built from the resolved context and intent. ``tools``/``tool_choice`` are the per-route
-``web_tools`` opt-in, which is what keeps a configured Tavily key from silently changing every
-model's payload. ``stream`` would break `_parse_choice`.
+is exactly '/' + the gateway id" invariant that `url4.toml` and
+`test_declared_models_match_aigateway.py` exist to hold. ``tools``/``tool_choice`` would bypass
+the per-route ``web_tools`` opt-in, which is what keeps a configured Tavily key from silently
+changing every model's payload. ``stream`` would break `_parse_choice`.
+
+``web_search_excluded_domains`` is the runner's because it is set from operator config on a
+retrieving call, and the payload merge puts the runner's value last — so a caller's copy would
+be accepted at parse and then silently discarded. The gateway would union a caller list safely
+enough, but "accepted and ignored" is the failure shape this whole file exists to avoid.
 
 Everything else is forwarded: the GATEWAY is the authority on which parameters exist and which
 values are legal (`core/standard_parameters.py` plus each provider's rules), and it fails closed
@@ -461,6 +518,32 @@ on an unknown field. A second allowlist here would be a copy of that contract, f
 from it — the same reason `register_commands` translates the engine's error instead of
 restating its rules.
 """
+
+
+def _wants_web_search(params: Mapping[str, str], spec: ModelSpec | None) -> bool:
+    """Whether THIS call retrieves — the route's declaration, overridden by the expression.
+
+    The route declares what it CAN do; the expression decides whether to use it. Absent means
+    "as declared", so an expression that never mentions retrieval keeps the behavior it had
+    before this parameter existed.
+
+    Raises:
+        ResolutionError: the expression asked a route that declares no mechanism to search.
+            Loud, because the silent alternative is an answer written from weights alone that
+            reads exactly like a retrieved one.
+    """
+    declared = bool(spec and (spec.web_tools or spec.native_web_search))
+    raw = params.get(WEB_SEARCH_PARAM)
+    if raw is None:
+        return declared
+    wanted = _coerce_param(raw) is True
+    if wanted and not declared:
+        raise ResolutionError(
+            f"{WEB_SEARCH_PARAM}=true but route {'/' + spec.id if spec else '?'} declares no web "
+            "search — add `web_tools` (runner-driven) or `native_web_search` (provider-driven) "
+            "to its [[aigateway.models]] entry"
+        )
+    return wanted
 
 
 def _model_params(params: Mapping[str, str]) -> dict[str, object]:
@@ -479,6 +562,7 @@ def _model_params(params: Mapping[str, str]) -> dict[str, object]:
         ResolutionError: the expression set a runner-owned field. Loud on purpose — dropping it
             silently would let the expression read as though it had pinned something it had not.
     """
+    params = {k: v for k, v in params.items() if k != WEB_SEARCH_PARAM}
     owned = sorted(set(params) & RUNNER_OWNED_FIELDS)
     if owned:
         raise ResolutionError(
@@ -503,6 +587,7 @@ async def _chat_completion_loop(
     model: str,
     messages: list[dict],
     params: Mapping[str, str] = {},  # noqa: B006 - read-only, never mutated
+    spec: ModelSpec | None = None,
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     web_tools: bool,
@@ -520,8 +605,22 @@ async def _chat_completion_loop(
         ResolutionError: the loop exceeds `cfg.web_tool_max_iterations` without a final
             answer — the model keeps calling tools instead of returning content.
     """
-    offer_tools = web_tools and tavily_http is not None
-    extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if offer_tools else {}
+    # Which mechanism serves this call. `web_tools` needs a Tavily client because the RUNNER
+    # executes the search; native needs nothing extra because the PROVIDER does. Both conditions
+    # stay load-bearing: without the route's opt-in a configured key would silently change every
+    # model's request payload, and without the client the model could call a tool nothing can
+    # execute.
+    wants_search = _wants_web_search(params, spec)
+    native = wants_search and bool(spec and spec.native_web_search)
+    offer_tools = wants_search and web_tools and tavily_http is not None
+    if native:
+        # A gateway-level flag, not a tools payload: no `tool_choice` (the OpenAI selection
+        # control does not govern provider-run retrieval) and no collision with function calling.
+        extra: dict[str, object] = _native_web_search(cfg)
+    elif offer_tools:
+        extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"}
+    else:
+        extra = {}
     # Coerced ONCE, outside the loop: the value is turn-invariant, and a tool-calling turn
     # re-posts — sampling parameters must hold on every hop, or the final answer is produced
     # under different settings from the ones the expression pinned.
