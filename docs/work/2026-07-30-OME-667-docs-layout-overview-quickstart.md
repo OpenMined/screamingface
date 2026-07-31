@@ -92,7 +92,9 @@ project defines, plus manual render checks:
   `src/components/layout/DocLayout.vue`, `src/pages/sf-client/Index.vue`,
   `src/pages/sf-client/QuickstartPage.vue`, plus `public-docs/CLAUDE.md`. Fewer than planned: no
   route change, no new component, no `NotebookViewer` wiring.
-- **Commits:** `d20ebc31` — feat(public-docs): sidebar layout plus Overview and Quickstart pages
+- **Commits:**
+  - `6ffe4895` — feat(public-docs): sidebar layout plus Overview and Quickstart pages
+  - `ca55dc2d` — fix(public-docs): distinguish sidebar group labels from their items
 - **Gates:** `type-check` clean · `build` succeeds (326 ms) · `format` applied to the four touched
   files · `lint` reports 3 pre-existing `vue/multi-word-component-names` errors
   (`Collapsible.vue`, `sdk/Index.vue`, `sf-client/Index.vue`) — verified identical on a clean tree
