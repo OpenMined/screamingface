@@ -20,12 +20,27 @@ INVARIANT — the scoring formulas mirror `screamingface-benchmarks/benchmarking
 (arXiv:2602.11685 §4.2) EXACTLY. Do not "improve" them. A different formula is a different
 benchmark, and a leaderboard number computed here must mean what the paper says it means.
 
-AIDEV-NOTE — PROTOCOL CAVEAT. The paper's `official` grading mode issues ONE judge call PER
-CRITERION (~40 criteria × 3 runs per case), and the judge never sees the weights or the sibling
-criteria. The url4 expression this reducer serves makes ONE judge call per case, which is the
-paper's `chunked` mode. Chunked scores are fine for iteration and MUST NOT be published as
-"DRACO-reproduced". Reproducing the official protocol needs a per-criterion fan-out that the
-current expression shape does not express.
+The expression this reducer serves runs the paper's `official` grading mode: ONE judge call per
+CRITERION, `judge_runs` independent passes, and the judge blind to the weights and to the sibling
+criteria. The per-criterion fan-out is the middle iteration level over `/draco/criteria/$item.id`
+(see the `[commands]` section of `url4.toml`); it became expressible once an outer `$name` could
+reach into an iteration body.
+
+AIDEV-NOTE — PROTOCOL CAVEATS, the two ways a run here still differs from the paper:
+
+* `judge_reasoning: "low"` (arXiv:2602.11685 §4.2) is NOT carried. `reasoning_effort` is absent
+  from the OpenRouter plugin's rule set, and the gateway fails closed on an unknown parameter, so
+  sending it would turn every judge call into a 400 rather than a deviation. `judge_temperature`
+  and `max_tokens` DO reach the model.
+* Retrieval is enabled on the three routes a SOLO or `fable_plus_gpt` candidate answers with
+  (`native_web_search`, verified live), but NOT on the four models added for `budget_trio`,
+  `pareto_cross`, `pareto_lean`, `beat_runner_up` and `best_open_source` — those are declared
+  and unverified, so they answer from weights alone. DRACO is a deep-research benchmark and the
+  paper treats retrieval as mandatory, so a score for those five configurations is not
+  comparable to the reference chart.
+
+Neither is visible in the numbers this module emits. A score published as "DRACO-reproduced"
+has to state both.
 """
 
 from __future__ import annotations
