@@ -881,6 +881,12 @@ class MapNode:
         items = self._items(inputs["collection"])
         if not items:
             return []
+        # WHY the frame is built ONCE here, not per row: it is row-invariant (the enclosing
+        # group's bindings), and it is what makes an outer `$name` visible inside the body —
+        # the same reference-edges-become-a-scope-frame move `LazyExprNode` makes. Without it
+        # the body's parent scope is the run scope, so a sibling binding is unreachable and
+        # substitutes verbatim.
+        frame = _frame(inputs, ctx)
         # `concurrency <= 0` (only reachable by constructing the directives
         # directly — the surface `;iteration.concurrency` syntax rejects n < 1)
         # means "use the default", not "unbounded": a falsy directive must never
@@ -894,8 +900,8 @@ class MapNode:
         # re-hashed len(items) times.
         expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
         if self.directives.on_error == "fail":
-            return await self._run_all(items, expr, sem, ctx)
-        rows = [self._row(item, expr, sem, ctx) for item in items]
+            return await self._run_all(items, expr, sem, ctx, frame)
+        rows = [self._row(item, expr, sem, ctx, frame) for item in items]
         raw = await asyncio.gather(*rows, return_exceptions=True)
         return self._skip(raw) if self.directives.on_error == "skip" else self._collect(raw, ctx)
 
@@ -914,22 +920,35 @@ class MapNode:
         return items
 
     async def _run_all(
-        self, items: list[str], expr: str, sem: asyncio.Semaphore, ctx: ExecutionContext
+        self,
+        items: list[str],
+        expr: str,
+        sem: asyncio.Semaphore,
+        ctx: ExecutionContext,
+        frame: Context,
     ) -> list[str]:
         # TaskGroup so the first failing row cancels its in-flight siblings.
         try:
             async with asyncio.TaskGroup() as tg:
-                tasks = [tg.create_task(self._row(item, expr, sem, ctx)) for item in items]
+                tasks = [tg.create_task(self._row(item, expr, sem, ctx, frame)) for item in items]
         except BaseExceptionGroup as group:
             reraise_first(group)
         return [task.result() for task in tasks]
 
     async def _row(
-        self, item: str, expr: str, sem: asyncio.Semaphore, ctx: ExecutionContext
+        self,
+        item: str,
+        expr: str,
+        sem: asyncio.Semaphore,
+        ctx: ExecutionContext,
+        frame: Context,
     ) -> str:
         # WHY: the body is spawned verbatim (with $item still in it) and the row is
         # bound into scope, so arbitrary row data never enters the re-parse.
-        scope = Context(bindings={_ITEM_KEY: item}, parent=ctx.scope)
+        # INVARIANT: the row shadows `frame` rather than merging into it — an enclosing binding
+        # named `item` must never capture the row, which is why the row key is NUL-prefixed and
+        # `_body_ref_edges` refuses to wire the reserved row names.
+        scope = Context(bindings={_ITEM_KEY: item}, parent=frame)
         async with sem:
             return await ctx.spawn(expr, scope)
 
