@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write # OIDC → Azure; no stored credentials
 concurrency:
   group: dev-build-url4-cloud-${{ github.ref }}
   cancel-in-progress: true
@@ -29,6 +30,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Platform registry (ACR) — the dev cluster pulls from here. OIDC only:
+      # sp-screamingface-ci is federated to this repo's main branch and holds
+      # AcrPush on acropenmined and nothing else. No secrets are stored here;
+      # the three vars below are non-secret identifiers.
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az acr login --name acropenmined
       - uses: docker/build-push-action@v6
         with:
           # Context is the repo root — matches the release workflows (url4-cloud's
@@ -37,6 +48,8 @@ jobs:
           file: apps/url4-cloud/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/openmined/screamingface-url4-cloud:main-${{ steps.sha.outputs.short }}
+          tags: |
+            ghcr.io/openmined/screamingface-url4-cloud:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-url4-cloud:main-${{ steps.sha.outputs.short }}
           cache-from: type=gha,scope=dev-url4-cloud
           cache-to: type=gha,scope=dev-url4-cloud,mode=max
