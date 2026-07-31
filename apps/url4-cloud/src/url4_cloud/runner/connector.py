@@ -239,13 +239,16 @@ def register_commands(node: Url4Node, commands: Sequence[CommandSpec]) -> None:
     """Register each declared `[commands]` route as a subprocess endpoint on ``node``.
 
     INVARIANT: the ENGINE owns which paths are registrable (the eval path is dispatched by the
-    node itself; a path cannot be claimed twice). Restating those rules in `config.py` would let
-    the two drift, so the engine's `ValueError` is translated here instead — the operator gets a
-    `RunnerConfigError` naming the offending route either way.
+    node itself; a path cannot be claimed twice) AND which stdin sources exist
+    (`_serve.COMMAND_STDIN_SOURCES`). Restating either in `config.py` would let the two drift —
+    and that module may not import url4 at all — so the engine's `ValueError` is translated here
+    instead. The operator gets a `RunnerConfigError` naming the offending route either way.
     """
     for command in commands:
         try:
-            node.endpoint(command.path)(make_command_handler(command.argv, command.timeout_s))
+            node.endpoint(command.path)(
+                make_command_handler(command.argv, command.timeout_s, stdin=command.stdin)
+            )
         except ValueError as exc:
             raise RunnerConfigError(
                 f"[commands] {command.path!r} is not registrable: {exc}"

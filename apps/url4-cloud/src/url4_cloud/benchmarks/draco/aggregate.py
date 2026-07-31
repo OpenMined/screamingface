@@ -8,8 +8,13 @@ Invoked as a declared `[commands]` route in the reducer position::
 
     (…iteration…)!/benchmark(aggregate)!'x'
 
-    context ("aggregate")  →  {context}, also stdin
-    intent (row array)     →  {intent}, the JSON array of every row's judge output
+    context ("aggregate")  →  `--operation {context}`, in argv
+    intent (row array)     →  STDIN, the JSON array of every row's judge output
+
+The payload arrives on the PIPE because a single argv token is capped by the kernel at
+`MAX_ARG_STRLEN` (131,072 bytes) — the route declares `stdin = "intent"` and the engine pipes it.
+Passing it as `--args {intent}` failed with `OSError [Errno 7]` at exec, in the single-digit
+case counts, long before a 100-case run.
 
 INVARIANT — the scoring formulas mirror `screamingface-benchmarks/benchmarking/graders/rubric.py`
 (arXiv:2602.11685 §4.2) EXACTLY. Do not "improve" them. A different formula is a different
@@ -415,7 +420,15 @@ def load_rubrics(directory: Path) -> dict[int, dict[str, Any]]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="draco-aggregate", description=__doc__)
     parser.add_argument("--operation", default="aggregate", help="the {context} token")
-    parser.add_argument("--args", default="[]", help="the {intent} payload — the JSON row array")
+    # INVARIANT: the row array arrives on STDIN, not in argv. A single argv token is capped by
+    # the kernel at MAX_ARG_STRLEN (131,072 bytes) regardless of ARG_MAX, and exec fails outright
+    # with OSError [Errno 7] rather than truncating — which a 100-case run crosses at roughly the
+    # fourth case. The route declares `stdin = "intent"` and the engine pipes it here.
+    #
+    # `--args` stays as an explicit OVERRIDE so the script remains hand-runnable and testable.
+    # It defaults to None rather than "[]" on purpose: an absent payload must be distinguishable
+    # from an empty one, or an unreadable pipe scores as a clean zero-case success.
+    parser.add_argument("--args", default=None, help="the row array; read from stdin when omitted")
     parser.add_argument("--rubrics", type=Path, default=None)
     parser.add_argument("--benchmark-id", default="draco")
     args = parser.parse_args(argv)
@@ -423,8 +436,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.operation.strip() != "aggregate":
         print(f"unsupported operation {args.operation!r}", file=sys.stderr)
         return 2
+    payload = sys.stdin.read() if args.args is None else args.args
     try:
-        result = aggregate(args.args, load_rubrics(rubrics_dir(args.rubrics)), args.benchmark_id)
+        result = aggregate(payload, load_rubrics(rubrics_dir(args.rubrics)), args.benchmark_id)
     except AggregateError as exc:
         print(str(exc), file=sys.stderr)
         return 1
