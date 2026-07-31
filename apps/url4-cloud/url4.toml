@@ -305,8 +305,13 @@ id = "openrouter/qwen/qwen3.6-plus"
 # `/draco/criteria/<case>` is emitted WEIGHT-FREE by `prepare.py`, and the weighted rubric is
 # deliberately NOT a declared route: `official` grading keeps the judge blind to weights.
 #
-# CAVEAT (N4): the row array reaches the script through argv, which caps near 2 MB. Keep judge
-# explanations out of the per-row payload or a 100-case run fails with E2BIG.
+# STDIN, not argv. `stdin = "intent"` pipes the row array in; the operation token still arrives
+# as `--operation {context}`, because the selector changes what is PIPED and withdraws no
+# substitution. Until 2026-07-31 the payload went through `--args {intent}`, and a single argv
+# token is capped by the kernel at MAX_ARG_STRLEN (131,072 bytes) — NOT the ~2 MB ARG_MAX this
+# file used to cite, which does not apply to one argument. At ~200 bytes per verdict and
+# 53 criteria × 3 passes per case, that ceiling arrived at roughly the FOURTH case, as a hard
+# `OSError [Errno 7]` at exec rather than a truncation. A pipe has no such bound.
 # INVARIANT: no --rubrics here. The `[data]` routes get absolute paths from `prepare --out`, so
 # the rubrics path must come from the SAME deployment — it resolves from `URL4_BENCHMARK_RUBRICS`
 # (the benchmark image sets it; a local run exports it). Baking the container path into this file
@@ -315,8 +320,7 @@ id = "openrouter/qwen/qwen3.6-plus"
 "/benchmark" = { argv = [
   "python3", "-m", "url4_cloud.benchmarks.draco.aggregate",
   "--operation", "{context}",
-  "--args", "{intent}",
-], timeout_s = 120.0 }
+], timeout_s = 120.0, stdin = "intent" }
 
 # --- [data] — read-only artifacts at their own url4 addresses ------------------------------
 #
