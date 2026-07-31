@@ -1,16 +1,16 @@
 /**
- * OMDS enforcement gate — adapted from OpenMined/brand.openmined.org.
+ * SFDS enforcement gate — the ScreamingFace Design System v2 (OME-716).
  *
  * Raw color values are un-shippable. `src/brand/tokens/tokens.css` is the single place literal
  * palette values may live; every other file must reference a token via var(--…).
  *
- * Three rules, deliberately minimal — a focused gate stays high-signal for both humans and
- * agents. Upstream does NOT extend stylelint-config-standard on purpose: its ~40 stylistic rules
- * would bury the one rule that matters under noise. Kept that way here.
+ * The rules are deliberately minimal — a focused gate stays high-signal for both humans and
+ * agents. Extending stylelint-config-standard would bury the one rule that matters under ~40
+ * stylistic complaints.
  *
- * Divergence from upstream: no `postcss-html` override for `.astro` files (this is a React app,
- * so styles live in .css and CSS Modules), and the ignore list points at the vendored token path
- * rather than upstream's `src/tokens/`.
+ * This gate is system-independent: it survived the OMDS → SFDS migration unchanged except for the
+ * message text, because "literal colors don't ship" is a property of the discipline, not of the
+ * palette. It has already caught one real hole (see `function-disallowed-list` below).
  */
 
 // `/color$/` matches color, background-color, border-*-color, outline-color, caret-color,
@@ -38,7 +38,7 @@ const config = {
     "coverage/**",
     "node_modules/**",
     // The palette IS the raw-value source of truth — literal hex is correct here. Vendored
-    // verbatim from upstream, which exempts the same file for the same reason.
+    // from brand.screamingface.ai, verbatim apart from one documented font divergence.
     "src/brand/tokens/tokens.css",
   ],
 
@@ -49,14 +49,14 @@ const config = {
       true,
       {
         message:
-          "OMDS: no raw hex. Use a token — e.g. var(--color-teal-600), var(--surface-background-default), var(--text-body). Literal palette values live only in src/brand/tokens/tokens.css.",
+          "SFDS: no raw hex. Use a semantic token — e.g. var(--accent-solid), var(--surface), var(--text-2). Literal palette values live only in src/brand/tokens/tokens.css.",
       },
     ],
 
     "color-named": [
       "never",
       {
-        message: "OMDS: no named colors. Use a design token via var(--…).",
+        message: "SFDS: no named colors. Use a design token via var(--…).",
       },
     ],
 
@@ -72,7 +72,7 @@ const config = {
       ["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color"],
       {
         message:
-          "OMDS: no functional color literals. Use var(--…) from tokens.css — a shorthand like `border: 1px solid rgb(…)` evades the other rules.",
+          "SFDS: no functional color literals. Use var(--…) from tokens.css — a shorthand like `border: 1px solid rgb(…)` evades the other rules.",
       },
     ],
 
@@ -83,7 +83,7 @@ const config = {
         ignoreFunctions: false, // disallow rgb()/hsl() literals — only var() passes
         disableFix: true,
         message:
-          "OMDS: color properties must reference a design token — use var(--…) from tokens.css, not a literal value.",
+          "SFDS: color properties must reference a design token — use var(--…) from tokens.css, not a literal value.",
       },
     ],
   },

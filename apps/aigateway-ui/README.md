@@ -61,11 +61,16 @@ disagrees, so lockfile drift cannot pass unnoticed.
 
 ## Design system
 
-This app wears the **OpenMined** brand, not the ScreamingFace one — it is internal operator
-tooling, not a ScreamingFace product surface. Tokens are vendored from
-[`OpenMined/brand.openmined.org`](https://github.com/OpenMined/brand.openmined.org) into
-`src/brand/tokens/`; see `src/brand/README.md` for the pinned commit and the one documented
-divergence.
+This app wears the **ScreamingFace Design System v2**, vendored from
+[`brand.screamingface.ai`](https://brand.screamingface.ai) into `src/brand/tokens/`; see
+`src/brand/README.md` for the version string and the one documented divergence. (It previously
+wore the OpenMined brand — an owner decision, reversed by an owner decision in OME-716.)
+
+**It is the `app` register, which is the default.** v2 ships two: `[data-brand="marketing"]` swaps
+the accent family to gold, everything else takes **blue**. So blue carries every interaction, green
+marks a healthy account, red marks destructive actions, and gold appears **nowhere** — gold is
+"rationed to the win", and an admin console has no win. `src/app/design-system.test.ts` asserts
+that, along with the no-serif / no-radius / no-shadow / no-gradient anti-rules.
 
 Literal palette values live only in `src/brand/tokens/tokens.css`. Everywhere else references a
 token via `var(--…)`, enforced by `npm run lint:css` — raw hex, named colors and `rgb()`/`hsl()`
