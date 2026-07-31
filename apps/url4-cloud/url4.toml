@@ -111,6 +111,9 @@ id = "openrouter/anthropic/claude-fable-5"
 web_tools = true
 
 [[aigateway.models]]
+id = "openrouter/anthropic/claude-haiku-4-5"
+
+[[aigateway.models]]
 id = "openrouter/google/gemini-3.1-pro-preview"
 web_tools = true
 
