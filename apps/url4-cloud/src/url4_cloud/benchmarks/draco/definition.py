@@ -6,11 +6,15 @@ from url4_cloud.benchmarks.draco.cases import CASES
 from url4_cloud.benchmarks.draco.family import build_draco_benchmark
 
 BENCHMARK_ID = "draco-lite"
+# WHY: the exam version behind `id: draco-lite@N` — bump on any score-affecting change
+# (cases, instructions, params, tools, judge, aggregation).
+BENCHMARK_VERSION = 1
 JUDGE_PASSES = 1
 CRITERIA_PER_CASE = 10
 
 DRACO_LITE = build_draco_benchmark(
     benchmark_id=BENCHMARK_ID,
+    version=BENCHMARK_VERSION,
     title="DRACO Lite",
     cases=CASES,
     criteria_per_case=CRITERIA_PER_CASE,

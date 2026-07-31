@@ -41,6 +41,15 @@ class Benchmark:
     title: str
     manifest: bytes
     actions: Mapping[str, BenchmarkAction]
+    # WHY: the exam version behind the manifest's `id: <name>-v<version>` — the registry
+    # resolves that versioned identity so a plan compiled against one exam version can
+    # never silently execute another. Separator is `-v`, NOT `@`: the id travels inside
+    # url4 contexts, where `@` is the reserved holdings-reference token.
+    version: int = 1
+
+    @property
+    def versioned_id(self) -> str:
+        return f"{self.id}-v{self.version}"
 
     def execute(self, action: str, context: str, intent: str) -> str:
         try:

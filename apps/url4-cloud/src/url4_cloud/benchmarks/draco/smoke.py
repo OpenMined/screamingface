@@ -6,11 +6,14 @@ from url4_cloud.benchmarks.draco.cases import SMOKE_CASES
 from url4_cloud.benchmarks.draco.family import build_draco_benchmark
 
 BENCHMARK_ID = "draco-smoke"
+# WHY: the exam version behind `id: draco-smoke@N` — bump on any score-affecting change.
+BENCHMARK_VERSION = 1
 JUDGE_PASSES = 1
 CRITERIA_PER_CASE = 1
 
 DRACO_SMOKE = build_draco_benchmark(
     benchmark_id=BENCHMARK_ID,
+    version=BENCHMARK_VERSION,
     title="DRACO Smoke",
     cases=SMOKE_CASES,
     criteria_per_case=CRITERIA_PER_CASE,

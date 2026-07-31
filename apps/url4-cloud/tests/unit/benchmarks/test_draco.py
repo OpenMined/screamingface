@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
+from url4_cloud.benchmarks.registry import benchmark
 
 
 def _loaded_case() -> dict:
@@ -100,8 +103,75 @@ def test_draco_smoke_runs_one_real_rubric_judge_job() -> None:
 
     assert grade["score"] == 1.0
     assert len(grade["criteria"]) == 1
-    assert report["benchmark_id"] == "draco-smoke"
+    # INVARIANT: the result names the exact EXAM SAT (versioned id) — this is the
+    # leaderboard column key, not the addressable name.
+    assert report["benchmark_id"] == "draco-smoke-v1"
     assert report["score"] == 1.0
+
+
+def test_manifest_declares_schema_and_versioned_exam_identity() -> None:
+    # INVARIANT: manifest `id` = `<name>@<version>` — same id string ⇒ same exam; `name`
+    # stays the unversioned address used by the registry, REST routes, and the SDK.
+    for address, entry in BENCHMARKS.items():
+        manifest = entry.manifest.decode()
+        assert manifest.startswith("schema: screamingface.benchmark-manifest.v1\n")
+        assert f"\nname: {address}\n" in f"\n{manifest}"
+        assert f"\nid: {address}-v1\n" in manifest
+        assert entry.id == address
+
+
+def test_manifest_pins_case_provenance_revision() -> None:
+    # INVARIANT: the pinned cases carry a content revision, so the exam cannot change
+    # under a frozen id — different case sets MUST yield different revisions.
+    revisions: dict[str, str] = {}
+    for address, entry in BENCHMARKS.items():
+        manifest = entry.manifest.decode()
+        provenance = manifest.split("provenance:", 1)[1].split("answer:", 1)[0]
+        assert "dataset: vendored:url4_cloud.benchmarks.draco.cases" in provenance
+        marker = "revision: sha256:"
+        revision = provenance.split(marker, 1)[1].split()[0]
+        assert len(revision) == 64
+        assert set(revision) <= set("0123456789abcdef")
+        revisions[address] = revision
+    assert revisions["draco-smoke"] != revisions["draco-lite"]
+
+
+def test_case_revision_is_deterministic_across_builds() -> None:
+    # WHY: the revision feeds the future leaderboard hash gate — a rebuild of the same
+    # pinned cases must reproduce byte-identical manifests.
+    from url4_cloud.benchmarks.draco.cases import CASES
+    from url4_cloud.benchmarks.draco.family import build_draco_benchmark
+
+    def build() -> bytes:
+        return build_draco_benchmark(
+            benchmark_id="draco-lite",
+            version=1,
+            title="DRACO Lite",
+            cases=CASES,
+            criteria_per_case=10,
+            judge_passes=1,
+            answer_output_tokens=4096,
+            synthesis_output_tokens=4096,
+            judge_output_tokens=4096,
+            tools=("web_search", "web_fetch"),
+        ).manifest
+
+    assert build() == build() == BENCHMARKS["draco-lite"].manifest
+
+
+def test_registry_resolves_the_versioned_exam_identity() -> None:
+    # INVARIANT: the SDK compiles the manifest `id` (`<name>-v<version>`) into the
+    # executed plan — the registry resolves it only when the installed version matches,
+    # so a stale client can never silently sit a different exam under a frozen id.
+    # WHY `-v` and not `@`: `@` is url4's reserved holdings-reference token; an id
+    # containing it drops the /benchmark context out of structured ctx-slot lowering.
+    assert benchmark("draco-lite") is BENCHMARKS["draco-lite"]
+    assert benchmark("draco-lite-v1") is BENCHMARKS["draco-lite"]
+    assert benchmark("draco-smoke-v1") is BENCHMARKS["draco-smoke"]
+    with pytest.raises(ValueError, match="unknown benchmark 'draco-lite-v2'"):
+        benchmark("draco-lite-v2")
+    with pytest.raises(ValueError, match="unknown benchmark"):
+        benchmark("missing-v1")
 
 
 def test_draco_lite_grades_and_aggregates_deterministically() -> None:
@@ -143,6 +213,6 @@ def test_draco_lite_grades_and_aggregates_deterministically() -> None:
     assert grade["metrics"]["coverage"] == 1.0
     assert len(grade["criteria"]) == 10
     assert report["schema"] == "screamingface.candidate-result.v1"
-    assert report["benchmark_id"] == "draco-lite"
+    assert report["benchmark_id"] == "draco-lite-v1"
     assert report["case_count"] == 1
     assert report["score"] == 1.0

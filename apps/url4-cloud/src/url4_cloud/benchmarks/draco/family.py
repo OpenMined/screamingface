@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import textwrap
 
 from url4_cloud.benchmarks._types import Benchmark
@@ -12,12 +14,26 @@ from url4_cloud.benchmarks.draco.prompts import (
     SYNTHESIS_INSTRUCTIONS,
 )
 
-JUDGE_MODEL = "anthropic/claude-haiku-4-5"
+JUDGE_MODEL = "openrouter/anthropic/claude-haiku-4-5"
+
+# WHY: DRACO pins its cases in code rather than loading a hub dataset, so provenance
+# names the vendoring module and the revision is a content hash of those cases.
+CASES_DATASET = "vendored:url4_cloud.benchmarks.draco.cases"
+
+MANIFEST_SCHEMA = "screamingface.benchmark-manifest.v1"
+
+
+def _cases_revision(cases: tuple[dict[str, object], ...]) -> str:
+    # INVARIANT: byte-stable across builds — this revision feeds the leaderboard
+    # comparability promise (same manifest id ⇒ same exam), so it must be deterministic.
+    canonical = json.dumps(cases, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def build_draco_benchmark(
     *,
     benchmark_id: str,
+    version: int,
     title: str,
     cases: tuple[dict[str, object], ...],
     criteria_per_case: int,
@@ -35,13 +51,22 @@ def build_draco_benchmark(
     tool_block = (
         "tools: []" if not tools else "tools:\n" + "\n".join(f"  - {tool}" for tool in tools)
     )
+    # INVARIANT: `name` is the stable address (registry key, REST routes, SDK evaluate);
+    # `id` is the versioned exam identity — bump `version` whenever cases, instructions,
+    # params, tools, or grading change in any score-affecting way. The `-v` separator is
+    # deliberate: the id flows into url4 contexts, where `@` is a reserved token.
     manifest = f"""\
+schema: {MANIFEST_SCHEMA}
 name: {benchmark_id}
-id: {benchmark_id}
+id: {benchmark_id}-v{version}
 title: {title}
 route: /benchmark
 cases:
   count: {len(cases)}
+provenance:
+  cases:
+    dataset: {CASES_DATASET}
+    revision: sha256:{_cases_revision(cases)}
 answer:
   instructions: |
 {answer}
@@ -77,8 +102,11 @@ metrics:
         id=benchmark_id,
         title=title,
         manifest=manifest,
+        version=version,
         actions=build_actions(
-            benchmark_id=benchmark_id,
+            # WHY versioned: the aggregate report's `benchmark_id` names the exact exam
+            # sat (the leaderboard column key), matching the manifest `id` the SDK checks.
+            benchmark_id=f"{benchmark_id}-v{version}",
             judge_passes=judge_passes,
             cases=cases,
         ),
