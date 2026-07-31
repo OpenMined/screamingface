@@ -69,6 +69,14 @@ class Usage:
     model: str
     input_tokens: int
     output_tokens: int
+    # WHY a SEPARATE field rather than overwriting `model`: the GenAI semantic conventions
+    # distinguish `gen_ai.request.model` (what the caller asked for) from
+    # `gen_ai.response.model` (what actually served it), and a gateway is free to resolve an
+    # alias to a dated snapshot. `model` above stays the REQUESTED name.
+    # INVARIANT: `None` means the provider did not say — never a copy of `model`. Reporting the
+    # request as the response makes provider-side model drift undetectable, which is exactly
+    # what this field exists to expose.
+    response_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +133,8 @@ class NullObserver:
 
 
 UsageSink = Callable[..., None]  # matches ExecutionContext.report_usage's kwargs:
-# (*, provider: str, model: str, input_tokens: int, output_tokens: int) -> None
+# (*, provider: str, model: str, input_tokens: int, output_tokens: int,
+#  response_model: str | None = None) -> None
 
 _usage_sink: contextvars.ContextVar[UsageSink | None] = contextvars.ContextVar(
     "url4_usage_sink", default=None
