@@ -43,6 +43,35 @@ COLUMN_QUESTION = "problem"
 COLUMN_RUBRIC = "answer"
 COLUMN_DOMAIN = "domain"
 
+RETRIEVAL_POLICY_ID = "draco/official"
+
+EXCLUDED_DOMAINS = (
+    "huggingface.co/datasets/perplexity-ai/draco",
+    "openrouter.ai/blog/announcements/fusion-beats-frontier",
+    "paperswithcode.com/dataset/draco",
+    "arxiv.org/abs/2509",
+)
+"""The blocklist a DRACO candidate answers under, copied from
+`screamingface-benchmarks/benchmarks_config/draco.yaml`.
+
+DRACO is a deep-research benchmark, so a candidate that retrieves the dataset card, the
+reproduction post, or the paper is reading the answer key. That INFLATES the score, which is why
+it does not look like a bug.
+
+The SHAPE of these entries is correct: OpenRouter documents wildcards (`*.substack.com`) and
+path filtering (`openai.com/blog`) as supported values, and a live probe on 2026-07-31 drove
+blocked-host citations to zero on both the `native` and `exa` engines. An earlier note here
+claimed path prefixes could not match; that reading came from a probe run while the gateway was
+still emitting the WRONG WIRE KEY (`excluded_domains` for `exclude_domains`), so it measured the
+typo rather than the value shape. Retracted.
+
+AIDEV-NOTE — one CONTENT question is still open. `arxiv.org/abs/2509` is annotated "DRACO paper
+preprint range" upstream, but the paper is cited as arXiv:**2602.11685** throughout this repo, so
+that entry may guard the wrong range. The benchmarks repo itself calls the whole list "our best
+guess" — OpenRouter never published theirs. Because the policy is DATA, correcting it is an
+artifact edit rather than a code release.
+"""
+
 
 class PrepareError(RuntimeError):
     """The dataset could not be turned into a declared world."""
@@ -132,9 +161,44 @@ def build(rows: Sequence[dict[str, Any]], out: Path, route_prefix: str) -> dict[
             {"id": case_id, "input": question, "domain": row.get(COLUMN_DOMAIN) or "unknown"}
         )
 
+    write_policy(out)
     (out / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
     (out / "url4.data.toml").write_text(render_data_table(cases, out, route_prefix), "utf-8")
     return {"cases": len(cases), "out": str(out)}
+
+
+def write_policy(out: Path) -> Path:
+    """Emit the retrieval policy an expression names with `;web_search_policy=`.
+
+    An OBJECT rather than a bare array so the policy can version itself — `id` is what a
+    published score cites — and can later carry other retrieval settings without a second route.
+
+    INVARIANT: an EMPTY blocklist is rejected HERE, at build time. The runner deliberately
+    accepts an empty policy, because a benchmark may declare unrestricted retrieval as an
+    explicit, attributable statement — but for DRACO an empty list means the generator broke, and
+    a generation bug belongs to the build rather than to a run that would score high and look
+    clean.
+    """
+    if not EXCLUDED_DOMAINS:
+        raise PrepareError("the retrieval policy is empty — a DRACO run needs its blocklist")
+    policy_dir = out / "policy"
+    policy_dir.mkdir(parents=True, exist_ok=True)
+    path = policy_dir / "retrieval.json"
+    path.write_text(
+        json.dumps(
+            {
+                "id": RETRIEVAL_POLICY_ID,
+                "excluded_domains": list(EXCLUDED_DOMAINS),
+                "note": (
+                    "Best-effort proxy for the OpenRouter post's blocklist, which was never "
+                    "published. Entries are UNVERIFIED — see prepare.EXCLUDED_DOMAINS."
+                ),
+            },
+            indent=1,
+        ),
+        encoding="utf-8",
+    )
+    return path
 
 
 def render_data_table(cases: Sequence[dict[str, Any]], out: Path, route_prefix: str) -> str:
@@ -152,6 +216,11 @@ def render_data_table(cases: Sequence[dict[str, Any]], out: Path, route_prefix: 
         "[data]",
         f'"{route_prefix}/cases" = '
         f'{{ file = "{out}/cases.json", media_type = "application/json" }}',
+        # The retrieval policy an expression names with `;web_search_policy=`. Declared like any
+        # other artifact: that is what puts the blocklist inside the recipe the scoreboard hashes,
+        # instead of in operator config where an unguarded run would hash like an honest one.
+        f'"{route_prefix}/policy/retrieval" = '
+        f'{{ file = "{out}/policy/retrieval.json", media_type = "application/json" }}',
     ]
     # Only the JUDGE-facing criteria are declared as routes. `rubrics/` is deliberately NOT
     # addressable: it carries the weights, and an expression that could fetch one could feed it

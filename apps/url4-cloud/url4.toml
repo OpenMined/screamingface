@@ -33,6 +33,30 @@
 # An expression overrides per call with `;web_search=true|false`. Absent means "as declared", so
 # an expression that never mentions retrieval behaves exactly as it did before the toggle
 # existed. Asking a route that declares neither mechanism to search is a loud error.
+#
+# WHAT a retrieving call may not reach — the blocklist, named by the expression:
+#
+#   ;web_search_policy=/draco/policy/retrieval   a declared [data] route holding
+#                                                {"id": …, "excluded_domains": [...]}
+#   ;web_search_policy=none                      select no benchmark policy
+#   ;web_search_exclude=a.test:b.test            ad-hoc additions, COLON-separated
+#
+# WHY the policy is DATA and named in the EXPRESSION rather than set here: the scoreboard hashes
+# `url4_expression` into a recipe identity, so a blocklist carried in operator config is invisible
+# to it — a run with retrieval unguarded would hash IDENTICALLY to an honest one. Addressing it
+# also lets benchmarks that disagree about what to exclude share these same model routes, which a
+# per-route setting could not.
+#
+# The three layers compose by UNION only — this deployment's list, the policy, and any ad-hoc
+# additions — so a caller can TIGHTEN the guard and can never loosen it. `none` therefore drops
+# only the BENCHMARK's list; the aigateway deployment's list is enforcement and is unreachable
+# from any expression. That split is what lets one mechanism serve a self-service run and a
+# hosted leaderboard.
+#
+# ⚠️ `;web_search_exclude` takes COLONS. A source list splits on `,` at depth 0 before a param
+# value is read, so a comma truncates the value AND turns the remainder into an extra SOURCE of
+# the enclosing group. The runner cannot detect it — same shape as the `;iteration.slice=0,5`
+# trap. Prefer a declared policy route over a long ad-hoc chain.
 
 [aigateway]
 base_url = "http://127.0.0.1:9105"
@@ -231,9 +255,12 @@ id = "openrouter/qwen/qwen3.6-plus"
 #
 #   (/draco/cases*(
 #      answer:0.0:/openrouter/anthropic/claude-opus-4.8(
-#        m0:1.0:/openrouter/anthropic/claude-fable-5($item.input)!'Answer completely.';max_tokens=8192,
-#        m1:1.0:/openrouter/openai/gpt-5.5($item.input)!'Answer completely.';max_tokens=8192
-#      )!'Synthesize the strongest answer.';max_tokens=8192,
+#        m0:1.0:/openrouter/anthropic/claude-fable-5($item.input)!'Answer completely.'
+#          ;max_tokens=8192;web_search_policy=/draco/policy/retrieval,
+#        m1:1.0:/openrouter/openai/gpt-5.5($item.input)!'Answer completely.'
+#          ;max_tokens=8192;web_search_policy=/draco/policy/retrieval
+#      )!'Synthesize the strongest answer.';max_tokens=8192
+#        ;web_search_policy=/draco/policy/retrieval,
 #      graded:1.0:/draco/criteria/$item.id*(
 #        cid:1.0:/read($item.id)!'get',
 #        crit:1.0:/read($item.requirement)!'get',
@@ -285,6 +312,14 @@ id = "openrouter/qwen/qwen3.6-plus"
 #
 #   answer:0.0:     instrumental — referenced as $answer, kept OUT of the row text. A 0.0 binding
 #                   is still in scope; weight 0.0 excludes from the CONTEXT, not from `$name`.
+#
+#   web_search_policy
+#                   the blocklist that keeps a candidate from retrieving the rubric it is graded
+#                   against, on the three ANSWERING calls only. It is deliberately ABSENT from
+#                   the judge call: the judge declares no retrieval, so naming it there is a loud
+#                   error rather than a no-op. Naming it in the expression is also what puts the
+#                   guard inside the recipe the scoreboard hashes — see the retrieval notes at
+#                   the top of this file.
 #
 #   (1,2,3)*        judge_runs=3. The passes are byte-identical on purpose — independence comes
 #                   from judge temperature, not from varying the prompt.
