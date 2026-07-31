@@ -17,12 +17,14 @@ data:
   # INVARIANT: Jobs are created in the release namespace only — this must match the namespace the
   # Role/RoleBinding bind, or the App's ServiceAccount is not authorized to create them.
   URL4_CLOUD_NAMESPACE: {{ .Release.Namespace | quote }}
-  # The Job runs THIS SAME image in its run mode (`url4-cloud run`) — one artifact, two modes.
-  # WHY the App is told its own image rather than discovering it: a process cannot reliably read
+  # The image every Runner Job runs, in its run mode (`url4-cloud run`).
+  # WHY the App is told an image rather than discovering it: a process cannot reliably read
   # back the image reference it was started from (that lives in the pod spec, needs RBAC on pods,
-  # and the Downward API does not expose it). Rendering the same `image:` the Deployment gets is
-  # what keeps the Job and the App on one version through an upgrade.
-  URL4_CLOUD_RUNNER_IMAGE: {{ include "url4-cloud.image" . | quote }}
+  # and the Downward API does not expose it).
+  # Defaults to the Deployment's own `image:` — one artifact, two modes, on one version through an
+  # upgrade. `runner.image` overrides it for a Job-only payload (a benchmark dataset) that must not
+  # reach the control plane; see the helper for why the tag stays paired.
+  URL4_CLOUD_RUNNER_IMAGE: {{ include "url4-cloud.runnerImage" . | quote }}
   {{- with .Values.runner.resources }}
   # The Runner's own requests/limits. Carried as JSON because a ConfigMap value is a string and
   # pydantic-settings parses complex fields as JSON — so the k8s `resources` block travels
