@@ -17,17 +17,31 @@
   input of any kind.
 - **No OAuth.** Credentials in this console are static provider API keys. aigateway's OAuth
   profile/connection endpoints exist but are deliberately not surfaced here.
-- **Design law is the OpenMined Design System**, vendored at `src/brand/tokens/` from
-  `OpenMined/brand.openmined.org`. **Not** the `screamingface-design` skill — this is internal
-  operator tooling, so it wears the parent OpenMined brand. The two systems contradict each other
-  on radius, shadows, gradients, purple and type; do not mix them, and do not "correct" OMDS
-  toward the ScreamingFace rules.
+- **Design law is the `screamingface-design` skill — SFDS v2**, vendored at
+  `src/brand/tokens/tokens.css` from `brand.screamingface.ai`. (This replaced the OpenMined Design
+  System in OME-716; an owner decision reversed by an owner decision. Do not reintroduce OMDS.)
+- **This console is the `app` register, and that is the whole design brief.** v2 ships two:
+  `[data-brand="marketing"]` swaps the accent family to gold, and everything else — the default —
+  takes **blue**. So `--accent-*` (blue) carries every interaction, `--success-*` marks a healthy
+  account, `--danger-*` marks destructive actions, and **`--brand-*`/`--gain-*` (gold) appear
+  nowhere**: gold is "rationed to the win", and an admin console has no win. `design-system.test.ts`
+  asserts this; do not weaken it to land a change.
+- **`--gain` is a trap.** The v1→v2 bridge keeps it resolving, but it now resolves to **gold**
+  where v1 had it green. A surface using it to mean "success" silently changed meaning. Use
+  `--success-*`.
+- **No serif, no radius, no shadow, no gradient.** Parastoo is display/marketing-only and is not
+  loaded; radius is `0` everywhere (`--radius-window` is terminal chrome, which this app lacks);
+  v2 spends its one shadow on the terminal window, so elevation here reads from the seam between
+  `--bg` / `--surface` / `--surface-2`.
 - **Never hardcode a color.** Literal palette values live only in `src/brand/tokens/tokens.css`;
   every other file references a token via `var(--…)`. `npm run lint:css` makes this a merge
-  blocker, not a suggestion. If a color you need does not exist, add it to `tokens.css` first —
-  do not reach around the gate.
-- **The vendored files carry one documented divergence** (font families aliased to CSS variables
-  for `next/font`). Re-syncing means re-applying it and bumping `src/brand/brand-version.txt`.
-  See `src/brand/README.md`.
+  blocker, not a suggestion. If a color you need does not exist, the fix goes **upstream into the
+  system**, not into the vendored copy — that is v2's own round-trip rule.
+- **Never hardcode a font stack either.** It is invisible to the colour gate, which is how
+  `Consolas, Monaco, "Andale Mono"…` survived in two files under the previous system. Use
+  `--f-sans` / `--f-mono`; `design-system.test.ts` enforces it.
+- **The vendored file carries one documented divergence** (four font families aliased to
+  `next/font` CSS variables). Re-syncing means re-applying it and bumping the version string in
+  `src/brand/README.md`.
 - **`npm ci`, never `npm install`,** in gates and CI — it installs from the lockfile and fails on
   drift. `npm install` would silently rewrite the lock and hide it.

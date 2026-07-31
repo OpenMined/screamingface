@@ -4,82 +4,89 @@
  * A CSS Module rather than more globals: these names describe this page only, and scoping them
  * keeps them out of the `ui-` vocabulary that src/components/ui.tsx owns.
  *
- * Every colour is an OMDS token. Raw hex, named colours and rgb()/hsl() literals fail
- * `npm run lint:css` — see stylelint.config.mjs.
+ * Every colour is an SFDS v2 token. Raw hex, named colours and rgb()/hsl() literals fail
+ * `npm run lint:css` — see stylelint.config.mjs. Registers: blue accent for interaction, green for
+ * verified, red for destructive, and NO gold — that is reserved for "the win", which an admin
+ * console does not have.
  */
 
 .breadcrumb {
-  margin-bottom: var(--spacing-L);
-  font-size: 13px;
+  margin-bottom: var(--space-5);
+  font-size: var(--text-sm);
 }
 
 .backLink {
-  color: var(--text-body);
+  color: var(--text-2);
   text-decoration: none;
-  border-bottom: 1px solid transparent;
-  border-radius: var(--border-radius-XS);
+  border-bottom: var(--border-hairline) solid transparent;
   transition:
-    color var(--transition-base),
-    border-color var(--transition-base);
+    color var(--t-fast),
+    border-color var(--t-fast);
 }
 
 .backLink:hover {
-  color: var(--text-headline);
-  border-bottom-color: var(--color-green-600);
+  color: var(--accent-text-high);
+  border-bottom-color: var(--accent-solid);
 }
 
 .backLink:focus-visible {
-  outline: 2px solid var(--color-teal-600);
+  outline: var(--border-strong) solid var(--accent-focus-ring);
   outline-offset: 2px;
 }
 
 /* The tenant's uuid, under the heading. Operators paste it into gateway URLs and log queries, so
-   it is selectable text rather than a tooltip. */
+   it is selectable text rather than a tooltip.
+   `--f-mono` rather than a hand-written stack: the previous literal (Consolas, Monaco, …) bypassed
+   the design system entirely, and a font stack is invisible to the colour gate. Plex Mono also
+   brings `slashed-zero`, which matters for a uuid read back over a call. */
 .identity {
-  margin-bottom: var(--spacing-2XL);
-  font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
-  font-size: 13px;
-  color: var(--text-body);
+  margin-bottom: var(--space-8);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--text-2);
   overflow-wrap: anywhere;
 }
 
+/* Panel tier: --surface sealed by --border, no shadow. v2 uses shadow exactly once (the terminal
+   window); elevation otherwise reads from the seam. */
 .facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--spacing-L) var(--spacing-2XL);
-  padding: var(--spacing-L) var(--spacing-XL);
-  border: 1px solid var(--surface-foreground-default);
-  border-radius: var(--border-radius-S);
-  background-color: var(--surface-background-bright);
-  box-shadow: var(--shadow-sm);
+  gap: var(--space-5) var(--space-8);
+  padding: var(--space-5) var(--space-7);
+  border: var(--border-hairline) solid var(--border);
+  background-color: var(--surface);
 }
 
 .fact {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-3XS);
+  gap: var(--space-1);
 }
 
-/* Matches `.ui-th` so a fact label and a column header read as the same kind of thing. */
+/* Matches `.ui-th` so a fact label and a column header read as the same kind of thing: mono,
+   tracked, uppercase via `text-transform` so screen readers keep the real casing. */
 .factLabel {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-family: var(--f-mono);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--text-body);
+  color: var(--text-2);
 }
 
 .factValue {
-  font-size: 14px;
-  color: var(--text-headline);
+  font-size: var(--text-sm);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .section {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-M);
-  margin-top: var(--spacing-4XL);
+  gap: var(--space-4);
+  margin-top: var(--space-10);
 }
 
 .sectionHead {
@@ -87,24 +94,24 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-M);
+  gap: var(--space-4);
 }
 
-/* Upstream's h2 is 47px, sized for a marketing page. Same step-down, same reason, as
-   `.page-title` in globals.css: this is dense working software read at a desk. */
+/* Plex Sans, not the display serif — v2 anti-rule: never serif in product UI chrome. */
 .sectionTitle {
-  font-size: 20px;
+  font-size: var(--text-lead);
 }
 
 .sectionLede {
-  font-size: 14px;
-  color: var(--text-body);
+  font-size: var(--text-sm);
+  color: var(--text-2);
 }
 
 /* The masked label ("API key ····WXYZ") is a fixed-width string an operator compares against
    another one, so it is set in mono and never wrapped mid-value. */
 .labelCell {
-  font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
   white-space: nowrap;
 }
 
@@ -112,41 +119,40 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--spacing-2XS);
+  gap: var(--space-1);
 }
 
 .confirm {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-S);
+  gap: var(--space-2);
 }
 
+/* `--danger-text-low` is the APCA-solved rung (Lc 75) for danger-coloured text on this surface. */
 .rowError {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-medium);
   line-height: 1.4;
-  color: var(--color-red-600);
+  color: var(--danger-text-low);
 }
 
 .statusPanel {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--spacing-M);
-  padding: var(--spacing-L) var(--spacing-XL);
-  border: 1px solid var(--surface-foreground-default);
-  border-radius: var(--border-radius-S);
-  background-color: var(--surface-background-bright);
-  box-shadow: var(--shadow-sm);
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-7);
+  border: var(--border-hairline) solid var(--border);
+  background-color: var(--surface);
 }
 
 .statusCopy {
-  font-size: 14px;
-  color: var(--text-body);
+  font-size: var(--text-sm);
+  color: var(--text-2);
 }
 
 .statusActions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-S);
+  gap: var(--space-2);
 }

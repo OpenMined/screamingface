@@ -1,0 +1,123 @@
+/*
+ * Element defaults for SFDS v2 on this surface.
+ *
+ * WHY this is written rather than vendored: upstream's `style.css` (42 KB) is the brand site's own
+ * stylesheet — `.rail`, `.masthead`, `.stats`, `.climb`, `.deltawrap`, `.logo-band`, the fusion
+ * gradient, the leaderboard table. Almost none of it applies to an admin console, and the parts
+ * that do (button ladder, table, badge, status) are re-expressed as this app's `.ui-*` primitives
+ * in globals.css. Vendoring it whole would ship ~40 KB of leaderboard CSS that also competes with
+ * the app's own classes.
+ *
+ * What IS vendored is `tokens.css`, verbatim apart from one documented divergence — see
+ * ../README.md. Everything below references those tokens and adds no values of its own.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html {
+  /* `color-scheme` comes from the token file per theme; this makes form controls and scrollbars
+     follow it. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--f-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--text);
+  background-color: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Headings are Plex Sans, not the display serif. v2 anti-rule, stated plainly: "never serif in
+ * product UI chrome, table cells, or buttons". Parastoo is display/marketing only, and this
+ * console has no display type — see ../README.md for why it is not even loaded.
+ */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--f-sans);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--text);
+}
+
+/*
+ * Data, labels, IDs and receipts are mono, and mono carries `tabular-nums slashed-zero`: tabular
+ * keeps columns aligned when a table scrolls, and the slashed zero disambiguates 0 from O in
+ * account IDs and masked key suffixes — which is exactly the kind of string an operator has to
+ * read back over a call.
+ */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+a {
+  color: var(--accent-text-low);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--accent-text-high);
+}
+
+/* Inherit rather than reset: every control in this app is styled by a `.ui-*` class, and a global
+   `appearance: none` would strip the native affordances (select chevron, checkbox tick) that v2
+   expects to be drawn. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: var(--border-strong) solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Square everywhere. `--radius-window` (10px) exists for terminal chrome, which this app has none
+   of, so nothing here may round. */
+* {
+  border-radius: var(--radius-none);
+}
+
+table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

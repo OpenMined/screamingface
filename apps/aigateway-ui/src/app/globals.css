@@ -1,65 +1,85 @@
 /*
- * App-level stylesheet. The design system itself is vendored, not written here — see
- * src/brand/README.md for the upstream commit and the one documented divergence.
+ * App-level stylesheet, on the ScreamingFace Design System v2 — see src/brand/README.md for the
+ * vendored version and the one documented divergence.
  *
- * Order matters: tokens define the custom properties, global applies resets and element
- * defaults on top of them, typography adds the scale utilities.
+ * THE REGISTER IS "app", WHICH IS THE DEFAULT. v2 ships two: `[data-brand="marketing"]` swaps the
+ * accent family to gold, and everything else takes blue. This console is product UI, so:
+ *
+ *   --accent-*   BLUE, and it carries every interaction: buttons, links, focus rings.
+ *   --brand-* / --gain-*  GOLD, "rationed to the win" — the leading leaderboard row, the SOTA
+ *                counter. There is no win in an admin console, so THIS FILE USES NO GOLD AT ALL.
+ *                globals.test.ts asserts that rather than trusting the comment.
+ *   --success-*  green, for "this account is active".
+ *   --danger-*   red, for deactivate and delete.
+ *
+ * Painting a product surface gold because "gold is the ScreamingFace colour" is the marketing
+ * register leaking somewhere the system deliberately kept quiet.
  */
 @import "../brand/tokens/tokens.css";
-@import "../brand/tokens/global.css";
-@import "../brand/tokens/typography.css";
+@import "../brand/tokens/base.css";
 
 /*
- * Everything below is app-specific and MUST reference an OMDS token. Raw hex, named colors and
- * rgb()/hsl() literals on color properties fail `npm run lint:css` — see stylelint.config.mjs.
+ * Everything below MUST reference an SFDS token. Raw hex, named colours and rgb()/hsl() literals
+ * on colour properties fail `npm run lint:css` — including inside shorthands like
+ * `border: 1px solid rgb(…)`, which is the bypass the gate originally missed. See
+ * stylelint.config.mjs.
+ *
+ * Two app-local scalars, because v2 has no motion tokens yet (its motion spec is explicitly a
+ * placeholder). Kept here rather than added to the vendored file so re-pulling stays a clean copy.
  */
+:root {
+  --t-fast: 120ms ease;
+  --t-base: 160ms ease;
+}
 
 /* Full-bleed by owner decision (OME-709): no max-width anywhere. Padding keeps content off the
    window edge; nothing caps the measure. */
 .page {
-  padding: var(--spacing-3XL);
+  padding: var(--space-9);
 }
 
-/* Upstream's h1 is 61px, sized for a marketing page. An admin console is dense working software
-   read at a desk, so the page title steps down to the h4 size while keeping Rubik and the
-   heading token. */
+/* v2's --text-display (38px) is a marketing hero size and is set in Parastoo, which this surface
+   does not load. An admin console read at a desk takes --text-title, in Plex Sans. */
 .page-title {
-  font-size: 27px;
-  margin-bottom: var(--spacing-M);
+  font-size: var(--text-title);
+  margin-bottom: var(--space-4);
 }
 
+/* Mono, uppercase, tracked — v2's kicker role. `text-transform` rather than typed caps, so screen
+   readers receive the real casing. */
 .eyebrow {
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-family: var(--f-mono);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--text-subtle);
-  margin-bottom: var(--spacing-S);
+  color: var(--text-2);
+  margin-bottom: var(--space-2);
 }
 
 .lede {
-  color: var(--text-body);
+  color: var(--text-2);
 }
 
 .notice {
-  margin-top: var(--spacing-3XL);
-  padding: var(--spacing-M) var(--spacing-L);
-  border: 1px solid var(--surface-foreground-default);
-  border-radius: var(--border-radius-S);
-  background: var(--surface-foreground-lowest);
-  color: var(--text-body);
-  font-size: 14px;
+  margin-top: var(--space-9);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-hairline) solid var(--border);
+  background-color: var(--surface);
+  color: var(--text-2);
+  font-size: var(--text-sm);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════
    UI PRIMITIVES — the classes src/components/ui.tsx renders. Nothing else may use the `ui-`
-   prefix; a page that needs a one-off adds its own class and passes it through `className`.
+   prefix; a page needing a one-off adds its own class and passes it through `className`.
 
-   Two rules run through all of it:
-   • Density. Upstream sizes controls for a marketing page (48px inputs, 16px type). An operator
-     scanning forty tenants needs rows, not posters, so controls step down to 36px / 14px.
-   • Contrast over decoration. Tone (good/bad/error) is carried by borders and by the text itself,
-     never by coloured body copy: the tinted palette steps are static values that do not follow
-     the theme, so tone-coloured text drops below 4.5:1 in one mode or the other.
+   Density: v2 sizes its specimens for a brand page. An operator scanning forty tenants needs rows,
+   not posters, so controls sit at 34px with --text-sm.
+
+   Elevation reads from the SEAM, not blur — v2 uses shadow exactly once, on the terminal window,
+   which this app does not have. So: no box-shadow anywhere below. Panels are --surface sealed by
+   --border; wells and inputs are --surface-2 sealed by --border-strong.
    ══════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Button ─────────────────────────────────────────────────────────────────────────────────── */
@@ -68,25 +88,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-S);
-  min-height: 36px;
-  padding: var(--spacing-XS) var(--spacing-L);
-  border: 1px solid transparent;
-  border-radius: var(--border-radius-S);
-  font-family: var(--font-inter), sans-serif;
-  font-size: 14px;
-  font-weight: 500;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-hairline) solid transparent;
+  font-family: var(--f-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   line-height: 1.2;
   white-space: nowrap;
   cursor: pointer;
   transition:
-    background-color var(--transition-base),
-    border-color var(--transition-base),
-    color var(--transition-base);
+    background-color var(--t-fast),
+    border-color var(--t-fast),
+    color var(--t-fast);
 }
 
 .ui-btn:focus-visible {
-  outline: 2px solid var(--color-teal-600);
+  outline: var(--border-strong) solid var(--accent-focus-ring);
   outline-offset: 2px;
 }
 
@@ -95,57 +114,64 @@
   opacity: 0.55;
 }
 
+/* v2's `.btn--primary`: accent-solid fill with the gate-solved contrast text. `-contrast-text` is
+   the token that answers "what is legible on this fill" — under OMDS that was a judgement call
+   this file had to make and document; here the system states it. */
 .ui-btn-primary {
-  background-color: var(--button-dark-color);
-  color: var(--button-light-color);
-  box-shadow: var(--shadow-sm);
+  background-color: var(--accent-solid);
+  color: var(--accent-contrast-text);
+  border-color: var(--accent-solid);
 }
 
-/* OMDS hover is green-600. Its text stays dark rather than following --button-light-color:
-   light-on-green-600 is 3.2:1, dark-on-green-600 is 5.7:1. */
 .ui-btn-primary:hover:not(:disabled) {
-  background-color: var(--color-green-600);
-  color: var(--color-grayscale-950);
+  background-color: var(--accent-solid-hover);
+  border-color: var(--accent-solid-hover);
 }
 
 .ui-btn-primary:active:not(:disabled) {
-  background-color: var(--color-teal-700);
-  color: var(--color-grayscale-50);
+  background-color: var(--accent-component-active);
+  color: var(--accent-text-high);
+  border-color: var(--accent-border-strong);
 }
 
+/* v2's `.btn--sec`: accent outline, transparent fill. */
 .ui-btn-ghost {
   background-color: transparent;
-  color: var(--text-headline);
-  border-color: var(--border-color);
+  color: var(--text);
+  border-color: var(--border-2);
 }
 
-/* Hover reads as green on the border, not on the label — green-600 text on the page surface is
-   3.2:1, which fails AA at 14px. */
 .ui-btn-ghost:hover:not(:disabled) {
-  background-color: var(--surface-foreground-lowest);
-  border-color: var(--color-green-600);
+  background-color: var(--accent-component);
+  border-color: var(--accent-border);
+  color: var(--accent-text-high);
 }
 
 .ui-btn-ghost:active:not(:disabled) {
-  border-color: var(--color-teal-700);
+  background-color: var(--accent-component-active);
+  border-color: var(--accent-border-strong);
 }
 
+/* Destructive stays red through hover — turning it another colour on the way to deleting a
+   credential would be a lie about what the button does. `--danger-text-low` is the APCA-solved
+   text rung (Lc 75); the OMDS build had to avoid coloured text here because the palette left the
+   contrast maths to the caller. */
 .ui-btn-danger {
   background-color: transparent;
-  color: var(--color-red-600);
-  border-color: var(--color-red-600);
+  color: var(--danger-text-low);
+  border-color: var(--danger-border);
 }
 
-/* Destructive stays red through hover — turning it green on the way to deleting a credential
-   would be a lie about what the button does. */
 .ui-btn-danger:hover:not(:disabled) {
-  background-color: var(--color-red-600);
-  color: var(--color-grayscale-00);
+  background-color: var(--danger-solid);
+  color: var(--danger-contrast-text);
+  border-color: var(--danger-solid);
 }
 
 .ui-btn-danger:active:not(:disabled) {
-  background-color: var(--color-red-700);
-  color: var(--color-grayscale-00);
+  background-color: var(--danger-solid-hover);
+  color: var(--danger-contrast-text);
+  border-color: var(--danger-solid-hover);
 }
 
 /* ── Field ──────────────────────────────────────────────────────────────────────────────────── */
@@ -153,129 +179,124 @@
 .ui-field {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2XS);
-  margin-bottom: var(--spacing-L);
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
 }
 
-/* Resets upstream's `label { padding-left: 5px; margin-bottom: 8px }` — the flex gap owns the
-   spacing here, and a hanging indent misaligns the label from its control. */
 .ui-field-label {
   padding-left: 0;
   margin-bottom: 0;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-headline);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text);
 }
 
-/* --text-subtle would be the obvious token for a hint and is deliberately not used: it is
-   3.6:1 on the page surface, below AA for 12px text. */
 .ui-field-hint {
-  font-size: 12px;
+  font-size: var(--text-micro);
   line-height: 1.4;
-  color: var(--text-body);
+  color: var(--text-2);
 }
 
 .ui-field-error {
-  font-size: 12px;
+  font-size: var(--text-micro);
   line-height: 1.4;
-  font-weight: 500;
-  color: var(--color-red-600);
+  font-weight: var(--weight-medium);
+  color: var(--danger-text-low);
 }
 
 /* ── Form controls ──────────────────────────────────────────────────────────────────────────── */
 
+/* Inset tier: --surface-2 sealed by --border-strong. v2 is explicit that wells, tracks and inputs
+   are the recessed surface, which is what makes a form read as inputs-in-a-panel rather than
+   panels-on-a-page without any shadow being involved. */
 .ui-control {
   width: 100%;
-  height: 36px;
-  padding: 0 var(--spacing-M);
-  font-family: var(--font-inter), sans-serif;
-  font-size: 14px;
-  color: var(--text-body);
-  background-color: var(--surface-background-bright);
-  border: 1px solid var(--surface-foreground-high);
-  border-radius: var(--border-radius-S);
-  box-shadow: none;
+  height: 34px;
+  padding: 0 var(--space-3);
+  font-family: var(--f-sans);
+  font-size: var(--text-sm);
+  color: var(--text);
+  background-color: var(--surface-2);
+  border: var(--border-hairline) solid var(--border-2);
   transition:
-    border-color var(--transition-base),
-    outline-color var(--transition-base);
+    border-color var(--t-fast),
+    background-color var(--t-fast);
+}
+
+.ui-control::placeholder {
+  color: var(--text-2);
+  opacity: 0.7;
 }
 
 .ui-control:focus-visible {
-  outline: 2px solid var(--color-teal-600);
+  outline: var(--border-strong) solid var(--accent-focus-ring);
   outline-offset: 1px;
-  border-color: var(--color-teal-600);
+  border-color: var(--accent-border-strong);
 }
 
 .ui-control:disabled {
   cursor: not-allowed;
-  color: var(--color-interactive-disabled);
-  background-color: var(--surface-foreground-lowest);
+  color: var(--text-2);
+  background-color: var(--surface);
 }
 
 .ui-control[aria-invalid="true"] {
-  border-color: var(--color-red-600);
-}
-
-/* Wins over the vendored `[data-theme="dark"] input` rule, which would otherwise sink the control
-   into the page background instead of raising it off it. */
-[data-theme="dark"] .ui-control {
-  background-color: var(--surface-background-bright);
-  border-color: var(--surface-foreground-highest);
+  border-color: var(--danger-border-strong);
 }
 
 /* `.ui-input` and `.ui-thead` carry no declarations on purpose: both elements are fully described
    by `.ui-control` / `.ui-th`, and the extra class is the hook a page uses to reach one of them
    (`.accounts-form .ui-input { … }`) without inventing a selector on the bare element. */
 
-/* Room for the vendored chevron, repositioned for the shorter control. */
 .ui-select {
-  padding-right: var(--spacing-4XL);
-  background-position: right var(--spacing-M) center;
+  padding-right: var(--space-8);
 }
 
 .ui-textarea {
   height: auto;
   min-height: 88px;
-  padding: var(--spacing-S) var(--spacing-M);
+  padding: var(--space-2) var(--space-3);
   line-height: 1.5;
   resize: vertical;
 }
 
 /* ── Table ──────────────────────────────────────────────────────────────────────────────────── */
 
+/* Panel tier: --surface sealed by --border. No shadow — see the block comment above. */
 .ui-table-scroll {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--surface-foreground-default);
-  border-radius: var(--border-radius-S);
-  background-color: var(--surface-background-bright);
-  box-shadow: var(--shadow-sm);
+  border: var(--border-hairline) solid var(--border);
+  background-color: var(--surface);
 }
 
 .ui-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--text-sm);
 }
 
+/* Column headers are the one place v2 sanctions caps: mono, tracked, ≤3 words, and via
+   `text-transform` so the accessibility tree keeps the real casing. */
 .ui-th {
-  padding: var(--spacing-S) var(--spacing-M);
+  padding: var(--space-2) var(--space-3);
   text-align: left;
   white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-family: var(--f-mono);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--text-body);
-  background-color: var(--surface-foreground-lowest);
-  border-bottom: 1px solid var(--surface-foreground-high);
+  color: var(--text-2);
+  background-color: var(--surface-2);
+  border-bottom: var(--border-hairline) solid var(--border);
 }
 
 .ui-td {
-  padding: var(--spacing-S) var(--spacing-M);
+  padding: var(--space-2) var(--space-3);
   vertical-align: top;
-  color: var(--text-body);
-  border-bottom: 1px solid var(--surface-foreground-default);
+  color: var(--text-2);
+  border-bottom: var(--border-hairline) solid var(--border);
 }
 
 .ui-tbody .ui-tr:last-child .ui-td {
@@ -283,43 +304,49 @@
 }
 
 .ui-tbody .ui-tr:hover {
-  background-color: var(--surface-foreground-lowest);
+  background-color: var(--surface-2);
 }
 
 /* ── Notice ─────────────────────────────────────────────────────────────────────────────────── */
 
+/* v2's `.note`: a strong left rule carries the tone. The rule is a non-text indicator, so it can
+   be saturated where the body copy stays neutral and legible. */
 .ui-notice {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2XS);
-  padding: var(--spacing-M) var(--spacing-L);
-  border: 1px solid var(--surface-foreground-default);
-  border-left-width: 4px;
-  border-radius: var(--border-radius-S);
-  background-color: var(--surface-foreground-lowest);
-  color: var(--text-body);
-  font-size: 14px;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--border);
+  border-left-width: var(--space-1);
+  background-color: var(--surface);
+  color: var(--text-2);
+  font-size: var(--text-sm);
 }
 
 .ui-notice-info {
-  border-left-color: var(--color-teal-600);
+  border-left-color: var(--accent-solid);
+  background-color: var(--accent-bg-subtle);
 }
 
+/* --success, NOT --gain. Under v1 those were the same green token; in v2 --gain is GOLD and means
+   "this is the win". An account having a working credential is verified, not a leaderboard result. */
 .ui-notice-success {
-  border-left-color: var(--color-green-600);
+  border-left-color: var(--success-solid);
+  background-color: var(--success-bg-subtle);
 }
 
 .ui-notice-error {
-  border-left-color: var(--color-red-600);
+  border-left-color: var(--danger-solid);
+  background-color: var(--danger-bg-subtle);
 }
 
 .ui-notice-title {
-  font-weight: 600;
-  color: var(--text-headline);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
 }
 
 .ui-notice-body {
-  color: var(--text-body);
+  color: var(--text-2);
 }
 
 /* ── EmptyState ─────────────────────────────────────────────────────────────────────────────── */
@@ -328,56 +355,76 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--spacing-S);
-  padding: var(--spacing-4XL) var(--spacing-2XL);
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-8);
   text-align: center;
-  border: 1px dashed var(--surface-foreground-high);
-  border-radius: var(--border-radius-S);
-  background-color: var(--surface-background-bright);
+  border: var(--border-hairline) dashed var(--border-2);
+  background-color: var(--surface);
 }
 
 .ui-empty-title {
-  font-family: var(--font-rubik), serif;
-  font-size: 20px;
-  line-height: 1.3;
-  color: var(--text-headline);
+  font-family: var(--f-sans);
+  font-size: var(--text-lead);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--text);
 }
 
 .ui-empty-message {
-  font-size: 14px;
-  color: var(--text-body);
+  font-size: var(--text-sm);
+  color: var(--text-2);
 }
 
 .ui-empty-action {
-  margin-top: var(--spacing-S);
+  margin-top: var(--space-2);
 }
 
 /* ── Badge ──────────────────────────────────────────────────────────────────────────────────── */
 
+/* Square, like everything else — v1's pill (`--border-radius-full`) is a v2 anti-rule. Tone rides
+   on the border and a leading square, per v2's `.status` recipe. */
 .ui-badge {
   display: inline-flex;
   align-items: center;
-  padding: var(--spacing-3XS) var(--spacing-S);
-  border: 1px solid var(--surface-foreground-high);
-  border-radius: var(--border-radius-full);
-  background-color: var(--surface-foreground-lowest);
-  color: var(--text-headline);
-  font-size: 12px;
-  font-weight: 500;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-hairline) solid var(--border-2);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font-family: var(--f-mono);
+  font-size: var(--text-micro);
+  font-weight: var(--weight-medium);
   line-height: 1.4;
   white-space: nowrap;
 }
 
+/* The signal square. A 1-cap block ahead of the label, so state is carried by shape AND colour
+   rather than colour alone. */
+.ui-badge::before {
+  content: "";
+  width: var(--space-2);
+  height: var(--space-2);
+  /* `currentColor` so the square inherits whatever tone the variant set on the badge — one
+     declaration instead of one per variant. Spelled camelCase to match the gate's keyword
+     allowlist in stylelint.config.mjs; the property is case-insensitive, the allowlist is not. */
+  background-color: currentColor;
+}
+
 .ui-badge-neutral {
-  border-color: var(--surface-foreground-high);
+  border-color: var(--border-2);
+  color: var(--text-2);
 }
 
 .ui-badge-good {
-  border-color: var(--color-green-600);
+  border-color: var(--success-border);
+  background-color: var(--success-bg-subtle);
+  color: var(--success-text-low);
 }
 
 .ui-badge-bad {
-  border-color: var(--color-red-600);
+  border-color: var(--danger-border);
+  background-color: var(--danger-bg-subtle);
+  color: var(--danger-text-low);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -392,8 +439,8 @@
 .accounts-body {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-4XL);
-  margin-top: var(--spacing-3XL);
+  gap: var(--space-10);
+  margin-top: var(--space-9);
 }
 
 /* Search and the results it filters are one unit, and sit closer together than the page's
@@ -401,11 +448,11 @@
 .accounts-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-M);
+  gap: var(--space-4);
 }
 
 .accounts-failure {
-  margin-top: var(--spacing-3XL);
+  margin-top: var(--space-9);
 }
 
 /* ── Search ─────────────────────────────────────────────────────────────────────────────────── */
@@ -421,17 +468,15 @@
      Shrinking the input is the better trade — the button stays where the eye expects it. */
   flex-wrap: nowrap;
   align-items: flex-start;
-  gap: var(--spacing-M);
+  gap: var(--space-3);
 }
 
 .accounts-search .ui-btn {
   /* label font-size 13px x line-height 1.4, plus the label's bottom gap — the offset that puts
      this button's box on the same line as the input beside it. */
-  margin-top: calc(18px + var(--spacing-2XS));
+  margin-top: calc(18px + var(--space-1));
 }
 
-/* The label sits above the input, so the row aligns on its baseline, not its box: `.ui-field`
-   carries a bottom margin for stacked forms that would push the button out of line here. */
 /* `flex: 0 1` — a basis it may shrink from but never grow past. With `1 1` the field expanded to
    fill the whole toolbar row and pushed the Search button onto a second line. This sizes the
    control without reintroducing a `max-width` (removed everywhere by owner decision, OME-709). */
@@ -447,60 +492,67 @@
    screen reader announces "12 accounts" on entering the grid instead of leaving the count as a
    loose sentence somewhere before it. */
 .accounts-caption {
-  padding: var(--spacing-S) var(--spacing-M);
+  padding: var(--space-2) var(--space-3);
   text-align: left;
-  font-size: 13px;
-  color: var(--text-body);
-  background-color: var(--surface-background-bright);
-  border-bottom: 1px solid var(--surface-foreground-default);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  background-color: var(--surface);
+  border-bottom: var(--border-hairline) solid var(--border);
 }
 
 /* The address cell is a `<th scope="row">` for navigation, not for emphasis — so it drops the
-   column header's uppercase strip and reads as an ordinary cell. */
+   column header's mono uppercase strip and reads as an ordinary cell. */
 .accounts-table .ui-tbody .ui-th {
-  font-size: 14px;
-  font-weight: 500;
+  font-family: var(--f-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   letter-spacing: normal;
   text-transform: none;
   white-space: normal;
   vertical-align: top;
   background-color: transparent;
-  border-bottom: 1px solid var(--surface-foreground-default);
+  border-bottom: var(--border-hairline) solid var(--border);
 }
 
 .accounts-table .ui-tbody .ui-tr:last-child .ui-th {
   border-bottom: none;
 }
 
-/* Hover moves the underline to green, not the label: green-600 text on this surface is 3.2:1 and
-   fails AA at 14px, while an underline is a non-text indicator and only owes 3:1. */
+/* Blue is interaction in the app register, and `--accent-text-low` is the APCA-solved rung for
+   text on this surface — so the link can simply BE the accent colour. The OMDS build had to keep
+   links neutral and move the tone onto the underline, because that palette left the contrast
+   maths to the caller. */
 .accounts-link {
-  color: var(--text-headline);
+  color: var(--accent-text-low);
   text-decoration: underline;
-  text-decoration-color: var(--surface-foreground-highest);
+  text-decoration-color: var(--accent-border);
   text-underline-offset: 3px;
-  border-radius: var(--border-radius-XS);
-  transition: text-decoration-color var(--transition-base);
+  transition:
+    color var(--t-fast),
+    text-decoration-color var(--t-fast);
 }
 
 .accounts-link:hover {
-  text-decoration-color: var(--color-green-600);
+  color: var(--accent-text-high);
+  text-decoration-color: var(--accent-solid);
 }
 
 .accounts-link:focus-visible {
-  outline: 2px solid var(--color-teal-600);
+  outline: var(--border-strong) solid var(--accent-focus-ring);
   outline-offset: 2px;
 }
 
-/* Italic, not a lighter colour: --text-subtle is 3.6:1 here, and a missing display name is worth
-   reading, not worth hiding. */
+/* Italic, not a lighter colour: a missing display name is worth reading, not worth hiding. */
 .accounts-blank {
   font-style: italic;
 }
 
+/* Mono for a timestamp: tabular figures keep the column aligned as rows scroll. */
 .accounts-when {
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--f-mono);
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 
 /* ── Provision section ──────────────────────────────────────────────────────────────────────── */
@@ -510,17 +562,15 @@
   flex-direction: column;
 }
 
-/* Upstream's h2 is 47px, sized for a marketing page. Same reasoning as `.page-title`: this is
-   dense working software, so a section heading steps down to the h5 size. */
 .accounts-heading {
-  font-size: 21px;
-  margin-bottom: var(--spacing-S);
+  font-size: var(--text-lead);
+  margin-bottom: var(--space-2);
 }
 
 .accounts-section-lede {
-  margin-bottom: var(--spacing-L);
-  font-size: 14px;
-  color: var(--text-body);
+  margin-bottom: var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--text-2);
 }
 
 .accounts-create {
@@ -535,17 +585,27 @@
 .accounts-create-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  column-gap: var(--spacing-L);
+  column-gap: var(--space-5);
   width: 100%;
 }
 
 .accounts-create-notice {
   width: 100%;
-  margin-bottom: var(--spacing-L);
+  margin-bottom: var(--space-5);
 }
 
 .accounts-retry {
-  margin-top: var(--spacing-M);
+  margin-top: var(--space-4);
+}
+
+/* The list header carries the primary action, so it sits beside the count rather than at the
+   bottom of the page under the table. */
+.accounts-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 /* ── App bar ────────────────────────────────────────────────────────────────────────────────── */
@@ -556,44 +616,52 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-M);
-  padding: var(--spacing-S) var(--spacing-3XL);
-  border-bottom: 1px solid var(--surface-foreground-default);
-  background-color: var(--surface-background-bright);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-9);
+  min-height: var(--rail-h);
+  border-bottom: var(--border-hairline) solid var(--border);
+  background-color: var(--surface);
 }
 
+/* The wordmark is Plex Sans medium — v2 moved it off Rubik. Mark first in any lockup. */
 .app-bar-mark {
-  font-family: var(--font-rubik), serif;
-  font-size: 15px;
-  color: var(--text-headline);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--f-wordmark);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text);
 }
 
 .theme-switch {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-2XS);
-  padding: var(--spacing-2XS) var(--spacing-S);
-  border: 1px solid var(--surface-foreground-high);
-  border-radius: var(--border-radius-S);
-  background-color: var(--surface-background-default);
-  color: var(--text-body);
-  font: inherit;
-  font-size: 13px;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-hairline) solid var(--border-2);
+  background-color: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--f-mono);
+  font-size: var(--text-micro);
   cursor: pointer;
-  transition: border-color var(--transition-base);
+  transition:
+    border-color var(--t-fast),
+    color var(--t-fast);
 }
 
 .theme-switch:hover {
-  border-color: var(--color-green-600);
+  border-color: var(--accent-border);
+  color: var(--accent-text-high);
 }
 
 .theme-switch:focus-visible {
-  outline: 2px solid var(--color-teal-600);
+  outline: var(--border-strong) solid var(--accent-focus-ring);
   outline-offset: 2px;
 }
 
 .theme-switch-icon {
-  font-size: 14px;
+  font-size: var(--text-sm);
   line-height: 1;
 }
 
@@ -602,70 +670,59 @@
 /* A native <dialog>: it brings focus trapping, Escape-to-close, inertness of the page behind it
    and top-layer stacking with no library and no z-index arithmetic. */
 .tenant-dialog {
-  /* `margin: auto` restores the centering a native <dialog> does for itself. OMDS's reset sets
-     `* { margin: 0 }`, which strips it and leaves the modal pinned to the top-left corner. */
+  /* `margin: auto` restores the centering a native <dialog> does for itself. The reset sets
+     `* { margin: 0 }` — as OMDS's did — which strips it and pins the modal to the top-left. */
   margin: auto;
   padding: 0;
-  border: 1px solid var(--surface-foreground-default);
-  border-radius: var(--border-radius-S);
-  background-color: var(--surface-background-bright);
-  color: var(--text-body);
-  box-shadow: var(--shadow-lg);
-  width: min(46rem, calc(100vw - 2 * var(--spacing-3XL)));
+  /* --border-strong, not a shadow. v2 uses shadow exactly once, on the terminal window; elevation
+     otherwise reads from the seam. A heavier border is how a modal separates from the page here. */
+  border: var(--border-strong) solid var(--border-2);
+  background-color: var(--surface);
+  color: var(--text);
+  width: min(46rem, calc(100vw - 2 * var(--space-9)));
 }
 
 .tenant-dialog::backdrop {
-  /* Token-driven: a literal rgba() here would be invisible to the OMDS gate. */
-  background-color: var(--color-grayscale-950);
-  opacity: 0.55;
+  /* Token-driven: a literal rgba() here would be invisible to the colour gate. */
+  background-color: var(--bg);
+  opacity: 0.8;
 }
 
 .tenant-dialog-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--spacing-M);
-  padding: var(--spacing-L) var(--spacing-XL);
-  border-bottom: 1px solid var(--surface-foreground-low);
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-7);
+  border-bottom: var(--border-hairline) solid var(--border);
 }
 
 .tenant-dialog-title {
-  font-size: 20px;
+  font-size: var(--text-lead);
   margin: 0;
 }
 
 .tenant-dialog-body {
-  padding: var(--spacing-XL);
+  padding: var(--space-7);
 }
 
 .tenant-dialog-close {
-  border: 1px solid transparent;
-  border-radius: var(--border-radius-S);
+  border: var(--border-hairline) solid transparent;
   background: none;
-  color: var(--text-subtle);
+  color: var(--text-2);
   font: inherit;
-  font-size: 18px;
+  font-size: var(--text-lead);
   line-height: 1;
-  padding: var(--spacing-2XS) var(--spacing-XS);
+  padding: var(--space-1) var(--space-2);
   cursor: pointer;
 }
 
 .tenant-dialog-close:hover {
-  color: var(--text-headline);
-  border-color: var(--surface-foreground-high);
+  color: var(--text);
+  border-color: var(--border-2);
 }
 
 .tenant-dialog-close:focus-visible {
-  outline: 2px solid var(--color-teal-600);
+  outline: var(--border-strong) solid var(--accent-focus-ring);
   outline-offset: 2px;
-}
-
-/* The list header carries the primary action, so it sits beside the count rather than at the
-   bottom of the page under the table. */
-.accounts-toolbar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--spacing-M);
-  flex-wrap: wrap;
 }

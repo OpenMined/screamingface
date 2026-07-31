@@ -5,7 +5,7 @@ import { useCallback, useSyncExternalStore } from "react";
 /**
  * Light/dark for the console.
  *
- * The vendored OMDS tokens key dark mode off `[data-theme="dark"]` on `<html>` and carry NO
+ * The vendored SFDS tokens key dark mode off `[data-theme="dark"]` on `<html>` and carry NO
  * `prefers-color-scheme` rule, so nothing happens unless something sets that attribute. This
  * module is that something.
  *
