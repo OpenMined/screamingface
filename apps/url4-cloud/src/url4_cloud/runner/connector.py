@@ -327,7 +327,7 @@ def _provider_of(model: str) -> str:
     return "anthropic"
 
 
-def _report_usage(model: str, usage: dict | None) -> None:
+def _report_usage(model: str, usage: dict | None, response_model: object = None) -> None:
     if usage is None:
         return
     sink = current_usage_sink()
@@ -338,6 +338,10 @@ def _report_usage(model: str, usage: dict | None) -> None:
         model=model,
         input_tokens=usage.get("prompt_tokens", 0),
         output_tokens=usage.get("completion_tokens", 0),
+        # The gateway echoes the model that actually served the call, which may be a dated
+        # snapshot behind the alias we asked for. Only a string is forwarded: this comes off an
+        # upstream JSON body, and a non-string here would otherwise reach the wire schema.
+        response_model=response_model if isinstance(response_model, str) else None,
     )
 
 
@@ -422,7 +426,7 @@ async def _chat_completion_loop(
         )
         _raise_for_status(resp)
         data = _json_or_raise(resp)
-        _report_usage(model, data.get("usage"))
+        _report_usage(model, data.get("usage"), data.get("model"))
         content, tool_calls = _parse_choice(data)
         if not tool_calls:
             return content or ""
