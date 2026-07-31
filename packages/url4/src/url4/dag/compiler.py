@@ -288,6 +288,14 @@ def _lower_expression(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     )
 
 
+_ROW_NAMES = frozenset({"item", "current"})
+"""The reserved per-row names (§5.3.4) — never wired from an enclosing binding.
+
+Mirrors the exclusion `_refs_of_ast` already applies when collecting AST references, so the
+text path and the AST path agree on which names an iteration rebinds for itself.
+"""
+
+
 def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, Iteration)
     collection = _lower_collection(node.collection, registry)
@@ -295,11 +303,36 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
         body=node.body,
         intent=node.intent,
         directives=node.directives,
-        deps={"collection": collection},
+        # WHY the body's references become EDGES: the body is re-parsed per row at resolve time,
+        # so the compiler cannot see its `$name`s by walking the AST — it must read them out of
+        # the text. Without these edges the enclosing group's bindings never reach the spawned
+        # row, and a reference the grammar admits (§6.2 — `item-ref` reserves the NAME `$item`
+        # inside a body, it does not close the scope) substituted VERBATIM instead. Silently:
+        # the leaf received the literal `$ans`.
+        deps={"collection": collection, **_body_ref_edges(node.body, node.intent, edges)},
     )
     if node.reducer is not None:
         return ReduceNode(node.reducer, deps={"rows": map_node})
     return CollectNode(deps={"rows": map_node})
+
+
+def _body_ref_edges(body: str, intent: str | None, edges: Edges) -> dict[str, DagNode]:
+    """Reference edges for the `$name`s an iteration's body and per-row intent mention.
+
+    INVARIANT: ``item`` and ``current`` are excluded. They are the RESERVED row names (§5.3.4),
+    rebound per row by :class:`~url4.dag.nodes.MapNode`; wiring one to an enclosing binding of
+    the same name would let an outer value capture the row and silently iterate the wrong data.
+
+    An edge is added only for a name the enclosing group actually declares, so a body that
+    references nothing gains no dependency and keeps its previous concurrency.
+    """
+    refs = find_references(body) | (find_references(intent) if intent else set())
+    wired: dict[str, DagNode] = {}
+    for ref in sorted(refs - _ROW_NAMES):
+        key = f"pos:{ref}" if ref.isdigit() else f"bind:{ref}"
+        if key in edges:
+            wired[key] = edges[key]
+    return wired
 
 
 def _lower_collection(node: Node, registry: LoweringRegistry) -> DagNode:
