@@ -55,6 +55,7 @@ from .litellm_controls import (
     _has_unsafe_litellm_global_state,
     _strip_openrouter_litellm_controls,
 )
+from .observations import ROUTING_POLICY_OBSERVATIONS
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
 from .provenance import converter_error_status, is_http200_body_error
 from .response_errors import (
@@ -66,6 +67,7 @@ from .response_errors import (
 from .response_errors import (
     _top_level_error_is_meaningful as _top_level_error_is_meaningful,
 )
+from .routing_policy import build_provider_policy
 from .settings import (
     GATEWAY_MODEL_PREFIX,
     OpenRouterPluginSettings,
@@ -117,28 +119,10 @@ _TRUSTED_ATTRIBUTION = {
     "X-Title": "ScreamingFace",
 }
 
-# OME-651: the gateway-owned strict-routing policy, forced on EVERY chat dispatch.
-#
-# WHY: OpenRouter defaults ``provider.require_parameters`` to false and documents
-# that an endpoint which does not support a supplied parameter may still receive the
-# request and ignore the unknown field. Without this, gateway acceptance, a published
-# ``enabled`` status and a successful projection can all hold while the parameter has
-# no effect — HTTP 200, silently wrong. Per-model evidence cannot close the gap: one
-# OpenRouter model is served by several endpoints with different parameter support,
-# so only the provider knows which one can honor this request.
-#
-# INVARIANT: a successful OpenRouter completion means the selected endpoint declared
-# support for EVERY supplied parameter. The alternative is an explicit provider
-# refusal, never a silent discard.
-#
-# AIDEV-NOTE: this is policy, NOT a projected caller parameter — which is why it sits
-# beside ``api_base``/``extra_headers`` rather than in ``extra_body`` (the projection's
-# native-target output). The two are equivalent on the wire: litellm folds a non-OpenAI
-# dispatch kwarg into ``extra_body``, then the OpenRouter transform flattens
-# ``extra_body`` onto the top level. That double indirection is a litellm behaviour, not
-# a promise, so ``test_openrouter_strict_routing`` pins the FINAL wire JSON against the
-# installed version — if it ever changes, strictness would vanish silently.
-_STRICT_ROUTING_PROVIDER = {"require_parameters": True}
+# AIDEV-NOTE (OME-704): the gateway-owned strict-routing policy moved to
+# routing_policy.py, which now BUILDS the whole `provider` object rather than
+# assigning a constant. Its WHY/INVARIANT block moved with it, so the rationale sits
+# beside the code that enforces it.
 
 # Caller copies of auth, host/framing, and attribution headers are dropped
 # before the gateway injects its own (D7). Lower-cased for comparison.
@@ -255,9 +239,13 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # OME-584: response_format is likewise ruled → ENABLED, evidenced here.
         # OME-585: seed is already evidenced by the sampling constant; n (a non-sampling
         # control) is evidenced here alongside response_format — both ruled → ENABLED.
+        # OME-704: the five price/privacy routing controls are ruled → ENABLED, and
+        # carry their OWN source label (openrouter:routing-policy) because they are
+        # evidence about routing behaviour, not about the model's sampling surface.
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
         return (
             REVIEWED_ENDPOINT_OBSERVATIONS
+            + ROUTING_POLICY_OBSERVATIONS
             + tool_parameter_observations(
                 openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
                 source=LOCAL_SOURCE,
@@ -342,12 +330,16 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # value; request-local api_base beats every LiteLLM global/env
         # fallback (litellm 1.87.0 main.py precedence).
         out["api_base"] = OFFICIAL_API_BASE
-        # OME-651: assignment, never a merge. The classifier already refuses a caller
-        # `provider` as unknown, so nothing should be here — but the two layers are
-        # deliberately independent, and a merge would let a `require_parameters: false`
-        # that ever slipped through survive. A fresh dict per request keeps one caller
-        # from mutating the policy the next one gets.
-        out["provider"] = dict(_STRICT_ROUTING_PROVIDER)
+        # OME-651 + OME-704: RECONSTRUCTION, never a merge. The classifier already
+        # refuses a caller `provider` as unknown, so the only thing legitimately here
+        # is what projection wrote for the five reviewed routing controls — but the
+        # two layers are deliberately independent, so the boundary rebuilds the
+        # object from its own allowlist (re-validating each value) and forces
+        # `require_parameters` last. An unexpected key or shape is refused with a
+        # sanitized 503 rather than dropped: silently discarding it could silently
+        # discard an accepted price ceiling or data policy. A fresh dict per request
+        # keeps one caller from mutating the policy the next one gets.
+        out["provider"] = build_provider_policy(out.pop("provider", None))
         return out
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:

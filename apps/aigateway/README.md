@@ -100,6 +100,15 @@ Multi-worker deployments (`uvicorn --workers N` or a process manager equivalent)
 MUST set `AIGATEWAY_JWT_SECRET` explicitly. The generated database fallback is a
 local/single-worker convenience only.
 
+## Chat parameters
+
+`GET /v1/model-parameters` publishes the authoritative per-model contract: which optional
+parameters are enabled, their JSON Schema, and each one's cache behavior. Provider-native
+parameters are addressed under a `provider_params` object rather than at the top level.
+
+OpenRouter callers can additionally constrain a request by unit price and downstream data policy —
+see [OpenRouter price and privacy routing controls](docs/openrouter-routing-controls.md).
+
 ## Google Code Assist providers
 
 Gemini and Antigravity both use Google's Code Assist OAuth/token contract, with

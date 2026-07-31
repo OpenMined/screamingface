@@ -244,20 +244,18 @@ async def chat_completions(request: Request, response: Response, current: Curren
             },
         ) from None
 
-    # OME-479 §4.6 (closure Unit 1): resolve the cache POLICY from the accepted
-    # caller-visible contract, while that view still exists. prepare_chat_body may
-    # remove, rename, flatten or nest an accepted field (anthropic drops
-    # reasoning_effort="none", which is what omission already means), and the body
-    # it hands to the key builder would then be indistinguishable from a bare
-    # prompt — silently making a request the contract calls `bypass` cacheable.
-    # INVARIANT: what the detailed contract publishes for a request path and what
-    # the pipeline does with that path are derived from the SAME rule, so they
-    # cannot drift per provider or per value.
+    body = plugin.prepare_chat_body(body)
+
+    # OME-479 §4.6 (closure Unit 1): resolve the cache POLICY from the preserved
+    # caller-visible contract after provider preparation has accepted its projected
+    # state. prepare_chat_body may remove, rename, flatten or nest an accepted field
+    # (anthropic drops reasoning_effort="none", which is what omission already means),
+    # so the prepared body alone could silently make a declared bypass look cacheable.
+    # INVARIANT: reconstruction failures precede ALL cache planning; successful
+    # requests still derive cache behavior from the same rule the contract publishes.
     cache_bypass_paths = caller_cache_bypass_paths(
         caller_parameters, rules=rules, auth_mode=auth_mode
     )
-
-    body = plugin.prepare_chat_body(body)
 
     # Cache key is computed from the normalized body, before credential
     # injection, so no secret-bearing field can ever participate in the key.

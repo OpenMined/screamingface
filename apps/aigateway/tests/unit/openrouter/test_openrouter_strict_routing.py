@@ -28,6 +28,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 
 from aigateway.core.parameter_projection import classify_and_project_chat_parameters
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
@@ -224,17 +225,35 @@ def test_a_caller_provider_object_is_refused_before_dispatch(
 
 def test_the_boundary_overwrites_a_provider_that_reaches_it() -> None:
     # Second layer, independent of the first: even handed a body that already carries
-    # a permissive `provider`, the boundary assigns the policy rather than merging
-    # into it — so a future loosening upstream cannot weaken the wire value.
+    # a permissive `provider`, the boundary never lets that value shape the wire — so
+    # a future loosening upstream cannot weaken what OpenRouter receives.
+    #
+    # AIDEV-NOTE (OME-704): the scenario is UNCHANGED; the outcome is now the
+    # stronger one reconstruction mandates. `prepare_chat_body` no longer assigns
+    # over a projected `provider` — it REBUILDS the object from an allowlist of the
+    # five validated routing targets, and `allow_fallbacks`/`order` are not locations
+    # it can write. An unexpected member is therefore REFUSED (sanitized 503) rather
+    # than overwritten, because silently dropping one could also silently drop an
+    # accepted price ceiling or data policy. "Cannot weaken the wire value" still
+    # holds — nothing reaches the wire at all. `require_parameters` remains
+    # gateway-owned and is simply forced, proven unchanged by
+    # test_openrouter_routing_policy_wire.
     plugin = OpenRouterProviderPlugin()
-    body = plugin.prepare_chat_body(
-        {
-            "model": _MODEL,
-            "messages": list(_MESSAGES),
-            "provider": {"require_parameters": False, "allow_fallbacks": True, "order": ["x"]},
-        }
-    )
-    assert body["provider"] == _STRICT
+    with pytest.raises(HTTPException) as excinfo:
+        plugin.prepare_chat_body(
+            {
+                "model": _MODEL,
+                "messages": list(_MESSAGES),
+                "provider": {"require_parameters": False, "allow_fallbacks": True, "order": ["x"]},
+            }
+        )
+    assert excinfo.value.status_code == 503
+    assert excinfo.value.detail == {
+        "code": "provider_unavailable",
+        "message": "OpenRouter dispatch is unavailable",
+    }
+    # …and the permissive values never appear in what the client is told.
+    assert "allow_fallbacks" not in repr(excinfo.value.detail)
 
 
 def test_the_policy_object_is_not_shared_between_requests() -> None:

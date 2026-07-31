@@ -34,6 +34,8 @@ from aigateway.core.standard_parameters import (
     provider_native_rule,
 )
 
+from .routing_policy import routing_policy_rules
+
 # OpenRouter is API-key only (no OAuth); its auth-mode intersection is a single
 # mode, so every proven rule is enabled under it.
 _AUTH: tuple[AuthMode, ...] = ("api_key",)
@@ -123,6 +125,14 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         schema=OPENROUTER_TOP_K_SCHEMA,
         projection_revision=_REVISION,
     ),
+    # OME-704: the reviewed price + privacy routing controls. Note what this is NOT:
+    # it is not a rule for `provider`. The five leaves each own ONE documented
+    # `provider.*` location, and the plugin RECONSTRUCTS the upstream object from
+    # that allowlist — so the excluded members of `provider` (order / only / ignore
+    # / allow_fallbacks / quantizations) stay unreachable, and the gateway-owned
+    # `require_parameters` stays gateway-owned. The table, the schemas and the
+    # per-control rationale live in routing_policy.py.
+    *routing_policy_rules(auth_modes=_AUTH, projection_revision=_REVISION),
     # OME-583: tools + tool_choice (OpenAI-native, §9 proof).
     *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),
 )
