@@ -362,28 +362,61 @@ def _as_provider(value: object, label: str, *, allow_media_type: bool = False) -
 # --- backend handlers ------------------------------------------------------------
 
 
-def make_command_handler(argv: Sequence[str], timeout: float) -> EndpointHandler:
+COMMAND_STDIN_SOURCES = ("context", "intent")
+"""Which half of the :class:`~url4.peer.server.Request` a command route receives on stdin.
+
+The legal set lives HERE because :func:`make_command_handler` is the only thing that can honour
+it. A second consumer (the url4-cloud Runner's ``[commands]`` table) validates by passing the
+operator's string through and translating the ``ValueError``, rather than keeping a copy that is
+free to drift.
+"""
+
+
+def make_command_handler(
+    argv: Sequence[str], timeout: float, *, stdin: str = "context"
+) -> EndpointHandler:
     """An intent processor that runs a local subprocess (doctrine N4).
 
     The argv template mirrors the full :class:`~url4.peer.server.Request` surface a
-    Python endpoint handler sees (1:1): ``{intent}``, ``{context}`` (also piped
-    to stdin), ``{param:<name>}`` (one decoded protocol param, "" when absent),
+    Python endpoint handler sees (1:1): ``{intent}``, ``{context}``,
+    ``{param:<name>}`` (one decoded protocol param, "" when absent),
     and ``{params}`` (the whole mapping as JSON, for backends that want
     everything).
 
-    # AIDEV-NOTE: security — the argv is OPERATOR config; only the piped stdin
-    # (resolved context) and the token substitutions are caller-influenced.
+    ``stdin`` selects what is PIPED, independently of what is substituted — a route
+    reading its payload from the pipe still gets ``{context}`` in argv. It defaults to
+    ``"context"``, which is the only behaviour that existed before and what a bare
+    ``cat`` route relies on.
+
+    WHY the selector exists: a single argv token is capped by the kernel at
+    ``MAX_ARG_STRLEN`` (32 pages = 131,072 bytes) regardless of ``ARG_MAX``, and exec
+    fails outright with ``OSError [Errno 7]`` rather than truncating. A processor whose
+    intent is engine-supplied — a cross-row reducer receives the JSON array of every row
+    result — crosses that in ordinary use, and argv is then simply the wrong channel.
+    A pipe has no such bound.
+
+    # AIDEV-NOTE: security — the argv is OPERATOR config; only the piped stdin and the
+    # token substitutions are caller-influenced. Selecting ``intent`` does not widen
+    # that: intent is already caller-influenced and already reachable as ``{intent}``.
+    # It NARROWS exposure — an argv token is visible in /proc/<pid>/cmdline to every
+    # local reader, while a pipe is not, so a large payload belongs on stdin on those
+    # grounds alone.
     # No shell: exec an argv LIST, never a command string.
     # INVARIANT: substitution is single-pass — tokens are recognized in the
     # operator's template only, so a "{param:x}" (or "{intent}") appearing in
     # caller-supplied intent, context, or param values stays literal instead
-    # of cascading (blocks token-injection through caller input).
+    # of cascading (blocks token-injection through caller input). stdin has never
+    # been a substitution target, so the selector cannot affect that.
     """
+    if stdin not in COMMAND_STDIN_SOURCES:
+        raise ValueError(f"stdin must be one of {list(COMMAND_STDIN_SOURCES)}, got {stdin!r}")
     template = tuple(argv)
+    want_intent = stdin == "intent"
 
     async def handler(request: Request) -> str:
         command = _subst_all(template, request)
-        return await _run_command(command, request.context, timeout)
+        piped = request.intent if want_intent else request.context
+        return await _run_command(command, piped, timeout)
 
     return handler
 
@@ -613,6 +646,7 @@ async def _lifespan(receive: Callable, send: Callable, node: Url4Node) -> None:
 
 
 __all__ = [
+    "COMMAND_STDIN_SOURCES",
     "ConfigError",
     "DataCallable",
     "EndpointHandler",
