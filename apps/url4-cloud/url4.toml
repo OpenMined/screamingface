@@ -14,12 +14,25 @@
 #
 # Each route is a TABLE, not a bare id, so its capabilities are declared beside it:
 #
-#   web_tools   Offer the Tavily-backed web_search/web_fetch tool loop to this model.
-#               Defaults to FALSE — a route gets tools only by declaring it. Declaring it does
-#               not by itself enable anything: the deployment must ALSO supply TAVILY_API_KEY,
-#               or the route serves plain completions (see `runner/connector.py`). Enabling it
-#               changes the request the model sees (a `tools`/`tool_choice` payload, then extra
-#               round trips feeding results back), which is why it is per-route, not global.
+#   web_tools          Offer the Tavily-backed web_search/web_fetch tool loop to this model.
+#                      The RUNNER drives it: it declares OpenAI-shape functions, the model asks,
+#                      the runner searches and feeds results back. For providers with no
+#                      server-side search of their own. Needs TAVILY_API_KEY in the deployment,
+#                      or the route serves plain completions (see `runner/connector.py`).
+#
+#   native_web_search  The PROVIDER runs the search and answers with retrieval already done.
+#                      No runner loop, no second search backend, and the provider's own controls
+#                      apply — including domain exclusion, which is how a benchmark candidate is
+#                      kept from retrieving the rubric it is graded against. Prefer this wherever
+#                      a provider offers it: it is the surface published scores were produced on.
+#
+# Both default to FALSE — a route retrieves only by declaring it, never by inheriting the mere
+# presence of a key. Declaring BOTH is rejected at parse: the request would carry two tool
+# populations and DOUBLE-DISPATCH, searching twice per turn and billing for both.
+#
+# An expression overrides per call with `;web_search=true|false`. Absent means "as declared", so
+# an expression that never mentions retrieval behaves exactly as it did before the toggle
+# existed. Asking a route that declares neither mechanism to search is a loud error.
 
 [aigateway]
 base_url = "http://127.0.0.1:9105"
@@ -30,11 +43,21 @@ default_route = "/claude-haiku-4-5"
 allow_outbound = true
 
 # --- anthropic — unprefixed ids -----------------------------------------------------------
-# web_tools OFF: the plugin dispatches OpenAI-shape tool calls through litellm, which IS the
-# shape `_WEB_TOOLS` declares, so the loop is expected to round-trip — but that has not been
-# verified end-to-end against a live Anthropic credential, and only verified routes opt in.
+# This provider has no server-side search the gateway can reach, so the runner-driven Tavily
+# loop is the ONLY retrieval available here — which is exactly why that mechanism stays.
+#
+# `claude-opus-4-8` carries it; the rest stay off. One route rather than five because the loop
+# is still UNVERIFIED against a live Anthropic credential: the plugin dispatches OpenAI-shape
+# tool calls through litellm, which IS the shape `_WEB_TOOLS` declares, so it is expected to
+# round-trip — expected is not verified, and declaring it on five routes would multiply one
+# unconfirmed claim rather than test it. Verify this route, then widen.
+#
+# It is also the config's only declared consumer of the Tavily path, which
+# `test_no_route_declares_web_tools_it_cannot_use` requires: with the OpenRouter routes moved to
+# `native_web_search`, nothing else exercises that code, and an unreachable retrieval loop rots.
 [[aigateway.models]]
 id = "claude-opus-4-8"
+web_tools = true
 
 [[aigateway.models]]
 id = "claude-opus-4-7"
@@ -94,18 +117,32 @@ id = "antigravity/gemini-3-flash"
 # CAVEAT: unlike the four static catalogs above, this list is env-overridable at deploy time
 # (AIGW_OPENROUTER_DEFAULT_MODELS), so the pinning test can only hold it to the seeds compiled
 # into the plugin — a deployment that overrides them is on its own.
-# web_tools: verified end-to-end through OpenRouter's OpenAI-shape tool calling.
+# native_web_search: the PROVIDER retrieves and answers with the search already done — no runner
+# loop and no second search backend. The runner asks the GATEWAY for this with a provider-
+# agnostic `web_search: true`; aigateway decides which providers can honor it and translates it
+# into that provider's own spelling (`prepare_chat_body`). Nothing here knows what OpenRouter
+# calls it, which is what keeps provider knowledge out of the runner.
+#
+# The Tavily loop (`web_tools`) remains for providers with no server-side search of their own.
+# It is a different mechanism, not a substitute.
+#
+# ⚠️ DO NOT "fix" this into a `tools: [{"type": "openrouter:web_search"}]` payload. That spelling
+# appears in OpenRouter's server-tool docs and in `screamingface-benchmarks`
+# (`runners/llm_client.py::build_openrouter_tool_params`), and it is INERT: measured live
+# 2026-07-31 it returns HTTP 200 with zero `annotations`, no web-search line in `cost_details`,
+# and an answer written from the model's training cutoff. A route declaring retrieval that
+# silently does not retrieve is the worst failure shape available here.
 [[aigateway.models]]
 id = "openrouter/openai/gpt-5.5"
-web_tools = true
+native_web_search = true
 
 [[aigateway.models]]
 id = "openrouter/anthropic/claude-opus-4.8"
-web_tools = true
+native_web_search = true
 
 [[aigateway.models]]
 id = "openrouter/anthropic/claude-fable-5"
-web_tools = true
+native_web_search = true
 
 # The DRACO judge. arXiv:2602.11685 §4.2 PINS this model, and a different judge materially
 # changes the scores — so a benchmark expression names it explicitly rather than inheriting
@@ -164,9 +201,10 @@ id = "openrouter/google/gemini-3.1-pro-preview"
 # case. Three nesting levels.
 #
 #   (/draco/cases*(
-#      answer:0.0:/claude-sonnet-4-5(
-#        m0:1.0:/claude-opus-4-8($item.input)!'Answer completely.'
-#      )!'Synthesize the strongest answer.',
+#      answer:0.0:/openrouter/anthropic/claude-opus-4.8(
+#        m0:1.0:/openrouter/anthropic/claude-fable-5($item.input)!'Answer completely.';max_tokens=8192,
+#        m1:1.0:/openrouter/openai/gpt-5.5($item.input)!'Answer completely.';max_tokens=8192
+#      )!'Synthesize the strongest answer.';max_tokens=8192,
 #      graded:1.0:/draco/criteria/$item.id*(
 #        cid:1.0:/read($item.id)!'get',
 #        crit:1.0:/read($item.requirement)!'get',
@@ -179,6 +217,23 @@ id = "openrouter/google/gemini-3.1-pro-preview"
 #        )!'collect'
 #      )!'criterion'
 #    )!'case')!/benchmark(aggregate)!'x'
+#
+# That fusion is the paper's `fable_plus_gpt` (panel: fable-5 + gpt-5.5, synthesizer: opus-4.8),
+# the OpenRouter post's strongest at 69.0%.
+#
+# ROUTES — why OpenRouter and not the Anthropic-native ids. DRACO's whole lineup is OpenRouter
+# slugs (`screamingface-benchmarks/benchmarks_config/draco.yaml`: "calls go through OpenRouter,
+# default for closed models"), so `/openrouter/anthropic/claude-opus-4.8` is the SAME dispatch
+# path the published numbers were produced on, while `/claude-opus-4-8` is a different provider
+# path to a same-named model. It is also the only family whose retrieval is verified: DRACO is a
+# deep-research benchmark, the paper treats retrieval as mandatory, and `native_web_search = true`
+# is declared on exactly these three routes — measured live, not assumed. Answering through the
+# Anthropic-native routes would silently produce weights-only answers and score well below the
+# reference chart.
+#
+# CAVEAT: the paper's `max_calls_per_row: 12` has no equivalent here. The cap that exists is the
+# runner's own `web_tool_max_calls_per_turn`, and it bounds a TURN rather than a row — so a
+# published score cannot claim that budget was honoured.
 #
 # Five things in that shape are load-bearing:
 #

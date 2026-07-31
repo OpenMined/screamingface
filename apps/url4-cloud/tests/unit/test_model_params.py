@@ -126,7 +126,7 @@ async def test_no_parameters_leaves_the_body_untouched() -> None:
 
 @pytest.mark.parametrize(
     "field",
-    ["model", "messages", "tools", "tool_choice", "stream"],
+    ["model", "messages", "tools", "tool_choice", "stream", "web_search_excluded_domains"],
 )
 @pytest.mark.asyncio
 async def test_a_runner_owned_field_is_rejected(field: str) -> None:
