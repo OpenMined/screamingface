@@ -29,7 +29,7 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
         <nav class="space-y-6">
           <div v-for="section in navigation" :key="section.title">
             <!-- An empty section title renders no heading, letting an item sit ungrouped. -->
-            <h3 v-if="section.title" class="px-3 text-xs font-normal tracking-widest text-muted-foreground uppercase mb-2">
+            <h3 v-if="section.title" class="px-3 text-xs font-semibold tracking-widest text-muted-foreground/70 uppercase mb-3">
               {{ section.title }}
             </h3>
             <ul class="space-y-1">
