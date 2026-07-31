@@ -11,7 +11,8 @@ One image ships two modes, and the whole point of that shape is a rule about wha
 
   Control plane: app · rest · ws · auth · catalog · config · metrics · ops · schemas
                  adapters.k8s · adapters.factory    (FastAPI, uvicorn, the kubernetes client)
-  Run mode:      runner.executor (the url4 engine) · runner.connector · runner.config
+  Run mode:      runner.executor (the url4 engine) · runner.connector · runner.commands
+                 runner.config
 
   Shared leaves, importable by BOTH: job_env · subjects · adapters.jetstream
 

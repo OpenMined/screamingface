@@ -9,8 +9,6 @@ import pytest
 import screamingface as sf
 from screamingface import _default_client
 
-DIGEST = f"sha256:{'a' * 64}"
-
 
 def _sync_client(handler: Callable[[httpx.Request], httpx.Response]) -> sf.Client:
     client = sf.Client(engine_url="https://engine.example")
@@ -56,17 +54,9 @@ def _benchmarks(_: httpx.Request) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "benchmarks": [
-                {
-                    "name": "draco-lite",
-                    "id": "draco-lite",
-                    "title": "DRACO Lite",
-                    "manifest_digest": DIGEST,
-                    "case_count": 1,
-                    "primary_metric": "normalized_score",
-                    "score_direction": "maximize",
-                }
-            ]
+            "object": "list",
+            "default": "draco-lite",
+            "data": [{"id": "draco-lite", "object": "benchmark"}],
         },
     )
 
@@ -87,17 +77,7 @@ def test_explicit_client_lists_typed_models_and_benchmarks() -> None:
         sf.ModelInfo(id="anthropic/claude-haiku-4-5", provider="anthropic"),
         sf.ModelInfo(id="openrouter/openai/gpt-5.5", provider="openrouter"),
     )
-    assert benchmarks == (
-        sf.BenchmarkInfo(
-            name="draco-lite",
-            id="draco-lite",
-            manifest_digest=DIGEST,
-            title="DRACO Lite",
-            case_count=1,
-            primary_metric="normalized_score",
-            score_direction="maximize",
-        ),
-    )
+    assert benchmarks == ("draco-lite",)
 
 
 @pytest.mark.asyncio
@@ -107,7 +87,7 @@ async def test_async_client_has_the_same_catalogue_interface() -> None:
 
     async with _async_client(handler) as client:
         assert (await client.models.list())[0].id == "anthropic/claude-haiku-4-5"
-        assert (await client.benchmarks.list())[0].id == "draco-lite"
+        assert (await client.benchmarks.list())[0] == "draco-lite"
 
 
 def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any) -> None:
@@ -138,8 +118,56 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
         ("/v1/models", {"object": "wrong", "data": []}, "model catalogue"),
         ("/v1/models", {"object": "list", "data": "wrong"}, "data array"),
         ("/v1/models", {"object": "list", "data": [None]}, "entry must be an object"),
-        ("/v1/benchmarks", {"benchmarks": "wrong"}, "benchmarks array"),
-        ("/v1/benchmarks", {"benchmarks": [None]}, "entry must be an object"),
+        ("/v1/benchmarks", [], "must be an object"),
+        ("/v1/benchmarks", {"object": "wrong", "data": []}, "object must be 'list'"),
+        (
+            "/v1/benchmarks",
+            {"object": "list", "default": "draco", "data": "wrong"},
+            "data array",
+        ),
+        (
+            "/v1/benchmarks",
+            {"object": "list", "default": "draco", "data": [None]},
+            "entry must be an object",
+        ),
+        (
+            "/v1/benchmarks",
+            {
+                "object": "list",
+                "default": "draco",
+                "data": [{"id": "draco", "object": "wrong"}],
+            },
+            "entry object",
+        ),
+        (
+            "/v1/benchmarks",
+            {
+                "object": "list",
+                "default": "draco",
+                "data": [
+                    {"id": "draco", "object": "benchmark"},
+                    {"id": "draco", "object": "benchmark"},
+                ],
+            },
+            "duplicate id",
+        ),
+        (
+            "/v1/benchmarks",
+            {
+                "object": "list",
+                "default": "missing",
+                "data": [{"id": "draco", "object": "benchmark"}],
+            },
+            "default 'missing' is not installed",
+        ),
+        (
+            "/v1/benchmarks",
+            {
+                "object": "list",
+                "data": [{"id": "draco", "object": "benchmark"}],
+            },
+            "declare default",
+        ),
     ],
 )
 def test_catalogues_reject_malformed_engine_payloads(

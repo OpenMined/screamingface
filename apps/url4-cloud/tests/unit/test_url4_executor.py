@@ -500,16 +500,17 @@ def _imports_url4_engine(py_file: Path) -> bool:
     return False
 
 
-_ALLOWED_URL4_IMPORTERS = frozenset({"executor.py", "connector.py"})
+_ALLOWED_URL4_IMPORTERS = frozenset({"executor.py", "connector.py", "commands.py"})
 
 
-def test_only_url4_executor_module_imports_url4() -> None:
-    """The ENGINE (`url4.dag`, `url4.peer`, …) has exactly two importers in the whole app.
+def test_only_runner_adapters_import_the_url4_engine() -> None:
+    """The ENGINE (`url4.dag`, `url4.peer`, …) has exactly three importers in the whole app.
 
     `url4.streaming` is exempt — it is the wire contract, which both halves speak. This scans
     the whole distribution now rather than a separate runner tree: merging the two packages
     means the control-plane modules are in scope too, so the guard covers strictly more code
-    than it did when it could only see the separate runner source tree.
+    than it did when it could only see the separate runner source tree. The three adapters are
+    deliberately narrow: expression execution, AI Gateway model routes, and subprocess routes.
     """
     offenders = [
         py_file

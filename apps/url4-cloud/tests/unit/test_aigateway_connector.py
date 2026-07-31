@@ -362,6 +362,34 @@ async def test_aigateway_http_errors_map_to_resolution_error(
     assert exc_info.value.permanent is expected_permanent
 
 
+async def test_aigateway_timeout_maps_to_transient_resolution_error() -> None:
+    model = "anthropic/claude-haiku-4-5"
+    cfg = AigatewayConfig(
+        models=(ModelSpec(id=model),),
+        default_model=model,
+        timeout_s=300.0,
+    )
+
+    def timeout(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("", request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(timeout),
+        base_url="http://aigateway.test",
+    ) as client:
+        world = await build_aigateway_world(cfg, client=client)
+
+        with pytest.raises(ResolutionError) as exc_info:
+            await url4_run(f"/{model}(ctx)!go", io=world.node)
+
+    assert exc_info.value.code == "aigateway_timeout"
+    assert exc_info.value.permanent is False
+    assert str(exc_info.value) == (
+        "aigateway did not respond within 300 seconds "
+        "for model 'anthropic/claude-haiku-4-5'"
+    )
+
+
 async def test_default_model_must_be_one_of_the_declared_models() -> None:
     gw = _MockAigateway(("openrouter/gpt-4o",))
     cfg = AigatewayConfig(

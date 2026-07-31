@@ -15,29 +15,33 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "ModelInfo",
         "CandidateResult",
         "Client",
+        "Connection",
+        "ConnectionPanel",
+        "connect",
+        "connections",
+        "disconnect",
         "Event",
         "ExecutionError",
+        "evaluate",
         "Failure",
         "Fusion",
         "MemberResult",
         "Model",
         "PlanningError",
+        "ProviderConnectionError",
         "Recipe",
-        "Reducer",
         "Report",
         "ScreamingFaceError",
         "Usage",
         "benchmarks",
         "events",
         "models",
-        "reducers",
     }
     for removed in (
         "config",
         "Plan",
         "Candidate",
         "Operation",
-        "evaluate",
         "plan",
         "run",
         "Benchmark",
@@ -50,10 +54,13 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "PlannedOperation",
         "CandidateReport",
         "MemberReport",
+        "Reducer",
+        "reducers",
     ):
         assert not hasattr(sf, removed)
     assert sf.models.__all__ == ["list"]
     assert sf.benchmarks.__all__ == ["list"]
+    assert sf.connections.__all__ == ["Connection", "ConnectionStatus", "get", "list"]
     assert report.__all__ == [
         "CandidateResult",
         "Failure",
@@ -61,6 +68,31 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "Report",
         "Usage",
     ]
+
+
+def test_module_evaluate_delegates_to_the_lazy_default_client(monkeypatch: Any) -> None:
+    sentinel = object()
+    calls: list[tuple[object, str | None, int | None]] = []
+
+    class FakeClient:
+        def evaluate(
+            self,
+            candidates: object,
+            *,
+            benchmark: str | None = None,
+            limit: int | None = None,
+            **_: object,
+        ) -> object:
+            calls.append((candidates, benchmark, limit))
+            return sentinel
+
+    monkeypatch.setattr(_default_client, "default_client", lambda: FakeClient())
+
+    candidates = object()
+    result = sf.evaluate(candidates, limit=1)  # type: ignore[arg-type]
+
+    assert result is sentinel
+    assert calls == [(candidates, None, 1)]
 
 
 def test_default_client_is_lazy_and_reads_environment_once(

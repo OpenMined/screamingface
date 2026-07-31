@@ -46,13 +46,18 @@ def is_valid_upstream_model_id(value: object) -> bool:
 def _default_model_slugs() -> list[str]:
     """URL4 leaf seeds in gateway form — recommended bootstrap metadata (D8).
 
-    All three were present in the live OpenRouter catalog on 2026-07-15;
+    These routes cover the full DRACO solo and Fusion lineup;
     re-check at release. Never treat this list as an authorization boundary.
     """
     return [
         "openrouter/anthropic/claude-fable-5",
         "openrouter/openai/gpt-5.5",
         "openrouter/anthropic/claude-opus-4.8",
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter/google/gemini-3-flash-preview",
+        "openrouter/moonshotai/kimi-k2.6",
+        "openrouter/deepseek/deepseek-v4-pro",
+        "openrouter/qwen/qwen3.6-plus",
     ]
 
 

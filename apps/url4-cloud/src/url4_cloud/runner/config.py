@@ -11,9 +11,10 @@ OpenRouter) and ``openrouter/anthropic/claude-opus-4.8`` into ``/anthropic/claud
 Aliases were also collision-dependent, so adding a model elsewhere in the catalog could
 silently REMOVE an alias an expression depended on.
 
-The file format mirrors ``url4 serve``'s (``url4.cli._serve``). ``[data]``, ``[commands]``,
-``[holdings]`` and ``[identities]`` are reserved here but not parsed yet — declaring one is a
-loud error rather than a silent no-op, so a config that looks like it works actually does.
+The file format mirrors ``url4 serve``'s (``url4.cli._serve``). ``[commands]`` declares local
+subprocess-backed URL4 routes. ``[data]``, ``[holdings]`` and ``[identities]`` remain reserved
+but unsupported — declaring one is a loud error rather than a silent no-op, so a config that
+looks like it works actually does.
 
 # AIDEV-NOTE: this loader deliberately duplicates ~120 lines of `_serve.py`'s tested parsing
 # rather than depending on it — `_serve` is a private CLI module in `packages/url4`, and the
@@ -23,6 +24,7 @@ loud error rather than a silent no-op, so a config that looks like it works actu
 
 from __future__ import annotations
 
+import shlex
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -36,8 +38,10 @@ wiring: the App never writes that variable — the file is baked into the image.
 
 _AIGATEWAY_KEYS = frozenset({"base_url", "default_route", "models", "allow_outbound", "timeout_s"})
 _MODEL_KEYS = frozenset({"id", "web_tools"})
-_RESERVED_TABLES = frozenset({"data", "commands", "holdings", "identities"})
-_TOP_LEVEL_KEYS = frozenset({"aigateway"})
+_RESERVED_TABLES = frozenset({"data", "holdings", "identities"})
+_TOP_LEVEL_KEYS = frozenset({"aigateway", "commands", "timeout"})
+_EVAL_PATH = "/v1"
+_DEFAULT_COMMAND_TIMEOUT_S = 120.0
 
 
 class RunnerConfigError(ValueError):
@@ -76,10 +80,20 @@ class AigatewaySection:
 
 
 @dataclass(frozen=True, slots=True)
+class CommandSpec:
+    """One operator-declared URL4 route and its shell-free argv template."""
+
+    path: str
+    argv: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class RunnerConfig:
-    """The whole declared world. ``aigateway is None`` is a legitimate tokenless world."""
+    """The whole declared world. An empty config is a legitimate deny-by-default world."""
 
     aigateway: AigatewaySection | None = None
+    commands: tuple[CommandSpec, ...] = ()
+    command_timeout_s: float = _DEFAULT_COMMAND_TIMEOUT_S
 
 
 def routes_for(models: Sequence[ModelSpec]) -> dict[str, ModelSpec]:
@@ -108,11 +122,18 @@ def parse_config(raw: Mapping[str, object], env: Mapping[str, str]) -> RunnerCon
     """Validate a parsed TOML mapping into a :class:`RunnerConfig`. Fail-fast."""
     _reject_unsupported_tables(raw)
     table = raw.get("aigateway")
-    if table is None:
-        return RunnerConfig()
-    if not isinstance(table, Mapping):
+    if table is not None and not isinstance(table, Mapping):
         raise RunnerConfigError(f"[aigateway] must be a table, got {table!r}")
-    return RunnerConfig(aigateway=_parse_aigateway(table, env))
+    aigateway = None if table is None else _parse_aigateway(table, env)
+    commands = _commands(raw.get("commands"))
+    _reject_route_collisions(aigateway, commands)
+    return RunnerConfig(
+        aigateway=aigateway,
+        commands=commands,
+        command_timeout_s=_positive_float(
+            raw.get("timeout"), "timeout", _DEFAULT_COMMAND_TIMEOUT_S
+        ),
+    )
 
 
 def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
@@ -126,8 +147,49 @@ def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
     unknown = sorted(declared - _TOP_LEVEL_KEYS - _RESERVED_TABLES)
     if unknown:
         raise RunnerConfigError(
-            f"unknown top-level table(s) {unknown} (expected {sorted(_TOP_LEVEL_KEYS)})"
+            f"unknown top-level key(s) {unknown} (expected {sorted(_TOP_LEVEL_KEYS)})"
         )
+
+
+def _commands(value: object) -> tuple[CommandSpec, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, Mapping):
+        raise RunnerConfigError(f"[commands] must be a table, got {value!r}")
+    commands = tuple(CommandSpec(path=str(path), argv=_argv(argv)) for path, argv in value.items())
+    for command in commands:
+        if not command.path.startswith("/"):
+            raise RunnerConfigError(f"command path {command.path!r} must start with '/'")
+        if command.path == _EVAL_PATH or command.path.startswith(f"{_EVAL_PATH}/"):
+            raise RunnerConfigError(
+                f"command path {command.path!r} is reserved by the URL4 eval route {_EVAL_PATH!r}"
+            )
+        if not command.argv:
+            raise RunnerConfigError(f"command {command.path!r} has an empty argv")
+    return commands
+
+
+def _argv(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        try:
+            return tuple(shlex.split(value))
+        except ValueError as exc:
+            raise RunnerConfigError(f"command string is malformed: {exc}") from exc
+    if isinstance(value, list):
+        if not all(isinstance(item, str) for item in value):
+            raise RunnerConfigError(f"command argv entries must all be strings, got {value!r}")
+        return tuple(value)
+    raise RunnerConfigError(f"command must be a string or list, got {value!r}")
+
+
+def _reject_route_collisions(
+    aigateway: AigatewaySection | None, commands: tuple[CommandSpec, ...]
+) -> None:
+    if aigateway is None:
+        return
+    collisions = sorted(set(routes_for(aigateway.models)) & {command.path for command in commands})
+    if collisions:
+        raise RunnerConfigError(f"command routes clash with aigateway model routes {collisions}")
 
 
 def _parse_aigateway(table: Mapping[str, object], env: Mapping[str, str]) -> AigatewaySection:
@@ -258,9 +320,22 @@ def _float(table: Mapping[str, object], key: str, default: float) -> float:
         raise RunnerConfigError(f"[aigateway] {key} must be a number, got {value!r}") from None
 
 
+def _positive_float(value: object, key: str, default: float) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        raise RunnerConfigError(f"{key} must be a number, got {value!r}") from None
+    if parsed <= 0:
+        raise RunnerConfigError(f"{key} must be positive, got {parsed}")
+    return parsed
+
+
 __all__ = [
     "DEFAULT_CONFIG_PATH",
     "AigatewaySection",
+    "CommandSpec",
     "RunnerConfig",
     "RunnerConfigError",
     "load_config",

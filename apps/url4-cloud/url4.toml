@@ -4,10 +4,10 @@
 # exist; env supplies only per-Job values (the token, and optional base_url / model overrides).
 #
 # INVARIANT: a route path is exactly "/" + the gateway id. No renaming, no aliases. `id`
-# entries must match aigateway's `/v1/models` ids EXACTLY — note that Anthropic's ids are
-# UNPREFIXED (`claude-haiku-4-5`), the `anthropic/` prefix appearing only in litellm_params,
-# while every other provider prefixes. `tests/unit/test_declared_models_match_aigateway.py`
-# fails if this list drifts from the plugins' MODELS.
+# entries must match aigateway's `/v1/models` ids EXACTLY. Every provider model uses its
+# canonical provider-prefixed id, including Anthropic (`anthropic/claude-haiku-4-5`).
+# `tests/unit/test_declared_models_match_aigateway.py` fails if this list drifts from the
+# plugins' declared models.
 #
 # Adding a model is a deliberate, reviewable edit: these paths are a public naming surface that
 # url4 expressions depend on.
@@ -21,9 +21,12 @@
 #               changes the request the model sees (a `tools`/`tool_choice` payload, then extra
 #               round trips feeding results back), which is why it is per-route, not global.
 
+timeout = 120
+
 [aigateway]
 base_url = "http://127.0.0.1:9105"
-default_route = "/claude-haiku-4-5"
+timeout_s = 300
+default_route = "/anthropic/claude-haiku-4-5"
 
 # Absolute-URL sources (`https://…`) are a real url4 feature and a Url4Node world has always
 # been able to fetch them. Set false to hand the node a denying outbound layer instead.
@@ -34,19 +37,19 @@ allow_outbound = true
 # shape `_WEB_TOOLS` declares, so the loop is expected to round-trip — but that has not been
 # verified end-to-end against a live Anthropic credential, and only verified routes opt in.
 [[aigateway.models]]
-id = "claude-opus-4-8"
+id = "anthropic/claude-opus-4-8"
 
 [[aigateway.models]]
-id = "claude-opus-4-7"
+id = "anthropic/claude-opus-4-7"
 
 [[aigateway.models]]
-id = "claude-sonnet-4-6"
+id = "anthropic/claude-sonnet-4-6"
 
 [[aigateway.models]]
-id = "claude-sonnet-4-5"
+id = "anthropic/claude-sonnet-4-5"
 
 [[aigateway.models]]
-id = "claude-haiku-4-5"
+id = "anthropic/claude-haiku-4-5"
 
 # --- codex ---------------------------------------------------------------------------------
 # web_tools stays OFF: these dispatch through the Codex OAuth backend, whose tool-call handling
@@ -107,14 +110,46 @@ web_tools = true
 id = "openrouter/anthropic/claude-fable-5"
 web_tools = true
 
-# RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not
-# parse them yet; declaring one is a loud config error, never a silent no-op:
+[[aigateway.models]]
+id = "openrouter/google/gemini-3.1-pro-preview"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/google/gemini-3-flash-preview"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/moonshotai/kimi-k2.6"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/deepseek/deepseek-v4-pro"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/qwen/qwen3.6-plus"
+web_tools = true
+
+# Local subprocess-backed URL4 routes use the same shell-free argv templates as `url4 serve`.
+# The resolved context is piped to stdin; templates may also use {context}, {intent}, {params},
+# and {param:<name>}. `timeout = 120` at the top level controls their maximum run time.
+#
+# These remaining `url4 serve` tables are reserved but unsupported by the Runner. Declaring one
+# is a loud config error, never a silent no-op:
 #
 #   [data]        "/corpus/papers" = { file = "…", media_type = "application/json" }
-#   [commands]    "/python" = ["python3", "/opt/tools/run.py", "{intent}"]
 #   [holdings]    default = { file = "…" }
 #   [identities]
 #
 # ollama / huggingface build their model lists at runtime from local installs or fetched slugs,
 # so they are undeclarable here by construction; a deployment that serves them adds its own
 # entries.
+
+[commands]
+"/benchmark" = [
+  "python3",
+  "-m",
+  "url4_cloud.benchmarks",
+  "--intent",
+  "{intent}",
+]

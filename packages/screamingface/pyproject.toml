@@ -27,18 +27,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/screamingface"]
 
-[tool.hatch.build.targets.sdist]
-exclude = [
-    "/examples/draco-eval-demo",
-]
-
 [tool.uv.sources]
 url4 = { path = "../url4", editable = true }
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-exclude = ["examples/draco-eval-demo"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]

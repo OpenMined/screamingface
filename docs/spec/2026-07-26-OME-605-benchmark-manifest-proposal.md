@@ -36,7 +36,7 @@ Four owner decisions unblock implementation:
 1. **Manifest resource:** confirm the stable-name and immutable-revision routes, caller
    authentication, media type, and not-found/unauthorized errors.
 2. **Identity:** confirm that the canonical YAML bytes are returned with an immutable Benchmark
-   ID and digest, and that changing any score-affecting rule creates a new revision.
+   ID and that changing any score-affecting rule creates a new revision.
 3. **Compilation ABI:** confirm which strict typed manifest fields or graph templates let the
    Client construct Candidate → grade → aggregate URL4 without Benchmark-specific Client code.
 4. **First DRACO revision:** identify the exact cases, prompts, Tool policy, Judge, passes,
@@ -53,15 +53,12 @@ Accept: application/yaml
 200 OK
 Content-Type: application/yaml
 Content-Location: /v1/benchmarks/draco@1/manifest
-ETag: "sha256:..."
-Content-Digest: sha-256=:...:
 ```
 
 The manifest needs only the common envelope and the typed sections that affect scientific
 meaning:
 
 ```yaml
-schema: screamingface.benchmark-manifest.v1
 id: draco@1
 title: DRACO
 
@@ -118,8 +115,6 @@ The stable-name request returns the currently selected immutable revision and it
 ```http
 Content-Type: application/yaml
 Content-Location: /v1/benchmarks/draco@1/manifest
-ETag: "sha256:..."
-Content-Digest: sha-256=:...:
 Cache-Control: no-cache
 ```
 
@@ -135,7 +130,6 @@ stable-name alias must always revalidate.
 Every manifest has the same top-level shape:
 
 ```yaml
-schema: screamingface.benchmark-manifest.v1
 id: example@1
 
 cases: {}
@@ -288,8 +282,7 @@ runtime JSON `CandidateResult` for the independently executed Candidate:
 {
   "schema": "screamingface.candidate-result.v1",
   "benchmark": {
-    "id": "draco@1",
-    "manifest_digest": "sha256:..."
+    "id": "draco@1"
   },
   "case_counts": {
     "selected": 5,
@@ -351,8 +344,7 @@ An exhausted failed Case therefore returns a valid but unscored Candidate Result
 {
   "schema": "screamingface.candidate-result.v1",
   "benchmark": {
-    "id": "draco@1",
-    "manifest_digest": "sha256:..."
+    "id": "draco@1"
   },
   "case_counts": {
     "selected": 5,
@@ -415,14 +407,12 @@ The values below demonstrate the intended shape. The Engine owner must still pin
 production routes, prompts, judge identity, and Tool policy before publishing `draco@1`.
 
 ```yaml
-schema: screamingface.benchmark-manifest.v1
 id: draco@1
 title: DRACO
 description: Research-quality rubric evaluation.
 
 cases:
   route: /benchmarks/draco/1/cases
-  schema: screamingface.draco-case-input.v1
   count: 100
   ordering: stable
 
@@ -556,8 +546,6 @@ hidden evaluation data.
 
 The Engine must guarantee that a versioned Benchmark route and any workflow it references cannot
 change semantics in place. If Cases or behavior change, the Benchmark receives a new revision.
-The HTTP `Content-Digest` verifies the exact served YAML without embedding a circular digest
-inside the file.
 
 ## Strict YAML profile
 
@@ -630,8 +618,7 @@ paper-exact.
 
 ## Owner questions
 
-1. Will the Engine expose one immutable manifest endpoint with a canonical revision URL and
-   digest?
+1. Will the Engine expose one immutable manifest endpoint with a canonical revision URL?
 2. Which exact versioned schemas define `single_turn`, `native_chat`, `multi_turn`, `workflow`,
    `rubric`, `sandbox`, and the aggregation protocols?
 3. What common Case, Candidate outcome, grade, and aggregation contracts let the Client compile

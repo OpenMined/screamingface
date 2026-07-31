@@ -38,8 +38,6 @@ def _validate(paths: tuple[PurePosixPath, ...], *, source: bool) -> None:
     forbidden_parts = {
         ".ipynb_checkpoints",
         "__pycache__",
-        "draco-eval-demo",
-        "screamingface-engine",
     }
     leaked = sorted(
         str(path)

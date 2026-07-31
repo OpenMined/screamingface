@@ -15,8 +15,6 @@ from screamingface._evaluation import (
     _operation_from_engine,
 )
 
-DIGEST = f"sha256:{'a' * 64}"
-
 
 def planned_candidate(name: str = "opus") -> Candidate:
     return _candidate_from_engine(
@@ -42,7 +40,6 @@ def evaluation_plan(
         benchmark=sf.BenchmarkInfo(
             name="draco",
             id="draco@1",
-            manifest_digest=DIGEST,
             title="DRACO",
             case_count=100,
             primary_metric="normalized_score",
@@ -51,8 +48,8 @@ def evaluation_plan(
         limit=1,
         case_count=1,
         candidates=candidates or (planned_candidate(),),
-        capability_profile="profile:1",
         required_capabilities=("web_search",),
+        required_models=("provider/opus", "provider/judge"),
         operation_counts={"model": 1, "aggregation": 1},
     )
 
@@ -299,7 +296,6 @@ def test_planned_candidate_rejects_invalid_state(factory: object, message: str) 
         ({"limit": 0}, "limit"),
         ({"case_count": 0}, "case_count"),
         ({"limit": 1, "case_count": 2}, "case_count"),
-        ({"capability_profile": " "}, "capability_profile"),
         ({"required_capabilities": ("web_search", "web_search")}, "unique"),
         ({"operation_counts": {"model": -1}}, "operation count"),
     ],
@@ -312,7 +308,6 @@ def test_evaluation_plan_rejects_invalid_state(
         "benchmark": sf.BenchmarkInfo(
             name="draco",
             id="draco@1",
-            manifest_digest=DIGEST,
             title="DRACO",
             case_count=100,
             primary_metric="normalized_score",
@@ -321,8 +316,8 @@ def test_evaluation_plan_rejects_invalid_state(
         "limit": 1,
         "case_count": 1,
         "candidates": (planned_candidate(),),
-        "capability_profile": "profile:1",
         "required_capabilities": ("web_search",),
+        "required_models": ("provider/opus", "provider/judge"),
         "operation_counts": {"model": 1},
     }
     values.update(overrides)
@@ -388,10 +383,14 @@ def test_evaluate_rejects_invalid_candidate_inputs(candidates: object) -> None:
             client.evaluate(cast(Any, candidates), benchmark="draco")
 
 
-def test_evaluate_requires_a_benchmark_for_recipe_candidates() -> None:
+@pytest.mark.parametrize("benchmark", ["", " ", 1])
+def test_evaluate_rejects_invalid_benchmark_overrides(benchmark: object) -> None:
     with sf.Client() as client:
-        with pytest.raises(TypeError, match="benchmark"):
-            cast(Any, client.evaluate)(sf.Model("provider/opus"))
+        with pytest.raises(ValueError, match="benchmark"):
+            client.evaluate(
+                sf.Model("provider/opus"),
+                benchmark=cast(Any, benchmark),
+            )
 
 
 def test_evaluate_does_not_accept_an_imported_url4() -> None:

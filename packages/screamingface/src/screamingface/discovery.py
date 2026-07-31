@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -27,7 +26,6 @@ class BenchmarkInfo:
 
     name: str
     id: str
-    manifest_digest: str
     title: str
     case_count: int
     primary_metric: str
@@ -40,12 +38,6 @@ class BenchmarkInfo:
                 name,
                 _nonblank(getattr(self, name), f"Benchmark {name}"),
             )
-        digest = _nonblank(self.manifest_digest, "Benchmark manifest_digest")
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
-            raise ValueError(
-                "Benchmark manifest_digest must be 'sha256:' plus 64 lowercase hex digits"
-            )
-        object.__setattr__(self, "manifest_digest", digest)
         if (
             isinstance(self.case_count, bool)
             or not isinstance(self.case_count, int)
@@ -64,7 +56,6 @@ class BenchmarkInfo:
             raise ValueError("Report case_count cannot exceed its Benchmark case_count")
         return {
             "id": self.id,
-            "manifest_digest": self.manifest_digest,
             "primary_metric": self.primary_metric,
             "score_direction": self.score_direction,
             "case_count": case_count,

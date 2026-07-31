@@ -8,8 +8,6 @@ import pytest
 import screamingface as sf
 from screamingface._evaluation import Operation, _operation_from_engine
 
-DIGEST = f"sha256:{'a' * 64}"
-
 NOW = datetime(2026, 7, 25, 16, 0, tzinfo=UTC)
 
 
@@ -71,7 +69,6 @@ def benchmark(direction: str = "maximize") -> sf.BenchmarkInfo:
     return sf.BenchmarkInfo(
         name="bench",
         id="bench@1",
-        manifest_digest=DIGEST,
         title="Benchmark",
         primary_metric="score",
         score_direction=cast(Any, direction),

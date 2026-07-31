@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import hashlib
+import asyncio
 import json
+import threading
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -12,8 +13,8 @@ import yaml
 
 import screamingface as sf
 from screamingface._benchmark_manifest import (
-    _catalog_record,
     _decode_manifest,
+    _select_benchmark,
     _success,
     load_manifest,
 )
@@ -24,18 +25,35 @@ from screamingface._result_decoder import _candidate_result
 from screamingface.client import _compile_sync
 
 MANIFEST = b"""\
-schema: screamingface.benchmark-manifest.v1
 name: draco-lite
 id: draco-lite
 title: DRACO Lite
+route: /benchmark
 cases:
-  route: /benchmarks/draco-lite/cases
   count: 1
+answer:
+  instructions: Answer completely.
+  params:
+    temperature: 0.2
+    reasoning: low
+    max_output_tokens: 4096
+synthesis:
+  model: provider/synthesizer
+  instructions: Combine the panel answers.
+  params:
+    temperature: 0.2
+    reasoning: low
+    max_output_tokens: 4096
 grader:
-  route: /benchmarks/draco-lite/grade
+  kind: rubric
   criteria_per_case: 10
+  model: provider/judge
+  passes: 1
+  instructions: Return JSON.
+  params:
+    temperature: 0.2
 aggregator:
-  route: /benchmarks/draco-lite/aggregate
+  kind: mean
 metrics:
   primary: normalized_score
   direction: maximize
@@ -43,7 +61,6 @@ tools:
   - web_search
   - web_fetch
 """
-DIGEST = f"sha256:{hashlib.sha256(MANIFEST).hexdigest()}"
 
 
 class _FakeTransport:
@@ -62,7 +79,6 @@ class _FakeTransport:
                 {
                     "schema": "screamingface.candidate-result.v1",
                     "benchmark_id": "draco-lite",
-                    "manifest_digest": DIGEST,
                     "case_count": 1,
                     "score": 0.7,
                     "metrics": {
@@ -95,23 +111,79 @@ class _AsyncFakeTransport:
         self.closed = True
 
 
+class _ConcurrentFakeTransport(_FakeTransport):
+    def __init__(self, expected: int) -> None:
+        super().__init__()
+        self._barrier = threading.Barrier(expected)
+        self._lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+
+    def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            self._barrier.wait(timeout=1)
+            return super().run(candidate, on_event)
+        finally:
+            with self._lock:
+                self.active -= 1
+
+
+class _AsyncConcurrentFakeTransport(_AsyncFakeTransport):
+    def __init__(self, expected: int) -> None:
+        super().__init__()
+        self._expected = expected
+        self._ready = asyncio.Event()
+        self.active = 0
+        self.max_active = 0
+
+    async def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        if self.active == self._expected:
+            self._ready.set()
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout=1)
+            return await super().run(candidate, on_event)
+        finally:
+            self.active -= 1
+
+
 def _engine(request: httpx.Request) -> httpx.Response:
-    if request.url.path == "/v1/benchmarks":
-        return httpx.Response(
+    if request.url.path == "/v1/models":
+        models = (
+            "anthropic/claude-haiku-4-5",
+            "provider/first",
+            "provider/second",
+            "provider/synthesizer",
+            "provider/judge",
+        )
+        response = httpx.Response(
             200,
             json={
-                "benchmarks": [
-                    {
-                        "name": "draco-lite",
-                        "id": "draco-lite",
-                        "manifest_digest": DIGEST,
-                    }
-                ]
+                "object": "list",
+                "data": [
+                    {"id": model, "object": "model", "owned_by": model.split("/", 1)[0]}
+                    for model in models
+                ],
             },
         )
-    if request.url.path == "/v1/benchmarks/draco-lite/manifest":
-        return httpx.Response(200, content=MANIFEST)
-    return httpx.Response(404)
+    elif request.url.path == "/v1/benchmarks":
+        response = httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "default": "draco-lite",
+                "data": [{"id": "draco-lite", "object": "benchmark"}],
+            },
+        )
+    elif request.url.path == "/v1/benchmarks/draco-lite/manifest":
+        response = httpx.Response(200, content=MANIFEST)
+    else:
+        response = httpx.Response(404)
+    return response
 
 
 def _client() -> tuple[sf.Client, _FakeTransport]:
@@ -130,30 +202,26 @@ def _client() -> tuple[sf.Client, _FakeTransport]:
 def test_client_evaluates_the_complete_draco_lite_vertical_slice() -> None:
     client, transport = _client()
 
-    model = sf.Model(
-        "anthropic/claude-haiku-4-5",
-        name="haiku",
-        instructions="Answer fully.\nPreserve $evidence.",
-        temperature=0.2,
-        reasoning="low",
-        max_output_tokens=4096,
-    )
+    model = sf.Model("anthropic/claude-haiku-4-5", name="haiku")
 
     with client:
-        report = client.evaluate(model, benchmark="draco-lite", limit=1)
+        report = client.evaluate(model, limit=1)
 
     result = report.candidates.only
     assert report.benchmark.id == "draco-lite"
-    assert report.benchmark.manifest_digest == DIGEST
     assert result.models == ("anthropic/claude-haiku-4-5",)
     assert tuple(operation.kind for operation in result.operations) == (
         "model",
+        "judge",
         "grading",
         "aggregation",
     )
-    assert "/benchmarks/draco-lite/cases" in result.url4
-    assert "/benchmarks/draco-lite/grade" in result.url4
-    assert "/benchmarks/draco-lite/aggregate" in result.url4
+    assert result.url4.count("/benchmark") == 4
+    assert "/provider/judge" in result.url4
+    assert '"action":"load"' in result.url4
+    assert "action: 'grading_inputs'" in result.url4
+    assert "action: 'grade'" in result.url4
+    assert '"action":"aggregate"' in result.url4
     assert "temperature=0.2" in result.url4
     assert "reasoning=low" in result.url4
     assert "max_output_tokens=4096" in result.url4
@@ -185,7 +253,6 @@ async def test_async_client_evaluates_the_same_draco_lite_contract() -> None:
     async with client:
         report = await client.evaluate(
             sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
-            benchmark="draco-lite",
             limit=1,
         )
 
@@ -194,18 +261,156 @@ async def test_async_client_evaluates_the_same_draco_lite_contract() -> None:
     assert transport.closed is True
 
 
-def test_evaluate_compiles_every_candidate_before_starting_paid_work() -> None:
-    client, transport = _client()
-    first = sf.Model("anthropic/claude-haiku-4-5", name="haiku")
-    unsupported = sf.Fusion(
-        "pair",
-        members=[first, sf.Model("provider/second")],
-        reducer=sf.reducers.Synthesis("provider/reducer"),
-    )
-    with client, pytest.raises(sf.PlanningError, match="accepts Model Candidates"):
-        client.evaluate([first, unsupported], benchmark="draco-lite", limit=1)
+def test_client_runs_candidates_concurrently_and_preserves_declared_order() -> None:
+    client, previous = _client()
+    previous.close()
+    transport = _ConcurrentFakeTransport(expected=3)
+    cast(Any, client)._transport = transport
+    candidates = [
+        sf.Model("anthropic/claude-haiku-4-5", name=f"sample-{index}") for index in range(3)
+    ]
 
-    assert transport.calls == []
+    with client:
+        report = client.evaluate(candidates, limit=1)
+
+    assert transport.max_active == 3
+    assert tuple(result.name for result in report.candidates) == (
+        "sample-0",
+        "sample-1",
+        "sample-2",
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_client_runs_candidates_concurrently_and_preserves_order() -> None:
+    client = sf.AsyncClient(engine_url="https://engine.example")
+    private_client = cast(Any, client)
+    await private_client._http.aclose()
+    private_client._http = httpx.AsyncClient(
+        base_url="https://engine.example",
+        transport=httpx.MockTransport(_engine),
+    )
+    await private_client._transport.close()
+    transport = _AsyncConcurrentFakeTransport(expected=3)
+    private_client._transport = transport
+    candidates = [
+        sf.Model("anthropic/claude-haiku-4-5", name=f"sample-{index}") for index in range(3)
+    ]
+
+    async with client:
+        report = await client.evaluate(candidates, limit=1)
+
+    assert transport.max_active == 3
+    assert tuple(result.name for result in report.candidates) == (
+        "sample-0",
+        "sample-1",
+        "sample-2",
+    )
+
+
+def test_client_compiles_and_evaluates_a_fusion_as_one_candidate_url4() -> None:
+    client, _transport = _client()
+    fusion = sf.Fusion(
+        [
+            sf.Model("provider/first", name="first"),
+            sf.Model("provider/second", name="second"),
+        ],
+        name="research-pair",
+    )
+
+    with client:
+        report = client.evaluate(fusion, benchmark="draco-lite", limit=1)
+
+    result = report.candidates.only
+    assert result.kind == "fusion"
+    assert result.models == (
+        "provider/first",
+        "provider/second",
+        "provider/synthesizer",
+    )
+    assert tuple(member.name for member in result.members) == ("first", "second")
+    assert tuple(operation.kind for operation in result.operations) == (
+        "model",
+        "model",
+        "synthesis",
+        "judge",
+        "grading",
+        "aggregation",
+    )
+    assert "/provider/first" in result.url4
+    assert "/provider/second" in result.url4
+    assert "/provider/synthesizer" in result.url4
+    assert "Combine the panel answers." in result.url4
+
+
+def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
+    client, _transport = _client()
+    fusion = sf.Fusion(
+        [
+            sf.Model("provider/first", name="gemini-pro"),
+            sf.Model("provider/second", name="claude-opus-4.8"),
+        ],
+        name="named-pair",
+    )
+
+    with client:
+        report = client.evaluate(fusion, benchmark="draco-lite", limit=1)
+
+    result = report.candidates.only
+    assert tuple(member.name for member in result.members) == (
+        "gemini-pro",
+        "claude-opus-4.8",
+    )
+    assert "gemini-pro:" not in result.url4
+    assert "claude-opus-4.8:" not in result.url4
+    assert "member_1: {name: 'gemini-pro', answer: '$model_1'}" in result.url4
+    assert "member_2: {name: 'claude-opus-4.8', answer: '$model_2'}" in result.url4
+
+
+def test_compiler_deduplicates_equivalent_model_values_by_content() -> None:
+    left = sf.Fusion(
+        [sf.Model("provider/first"), sf.Model("provider/second")],
+        name="left",
+    )
+    right = sf.Fusion(
+        [sf.Model("provider/first"), sf.Model("provider/judge")],
+        name="right",
+    )
+    candidate = sf.Fusion([left, right], name="outer")
+    client, _transport = _client()
+
+    with client:
+        report = client.evaluate(candidate, benchmark="draco-lite", limit=1)
+
+    result = report.candidates.only
+    assert tuple(operation.kind for operation in result.operations).count("model") == 3
+    assert result.url4.count("/provider/first") == 1
+
+
+def test_explicit_sample_names_prevent_model_content_deduplication() -> None:
+    left = sf.Fusion(
+        [
+            sf.Model("provider/first", name="sample-1"),
+            sf.Model("provider/second"),
+        ],
+        name="left",
+    )
+    right = sf.Fusion(
+        [
+            sf.Model("provider/first", name="sample-2"),
+            sf.Model("provider/judge"),
+        ],
+        name="right",
+    )
+    candidate = sf.Fusion([left, right], name="outer")
+    client, _transport = _client()
+
+    with client:
+        report = client.evaluate(candidate, benchmark="draco-lite", limit=1)
+
+    result = report.candidates.only
+    assert tuple(operation.kind for operation in result.operations).count("model") == 4
+    assert result.url4.count("/provider/first") == 2
 
 
 def test_manifest_reader_rejects_transport_and_integrity_failures() -> None:
@@ -219,44 +424,16 @@ def test_manifest_reader_rejects_transport_and_integrity_failures() -> None:
         with pytest.raises(sf.PlanningError, match="Could not reach"):
             load_manifest(http, "draco-lite")
 
-    def mismatch(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/benchmarks":
-            return httpx.Response(
-                200,
-                json={
-                    "benchmarks": [
-                        {
-                            "name": "draco-lite",
-                            "id": "draco-lite",
-                            "manifest_digest": f"sha256:{'0' * 64}",
-                        }
-                    ]
-                },
-            )
-        return httpx.Response(200, content=MANIFEST)
-
-    with httpx.Client(
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(mismatch),
-    ) as http:
-        with pytest.raises(sf.PlanningError, match="advertised digest"):
-            load_manifest(http, "draco-lite")
-
     malformed = b"schema: [unterminated"
-    malformed_digest = f"sha256:{hashlib.sha256(malformed).hexdigest()}"
 
     def invalid_yaml(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/benchmarks":
             return httpx.Response(
                 200,
                 json={
-                    "benchmarks": [
-                        {
-                            "name": "draco-lite",
-                            "id": "draco-lite",
-                            "manifest_digest": malformed_digest,
-                        }
-                    ]
+                    "object": "list",
+                    "default": "draco-lite",
+                    "data": [{"id": "draco-lite", "object": "benchmark"}],
                 },
             )
         return httpx.Response(200, content=malformed)
@@ -282,7 +459,7 @@ def test_manifest_decoder_rejects_every_required_field_boundary() -> None:
     bad_direction = deepcopy(base)
     bad_direction["metrics"]["direction"] = "sideways"
     bad_route = deepcopy(base)
-    bad_route["cases"]["route"] = "relative"
+    bad_route["route"] = "relative"
     bad_cases = deepcopy(base)
     bad_cases["cases"] = []
 
@@ -298,18 +475,66 @@ def test_manifest_decoder_rejects_every_required_field_boundary() -> None:
     )
     for value in invalid_values:
         with pytest.raises(sf.PlanningError):
-            _decode_manifest(value, DIGEST)
+            _decode_manifest(value)
 
 
 def test_manifest_catalogue_rejects_malformed_and_unknown_records() -> None:
     with pytest.raises(sf.PlanningError, match="must be JSON"):
-        _catalog_record(httpx.Response(200, text="{"), "draco-lite")
-    with pytest.raises(sf.PlanningError, match="benchmarks array"):
-        _catalog_record(httpx.Response(200, json={}), "draco-lite")
-    with pytest.raises(sf.PlanningError, match="record must be an object"):
-        _catalog_record(httpx.Response(200, json={"benchmarks": [None]}), "draco-lite")
+        _select_benchmark(httpx.Response(200, text="{"), "draco-lite")
+    with pytest.raises(sf.PlanningError, match="must be an object"):
+        _select_benchmark(httpx.Response(200, json=[]), "draco-lite")
+    with pytest.raises(sf.PlanningError, match="object must be 'list'"):
+        _select_benchmark(httpx.Response(200, json={}), "draco-lite")
+    with pytest.raises(sf.PlanningError, match="entry"):
+        _select_benchmark(
+            httpx.Response(
+                200,
+                json={"object": "list", "default": "draco-lite", "data": [None]},
+            ),
+            "draco-lite",
+        )
+    with pytest.raises(sf.PlanningError, match="duplicate id"):
+        _select_benchmark(
+            httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "default": "draco-lite",
+                    "data": [
+                        {"id": "draco-lite", "object": "benchmark"},
+                        {"id": "draco-lite", "object": "benchmark"},
+                    ],
+                },
+            ),
+            "draco-lite",
+        )
     with pytest.raises(sf.PlanningError, match="does not expose"):
-        _catalog_record(httpx.Response(200, json={"benchmarks": []}), "draco-lite")
+        _select_benchmark(
+            httpx.Response(200, json={"object": "list", "default": None, "data": []}),
+            "draco-lite",
+        )
+    with pytest.raises(sf.PlanningError, match="no Benchmarks"):
+        _select_benchmark(
+            httpx.Response(200, json={"object": "list", "default": None, "data": []}),
+            None,
+        )
+    assert (
+        _select_benchmark(
+            httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "default": "healthbench",
+                    "data": [
+                        {"id": "draco-lite", "object": "benchmark"},
+                        {"id": "healthbench", "object": "benchmark"},
+                    ],
+                },
+            ),
+            None,
+        )
+        == "healthbench"
+    )
     with pytest.raises(sf.PlanningError, match="HTTP 404"):
         _success(httpx.Response(404), "load Benchmark")
 
@@ -336,7 +561,6 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
     valid: dict[str, Any] = {
         "schema": "screamingface.candidate-result.v1",
         "benchmark_id": "draco-lite",
-        "manifest_digest": DIGEST,
         "case_count": 1,
         "score": 0.7,
         "metrics": {"normalized_score": 0.7},
@@ -348,7 +572,6 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
         [],
         {**valid, "schema": "wrong"},
         {**valid, "benchmark_id": "wrong"},
-        {**valid, "manifest_digest": "wrong"},
         {**valid, "case_count": 2},
         {**valid, "score": "high"},
         {**valid, "metrics": []},

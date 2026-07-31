@@ -11,9 +11,8 @@ from nbformat import NotebookNode
 def notebooks() -> dict[str, NotebookNode]:
     return {
         "00_quickstart.ipynb": _quickstart(),
-        "01_architecture.ipynb": _architecture(),
-        "03_fusions.ipynb": _fusions(),
         "05_draco_lite_e2e.ipynb": _draco_lite_e2e(),
+        "06_draco_full_e2e.ipynb": _draco_full_e2e(),
     }
 
 
@@ -36,121 +35,38 @@ def _notebook(*cells: NotebookNode) -> NotebookNode:
 def _quickstart() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell(
-            """# ScreamingFace Candidate authoring
+            """# ScreamingFace quickstart
 
-Build immutable Model and Fusion Candidates without network access."""
+Connect the configured SF Engine, define Candidates, and evaluate them."""
         ),
-        nbformat.v4.new_code_cell(
-            """import screamingface as sf
+        nbformat.v4.new_markdown_cell(
+            """## Connect OpenRouter
 
-opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
+`sf.connect()` renders the Engine-backed provider panel. Entering an API key sends it to the SF
+Engine for AI Gateway validation and encrypted storage; the notebook does not retain it."""
+        ),
+        nbformat.v4.new_code_cell("import screamingface as sf"),
+        nbformat.v4.new_code_cell("sf.connect()"),
+        nbformat.v4.new_markdown_cell("## Define Candidates"),
+        nbformat.v4.new_code_cell(
+            """opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 
-frontier_pair = sf.Fusion(
-    "frontier-pair",
-    members=[opus, gpt],
-    reducer=sf.reducers.Synthesis(
-        "openrouter/anthropic/claude-opus-4.8",
-    ),
-)
-
-candidates = [opus, gpt, frontier_pair]"""
+frontier = sf.Fusion([opus, gpt])"""
         ),
         nbformat.v4.new_markdown_cell(
-            """## Evaluation status
+            """## Evaluate
 
-The approved target workflow is:
-
-```python
-with sf.Client() as client:
-    report = client.evaluate(candidates, benchmark="draco", limit=1)
-```
-
-It is deliberately not executed in this authoring notebook. The Client performs Benchmark
-resolution, validation, URL4 compilation, execution, and Report decoding behind this one
-operation. The Client provides no fixture-backed or legacy fallback."""
-        ),
-    )
-
-
-def _architecture() -> NotebookNode:
-    return _notebook(
-        nbformat.v4.new_markdown_cell(
-            """# Client architecture
-
-```text
-Researcher or SF App
-        ↓
-ScreamingFace Python Client
-  Recipes · URL4 compilation · Events · Reports
-        ↓  REST + WebSocket
-SF Engine
-  URL4 execution · Benchmarks · grading · aggregation · Tools
-        ↓
-AI Gateway
-  provider credentials · model dispatch
-```
-
-The Client talks only to its configured SF Engine. Local and hosted Engines expose the same
-Client-visible contract; their internal transport and deployment topology are not Client APIs.
-
-The code below shows the approved direct evaluation interface. Engine contract gates are listed in
-the package README."""
+The Engine defaults to the real-model DRACO Smoke benchmark: one case, one rubric criterion, and
+eight total model calls for this three-Candidate comparison. The Benchmark owns answer, synthesis,
+judge, and aggregation policy."""
         ),
         nbformat.v4.new_code_cell(
-            """import screamingface as sf
-
-client = sf.Client(
-    engine_url="https://engine.screamingface.ai",
+            """report = sf.evaluate(
+    [opus, gpt, frontier],
+    limit=1,
 )
-
-client.engine_url"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """`Client` and `AsyncClient` own transport resources and support deterministic
-context-manager cleanup. Paid evaluation always uses an explicit Client."""
-        ),
-        nbformat.v4.new_code_cell(
-            """async def run_draco(candidates):
-    async with sf.AsyncClient() as client:
-        return await client.evaluate(candidates, benchmark="draco", limit=1)"""
-        ),
-    )
-
-
-def _fusions() -> NotebookNode:
-    return _notebook(
-        nbformat.v4.new_markdown_cell(
-            """# Models and Fusions
-
-Models and Fusions are immutable, network-free Recipe values. Reusing the same Recipe object
-shares its graph node; separately constructed equal-looking Models remain independent samples."""
-        ),
-        nbformat.v4.new_code_cell(
-            """import screamingface as sf
-
-opus = sf.Model(
-    "openrouter/anthropic/claude-opus-4.8",
-    temperature=0.2,
-    reasoning="low",
-    max_output_tokens=8192,
-)
-gpt = sf.Model("openrouter/openai/gpt-5.5")
-
-pair = sf.Fusion(
-    "frontier-pair",
-    members=[opus, gpt],
-    reducer=sf.reducers.Synthesis(
-        "openrouter/anthropic/claude-opus-4.8",
-        instructions="Combine the strongest supported claims into one answer.",
-    ),
-)
-
-pair"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """Tools, judge policy, retries, output policy, and aggregation belong to the Engine's
-versioned Benchmark protocol—not to a Model or Fusion."""
+report"""
         ),
     )
 
@@ -160,14 +76,8 @@ def _draco_lite_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell(
             """# DRACO-Lite: Client → URL4 Engine → AI Gateway
 
-This notebook exercises the complete local vertical slice:
-
-1. The lazy Client discovers the Engine's Models and Benchmarks.
-2. `Client.evaluate(...)` fetches and verifies the DRACO-Lite YAML manifest and constructs one
-   flat Candidate URL4 before spending.
-3. The Client uses the url4-cloud token and WebSocket lifecycle.
-4. The configured URL4 node loads one pinned DRACO case, calls AI Gateway for the answer, runs ten
-   rubric judges, aggregates the grades, and returns an `sf.Report`.
+This notebook exercises the complete pipeline through the public ScreamingFace SDK. The Engine
+owns the dataset, answer policy, judge, and aggregation.
 
 > **Cost warning:** the evaluation cell performs one answer call and ten judge calls. Discovery
 > makes no model calls."""
@@ -176,65 +86,136 @@ This notebook exercises the complete local vertical slice:
             """## Before running
 
 The local AI Gateway must be running on `127.0.0.1:9105`, and the isolated Engine demo must be
-running on `127.0.0.1:9108`. See `apps/url4-cloud/DRACO_LITE_DEMO.md` in the Engine demo branch for
-the exact commands."""
+running on `127.0.0.1:9108`. The connection panel sends the OpenRouter key through the Engine to
+AI Gateway; the Client never calls AI Gateway directly."""
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
-        nbformat.v4.new_markdown_cell(
-            """## Discover the local Engine
-
-These catalogue calls are read-only and make no model requests."""
-        ),
-        nbformat.v4.new_code_cell("sf.benchmarks.list()"),
-        nbformat.v4.new_code_cell("sf.models.list()"),
-        nbformat.v4.new_markdown_cell(
-            """## Define one Candidate
-
-The demo uses the provider-prefixed Anthropic route currently accepted by the local AI Gateway."""
-        ),
-        nbformat.v4.new_code_cell(
-            '''ANSWER_INSTRUCTIONS = """Answer the research question completely.
-Compare the estimators and their assumptions precisely, address pre-trend testing, and cite
-specific papers and evidence where useful."""
-
-candidate = sf.Model(
-    "anthropic/claude-haiku-4-5",
-    instructions=ANSWER_INSTRUCTIONS,
-    max_output_tokens=4096,
-)
-
-candidate'''
-        ),
+        nbformat.v4.new_markdown_cell("## Connect OpenRouter"),
+        nbformat.v4.new_code_cell("sf.connect()"),
+        nbformat.v4.new_markdown_cell("## Define a Candidate"),
+        nbformat.v4.new_code_cell('haiku = sf.Model("anthropic/claude-haiku-4-5")'),
         nbformat.v4.new_markdown_cell(
             """## Evaluate the benchmark
 
-Running the next cell makes **11 model calls**: one Candidate answer and ten concurrent
-rubric-judge calls. Manifest verification and URL4 compilation happen first; the Client starts no
-Candidate Run if that validation fails."""
+Running the next cell makes **11 model calls**: one Candidate answer and ten rubric-judge calls."""
         ),
         nbformat.v4.new_code_cell(
-            """events = []
-
-
-def on_event(event: sf.Event) -> None:
-    events.append(event)
-    print(f"{event.sequence:02d} {event.kind}")
-
-
-with sf.Client() as client:
-    report = client.evaluate(
-        candidate,
-        benchmark="draco-lite",
-        limit=1,
-        on_event=on_event,
-    )
+            """report = sf.evaluate(
+    haiku,
+    benchmark="draco-lite",
+    limit=1,
+)
 report"""
         ),
-        nbformat.v4.new_code_cell("print(report.candidates.only.url4)"),
-        nbformat.v4.new_code_cell("report.candidates.only.metrics"),
+        nbformat.v4.new_markdown_cell("## Inspect the Report"),
+        nbformat.v4.new_code_cell("report.candidates"),
         nbformat.v4.new_code_cell("report.usage"),
-        nbformat.v4.new_code_cell("print(report.to_json())"),
+        nbformat.v4.new_code_cell("report.to_json()"),
     )
+
+
+def _draco_full_e2e() -> NotebookNode:
+    notebook = _notebook(
+        nbformat.v4.new_markdown_cell(
+            """# Full DRACO pipeline through the ScreamingFace SDK
+
+This is the SDK-native port of the full `pipeline_walkthrough.ipynb` in
+`screamingface-benchmarks/notebooks/general/`.
+It preserves the published Candidate surface—**7 solo Models and 9 Fusions**—using only the public
+SDK. The Engine owns DRACO's dataset, answer policy, tools, judge, grading, and aggregation.
+
+> **Spend warning:** the evaluation cell is paid. It uses one case per Candidate; remove `limit=1`
+> only when you intend to run the complete dataset."""
+        ),
+        nbformat.v4.new_code_cell("import screamingface as sf"),
+        nbformat.v4.new_markdown_cell("## 1. Connect OpenRouter"),
+        nbformat.v4.new_code_cell("sf.connect()"),
+        nbformat.v4.new_markdown_cell(
+            """## 2. Define the full solo lineup
+
+These are the seven solo Candidates from the original full-pipelines notebook. Qwen is also
+defined because it participates in the open-source Fusion."""
+        ),
+        nbformat.v4.new_code_cell(
+            """fable = sf.Model("openrouter/anthropic/claude-fable-5")
+opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
+gpt = sf.Model("openrouter/openai/gpt-5.5")
+gemini_pro = sf.Model("openrouter/google/gemini-3.1-pro-preview")
+gemini_flash = sf.Model("openrouter/google/gemini-3-flash-preview")
+kimi = sf.Model("openrouter/moonshotai/kimi-k2.6")
+deepseek = sf.Model("openrouter/deepseek/deepseek-v4-pro")
+qwen = sf.Model("openrouter/qwen/qwen3.6-plus")"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 3. Define the nine Fusion Candidates
+
+The Benchmark supplies the synthesizer automatically. Equivalent Models deduplicate across the
+graph. The self-Fusion uses explicit sample identities so its two Opus calls remain independent."""
+        ),
+        nbformat.v4.new_code_cell(
+            """fable_plus_gpt = sf.Fusion([fable, gpt])
+frontier = sf.Fusion([opus, gpt, gemini_pro])
+opus_plus_gpt = sf.Fusion([opus, gpt])
+opus_self_fusion = sf.Fusion(
+    [
+        sf.Model("openrouter/anthropic/claude-opus-4.8", name="opus-sample-1"),
+        sf.Model("openrouter/anthropic/claude-opus-4.8", name="opus-sample-2"),
+    ]
+)
+budget = sf.Fusion([gemini_flash, kimi, deepseek])
+beat_runner_up = sf.Fusion([opus, gpt, deepseek])
+pareto = sf.Fusion([deepseek, kimi, gpt])
+pareto_lean = sf.Fusion([deepseek, kimi])
+best_open_source = sf.Fusion([deepseek, kimi, qwen])"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 4. Evaluate every Candidate
+
+One lazy SDK call evaluates the complete Candidate lineup against DRACO-Lite. Candidates run
+concurrently under the Client's internal scheduler; the Benchmark supplies all other execution
+policy."""
+        ),
+        nbformat.v4.new_code_cell(
+            """report = sf.evaluate(
+    [
+        fable,
+        opus,
+        gpt,
+        gemini_pro,
+        gemini_flash,
+        kimi,
+        deepseek,
+        fable_plus_gpt,
+        frontier,
+        opus_plus_gpt,
+        opus_self_fusion,
+        budget,
+        beat_runner_up,
+        pareto,
+        pareto_lean,
+        best_open_source,
+    ],
+    benchmark="draco-lite",
+    limit=1,
+)
+report"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 5. Inspect the Report
+
+The Report presents Candidate scores, failures, operation graphs, timing, and usage."""
+        ),
+        nbformat.v4.new_code_cell("report.candidates"),
+        nbformat.v4.new_code_cell("report.usage"),
+        nbformat.v4.new_code_cell("report.failures"),
+        nbformat.v4.new_code_cell("report.to_json()"),
+    )
+    notebook.metadata["kernelspec"] = {
+        "display_name": "screamingface (SDK)",
+        "language": "python",
+        "name": "screamingface-sdk",
+    }
+    return notebook
 
 
 def main() -> None:

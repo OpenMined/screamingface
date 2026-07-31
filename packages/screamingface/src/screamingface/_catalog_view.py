@@ -12,7 +12,7 @@ from screamingface._card_display import (
     models_rows_html,
 )
 from screamingface._card_style import CARD_STYLE
-from screamingface.discovery import BenchmarkInfo, ModelInfo
+from screamingface.discovery import ModelInfo
 
 
 class _Catalog[T](Sequence[T], ABC):
@@ -118,15 +118,15 @@ class _ModelCatalog(_Catalog[ModelInfo]):
         return models_rows_html(values)
 
 
-class _BenchmarkCatalog(_Catalog[BenchmarkInfo]):
+class _BenchmarkCatalog(_Catalog[str]):
     _title = "Benchmarks"
     _aria = "ScreamingFace benchmark catalogue"
     _placeholder = "Filter benchmarks…"
 
-    def _search_text(self, value: BenchmarkInfo) -> str:
-        return f"{value.id} {value.name} {value.title} {value.primary_metric}"
+    def _search_text(self, value: str) -> str:
+        return value
 
-    def _rows(self, values: Sequence[BenchmarkInfo]) -> str:
+    def _rows(self, values: Sequence[str]) -> str:
         return benchmarks_rows_html(values)
 
 

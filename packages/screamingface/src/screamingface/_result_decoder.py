@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from screamingface._evaluation import Candidate, _Evaluation
 from screamingface._ports import _RunOutcome
 from screamingface.errors import ExecutionError
-from screamingface.report import CandidateResult, Report, Usage
+from screamingface.report import CandidateResult, MemberResult, Report, Usage
 
 
 def report_from_outcomes(
@@ -41,8 +41,6 @@ def _candidate_result(
         raise ExecutionError("SF Engine Candidate result schema is unsupported")
     if value.get("benchmark_id") != evaluation.benchmark.id:
         raise ExecutionError("SF Engine Candidate result has the wrong Benchmark id")
-    if value.get("manifest_digest") != evaluation.benchmark.manifest_digest:
-        raise ExecutionError("SF Engine Candidate result has the wrong manifest digest")
     if value.get("case_count") != evaluation.case_count:
         raise ExecutionError("SF Engine Candidate result has the wrong case count")
     score = _number(value.get("score"), "Candidate score")
@@ -61,7 +59,18 @@ def _candidate_result(
         operations=candidate.operations,
         score=score,
         metrics=metrics,
-        members=(),
+        members=tuple(
+            MemberResult(
+                operation_id=member.operation_id,
+                name=member.name,
+                kind=member.kind,
+                models=member.models,
+                failures=(),
+                duration_ms=None,
+                usage=Usage(),
+            )
+            for member in candidate.members
+        ),
         failures=(),
         usage=outcome.root_usage or Usage(),
     )

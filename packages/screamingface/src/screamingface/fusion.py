@@ -1,4 +1,4 @@
-"""Composite Recipe values."""
+"""Composite Candidate values."""
 
 from __future__ import annotations
 
@@ -7,30 +7,29 @@ from dataclasses import dataclass
 
 from screamingface.model import Model
 from screamingface.recipe import Recipe, _name
-from screamingface.reducers import Reducer
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)
 class Fusion(Recipe):
-    """Combine ordered member Recipes through one explicit Reducer."""
+    """Combine ordered members through the selected Benchmark's synthesis policy."""
 
     name: str
     members: tuple[Recipe, ...]
-    reducer: Reducer
 
     def __init__(
         self,
-        name: str,
-        *,
         members: Sequence[Recipe],
-        reducer: Reducer,
+        *,
+        name: str | None = None,
     ) -> None:
         selected_members = _members(members)
-        if not isinstance(reducer, Reducer):
-            raise TypeError("Fusion reducer must be an sf.Reducer")
-        object.__setattr__(self, "name", _name(name, "fusion name"))
+        inferred_name = "+".join(member.name for member in selected_members)
+        object.__setattr__(
+            self,
+            "name",
+            inferred_name if name is None else _name(name, "fusion name"),
+        )
         object.__setattr__(self, "members", selected_members)
-        object.__setattr__(self, "reducer", reducer)
 
     @property
     def _recipe_marker(self) -> None:
@@ -38,7 +37,9 @@ class Fusion(Recipe):
 
     def __repr__(self) -> str:
         members = ", ".join(repr(member.name) for member in self.members)
-        return f"Fusion({self.name!r}, members=[{members}], reducer={self.reducer!r})"
+        inferred_name = "+".join(member.name for member in self.members)
+        name = "" if self.name == inferred_name else f", name={self.name!r}"
+        return f"Fusion([{members}]{name})"
 
     def _repr_html_(self) -> str:
         from screamingface._card_display import fusion_card_html

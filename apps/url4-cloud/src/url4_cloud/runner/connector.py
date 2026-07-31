@@ -58,7 +58,7 @@ class AigatewayConfig:
     Tavily tool loop."""
 
     base_url: str = "http://127.0.0.1:9105"
-    default_model: str = "claude-haiku-4-5"
+    default_model: str = "anthropic/claude-haiku-4-5"
     # WHY: DECLARED, never discovered — see `config.routes_for`. Empty is a config error, not a
     # signal to go ask the gateway what it serves. Each entry carries its own capabilities
     # (`web_tools`), so a route's behavior is declared beside the route.
@@ -333,11 +333,19 @@ async def _chat_completion_loop(
     extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if offer_tools else {}
     headers = _headers(profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
-        resp = await http_client.post(
-            "/v1/chat/completions",
-            headers=headers,
-            json={"model": model, "messages": messages, **extra},
-        )
+        try:
+            resp = await http_client.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={"model": model, "messages": messages, **extra},
+            )
+        except httpx.TimeoutException as exc:
+            raise ResolutionError(
+                f"aigateway did not respond within {cfg.timeout_s:g} seconds "
+                f"for model {model!r}",
+                code="aigateway_timeout",
+                permanent=False,
+            ) from exc
         _raise_for_status(resp)
         data = _json_or_raise(resp)
         _report_usage(model, data.get("usage"))

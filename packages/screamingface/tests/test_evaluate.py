@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any, cast
 
 import pytest
@@ -7,10 +8,26 @@ import pytest
 import screamingface as sf
 
 
-def test_evaluate_requires_a_benchmark() -> None:
-    with sf.Client() as client:
-        with pytest.raises(TypeError, match="benchmark"):
-            cast(Any, client.evaluate)(sf.Model("provider/model"))
+def test_benchmark_is_an_optional_keyword_override() -> None:
+    candidate = sf.Model("provider/model")
+
+    inspect.signature(sf.evaluate).bind(candidate)
+    inspect.signature(sf.evaluate).bind(candidate, benchmark="draco")
+    inspect.signature(sf.Client.evaluate).bind(object(), candidate)
+    inspect.signature(sf.AsyncClient.evaluate).bind(object(), candidate)
+
+
+def test_benchmark_override_is_keyword_only() -> None:
+    with pytest.raises(TypeError):
+        inspect.signature(sf.evaluate).bind(sf.Model("provider/model"), "draco")
+
+
+def test_candidate_scheduling_is_not_public_configuration() -> None:
+    for evaluate in (sf.evaluate, sf.Client.evaluate, sf.AsyncClient.evaluate):
+        parameters = inspect.signature(evaluate).parameters
+        assert "concurrency" not in parameters
+        assert "parallel" not in parameters
+        assert "max_workers" not in parameters
 
 
 @pytest.mark.parametrize("limit", [0, -1, True, "all"])
@@ -49,11 +66,12 @@ def test_evaluate_validates_event_and_progress_options_before_network_work() -> 
             )
 
 
-def test_public_interface_has_one_evaluation_operation() -> None:
-    for removed in ("Plan", "Candidate", "evaluate", "plan", "run"):
+def test_public_interface_has_one_evaluation_verb() -> None:
+    for removed in ("Plan", "Candidate", "plan", "run"):
         assert removed not in sf.__all__
         assert not hasattr(sf, removed)
 
+    assert hasattr(sf, "evaluate")
     assert hasattr(sf.Client, "evaluate")
     assert hasattr(sf.AsyncClient, "evaluate")
     for client_type in (sf.Client, sf.AsyncClient):

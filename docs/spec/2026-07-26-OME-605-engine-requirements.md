@@ -130,8 +130,7 @@ Proposed minimum shape:
 {
   "schema": "screamingface.candidate-result.v1",
   "benchmark": {
-    "id": "draco@1",
-    "manifest_digest": "sha256:..."
+    "id": "draco@1"
   },
   "case_counts": {
     "selected": 5,

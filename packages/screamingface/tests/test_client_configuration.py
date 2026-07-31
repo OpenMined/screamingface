@@ -6,8 +6,6 @@ import pytest
 
 import screamingface as sf
 
-DIGEST = f"sha256:{'a' * 64}"
-
 
 def test_client_uses_the_local_engine_by_default_without_opening_network_resources() -> None:
     client = sf.Client()
@@ -104,7 +102,6 @@ def test_benchmark_info_is_normalized_and_rejects_invalid_state() -> None:
     benchmark = sf.BenchmarkInfo(
         name=" draco ",
         id=" draco@1 ",
-        manifest_digest=DIGEST,
         title=" DRACO ",
         case_count=100,
         primary_metric=" normalized_score ",
@@ -113,17 +110,15 @@ def test_benchmark_info_is_normalized_and_rejects_invalid_state() -> None:
 
     assert benchmark.name == "draco"
     assert benchmark.id == "draco@1"
-    assert benchmark.manifest_digest == DIGEST
     assert benchmark.title == "DRACO"
     assert benchmark.primary_metric == "normalized_score"
 
     with pytest.raises(ValueError, match="case_count"):
-        sf.BenchmarkInfo("draco", "draco@1", DIGEST, "DRACO", 0, "score", "maximize")
+        sf.BenchmarkInfo("draco", "draco@1", "DRACO", 0, "score", "maximize")
     with pytest.raises(ValueError, match="score_direction"):
         sf.BenchmarkInfo(
             "draco",
             "draco@1",
-            DIGEST,
             "DRACO",
             1,
             "score",

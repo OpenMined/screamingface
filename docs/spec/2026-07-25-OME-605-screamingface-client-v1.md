@@ -708,7 +708,6 @@ scores, grading, or aggregation.
   "completed_at": "2026-07-25T16:00:48Z",
   "benchmark": {
     "id": "draco@1",
-    "manifest_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "primary_metric": "normalized_score",
     "score_direction": "maximize",
     "case_count": 2
@@ -844,12 +843,11 @@ Fusion score when at least one member successfully reaches the Reducer and reduc
 `report.ok` remains false because the failure is still visible. This preserves the independent
 outcome of every Candidate Run.
 
-`benchmark.id` is the one canonical Engine-pinned Benchmark identity. `manifest_digest` is the
-SHA-256 fingerprint of the exact canonical manifest that was inspected during planning and is
-preserved as reproducibility evidence. The Report does not repeat separate name and revision
-fields that could disagree. `primary_metric` and `score_direction` (`maximize` or `minimize`) are
-copied from that pinned manifest so the Report remains interpretable offline; callers cannot
-override them. In v1, Evaluations always select a stable prefix of that pinned Benchmark, so
+`benchmark.id` is the one canonical Engine-pinned Benchmark identity. The Report does not repeat
+separate name and revision fields that could disagree. `primary_metric` and `score_direction`
+(`maximize` or `minimize`) are copied from that pinned manifest so the Report remains
+interpretable offline; callers cannot override them. In v1, Evaluations always select a stable
+prefix of that pinned Benchmark, so
 the serialized `benchmark.case_count` is the Report's selected case count and fully identifies the
 evaluated case set without serializing every case ID. The Python `BenchmarkInfo.case_count` still
 retains the Benchmark's total available count. Failures carry an individual `case_id` when

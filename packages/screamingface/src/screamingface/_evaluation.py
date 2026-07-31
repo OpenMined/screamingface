@@ -31,6 +31,16 @@ class Operation:
         raise TypeError("Operation values are derived internally; they are not constructed")
 
 
+@dataclass(frozen=True, slots=True)
+class _MemberProjection:
+    """Compile-time identity for one direct Fusion member."""
+
+    operation_id: str
+    name: str
+    kind: CandidateKind
+    models: tuple[str, ...]
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Candidate:
     """One internally compiled, independently runnable Candidate."""
@@ -40,6 +50,7 @@ class Candidate:
     models: tuple[str, ...]
     url4: str
     operations: tuple[Operation, ...]
+    members: tuple[_MemberProjection, ...]
 
     def __init__(self) -> NoReturn:
         raise TypeError("Candidate values are derived internally; they are not constructed")
@@ -72,8 +83,8 @@ class _Evaluation:
     limit: int | None
     case_count: int
     candidates: _Candidates
-    capability_profile: str
     required_capabilities: tuple[str, ...]
+    required_models: tuple[str, ...]
     _operation_count_items: tuple[tuple[str, int], ...] = field(repr=False)
 
     def __init__(self) -> NoReturn:
@@ -123,6 +134,7 @@ def _candidate_from_engine(
     models: Sequence[str],
     url4: str,
     operations: Sequence[Operation],
+    members: Sequence[_MemberProjection] = (),
 ) -> Candidate:
     """Build a validated Candidate from one Engine inspection response."""
 
@@ -136,7 +148,37 @@ def _candidate_from_engine(
     object.__setattr__(candidate, "models", selected_models)
     object.__setattr__(candidate, "url4", _canonical_url4(url4, "Candidate"))
     object.__setattr__(candidate, "operations", _operation_dag(operations))
+    selected_members = tuple(members)
+    if any(not isinstance(member, _MemberProjection) for member in selected_members):
+        raise TypeError("Candidate members must contain only compiled member projections")
+    if selected_kind == "model" and selected_members:
+        raise ValueError("a planned Model Candidate cannot contain members")
+    if selected_kind == "fusion" and len(selected_members) < 2:
+        raise ValueError("a planned Fusion Candidate requires at least two direct members")
+    operation_ids = {operation.id for operation in candidate.operations}
+    if unknown := {
+        member.operation_id
+        for member in selected_members
+        if member.operation_id not in operation_ids
+    }:
+        raise ValueError(f"Candidate member has unknown Operation ID {min(unknown)!r}")
+    object.__setattr__(candidate, "members", selected_members)
     return candidate
+
+
+def _member_projection(
+    *,
+    operation_id: str,
+    name: str,
+    kind: CandidateKind,
+    models: Sequence[str],
+) -> _MemberProjection:
+    return _MemberProjection(
+        operation_id=_nonblank(operation_id, "Member operation_id"),
+        name=_nonblank(name, "Member name"),
+        kind=_candidate_kind(kind),
+        models=_unique_texts(models, "Member models"),
+    )
 
 
 def _evaluation_from_engine(
@@ -145,8 +187,8 @@ def _evaluation_from_engine(
     limit: int | None,
     case_count: int,
     candidates: Sequence[Candidate],
-    capability_profile: str,
     required_capabilities: Sequence[str],
+    required_models: Sequence[str],
     operation_counts: Mapping[str, int],
 ) -> _Evaluation:
     """Build one validated private Evaluation after no-spend compilation."""
@@ -164,11 +206,14 @@ def _evaluation_from_engine(
         "limit": limit,
         "case_count": selected_count,
         "candidates": _Candidates(candidates),
-        "capability_profile": _nonblank(capability_profile, "Evaluation capability_profile"),
         "required_capabilities": _unique_texts(
             required_capabilities,
             "Evaluation required_capabilities",
             allow_empty=True,
+        ),
+        "required_models": _unique_texts(
+            required_models,
+            "Evaluation required_models",
         ),
         "_operation_count_items": _operation_counts(operation_counts),
     }

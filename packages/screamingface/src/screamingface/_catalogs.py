@@ -7,8 +7,9 @@ from typing import NoReturn, cast
 
 import httpx
 
+from screamingface._benchmark_catalog import _decode_benchmark_catalog
 from screamingface._catalog_view import _BenchmarkCatalog, _ModelCatalog
-from screamingface.discovery import BenchmarkInfo, ModelInfo, ScoreDirection
+from screamingface.discovery import ModelInfo
 from screamingface.errors import AuthenticationError, PlanningError
 
 _MODELS_PATH = "/v1/models"
@@ -31,7 +32,7 @@ class Benchmarks:
     def __init__(self, get: Callable[[str], httpx.Response]) -> None:
         self._get = get
 
-    def list(self) -> Sequence[BenchmarkInfo]:
+    def list(self) -> Sequence[str]:
         return _decode_benchmarks(_sync_json(self._get, _BENCHMARKS_PATH, "Benchmark catalogue"))
 
 
@@ -51,7 +52,7 @@ class AsyncBenchmarks:
     def __init__(self, get: Callable[[str], Awaitable[httpx.Response]]) -> None:
         self._get = get
 
-    async def list(self) -> Sequence[BenchmarkInfo]:
+    async def list(self) -> Sequence[str]:
         return _decode_benchmarks(
             await _async_json(self._get, _BENCHMARKS_PATH, "Benchmark catalogue")
         )
@@ -128,28 +129,12 @@ def _decode_models(payload: object) -> Sequence[ModelInfo]:
     return _ModelCatalog(values)
 
 
-def _decode_benchmarks(payload: object) -> Sequence[BenchmarkInfo]:
-    rows = _mapping(payload, "Benchmark catalogue").get("benchmarks")
-    if not isinstance(rows, list):
-        _invalid("Benchmark catalogue must contain a benchmarks array")
-    values = []
-    for row in rows:
-        item = _mapping(row, "Benchmark catalogue entry")
-        try:
-            values.append(
-                BenchmarkInfo(
-                    name=_text(item.get("name"), "Benchmark name"),
-                    id=_text(item.get("id"), "Benchmark id"),
-                    manifest_digest=_text(item.get("manifest_digest"), "Benchmark manifest digest"),
-                    title=_text(item.get("title"), "Benchmark title"),
-                    case_count=_positive(item.get("case_count"), "Benchmark case count"),
-                    primary_metric=_text(item.get("primary_metric"), "Benchmark primary metric"),
-                    score_direction=_direction(item.get("score_direction")),
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            _invalid(str(exc))
-    return _BenchmarkCatalog(values)
+def _decode_benchmarks(payload: object) -> Sequence[str]:
+    try:
+        catalog = _decode_benchmark_catalog(payload)
+    except ValueError as exc:
+        _invalid(str(exc))
+    return _BenchmarkCatalog(catalog.ids)
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:
@@ -162,18 +147,6 @@ def _text(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         _invalid(f"{label} must be non-blank text")
     return cast(str, value).strip()
-
-
-def _positive(value: object, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        _invalid(f"{label} must be a positive integer")
-    return cast(int, value)
-
-
-def _direction(value: object) -> ScoreDirection:
-    if value not in {"maximize", "minimize"}:
-        _invalid("Benchmark score direction must be maximize or minimize")
-    return cast(ScoreDirection, value)
 
 
 def _unreachable(label: str, cause: Exception) -> NoReturn:

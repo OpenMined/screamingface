@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any, cast
 
 import httpx
@@ -11,43 +10,197 @@ import pytest
 import screamingface as sf
 
 MANIFEST = b"""\
-schema: screamingface.benchmark-manifest.v1
 name: draco
 id: draco@1
 title: DRACO
+route: /benchmark
 cases:
-  route: /benchmarks/draco/cases
   count: 1
+answer:
+  instructions: Answer completely.
+  params:
+    temperature: 0.2
+    reasoning: low
+    max_output_tokens: 4096
+synthesis:
+  model: provider/synthesis
+  instructions: Combine the panel answers.
+  params:
+    temperature: 0.2
+    reasoning: low
+    max_output_tokens: 4096
 grader:
-  route: /benchmarks/draco/grade
+  kind: rubric
   criteria_per_case: 1
+  model: provider/judge
+  passes: 1
+  instructions: Return JSON.
+  params: {}
 aggregator:
-  route: /benchmarks/draco/aggregate
+  kind: mean
 metrics:
   primary: score
   direction: maximize
 tools: []
 """
-DIGEST = f"sha256:{hashlib.sha256(MANIFEST).hexdigest()}"
 
 
 def _engine(request: httpx.Request) -> httpx.Response:
-    if request.url.path == "/v1/benchmarks":
-        return httpx.Response(
+    if request.url.path == "/v1/models":
+        response = httpx.Response(
             200,
             json={
-                "benchmarks": [
-                    {
-                        "name": "draco",
-                        "id": "draco@1",
-                        "manifest_digest": DIGEST,
-                    }
-                ]
+                "object": "list",
+                "data": [
+                    {"id": "provider/opus", "object": "model", "owned_by": "provider"},
+                    {"id": "provider/judge", "object": "model", "owned_by": "provider"},
+                ],
             },
         )
-    if request.url.path == "/v1/benchmarks/draco/manifest":
-        return httpx.Response(200, content=MANIFEST)
-    return httpx.Response(404)
+    elif request.url.path == "/v1/benchmarks":
+        response = httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "default": "draco",
+                "data": [{"id": "draco", "object": "benchmark"}],
+            },
+        )
+    elif request.url.path == "/v1/benchmarks/draco/manifest":
+        response = httpx.Response(200, content=MANIFEST)
+    else:
+        response = httpx.Response(404)
+    return response
+
+
+class _ForbiddenTransport:
+    called = False
+
+    def run(self, candidate: object, on_event: object) -> object:
+        self.called = True
+        raise AssertionError("unavailable Models must fail before execution")
+
+    def close(self) -> None:
+        pass
+
+
+def test_evaluate_rejects_an_unavailable_model_before_execution() -> None:
+    def engine_without_candidate(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [
+                        {"id": "provider/judge", "object": "model", "owned_by": "provider"},
+                    ],
+                },
+            )
+        return _engine(request)
+
+    client = sf.Client(engine_url="https://engine.example")
+    private_client = cast(Any, client)
+    private_client._http.close()
+    private_client._http = httpx.Client(
+        base_url="https://engine.example",
+        transport=httpx.MockTransport(engine_without_candidate),
+    )
+    private_client._transport.close()
+    transport = _ForbiddenTransport()
+    private_client._transport = transport
+
+    with (
+        client,
+        pytest.raises(
+            sf.PlanningError,
+            match="Model 'missing/model' is not available on this Engine",
+        ) as caught,
+    ):
+        client.evaluate(sf.Model("missing/model"), benchmark="draco")
+
+    assert caught.value.code == "model_unavailable"
+    assert caught.value.permanent is True
+    assert caught.value.details == {"models": ["missing/model"]}
+    assert transport.called is False
+
+
+def test_evaluate_rejects_an_unavailable_judge_before_execution() -> None:
+    def engine_without_judge(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [
+                        {"id": "provider/opus", "object": "model", "owned_by": "provider"},
+                    ],
+                },
+            )
+        return _engine(request)
+
+    client = sf.Client(engine_url="https://engine.example")
+    private_client = cast(Any, client)
+    private_client._http.close()
+    private_client._http = httpx.Client(
+        base_url="https://engine.example",
+        transport=httpx.MockTransport(engine_without_judge),
+    )
+    private_client._transport.close()
+    transport = _ForbiddenTransport()
+    private_client._transport = transport
+
+    with (
+        client,
+        pytest.raises(
+            sf.PlanningError,
+            match="Model 'provider/judge' is not available on this Engine",
+        ),
+    ):
+        client.evaluate(sf.Model("provider/opus"), benchmark="draco")
+
+    assert transport.called is False
+
+
+def test_evaluate_rejects_an_unavailable_fusion_model_before_execution() -> None:
+    def engine_without_synthesis(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [
+                        {"id": model, "object": "model", "owned_by": "provider"}
+                        for model in ("provider/opus", "provider/gpt", "provider/judge")
+                    ],
+                },
+            )
+        return _engine(request)
+
+    fusion = sf.Fusion(
+        [sf.Model("provider/opus"), sf.Model("provider/gpt")],
+        name="panel",
+    )
+    client = sf.Client(engine_url="https://engine.example")
+    private_client = cast(Any, client)
+    private_client._http.close()
+    private_client._http = httpx.Client(
+        base_url="https://engine.example",
+        transport=httpx.MockTransport(engine_without_synthesis),
+    )
+    private_client._transport.close()
+    transport = _ForbiddenTransport()
+    private_client._transport = transport
+
+    with (
+        client,
+        pytest.raises(
+            sf.PlanningError,
+            match="Model 'provider/synthesis' is not available on this Engine",
+        ),
+    ):
+        client.evaluate(fusion, benchmark="draco")
+
+    assert transport.called is False
 
 
 def test_evaluate_reports_an_unreachable_execution_transport() -> None:

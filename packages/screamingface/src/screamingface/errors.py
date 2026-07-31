@@ -36,9 +36,31 @@ class ExecutionError(_DiagnosticError):
     """A Run ended without a valid Report."""
 
 
+class ProviderConnectionError(_DiagnosticError):
+    """A provider connection could not be read or updated safely."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str | None = None,
+        code: str | None = None,
+        status: int | None = None,
+        permanent: bool | None = None,
+    ) -> None:
+        self.provider = provider
+        super().__init__(
+            message,
+            code=code,
+            status=status,
+            permanent=permanent,
+        )
+
+
 __all__ = [
     "AuthenticationError",
     "ExecutionError",
     "PlanningError",
+    "ProviderConnectionError",
     "ScreamingFaceError",
 ]

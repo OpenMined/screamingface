@@ -9,8 +9,6 @@ import pytest
 import screamingface as sf
 from screamingface._evaluation import _operation_from_engine
 
-DIGEST = f"sha256:{'a' * 64}"
-
 
 def candidate(
     name: str,
@@ -55,7 +53,6 @@ def report(*candidates: sf.CandidateResult) -> sf.Report:
         benchmark=sf.BenchmarkInfo(
             name="draco",
             id="draco@1",
-            manifest_digest=DIGEST,
             title="DRACO",
             primary_metric="normalized_score",
             score_direction="maximize",
@@ -87,7 +84,6 @@ def test_report_reuses_public_benchmark_info_and_records_the_selected_case_count
     benchmark = sf.BenchmarkInfo(
         name="draco",
         id="draco@1",
-        manifest_digest=DIGEST,
         title="DRACO",
         case_count=100,
         primary_metric="normalized_score",
@@ -104,7 +100,6 @@ def test_report_reuses_public_benchmark_info_and_records_the_selected_case_count
     assert value.case_count == 2
     assert value.to_dict()["benchmark"] == {
         "id": "draco@1",
-        "manifest_digest": DIGEST,
         "primary_metric": "normalized_score",
         "score_direction": "maximize",
         "case_count": 2,
@@ -318,7 +313,6 @@ def test_report_json_is_complete_portable_json_with_decimal_money_as_text() -> N
 
     assert payload["schema"] == "screamingface.report.v1"
     assert payload["benchmark"]["id"] == "draco@1"
-    assert payload["benchmark"]["manifest_digest"] == DIGEST
     assert payload["candidates"][0]["run_id"] == "run_opus"
     assert payload["candidates"][0]["name"] == "opus"
     assert payload["usage"]["cost_usd"] == "0.12"

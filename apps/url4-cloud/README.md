@@ -122,6 +122,11 @@ installed by the wheel, so in a checkout local mode falls back to the checkout's
 `URL4_RUNNER_CONFIG` to override. Tuning: `URL4_CLOUD_LOCAL_MAX_CONCURRENT_RUNS`,
 `URL4_CLOUD_LOCAL_STREAM_MAX_FRAMES`, `URL4_CLOUD_LOCAL_MAX_RUN_HISTORY`.
 
+Alongside `[aigateway]` model routes, `[commands]` may declare shell-free subprocess routes using
+the same argv substitutions as `url4 serve`: `{context}`, `{intent}`, `{params}`, and
+`{param:<name>}`. This is the extension point for deterministic local handlers such as
+`/benchmark`; model and judge calls remain explicit AI Gateway nodes in the URL4 expression.
+
 ## Model catalog — `GET /v1/models`
 
 Discover which models an expression can address, proxied from aigateway's own `/v1/models` and
@@ -144,6 +149,53 @@ caller's identity and aigateway decides, including whether an absent identity is
 - **Caching is per credential too** — 5 min TTL, single-flight per key, and a stale entry is served
   if a refresh fails (bounded to 1 h) rather than failing open into "no models".
 - **Enabled by `URL4_CLOUD_AIGATEWAY_BASE_URL`** — the same value the chart already sets as
-  `config.aigatewayBaseUrl`. Unset ⇒ the endpoint answers `503`; everything else is a code default
-  (see the `models_cache_*` fields in `config.py`).
+  `config.aigatewayBaseUrl`. An ordinary deployed App answers `503` when it is unset. Local mode
+  automatically uses `http://127.0.0.1:9105`, matching its bundled runner config; an explicit
+  value still overrides that default. Everything else is a code default (see the
+  `models_cache_*` fields in `config.py`).
 - Cache behaviour is observable at `/metrics` (`url4_cloud_catalog_*`).
+
+## Provider connections — `/v1/connections`
+
+The SF Client connects provider credentials through this control-plane surface:
+
+```text
+GET    /v1/connections
+PUT    /v1/connections/openrouter
+DELETE /v1/connections/openrouter
+```
+
+The current catalogue always contains one OpenRouter row with API-key authentication. `PUT`
+accepts `{"api_key": "..."}` and asks AI Gateway to validate and store it; the App never persists
+or echoes the key. `GET` and mutation responses contain only the public provider name, supported
+methods, status, auth method, and optional account label. AI Gateway account IDs, credential
+locators, and upstream error bodies never cross this boundary.
+
+As with model discovery, the App forwards only the verified `X-User-Email` identity. Local mode
+uses AI Gateway's anonymous account when authentication is disabled and automatically addresses
+it at `http://127.0.0.1:9105`. An ordinary deployed App returns `503` when
+`URL4_CLOUD_AIGATEWAY_BASE_URL` is unset.
+
+## Benchmark catalog — `GET /v1/benchmarks`
+
+Discover the benchmark IDs installed by this App's composition root. The response follows the
+same list envelope as `GET /v1/models`, with deliberately minimal entries:
+
+```json
+{
+  "object": "list",
+  "default": "draco-smoke",
+  "data": [
+    {"id": "draco-smoke", "object": "benchmark"},
+    {"id": "draco-lite", "object": "benchmark"}
+  ]
+}
+```
+
+The Engine explicitly declares `draco-smoke` as the SDK evaluation default. Catalog ordering is
+presentation-only; `draco-lite` remains available as an explicit ten-criterion evaluation.
+
+The shipped local and hosted composition roots install the built-in benchmark registry. An
+embedded App created without an injected registry returns `default: null` and an empty `data`
+array. In both cases the catalogue is derived from the same registry used by `/benchmark`; an App
+never advertises an ID whose handler is absent or declares a default that is not installed.

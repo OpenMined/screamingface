@@ -19,8 +19,7 @@ through the intended typed, lazy interface without exposing AI Gateway or Provid
 - Add module-level `sf.models` and `sf.benchmarks` facades.
 - Add focused Client tests and update public-interface documentation.
 - Add a loopback-only Engine credential fallback for model catalogue discovery.
-- Keep the public benchmark identity unversioned (`draco-lite`) and use the manifest digest as
-  the immutable reproducibility pin.
+- Keep the public benchmark identity unversioned (`draco-lite`).
 
 ## Test plan
 
