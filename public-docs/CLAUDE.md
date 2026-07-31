@@ -34,7 +34,7 @@ There is no automated test setup in this project.
 
 - `src/App.vue` — shell: `<TheNavbar />` + `<RouterView />`
 - `src/components/layout/TheNavbar.vue` — sticky top nav (brand, product links [Home / SF Client / SDK], theme toggle, GitHub)
-- `src/components/layout/DocLayout.vue` — sidebar + optional page header + content slot + prev/next buttons (`title` is optional; the header is skipped when omitted)
+- `src/components/layout/DocLayout.vue` — sidebar + optional page header + content slot + prev/next buttons (`title` is optional; the header is skipped when omitted). A navigation section whose `title` is an empty string renders no group heading, so an item can sit ungrouped above the labelled sections.
 - `src/components/ui/` — reusable content components: `CodeBlock`, `TabbedCodeBlock`, `ApiBlock`, `Collapsible`, `ImageCarousel`, `NotebookViewer`
 - `src/composables/` — reusable logic: `useCopy` (clipboard + "Copied!" feedback), `useHighlight` (central Prism setup + `highlight()`), `useDocNavigation` (sidebar active-state + prev/next from a nav tree), `useCarousel` (index + auto-advance)
 - `src/stores/` — Pinia stores for shared reactive state: `theme` (`isDark` state, `theme` getter, dark/light + localStorage persistence) and `codeLang` (shared code-tab language across `TabbedCodeBlock`s)
@@ -68,7 +68,7 @@ The sidebar and prev/next buttons are driven by shared data files in
 
 | File | Export | Used by | Entries |
 |---|---|---|---|
-| `src/navigation/sf-client.ts` | `sfClientNavigation` | All `/sf-client/*` pages | Overview, Installation, Quickstart |
+| `src/navigation/sf-client.ts` | `sfClientNavigation` | All `/sf-client/*` pages | Overview (ungrouped), then **Get Started**: Quickstart, Installation |
 | `src/navigation/sdk.ts` | `sdkNavigation` | All `/sdk/*` pages | Overview |
 
 **How pages consume it:**
