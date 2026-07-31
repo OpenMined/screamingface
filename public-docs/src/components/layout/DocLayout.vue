@@ -139,7 +139,7 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
   letter-spacing: -0.025em;
 }
 
-.prose-content :deep(h3) {
+.prose-content :deep(h3:not(.not-prose h3)) {
   font-family: var(--font-sans);
   font-size: 1.375rem;
   font-weight: 400;
@@ -149,7 +149,7 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
   letter-spacing: -0.02em;
 }
 
-.prose-content :deep(h4) {
+.prose-content :deep(h4:not(.not-prose h4)) {
   font-family: var(--font-sans);
   font-size: 1.125rem;
   font-weight: 400;
@@ -159,31 +159,31 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
   letter-spacing: -0.015em;
 }
 
-.prose-content :deep(p) {
+.prose-content :deep(p:not(.not-prose p)) {
   color: var(--color-muted-foreground);
   line-height: 1.75;
   margin-bottom: 1rem;
 }
 
-.prose-content :deep(ul) {
+.prose-content :deep(ul:not(.not-prose ul)) {
   list-style-type: disc;
   padding-left: 1.5rem;
   margin-bottom: 1rem;
 }
 
-.prose-content :deep(ol) {
+.prose-content :deep(ol:not(.not-prose ol)) {
   list-style-type: decimal;
   padding-left: 1.5rem;
   margin-bottom: 1rem;
 }
 
-.prose-content :deep(li) {
+.prose-content :deep(li:not(.not-prose li)) {
   color: var(--color-muted-foreground);
   margin-bottom: 0.5rem;
   line-height: 1.6;
 }
 
-.prose-content :deep(li strong) {
+.prose-content :deep(li:not(.not-prose li) strong) {
   color: var(--color-foreground);
 }
 
@@ -228,7 +228,7 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
   padding: 0;
 }
 
-.prose-content :deep(blockquote) {
+.prose-content :deep(blockquote:not(.not-prose blockquote)) {
   border-left: 4px solid oklch(0.75 0.18 195 / 0.5);
   padding-left: 1rem;
   font-style: italic;
@@ -236,13 +236,13 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
   margin: 1.5rem 0;
 }
 
-.prose-content :deep(table) {
+.prose-content :deep(table:not(.not-prose table)) {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 1.5rem;
 }
 
-.prose-content :deep(th) {
+.prose-content :deep(th:not(.not-prose th)) {
   font-family: var(--font-sans);
   text-align: left;
   padding: 0.75rem;
@@ -252,7 +252,7 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
   color: var(--color-foreground);
 }
 
-.prose-content :deep(td) {
+.prose-content :deep(td:not(.not-prose td)) {
   padding: 0.75rem;
   border-bottom: 1px solid oklch(0.25 0.03 280 / 0.5);
   color: var(--color-muted-foreground);
@@ -274,7 +274,7 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
   text-decoration: none;
 }
 
-.prose-content :deep(strong) {
+.prose-content :deep(strong:not(.not-prose strong)) {
   font-family: var(--font-sans);
   color: var(--color-foreground);
   font-weight: 500;
