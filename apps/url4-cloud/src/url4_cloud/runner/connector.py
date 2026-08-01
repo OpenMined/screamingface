@@ -427,8 +427,7 @@ async def _chat_completion_loop(
             )
         except httpx.TimeoutException as exc:
             raise ResolutionError(
-                f"aigateway did not respond within {cfg.timeout_s:g} seconds "
-                f"for model {model!r}",
+                f"aigateway did not respond within {cfg.timeout_s:g} seconds for model {model!r}",
                 code="aigateway_timeout",
                 permanent=False,
             ) from exc

@@ -30,6 +30,7 @@ from screamingface._authentication import (
     _CallerAuth,
     _CloudflareAccessAuth,
     _decrypt_transfer,
+    _LoginAttempt,
     _present_access_authorization,
     _present_access_logout,
     _require_positive_timeout,
@@ -157,8 +158,7 @@ def test_explicit_login_uses_encrypted_access_transfer_and_keeps_token_in_memory
     assert redirect["token"] == query["token"]
     assert token not in repr(auth)
     assert capsys.readouterr().out == (
-        "Waiting for Cloudflare Access login to complete...\n"
-        "Cloudflare Access login complete.\n"
+        "Waiting for Cloudflare Access login to complete...\nCloudflare Access login complete.\n"
     )
 
     auth.login()
@@ -237,6 +237,50 @@ def test_rejected_and_expired_tokens_are_replaced() -> None:
 
     assert auth.websocket_headers()["Cf-Access-Token"] == second
     assert len(fixture.browser_urls) == 2
+    auth.close()
+
+
+@pytest.mark.asyncio
+async def test_access_discovery_and_explicit_reauthentication_refresh_credentials() -> None:
+    fixture = _AccessFixture()
+    fixture.application_tokens.extend(
+        [
+            _jwt(fixture.clock.wall + 1_800, marker=2),
+            _jwt(fixture.clock.wall + 2_700, marker=3),
+        ]
+    )
+    auth = fixture.auth()
+
+    assert auth.access_required() is True
+    auth.login()
+    first = auth.websocket_headers()["Cf-Access-Token"]
+    auth.reauthenticate(timeout=10)
+    second = auth.websocket_headers()["Cf-Access-Token"]
+    await auth.reauthenticate_async(timeout=10)
+    third = auth.websocket_headers()["Cf-Access-Token"]
+
+    assert len({first, second, third}) == 3
+    auth.close()
+
+
+def test_waiting_login_reports_timeout_worker_failure_and_missing_credentials() -> None:
+    auth = _AccessFixture().auth()
+    pending = _LoginAttempt(threading.Event(), threading.Event())
+    with pytest.raises(sf.AuthenticationError) as timeout:
+        auth._await_login(pending, 0)  # type: ignore[attr-defined]
+    assert timeout.value.code == "access_login_timeout"
+
+    failed = _LoginAttempt(threading.Event(), threading.Event())
+    failed.error = RuntimeError("worker failed")
+    failed.done.set()
+    with pytest.raises(RuntimeError, match="worker failed"):
+        auth._await_login(failed, 0)  # type: ignore[attr-defined]
+
+    empty = _LoginAttempt(threading.Event(), threading.Event())
+    empty.done.set()
+    with pytest.raises(sf.AuthenticationError) as invalid:
+        auth._await_login(empty, 0)  # type: ignore[attr-defined]
+    assert invalid.value.code == "access_invalid_token"
     auth.close()
 
 
@@ -347,13 +391,21 @@ def test_head_discovery_falls_back_to_get() -> None:
 
 def test_audience_discovery_accepts_header_or_redirect_and_rejects_bad_values() -> None:
     assert _access_audience(httpx.Response(401, headers={"cf-access-aud": _AUDIENCE})) == _AUDIENCE
-    assert _access_audience(
-        httpx.Response(302, headers={"location": f"https://access.example/login?kid={_AUDIENCE}"})
-    ) == _AUDIENCE
+    assert (
+        _access_audience(
+            httpx.Response(
+                302, headers={"location": f"https://access.example/login?kid={_AUDIENCE}"}
+            )
+        )
+        == _AUDIENCE
+    )
     assert _access_audience(httpx.Response(302, headers={"location": "/login?kid=short"})) is None
-    assert _access_audience(
-        httpx.Response(302, headers={"location": f"/login?kid={_AUDIENCE}&kid={'b' * 64}"})
-    ) is None
+    assert (
+        _access_audience(
+            httpx.Response(302, headers={"location": f"/login?kid={_AUDIENCE}&kid={'b' * 64}"})
+        )
+        is None
+    )
     assert _access_audience(httpx.Response(200)) is None
 
 
@@ -758,13 +810,7 @@ def test_websocket_access_rejection_reauthenticates_and_retries_once(
                 Response(
                     302,
                     "Found",
-                    Headers(
-                        {
-                            "Location": (
-                                "https://access.example/login?" f"kid={_AUDIENCE}"
-                            )
-                        }
-                    ),
+                    Headers({"Location": (f"https://access.example/login?kid={_AUDIENCE}")}),
                 )
             )
         return real_connect(uri, **kwargs)

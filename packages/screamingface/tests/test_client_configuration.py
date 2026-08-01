@@ -40,6 +40,25 @@ def test_client_exposes_automatic_caller_authentication_without_an_auth_selector
     client.close()
 
 
+def test_sync_client_auth_helpers_notify_subscribers(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = sf.Client(engine_url="https://engine.example")
+    private_client = cast(Any, client)
+    notifications: list[str] = []
+    cancellations: list[None] = []
+    unsubscribe = private_client._subscribe_auth(lambda: notifications.append("changed"))
+    monkeypatch.setattr(private_client._auth, "cancel_login", lambda: cancellations.append(None))
+    monkeypatch.setattr(private_client._auth, "access_required", lambda: True)
+
+    assert private_client._access_required() is True
+    private_client._cancel_login()
+    unsubscribe()
+    private_client._cancel_login()
+
+    assert cancellations == [None, None]
+    assert notifications == ["changed"]
+    client.close()
+
+
 @pytest.mark.asyncio
 async def test_async_client_exposes_the_same_login_surface(
     monkeypatch: pytest.MonkeyPatch,
@@ -57,6 +76,29 @@ async def test_async_client_exposes_the_same_login_surface(
     assert calls == [12]
     assert client.authenticated is False
     await client.logout()
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_client_auth_helpers_match_the_sync_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = sf.AsyncClient(engine_url="https://engine.example")
+    private_client = cast(Any, client)
+    notifications: list[str] = []
+    cancellations: list[None] = []
+    unsubscribe = private_client._subscribe_auth(lambda: notifications.append("changed"))
+    monkeypatch.setattr(private_client._auth, "cancel_login", lambda: cancellations.append(None))
+    monkeypatch.setattr(private_client._auth, "access_required", lambda: True)
+
+    assert client.authenticating is False
+    assert await private_client._access_required() is True
+    private_client._cancel_login()
+    unsubscribe()
+    private_client._cancel_login()
+
+    assert cancellations == [None, None]
+    assert notifications == ["changed"]
     await client.aclose()
 
 

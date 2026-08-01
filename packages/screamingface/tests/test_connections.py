@@ -201,6 +201,30 @@ def test_engine_failures_are_safe_and_typed() -> None:
     assert SECRET not in str(failure.value)
 
 
+@pytest.mark.parametrize(
+    ("status", "code", "retryable"),
+    [
+        (404, "unknown_provider", False),
+        (409, "connection_conflict", False),
+        (429, "connection_rate_limited", True),
+        (500, "connection_engine_error", True),
+    ],
+)
+def test_engine_failure_statuses_have_stable_retry_semantics(
+    status: int,
+    code: str,
+    retryable: bool,
+) -> None:
+    client = _sync_client(lambda _: httpx.Response(status))
+
+    with client, pytest.raises(sf.ProviderConnectionError) as failure:
+        client.connections.get("openrouter")
+
+    assert failure.value.status == status
+    assert failure.value.code == code
+    assert failure.value.retryable is retryable
+
+
 def test_unreachable_engine_has_a_dedicated_actionable_error() -> None:
     def unreachable(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("private socket detail", request=request)
@@ -248,6 +272,57 @@ def test_connection_values_are_immutable_and_strict() -> None:
             "openrouter",
             api_key=" ",
         )
+    with pytest.raises(ValueError, match="provider and display_name"):
+        sf.Connection(" ", "OpenRouter", ("api_key",), "connected", "api_key", None)
+    with pytest.raises(ValueError, match="unsupported method"):
+        sf.Connection("openrouter", "OpenRouter", ("oauth2",), "connected", None, None)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="account_label"):
+        sf.Connection("openrouter", "OpenRouter", ("api_key",), "connected", None, " ")
+
+
+def test_connection_response_must_be_json() -> None:
+    client = _sync_client(lambda _: httpx.Response(200, content=b"not-json"))
+
+    with client, pytest.raises(sf.ProviderConnectionError) as failure:
+        client.connections.list()
+
+    assert failure.value.code == "invalid_connection_response"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {**_row(), "auth_methods": []},
+        {**_row(), "provider": " "},
+        {**_row(), "account_label": " "},
+    ],
+)
+def test_connection_values_reject_invalid_identity_fields(row: dict[str, object]) -> None:
+    client = _sync_client(lambda _: httpx.Response(200, json=_list(row)))
+
+    with client, pytest.raises(sf.ProviderConnectionError) as failure:
+        client.connections.list()
+
+    assert failure.value.code == "invalid_connection_response"
+
+
+def test_connection_lookup_and_mutation_validate_provider_identity() -> None:
+    client = _sync_client(lambda _: httpx.Response(200, json=_list()))
+
+    with client:
+        with pytest.raises(sf.ProviderConnectionError, match="does not advertise"):
+            client.connections.get("anthropic")
+        with pytest.raises(ValueError, match="provider must be"):
+            client.connections.get(" ")
+
+
+def test_connection_response_must_match_the_requested_provider() -> None:
+    client = _sync_client(lambda _: httpx.Response(200, json=_row()))
+
+    with client, pytest.raises(sf.ProviderConnectionError) as failure:
+        client.connections.connect("anthropic", SECRET)
+
+    assert failure.value.code == "invalid_connection_response"
 
 
 def test_provider_keys_require_https_outside_loopback() -> None:

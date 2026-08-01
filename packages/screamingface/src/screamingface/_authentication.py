@@ -60,9 +60,7 @@ class _CallerAuth(httpx.Auth, ABC):
     def reauthenticate(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None: ...
 
     @abstractmethod
-    async def reauthenticate_async(
-        self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT
-    ) -> None: ...
+    async def reauthenticate_async(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None: ...
 
     @abstractmethod
     def logout(self) -> None: ...
@@ -187,9 +185,7 @@ class _CloudflareAccessAuth(_CallerAuth):
                 self._generation += 1
         self.login(timeout=timeout)
 
-    async def reauthenticate_async(
-        self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT
-    ) -> None:
+    async def reauthenticate_async(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None:
         await self._cancellable_thread_call(self.reauthenticate, timeout=timeout)
 
     def logout(self) -> None:

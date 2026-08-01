@@ -385,8 +385,7 @@ async def test_aigateway_timeout_maps_to_transient_resolution_error() -> None:
     assert exc_info.value.code == "aigateway_timeout"
     assert exc_info.value.permanent is False
     assert str(exc_info.value) == (
-        "aigateway did not respond within 300 seconds "
-        "for model 'anthropic/claude-haiku-4-5'"
+        "aigateway did not respond within 300 seconds for model 'anthropic/claude-haiku-4-5'"
     )
 
 

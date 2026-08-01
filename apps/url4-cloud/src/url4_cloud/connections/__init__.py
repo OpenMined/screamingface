@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol
 
 import httpx
 
-from url4_cloud.config import Settings
 from url4_cloud.connections.aigateway import AigatewayConnections
 from url4_cloud.connections.port import (
     Caller,
@@ -24,12 +24,16 @@ from url4_cloud.connections.port import (
 _UPSTREAM_TIMEOUT_S = 10.0
 
 
+class _ConnectionSettings(Protocol):
+    aigateway_base_url: str | None
+
+
 def _default_client(base_url: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=base_url, timeout=_UPSTREAM_TIMEOUT_S)
 
 
 def build_connections(
-    settings: Settings,
+    settings: _ConnectionSettings,
     *,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
 ) -> AigatewayConnections | None:

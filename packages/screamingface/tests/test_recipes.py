@@ -153,12 +153,8 @@ def test_candidate_representations_are_compact() -> None:
     gpt = sf.Model("openrouter/openai/gpt-5.5")
 
     assert repr(opus) == "Model('openrouter/anthropic/claude-opus-4.8')"
-    assert repr(sample) == (
-        "Model('openrouter/anthropic/claude-opus-4.8', name='sample-1')"
-    )
-    assert repr(sf.Fusion([opus, gpt])) == (
-        "Fusion(['claude-opus-4.8', 'gpt-5.5'])"
-    )
+    assert repr(sample) == ("Model('openrouter/anthropic/claude-opus-4.8', name='sample-1')")
+    assert repr(sf.Fusion([opus, gpt])) == ("Fusion(['claude-opus-4.8', 'gpt-5.5'])")
     assert repr(sf.Fusion([opus, gpt], name="pair")) == (
         "Fusion(['claude-opus-4.8', 'gpt-5.5'], name='pair')"
     )

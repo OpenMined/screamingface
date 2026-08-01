@@ -14,12 +14,12 @@ if TYPE_CHECKING:
     from screamingface.model import Model
     from screamingface.recipe import Recipe
 
+
 def model_card_html(model: Model) -> str:
     """Render only authoring fields actually held by one Model."""
 
-    fields = (
-        _field("route", _mono(model.model))
-        + _field("provider", escape(_provider_of(model.model)))
+    fields = _field("route", _mono(model.model)) + _field(
+        "provider", escape(_provider_of(model.model))
     )
     return (
         f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace model'>"
