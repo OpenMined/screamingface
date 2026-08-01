@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from screamingface._evaluation import Operation
+from screamingface._evaluation.model import Operation
 
 
 class _FailureReference(Protocol):

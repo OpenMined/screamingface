@@ -1,8 +1,8 @@
 """ScreamingFace — evaluate Models and Fusions on research Benchmarks."""
 
 from screamingface import benchmarks, connections, events, models
-from screamingface._connection_panel import ConnectionPanel
 from screamingface._default_client import connect, disconnect, evaluate
+from screamingface._ui.connections import ConnectionPanel
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import Connection
 from screamingface.discovery import BenchmarkInfo, ModelInfo

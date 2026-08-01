@@ -42,7 +42,7 @@ class Fusion(Recipe):
         return f"Fusion([{members}]{name})"
 
     def _repr_html_(self) -> str:
-        from screamingface._card_display import fusion_card_html
+        from screamingface._ui.cards import fusion_card_html
 
         return fusion_card_html(self)
 

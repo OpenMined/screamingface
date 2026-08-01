@@ -56,13 +56,10 @@ class Engine:
 
 
 def _client(handler: Callable[[httpx.Request], httpx.Response]) -> sf.Client:
-    client = sf.Client(engine_url="http://127.0.0.1:9108")
-    client._http.close()  # type: ignore[attr-defined]
-    client._http = httpx.Client(  # type: ignore[attr-defined]
-        base_url="http://127.0.0.1:9108",
-        transport=httpx.MockTransport(handler),
+    return sf.Client(
+        engine_url="http://127.0.0.1:9108",
+        http_transport=httpx.MockTransport(handler),
     )
-    return client
 
 
 def _walk(widget: widgets.Widget) -> tuple[widgets.Widget, ...]:
@@ -225,8 +222,11 @@ def test_panel_retains_dormant_oauth_pending_and_cancel_controls() -> None:
     )
 
     class Connections:
+        def __init__(self) -> None:
+            self.current = connection
+
         def list(self) -> tuple[sf.Connection, ...]:
-            return (connection,)
+            return (self.current,)
 
     class FutureClient:
         engine_url = "http://127.0.0.1:9108"
@@ -246,8 +246,8 @@ def test_panel_retains_dormant_oauth_pending_and_cancel_controls() -> None:
         auth_method="oauth",
         account_label=None,
     )
-    panel._connections = (pending,)  # type: ignore[attr-defined]
-    panel._render_rows()  # type: ignore[attr-defined]
+    FutureClient.connections.current = pending
+    panel.refresh()
     assert [button.description for button in _buttons(root)] == ["Cancel"]
     root.close()
 

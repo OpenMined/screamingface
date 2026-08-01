@@ -36,8 +36,26 @@ def test_client_exposes_automatic_caller_authentication_without_an_auth_selector
 
     assert calls == [12]
     assert client.authenticated is False
+    assert client.authenticating is False
     client.logout()
     client.close()
+
+
+def test_connect_requires_a_complete_provider_and_api_key_pair() -> None:
+    client = sf.Client()
+    client_connect = cast(Any, client.connect)
+    default_connect = cast(Any, sf.connect)
+    try:
+        with pytest.raises(TypeError, match="provider is required"):
+            client_connect(api_key="secret")
+        with pytest.raises(ValueError, match="api_key is required"):
+            client_connect("openrouter")
+        with pytest.raises(TypeError, match="provider is required"):
+            default_connect(api_key="secret")
+        with pytest.raises(ValueError, match="api_key is required"):
+            default_connect("openrouter")
+    finally:
+        client.close()
 
 
 def test_sync_client_auth_helpers_notify_subscribers(monkeypatch: pytest.MonkeyPatch) -> None:

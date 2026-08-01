@@ -5,24 +5,20 @@ import json
 import threading
 from copy import deepcopy
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import httpx
 import pytest
 import yaml
 
 import screamingface as sf
-from screamingface._benchmark_manifest import (
-    _decode_manifest,
-    _select_benchmark,
-    _success,
-    load_manifest,
-)
-from screamingface._compiler import _url4_text
-from screamingface._evaluation import Candidate
-from screamingface._ports import _RunOutcome
-from screamingface._result_decoder import _candidate_result
-from screamingface.client import _compile_sync
+from screamingface._core.ports import _RunOutcome
+from screamingface._engine.benchmark import _select_benchmark, _success, load_manifest
+from screamingface._evaluation.benchmark import _decode_manifest
+from screamingface._evaluation.compiler import _url4_text
+from screamingface._evaluation.model import Candidate
+from screamingface._evaluation.results import _candidate_result
+from screamingface._evaluation.runner import _compile_sync
 
 MANIFEST = b"""\
 id: draco-lite
@@ -188,15 +184,12 @@ def _engine(request: httpx.Request) -> httpx.Response:
 
 
 def _client() -> tuple[sf.Client, _FakeTransport]:
-    client = sf.Client(engine_url="https://engine.example")
-    private_client = cast(Any, client)
-    private_client._http.close()
-    private_client._http = httpx.Client(
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(_engine),
-    )
     transport = _FakeTransport()
-    private_client._transport = transport
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    )
     return client, transport
 
 
@@ -240,15 +233,12 @@ def test_client_evaluates_the_complete_draco_lite_vertical_slice() -> None:
 
 @pytest.mark.asyncio
 async def test_async_client_evaluates_the_same_draco_lite_contract() -> None:
-    client = sf.AsyncClient(engine_url="https://engine.example")
-    private_client = cast(Any, client)
-    await private_client._http.aclose()
-    private_client._http = httpx.AsyncClient(
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(_engine),
-    )
     transport = _AsyncFakeTransport()
-    private_client._transport = transport
+    client = sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    )
 
     async with client:
         report = await client.evaluate(
@@ -262,10 +252,12 @@ async def test_async_client_evaluates_the_same_draco_lite_contract() -> None:
 
 
 def test_client_runs_candidates_concurrently_and_preserves_declared_order() -> None:
-    client, previous = _client()
-    previous.close()
     transport = _ConcurrentFakeTransport(expected=3)
-    cast(Any, client)._transport = transport
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    )
     candidates = [
         sf.Model("anthropic/claude-haiku-4-5", name=f"sample-{index}") for index in range(3)
     ]
@@ -283,16 +275,12 @@ def test_client_runs_candidates_concurrently_and_preserves_declared_order() -> N
 
 @pytest.mark.asyncio
 async def test_async_client_runs_candidates_concurrently_and_preserves_order() -> None:
-    client = sf.AsyncClient(engine_url="https://engine.example")
-    private_client = cast(Any, client)
-    await private_client._http.aclose()
-    private_client._http = httpx.AsyncClient(
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(_engine),
-    )
-    await private_client._transport.close()
     transport = _AsyncConcurrentFakeTransport(expected=3)
-    private_client._transport = transport
+    client = sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    )
     candidates = [
         sf.Model("anthropic/claude-haiku-4-5", name=f"sample-{index}") for index in range(3)
     ]
@@ -546,11 +534,12 @@ def test_compiler_normalizes_url4_parameters_and_rejects_control_characters() ->
 
 
 def test_candidate_result_decoder_rejects_contract_drift() -> None:
-    client, _ = _client()
-    with client:
-        private_client = cast(Any, client)
+    with httpx.Client(
+        base_url="https://engine.example",
+        transport=httpx.MockTransport(_engine),
+    ) as http:
         evaluation = _compile_sync(
-            private_client._http,
+            lambda benchmark: load_manifest(http, benchmark),
             sf.Model("anthropic/claude-haiku-4-5"),
             "draco-lite",
             1,

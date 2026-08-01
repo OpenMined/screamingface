@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 
 import screamingface as sf
-from screamingface._progress import _message, _progress_observer
-from screamingface.client import _async_event_observer, _sync_event_observer
+from screamingface._evaluation.progress import _message, _progress_observer
+from screamingface._evaluation.runner import _async_event_observer, _sync_event_observer
 
 
 def envelope() -> dict[str, Any]:
@@ -59,7 +59,7 @@ def test_sync_evaluate_combines_builtin_and_caller_observers(
 ) -> None:
     observed: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        "screamingface._progress._progress_observer",
+        "screamingface._evaluation.progress._progress_observer",
         lambda requested: lambda event: observed.append(("progress", event.kind)),
     )
     callback = _sync_event_observer(
@@ -79,7 +79,7 @@ async def test_async_evaluate_combines_builtin_and_async_caller_observers(
 ) -> None:
     observed: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        "screamingface._progress._progress_observer",
+        "screamingface._evaluation.progress._progress_observer",
         lambda requested: lambda event: observed.append(("progress", event.kind)),
     )
 

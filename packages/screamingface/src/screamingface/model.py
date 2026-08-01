@@ -38,7 +38,7 @@ class Model(Recipe):
         return f"Model({self.model!r}, name={self.name!r})"
 
     def _repr_html_(self) -> str:
-        from screamingface._card_display import model_card_html
+        from screamingface._ui.cards import model_card_html
 
         return model_card_html(self)
 

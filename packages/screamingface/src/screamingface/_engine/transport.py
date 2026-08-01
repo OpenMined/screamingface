@@ -20,10 +20,10 @@ from websockets.sync import client as sync_ws
 from websockets.sync.connection import Connection as SyncConnection
 from websockets.typing import Subprotocol
 
-from screamingface._authentication import _CallerAuth, _default_caller_auth
-from screamingface._engine_contract import _RunState
-from screamingface._evaluation import Candidate
-from screamingface._ports import _RunOutcome
+from screamingface._core.ports import _CallerAuth, _RunOutcome
+from screamingface._engine.auth import _default_caller_auth
+from screamingface._engine.contract import _RunState
+from screamingface._evaluation.model import Candidate
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
 from screamingface.events import Event
 

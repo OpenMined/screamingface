@@ -11,7 +11,7 @@ from screamingface.client import DEFAULT_ENGINE_URL, Client
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from screamingface._connection_panel import ConnectionPanel
+    from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection
     from screamingface.events import Event
     from screamingface.recipe import Recipe
@@ -80,7 +80,7 @@ def connect(
     if provider is None:
         if api_key is not None:
             raise TypeError("provider is required when api_key is supplied")
-        from screamingface._connection_panel import ConnectionPanel
+        from screamingface._ui.connections import ConnectionPanel
 
         return ConnectionPanel(default_client())
     if api_key is None:

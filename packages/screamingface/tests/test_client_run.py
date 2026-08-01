@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import NoReturn
 
 import httpx
 import pytest
@@ -77,7 +77,7 @@ def _engine(request: httpx.Request) -> httpx.Response:
 class _ForbiddenTransport:
     called = False
 
-    def run(self, candidate: object, on_event: object) -> object:
+    def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("unavailable Models must fail before execution")
 
@@ -99,16 +99,12 @@ def test_evaluate_rejects_an_unavailable_model_before_execution() -> None:
             )
         return _engine(request)
 
-    client = sf.Client(engine_url="https://engine.example")
-    private_client = cast(Any, client)
-    private_client._http.close()
-    private_client._http = httpx.Client(
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(engine_without_candidate),
-    )
-    private_client._transport.close()
     transport = _ForbiddenTransport()
-    private_client._transport = transport
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(engine_without_candidate),
+        run_transport=transport,
+    )
 
     with (
         client,
@@ -139,16 +135,12 @@ def test_evaluate_rejects_an_unavailable_judge_before_execution() -> None:
             )
         return _engine(request)
 
-    client = sf.Client(engine_url="https://engine.example")
-    private_client = cast(Any, client)
-    private_client._http.close()
-    private_client._http = httpx.Client(
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(engine_without_judge),
-    )
-    private_client._transport.close()
     transport = _ForbiddenTransport()
-    private_client._transport = transport
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(engine_without_judge),
+        run_transport=transport,
+    )
 
     with (
         client,
@@ -181,16 +173,12 @@ def test_evaluate_rejects_an_unavailable_fusion_model_before_execution() -> None
         [sf.Model("provider/opus"), sf.Model("provider/gpt")],
         name="panel",
     )
-    client = sf.Client(engine_url="https://engine.example")
-    private_client = cast(Any, client)
-    private_client._http.close()
-    private_client._http = httpx.Client(
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(engine_without_synthesis),
-    )
-    private_client._transport.close()
     transport = _ForbiddenTransport()
-    private_client._transport = transport
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(engine_without_synthesis),
+        run_transport=transport,
+    )
 
     with (
         client,
@@ -205,13 +193,10 @@ def test_evaluate_rejects_an_unavailable_fusion_model_before_execution() -> None
 
 
 def test_evaluate_reports_an_unreachable_execution_transport() -> None:
-    with sf.Client(engine_url="http://127.0.0.1:1") as client:
-        private_client = cast(Any, client)
-        private_client._http.close()
-        private_client._http = httpx.Client(
-            base_url="http://127.0.0.1:1",
-            transport=httpx.MockTransport(_engine),
-        )
+    with sf.Client(
+        engine_url="http://127.0.0.1:1",
+        http_transport=httpx.MockTransport(_engine),
+    ) as client:
         with pytest.raises(sf.EngineUnavailableError) as caught:
             client.evaluate(
                 sf.Model("provider/opus"),
@@ -226,12 +211,9 @@ def test_evaluate_reports_an_unreachable_execution_transport() -> None:
 
 @pytest.mark.asyncio
 async def test_async_evaluate_reports_the_same_unreachable_execution_transport() -> None:
-    client = sf.AsyncClient(engine_url="http://127.0.0.1:1")
-    private_client = cast(Any, client)
-    await private_client._http.aclose()
-    private_client._http = httpx.AsyncClient(
-        base_url="http://127.0.0.1:1",
-        transport=httpx.MockTransport(_engine),
+    client = sf.AsyncClient(
+        engine_url="http://127.0.0.1:1",
+        http_transport=httpx.MockTransport(_engine),
     )
 
     with pytest.raises(sf.EngineUnavailableError) as caught:

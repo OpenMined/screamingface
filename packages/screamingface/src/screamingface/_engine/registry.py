@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from screamingface._authentication import _CallerAuth
-from screamingface._ports import AsyncRunTransport, SyncRunTransport
+from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _CallerAuth
 
 
 class _SyncTransportFactory(Protocol):
@@ -28,7 +27,7 @@ class _TransportRegistry:
 def _default_transport_registry() -> _TransportRegistry:
     """Register the confirmed REST + WebSocket Engine adapters."""
 
-    from screamingface._transport import AsyncUrl4CloudTransport, Url4CloudTransport
+    from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 
     return _TransportRegistry(
         sync=Url4CloudTransport,

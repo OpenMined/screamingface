@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from screamingface._display import STYLE
+from screamingface._ui.style import STYLE
 
 # WHY: the gold-to-blue signature belongs only to compositional/Fusion surfaces.
 CARD_STYLE = (

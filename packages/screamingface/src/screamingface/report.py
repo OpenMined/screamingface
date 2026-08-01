@@ -11,7 +11,7 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Literal
 
-from screamingface._evaluation import Operation, _canonical_url4, _operation_dag
+from screamingface._evaluation.model import Operation, _canonical_url4, _operation_dag
 from screamingface._named_values import _NamedValues
 from screamingface._operation_projection import _operation_dict, _require_operation_references
 from screamingface._report_primitives import (

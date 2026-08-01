@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
-from screamingface._evaluation import Candidate, _Evaluation
-from screamingface._ports import _RunOutcome
+from screamingface._core.ports import _RunOutcome
+from screamingface._evaluation.model import Candidate, _Evaluation
 from screamingface.errors import ExecutionError
 from screamingface.report import CandidateResult, MemberResult, Report, Usage
 

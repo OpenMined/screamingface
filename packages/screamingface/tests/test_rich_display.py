@@ -13,13 +13,10 @@ _FABRICATED = ("context window", "ability", "tok/s", "tokens/s", "$/m", "price")
 
 
 def _client(handler: Callable[[httpx.Request], httpx.Response]) -> sf.Client:
-    client = sf.Client(engine_url="https://engine.example")
-    client._http.close()  # type: ignore[attr-defined]
-    client._http = httpx.Client(  # type: ignore[attr-defined]
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(handler),
+    return sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(handler),
     )
-    return client
 
 
 def _models(_: httpx.Request) -> httpx.Response:

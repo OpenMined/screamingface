@@ -7,8 +7,8 @@ from contextlib import closing
 
 import pytest
 
-from screamingface._evaluation import _candidate_from_engine, _operation_from_engine
-from screamingface._transport import Url4CloudTransport
+from screamingface._engine.transport import Url4CloudTransport
+from screamingface._evaluation.model import _candidate_from_engine, _operation_from_engine
 
 _ENGINE_URL = os.environ.get("SCREAMINGFACE_URL4_CLOUD_INTEGRATION_URL")
 _URL4 = os.environ.get(

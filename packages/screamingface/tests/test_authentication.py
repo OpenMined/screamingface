@@ -22,12 +22,12 @@ from websockets.exceptions import InvalidStatus
 from websockets.http11 import Response
 
 import screamingface as sf
-from screamingface._authentication import (
+from screamingface._core.ports import _CallerAuth
+from screamingface._engine.auth import (
     _access_audience,
     _access_authorization_url,
     _access_logout_url,
     _access_token,
-    _CallerAuth,
     _CloudflareAccessAuth,
     _decrypt_transfer,
     _LoginAttempt,
@@ -35,8 +35,12 @@ from screamingface._authentication import (
     _present_access_logout,
     _require_positive_timeout,
 )
-from screamingface._evaluation import Candidate, _candidate_from_engine, _operation_from_engine
-from screamingface._transport import AsyncUrl4CloudTransport, Url4CloudTransport
+from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
+from screamingface._evaluation.model import (
+    Candidate,
+    _candidate_from_engine,
+    _operation_from_engine,
+)
 
 _ENGINE = "https://engine.example"
 _AUDIENCE = "a" * 64
@@ -619,7 +623,7 @@ def test_browser_url_is_printed_and_notebook_does_not_open_browser(
 
     monkeypatch.setattr("builtins.get_ipython", lambda: NotebookShell(), raising=False)
     monkeypatch.setattr(
-        "screamingface._authentication.webbrowser.open",
+        "screamingface._engine.auth.webbrowser.open",
         lambda *args, **kwargs: pytest.fail("notebooks should use the displayed URL"),
     )
     _present_access_authorization("https://access.example/login")
@@ -634,7 +638,7 @@ def test_desktop_browser_failure_keeps_the_printed_url(
     def fail(*args: object, **kwargs: object) -> None:
         raise OSError("no browser")
 
-    monkeypatch.setattr("screamingface._authentication.webbrowser.open", fail)
+    monkeypatch.setattr("screamingface._engine.auth.webbrowser.open", fail)
     _present_access_authorization("https://access.example/login")
     assert "https://access.example/login" in capsys.readouterr().out
 
@@ -648,7 +652,7 @@ def test_logout_opens_the_access_endpoint_even_from_a_notebook(
     opened: list[str] = []
     monkeypatch.setattr("builtins.get_ipython", lambda: NotebookShell(), raising=False)
     monkeypatch.setattr(
-        "screamingface._authentication.webbrowser.open",
+        "screamingface._engine.auth.webbrowser.open",
         lambda url, *, new: opened.append(url),
     )
 
@@ -797,7 +801,7 @@ async def test_async_transport_passes_access_token_to_the_websocket() -> None:
 def test_websocket_access_rejection_reauthenticates_and_retries_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from screamingface import _transport
+    from screamingface._engine import transport as _transport
 
     real_connect = _transport.sync_ws.connect
     calls = 0
@@ -829,7 +833,7 @@ def test_websocket_access_rejection_reauthenticates_and_retries_once(
 async def test_async_websocket_access_rejection_has_the_same_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from screamingface import _transport
+    from screamingface._engine import transport as _transport
 
     real_connect = _transport.async_ws.connect
     calls = 0

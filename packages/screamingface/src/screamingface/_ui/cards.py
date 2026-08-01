@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from html import escape
 from typing import TYPE_CHECKING
 
-from screamingface._card_style import CARD_STYLE
+from screamingface._ui.card_style import CARD_STYLE
 
 if TYPE_CHECKING:
     from screamingface.discovery import ModelInfo

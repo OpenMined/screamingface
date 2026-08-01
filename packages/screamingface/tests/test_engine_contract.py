@@ -8,8 +8,8 @@ from typing import Any, cast
 import pytest
 
 import screamingface as sf
-from screamingface import _engine_contract
-from screamingface._engine_contract import _RunState
+from screamingface._engine import contract as _engine_contract
+from screamingface._engine.contract import _RunState
 
 URL4 = "(@)!'hello'"
 

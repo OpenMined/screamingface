@@ -14,18 +14,14 @@ if TYPE_CHECKING:
 
     import httpx
 
-    from screamingface._benchmark_manifest import _BenchmarkManifest
-    from screamingface._connection_panel import ConnectionPanel
-    from screamingface._evaluation import Candidate, _Evaluation
-    from screamingface._ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
+    from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
+    from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection
-    from screamingface.discovery import ModelInfo
     from screamingface.events import Event
     from screamingface.recipe import Recipe
     from screamingface.report import Report
 
 DEFAULT_ENGINE_URL = "http://127.0.0.1:9108"
-_MAX_CANDIDATES_IN_FLIGHT = 8
 
 
 class _AuthListeners:
@@ -53,25 +49,39 @@ class _AuthListeners:
 class Client:
     """A reusable synchronous Client configured for one SF Engine origin."""
 
-    def __init__(self, *, engine_url: str = DEFAULT_ENGINE_URL) -> None:
+    def __init__(
+        self,
+        *,
+        engine_url: str = DEFAULT_ENGINE_URL,
+        http_transport: httpx.BaseTransport | None = None,
+        run_transport: SyncRunTransport | None = None,
+    ) -> None:
         import httpx
 
-        from screamingface._authentication import _default_caller_auth
-        from screamingface._catalogs import Benchmarks, Models
-        from screamingface._registry import _default_transport_registry
+        from screamingface._engine.auth import _default_caller_auth
+        from screamingface._engine.benchmark import BenchmarkManifests
+        from screamingface._engine.catalog import Benchmarks, Models
+        from screamingface._engine.registry import _default_transport_registry
         from screamingface.connections import Connections
 
         self._engine_url = _engine_origin(engine_url)
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._auth = _default_caller_auth(self._engine_url)
-        self._http = httpx.Client(base_url=self._engine_url, timeout=30.0, auth=self._auth)
-        self._transport: SyncRunTransport = _default_transport_registry().sync(
-            self._engine_url,
-            self._auth,
+        self._http = httpx.Client(
+            base_url=self._engine_url,
+            timeout=30.0,
+            auth=self._auth,
+            transport=http_transport,
+        )
+        self._transport: SyncRunTransport = (
+            run_transport
+            if run_transport is not None
+            else _default_transport_registry().sync(self._engine_url, self._auth)
         )
         self.models = Models(self._http_get, self._engine_url)
         self.benchmarks = Benchmarks(self._http_get, self._engine_url)
+        self._manifests = BenchmarkManifests(self._http)
         self.connections = Connections(self._http_request, self._engine_url)
 
     @property
@@ -146,20 +156,19 @@ class Client:
     ) -> Report:
         """Evaluate one or more Candidates against an Engine-owned Benchmark."""
 
-        from screamingface._result_decoder import report_from_outcomes
+        from screamingface._evaluation.runner import evaluate_sync
 
         self._require_open()
-        _evaluation_options(on_event, progress)
-        evaluation = _compile_sync(self._http, candidates, benchmark, limit)
-        _validate_required_models(evaluation, self.models.list())
-        observer = _sync_event_observer(on_event, progress)
-        # INVARIANT: every Candidate compiles successfully before the first paid Run starts.
-        outcomes = _run_candidates_sync(
+        return evaluate_sync(
+            self._manifests.load,
             self._transport,
-            tuple(evaluation.candidates),
-            observer,
+            self.models.list,
+            candidates,
+            benchmark,
+            limit,
+            on_event,
+            progress,
         )
-        return report_from_outcomes(evaluation, outcomes)
 
     @overload
     def connect(
@@ -189,7 +198,7 @@ class Client:
         if provider is None:
             if api_key is not None:
                 raise TypeError("provider is required when api_key is supplied")
-            from screamingface._connection_panel import ConnectionPanel
+            from screamingface._ui.connections import ConnectionPanel
 
             return ConnectionPanel(self)
         if api_key is None:
@@ -237,25 +246,39 @@ class Client:
 class AsyncClient:
     """An asynchronous Client with the same domain interface and result types."""
 
-    def __init__(self, *, engine_url: str = DEFAULT_ENGINE_URL) -> None:
+    def __init__(
+        self,
+        *,
+        engine_url: str = DEFAULT_ENGINE_URL,
+        http_transport: httpx.AsyncBaseTransport | None = None,
+        run_transport: AsyncRunTransport | None = None,
+    ) -> None:
         import httpx
 
-        from screamingface._authentication import _default_caller_auth
-        from screamingface._catalogs import AsyncBenchmarks, AsyncModels
-        from screamingface._registry import _default_transport_registry
+        from screamingface._engine.auth import _default_caller_auth
+        from screamingface._engine.benchmark import AsyncBenchmarkManifests
+        from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels
+        from screamingface._engine.registry import _default_transport_registry
         from screamingface.connections import AsyncConnections
 
         self._engine_url = _engine_origin(engine_url)
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._auth = _default_caller_auth(self._engine_url)
-        self._http = httpx.AsyncClient(base_url=self._engine_url, timeout=30.0, auth=self._auth)
-        self._transport: AsyncRunTransport = _default_transport_registry().async_(
-            self._engine_url,
-            self._auth,
+        self._http = httpx.AsyncClient(
+            base_url=self._engine_url,
+            timeout=30.0,
+            auth=self._auth,
+            transport=http_transport,
+        )
+        self._transport: AsyncRunTransport = (
+            run_transport
+            if run_transport is not None
+            else _default_transport_registry().async_(self._engine_url, self._auth)
         )
         self.models = AsyncModels(self._http_get, self._engine_url)
         self.benchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
+        self._manifests = AsyncBenchmarkManifests(self._http)
         self.connections = AsyncConnections(self._http_request, self._engine_url)
 
     @property
@@ -330,20 +353,19 @@ class AsyncClient:
     ) -> Report:
         """Asynchronously evaluate Candidates against an Engine-owned Benchmark."""
 
-        from screamingface._result_decoder import report_from_outcomes
+        from screamingface._evaluation.runner import evaluate_async
 
         self._require_open()
-        _evaluation_options(on_event, progress)
-        evaluation = await _compile_async(self._http, candidates, benchmark, limit)
-        _validate_required_models(evaluation, await self.models.list())
-        observer = _async_event_observer(on_event, progress)
-        # INVARIANT: every Candidate compiles successfully before the first paid Run starts.
-        outcomes = await _run_candidates_async(
+        return await evaluate_async(
+            self._manifests.load,
             self._transport,
-            tuple(evaluation.candidates),
-            observer,
+            self.models.list,
+            candidates,
+            benchmark,
+            limit,
+            on_event,
+            progress,
         )
-        return report_from_outcomes(evaluation, outcomes)
 
     async def connect(self, provider: str, *, api_key: str) -> Connection:
         """Connect one provider through this AsyncClient."""
@@ -419,253 +441,6 @@ def _require_secure_connection_origin(engine_url: str) -> None:
         code="secure_transport_required",
         permanent=True,
     )
-
-
-def _evaluation_options(on_event: object, progress: object) -> None:
-    if on_event is not None and not callable(on_event):
-        raise TypeError("on_event must be callable or None")
-    if progress is not None and not isinstance(progress, bool):
-        raise TypeError("progress must be True, False, or None")
-
-
-def _sync_event_observer(
-    callback: Callable[[Event], None] | None,
-    progress: bool | None,
-) -> Callable[[Event], None] | None:
-    from threading import Lock
-
-    from screamingface._progress import _progress_observer
-
-    builtin = _progress_observer(progress)
-    if builtin is None and callback is None:
-        return None
-    lock = Lock()
-
-    def observe(event: Event) -> None:
-        with lock:
-            if builtin is not None:
-                builtin(event)
-            if callback is not None:
-                callback(event)
-
-    return observe
-
-
-def _async_event_observer(
-    callback: Callable[[Event], None | Awaitable[None]] | None,
-    progress: bool | None,
-) -> Callable[[Event], Awaitable[None]] | None:
-    import asyncio
-    import inspect
-
-    from screamingface._progress import _progress_observer
-
-    builtin = _progress_observer(progress)
-    if builtin is None and callback is None:
-        return None
-    lock = asyncio.Lock()
-
-    async def observe(event: Event) -> None:
-        async with lock:
-            if builtin is not None:
-                builtin(event)
-            if callback is not None:
-                returned = callback(event)
-                if inspect.isawaitable(returned):
-                    await returned
-
-    return observe
-
-
-def _run_candidates_sync(
-    transport: SyncRunTransport,
-    candidates: tuple[Candidate, ...],
-    observer: Callable[[Event], None] | None,
-) -> tuple[tuple[Candidate, _RunOutcome], ...]:
-    if len(candidates) == 1:
-        candidate = candidates[0]
-        return ((candidate, transport.run(candidate, observer)),)
-
-    from concurrent.futures import ThreadPoolExecutor
-
-    with ThreadPoolExecutor(
-        max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
-        thread_name_prefix="screamingface-candidate",
-    ) as executor:
-        futures = tuple(
-            executor.submit(transport.run, candidate, observer) for candidate in candidates
-        )
-        try:
-            return tuple(
-                (candidate, future.result())
-                for candidate, future in zip(candidates, futures, strict=True)
-            )
-        except BaseException:
-            for future in futures:
-                future.cancel()
-            raise
-
-
-async def _run_candidates_async(
-    transport: AsyncRunTransport,
-    candidates: tuple[Candidate, ...],
-    observer: Callable[[Event], None | Awaitable[None]] | None,
-) -> tuple[tuple[Candidate, _RunOutcome], ...]:
-    if len(candidates) == 1:
-        candidate = candidates[0]
-        return ((candidate, await transport.run(candidate, observer)),)
-
-    import asyncio
-
-    gate = asyncio.Semaphore(_MAX_CANDIDATES_IN_FLIGHT)
-
-    async def run(candidate: Candidate) -> _RunOutcome:
-        async with gate:
-            return await transport.run(candidate, observer)
-
-    tasks = tuple(asyncio.create_task(run(candidate)) for candidate in candidates)
-    try:
-        outcomes = await asyncio.gather(*tasks)
-    except BaseException:
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        raise
-    return tuple(zip(candidates, outcomes, strict=True))
-
-
-def _compile_sync(
-    http: httpx.Client,
-    candidates: Recipe | Sequence[Recipe],
-    benchmark: str | None,
-    limit: int | None,
-) -> _Evaluation:
-    from screamingface._benchmark_manifest import load_manifest
-
-    values = _evaluation_inputs(candidates, benchmark, limit)
-    return _compile(values, load_manifest(http, benchmark), limit)
-
-
-async def _compile_async(
-    http: httpx.AsyncClient,
-    candidates: Recipe | Sequence[Recipe],
-    benchmark: str | None,
-    limit: int | None,
-) -> _Evaluation:
-    from screamingface._benchmark_manifest import load_manifest_async
-
-    values = _evaluation_inputs(candidates, benchmark, limit)
-    return _compile(values, await load_manifest_async(http, benchmark), limit)
-
-
-def _compile(
-    candidates: tuple[Recipe, ...],
-    manifest: _BenchmarkManifest,
-    limit: int | None,
-) -> _Evaluation:
-    from screamingface._compiler import compile_benchmark
-    from screamingface._evaluation import (
-        _candidate_from_engine,
-        _evaluation_from_engine,
-        _member_projection,
-        _operation_from_engine,
-    )
-
-    case_count = manifest.info.case_count if limit is None else min(limit, manifest.info.case_count)
-    compiled = []
-    model_calls = 0
-    synthesis_calls = 0
-    for value in candidates:
-        candidate = compile_benchmark(value, manifest, limit=case_count)
-        model_calls += candidate.model_calls_per_case
-        synthesis_calls += candidate.synthesis_calls_per_case
-        compiled.append(
-            _candidate_from_engine(
-                name=value.name,
-                kind=candidate.kind,
-                models=candidate.models,
-                url4=candidate.url4,
-                operations=tuple(
-                    _operation_from_engine(
-                        id=operation.id,
-                        kind=operation.kind,
-                        label=operation.label,
-                        depends_on=operation.depends_on,
-                    )
-                    for operation in candidate.operations
-                ),
-                members=tuple(
-                    _member_projection(
-                        operation_id=member.operation_id,
-                        name=member.name,
-                        kind=member.kind,
-                        models=member.models,
-                    )
-                    for member in candidate.members
-                ),
-            )
-        )
-    return _evaluation_from_engine(
-        benchmark=manifest.info,
-        limit=limit,
-        case_count=case_count,
-        candidates=compiled,
-        required_capabilities=manifest.required_capabilities,
-        required_models=tuple(
-            dict.fromkeys(
-                (
-                    *(model for candidate in compiled for model in candidate.models),
-                    manifest.judge_model,
-                )
-            )
-        ),
-        operation_counts={
-            "model": model_calls * case_count,
-            "synthesis": synthesis_calls * case_count,
-            "judge": (
-                len(compiled) * case_count * manifest.criteria_per_case * manifest.judge_passes
-            ),
-            "grading": len(compiled) * case_count,
-            "aggregation": len(compiled),
-        },
-    )
-
-
-def _validate_required_models(
-    evaluation: _Evaluation,
-    available: Sequence[ModelInfo],
-) -> None:
-    from screamingface.errors import PlanningError
-
-    available_ids = {model.id for model in available}
-    missing = tuple(model for model in evaluation.required_models if model not in available_ids)
-    if not missing:
-        return
-    if len(missing) == 1:
-        message = f"Model {missing[0]!r} is not available on this Engine"
-    else:
-        names = ", ".join(repr(model) for model in missing)
-        message = f"Models {names} are not available on this Engine"
-    raise PlanningError(
-        message,
-        code="model_unavailable",
-        permanent=True,
-        details={"models": list(missing)},
-    )
-
-
-def _evaluation_inputs(
-    candidates: Recipe | Sequence[Recipe],
-    benchmark: str | None,
-    limit: int | None,
-) -> tuple[Recipe, ...]:
-    from screamingface._evaluation import _candidate_values, _validate_limit
-
-    values = _candidate_values(candidates)
-    if benchmark is not None and (not isinstance(benchmark, str) or not benchmark.strip()):
-        raise ValueError("benchmark must be a non-empty string or None")
-    _validate_limit(limit)
-    return values
 
 
 __all__ = ["AsyncClient", "Client", "DEFAULT_ENGINE_URL"]

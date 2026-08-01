@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 
 import screamingface as sf
-from screamingface._evaluation import (
+from screamingface._evaluation.model import (
     Candidate,
     Operation,
     _candidate_from_engine,

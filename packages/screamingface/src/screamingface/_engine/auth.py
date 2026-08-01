@@ -10,7 +10,6 @@ import re
 import threading
 import time
 import webbrowser
-from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -20,6 +19,7 @@ import httpx
 from nacl.exceptions import CryptoError
 from nacl.public import Box, PrivateKey, PublicKey
 
+from screamingface._core.ports import _CallerAuth
 from screamingface.errors import AuthenticationError, EngineUnavailableError
 
 _ACCESS_TRANSFER_STORE = "https://login.cloudflareaccess.org"
@@ -29,53 +29,6 @@ _MAX_TRANSFER_BYTES = 1_000_000
 _REFRESH_SKEW_SECONDS = 30.0
 _TRANSFER_POLL_SECONDS = 2.0
 _VALID_AUDIENCE = re.compile(r"[A-Za-z0-9_-]{16,256}\Z")
-
-
-class _CallerAuth(httpx.Auth, ABC):
-    """Shared HTTPX/WebSocket authentication boundary."""
-
-    requires_request_body = True
-
-    @property
-    @abstractmethod
-    def authenticated(self) -> bool: ...
-
-    @property
-    @abstractmethod
-    def authenticating(self) -> bool: ...
-
-    @abstractmethod
-    def login(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None: ...
-
-    @abstractmethod
-    async def login_async(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None: ...
-
-    @abstractmethod
-    def cancel_login(self) -> None: ...
-
-    @abstractmethod
-    def access_required(self) -> bool: ...
-
-    @abstractmethod
-    def reauthenticate(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None: ...
-
-    @abstractmethod
-    async def reauthenticate_async(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None: ...
-
-    @abstractmethod
-    def logout(self) -> None: ...
-
-    @abstractmethod
-    async def logout_async(self) -> None: ...
-
-    @abstractmethod
-    def websocket_headers(self) -> Mapping[str, str]: ...
-
-    @abstractmethod
-    async def websocket_headers_async(self) -> Mapping[str, str]: ...
-
-    @abstractmethod
-    def close(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True, repr=False)

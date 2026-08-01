@@ -11,22 +11,17 @@ from screamingface import _default_client
 
 
 def _sync_client(handler: Callable[[httpx.Request], httpx.Response]) -> sf.Client:
-    client = sf.Client(engine_url="https://engine.example")
-    client._http.close()  # type: ignore[attr-defined]
-    client._http = httpx.Client(  # type: ignore[attr-defined]
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(handler),
+    return sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(handler),
     )
-    return client
 
 
 def _async_client(handler: Callable[[httpx.Request], httpx.Response]) -> sf.AsyncClient:
-    client = sf.AsyncClient(engine_url="https://engine.example")
-    client._http = httpx.AsyncClient(  # type: ignore[attr-defined]
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(handler),
+    return sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(handler),
     )
-    return client
 
 
 def _models(_: httpx.Request) -> httpx.Response:

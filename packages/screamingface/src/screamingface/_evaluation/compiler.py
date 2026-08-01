@@ -7,7 +7,7 @@ from typing import Literal
 
 from url4 import Node, RelExpr, Text, iterate, render, src, struct
 
-from screamingface._benchmark_manifest import _BenchmarkManifest
+from screamingface._evaluation.benchmark import _BenchmarkManifest
 from screamingface.fusion import Fusion
 from screamingface.model import Model
 from screamingface.recipe import Recipe

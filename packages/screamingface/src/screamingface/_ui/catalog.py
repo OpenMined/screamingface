@@ -6,12 +6,12 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from typing import Any, overload
 
-from screamingface._card_display import (
+from screamingface._ui.card_style import CARD_STYLE
+from screamingface._ui.cards import (
     benchmarks_rows_html,
     catalog_html,
     models_rows_html,
 )
-from screamingface._card_style import CARD_STYLE
 from screamingface.discovery import ModelInfo
 
 

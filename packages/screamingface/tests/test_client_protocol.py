@@ -11,9 +11,13 @@ import pytest
 from protocol_server import protocol_server
 
 import screamingface as sf
-from screamingface._evaluation import Candidate, _candidate_from_engine, _operation_from_engine
-from screamingface._ports import _RunOutcome
-from screamingface._transport import AsyncUrl4CloudTransport, Url4CloudTransport
+from screamingface._core.ports import _RunOutcome
+from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
+from screamingface._evaluation.model import (
+    Candidate,
+    _candidate_from_engine,
+    _operation_from_engine,
+)
 
 
 def _candidate() -> Candidate:

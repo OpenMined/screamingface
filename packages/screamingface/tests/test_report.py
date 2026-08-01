@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 
 import screamingface as sf
-from screamingface._evaluation import _operation_from_engine
+from screamingface._evaluation.model import _operation_from_engine
 
 
 def candidate(

@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from screamingface import events
-from screamingface._ports import _RunOutcome
+from screamingface._core.ports import _RunOutcome
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
 

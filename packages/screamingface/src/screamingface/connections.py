@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import builtins
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal, NoReturn, cast
 
 import httpx
 
+from screamingface._core.wire import mapping as _wire_mapping
+from screamingface._core.wire import text as _wire_text
 from screamingface.errors import EngineUnavailableError, ProviderConnectionError
 
 type AuthMethod = Literal["api_key", "oauth"]
@@ -241,7 +243,7 @@ def _response(response: httpx.Response) -> object:
 
 
 def _decode_list(payload: object) -> tuple[Connection, ...]:
-    root = _mapping(payload, "provider connection catalogue")
+    root = _wire_mapping(payload, "provider connection catalogue", _invalid)
     if set(root) != {"object", "data"} or root.get("object") != "list":
         _invalid("provider connection catalogue must be an object list")
     rows = root.get("data")
@@ -262,7 +264,7 @@ def _decode_one(payload: object, provider: str) -> Connection:
 
 
 def _decode(payload: object) -> Connection:
-    row = _mapping(payload, "provider connection")
+    row = _wire_mapping(payload, "provider connection", _invalid)
     if set(row) != _FIELDS or row.get("object") != "connection":
         _invalid("provider connection has unsupported fields")
     auth_methods = row.get("auth_methods")
@@ -270,10 +272,15 @@ def _decode(payload: object) -> Connection:
         _invalid("provider connection auth_methods must be a non-empty array")
     try:
         return Connection(
-            provider=_text(row.get("provider"), "provider"),
-            display_name=_text(row.get("display_name"), "display_name"),
+            provider=_wire_text(row.get("provider"), "provider connection provider", _invalid),
+            display_name=_wire_text(
+                row.get("display_name"), "provider connection display_name", _invalid
+            ),
             auth_methods=cast(tuple[AuthMethod, ...], tuple(auth_methods)),
-            status=cast(ConnectionStatus, _text(row.get("status"), "status")),
+            status=cast(
+                ConnectionStatus,
+                _wire_text(row.get("status"), "provider connection status", _invalid),
+            ),
             auth_method=cast(AuthMethod | None, _optional_text(row.get("auth_method"))),
             account_label=_optional_text(row.get("account_label")),
         )
@@ -305,22 +312,10 @@ def _api_key(value: str) -> str:
     return value
 
 
-def _mapping(value: object, label: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        _invalid(f"{label} must be an object")
-    return cast(Mapping[str, object], value)
-
-
-def _text(value: object, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        _invalid(f"provider connection {label} must be non-empty text")
-    return value.strip()
-
-
 def _optional_text(value: object) -> str | None:
     if value is None:
         return None
-    return _text(value, "optional value")
+    return _wire_text(value, "provider connection optional value", _invalid)
 
 
 def _invalid(message: str, *, cause: Exception | None = None) -> NoReturn:
