@@ -210,6 +210,16 @@ sf.config(engine="http://127.0.0.1:4404")`
 
 const connect = `sf.connect()`
 
+const connectScript = `import os
+
+sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
+sf.connections.list()        # the same status the panel shows
+sf.disconnect("openrouter")  # remove it again`
+
+const connectOauth = `flow = sf.connect("codex", method="oauth")
+flow.authorize_url           # open this in a browser
+connection = flow.wait()     # blocks until you authorize, or the flow expires`
+
 const compose = `ANSWER = "Answer this research prompt thoroughly, in prose, with specific evidence."
 SYNTHESIS = "Combine the panel's answers into one unified prose answer. Add no new facts."
 
@@ -362,19 +372,42 @@ const evaluate = `report = draco.evaluate(candidates)`
     </ul>
 
     <p>
-      A common trip-up: <code>HF_TOKEN</code> is <strong>dataset</strong> access and belongs in the
-      engine's environment, not in this panel. <code>sf.connect("huggingface")</code> is the
-      inference provider and is a different thing entirely.
+      Hugging Face appears in two unrelated roles, which is easy to confuse.
+      <code>sf.connect("huggingface")</code> in this panel is the
+      <strong>inference</strong> provider. <code>HF_TOKEN</code> in the engine's environment is
+      <strong>dataset</strong> access, and is never set here.
     </p>
 
-    <h3>Without the widget</h3>
+    <h3>In a script</h3>
 
     <p>
-      In a script, connect explicitly and read the key from the environment rather than pasting it
-      into source — <code>sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])</code>.
-      <code>sf.connections.list()</code> returns the same status the panel shows, and
-      <code>sf.disconnect("openrouter")</code> removes it. Credentials always travel to the engine;
-      they are never stored in the notebook or the page.
+      Scripts connect without the panel — name the provider and pass its key directly. Read the key
+      from the environment rather than writing it into source.
+    </p>
+
+    <CodeBlock :code="connectScript" language="python" />
+
+    <p>
+      <code>sf.connect(...)</code> returns a <code>Connection</code> carrying the provider's status
+      once the engine has validated the key, so a bad key fails here rather than at evaluation time.
+      <code>sf.connections.list()</code> returns one of those for every advertised provider — the
+      same data the panel displays. <code>sf.disconnect(...)</code> is safe to call on a provider
+      that was never connected.
+    </p>
+
+    <p>
+      Providers that authenticate by OAuth rather than an API key namely Codex and Anthropic return
+      an
+      <code>OAuthFlow</code> instead, which you have to complete in a browser:
+    </p>
+
+    <CodeBlock :code="connectOauth" language="python" />
+
+    <p>
+      The flow expires, so <code>flow.wait()</code> raises rather than blocking forever;
+      <code>flow.expired</code> tells you whether that has happened and
+      <code>flow.cancel()</code> abandons the attempt. Note that connection calls are refused over
+      plain HTTP unless the engine is on loopback — a remote engine must be HTTPS.
     </p>
 
     <blockquote>
@@ -626,8 +659,10 @@ const evaluate = `report = draco.evaluate(candidates)`
     </p>
 
     <p>
-      <code>report.url4</code> is the entire run as one expression: the candidates, the case, the
-      grader, and the aggregator. Anyone with that string and an engine can reproduce it exactly.
+      Sending <code>report.url4</code> to an engine runs the same evaluation again — the same
+      candidates, case, grader, and aggregator, with nothing left implicit in your session. Model
+      outputs still vary, so the scores will not match: the expression pins down the definition of
+      the run, not its results.
     </p>
   </DocLayout>
 </template>
