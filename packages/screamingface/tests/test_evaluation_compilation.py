@@ -329,7 +329,7 @@ def test_evaluation_plan_rejects_invalid_state(
 def test_evaluate_reports_an_unreachable_manifest_engine() -> None:
     with sf.Client(engine_url="http://127.0.0.1:1") as client:
         with pytest.raises(
-            sf.PlanningError,
+            sf.EngineUnavailableError,
             match="Could not reach",
         ):
             client.evaluate(sf.Model("provider/opus"), benchmark="draco", limit=1)
@@ -339,7 +339,7 @@ def test_evaluate_reports_an_unreachable_manifest_engine() -> None:
 async def test_async_evaluate_reports_an_unreachable_manifest_engine() -> None:
     async with sf.AsyncClient(engine_url="http://127.0.0.1:1") as client:
         with pytest.raises(
-            sf.PlanningError,
+            sf.EngineUnavailableError,
             match="Could not reach",
         ):
             await client.evaluate(sf.Model("provider/opus"), benchmark="draco", limit=1)

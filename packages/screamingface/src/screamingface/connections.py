@@ -9,7 +9,7 @@ from typing import Literal, NoReturn, cast
 
 import httpx
 
-from screamingface.errors import ProviderConnectionError
+from screamingface.errors import EngineUnavailableError, ProviderConnectionError
 
 type AuthMethod = Literal["api_key", "oauth"]
 type ConnectionStatus = Literal[
@@ -66,11 +66,13 @@ class Connections:
     def __init__(
         self,
         request: Callable[..., httpx.Response],
+        engine_url: str,
     ) -> None:
         self._request = request
+        self._engine_url = engine_url
 
     def list(self) -> tuple[Connection, ...]:
-        return _decode_list(_sync(self._request, "GET", _PATH))
+        return _decode_list(_sync(self._request, self._engine_url, "GET", _PATH))
 
     def get(self, provider: str) -> Connection:
         selected = _provider(provider)
@@ -80,14 +82,20 @@ class Connections:
         selected = _provider(provider)
         secret = _api_key(api_key)
         return _decode_one(
-            _sync(self._request, "PUT", f"{_PATH}/{selected}", json={"api_key": secret}),
+            _sync(
+                self._request,
+                self._engine_url,
+                "PUT",
+                f"{_PATH}/{selected}",
+                json={"api_key": secret},
+            ),
             selected,
         )
 
     def disconnect(self, provider: str) -> Connection:
         selected = _provider(provider)
         return _decode_one(
-            _sync(self._request, "DELETE", f"{_PATH}/{selected}"),
+            _sync(self._request, self._engine_url, "DELETE", f"{_PATH}/{selected}"),
             selected,
         )
 
@@ -98,11 +106,13 @@ class AsyncConnections:
     def __init__(
         self,
         request: Callable[..., Awaitable[httpx.Response]],
+        engine_url: str,
     ) -> None:
         self._request = request
+        self._engine_url = engine_url
 
     async def list(self) -> tuple[Connection, ...]:
-        return _decode_list(await _async(self._request, "GET", _PATH))
+        return _decode_list(await _async(self._request, self._engine_url, "GET", _PATH))
 
     async def get(self, provider: str) -> Connection:
         selected = _provider(provider)
@@ -114,6 +124,7 @@ class AsyncConnections:
         return _decode_one(
             await _async(
                 self._request,
+                self._engine_url,
                 "PUT",
                 f"{_PATH}/{selected}",
                 json={"api_key": secret},
@@ -124,7 +135,12 @@ class AsyncConnections:
     async def disconnect(self, provider: str) -> Connection:
         selected = _provider(provider)
         return _decode_one(
-            await _async(self._request, "DELETE", f"{_PATH}/{selected}"),
+            await _async(
+                self._request,
+                self._engine_url,
+                "DELETE",
+                f"{_PATH}/{selected}",
+            ),
             selected,
         )
 
@@ -147,6 +163,7 @@ def get(provider: str) -> Connection:
 
 def _sync(
     request: Callable[..., httpx.Response],
+    engine_url: str,
     method: str,
     path: str,
     *,
@@ -155,16 +172,16 @@ def _sync(
     try:
         response = request(method, path, json=json)
     except httpx.HTTPError as exc:
-        raise ProviderConnectionError(
+        raise EngineUnavailableError(
             "Could not reach the SF Engine provider connections",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=engine_url,
         ) from exc
     return _response(response)
 
 
 async def _async(
     request: Callable[..., Awaitable[httpx.Response]],
+    engine_url: str,
     method: str,
     path: str,
     *,
@@ -173,10 +190,9 @@ async def _async(
     try:
         response = await request(method, path, json=json)
     except httpx.HTTPError as exc:
-        raise ProviderConnectionError(
+        raise EngineUnavailableError(
             "Could not reach the SF Engine provider connections",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=engine_url,
         ) from exc
     return _response(response)
 

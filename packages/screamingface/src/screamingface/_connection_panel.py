@@ -80,7 +80,7 @@ _STYLE = (
   justify-content:flex-end;gap:4px;height:32px}
 .sf-connections__notice{padding:8px 12px;border-bottom:1px solid var(--sf-line);
   border-left:2px solid var(--sf-blind);color:var(--sf-blind);
-  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px}
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
 .sf-connection-widget .widget-button,.sf-connection-widget .widget-text input{
   border-radius:0!important;box-shadow:none!important;background-image:none!important}
 .sf-connection-widget .widget-button{height:32px!important;width:auto!important;
@@ -119,13 +119,11 @@ class ConnectionPanel:
         self._hosted = _is_hosted_engine(client.engine_url)
         self._connections: tuple[Connection, ...] = ()
         self._initial_notice: str | None = None
-        if not self._hosted:
-            self._connections = client.connections.list()
-        elif client.authenticated:
+        if not self._hosted or client.authenticated:
             try:
                 self._connections = client.connections.list()
             except (ScreamingFaceError, ValueError) as exc:
-                self._initial_notice = str(exc)
+                self._initial_notice = _user_message(exc)
         self._access_pending = False
         self._access_check_pending = (
             self._hosted
@@ -439,7 +437,7 @@ class ConnectionPanel:
         try:
             action()
         except (ScreamingFaceError, ValueError) as exc:
-            self._set_notice(str(exc))
+            self._set_notice(_user_message(exc))
 
     def _set_notice(self, message: str | None) -> None:
         if self._notice is not None:
@@ -538,14 +536,14 @@ class ConnectionPanel:
         self._access_check_pending = False
         self._access_check_thread = None
         if error is not None:
-            self._set_notice(str(error))
+            self._set_notice(_user_message(error))
         elif not required:
             self._hosted = False
             try:
                 self._connections = self._client.connections.list()
             except (ScreamingFaceError, ValueError) as exc:
                 self._connections = ()
-                self._set_notice(str(exc))
+                self._set_notice(_user_message(exc))
         self._render_rows()
 
     def _start_login_thread(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -580,12 +578,12 @@ class ConnectionPanel:
         self._access_pending = False
         self._login_thread = None
         if error is not None and getattr(error, "code", None) != "access_login_cancelled":
-            self._set_notice(str(error))
+            self._set_notice(_user_message(error))
         if self._client.authenticated:
             try:
                 self.refresh()
             except (ScreamingFaceError, ValueError) as exc:
-                self._set_notice(str(exc))
+                self._set_notice(_user_message(exc))
                 self._render_rows()
         else:
             self._render_rows()
@@ -610,7 +608,7 @@ class ConnectionPanel:
                 self._connections = self._client.connections.list()
             except (ScreamingFaceError, ValueError) as exc:
                 self._connections = ()
-                self._set_notice(str(exc))
+                self._set_notice(_user_message(exc))
         else:
             self._connections = ()
         self._render_rows()
@@ -652,6 +650,11 @@ def _is_hosted_engine(engine_url: str) -> bool:
     except ValueError:
         return True
     return not (address.is_loopback or address.is_unspecified)
+
+
+def _user_message(error: Exception) -> str:
+    message = getattr(error, "user_message", None)
+    return message if isinstance(message, str) else str(error)
 
 
 __all__ = ["ConnectionPanel"]

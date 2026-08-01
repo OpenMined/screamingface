@@ -8,6 +8,7 @@ from screamingface.connections import Connection
 from screamingface.discovery import BenchmarkInfo, ModelInfo
 from screamingface.errors import (
     AuthenticationError,
+    EngineUnavailableError,
     ExecutionError,
     PlanningError,
     ProviderConnectionError,
@@ -31,6 +32,7 @@ __all__ = [
     "connections",
     "disconnect",
     "Event",
+    "EngineUnavailableError",
     "ExecutionError",
     "evaluate",
     "Failure",

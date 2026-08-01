@@ -108,7 +108,7 @@ def test_closed_client_cannot_reopen_implicitly() -> None:
 def test_sync_manifest_connection_failure_is_typed() -> None:
     client = sf.Client(engine_url="http://127.0.0.1:1")
 
-    with pytest.raises(sf.PlanningError, match="Could not reach"):
+    with pytest.raises(sf.EngineUnavailableError, match="Could not reach"):
         client.evaluate(sf.Model("provider/opus"), benchmark="draco")
 
 
@@ -116,7 +116,7 @@ def test_sync_manifest_connection_failure_is_typed() -> None:
 async def test_async_manifest_connection_failure_is_typed() -> None:
     client = sf.AsyncClient(engine_url="http://127.0.0.1:1")
 
-    with pytest.raises(sf.PlanningError, match="Could not reach"):
+    with pytest.raises(sf.EngineUnavailableError, match="Could not reach"):
         await client.evaluate(sf.Model("provider/opus"), benchmark="draco")
     await client.aclose()
     await client.aclose()

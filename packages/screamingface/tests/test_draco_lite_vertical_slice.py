@@ -421,7 +421,7 @@ def test_manifest_reader_rejects_transport_and_integrity_failures() -> None:
         base_url="https://engine.example",
         transport=httpx.MockTransport(unreachable),
     ) as http:
-        with pytest.raises(sf.PlanningError, match="Could not reach"):
+        with pytest.raises(sf.EngineUnavailableError, match="Could not reach"):
             load_manifest(http, "draco-lite")
 
     malformed = b"schema: [unterminated"

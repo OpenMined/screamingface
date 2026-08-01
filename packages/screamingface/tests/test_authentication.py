@@ -379,10 +379,11 @@ def test_discovery_and_transfer_network_failures_are_typed() -> None:
         access_transport=httpx.MockTransport(unreachable),
         browser_presenter=lambda url: None,
     )
-    with pytest.raises(sf.AuthenticationError) as discovery:
+    with pytest.raises(sf.EngineUnavailableError) as discovery:
         auth.login()
-    assert discovery.value.code == "access_discovery_unreachable"
+    assert discovery.value.code == "engine_unreachable"
     assert discovery.value.permanent is False
+    assert discovery.value.engine_url == _ENGINE
     assert "secret" not in str(discovery.value)
     auth.close()
 

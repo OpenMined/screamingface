@@ -212,7 +212,7 @@ def test_evaluate_reports_an_unreachable_execution_transport() -> None:
             base_url="http://127.0.0.1:1",
             transport=httpx.MockTransport(_engine),
         )
-        with pytest.raises(sf.ExecutionError) as caught:
+        with pytest.raises(sf.EngineUnavailableError) as caught:
             client.evaluate(
                 sf.Model("provider/opus"),
                 benchmark="draco",
@@ -221,3 +221,26 @@ def test_evaluate_reports_an_unreachable_execution_transport() -> None:
 
     assert caught.value.code == "engine_unreachable"
     assert caught.value.permanent is False
+    assert caught.value.engine_url == "http://127.0.0.1:1"
+
+
+@pytest.mark.asyncio
+async def test_async_evaluate_reports_the_same_unreachable_execution_transport() -> None:
+    client = sf.AsyncClient(engine_url="http://127.0.0.1:1")
+    private_client = cast(Any, client)
+    await private_client._http.aclose()
+    private_client._http = httpx.AsyncClient(
+        base_url="http://127.0.0.1:1",
+        transport=httpx.MockTransport(_engine),
+    )
+
+    with pytest.raises(sf.EngineUnavailableError) as caught:
+        await client.evaluate(
+            sf.Model("provider/opus"),
+            benchmark="draco",
+            progress=False,
+        )
+    await client.aclose()
+
+    assert caught.value.retryable is True
+    assert caught.value.engine_url == "http://127.0.0.1:1"

@@ -193,6 +193,22 @@ report.to_json()
 Authentication, validation, transport, execution, protocol, and invalid-result failures raise
 typed exceptions. Partial-result reporting remains a later Engine/Report contract.
 
+Expected SDK failures inherit from `ScreamingFaceError` and always carry a stable error code, plus
+an optional HTTP status, structured details, remediation hint, and `permanent`/`retryable`
+classification. The public classes reflect distinct recovery actions:
+
+- `EngineUnavailableError`: start, reconfigure, or retry the Engine.
+- `AuthenticationError`: authenticate the caller again.
+- `PlanningError`: change the Candidate, Benchmark, Model, or evaluation configuration.
+- `ExecutionError`: inspect or retry a Run that failed after reaching the Engine.
+- `ProviderConnectionError`: change a provider credential or provider connection.
+
+IPython and Jupyter render these failures as a concise message, hint, and code instead of exposing
+dependency tracebacks. Notebook panels render the same safe text inline. Programmatic callers can
+catch a specific recovery class or catch `ScreamingFaceError` for every expected SDK failure;
+translated low-level failures remain attached through `error.__cause__` for debugging. Programmer
+errors such as invalid Python argument types retain their normal tracebacks.
+
 ## Ownership boundary
 
 ```text

@@ -201,11 +201,12 @@ def test_sync_catalogue_connection_failure_is_typed() -> None:
 
     client = _sync_client(unreachable)
 
-    with client, pytest.raises(sf.PlanningError) as exc_info:
+    with client, pytest.raises(sf.EngineUnavailableError) as exc_info:
         client.models.list()
 
     assert exc_info.value.code == "engine_unreachable"
     assert exc_info.value.permanent is False
+    assert exc_info.value.engine_url == "https://engine.example"
 
 
 @pytest.mark.asyncio
@@ -214,11 +215,12 @@ async def test_async_catalogue_connection_failure_is_typed() -> None:
         raise httpx.ConnectError("offline", request=request)
 
     async with _async_client(unreachable) as client:
-        with pytest.raises(sf.PlanningError) as exc_info:
+        with pytest.raises(sf.EngineUnavailableError) as exc_info:
             await client.benchmarks.list()
 
     assert exc_info.value.code == "engine_unreachable"
     assert exc_info.value.permanent is False
+    assert exc_info.value.engine_url == "https://engine.example"
 
 
 @pytest.mark.parametrize(

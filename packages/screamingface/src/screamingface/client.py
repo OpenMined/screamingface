@@ -70,9 +70,9 @@ class Client:
             self._engine_url,
             self._auth,
         )
-        self.models = Models(self._http_get)
-        self.benchmarks = Benchmarks(self._http_get)
-        self.connections = Connections(self._http_request)
+        self.models = Models(self._http_get, self._engine_url)
+        self.benchmarks = Benchmarks(self._http_get, self._engine_url)
+        self.connections = Connections(self._http_request, self._engine_url)
 
     @property
     def engine_url(self) -> str:
@@ -254,9 +254,9 @@ class AsyncClient:
             self._engine_url,
             self._auth,
         )
-        self.models = AsyncModels(self._http_get)
-        self.benchmarks = AsyncBenchmarks(self._http_get)
-        self.connections = AsyncConnections(self._http_request)
+        self.models = AsyncModels(self._http_get, self._engine_url)
+        self.benchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
+        self.connections = AsyncConnections(self._http_request, self._engine_url)
 
     @property
     def engine_url(self) -> str:

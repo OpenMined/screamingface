@@ -11,7 +11,7 @@ import yaml
 
 from screamingface._benchmark_catalog import _decode_benchmark_catalog
 from screamingface.discovery import BenchmarkInfo, ScoreDirection
-from screamingface.errors import PlanningError
+from screamingface.errors import EngineUnavailableError, PlanningError
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,10 +39,9 @@ def load_manifest(http: httpx.Client, benchmark: str | None = None) -> _Benchmar
     try:
         catalog_response = http.get("/v1/benchmarks")
     except httpx.HTTPError as exc:
-        raise PlanningError(
+        raise EngineUnavailableError(
             "Could not reach the SF Engine Benchmark catalog",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=_engine_url(http),
         ) from exc
     _success(catalog_response, "list Benchmarks")
     selected = _select_benchmark(catalog_response, benchmark)
@@ -50,10 +49,9 @@ def load_manifest(http: httpx.Client, benchmark: str | None = None) -> _Benchmar
     try:
         manifest_response = http.get(f"/v1/benchmarks/{selected}")
     except httpx.HTTPError as exc:
-        raise PlanningError(
+        raise EngineUnavailableError(
             f"Could not reach SF Engine Benchmark {selected!r}",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=_engine_url(http),
         ) from exc
     _success(manifest_response, f"load Benchmark {selected!r}")
     return _verified_manifest(manifest_response)
@@ -68,10 +66,9 @@ async def load_manifest_async(
     try:
         catalog_response = await http.get("/v1/benchmarks")
     except httpx.HTTPError as exc:
-        raise PlanningError(
+        raise EngineUnavailableError(
             "Could not reach the SF Engine Benchmark catalog",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=_engine_url(http),
         ) from exc
     _success(catalog_response, "list Benchmarks")
     selected = _select_benchmark(catalog_response, benchmark)
@@ -79,10 +76,9 @@ async def load_manifest_async(
     try:
         manifest_response = await http.get(f"/v1/benchmarks/{selected}")
     except httpx.HTTPError as exc:
-        raise PlanningError(
+        raise EngineUnavailableError(
             f"Could not reach SF Engine Benchmark {selected!r}",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=_engine_url(http),
         ) from exc
     _success(manifest_response, f"load Benchmark {selected!r}")
     return _verified_manifest(manifest_response)
@@ -252,6 +248,10 @@ def _invalid(message: str) -> NoReturn:
         code="invalid_benchmark_manifest",
         permanent=True,
     )
+
+
+def _engine_url(http: httpx.Client | httpx.AsyncClient) -> str:
+    return str(http.base_url).rstrip("/")
 
 
 __all__: list[str] = []

@@ -20,7 +20,7 @@ import httpx
 from nacl.exceptions import CryptoError
 from nacl.public import Box, PrivateKey, PublicKey
 
-from screamingface.errors import AuthenticationError
+from screamingface.errors import AuthenticationError, EngineUnavailableError
 
 _ACCESS_TRANSFER_STORE = "https://login.cloudflareaccess.org"
 _ACCESS_USER_AGENT = "screamingface-python/0.2"
@@ -384,10 +384,9 @@ class _CloudflareAccessAuth(_CallerAuth):
                 response = self._access_http.get(self._engine_url)
             return response
         except httpx.HTTPError as exc:
-            raise _auth_error(
+            raise EngineUnavailableError(
                 "Could not reach the SF Engine to discover Cloudflare Access authentication",
-                code="access_discovery_unreachable",
-                permanent=False,
+                engine_url=self._engine_url,
             ) from exc
 
     def _interactive_login(

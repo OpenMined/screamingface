@@ -198,6 +198,22 @@ def test_panel_displays_safe_inline_errors_and_always_clears_the_password() -> N
     client.close()
 
 
+def test_local_panel_renders_engine_unavailability_inline() -> None:
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("private socket detail", request=request)
+
+    client = _client(unreachable)
+    panel = client.connect()
+    root = panel.widget()
+
+    assert panel.connections == ()
+    assert "Could not reach the SF Engine provider connections" in _text(root)
+    assert "Start the local Engine" in _text(root)
+    assert "private socket detail" not in _text(root)
+    root.close()
+    client.close()
+
+
 def test_panel_retains_dormant_oauth_pending_and_cancel_controls() -> None:
     connection = sf.Connection(
         provider="future",

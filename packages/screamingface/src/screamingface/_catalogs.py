@@ -10,7 +10,7 @@ import httpx
 from screamingface._benchmark_catalog import _decode_benchmark_catalog
 from screamingface._catalog_view import _BenchmarkCatalog, _ModelCatalog
 from screamingface.discovery import ModelInfo
-from screamingface.errors import AuthenticationError, PlanningError
+from screamingface.errors import AuthenticationError, EngineUnavailableError, PlanningError
 
 _MODELS_PATH = "/v1/models"
 _BENCHMARKS_PATH = "/v1/benchmarks"
@@ -19,66 +19,91 @@ _BENCHMARKS_PATH = "/v1/benchmarks"
 class Models:
     """Synchronous Model catalogue bound to one Client."""
 
-    def __init__(self, get: Callable[[str], httpx.Response]) -> None:
+    def __init__(self, get: Callable[[str], httpx.Response], engine_url: str) -> None:
         self._get = get
+        self._engine_url = engine_url
 
     def list(self) -> Sequence[ModelInfo]:
-        return _decode_models(_sync_json(self._get, _MODELS_PATH, "Model catalogue"))
+        return _decode_models(
+            _sync_json(self._get, self._engine_url, _MODELS_PATH, "Model catalogue")
+        )
 
 
 class Benchmarks:
     """Synchronous Benchmark catalogue bound to one Client."""
 
-    def __init__(self, get: Callable[[str], httpx.Response]) -> None:
+    def __init__(self, get: Callable[[str], httpx.Response], engine_url: str) -> None:
         self._get = get
+        self._engine_url = engine_url
 
     def list(self) -> Sequence[str]:
-        return _decode_benchmarks(_sync_json(self._get, _BENCHMARKS_PATH, "Benchmark catalogue"))
+        return _decode_benchmarks(
+            _sync_json(self._get, self._engine_url, _BENCHMARKS_PATH, "Benchmark catalogue")
+        )
 
 
 class AsyncModels:
     """Asynchronous Model catalogue bound to one AsyncClient."""
 
-    def __init__(self, get: Callable[[str], Awaitable[httpx.Response]]) -> None:
+    def __init__(
+        self,
+        get: Callable[[str], Awaitable[httpx.Response]],
+        engine_url: str,
+    ) -> None:
         self._get = get
+        self._engine_url = engine_url
 
     async def list(self) -> Sequence[ModelInfo]:
-        return _decode_models(await _async_json(self._get, _MODELS_PATH, "Model catalogue"))
+        return _decode_models(
+            await _async_json(self._get, self._engine_url, _MODELS_PATH, "Model catalogue")
+        )
 
 
 class AsyncBenchmarks:
     """Asynchronous Benchmark catalogue bound to one AsyncClient."""
 
-    def __init__(self, get: Callable[[str], Awaitable[httpx.Response]]) -> None:
+    def __init__(
+        self,
+        get: Callable[[str], Awaitable[httpx.Response]],
+        engine_url: str,
+    ) -> None:
         self._get = get
+        self._engine_url = engine_url
 
     async def list(self) -> Sequence[str]:
         return _decode_benchmarks(
-            await _async_json(self._get, _BENCHMARKS_PATH, "Benchmark catalogue")
+            await _async_json(
+                self._get,
+                self._engine_url,
+                _BENCHMARKS_PATH,
+                "Benchmark catalogue",
+            )
         )
 
 
 def _sync_json(
     get: Callable[[str], httpx.Response],
+    engine_url: str,
     path: str,
     label: str,
 ) -> object:
     try:
         response = get(path)
     except httpx.HTTPError as exc:
-        _unreachable(label, exc)
+        _unreachable(engine_url, label, exc)
     return _response_json(response, label)
 
 
 async def _async_json(
     get: Callable[[str], Awaitable[httpx.Response]],
+    engine_url: str,
     path: str,
     label: str,
 ) -> object:
     try:
         response = await get(path)
     except httpx.HTTPError as exc:
-        _unreachable(label, exc)
+        _unreachable(engine_url, label, exc)
     return _response_json(response, label)
 
 
@@ -149,11 +174,10 @@ def _text(value: object, label: str) -> str:
     return cast(str, value).strip()
 
 
-def _unreachable(label: str, cause: Exception) -> NoReturn:
-    raise PlanningError(
+def _unreachable(engine_url: str, label: str, cause: Exception) -> NoReturn:
+    raise EngineUnavailableError(
         f"Could not reach the SF Engine {label}",
-        code="engine_unreachable",
-        permanent=False,
+        engine_url=engine_url,
     ) from cause
 
 

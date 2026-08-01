@@ -24,7 +24,7 @@ from screamingface._authentication import _CallerAuth, _default_caller_auth
 from screamingface._engine_contract import _RunState
 from screamingface._evaluation import Candidate
 from screamingface._ports import _RunOutcome
-from screamingface.errors import AuthenticationError, ExecutionError
+from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
 from screamingface.events import Event
 
 type SyncEventCallback = Callable[[Event], None]
@@ -257,10 +257,9 @@ def _mint_sync(http: httpx.Client) -> str:
     try:
         response = http.post("/token")
     except httpx.HTTPError as exc:
-        raise ExecutionError(
+        raise EngineUnavailableError(
             "Could not reach the SF Engine capability endpoint",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=_http_origin(http),
         ) from exc
     return _token(response)
 
@@ -269,10 +268,9 @@ async def _mint_async(http: httpx.AsyncClient) -> str:
     try:
         response = await http.post("/token")
     except httpx.HTTPError as exc:
-        raise ExecutionError(
+        raise EngineUnavailableError(
             "Could not reach the SF Engine capability endpoint",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=_http_origin(http),
         ) from exc
     return _token(response)
 
@@ -301,10 +299,9 @@ def _start_sync(http: httpx.Client, token: str, url4: str) -> None:
             headers={"URL4-Capability": token, "Prefer": "respond-async"},
         )
     except httpx.HTTPError as exc:
-        raise ExecutionError(
+        raise EngineUnavailableError(
             "Could not start the SF Engine Run",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=_http_origin(http),
         ) from exc
     _accepted(response)
 
@@ -317,10 +314,9 @@ async def _start_async(http: httpx.AsyncClient, token: str, url4: str) -> None:
             headers={"URL4-Capability": token, "Prefer": "respond-async"},
         )
     except httpx.HTTPError as exc:
-        raise ExecutionError(
+        raise EngineUnavailableError(
             "Could not start the SF Engine Run",
-            code="engine_unreachable",
-            permanent=False,
+            engine_url=_http_origin(http),
         ) from exc
     _accepted(response)
 
@@ -376,6 +372,10 @@ def _websocket_url(engine_url: str, token: str) -> str:
     parts = urlsplit(engine_url)
     scheme = "wss" if parts.scheme == "https" else "ws"
     return urlunsplit((scheme, parts.netloc, "/ws", urlencode({"ticket": token}), ""))
+
+
+def _http_origin(http: httpx.Client | httpx.AsyncClient) -> str:
+    return str(http.base_url).rstrip("/")
 
 
 def _is_access_websocket_rejection(error: InvalidStatus) -> bool:

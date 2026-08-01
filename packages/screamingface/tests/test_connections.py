@@ -201,6 +201,34 @@ def test_engine_failures_are_safe_and_typed() -> None:
     assert SECRET not in str(failure.value)
 
 
+def test_unreachable_engine_has_a_dedicated_actionable_error() -> None:
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("private socket detail", request=request)
+
+    client = _sync_client(unreachable)
+
+    with client, pytest.raises(sf.EngineUnavailableError) as failure:
+        client.connections.list()
+
+    assert failure.value.engine_url == "https://engine.example"
+    assert failure.value.code == "engine_unreachable"
+    assert "Check that the configured SF Engine is running" in failure.value.user_message
+    assert "private socket detail" not in failure.value.user_message
+
+
+@pytest.mark.asyncio
+async def test_async_unreachable_engine_has_the_same_actionable_error() -> None:
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("private socket detail", request=request)
+
+    async with _async_client(unreachable) as client:
+        with pytest.raises(sf.EngineUnavailableError) as failure:
+            await client.connections.list()
+
+    assert failure.value.engine_url == "https://engine.example"
+    assert "Check that the configured SF Engine is running" in failure.value.user_message
+
+
 def test_connection_values_are_immutable_and_strict() -> None:
     value = sf.Connection(
         provider="openrouter",
