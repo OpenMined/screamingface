@@ -6,9 +6,9 @@ import pytest
 
 
 @pytest.mark.skip(
-    reason=("SF Engine must publish the Benchmark manifest route and versioned schema")
+    reason=("SF Engine must freeze Benchmark identity and manifest compatibility semantics")
 )
-def test_plan_resolves_a_pinned_benchmark_manifest() -> None:
+def test_evaluate_resolves_an_immutable_benchmark_manifest() -> None:
     raise AssertionError("remove this skip only with the authoritative Engine contract")
 
 
@@ -22,7 +22,7 @@ def test_run_checks_destination_compatibility_before_paid_work() -> None:
 @pytest.mark.skip(
     reason=("SF Engine must publish the per-Candidate URL4 benchmark compilation contract")
 )
-def test_plan_compiles_one_complete_url4_per_candidate() -> None:
+def test_evaluate_compiles_one_complete_url4_per_candidate() -> None:
     raise AssertionError("remove this skip only with the authoritative Engine contract")
 
 
@@ -57,16 +57,6 @@ def test_run_reconnects_and_replays_after_the_original_capability_expires() -> N
     )
 )
 def test_run_detects_a_dead_websocket_and_enters_reconnect() -> None:
-    raise AssertionError("remove this skip only with the authoritative Engine contract")
-
-
-@pytest.mark.skip(
-    reason=(
-        "SF Engine must publish Caller Credential, identity/budget, Cloudflare, error, "
-        "and trusted-local authentication contracts"
-    )
-)
-def test_client_authenticates_the_researcher_without_exposing_run_capabilities() -> None:
     raise AssertionError("remove this skip only with the authoritative Engine contract")
 
 

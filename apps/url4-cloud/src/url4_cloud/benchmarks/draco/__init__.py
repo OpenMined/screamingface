@@ -6,8 +6,3 @@ meaningless here; only a judge reading the rubric can produce a score.
 
 Reference: arXiv:2602.11685 §4.2 · `screamingface-benchmarks/docs/draco-benchmark-anatomy.md`
 """
-
-from url4_cloud.benchmarks.draco.definition import DRACO_LITE
-from url4_cloud.benchmarks.draco.smoke import DRACO_SMOKE
-
-__all__ = ["DRACO_LITE", "DRACO_SMOKE"]

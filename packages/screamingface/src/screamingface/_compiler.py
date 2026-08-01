@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Literal
 
@@ -59,72 +58,50 @@ def compile_benchmark(
     """Compile Load → Run → Grade → Aggregate as one Candidate URL4."""
 
     graph = _RecipeCompiler(manifest).compile(recipe)
-    judge_jobs = _action_call(
-        manifest,
-        context=_structured_context(
-            {
-                "benchmark": manifest.info.id,
-                "action": "grading_inputs",
-                "case": "$item",
-                "answer": graph.root.reference,
-            }
-        ),
-        intent="Prepare rubric judge inputs.",
-    )
-    judgments = iterate(
-        judge_jobs,
+    judge_runs = iterate(
+        tuple(str(run) for run in range(1, manifest.judge_passes + 1)),
         body=(
-            src("$item.context", name="judge_context", weight=0.0),
             src(
                 RelExpr(
                     path=_model_route(manifest.judge_model),
-                    context="$judge_context",
+                    context=_structured_context(
+                        {
+                            "answer": graph.root.reference,
+                            "criterion_id": "$criterion_id",
+                            "criterion": "$criterion",
+                        }
+                    ),
                     intent=Text(_url4_text(manifest.judge_instructions)),
                     params=manifest.judge_params,
                 ),
-                name="response",
+                name="verdict",
                 weight=0.0,
             ),
-            src(
-                struct(
-                    {
-                        "criterion_id": "$item.criterion_id",
-                        "run": "$item.run",
-                        "response": "$response",
-                    }
-                ),
-                name="judgment",
-                weight=0.0,
-            ),
+            # A data sibling keeps URL4 from reducing an all-call row through the default model.
+            src("$item", name="pass", weight=0.0),
         ),
-        intent=Text("$judgment"),
+        intent=Text("$verdict"),
+    )
+    criteria = iterate(
+        manifest.criteria_route.replace("{case_id}", "$case_id"),
+        body=(
+            src("$item.id", name="criterion_id", weight=0.0),
+            src("$item.requirement", name="criterion", weight=0.0),
+            src(judge_runs, name="runs", weight=1.0),
+        ),
+        intent=Text("criterion"),
     )
     body = (
+        src("$item.id", name="case_id", weight=0.0),
         src("$item.input", name="question", weight=0.0),
         *graph.sources,
-        src(judgments, name="judgments", weight=0.0),
-        src(
-            _action_call(
-                manifest,
-                context=_structured_context(
-                    {
-                        "benchmark": manifest.info.id,
-                        "action": "grade",
-                        "case": "$item",
-                        "judgments": "$judgments",
-                    }
-                ),
-                intent="Grade the Candidate answer.",
-            ),
-            name="case_grade",
-            weight=0.0,
-        ),
+        src(criteria, name="graded", weight=1.0),
     )
     reducer = render(
-        _action_call(
-            manifest,
-            context=_control_json(manifest, "aggregate"),
-            intent="Aggregate Candidate case grades.",
+        RelExpr(
+            path=manifest.aggregate_route,
+            context="aggregate",
+            intent=Text("Aggregate Candidate case grades."),
         )
     )
     judge = _OperationSpec(
@@ -136,7 +113,7 @@ def compile_benchmark(
     grade = _OperationSpec(
         id="op_grade",
         kind="grading",
-        label=f"{manifest.info.title} deterministic scoring",
+        label=f"{manifest.info.title} rubric scoring",
         depends_on=(judge.id,),
     )
     aggregate = _OperationSpec(
@@ -150,16 +127,12 @@ def compile_benchmark(
         kind=graph.root.kind,
         url4=render(
             iterate(
-                _action_call(
-                    manifest,
-                    context=_control_json(manifest, "load"),
-                    intent="Load Benchmark cases.",
-                ),
+                manifest.cases_route,
                 body=body,
-                intent=Text("$case_grade"),
+                intent=Text("case"),
                 reduce=reducer,
                 slice=None if limit is None else (0, limit),
-                on_error="fail",
+                on_error="collect",
             )
         ),
         models=graph.root.models,
@@ -321,26 +294,6 @@ class _RecipeCompiler:
         )
 
 
-def _action_call(
-    manifest: _BenchmarkManifest,
-    *,
-    context: str,
-    intent: str,
-) -> RelExpr:
-    return RelExpr(
-        path=manifest.route,
-        context=context,
-        intent=Text(intent),
-    )
-
-
-def _control_json(manifest: _BenchmarkManifest, action: str) -> str:
-    return json.dumps(
-        {"benchmark": manifest.info.id, "action": action},
-        separators=(",", ":"),
-    )
-
-
 def _structured_context(value: dict[str, object]) -> str:
     return render(src(struct(value), name="payload"))
 
@@ -351,12 +304,6 @@ def _model_route(model: str) -> str:
 
 def _ordered_unique(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
-
-
-def _parameter(value: object) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
 
 
 def _url4_text(value: str) -> str:

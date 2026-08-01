@@ -219,6 +219,7 @@ id = "openrouter/google/gemini-3.1-pro-preview"
   "python3", "-m", "url4_cloud.benchmarks.draco.aggregate",
   "--operation", "{context}",
   "--args", "{intent}",
+  "--benchmark-id", "draco-lite",
 ], timeout_s = 120.0 }
 
 # --- [data] — read-only artifacts at their own url4 addresses ------------------------------

@@ -17,7 +17,9 @@ from screamingface.errors import PlanningError
 @dataclass(frozen=True, slots=True)
 class _BenchmarkManifest:
     info: BenchmarkInfo
-    route: str
+    cases_route: str
+    criteria_route: str
+    aggregate_route: str
     answer_instructions: str
     answer_params: tuple[tuple[str, str], ...]
     synthesis_model: str
@@ -46,7 +48,7 @@ def load_manifest(http: httpx.Client, benchmark: str | None = None) -> _Benchmar
     selected = _select_benchmark(catalog_response, benchmark)
 
     try:
-        manifest_response = http.get(f"/v1/benchmarks/{selected}/manifest")
+        manifest_response = http.get(f"/v1/benchmarks/{selected}")
     except httpx.HTTPError as exc:
         raise PlanningError(
             f"Could not reach SF Engine Benchmark {selected!r}",
@@ -75,7 +77,7 @@ async def load_manifest_async(
     selected = _select_benchmark(catalog_response, benchmark)
 
     try:
-        manifest_response = await http.get(f"/v1/benchmarks/{selected}/manifest")
+        manifest_response = await http.get(f"/v1/benchmarks/{selected}")
     except httpx.HTTPError as exc:
         raise PlanningError(
             f"Could not reach SF Engine Benchmark {selected!r}",
@@ -115,9 +117,10 @@ def _decode_manifest(decoded: object) -> _BenchmarkManifest:
     if not isinstance(tools, list) or any(not isinstance(tool, str) for tool in tools):
         _invalid("manifest tools must be an array of names")
     selected_tools = cast(list[str], tools)
+    benchmark_id = _text(manifest.get("id"), "Benchmark id")
     info = BenchmarkInfo(
-        name=_text(manifest.get("name"), "Benchmark name"),
-        id=_text(manifest.get("id"), "Benchmark id"),
+        name=benchmark_id,
+        id=benchmark_id,
         title=_text(manifest.get("title"), "Benchmark title"),
         case_count=_positive(cases.get("count"), "Benchmark case count"),
         primary_metric=_text(metrics.get("primary"), "primary metric"),
@@ -125,7 +128,12 @@ def _decode_manifest(decoded: object) -> _BenchmarkManifest:
     )
     return _BenchmarkManifest(
         info=info,
-        route=_route(manifest.get("route"), "Benchmark route"),
+        cases_route=_route(cases.get("route"), "Benchmark cases route"),
+        criteria_route=_criteria_route(
+            grader.get("criteria_route"),
+            "Benchmark criteria route",
+        ),
+        aggregate_route=_route(aggregator.get("route"), "Benchmark aggregate route"),
         answer_instructions=_text(answer.get("instructions"), "answer instructions"),
         answer_params=_params(answer.get("params"), "answer params"),
         synthesis_model=_text(synthesis.get("model"), "synthesis model"),
@@ -194,6 +202,13 @@ def _route(value: object, label: str) -> str:
     route = _text(value, label)
     if not route.startswith("/"):
         _invalid(f"{label} must begin with '/'")
+    return route
+
+
+def _criteria_route(value: object, label: str) -> str:
+    route = _route(value, label)
+    if route.count("{case_id}") != 1:
+        _invalid(f"{label} must contain exactly one '{{case_id}}' placeholder")
     return route
 
 

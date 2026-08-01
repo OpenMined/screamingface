@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Path, Request
+from fastapi import APIRouter, Header, Path
 from fastapi.responses import JSONResponse, Response
 
 from url4_cloud import manifests
@@ -31,7 +31,7 @@ _LIST_RESPONSES: dict[int | str, dict[str, object]] = {
     304: {"description": "The catalog is unchanged since the supplied `If-None-Match`."},
 }
 _MANIFEST_RESPONSES: dict[int | str, dict[str, object]] = {
-    200: {"description": "The manifest, verbatim, as `text/plain`."},
+    200: {"description": "The manifest, verbatim, as YAML."},
     304: {"description": "The manifest is unchanged since the supplied `If-None-Match`."},
     404: {"description": "No manifest is published under that id.", "content": {_PROBLEM_JSON: {}}},
 }
@@ -78,7 +78,6 @@ def _catalog() -> list[dict[str, str]]:
     ),
 )
 async def list_benchmarks(
-    request: Request,
     if_none_match: Annotated[
         str | None, Header(alias="If-None-Match", description="Conditional-request validator.")
     ] = None,
@@ -92,14 +91,11 @@ async def list_benchmarks(
     headers = {"ETag": etag, "Cache-Control": _CACHE_CONTROL}
     if _matches(if_none_match, etag):
         return Response(status_code=304, headers=headers)
-    installed = getattr(request.app.state, "benchmarks", {})
-    default = getattr(request.app.state, "default_benchmark", None)
     return JSONResponse(
         {
-            "benchmarks": entries,
             "object": "list",
-            "default": default,
-            "data": [{"id": key, "object": "benchmark"} for key in installed],
+            "default": manifests.DEFAULT_BENCHMARK_ID,
+            "data": [{**entry, "object": "benchmark"} for entry in entries],
         },
         headers=headers,
     )
@@ -112,7 +108,7 @@ async def list_benchmarks(
     response_class=Response,
     responses=_MANIFEST_RESPONSES,
     description=(
-        "Return the manifest verbatim as `text/plain`.\n\n"
+        "Return the manifest verbatim as YAML.\n\n"
         "The manifest IS a string — wrapping it in JSON would only make every caller unescape it "
         "back. It names the data routes the benchmark's cases and criteria are served from, the "
         "judge and its grading protocol, and the tools a candidate may use."
@@ -148,19 +144,4 @@ async def get_benchmark_manifest(
     headers = {"ETag": etag, "Cache-Control": _CACHE_CONTROL}
     if _matches(if_none_match, etag):
         return Response(status_code=304, headers=headers)
-    return Response(content=text, media_type="text/plain; charset=utf-8", headers=headers)
-
-
-@router.get(
-    "/v1/benchmarks/{benchmark_id}/manifest",
-    tags=["Catalog"],
-    response_class=Response,
-    summary="Fetch an installed SDK benchmark manifest",
-)
-async def get_sdk_benchmark_manifest(benchmark_id: str, request: Request) -> Response:
-    """Return the Engine-installed manifest used by the ScreamingFace SDK compiler."""
-
-    benchmark = getattr(request.app.state, "benchmarks", {}).get(benchmark_id)
-    if benchmark is None:
-        raise HTTPException(status_code=404, detail=f"unknown benchmark {benchmark_id!r}")
-    return Response(content=benchmark.manifest, media_type="application/yaml")
+    return Response(content=text, media_type="application/yaml", headers=headers)

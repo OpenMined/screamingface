@@ -18,19 +18,18 @@ from screamingface._benchmark_manifest import (
     _success,
     load_manifest,
 )
-from screamingface._compiler import _parameter, _url4_text
+from screamingface._compiler import _url4_text
 from screamingface._evaluation import Candidate
 from screamingface._ports import _RunOutcome
 from screamingface._result_decoder import _candidate_result
 from screamingface.client import _compile_sync
 
 MANIFEST = b"""\
-name: draco-lite
 id: draco-lite
 title: DRACO Lite
-route: /benchmark
 cases:
   count: 1
+  route: /draco/cases
 answer:
   instructions: Answer completely.
   params:
@@ -46,6 +45,7 @@ synthesis:
     max_output_tokens: 4096
 grader:
   kind: rubric
+  criteria_route: /draco/criteria/{case_id}
   criteria_per_case: 10
   model: provider/judge
   passes: 1
@@ -54,6 +54,7 @@ grader:
     temperature: 0.2
 aggregator:
   kind: mean
+  route: /benchmark
 metrics:
   primary: normalized_score
   direction: maximize
@@ -179,7 +180,7 @@ def _engine(request: httpx.Request) -> httpx.Response:
                 "data": [{"id": "draco-lite", "object": "benchmark"}],
             },
         )
-    elif request.url.path == "/v1/benchmarks/draco-lite/manifest":
+    elif request.url.path == "/v1/benchmarks/draco-lite":
         response = httpx.Response(200, content=MANIFEST)
     else:
         response = httpx.Response(404)
@@ -216,12 +217,11 @@ def test_client_evaluates_the_complete_draco_lite_vertical_slice() -> None:
         "grading",
         "aggregation",
     )
-    assert result.url4.count("/benchmark") == 4
+    assert result.url4.count("/benchmark") == 1
+    assert result.url4.startswith("(/draco/cases*")
+    assert "/draco/criteria/$case_id" in result.url4
     assert "/provider/judge" in result.url4
-    assert '"action":"load"' in result.url4
-    assert "action: 'grading_inputs'" in result.url4
-    assert "action: 'grade'" in result.url4
-    assert '"action":"aggregate"' in result.url4
+    assert "/benchmark(aggregate)" in result.url4
     assert "temperature=0.2" in result.url4
     assert "reasoning=low" in result.url4
     assert "max_output_tokens=4096" in result.url4
@@ -452,14 +452,14 @@ def test_manifest_decoder_rejects_every_required_field_boundary() -> None:
 
     bad_tools = deepcopy(base)
     bad_tools["tools"] = "web_search"
-    bad_name = deepcopy(base)
-    bad_name["name"] = " "
     bad_count = deepcopy(base)
     bad_count["cases"]["count"] = 0
     bad_direction = deepcopy(base)
     bad_direction["metrics"]["direction"] = "sideways"
     bad_route = deepcopy(base)
-    bad_route["route"] = "relative"
+    bad_route["aggregator"]["route"] = "relative"
+    bad_criteria_route = deepcopy(base)
+    bad_criteria_route["grader"]["criteria_route"] = "/draco/criteria"
     bad_cases = deepcopy(base)
     bad_cases["cases"] = []
 
@@ -467,10 +467,10 @@ def test_manifest_decoder_rejects_every_required_field_boundary() -> None:
         [],
         {},
         bad_tools,
-        bad_name,
         bad_count,
         bad_direction,
         bad_route,
+        bad_criteria_route,
         bad_cases,
     )
     for value in invalid_values:
@@ -540,8 +540,6 @@ def test_manifest_catalogue_rejects_malformed_and_unknown_records() -> None:
 
 
 def test_compiler_normalizes_url4_parameters_and_rejects_control_characters() -> None:
-    assert _parameter(True) == "true"
-    assert _parameter(False) == "false"
     assert _url4_text("line 1\r\nline 2\t$value") == "line 1\u2028line 2 $$value"
     with pytest.raises(ValueError, match="U\\+0001"):
         _url4_text("bad\x01text")

@@ -15,12 +15,8 @@ INVARIANT — the scoring formulas mirror `screamingface-benchmarks/benchmarking
 (arXiv:2602.11685 §4.2) EXACTLY. Do not "improve" them. A different formula is a different
 benchmark, and a leaderboard number computed here must mean what the paper says it means.
 
-AIDEV-NOTE — PROTOCOL CAVEAT. The paper's `official` grading mode issues ONE judge call PER
-CRITERION (~40 criteria × 3 runs per case), and the judge never sees the weights or the sibling
-criteria. The url4 expression this reducer serves makes ONE judge call per case, which is the
-paper's `chunked` mode. Chunked scores are fine for iteration and MUST NOT be published as
-"DRACO-reproduced". Reproducing the official protocol needs a per-criterion fan-out that the
-current expression shape does not express.
+The Client expression follows the paper's ``official`` protocol: one judge call per criterion,
+three independent passes, with weights and sibling criteria hidden from the judge.
 """
 
 from __future__ import annotations
@@ -336,6 +332,7 @@ def aggregate(
         case_results.append({"case_id": case_id, **score_case(rubric, group_runs(verdicts))})
 
     return {
+        "schema": "screamingface.candidate-result.v1",
         "benchmark_id": benchmark_id,
         "case_count": len(case_results),
         "score": _mean(case_results, "normalized_score"),
@@ -417,7 +414,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--operation", default="aggregate", help="the {context} token")
     parser.add_argument("--args", default="[]", help="the {intent} payload — the JSON row array")
     parser.add_argument("--rubrics", type=Path, default=None)
-    parser.add_argument("--benchmark-id", default="draco")
+    parser.add_argument("--benchmark-id", default="draco-lite")
     args = parser.parse_args(argv)
 
     if args.operation.strip() != "aggregate":

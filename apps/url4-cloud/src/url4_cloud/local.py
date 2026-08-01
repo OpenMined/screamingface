@@ -115,7 +115,6 @@ def create_local_app(
     # any import of this module. What it defers is `runner.connector`/`runner.executor` and httpx
     # — not the engine itself, which `url4/__init__` has already pulled in via any `url4.streaming`
     # import (see the SCOPE NOTE in `check_layering.py`).
-    from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
     from url4_cloud.runner.main import build_executor
 
     job_runner = InProcessJobRunner(
@@ -133,8 +132,6 @@ def create_local_app(
         job_runner=job_runner,
         catalog=catalog,
         connections=connections,
-        benchmarks=tuple(BENCHMARKS.values()),
-        default_benchmark=DEFAULT_BENCHMARK_ID,
     )
     app.router.on_shutdown.append(job_runner.aclose)
     if catalog is not None:

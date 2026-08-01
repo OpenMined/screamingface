@@ -25,8 +25,9 @@ Be strict about factual accuracy but flexible about wording. Accept a requiremen
 clear implication. When a criterion requires an immediate or unconditional action, a conditional \
 recommendation does not satisfy it.
 
-Return only raw JSON in this exact shape:
-{"explanation":"Brief evidence for the verdict.","criterion_status":"MET"}
+Echo the provided criterion_id exactly. Return only raw JSON in this exact shape:
+{"criterion_id":"<provided criterion_id>","explanation":"Brief evidence for the verdict.",\
+"criterion_status":"MET"}
 
 criterion_status must be exactly "MET" or "UNMET". Do not use Markdown fences or add prose \
 outside the JSON object."""

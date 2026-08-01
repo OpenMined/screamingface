@@ -178,24 +178,25 @@ it at `http://127.0.0.1:9105`. An ordinary deployed App returns `503` when
 
 ## Benchmark catalog — `GET /v1/benchmarks`
 
-Discover the benchmark IDs installed by this App's composition root. The response follows the
-same list envelope as `GET /v1/models`, with deliberately minimal entries:
+Discover the benchmark manifests published by this Engine. The response follows the same list
+envelope as `GET /v1/models`:
 
 ```json
 {
   "object": "list",
-  "default": "draco-smoke",
+  "default": "draco-lite",
   "data": [
-    {"id": "draco-smoke", "object": "benchmark"},
-    {"id": "draco-lite", "object": "benchmark"}
+    {
+      "id": "draco-lite",
+      "object": "benchmark",
+      "title": "DRACO Lite",
+      "description": "Research-quality rubric evaluation.",
+      "href": "/v1/benchmarks/draco-lite"
+    }
   ]
 }
 ```
 
-The Engine explicitly declares `draco-smoke` as the SDK evaluation default. Catalog ordering is
-presentation-only; `draco-lite` remains available as an explicit ten-criterion evaluation.
-
-The shipped local and hosted composition roots install the built-in benchmark registry. An
-embedded App created without an injected registry returns `default: null` and an empty `data`
-array. In both cases the catalogue is derived from the same registry used by `/benchmark`; an App
-never advertises an ID whose handler is absent or declares a default that is not installed.
+`GET /v1/benchmarks/{id}` returns the YAML manifest used by the Client compiler. The manifest
+names the Runner-native case, criterion, and aggregate routes declared by the benchmark image;
+the control plane does not install a second Python handler registry.

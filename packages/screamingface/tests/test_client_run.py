@@ -10,12 +10,11 @@ import pytest
 import screamingface as sf
 
 MANIFEST = b"""\
-name: draco
 id: draco@1
 title: DRACO
-route: /benchmark
 cases:
   count: 1
+  route: /draco/cases
 answer:
   instructions: Answer completely.
   params:
@@ -31,6 +30,7 @@ synthesis:
     max_output_tokens: 4096
 grader:
   kind: rubric
+  criteria_route: /draco/criteria/{case_id}
   criteria_per_case: 1
   model: provider/judge
   passes: 1
@@ -38,6 +38,7 @@ grader:
   params: {}
 aggregator:
   kind: mean
+  route: /benchmark
 metrics:
   primary: score
   direction: maximize
@@ -66,7 +67,7 @@ def _engine(request: httpx.Request) -> httpx.Response:
                 "data": [{"id": "draco", "object": "benchmark"}],
             },
         )
-    elif request.url.path == "/v1/benchmarks/draco/manifest":
+    elif request.url.path == "/v1/benchmarks/draco":
         response = httpx.Response(200, content=MANIFEST)
     else:
         response = httpx.Response(404)

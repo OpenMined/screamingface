@@ -16,7 +16,6 @@ from fastapi.staticfiles import StaticFiles
 from url4.streaming.interfaces import EventConsumer, JobRunner
 from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.auth import Clock, install_problem_handlers
-from url4_cloud.benchmarks._types import Benchmark
 from url4_cloud.catalog import build_catalog_service
 from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
@@ -40,7 +39,7 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def create_app(  # noqa: PLR0915 - explicit composition root wiring
+def create_app(
     settings: Settings | None = None,
     *,
     stream: EventConsumer | None = None,
@@ -49,8 +48,6 @@ def create_app(  # noqa: PLR0915 - explicit composition root wiring
     interest: SubscriberGate | None = None,
     catalog: CatalogService | None = None,
     connections: Connections | None = None,
-    benchmarks: tuple[Benchmark, ...] = (),
-    default_benchmark: str | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -64,8 +61,6 @@ def create_app(  # noqa: PLR0915 - explicit composition root wiring
     app.state.job_runner = job_runner
     app.state.catalog = catalog
     app.state.connections = connections
-    app.state.benchmarks = _benchmarks(benchmarks)
-    app.state.default_benchmark = _default_benchmark(default_benchmark, app.state.benchmarks)
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
@@ -87,38 +82,6 @@ def create_app(  # noqa: PLR0915 - explicit composition root wiring
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
     customize_openapi(app)
     return app
-
-
-def _benchmarks(values: tuple[Benchmark, ...]) -> dict[str, Benchmark]:
-    """Validate the benchmark catalogue once, at the composition boundary."""
-
-    result: dict[str, Benchmark] = {}
-    for value in values:
-        if not isinstance(value, Benchmark):
-            raise TypeError("benchmarks must contain Benchmark values")
-        if not value.id.strip():
-            raise ValueError("benchmark IDs must be non-blank strings")
-        if value.id in result:
-            raise ValueError(f"duplicate benchmark ID {value.id!r}")
-        if not value.manifest:
-            raise ValueError(f"benchmark {value.id!r} has an empty manifest")
-        result[value.id] = value
-    return result
-
-
-def _default_benchmark(value: str | None, benchmarks: dict[str, Benchmark]) -> str | None:
-    """Validate the explicit evaluation default once, at composition."""
-
-    if not benchmarks:
-        if value is not None:
-            raise ValueError("default_benchmark requires at least one installed Benchmark")
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("default_benchmark is required when Benchmarks are installed")
-    selected = value.strip()
-    if selected not in benchmarks:
-        raise ValueError(f"default_benchmark {selected!r} is not installed")
-    return selected
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
@@ -162,16 +125,12 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         )
     catalog = build_catalog_service(settings)
     connections = build_connections(settings)
-    from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
-
     app = create_app(
         settings,
         stream=stream,
         job_runner=job_runner,
         catalog=catalog,
         connections=connections,
-        benchmarks=tuple(BENCHMARKS.values()),
-        default_benchmark=DEFAULT_BENCHMARK_ID,
     )
     app.router.on_shutdown.append(stream.close)
     if catalog is not None:

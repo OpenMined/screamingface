@@ -41,10 +41,13 @@ def test_every_manifest_is_keyed_by_its_own_declared_id() -> None:
 
 
 def test_every_manifest_carries_the_fields_a_client_needs_to_run_it() -> None:
-    required = ("id", "title", "description", "dataset", "cases", "grading", "judge")
+    required = ("id", "title", "description", "dataset")
     for key, text in manifests.MANIFESTS.items():
         for name in required:
             assert manifests.field(text, name), f"{key} is missing {name!r}"
+        assert "  route: /draco/cases\n" in text
+        assert "  criteria_route: /draco/criteria/{case_id}\n" in text
+        assert "  route: /benchmark\n" in text
 
 
 def test_the_registry_is_not_empty() -> None:
@@ -59,15 +62,18 @@ def test_listing_returns_an_envelope_not_a_bare_array(client: TestClient) -> Non
     body = client.get("/v1/benchmarks").json()
 
     assert isinstance(body, dict)
-    assert isinstance(body["benchmarks"], list)
+    assert body["object"] == "list"
+    assert isinstance(body["data"], list)
 
 
 def test_listing_summarises_each_manifest_with_a_link_to_it(client: TestClient) -> None:
-    entries = client.get("/v1/benchmarks").json()["benchmarks"]
+    entries = client.get("/v1/benchmarks").json()["data"]
 
     by_id = {e["id"]: e for e in entries}
     assert set(by_id) == set(manifests.MANIFESTS)
+    assert client.get("/v1/benchmarks").json()["default"] == manifests.DEFAULT_BENCHMARK_ID
     for key, entry in by_id.items():
+        assert entry["object"] == "benchmark"
         assert entry["href"] == f"/v1/benchmarks/{key}"
         assert entry["title"]
         assert entry["description"]
@@ -90,7 +96,7 @@ def test_a_manifest_is_served_verbatim_as_text(client: TestClient) -> None:
     r = client.get(f"/v1/benchmarks/{key}")
 
     assert r.status_code == 200
-    assert r.headers["content-type"].startswith("text/plain")
+    assert r.headers["content-type"].startswith("application/yaml")
     assert r.text == manifests.MANIFESTS[key]
 
 
