@@ -1,10 +1,15 @@
-"""Rich provider-connection panel bound to one explicit ScreamingFace Client."""
+"""Rich Engine and provider connection panel bound to one ScreamingFace Client."""
 
 from __future__ import annotations
 
 import asyncio
+import threading
+import weakref
+from collections.abc import Callable
 from html import escape
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from ipaddress import ip_address
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
+from urllib.parse import urlsplit
 
 from screamingface._display import STYLE
 from screamingface.errors import ScreamingFaceError
@@ -25,6 +30,22 @@ class _Client(Protocol):
 
     @property
     def connections(self) -> _ConnectionCatalog: ...
+
+    @property
+    def authenticated(self) -> bool: ...
+
+    @property
+    def authenticating(self) -> bool: ...
+
+    def login(self, *, timeout: float = 300.0) -> None: ...
+
+    def _cancel_login(self) -> None: ...
+
+    def _subscribe_auth(self, callback: Callable[[], None]) -> Callable[[], None]: ...
+
+    def _access_required(self) -> bool: ...
+
+    def logout(self) -> None: ...
 
     def connect(self, provider: str, *, api_key: str) -> Connection: ...
 
@@ -51,6 +72,8 @@ _STYLE = (
 .sf-connections__status{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
   letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;color:var(--sf-ink-3)}
 .sf-connections__status.connected{color:var(--sf-gain)}
+.sf-connections__status.authenticated{color:var(--sf-gain)}
+.sf-connections__status.login_required,.sf-connections__status.waiting{color:var(--sf-blind)}
 .sf-connections__status.needs_reauth,.sf-connections__status.error{color:var(--sf-blind)}
 .sf-connections__account{color:var(--sf-ink-2);font-size:12px;font-weight:400}
 .sf-connections__controls{flex:0 0 auto;margin-left:auto;display:flex;align-items:center;
@@ -93,19 +116,44 @@ class ConnectionPanel:
     def __init__(self, client: _Client) -> None:
         self.engine = client.engine_url
         self._client = client
-        self._connections = client.connections.list()
+        self._hosted = _is_hosted_engine(client.engine_url)
+        self._connections: tuple[Connection, ...] = ()
+        self._initial_notice: str | None = None
+        if not self._hosted:
+            self._connections = client.connections.list()
+        elif client.authenticated:
+            try:
+                self._connections = client.connections.list()
+            except (ScreamingFaceError, ValueError) as exc:
+                self._initial_notice = str(exc)
+        self._access_pending = False
+        self._access_check_pending = (
+            self._hosted
+            and not client.authenticated
+            and callable(getattr(client, "_access_required", None))
+        )
+        self._access_check_started = False
+        self._access_check_thread: threading.Thread | None = None
+        self._login_thread: threading.Thread | None = None
         self._flows: dict[str, object] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._modes: dict[str, PanelMode] = {}
         self._rows: Any = None
         self._notice: Any = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._unsubscribe_auth: Callable[[], None] | None = None
+        self._closed = False
 
     @property
     def connections(self) -> tuple[Connection, ...]:
         return self._connections
 
     def refresh(self) -> tuple[Connection, ...]:
-        self._connections = self._client.connections.list()
+        self._connections = (
+            self._client.connections.list()
+            if not self._hosted or self._client.authenticated
+            else ()
+        )
         self._render_rows()
         return self._connections
 
@@ -127,27 +175,41 @@ class ConnectionPanel:
         header = widgets.HTML(
             value=(
                 f"{_STYLE}<div class='sf-connections__head'>"
-                "<div class='sf-connections__title'>Provider connections</div>"
+                "<div class='sf-connections__title'>Connections</div>"
                 f"<div class='sf-connections__engine'>Engine · {escape(self.engine)}</div></div>"
             )
         )
         self._notice = widgets.HTML()
         self._rows = widgets.VBox()
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+        subscribe = getattr(self._client, "_subscribe_auth", None)
+        if callable(subscribe) and self._unsubscribe_auth is None:
+            typed_subscribe = cast(
+                Callable[[Callable[[], None]], Callable[[], None]],
+                subscribe,
+            )
+            self._unsubscribe_auth = typed_subscribe(self._auth_state_changed)
         root = PanelWidget(children=(header, self._notice, self._rows))
         for css_class in ("sf-ui", "sf-connection-widget", "sf-connections"):
             root.add_class(css_class)
+        self._set_notice(self._initial_notice)
         self._render_rows()
+        self._start_access_check()
         return root
 
     def _repr_html_(self) -> str:
+        access = self._static_access_row() if self._hosted else ""
         rows = "".join(self._static_row(item) for item in self._connections)
         return (
             f"{_STYLE}<div class='sf-ui sf-connections' "
-            "aria-label='ScreamingFace provider connections'>"
+            "aria-label='ScreamingFace connections'>"
             "<div class='sf-connections__head'>"
-            "<div class='sf-connections__title'>Provider connections</div>"
+            "<div class='sf-connections__title'>Connections</div>"
             f"<div class='sf-connections__engine'>Engine · {escape(self.engine)}</div></div>"
-            f"{rows}</div>"
+            f"{access}{rows}</div>"
         )
 
     def _ipython_display_(self) -> None:
@@ -157,9 +219,22 @@ class ConnectionPanel:
 
     def __repr__(self) -> str:
         statuses = ", ".join(f"{item.provider}={item.status}" for item in self._connections)
-        return f"ConnectionPanel(engine={self.engine!r}, {statuses})"
+        access = (
+            f", access={'authenticated' if self._client.authenticated else 'login_required'}"
+            if self._hosted
+            else ""
+        )
+        return f"ConnectionPanel(engine={self.engine!r}{access}, {statuses})"
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._unsubscribe_auth is not None:
+            self._unsubscribe_auth()
+            self._unsubscribe_auth = None
+        self._login_thread = None
+        self._access_check_thread = None
         for task in tuple(self._tasks.values()):
             task.cancel()
         self._tasks.clear()
@@ -181,9 +256,62 @@ class ConnectionPanel:
     def _static_row(self, connection: Connection) -> str:
         return f"<div class='sf-connections__row'>{self._meta_html(connection)}</div>"
 
+    def _access_meta_html(self) -> str:
+        if self._access_check_pending:
+            status = "checking"
+        elif self._access_waiting():
+            status = "waiting"
+        elif self._client.authenticated:
+            status = "authenticated"
+        else:
+            status = "login_required"
+        return (
+            "<div class='sf-connections__meta'>"
+            "<span class='sf-connections__provider'>Engine access</span>"
+            f"<div class='sf-connections__status {status}'>"
+            f"{escape(status.replace('_', ' '))}</div></div>"
+        )
+
+    def _static_access_row(self) -> str:
+        return f"<div class='sf-connections__row'>{self._access_meta_html()}</div>"
+
     def _render_rows(self) -> None:
         if self._rows is not None:
-            self._rows.children = tuple(self._interactive_row(item) for item in self._connections)
+            access = (self._interactive_access_row(),) if self._hosted else ()
+            providers = tuple(self._interactive_row(item) for item in self._connections)
+            self._rows.children = (*access, *providers)
+
+    def _interactive_access_row(self):
+        import ipywidgets as widgets
+
+        meta = widgets.HTML(value=self._access_meta_html())
+        meta.layout.flex = "1 1 auto"
+        meta.layout.min_width = "0"
+        if self._access_check_pending:
+            button = self._button("Checking…", "Checking whether this Engine requires Access")
+            button.disabled = True
+        elif self._access_waiting():
+            button = self._button("Cancel", "Cancel the Cloudflare Access login")
+            button.on_click(lambda _: self._attempt(self._cancel_access_login))
+        elif self._client.authenticated:
+            button = self._button("Log out", "Log out of this Client and Cloudflare Access")
+            button.on_click(lambda _: self._attempt(self._logout_access))
+        else:
+            button = self._button(
+                "Log in",
+                "Log in to this Engine through Cloudflare Access",
+                primary=True,
+            )
+            button.on_click(lambda _: self._start_login_access())
+        controls = widgets.HBox(children=(button,))
+        controls.add_class("sf-connections__controls")
+        controls.layout.flex = "0 0 auto"
+        row = widgets.HBox(children=(meta, controls))
+        row.add_class("sf-connections__row")
+        row.layout.align_items = "center"
+        row.layout.flex_flow = "row nowrap"
+        row.layout.height = "48px"
+        return row
 
     def _interactive_row(self, connection: Connection):
         import ipywidgets as widgets
@@ -326,6 +454,179 @@ class ConnectionPanel:
         self._modes.pop(provider, None)
         self.refresh()
 
+    def _login_access(self) -> None:
+        self._client.login()
+
+    def _access_waiting(self) -> bool:
+        return self._access_pending or self._client.authenticating
+
+    def _start_login_access(self) -> None:
+        self._set_notice(None)
+        if self._access_waiting():
+            self._render_rows()
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Non-notebook callers have no live event loop to keep the widget responsive.
+            self._attempt(self._login_access)
+            if self._client.authenticated:
+                self.refresh()
+            else:
+                self._render_rows()
+            return
+
+        self._access_pending = True
+        self._render_rows()
+        self._start_login_thread(loop)
+
+    def _start_access_check(self) -> None:
+        if not self._access_check_pending or self._access_check_started:
+            return
+        check = getattr(self._client, "_access_required", None)
+        if not callable(check):
+            self._access_check_pending = False
+            self._render_rows()
+            return
+        self._access_check_started = True
+        typed_check = cast(Callable[[], bool], check)
+        if self._loop is None:
+            self._run_access_check_sync(typed_check)
+            return
+        self._start_access_check_thread(typed_check, self._loop)
+
+    def _run_access_check_sync(self, check: Callable[[], bool]) -> None:
+        try:
+            required = check()
+        except Exception as exc:
+            self._complete_access_check(True, exc)
+        else:
+            self._complete_access_check(required, None)
+
+    def _start_access_check_thread(
+        self,
+        check: Callable[[], bool],
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        panel_ref = weakref.ref(self)
+
+        def run() -> None:
+            required = True
+            error: Exception | None = None
+            try:
+                required = check()
+            except Exception as exc:
+                error = exc
+            panel = panel_ref()
+            if panel is None or panel._closed:
+                return
+            try:
+                loop.call_soon_threadsafe(panel._complete_access_check, required, error)
+            except RuntimeError:
+                return
+
+        self._access_check_thread = threading.Thread(
+            target=run,
+            name="screamingface-access-discovery",
+            daemon=True,
+        )
+        self._access_check_thread.start()
+
+    def _complete_access_check(self, required: bool, error: Exception | None) -> None:
+        if self._closed:
+            return
+        self._access_check_pending = False
+        self._access_check_thread = None
+        if error is not None:
+            self._set_notice(str(error))
+        elif not required:
+            self._hosted = False
+            try:
+                self._connections = self._client.connections.list()
+            except (ScreamingFaceError, ValueError) as exc:
+                self._connections = ()
+                self._set_notice(str(exc))
+        self._render_rows()
+
+    def _start_login_thread(self, loop: asyncio.AbstractEventLoop) -> None:
+        client = self._client
+        panel_ref = weakref.ref(self)
+
+        def run() -> None:
+            error: Exception | None = None
+            try:
+                client.login()
+            except Exception as exc:
+                error = exc
+            panel = panel_ref()
+            if panel is None or panel._closed:
+                return
+            try:
+                loop.call_soon_threadsafe(panel._complete_login_access, error)
+            except RuntimeError:
+                # The notebook event loop may have closed while its browser was open.
+                return
+
+        self._login_thread = threading.Thread(
+            target=run,
+            name="screamingface-access-login",
+            daemon=True,
+        )
+        self._login_thread.start()
+
+    def _complete_login_access(self, error: Exception | None) -> None:
+        if self._closed:
+            return
+        self._access_pending = False
+        self._login_thread = None
+        if error is not None and getattr(error, "code", None) != "access_login_cancelled":
+            self._set_notice(str(error))
+        if self._client.authenticated:
+            try:
+                self.refresh()
+            except (ScreamingFaceError, ValueError) as exc:
+                self._set_notice(str(exc))
+                self._render_rows()
+        else:
+            self._render_rows()
+
+    def _auth_state_changed(self) -> None:
+        if self._closed:
+            return
+        if self._loop is not None:
+            try:
+                self._loop.call_soon_threadsafe(self._apply_auth_state)
+            except RuntimeError:
+                return
+        else:
+            self._apply_auth_state()
+
+    def _apply_auth_state(self) -> None:
+        if self._closed:
+            return
+        self._access_pending = self._client.authenticating
+        if self._client.authenticated:
+            try:
+                self._connections = self._client.connections.list()
+            except (ScreamingFaceError, ValueError) as exc:
+                self._connections = ()
+                self._set_notice(str(exc))
+        else:
+            self._connections = ()
+        self._render_rows()
+
+    def _logout_access(self) -> None:
+        self._client.logout()
+        self._access_pending = False
+        self._connections = ()
+        self._render_rows()
+
+    def _cancel_access_login(self) -> None:
+        self._client._cancel_login()
+        self._access_pending = False
+        self._connections = ()
+        self._render_rows()
+
     def _disconnect(self, provider: str) -> None:
         self._client.disconnect(provider)
         self._modes.pop(provider, None)
@@ -340,6 +641,17 @@ class ConnectionPanel:
         task = self._tasks.pop(provider, None)
         if task is not None:
             task.cancel()
+
+
+def _is_hosted_engine(engine_url: str) -> bool:
+    hostname = urlsplit(engine_url).hostname
+    if hostname == "localhost":
+        return False
+    try:
+        address = ip_address(hostname or "")
+    except ValueError:
+        return True
+    return not (address.is_loopback or address.is_unspecified)
 
 
 __all__ = ["ConnectionPanel"]

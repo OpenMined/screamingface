@@ -5,15 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from screamingface._authentication import _CallerAuth
 from screamingface._ports import AsyncRunTransport, SyncRunTransport
 
 
 class _SyncTransportFactory(Protocol):
-    def __call__(self, engine_url: str) -> SyncRunTransport: ...
+    def __call__(self, engine_url: str, caller_auth: _CallerAuth) -> SyncRunTransport: ...
 
 
 class _AsyncTransportFactory(Protocol):
-    def __call__(self, engine_url: str) -> AsyncRunTransport: ...
+    def __call__(self, engine_url: str, caller_auth: _CallerAuth) -> AsyncRunTransport: ...
 
 
 @dataclass(frozen=True, slots=True)

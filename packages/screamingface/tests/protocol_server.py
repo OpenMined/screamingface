@@ -26,6 +26,8 @@ class ProtocolState:
     attached: threading.Event = field(default_factory=threading.Event)
     started: threading.Event = field(default_factory=threading.Event)
     inbound_events: list[dict[str, Any]] = field(default_factory=list)
+    http_auth_schemes: list[str | None] = field(default_factory=list)
+    websocket_auth_scheme: str | None = None
     mode: Literal[
         "success",
         "heartbeat",
@@ -60,6 +62,7 @@ class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_POST(self) -> None:  # noqa: N802 — stdlib handler API
+        self.server.state.http_auth_schemes.append(_authorization_scheme(self.headers))
         if self.path != "/token":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -175,6 +178,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._stream_run()
 
     def _accept_websocket(self) -> bool:
+        self.server.state.websocket_auth_scheme = _authorization_scheme(self.headers)
         key = self.headers.get("Sec-WebSocket-Key")
         if key is None:
             self.send_error(HTTPStatus.BAD_REQUEST)
@@ -348,6 +352,13 @@ def _heartbeat() -> dict[str, object]:
         "datacontenttype": "application/json",
         "data": {},
     }
+
+
+def _authorization_scheme(headers: Any) -> str | None:
+    value = headers.get("Authorization")
+    if value:
+        return value.split(" ", 1)[0]
+    return "Cf-Access-Token" if headers.get("Cf-Access-Token") else None
 
 
 @contextmanager

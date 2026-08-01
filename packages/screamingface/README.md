@@ -4,10 +4,9 @@ Evaluate Models and Fusions against URL4-native research Benchmarks.
 
 > **Development status:** immutable Model/Fusion authoring, Engine-backed discovery, the direct
 > evaluation API, Model/Fusion URL4 compilation, and the confirmed `url4-cloud` lifecycle are
-> implemented. The current Engine installs real-model `draco-smoke` as its safe default and
-> exposes `draco-lite` as an explicit higher-fidelity tier. Broader production Benchmark manifests
-> remain Engine contract gates. There is no fixture, stale registry, or embedded execution
-> fallback.
+> implemented. The current Engine publishes `draco-lite` and its Runner-native URL4 routes.
+> Broader production Benchmark manifests remain Engine contract gates. There is no fixture,
+> embedded benchmark runtime, or Client-side execution fallback.
 
 ## Target v1 workflow
 
@@ -35,12 +34,9 @@ report = sf.evaluate(
 `evaluate(...)` uses the Engine's explicitly declared default Benchmark, validates every
 Candidate, compiles one complete URL4 per Candidate, executes those independent Candidates
 concurrently, and returns one immutable `Report` in declared order. Pass
-`benchmark="draco-lite"` only when overriding the safe smoke default. All no-spend validation
-finishes before the first paid Run starts. The complete example becomes runnable when the SF
-Engine requirements
-listed in
-[`../../docs/spec/2026-07-26-OME-605-engine-requirements.md`](../../docs/spec/2026-07-26-OME-605-engine-requirements.md)
-are published.
+`benchmark="draco-lite"` only when making that default explicit. All no-spend validation finishes
+before the first paid Run starts. Execution requires a benchmark Runner image containing the
+manifest's declared case, criterion, and aggregate routes.
 
 Model and Fusion Candidates compile against the provisional Benchmark manifest contract.
 Unsupported Candidates fail with typed errors instead of falling back to Client-side execution.
@@ -71,10 +67,71 @@ report = sf.evaluate(candidates, limit=1)
 The Client hides Benchmark resolution, URL4 compilation, REST/WebSocket transport, Event replay,
 and Report decoding behind `sf.evaluate(...)`.
 
-In a notebook, `sf.connect()` displays the provider panel bound to the lazy default Client. The
-current Engine advertises one OpenRouter API-key row. The key is sent only to the SF Engine, which
-asks AI Gateway to validate and store it; the Python Client does not persist it and never calls AI
-Gateway or OpenRouter directly.
+### Hosted caller authentication
+
+Hosted Engines may be protected by Cloudflare Access. No authentication selector,
+Cloudflare service token, or provider key is passed to the Client:
+
+```python
+client = sf.Client(engine_url="https://fusion.dev.screamingface.ai")
+client.login()  # optional: the first protected request also starts login
+```
+
+The Client discovers the Access application audience from the Engine redirect, creates an
+ephemeral encryption keypair, and opens Cloudflare Access login in the user's browser. It polls
+Cloudflare's encrypted transfer service and decrypts the returned application token locally. The
+token is held only in process memory and sent as `Cf-Access-Token` on REST requests and WebSocket
+handshakes. `client.logout()` forgets it and opens the Engine's Cloudflare Access logout endpoint
+in the browser. Concurrent callers share one browser login, a server-rejected token starts one fresh
+login even before its local expiry, and an Access-specific WebSocket rejection is retried once after
+reauthentication.
+
+The login URL is always printed. Desktop Python also attempts to open it automatically; in Jupyter
+or Colab, click the displayed URL and complete the configured Access login. This flow does not use
+a localhost callback and does not require dynamic client registration or **Allow loopback
+clients**. The user's email or identity must be allowed by the Cloudflare Access policy for the
+hosted Engine. The Client prints a confirmation after it receives and validates the transferred
+token; `client.authenticated` then returns `True`. Local Engines that do not advertise Access
+continue to work without authentication.
+
+The public authentication boundary is the URL4 Cloud origin, not AI Gateway. After Cloudflare
+Access authenticates the caller, the deployment passes the verified identity to URL4 Cloud as
+`X-User-Email`. URL4 Cloud forwards that identity—not the Access token—to the internal AI Gateway.
+Consequently, the Python Client never calls AI Gateway or a model provider directly:
+
+```text
+Python Client -- Cf-Access-Token --> Cloudflare Access --> URL4 Cloud
+                                                          -- X-User-Email --> AI Gateway
+                                                                             -- provider key --> Provider
+```
+
+These credentials have deliberately different lifetimes and owners:
+
+- The Cloudflare Access token exists only in Client memory and authenticates calls to URL4 Cloud.
+- `X-User-Email` is derived from the edge-verified identity and selects the AI Gateway account.
+- A provider key entered through `sf.connect()` travels through URL4 Cloud once for AI Gateway to
+  validate and store; URL4 Cloud does not retain it.
+- No shared Cloudflare key, provider key, or administrator key is configured on the Client.
+
+If the hosted application later adopts Cloudflare Managed OAuth, the Client can migrate to OAuth
+discovery and authorization code + PKCE. That is a possible future protocol, not an additional
+authentication mode implemented by this package today.
+
+In a notebook, `sf.connect()` displays the connection panel bound to the lazy default Client. For a
+remote Engine, the panel first checks noninteractively whether Cloudflare Access is present. An
+unprotected remote Engine loads its providers normally; a protected Engine shows the Engine login
+row and loads provider rows only after login succeeds. Login waits in the background, so the
+notebook remains usable and the row becomes
+**Cancel** while the encrypted transfer is pending. Opening `sf.connect()` again reflects that same
+in-progress login, and all open panels follow its eventual login/logout state. Cancel stops only the
+pending transfer without opening another browser page;
+Log out clears the completed token and opens Cloudflare Access logout. An explicit Access rejection
+is shown in the panel, while an abandoned browser flow remains cancelable until its timeout. Local
+Engines omit this row. This one-time transfer polling is separate from the authenticated WebSocket
+used for model execution.
+The current Engine advertises one OpenRouter API-key row. The key is sent only to the SF Engine,
+which asks AI Gateway to validate and store it; the Python Client does not persist it and never
+calls AI Gateway or OpenRouter directly.
 
 ```python
 sf.connect()
@@ -133,9 +190,8 @@ report.to_dict()
 report.to_json()
 ```
 
-Partial Candidate, grading, or aggregation failures remain typed data in a valid Report.
-Authentication, validation, transport, protocol, and missing-Report failures raise typed
-exceptions.
+Authentication, validation, transport, execution, protocol, and invalid-result failures raise
+typed exceptions. Partial-result reporting remains a later Engine/Report contract.
 
 ## Ownership boundary
 

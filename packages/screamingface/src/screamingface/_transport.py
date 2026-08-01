@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
 from websockets.asyncio import client as async_ws
-from websockets.exceptions import WebSocketException
+from websockets.asyncio.client import ClientConnection as AsyncClientConnection
+from websockets.exceptions import InvalidStatus, WebSocketException
 from websockets.sync import client as sync_ws
+from websockets.sync.connection import Connection as SyncConnection
 from websockets.typing import Subprotocol
 
+from screamingface._authentication import _CallerAuth, _default_caller_auth
 from screamingface._engine_contract import _RunState
 from screamingface._evaluation import Candidate
 from screamingface._ports import _RunOutcome
@@ -77,9 +81,11 @@ class _Lifecycle:
 class Url4CloudTransport:
     """Synchronous adapter for the confirmed url4-cloud lifecycle."""
 
-    def __init__(self, engine_url: str) -> None:
+    def __init__(self, engine_url: str, caller_auth: _CallerAuth | None = None) -> None:
         self._engine_url = engine_url
-        self._http = httpx.Client(base_url=engine_url, timeout=30.0)
+        self._owns_auth = caller_auth is None
+        self._caller_auth = caller_auth or _default_caller_auth(engine_url)
+        self._http = httpx.Client(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
 
     def run(
         self,
@@ -89,45 +95,75 @@ class Url4CloudTransport:
         token = _mint_sync(self._http)
         lifecycle = _Lifecycle(candidate)
         try:
-            with sync_ws.connect(
-                _websocket_url(self._engine_url, token),
-                subprotocols=[_SUBPROTOCOL],
-                open_timeout=30,
-                close_timeout=10,
-            ) as websocket:
-                _require_subprotocol(websocket.subprotocol)
-                websocket.send(lifecycle.initial_attach())
+            for attempt in range(2):
                 try:
-                    _start_sync(self._http, token, candidate.url4)
-                    while True:
-                        step = lifecycle.accept(websocket.recv())
-                        if step.command is not None:
-                            websocket.send(step.command)
-                            continue
-                        if step.event is not None and on_event is not None:
-                            _observe_sync(on_event, step.event)
-                        if step.outcome is not None:
-                            return step.outcome
-                # WHY: interruption and cancellation must also stop otherwise-invisible paid work.
-                except BaseException as exc:
-                    _record_stop_failure(exc, _try_send_sync(websocket, lifecycle.stop()))
-                    raise
+                    with sync_ws.connect(
+                        _websocket_url(self._engine_url, token),
+                        subprotocols=[_SUBPROTOCOL],
+                        additional_headers=self._caller_auth.websocket_headers(),
+                        open_timeout=30,
+                        close_timeout=10,
+                    ) as websocket:
+                        return self._run_connected(
+                            websocket,
+                            lifecycle,
+                            token,
+                            candidate,
+                            on_event,
+                        )
+                except InvalidStatus as exc:
+                    if attempt != 0 or not _is_access_websocket_rejection(exc):
+                        raise
+                    self._caller_auth.reauthenticate()
+            raise AssertionError("WebSocket authentication retry loop exhausted")
         except _ObserverRaised as exc:
             _copy_notes(exc, exc.original)
             raise exc.original
         except (WebSocketException, OSError, TimeoutError) as exc:
             raise _disconnected() from exc
 
+    def _run_connected(
+        self,
+        websocket: SyncConnection,
+        lifecycle: _Lifecycle,
+        token: str,
+        candidate: Candidate,
+        on_event: SyncEventCallback | None,
+    ) -> _RunOutcome:
+        _require_subprotocol(websocket.subprotocol)
+        websocket.send(lifecycle.initial_attach())
+        try:
+            _start_sync(self._http, token, candidate.url4)
+            while True:
+                step = lifecycle.accept(websocket.recv())
+                if step.command is not None:
+                    websocket.send(step.command)
+                    continue
+                if step.event is not None and on_event is not None:
+                    _observe_sync(on_event, step.event)
+                if step.outcome is not None:
+                    return step.outcome
+        # WHY: interruption must stop otherwise-invisible paid work.
+        except BaseException as exc:
+            _record_stop_failure(exc, _try_send_sync(websocket, lifecycle.stop()))
+            raise
+
     def close(self) -> None:
-        self._http.close()
+        try:
+            self._http.close()
+        finally:
+            if self._owns_auth:
+                self._caller_auth.close()
 
 
 class AsyncUrl4CloudTransport:
     """Asynchronous adapter with the same lifecycle semantics."""
 
-    def __init__(self, engine_url: str) -> None:
+    def __init__(self, engine_url: str, caller_auth: _CallerAuth | None = None) -> None:
         self._engine_url = engine_url
-        self._http = httpx.AsyncClient(base_url=engine_url, timeout=30.0)
+        self._owns_auth = caller_auth is None
+        self._caller_auth = caller_auth or _default_caller_auth(engine_url)
+        self._http = httpx.AsyncClient(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
 
     async def run(
         self,
@@ -137,38 +173,66 @@ class AsyncUrl4CloudTransport:
         token = await _mint_async(self._http)
         lifecycle = _Lifecycle(candidate)
         try:
-            async with async_ws.connect(
-                _websocket_url(self._engine_url, token),
-                subprotocols=[_SUBPROTOCOL],
-                open_timeout=30,
-                close_timeout=10,
-            ) as websocket:
-                _require_subprotocol(websocket.subprotocol)
-                await websocket.send(lifecycle.initial_attach())
+            for attempt in range(2):
                 try:
-                    await _start_async(self._http, token, candidate.url4)
-                    while True:
-                        step = lifecycle.accept(await websocket.recv())
-                        if step.command is not None:
-                            await websocket.send(step.command)
-                            continue
-                        if step.event is not None and on_event is not None:
-                            await _observe_async(on_event, step.event)
-                        if step.outcome is not None:
-                            return step.outcome
-                # WHY: interruption and cancellation must also stop otherwise-invisible paid work.
-                except BaseException as exc:
-                    stop_error = await _try_send_async(websocket, lifecycle.stop())
-                    _record_stop_failure(exc, stop_error)
-                    raise
+                    async with async_ws.connect(
+                        _websocket_url(self._engine_url, token),
+                        subprotocols=[_SUBPROTOCOL],
+                        additional_headers=await self._caller_auth.websocket_headers_async(),
+                        open_timeout=30,
+                        close_timeout=10,
+                    ) as websocket:
+                        return await self._run_connected(
+                            websocket,
+                            lifecycle,
+                            token,
+                            candidate,
+                            on_event,
+                        )
+                except InvalidStatus as exc:
+                    if attempt != 0 or not _is_access_websocket_rejection(exc):
+                        raise
+                    await self._caller_auth.reauthenticate_async()
+            raise AssertionError("WebSocket authentication retry loop exhausted")
         except _ObserverRaised as exc:
             _copy_notes(exc, exc.original)
             raise exc.original
         except (WebSocketException, OSError, TimeoutError) as exc:
             raise _disconnected() from exc
 
+    async def _run_connected(
+        self,
+        websocket: AsyncClientConnection,
+        lifecycle: _Lifecycle,
+        token: str,
+        candidate: Candidate,
+        on_event: AsyncEventCallback | None,
+    ) -> _RunOutcome:
+        _require_subprotocol(websocket.subprotocol)
+        await websocket.send(lifecycle.initial_attach())
+        try:
+            await _start_async(self._http, token, candidate.url4)
+            while True:
+                step = lifecycle.accept(await websocket.recv())
+                if step.command is not None:
+                    await websocket.send(step.command)
+                    continue
+                if step.event is not None and on_event is not None:
+                    await _observe_async(on_event, step.event)
+                if step.outcome is not None:
+                    return step.outcome
+        # WHY: cancellation must stop otherwise-invisible paid work.
+        except BaseException as exc:
+            stop_error = await _try_send_async(websocket, lifecycle.stop())
+            _record_stop_failure(exc, stop_error)
+            raise
+
     async def close(self) -> None:
-        await self._http.aclose()
+        try:
+            await self._http.aclose()
+        finally:
+            if self._owns_auth:
+                await asyncio.to_thread(self._caller_auth.close)
 
 
 def _observe_sync(callback: SyncEventCallback, event: Event) -> None:
@@ -312,6 +376,16 @@ def _websocket_url(engine_url: str, token: str) -> str:
     parts = urlsplit(engine_url)
     scheme = "wss" if parts.scheme == "https" else "ws"
     return urlunsplit((scheme, parts.netloc, "/ws", urlencode({"ticket": token}), ""))
+
+
+def _is_access_websocket_rejection(error: InvalidStatus) -> bool:
+    response = error.response
+    if response.status_code not in {302, 401, 403}:
+        return False
+    if response.headers.get("cf-access-aud"):
+        return True
+    location = response.headers.get("location")
+    return bool(location and parse_qs(urlsplit(location).query).get("kid"))
 
 
 def _require_subprotocol(selected: str | None) -> None:

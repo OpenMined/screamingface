@@ -20,6 +20,46 @@ def test_client_normalizes_one_engine_origin() -> None:
     assert client.engine_url == "https://demo.example:8443"
 
 
+def test_client_exposes_automatic_caller_authentication_without_an_auth_selector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = sf.Client(engine_url="https://engine.example")
+    private_client = cast(Any, client)
+    calls: list[float] = []
+    monkeypatch.setattr(
+        private_client._auth,
+        "login",
+        lambda *, timeout: calls.append(timeout),
+    )
+
+    client.login(timeout=12)
+
+    assert calls == [12]
+    assert client.authenticated is False
+    client.logout()
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_client_exposes_the_same_login_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = sf.AsyncClient(engine_url="https://engine.example")
+    private_client = cast(Any, client)
+    calls: list[float] = []
+
+    async def login(*, timeout: float) -> None:
+        calls.append(timeout)
+
+    monkeypatch.setattr(private_client._auth, "login_async", login)
+    await client.login(timeout=12)
+
+    assert calls == [12]
+    assert client.authenticated is False
+    await client.logout()
+    await client.aclose()
+
+
 @pytest.mark.parametrize(
     "value",
     [

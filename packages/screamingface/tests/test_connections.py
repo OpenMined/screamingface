@@ -135,6 +135,7 @@ def test_module_functions_delegate_to_the_lazy_default_client(monkeypatch: Any) 
 
     class FakeClient:
         engine_url = "https://engine.example"
+        authenticated = True
         connections = Connections()
 
         def connect(self, provider: str, *, api_key: str) -> sf.Connection:

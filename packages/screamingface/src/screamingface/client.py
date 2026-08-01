@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from collections.abc import Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, overload
@@ -26,20 +28,48 @@ DEFAULT_ENGINE_URL = "http://127.0.0.1:9108"
 _MAX_CANDIDATES_IN_FLIGHT = 8
 
 
+class _AuthListeners:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._callbacks: set[Callable[[], None]] = set()
+
+    def subscribe(self, callback: Callable[[], None]) -> Callable[[], None]:
+        with self._lock:
+            self._callbacks.add(callback)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                self._callbacks.discard(callback)
+
+        return unsubscribe
+
+    def notify(self) -> None:
+        with self._lock:
+            callbacks = tuple(self._callbacks)
+        for callback in callbacks:
+            callback()
+
+
 class Client:
     """A reusable synchronous Client configured for one SF Engine origin."""
 
     def __init__(self, *, engine_url: str = DEFAULT_ENGINE_URL) -> None:
         import httpx
 
+        from screamingface._authentication import _default_caller_auth
         from screamingface._catalogs import Benchmarks, Models
         from screamingface._registry import _default_transport_registry
         from screamingface.connections import Connections
 
         self._engine_url = _engine_origin(engine_url)
         self._closed = False
-        self._http = httpx.Client(base_url=self._engine_url, timeout=30.0)
-        self._transport: SyncRunTransport = _default_transport_registry().sync(self._engine_url)
+        self._auth_listeners = _AuthListeners()
+        self._auth = _default_caller_auth(self._engine_url)
+        self._http = httpx.Client(base_url=self._engine_url, timeout=30.0, auth=self._auth)
+        self._transport: SyncRunTransport = _default_transport_registry().sync(
+            self._engine_url,
+            self._auth,
+        )
         self.models = Models(self._http_get)
         self.benchmarks = Benchmarks(self._http_get)
         self.connections = Connections(self._http_request)
@@ -52,12 +82,58 @@ class Client:
     def closed(self) -> bool:
         return self._closed
 
+    @property
+    def authenticated(self) -> bool:
+        """Whether this process currently holds hosted caller credentials."""
+
+        return self._auth.authenticated
+
+    @property
+    def authenticating(self) -> bool:
+        """Whether a hosted caller login is currently waiting for completion."""
+
+        return self._auth.authenticating
+
+    def login(self, *, timeout: float = 300.0) -> None:
+        """Authenticate through the Engine's Cloudflare Access browser flow."""
+
+        self._require_open()
+        try:
+            self._auth.login(timeout=timeout)
+        finally:
+            self._auth_listeners.notify()
+
+    def _cancel_login(self) -> None:
+        self._require_open()
+        self._auth.cancel_login()
+        self._auth_listeners.notify()
+
+    def _subscribe_auth(self, callback: Callable[[], None]) -> Callable[[], None]:
+        self._require_open()
+        return self._auth_listeners.subscribe(callback)
+
+    def _access_required(self) -> bool:
+        self._require_open()
+        return self._auth.access_required()
+
+    def logout(self) -> None:
+        """Forget caller credentials and start Cloudflare Access browser logout."""
+
+        self._require_open()
+        self._auth.logout()
+        self._auth_listeners.notify()
+
     def close(self) -> None:
         if self._closed:
             return
-        self._transport.close()
-        self._http.close()
-        self._closed = True
+        try:
+            self._transport.close()
+        finally:
+            try:
+                self._http.close()
+            finally:
+                self._auth.close()
+                self._closed = True
 
     def evaluate(
         self,
@@ -164,14 +240,20 @@ class AsyncClient:
     def __init__(self, *, engine_url: str = DEFAULT_ENGINE_URL) -> None:
         import httpx
 
+        from screamingface._authentication import _default_caller_auth
         from screamingface._catalogs import AsyncBenchmarks, AsyncModels
         from screamingface._registry import _default_transport_registry
         from screamingface.connections import AsyncConnections
 
         self._engine_url = _engine_origin(engine_url)
         self._closed = False
-        self._http = httpx.AsyncClient(base_url=self._engine_url, timeout=30.0)
-        self._transport: AsyncRunTransport = _default_transport_registry().async_(self._engine_url)
+        self._auth_listeners = _AuthListeners()
+        self._auth = _default_caller_auth(self._engine_url)
+        self._http = httpx.AsyncClient(base_url=self._engine_url, timeout=30.0, auth=self._auth)
+        self._transport: AsyncRunTransport = _default_transport_registry().async_(
+            self._engine_url,
+            self._auth,
+        )
         self.models = AsyncModels(self._http_get)
         self.benchmarks = AsyncBenchmarks(self._http_get)
         self.connections = AsyncConnections(self._http_request)
@@ -184,12 +266,58 @@ class AsyncClient:
     def closed(self) -> bool:
         return self._closed
 
+    @property
+    def authenticated(self) -> bool:
+        """Whether this process currently holds hosted caller credentials."""
+
+        return self._auth.authenticated
+
+    @property
+    def authenticating(self) -> bool:
+        """Whether a hosted caller login is currently waiting for completion."""
+
+        return self._auth.authenticating
+
+    async def login(self, *, timeout: float = 300.0) -> None:
+        """Authenticate through the Engine's Cloudflare Access browser flow."""
+
+        self._require_open()
+        try:
+            await self._auth.login_async(timeout=timeout)
+        finally:
+            self._auth_listeners.notify()
+
+    def _cancel_login(self) -> None:
+        self._require_open()
+        self._auth.cancel_login()
+        self._auth_listeners.notify()
+
+    def _subscribe_auth(self, callback: Callable[[], None]) -> Callable[[], None]:
+        self._require_open()
+        return self._auth_listeners.subscribe(callback)
+
+    async def _access_required(self) -> bool:
+        self._require_open()
+        return await asyncio.to_thread(self._auth.access_required)
+
+    async def logout(self) -> None:
+        """Forget caller credentials and start Cloudflare Access browser logout."""
+
+        self._require_open()
+        await self._auth.logout_async()
+        self._auth_listeners.notify()
+
     async def aclose(self) -> None:
         if self._closed:
             return
-        await self._transport.close()
-        await self._http.aclose()
-        self._closed = True
+        try:
+            await self._transport.close()
+        finally:
+            try:
+                await self._http.aclose()
+            finally:
+                await asyncio.to_thread(self._auth.close)
+                self._closed = True
 
     async def evaluate(
         self,
