@@ -25,14 +25,14 @@ class _BenchmarkResource:
 def _decode_benchmark_resource(
     decoded: object,
     *,
-    requested_id: str | None,
+    requested_id: str,
     requested_limit: int | None,
 ) -> _BenchmarkResource:
     resource = _wire_mapping(decoded, "Benchmark resource", _invalid)
     if resource.get("schema") != _SCHEMA:
         _invalid(f"Benchmark resource schema must be {_SCHEMA!r}")
     benchmark_id = _wire_text(resource.get("id"), "Benchmark id", _invalid)
-    if requested_id not in {None, "default", benchmark_id}:
+    if requested_id != benchmark_id:
         _invalid("Benchmark resource has the wrong Benchmark id")
     total_case_count = _positive(resource.get("total_case_count"), "total_case_count")
     case_count = _positive(resource.get("case_count"), "case_count")

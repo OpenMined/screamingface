@@ -62,7 +62,7 @@ def close() -> None:
 def evaluate(
     candidates: Recipe | Sequence[Recipe],
     *,
-    benchmark: str | None = None,
+    benchmark: str,
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,

@@ -28,16 +28,17 @@ frontier_pair = sf.Fusion(
 
 report = sf.evaluate(
     [opus, gpt, frontier_pair],
+    benchmark="draco",
     limit=1,
 )
 ```
 
-`evaluate(...)` uses the Engine's explicitly declared default Benchmark, fetches its
-Candidate-independent URL4 expression once, compiles and structurally links every Candidate,
-executes those complete URL4s concurrently, and returns one immutable `Report` in declared order.
-Pass `benchmark="draco"` only when making that default explicit. All no-spend validation
-finishes before the first paid Run starts. Execution requires a Benchmark Runner image containing
-the expression's referenced data, grading, and Aggregation routes.
+`evaluate(...)` requires an explicit Benchmark id, fetches its Candidate-independent URL4
+expression once, compiles and structurally links every Candidate, executes those complete URL4s
+concurrently, and returns one immutable `Report` in declared order. There is no implicit default
+Benchmark selection. All no-spend validation finishes before the first paid Run starts. Execution
+requires a Benchmark Runner image containing the expression's referenced data, grading, and
+Aggregation routes.
 
 The installed `draco` definition always refers to the complete official 100-task Benchmark;
 `limit=1` merely runs one Case. Grading uses five independent Judge passes per criterion. The
@@ -106,7 +107,7 @@ overriding the local default:
 import screamingface as sf
 
 sf.configure(engine_url="https://engine.screamingface.ai")
-report = sf.evaluate(candidates, limit=1)
+report = sf.evaluate(candidates, benchmark="draco", limit=1)
 sf.close()
 ```
 
@@ -115,7 +116,7 @@ default Client and clears it so the next module-level operation can construct a 
 `SCREAMINGFACE_ENGINE_URL` before the first operation remains supported for environment-driven
 configuration.
 
-The Client hides Benchmark resolution, URL4 compilation, REST/WebSocket transport, Event replay,
+The Client hides Benchmark fetching, URL4 compilation, REST/WebSocket transport, Event replay,
 and Report decoding behind `sf.evaluate(...)`.
 
 ### Hosted caller authentication
@@ -212,6 +213,7 @@ def observe(event: sf.Event) -> None:
 
 report = sf.evaluate(
     candidates,
+    benchmark="draco",
     limit=1,
     on_event=observe,
 )

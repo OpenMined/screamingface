@@ -367,8 +367,8 @@ def test_evaluate_rejects_invalid_candidate_inputs(candidates: object) -> None:
             client.evaluate(cast(Any, candidates), benchmark="draco")
 
 
-@pytest.mark.parametrize("benchmark", ["", " ", 1])
-def test_evaluate_rejects_invalid_benchmark_overrides(benchmark: object) -> None:
+@pytest.mark.parametrize("benchmark", ["", " ", "default", 1])
+def test_evaluate_rejects_invalid_benchmark_ids(benchmark: object) -> None:
     with sf.Client() as client:
         with pytest.raises(ValueError, match="benchmark"):
             client.evaluate(

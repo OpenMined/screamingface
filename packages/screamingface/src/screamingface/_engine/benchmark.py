@@ -21,13 +21,12 @@ class BenchmarkResources:
 
     def load(
         self,
-        benchmark: str | None,
+        benchmark: str,
         limit: int | None,
     ) -> _BenchmarkResource:
-        selected = "default" if benchmark is None else benchmark
         try:
             response = self._http.get(
-                f"/v1/benchmarks/{quote(selected, safe='')}",
+                f"/v1/benchmarks/{quote(benchmark, safe='')}",
                 params={} if limit is None else {"limit": limit},
             )
         except httpx.HTTPError as exc:
@@ -51,13 +50,12 @@ class AsyncBenchmarkResources:
 
     async def load(
         self,
-        benchmark: str | None,
+        benchmark: str,
         limit: int | None,
     ) -> _BenchmarkResource:
-        selected = "default" if benchmark is None else benchmark
         try:
             response = await self._http.get(
-                f"/v1/benchmarks/{quote(selected, safe='')}",
+                f"/v1/benchmarks/{quote(benchmark, safe='')}",
                 params={} if limit is None else {"limit": limit},
             )
         except httpx.HTTPError as exc:

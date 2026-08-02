@@ -15,7 +15,7 @@ Evaluation:
 import screamingface as sf
 
 sf.connect()
-report = sf.evaluate(fusion, limit=1)
+report = sf.evaluate(fusion, benchmark="draco", limit=1)
 ```
 
 `sf.connect()` renders the existing rich provider-connections widget. The first

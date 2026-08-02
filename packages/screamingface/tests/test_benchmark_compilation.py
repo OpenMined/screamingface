@@ -59,7 +59,7 @@ def _resource(*, url4: str | None = None) -> dict[str, object]:
 def test_benchmark_resource_is_data_plus_one_ordinary_url4_expression() -> None:
     benchmark = _decode_benchmark_resource(
         _resource(),
-        requested_id=None,
+        requested_id="bench@1",
         requested_limit=1,
     )
 
@@ -170,7 +170,7 @@ def test_linker_preserves_a_top_level_benchmark_iteration_without_templates() ->
 def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -> None:
     benchmark = _decode_benchmark_resource(
         _resource(),
-        requested_id=None,
+        requested_id="bench@1",
         requested_limit=1,
     )
     recipes = (
@@ -229,7 +229,7 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
     benchmark_requests: list[httpx.Request] = []
 
     def engine(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == "/v1/benchmarks/default":
+        if request.method == "GET" and request.url.path == "/v1/benchmarks/bench@1":
             benchmark_requests.append(request)
             return httpx.Response(200, json=_resource())
         if request.method == "GET" and request.url.path == "/v1/models":
@@ -264,7 +264,7 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
         http_transport=httpx.MockTransport(engine),
         run_transport=transport,
     ) as client:
-        report = client.evaluate(candidates, limit=1)
+        report = client.evaluate(candidates, benchmark="bench@1", limit=1)
 
     assert [candidate.name for candidate in report.candidates] == ["a", "pair"]
     assert len(benchmark_requests) == 1

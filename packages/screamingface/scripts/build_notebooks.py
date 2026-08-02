@@ -57,13 +57,14 @@ frontier = sf.Fusion([opus, gpt])"""
         nbformat.v4.new_markdown_cell(
             """## Evaluate
 
-The Engine defaults to DRACO. `limit=1` selects one of its 100 cases, but still evaluates every
+Select DRACO explicitly. `limit=1` selects one of its 100 cases, but still evaluates every
 criterion in that case with the paper-aligned five Judge passes. The Benchmark owns Judge and
 aggregation policy."""
         ),
         nbformat.v4.new_code_cell(
             """report = sf.evaluate(
     [opus, gpt, frontier],
+    benchmark="draco",
     limit=1,
     on_event=print,
     progress=False,
@@ -89,7 +90,18 @@ owns the dataset, judge, grading, and aggregation; the SDK Candidate owns answer
 
 The local AI Gateway must be running on `127.0.0.1:9105`, and the isolated Engine demo must be
 running on `127.0.0.1:9108`. The connection panel sends the OpenRouter key through the Engine to
-AI Gateway; the Client never calls AI Gateway directly."""
+AI Gateway; the Client never calls AI Gateway directly.
+
+For a host-local Engine, prepare DRACO's pinned Cases and pass their root explicitly:
+
+```bash
+uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare \\
+  --out /tmp/screamingface-benchmark-assets/draco
+URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \\
+  uv run url4-cloud serve --local
+```
+
+`/opt/benchmarks` is the container image default and normally does not exist on the host."""
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
         nbformat.v4.new_markdown_cell("## Connect OpenRouter"),
@@ -175,7 +187,7 @@ best_open_source = sf.Fusion([deepseek, kimi, qwen])"""
         nbformat.v4.new_markdown_cell(
             """## 4. Evaluate every Candidate
 
-One lazy SDK call evaluates the complete Candidate lineup against DRACO. Candidates run
+One evaluation call runs the complete Candidate lineup against DRACO. Candidates run
 concurrently under the Client's internal scheduler; the Benchmark supplies all other execution
 policy."""
         ),

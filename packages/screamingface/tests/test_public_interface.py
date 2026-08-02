@@ -79,14 +79,14 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
 
 def test_module_evaluate_delegates_to_the_lazy_default_client(monkeypatch: Any) -> None:
     sentinel = object()
-    calls: list[tuple[object, str | None, int | None]] = []
+    calls: list[tuple[object, str, int | None]] = []
 
     class FakeClient:
         def evaluate(
             self,
             candidates: object,
             *,
-            benchmark: str | None = None,
+            benchmark: str,
             limit: int | None = None,
             **_: object,
         ) -> object:
@@ -96,10 +96,10 @@ def test_module_evaluate_delegates_to_the_lazy_default_client(monkeypatch: Any) 
     monkeypatch.setattr(_default_client, "default_client", lambda: FakeClient())
 
     candidates = object()
-    result = sf.evaluate(candidates, limit=1)  # type: ignore[arg-type]
+    result = sf.evaluate(candidates, benchmark="draco", limit=1)  # type: ignore[arg-type]
 
     assert result is sentinel
-    assert calls == [(candidates, None, 1)]
+    assert calls == [(candidates, "draco", 1)]
 
 
 def test_default_client_is_lazy_and_reads_environment_once(

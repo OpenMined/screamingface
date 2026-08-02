@@ -93,12 +93,24 @@ uv run url4-cloud   # serve on :9108 (`serve` is the default subcommand)
 ## Local mode
 
 ```sh
-uv run url4-cloud serve --local     # loopback only, :9108
+# Prepare the pinned DRACO dataset once. The runtime never downloads benchmark data.
+uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare \
+  --out /tmp/screamingface-benchmark-assets/draco
+
+# Point the local Runner world at the prepared benchmark root.
+URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \
+  uv run url4-cloud serve --local   # loopback only, :9108
 ```
 
 Local mode expects aigateway to run with authentication **disabled** (`AIGW_AUTH_MODE=disabled`),
 where every caller is anonymous. Nothing needs a token: url4-cloud carries no aigateway credential
 in either mode.
+
+`/opt/benchmarks` is the benchmark image's container path; it normally does not exist when running
+directly from a host checkout. `URL4_BENCHMARK_ASSETS` must name a root containing one directory
+per installed Benchmark, such as `draco/cases.json`. If `/tmp` is cleared, run the preparation
+command again. Preparation is deliberately separate from startup so a run cannot silently
+download a different dataset revision.
 
 No Kubernetes, no NATS: `InProcessJobRunner` spawns each run as an `asyncio` task and
 `InMemoryEventStream` carries its frames, with real sequence numbers, replay-from and purge.
@@ -129,6 +141,50 @@ silently execute against a newer protocol. DRACO's task preparation, verdict bin
 Aggregation are in-process Python functions; Candidate and Judge calls remain explicit nodes in
 the shareable URL4. Private assets load lazily from the Benchmark image, and the large cross-Case
 row collection stays in URL4 context rather than subprocess argv.
+
+## Benchmark Runner images
+
+The base URL4 image intentionally contains no Benchmark datasets or private grading assets. A
+deployed Engine that publishes DRACO must run evaluation Jobs with the layered DRACO image built
+by `Dockerfile.benchmark`. The control-plane Deployment can continue using the base image.
+
+From the repository root, build the matched pair with the same immutable version tag:
+
+```sh
+VERSION=0.1.0
+
+docker build \
+  -f apps/url4-cloud/Dockerfile \
+  -t ghcr.io/openmined/screamingface-url4-cloud:${VERSION} \
+  .
+
+docker build \
+  -f apps/url4-cloud/Dockerfile.benchmark \
+  --build-arg BASE=ghcr.io/openmined/screamingface-url4-cloud:${VERSION} \
+  --build-arg BENCHMARK=draco \
+  -t ghcr.io/openmined/screamingface-url4-cloud-draco:${VERSION} \
+  .
+```
+
+`Dockerfile.benchmark` downloads the pinned dataset during the build, prepares its declared
+runtime files under `/opt/benchmarks/draco`, discards the build-only dataset tooling, and sets
+`URL4_BENCHMARK_ASSETS=/opt/benchmarks` in the runtime image. The resulting image must be published
+where the cluster can pull it.
+
+Select that image for Runner Jobs while leaving the control plane on the base image:
+
+```yaml
+runner:
+  image:
+    repository: ghcr.io/openmined/screamingface-url4-cloud-draco
+    # Omit tag to inherit the App image's resolved tag, or set the same immutable version.
+```
+
+Deploying Runner Jobs with only the base image will make DRACO discovery succeed but execution
+fail with `benchmark_unavailable`, because the definition is installed but its cases and private
+rubrics are absent. Building, publishing, and selecting the Benchmark image belongs to the
+deployment pipeline; SDK users do not prepare production assets themselves. See
+[`deploy/helm/README.md`](deploy/helm/README.md) for the complete chart configuration.
 
 ## Model catalog — `GET /v1/models`
 

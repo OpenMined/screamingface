@@ -23,8 +23,8 @@ from screamingface.report import Report
 
 type _SyncModelListing = Callable[[], Sequence[ModelInfo]]
 type _AsyncModelListing = Callable[[], Awaitable[Sequence[ModelInfo]]]
-type _SyncBenchmarkLoading = Callable[[str | None, int | None], _BenchmarkResource]
-type _AsyncBenchmarkLoading = Callable[[str | None, int | None], Awaitable[_BenchmarkResource]]
+type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
+type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
 
@@ -34,7 +34,7 @@ def evaluate_sync(
     transport: SyncRunTransport,
     list_models: _SyncModelListing,
     candidates: Recipe | Sequence[Recipe],
-    benchmark: str | None,
+    benchmark: str,
     limit: int | None,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
@@ -59,7 +59,7 @@ async def evaluate_async(
     transport: AsyncRunTransport,
     list_models: _AsyncModelListing,
     candidates: Recipe | Sequence[Recipe],
-    benchmark: str | None,
+    benchmark: str,
     limit: int | None,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
@@ -208,12 +208,14 @@ def _validate_required_models(
 
 def _evaluation_inputs(
     candidates: Recipe | Sequence[Recipe],
-    benchmark: str | None,
+    benchmark: str,
     limit: int | None,
 ) -> tuple[Recipe, ...]:
     values = _candidate_values(candidates)
-    if benchmark is not None and (not isinstance(benchmark, str) or not benchmark.strip()):
-        raise ValueError("benchmark must be a non-empty string or None")
+    if not isinstance(benchmark, str) or not benchmark.strip():
+        raise ValueError("benchmark must be a non-empty string")
+    if benchmark == "default":
+        raise ValueError("benchmark must name an explicit Benchmark, not 'default'")
     _validate_limit(limit)
     return values
 

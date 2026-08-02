@@ -216,10 +216,7 @@ def _engine(request: httpx.Request) -> httpx.Response:
                 ],
             },
         )
-    if request.url.path in {
-        "/v1/benchmarks/default",
-        "/v1/benchmarks/draco",
-    }:
+    if request.url.path == "/v1/benchmarks/draco":
         return httpx.Response(200, json=BENCHMARK)
     return httpx.Response(404)
 
@@ -240,6 +237,7 @@ def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     with client:
         report = client.evaluate(
             sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
             limit=1,
         )
 
@@ -279,6 +277,7 @@ async def test_async_client_evaluates_the_same_draco_contract() -> None:
     async with client:
         report = await client.evaluate(
             sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
             limit=1,
         )
 
@@ -299,7 +298,7 @@ def test_client_runs_candidates_concurrently_and_preserves_declared_order() -> N
     ]
 
     with client:
-        report = client.evaluate(candidates, limit=1)
+        report = client.evaluate(candidates, benchmark="draco", limit=1)
 
     assert transport.max_active == 3
     assert tuple(result.name for result in report.candidates) == (
@@ -322,7 +321,7 @@ async def test_async_client_runs_candidates_concurrently_and_preserves_order() -
     ]
 
     async with client:
-        report = await client.evaluate(candidates, limit=1)
+        report = await client.evaluate(candidates, benchmark="draco", limit=1)
 
     assert transport.max_active == 3
     assert tuple(result.name for result in report.candidates) == (
