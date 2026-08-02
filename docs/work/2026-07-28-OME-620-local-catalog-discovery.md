@@ -10,7 +10,7 @@ finished:
 
 ## Intent
 
-Make the isolated DRACO-Lite Client demo discover its Engine's available Models and Benchmarks
+Make the isolated DRACO Client demo discover its Engine's available Models and Benchmarks
 through the intended typed, lazy interface without exposing AI Gateway or Provider Credentials.
 
 ## Planned changes
@@ -19,7 +19,7 @@ through the intended typed, lazy interface without exposing AI Gateway or Provid
 - Add module-level `sf.models` and `sf.benchmarks` facades.
 - Add focused Client tests and update public-interface documentation.
 - Add a loopback-only Engine credential fallback for model catalogue discovery.
-- Keep the public benchmark identity unversioned (`draco-lite`).
+- Keep the public benchmark identity unversioned (`draco`).
 
 ## Test plan
 
@@ -31,7 +31,7 @@ through the intended typed, lazy interface without exposing AI Gateway or Provid
 ## Acceptance
 
 - `sf.models.list()` and `sf.benchmarks.list()` work against the local demo Engine.
-- Discovery and planning use the same canonical `draco-lite` identifier.
+- Discovery and planning use the same canonical `draco` identifier.
 - The Client never calls AI Gateway.
 - Hosted credential behavior is unchanged.
 

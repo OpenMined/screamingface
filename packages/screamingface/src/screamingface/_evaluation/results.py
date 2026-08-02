@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Mapping
 
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate, _Evaluation
 from screamingface.errors import ExecutionError
 from screamingface.report import CandidateResult, MemberResult, Report, Usage
+from screamingface.warnings import CoverageWarning
 
 
 def report_from_outcomes(
@@ -45,6 +47,7 @@ def _candidate_result(
         raise ExecutionError("SF Engine Candidate result has the wrong case count")
     score = _number(value.get("score"), "Candidate score")
     metrics = _metrics(value.get("metrics"))
+    _warn_on_coverage(candidate.name, metrics)
     failures = value.get("failures")
     if failures != []:
         raise ExecutionError("SF Engine Candidate result failures are not supported yet")
@@ -91,6 +94,24 @@ def _number(value: object, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ExecutionError(f"{label} must be numeric")
     return float(value)
+
+
+def _warn_on_coverage(candidate_name: str, metrics: Mapping[str, float]) -> None:
+    coverage = metrics.get("coverage")
+    target = metrics.get("coverage_target")
+    if coverage is None or target is None or coverage >= target:
+        return
+    accepted = metrics.get("verdicts_accepted")
+    expected = metrics.get("verdicts_expected")
+    counts = ""
+    if accepted is not None and expected is not None:
+        counts = f"{int(accepted)}/{int(expected)} verdicts accepted; "
+    warnings.warn(
+        f"Candidate {candidate_name!r}: {counts}coverage {coverage:.1%} is below the "
+        f"Benchmark target {target:.1%}. The score excludes rejected verdicts.",
+        CoverageWarning,
+        stacklevel=3,
+    )
 
 
 __all__: list[str] = []

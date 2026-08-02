@@ -112,6 +112,14 @@ class ConnectionBadResponse(ConnectionError):
 
 
 class ConnectionUnavailable(ConnectionError):
+    """AI Gateway could not be reached."""
+
+    status = 503
+    title = "Service Unavailable"
+    detail = "AI Gateway is unavailable"
+
+
+class ConnectionTimeout(ConnectionError):
     """AI Gateway did not respond before the Engine timeout."""
 
     status = 504
@@ -141,6 +149,7 @@ __all__ = [
     "ConnectionRateLimited",
     "ConnectionRejected",
     "ConnectionStatus",
+    "ConnectionTimeout",
     "ConnectionUnavailable",
     "Connections",
 ]

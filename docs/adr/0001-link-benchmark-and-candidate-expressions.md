@@ -46,10 +46,24 @@ The `/candidate` route exposes that existing capability through one deep interfa
 expression plus input in, answer out.
 
 A cross-package DRACO execution test additionally runs the Engine-produced expression after SDK
-linking against the real Runner node: one Candidate Invocation, three fixed Judge passes, and the
+linking against the real Runner node: one Candidate Invocation, five fixed Judge passes, and the
 real aggregate implementation. This test caught and removed an invalid reduce-over-iteration
 encoding that parse-only tests accepted, so executable linkage—not textual round-tripping—is the
 contract gate.
+
+Each registered Benchmark also owns installation of the deterministic routes referenced by its
+expression. Routes are private, revision-qualified names such as
+`/benchmarks/draco/<revision>/tasks`; the public identity remains the stable name `draco` and the
+resource separately reports its immutable revision. The same registry builds the control-plane
+resource and installs the Runner routes, preventing expression/Runner drift where a valid resource
+later fails with `endpoint_not_found`. Asset reads are lazy, so a general Runner can install
+definitions whose private dataset is present only in the corresponding Benchmark image.
+
+Deterministic functions run in-process rather than through benchmark-specific TOML commands. The
+cross-Case row collection reaches Aggregation in URL4 context, not a subprocess argv token. A
+complete DRACO run can exceed the operating system's argument-size limit; in-process context has
+no such boundary, preserves typed Engine errors, and removes TOML/CLI/path coordination from
+Benchmark authoring.
 
 Candidate input has one universal transport boundary rather than one protocol per Benchmark.
 Ordinary text crosses as a string. Benchmarks that need native chat turns use the versioned
@@ -98,10 +112,16 @@ Benchmark template or protocol branch.
   accounting, and failure semantics, and enforce recursion and total-call limits.
 - Benchmark expressions must be canonical, parseable, Candidate-independent, and validated before
   the first paid call. The SDK must link ASTs rather than concatenate URL4 text.
-- The public resource reports only exact, reusable inspection facts. It retains
-  `candidate_invocations` but does not predict generic operation counts: rubric cardinality and
-  dynamic runtime work cannot be derived reliably from Case count alone, and actual usage belongs
-  to execution telemetry.
+- The executable resource reports only exact, reusable facts: stable identity, immutable
+  revision, Case counts, required fixed models, and canonical URL4. Human-facing title and
+  description remain in the catalog. It does not
+  publish unused capability declarations or predicted invocation/operation counts; actual usage
+  belongs to execution telemetry.
+- Every Candidate result has one canonical, higher-is-better `score`. `metrics` contains only
+  supporting diagnostics, not a second copy of the score. Benchmark-specific score names and
+  direction flags are deliberately absent from the universal Client interface.
+- Reports carry both Benchmark id and revision, so scores from different dataset/protocol snapshots
+  never look interchangeable merely because the public name stayed stable.
 - Stateful Benchmarks express ordered Candidate Invocations and dependencies in their generated
   expression. SciCode is the acceptance case for repeated invocation with prior Candidate output.
 - Full-suite expression and encoded-GET sizes must be measured against the deployed transport

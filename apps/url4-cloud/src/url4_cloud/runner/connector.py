@@ -11,6 +11,7 @@ import contextvars
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import NoReturn
 
 import httpx
@@ -27,6 +28,7 @@ from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
 from url4.observe import current_usage_sink
 from url4.peer.server import Request, Url4Node
+from url4_cloud.benchmarks import DEFAULT_ASSETS_ROOT, install_benchmarks
 from url4_cloud.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_MESSAGE_ROLES,
@@ -314,7 +316,10 @@ def register_data(node: Url4Node, data: Sequence[DataSpec]) -> None:
 
 
 def build_local_world(
-    commands: Sequence[CommandSpec] = (), data: Sequence[DataSpec] = ()
+    commands: Sequence[CommandSpec] = (),
+    data: Sequence[DataSpec] = (),
+    *,
+    benchmark_assets: Path = DEFAULT_ASSETS_ROOT,
 ) -> Url4Node:
     """A world with declared routes and nothing else — no models, no outbound fetches.
 
@@ -325,6 +330,7 @@ def build_local_world(
     `deny_by_default_world` is the declared routes.
     """
     node = Url4Node("local", outbound=StaticIOLayer())
+    install_benchmarks(node, benchmark_assets)
     register_commands(node, commands)
     register_data(node, data)
     return node
@@ -340,6 +346,7 @@ async def build_aigateway_world(
     identity_headers: Mapping[str, str] | None = None,
     commands: Sequence[CommandSpec] = (),
     data: Sequence[DataSpec] = (),
+    benchmark_assets: Path = DEFAULT_ASSETS_ROOT,
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
@@ -396,6 +403,7 @@ async def build_aigateway_world(
     _register_candidate(node, cfg.candidate_max_invocations)
     for path in routes:
         node.endpoint(path)(call_model)
+    install_benchmarks(node, benchmark_assets)
     # INVARIANT: commands are registered AFTER the model routes, so a path claimed by both is
     # rejected by the engine here rather than silently shadowing a model. `config` already
     # rejects that pair with a better message; this is the backstop for a world built directly.

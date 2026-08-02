@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
-
-import httpx
 
 if TYPE_CHECKING:
     from screamingface._evaluation.model import Candidate
@@ -17,53 +14,6 @@ if TYPE_CHECKING:
 
 type SyncEventObserver = Callable[[Event], None]
 type AsyncEventObserver = Callable[[Event], None | Awaitable[None]]
-
-
-class _CallerAuth(httpx.Auth, ABC):
-    """Core-owned caller credential port shared by HTTP and WebSocket adapters."""
-
-    requires_request_body = True
-
-    @property
-    @abstractmethod
-    def authenticated(self) -> bool: ...
-
-    @property
-    @abstractmethod
-    def authenticating(self) -> bool: ...
-
-    @abstractmethod
-    def login(self, *, timeout: float = 300.0) -> None: ...
-
-    @abstractmethod
-    async def login_async(self, *, timeout: float = 300.0) -> None: ...
-
-    @abstractmethod
-    def cancel_login(self) -> None: ...
-
-    @abstractmethod
-    def access_required(self) -> bool: ...
-
-    @abstractmethod
-    def reauthenticate(self, *, timeout: float = 300.0) -> None: ...
-
-    @abstractmethod
-    async def reauthenticate_async(self, *, timeout: float = 300.0) -> None: ...
-
-    @abstractmethod
-    def logout(self) -> None: ...
-
-    @abstractmethod
-    async def logout_async(self) -> None: ...
-
-    @abstractmethod
-    def websocket_headers(self) -> Mapping[str, str]: ...
-
-    @abstractmethod
-    async def websocket_headers_async(self) -> Mapping[str, str]: ...
-
-    @abstractmethod
-    def close(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

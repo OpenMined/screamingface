@@ -18,6 +18,7 @@ from url4_cloud.connections.port import (
     ConnectionRateLimited,
     ConnectionRejected,
     Connections,
+    ConnectionTimeout,
     ConnectionUnavailable,
 )
 
@@ -54,6 +55,7 @@ __all__ = [
     "ConnectionNotFound",
     "ConnectionRateLimited",
     "ConnectionRejected",
+    "ConnectionTimeout",
     "ConnectionUnavailable",
     "Connections",
     "build_connections",

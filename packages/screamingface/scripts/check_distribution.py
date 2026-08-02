@@ -49,6 +49,8 @@ def _validate(paths: tuple[PurePosixPath, ...], *, source: bool) -> None:
         raise SystemExit(f"{kind} contains forbidden release material: {leaked}")
     if not source and any("apps" in path.parts or "tests" in path.parts for path in paths):
         raise SystemExit("wheel contains application or test code")
+    if not source and PurePosixPath("screamingface/py.typed") not in paths:
+        raise SystemExit("wheel does not declare its inline types with screamingface/py.typed")
 
 
 if __name__ == "__main__":

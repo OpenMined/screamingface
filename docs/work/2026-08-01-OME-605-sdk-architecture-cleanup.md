@@ -27,12 +27,14 @@ approved public behavior.
   packages; moved concrete authentication, catalog, Benchmark HTTP, transport, evaluation, and
   notebook implementations behind those boundaries; reduced `client.py` to lifetime and public
   API delegation; added constructor injection for HTTP and Run transports; consolidated wire
-  primitives; removed the standalone Benchmark catalogue decoder; and ignored Jupyter virtual
-  documents without deleting local files.
+  primitives; removed the standalone Benchmark catalogue decoder; reduced `BenchmarkInfo` to id,
+  revision, and total Case count; made `score` the single higher-is-better result instead of
+  duplicating it through primary-metric/direction and baseline/gain fields; and ignored Jupyter
+  virtual documents without deleting local files.
 - **Gates:** Ruff and Ruff format pass; Pyright reports zero errors; the exact CI suite passes with
   333 tests, 14 skips, and 95.07% coverage; the live URL4 Cloud lifecycle E2E passes; wheel and
   sdist build and pass distribution-content validation; committed generated notebooks exactly
   match the deterministic builder.
-- **Deviations:** the working copies of `00_quickstart.ipynb` and `05_draco_lite_e2e.ipynb` remain
-  user-modified, so the working-tree notebook checker intentionally reports them stale. They were
-  not overwritten or staged; the committed notebook blobs pass the same deterministic comparison.
+- **Deviations:** the working copy of `00_quickstart.ipynb` retains user-added exploratory cells
+  and an executed one-Candidate run, so the source checker intentionally reports it stale. It was
+  not overwritten; generated notebook checks ignore execution outputs and kernel-session metadata.

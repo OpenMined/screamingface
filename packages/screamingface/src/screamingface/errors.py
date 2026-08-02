@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 class ScreamingFaceError(Exception):
     """Base class for expected failures at the public Client interface."""
 
-    _default_code = "screamingface_error"
+    _default_code: str = "screamingface_error"
 
     def __init__(
         self,
@@ -20,12 +20,12 @@ class ScreamingFaceError(Exception):
         details: object = None,
         hint: str | None = None,
     ) -> None:
-        self.message = message
-        self.code = code or self._default_code
-        self.status = status
-        self.permanent = permanent
-        self.details = details
-        self.hint = hint if hint is not None else _default_hint(self.code)
+        self.message: str = message
+        self.code: str = code or self._default_code
+        self.status: int | None = status
+        self.permanent: bool | None = permanent
+        self.details: object = details
+        self.hint: str | None = hint if hint is not None else _default_hint(self.code)
         super().__init__(message)
 
     @property
@@ -59,25 +59,25 @@ class _DiagnosticError(ScreamingFaceError):
 class AuthenticationError(_DiagnosticError):
     """The configured SF Engine rejected caller authentication."""
 
-    _default_code = "authentication_failed"
+    _default_code: str = "authentication_failed"
 
 
 class PlanningError(_DiagnosticError):
     """An Evaluation could not be resolved or validated safely."""
 
-    _default_code = "planning_failed"
+    _default_code: str = "planning_failed"
 
 
 class ExecutionError(_DiagnosticError):
     """A Run ended without a valid Report."""
 
-    _default_code = "execution_failed"
+    _default_code: str = "execution_failed"
 
 
 class ProviderConnectionError(_DiagnosticError):
     """A provider connection could not be read or updated safely."""
 
-    _default_code = "provider_connection_failed"
+    _default_code: str = "provider_connection_failed"
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class ProviderConnectionError(_DiagnosticError):
         details: object = None,
         hint: str | None = None,
     ) -> None:
-        self.provider = provider
+        self.provider: str | None = provider
         super().__init__(
             message,
             code=code,
@@ -105,7 +105,7 @@ class EngineUnavailableError(_DiagnosticError):
     """The configured SF Engine could not be reached."""
 
     def __init__(self, message: str, *, engine_url: str) -> None:
-        self.engine_url = engine_url
+        self.engine_url: str = engine_url
         super().__init__(
             message,
             code="engine_unreachable",

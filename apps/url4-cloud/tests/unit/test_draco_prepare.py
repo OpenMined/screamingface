@@ -1,8 +1,8 @@
-"""DRACO dataset preparation — artifacts and the generated `[data]` table.
+"""DRACO pinned-dataset preparation.
 
 FEATURE: a benchmark's declared world is generated from its dataset at image build.
 STORY: as a benchmark author, `prepare` turns `perplexity-ai/draco` into cases, private rubrics,
-and a `[data]` table I can merge into the image's url4.toml.
+and weight-free Judge criteria consumed by its installed runtime.
 
 The HF download itself is not exercised — `build()` takes rows, so every test here runs offline.
 """
@@ -10,7 +10,6 @@ The HF download itself is not exercised — `build()` takes rows, so every test 
 from __future__ import annotations
 
 import json
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -35,8 +34,23 @@ def _row(question: str = "What is X?", rubric: object | None = None) -> dict:
 # --- artifacts ------------------------------------------------------------------
 
 
+def test_dataset_download_is_pinned_to_the_benchmark_revision(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class Datasets:
+        @staticmethod
+        def load_dataset(dataset: str, *, revision: str):
+            calls.append((dataset, revision))
+            return {"train": [_row()]}
+
+    monkeypatch.setattr(prepare.importlib, "import_module", lambda _name: Datasets)
+
+    assert len(prepare.load_rows()) == 1
+    assert calls == [(prepare.DATASET, prepare.DATASET_REVISION)]
+
+
 def test_cases_json_carries_id_and_input(tmp_path: Path) -> None:
-    prepare.build([_row("Q1"), _row("Q2")], tmp_path, "/draco")
+    prepare.build([_row("Q1"), _row("Q2")], tmp_path)
 
     cases = json.loads((tmp_path / "cases.json").read_text())
     assert cases[0]["id"] == 1
@@ -50,7 +64,7 @@ def test_cases_json_never_carries_the_rubric(tmp_path: Path) -> None:
     The client receives `cases.json`; the rubric stays in the image. Leaking it here would let a
     Candidate be tuned against the answer key while every test still passed.
     """
-    prepare.build([_row()], tmp_path, "/draco")
+    prepare.build([_row()], tmp_path)
 
     body = (tmp_path / "cases.json").read_text()
     assert "Factual Accuracy" not in body
@@ -58,65 +72,51 @@ def test_cases_json_never_carries_the_rubric(tmp_path: Path) -> None:
 
 
 def test_each_rubric_is_written_to_its_own_file(tmp_path: Path) -> None:
-    prepare.build([_row(), _row()], tmp_path, "/draco")
+    prepare.build([_row(), _row()], tmp_path)
 
     assert json.loads((tmp_path / "rubrics" / "1.json").read_text()) == _RUBRIC
     assert (tmp_path / "rubrics" / "2.json").exists()
 
 
-# --- the generated table --------------------------------------------------------
-
-
-def test_the_generated_table_declares_one_route_per_artifact(tmp_path: Path) -> None:
-    # WHY one per artifact: routing is exact-match, so a wildcard would not resolve.
-    prepare.build([_row(), _row(), _row()], tmp_path, "/draco")
-
-    table = tomllib.loads((tmp_path / "url4.data.toml").read_text())["data"]
-
-    assert "/draco/cases" in table
-    assert {"/draco/criteria/1", "/draco/criteria/2", "/draco/criteria/3"} <= set(table)
-
-
-def test_the_cases_route_declares_its_media_type(tmp_path: Path) -> None:
-    """Without it a one-line JSON array collapses to a single element and the run benchmarks
-    once against a blob instead of once per case."""
-    prepare.build([_row()], tmp_path, "/draco")
-
-    table = tomllib.loads((tmp_path / "url4.data.toml").read_text())["data"]
-    assert table["/draco/cases"]["media_type"] == "application/json"
-
-
-def test_the_route_prefix_is_configurable(tmp_path: Path) -> None:
-    prepare.build([_row()], tmp_path, "/bench/draco-lite")
-
-    table = tomllib.loads((tmp_path / "url4.data.toml").read_text())["data"]
-    assert "/bench/draco-lite/cases" in table
-
-
-def test_the_generated_table_is_valid_toml_for_many_cases(tmp_path: Path) -> None:
-    prepare.build([_row(f"Q{i}") for i in range(50)], tmp_path, "/draco")
-
-    table = tomllib.loads((tmp_path / "url4.data.toml").read_text())["data"]
-    assert len(table) == 51  # 50 criteria files + cases
-
-
-def test_the_weighted_rubric_is_NOT_declared_as_a_route(tmp_path: Path) -> None:
-    """INVARIANT: weights must be unreachable from an expression.
+def test_private_grading_artifacts_are_NOT_declared_as_routes(tmp_path: Path) -> None:
+    """INVARIANT: criteria and weights must be unreachable from an expression.
 
     A declared `/draco/rubrics/N` could be fetched into a judge prompt, which is exactly the
-    leak `grading_mode: official` exists to prevent. Only `aggregate.py` reads them, off disk.
+    leak `grading_mode: official` exists to prevent. The task builder reads weight-free criteria
+    and `aggregate.py` reads weighted rubrics directly from disk.
     """
-    prepare.build([_row()], tmp_path, "/draco")
+    prepare.build([_row()], tmp_path)
 
-    table = tomllib.loads((tmp_path / "url4.data.toml").read_text())["data"]
-    assert not any("rubrics" in path for path in table)
+    assert not (tmp_path / "url4.data.toml").exists()
 
 
 def test_the_judge_facing_criteria_carry_no_weights(tmp_path: Path) -> None:
-    prepare.build([_row()], tmp_path, "/draco")
+    prepare.build([_row()], tmp_path)
 
     criteria = json.loads((tmp_path / "criteria" / "1.json").read_text())
-    assert criteria == [{"id": "a1", "requirement": "x"}]
+    assert criteria == [{"id": "a1", "requirement": "x", "criterion_type": "positive"}]
+    assert "weight" not in json.dumps(criteria)
+
+
+def test_the_judge_facing_criteria_derive_negative_type_without_leaking_weight(
+    tmp_path: Path,
+) -> None:
+    rubric = json.dumps(
+        {
+            "sections": [
+                {
+                    "id": "quality",
+                    "criteria": [{"id": "bad", "weight": -2, "requirement": "makes an error"}],
+                }
+            ]
+        }
+    )
+    prepare.build([_row(rubric=rubric)], tmp_path)
+
+    criteria = json.loads((tmp_path / "criteria" / "1.json").read_text())
+    assert criteria == [
+        {"id": "bad", "requirement": "makes an error", "criterion_type": "negative"}
+    ]
     assert "weight" not in json.dumps(criteria)
 
 
@@ -125,18 +125,25 @@ def test_the_judge_facing_criteria_carry_no_weights(tmp_path: Path) -> None:
 
 def test_an_empty_question_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(prepare.PrepareError, match="empty"):
-        prepare.build([_row("")], tmp_path, "/draco")
+        prepare.build([_row("")], tmp_path)
 
 
 def test_a_rubric_with_no_sections_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(prepare.PrepareError, match="sections"):
-        prepare.build([_row(rubric=json.dumps([{"id": "a1"}]))], tmp_path, "/draco")
+        prepare.build([_row(rubric=json.dumps([{"id": "a1"}]))], tmp_path)
 
 
 def test_a_rubric_that_flattens_to_zero_criteria_is_rejected(tmp_path: Path) -> None:
     """It would score every answer 0.0 while looking like a successful run."""
     with pytest.raises(prepare.PrepareError, match="0 criteria"):
-        prepare.build([_row(rubric=json.dumps({"sections": []}))], tmp_path, "/draco")
+        prepare.build([_row(rubric=json.dumps({"sections": []}))], tmp_path)
+
+
+def test_a_full_build_must_match_the_declared_case_count(tmp_path: Path) -> None:
+    with pytest.raises(prepare.PrepareError, match="expected 100 DRACO cases"):
+        prepare.build([_row()], tmp_path, expected_count=100)
+
+    assert not any(tmp_path.iterdir())
 
 
 # --- the round trip -------------------------------------------------------------
@@ -146,7 +153,7 @@ def test_prepared_rubrics_load_back_into_the_aggregator(tmp_path: Path) -> None:
     """The two halves must agree on the on-disk shape — this is the seam between them."""
     from url4_cloud.benchmarks.draco import aggregate
 
-    prepare.build([_row(), _row()], tmp_path, "/draco")
+    prepare.build([_row(), _row()], tmp_path)
 
     rubrics = aggregate.load_rubrics(tmp_path / "rubrics")
     assert set(rubrics) == {1, 2}

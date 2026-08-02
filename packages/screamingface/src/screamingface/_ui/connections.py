@@ -18,6 +18,8 @@ from screamingface._ui.connection_view import (
 from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:
+    from ipywidgets import Widget
+
     from screamingface.connections import Connection
 
 
@@ -57,7 +59,7 @@ class ConnectionPanel:
     """A fresh Engine-scoped connection view with optional notebook controls."""
 
     def __init__(self, client: _Client) -> None:
-        self.engine = client.engine_url
+        self.engine: str = client.engine_url
         self._client = client
         hosted = _is_hosted_engine(client.engine_url)
         self._state = _ConnectionPanelState(
@@ -102,7 +104,7 @@ class ConnectionPanel:
         self._render_rows()
         return self._state.connections
 
-    def widget(self):
+    def widget(self) -> Widget:
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:

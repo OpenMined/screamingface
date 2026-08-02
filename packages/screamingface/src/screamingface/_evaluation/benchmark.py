@@ -8,7 +8,7 @@ from typing import NoReturn, cast
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
 from screamingface._evaluation.model import _canonical_url4
-from screamingface.discovery import BenchmarkInfo, ScoreDirection
+from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import PlanningError
 
 _SCHEMA = "screamingface.benchmark.v1"
@@ -20,9 +20,6 @@ class _BenchmarkResource:
     case_count: int
     url4: str
     required_models: tuple[str, ...]
-    candidate_capabilities: tuple[str, ...]
-    runtime_capabilities: tuple[str, ...]
-    candidate_invocations: int
 
 
 def _decode_benchmark_resource(
@@ -34,13 +31,9 @@ def _decode_benchmark_resource(
     resource = _wire_mapping(decoded, "Benchmark resource", _invalid)
     if resource.get("schema") != _SCHEMA:
         _invalid(f"Benchmark resource schema must be {_SCHEMA!r}")
-    if resource.get("object") != "benchmark":
-        _invalid("Benchmark resource object must be 'benchmark'")
-
     benchmark_id = _wire_text(resource.get("id"), "Benchmark id", _invalid)
     if requested_id not in {None, "default", benchmark_id}:
         _invalid("Benchmark resource has the wrong Benchmark id")
-    _wire_text(resource.get("description"), "Benchmark description", _invalid)
     total_case_count = _positive(resource.get("total_case_count"), "total_case_count")
     case_count = _positive(resource.get("case_count"), "case_count")
     expected_count = (
@@ -49,21 +42,12 @@ def _decode_benchmark_resource(
     if case_count != expected_count:
         _invalid("Benchmark resource case_count does not match the requested limit")
 
-    metrics = _wire_mapping(resource.get("metrics"), "Benchmark metrics", _invalid)
-    capabilities = _wire_mapping(resource.get("capabilities"), "Benchmark capabilities", _invalid)
-    invocations = _positive(
-        resource.get("candidate_invocations"),
-        "candidate_invocations",
-    )
     try:
         url4 = _canonical_url4(resource.get("url4"), "Benchmark")
         info = BenchmarkInfo(
-            name=benchmark_id,
             id=benchmark_id,
-            title=_wire_text(resource.get("title"), "Benchmark title", _invalid),
+            revision=_wire_text(resource.get("revision"), "Benchmark revision", _invalid),
             case_count=total_case_count,
-            primary_metric=_wire_text(metrics.get("primary"), "primary metric", _invalid),
-            score_direction=_direction(metrics.get("direction")),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc))
@@ -73,9 +57,6 @@ def _decode_benchmark_resource(
         case_count=case_count,
         url4=url4,
         required_models=_names(resource.get("required_models"), "required models"),
-        candidate_capabilities=_names(capabilities.get("candidate"), "candidate capabilities"),
-        runtime_capabilities=_names(capabilities.get("runtime"), "runtime capabilities"),
-        candidate_invocations=invocations,
     )
 
 
@@ -92,12 +73,6 @@ def _positive(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         _invalid(f"Benchmark resource {label} must be a positive integer")
     return cast(int, value)
-
-
-def _direction(value: object) -> ScoreDirection:
-    if value not in {"maximize", "minimize"}:
-        _invalid("Benchmark metric direction must be maximize or minimize")
-    return cast(ScoreDirection, value)
 
 
 def _invalid(message: str) -> NoReturn:

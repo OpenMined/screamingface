@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from screamingface._evaluation.model import Operation
+from screamingface.operation import OperationInfo
 
 
 class _FailureReference(Protocol):
@@ -21,7 +21,7 @@ class _MemberReference(Protocol):
     def failures(self) -> Sequence[_FailureReference]: ...
 
 
-def _operation_dict(operation: Operation) -> dict[str, object]:
+def _operation_dict(operation: OperationInfo) -> dict[str, object]:
     return {
         "id": operation.id,
         "kind": operation.kind,
@@ -31,7 +31,7 @@ def _operation_dict(operation: Operation) -> dict[str, object]:
 
 
 def _require_operation_references(
-    operations: tuple[Operation, ...],
+    operations: tuple[OperationInfo, ...],
     members: Sequence[_MemberReference],
     failures: Sequence[_FailureReference],
 ) -> None:

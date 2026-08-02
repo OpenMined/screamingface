@@ -43,8 +43,8 @@ claim a capability it cannot express and execute.
 
 ### Engine-owned Benchmark expression
 
-- One Benchmark GET contains identity, selected and total Case counts, metric metadata, required
-  models and capabilities, and a canonical URL4 expression in `url4`.
+- One Benchmark GET contains identity and immutable revision, selected and total Case counts,
+  metric metadata, required fixed models, and a canonical URL4 expression in `url4`.
 - The Engine owns Case shape and selection, Candidate Invocation order, structured state, hidden
   references, Judges, Grading, and Aggregation.
 - The expression is independent of a particular Candidate and refers to one external
@@ -104,36 +104,21 @@ not its executable field; therefore it remains `screamingface.benchmark.v1`, not
 ```json
 {
   "schema": "screamingface.benchmark.v1",
-  "object": "benchmark",
-  "id": "draco-lite",
-  "title": "DRACO Lite",
-  "description": "Research-quality rubric evaluation.",
+  "id": "draco",
+  "revision": "<opaque immutable revision>",
   "case_count": 1,
   "total_case_count": 100,
-  "metrics": {
-    "primary": "normalized_score",
-    "direction": "maximize"
-  },
   "required_models": ["openrouter/google/gemini-3.1-pro-preview"],
-  "capabilities": {
-    "candidate": ["web_search", "web_fetch"],
-    "runtime": []
-  },
-  "candidate_invocations": 1,
-  "url4": "/draco/cases*(...)"
+  "url4": "/benchmarks/draco/<revision>/cases*(...)"
 }
 ```
 
 `url4` is the canonical Candidate-independent Benchmark expression, not a template language.
 `limit` selects Cases before the expression is returned, so the response remains reusable for
 every Candidate in the same Evaluation. The response has an ETag over its exact representation.
-Unknown schema versions, malformed expressions, unavailable fixed models, or unavailable runtime
-capabilities fail before any paid Candidate Invocation.
-
-`candidate_invocations` is an exact no-spend fact supplied by the author. The resource does not
-publish generic `operation_counts`: Case data may determine rubric cardinality, Tool calls and
-retries are dynamic, and estimates presented as exact counts are worse than omitting them. Runtime
-usage and occurrences come from execution telemetry.
+Unknown schema versions, malformed expressions, or unavailable fixed models fail before any paid
+Candidate Invocation. Predicted invocation/operation counts are deliberately absent: Case data,
+Tools, and retries can determine runtime work, and actual usage comes from execution telemetry.
 
 The previous YAML “manifest,” `protocol`, and `plan` endpoint are removed. Protocol-family names
 were an SDK dispatch mechanism; the URL4 expression now carries the behavior directly.
@@ -142,8 +127,10 @@ were an SDK dispatch mechanism; the URL4 expression now carries the behavior dir
 
 - An installed Benchmark adapter owns its data preparation, hidden materials, fixed prompts,
   Judges, deterministic functions, and URL4 construction.
-- Its small external interface is metadata plus `build(selection) -> url4.Node`. Registration is
-  explicit; no decorator or naming convention performs hidden discovery.
+- Its small external interface is metadata plus `build(selection) -> url4.Node` and
+  `install(node, assets: Path)`. Shared Runner infrastructure resolves the assets root and gives
+  each adapter only its own directory; no Benchmark receives the complete job environment.
+  Registration is explicit; no decorator or naming convention performs hidden discovery.
 - Internal Python is unrestricted: unique Benchmarks may inspect prepared data and generate
   explicit ordered dependencies without expanding the Client interface.
 - The adapter uses one ScreamingFace-specific builder, `candidate(input)`, rather than knowing
@@ -158,33 +145,27 @@ were an SDK dispatch mechanism; the URL4 expression now carries the behavior dir
 The implemented author-facing interface is:
 
 ```python
-DRACO_LITE = Benchmark(
-    id="draco-lite",
-    title="DRACO Lite",
-    description="Research-quality rubric evaluation.",
+DRACO = Benchmark(
+    id="draco",
+    title="DRACO",
+    description="The 100-task DRACO deep-research benchmark.",
+    revision=REVISION,
     case_count=100,
-    primary_metric="normalized_score",
-    score_direction="maximize",
     required_models=(JUDGE_MODEL,),
-    candidate_capabilities=("web_search", "web_fetch"),
-    runtime_capabilities=(),
     build=build_draco,
+    install=install_draco,
 )
 
 
-def build_draco(case_count: int) -> BenchmarkExpression:
-    node = iterate(
-        "/draco/cases",
+def build_draco(case_count: int) -> Node:
+    return iterate(
+        f"/benchmarks/draco/{REVISION}/cases",
         body=(
             src("$item.input", name="question", weight=0.0),
             src(candidate("$question"), name="answer", weight=0.0),
             # DRACO-owned criteria and fixed Judge nodes follow.
         ),
         # DRACO-owned grading and Aggregation follow.
-    )
-    return BenchmarkExpression(
-        node=node,
-        candidate_invocations=case_count,
     )
 ```
 

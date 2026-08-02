@@ -1,74 +1,56 @@
-"""Small authoring boundary for Engine-owned Benchmarks."""
+"""Shared definitions and authoring helpers for Engine-owned Benchmarks."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
 
 from url4 import Node, RelExpr, Text, render, struct
+from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_MESSAGE_ROLES,
     CANDIDATE_ROUTE,
 )
 
-type ScoreDirection = Literal["maximize", "minimize"]
-
-
-@dataclass(frozen=True, slots=True)
-class BenchmarkExpression:
-    """One selected Benchmark expression and its no-spend inspection facts."""
-
-    node: Node
-    candidate_invocations: int
-
 
 @dataclass(frozen=True, slots=True)
 class Benchmark:
     """Metadata plus ordinary Python that builds one Engine-owned URL4 expression.
 
-    A Benchmark author owns only this object and its ``build`` function. The public resource,
-    caching, validation, Candidate linkage, and execution transport remain shared infrastructure.
+    A Benchmark author owns this definition plus its ``build`` and ``install`` functions. The
+    public resource, caching, validation, Candidate linkage, asset-root resolution, and execution
+    transport remain shared infrastructure.
     """
 
     id: str
     title: str
     description: str
+    revision: str
     case_count: int
-    primary_metric: str
-    score_direction: ScoreDirection
     required_models: tuple[str, ...]
-    candidate_capabilities: tuple[str, ...]
-    runtime_capabilities: tuple[str, ...]
-    build: Callable[[int], BenchmarkExpression]
+    build: Callable[[int], Node]
+    install: Callable[[Url4Node, Path], None]
 
     def resource(self, limit: int | None) -> dict[str, object]:
         """Build the exact JSON representation fetched by an SDK."""
 
         selected = self.case_count if limit is None else min(limit, self.case_count)
+        if selected < 1:
+            raise ValueError("Benchmark case selection must not be empty")
         expression = self.build(selected)
-        _validate_expression(expression, selected)
+        if not isinstance(expression, Node):
+            raise TypeError("Benchmark build must return a URL4 Node")
         return {
             "schema": "screamingface.benchmark.v1",
-            "object": "benchmark",
             "id": self.id,
-            "title": self.title,
-            "description": self.description,
+            "revision": self.revision,
             "case_count": selected,
             "total_case_count": self.case_count,
-            "metrics": {
-                "primary": self.primary_metric,
-                "direction": self.score_direction,
-            },
-            "capabilities": {
-                "candidate": list(self.candidate_capabilities),
-                "runtime": list(self.runtime_capabilities),
-            },
             "required_models": list(self.required_models),
-            "candidate_invocations": expression.candidate_invocations,
-            "url4": render(expression.node),
+            "url4": render(expression),
         }
 
 
@@ -120,13 +102,4 @@ def _chat_json(messages: object) -> str:
     return json.dumps(selected, ensure_ascii=False, separators=(",", ":"))
 
 
-def _validate_expression(expression: BenchmarkExpression, case_count: int) -> None:
-    if not isinstance(expression, BenchmarkExpression):
-        raise TypeError("Benchmark build must return a BenchmarkExpression")
-    if expression.candidate_invocations < 1:
-        raise ValueError("Benchmark must invoke its Candidate at least once")
-    if case_count < 1:
-        raise ValueError("Benchmark case selection must not be empty")
-
-
-__all__ = ["Benchmark", "BenchmarkExpression", "candidate", "chat_input"]
+__all__ = ["Benchmark", "candidate", "chat_input"]

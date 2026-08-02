@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
-
-type ScoreDirection = Literal["maximize", "minimize"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,17 +19,14 @@ class ModelInfo:
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkInfo:
-    """One stable Benchmark name and its latest Engine-pinned revision."""
+    """The stable identity, revision, and size of one Engine-owned Benchmark."""
 
-    name: str
     id: str
-    title: str
+    revision: str
     case_count: int
-    primary_metric: str
-    score_direction: ScoreDirection
 
     def __post_init__(self) -> None:
-        for name in ("name", "id", "title", "primary_metric"):
+        for name in ("id", "revision"):
             object.__setattr__(
                 self,
                 name,
@@ -44,8 +38,6 @@ class BenchmarkInfo:
             or self.case_count < 1
         ):
             raise ValueError("Benchmark case_count must be a positive integer")
-        if self.score_direction not in {"maximize", "minimize"}:
-            raise ValueError("Benchmark score_direction must be 'maximize' or 'minimize'")
 
     def _result_dict(self, case_count: int) -> dict[str, object]:
         """Return the pinned subset embedded in a Report."""
@@ -56,8 +48,7 @@ class BenchmarkInfo:
             raise ValueError("Report case_count cannot exceed its Benchmark case_count")
         return {
             "id": self.id,
-            "primary_metric": self.primary_metric,
-            "score_direction": self.score_direction,
+            "revision": self.revision,
             "case_count": case_count,
         }
 
@@ -70,4 +61,4 @@ def _nonblank(value: object, label: str) -> str:
     return value.strip()
 
 
-__all__ = ["BenchmarkInfo", "ModelInfo", "ScoreDirection"]
+__all__ = ["BenchmarkInfo", "ModelInfo"]

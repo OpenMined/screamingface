@@ -22,7 +22,6 @@ from websockets.exceptions import InvalidStatus
 from websockets.http11 import Response
 
 import screamingface as sf
-from screamingface._core.ports import _CallerAuth
 from screamingface._engine.auth import (
     _access_audience,
     _access_authorization_url,
@@ -34,6 +33,7 @@ from screamingface._engine.auth import (
     _present_access_authorization,
     _present_access_logout,
     _require_positive_timeout,
+    _TransportAuth,
 )
 from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface._evaluation.model import (
@@ -700,29 +700,9 @@ def test_authorization_url_preserves_engine_path_without_existing_query() -> Non
     assert _access_logout_url(f"{_ENGINE}/tenant") == f"{_ENGINE}/cdn-cgi/access/logout"
 
 
-class _StaticCallerAuth(_CallerAuth):
+class _StaticCallerAuth(_TransportAuth):
     def __init__(self) -> None:
         self.reauthentications = 0
-
-    @property
-    def authenticated(self) -> bool:
-        return True
-
-    @property
-    def authenticating(self) -> bool:
-        return False
-
-    def login(self, *, timeout: float = 300.0) -> None:
-        del timeout
-
-    async def login_async(self, *, timeout: float = 300.0) -> None:
-        del timeout
-
-    def cancel_login(self) -> None:
-        pass
-
-    def access_required(self) -> bool:
-        return False
 
     def reauthenticate(self, *, timeout: float = 300.0) -> None:
         del timeout
@@ -730,12 +710,6 @@ class _StaticCallerAuth(_CallerAuth):
 
     async def reauthenticate_async(self, *, timeout: float = 300.0) -> None:
         self.reauthenticate(timeout=timeout)
-
-    def logout(self) -> None:
-        pass
-
-    async def logout_async(self) -> None:
-        pass
 
     def websocket_headers(self) -> Mapping[str, str]:
         return {"Cf-Access-Token": "caller-token"}

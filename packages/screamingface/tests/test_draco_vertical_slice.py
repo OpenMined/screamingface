@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 import pytest
-from url4 import RelExpr, Text, iterate, render, src
+from url4 import RelExpr, Text, expr, iterate, render, src
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
@@ -20,68 +20,91 @@ from screamingface._evaluation.compilation import compile_evaluation
 from screamingface._evaluation.model import Candidate
 from screamingface._evaluation.results import _candidate_result
 
+_ROUTE_PREFIX = "/benchmarks/draco/fixture-revision"
+
 
 def _draco_url4() -> str:
-    judge = RelExpr(
-        path="/provider/judge",
-        context="answer: $answer; criterion: $criterion",
-        intent=Text("Return JSON."),
-        params=(("temperature", "0.2"),),
+    judge_calls = tuple(
+        src(
+            RelExpr(
+                path=f"{_ROUTE_PREFIX}/criterion-verdict",
+                context=render(
+                    RelExpr(
+                        path="/provider/judge",
+                        context=(
+                            "<criterion_type>$item.criterion_type</criterion_type>"
+                            "<criterion>$item.criterion</criterion>"
+                            "<query>$item.question</query>"
+                            "<response>$item.answer</response>"
+                        ),
+                        intent=Text("Return JSON."),
+                        params=(("temperature", "0.2"),),
+                    ),
+                    check=False,
+                ),
+                intent=Text("$item.criterion_id"),
+            ),
+            name=f"verdict_{run}",
+            weight=1.0,
+        )
+        for run in range(1, 6)
     )
     criteria = iterate(
-        "/draco/criteria/$item.id",
+        RelExpr(
+            path=f"{_ROUTE_PREFIX}/tasks",
+            context=render(
+                RelExpr(path="/candidate", context="$item.input", intent=Text("$candidate"))
+            ),
+            intent=Text("$item.id"),
+        ),
         body=(
-            src("$item.requirement", name="criterion", weight=0.0),
-            src(judge, name="verdict", weight=1.0),
+            src("$item.criterion_id", name="criterion_id", weight=0.0),
+            src("$item.criterion", name="criterion", weight=0.0),
+            src("$item.criterion_type", name="criterion_type", weight=0.0),
+            *judge_calls,
         ),
         intent=Text("criterion"),
     )
-    reducer = render(
-        RelExpr(
-            path="/benchmark",
-            context="aggregate",
-            intent=Text("Aggregate Candidate case grades."),
-        )
+    rows = iterate(
+        f"{_ROUTE_PREFIX}/cases",
+        body=(
+            src(
+                expr(src(criteria, name="criteria", weight=0.0), intent=Text("$criteria")),
+                name="graded",
+                weight=1.0,
+            ),
+        ),
+        intent=Text("case"),
+        on_error="collect",
     )
     return render(
-        iterate(
-            "/draco/cases",
-            body=(
-                src("$item.id", name="case_id", weight=0.0),
-                src("$item.input", name="question", weight=0.0),
-                src(
-                    RelExpr(
-                        path="/candidate",
-                        context="$question",
-                        intent=Text("$candidate"),
-                    ),
-                    name="answer",
-                    weight=0.0,
-                ),
-                src(criteria, name="graded", weight=1.0),
+        expr(
+            src(
+                expr(src(rows, name="selected_rows", weight=0.0), intent=Text("$selected_rows")),
+                name="rows",
+                weight=0.0,
             ),
-            intent=Text("case"),
-            reduce=reducer,
-            on_error="collect",
+            src(
+                RelExpr(
+                    path=f"{_ROUTE_PREFIX}/aggregate",
+                    context="$rows",
+                    intent=Text("aggregate"),
+                ),
+                name="result",
+                weight=0.0,
+            ),
+            intent=Text("$result"),
         )
     )
 
 
 BENCHMARK: dict[str, object] = {
     "schema": "screamingface.benchmark.v1",
-    "object": "benchmark",
-    "id": "draco-lite",
-    "title": "DRACO Lite",
-    "description": "Research-quality rubric evaluation.",
+    "id": "draco",
+    "revision": "fixture-revision",
     "case_count": 1,
     "total_case_count": 1,
-    "metrics": {"primary": "normalized_score", "direction": "maximize"},
-    "capabilities": {
-        "candidate": ["web_search", "web_fetch"],
-        "runtime": [],
-    },
     "required_models": ["provider/judge"],
-    "candidate_invocations": 1,
     "url4": _draco_url4(),
 }
 
@@ -101,11 +124,10 @@ class _FakeTransport:
             result_body=json.dumps(
                 {
                     "schema": "screamingface.candidate-result.v1",
-                    "benchmark_id": "draco-lite",
+                    "benchmark_id": "draco",
                     "case_count": 1,
                     "score": 0.7,
                     "metrics": {
-                        "normalized_score": 0.7,
                         "coverage": 1.0,
                     },
                     "failures": [],
@@ -178,6 +200,7 @@ def _engine(request: httpx.Request) -> httpx.Response:
     if request.url.path == "/v1/models":
         models = (
             "anthropic/claude-haiku-4-5",
+            "openrouter/anthropic/claude-haiku-4.5",
             "provider/first",
             "provider/second",
             "provider/synthesizer",
@@ -195,7 +218,7 @@ def _engine(request: httpx.Request) -> httpx.Response:
         )
     if request.url.path in {
         "/v1/benchmarks/default",
-        "/v1/benchmarks/draco-lite",
+        "/v1/benchmarks/draco",
     }:
         return httpx.Response(200, json=BENCHMARK)
     return httpx.Response(404)
@@ -211,7 +234,7 @@ def _client() -> tuple[sf.Client, _FakeTransport]:
     return client, transport
 
 
-def test_client_evaluates_the_complete_draco_lite_vertical_slice() -> None:
+def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     client, transport = _client()
 
     with client:
@@ -221,29 +244,31 @@ def test_client_evaluates_the_complete_draco_lite_vertical_slice() -> None:
         )
 
     result = report.candidates.only
-    assert report.benchmark.id == "draco-lite"
+    assert report.benchmark.id == "draco"
     assert result.models == ("anthropic/claude-haiku-4-5",)
     assert tuple(operation.kind for operation in result.operations) == ("model",)
     assert result.url4.count("/candidate") == 1
-    assert result.url4.count("/benchmark") == 1
-    assert "/draco/cases" in result.url4
-    assert "/draco/criteria/$item.id" in result.url4
+    assert result.url4.count("/provider/judge") == 5
+    assert result.url4.count(f"{_ROUTE_PREFIX}/criterion-verdict") == 5
+    assert f"{_ROUTE_PREFIX}/cases" in result.url4
+    assert f"{_ROUTE_PREFIX}/tasks" in result.url4
+    assert "/draco/criteria" not in result.url4
     assert "/provider/judge" in result.url4
-    assert "/benchmark(aggregate)" in result.url4
+    assert f"{_ROUTE_PREFIX}/aggregate" in result.url4
     assert "temperature=0.2" in result.url4
     assert "reasoning=low" in result.url4
     assert "max_output_tokens=4096" in result.url4
     assert "\n" not in result.url4
     assert result.name == "haiku"
     assert result.score == 0.7
-    assert result.metrics == {"normalized_score": 0.7, "coverage": 1.0}
+    assert result.metrics == {"coverage": 1.0}
     assert result.usage.input_tokens == 120
     assert result.duration_ms == 2000
     assert transport.closed is True
 
 
 @pytest.mark.asyncio
-async def test_async_client_evaluates_the_same_draco_lite_contract() -> None:
+async def test_async_client_evaluates_the_same_draco_contract() -> None:
     transport = _AsyncFakeTransport()
     client = sf.AsyncClient(
         engine_url="https://engine.example",
@@ -318,14 +343,14 @@ def test_client_compiles_and_evaluates_a_fusion_as_one_candidate_url4() -> None:
     )
 
     with client:
-        report = client.evaluate(fusion, benchmark="draco-lite", limit=1)
+        report = client.evaluate(fusion, benchmark="draco", limit=1)
 
     result = report.candidates.only
     assert result.kind == "fusion"
     assert result.models == (
         "provider/first",
         "provider/second",
-        "anthropic/claude-haiku-4-5",
+        "openrouter/anthropic/claude-haiku-4.5",
     )
     assert tuple(member.name for member in result.members) == ("first", "second")
     assert tuple(operation.kind for operation in result.operations) == (
@@ -335,7 +360,7 @@ def test_client_compiles_and_evaluates_a_fusion_as_one_candidate_url4() -> None:
     )
     assert "/provider/first" in result.url4
     assert "/provider/second" in result.url4
-    assert "/anthropic/claude-haiku-4-5" in result.url4
+    assert "/openrouter/anthropic/claude-haiku-4.5" in result.url4
     assert "Synthesize the strongest supported answer" in result.url4
 
 
@@ -350,7 +375,7 @@ def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
     )
 
     with client:
-        report = client.evaluate(fusion, benchmark="draco-lite", limit=1)
+        report = client.evaluate(fusion, benchmark="draco", limit=1)
 
     result = report.candidates.only
     candidate_url4 = compile_candidate(fusion).url4
@@ -378,7 +403,7 @@ def test_compiler_deduplicates_equivalent_model_values_by_content() -> None:
     with client:
         report = client.evaluate(
             sf.Fusion([left, right], name="outer"),
-            benchmark="draco-lite",
+            benchmark="draco",
             limit=1,
         )
 
@@ -407,7 +432,7 @@ def test_explicit_sample_names_prevent_model_content_deduplication() -> None:
     with client:
         report = client.evaluate(
             sf.Fusion([left, right], name="outer"),
-            benchmark="draco-lite",
+            benchmark="draco",
             limit=1,
         )
 
@@ -425,40 +450,36 @@ def test_benchmark_reader_rejects_transport_and_integrity_failures() -> None:
         transport=httpx.MockTransport(unreachable),
     ) as http:
         with pytest.raises(sf.EngineUnavailableError, match="Could not reach"):
-            BenchmarkResources(http).load("draco-lite", 1)
+            BenchmarkResources(http).load("draco", 1)
 
     with httpx.Client(
         base_url="https://engine.example",
         transport=httpx.MockTransport(lambda _request: httpx.Response(200, text="{")),
     ) as http:
         with pytest.raises(sf.PlanningError, match="must be JSON"):
-            BenchmarkResources(http).load("draco-lite", 1)
+            BenchmarkResources(http).load("draco", 1)
 
 
 def test_benchmark_decoder_rejects_required_field_boundaries() -> None:
-    bad_capabilities = deepcopy(BENCHMARK)
-    bad_capabilities["capabilities"] = []
+    bad_revision = deepcopy(BENCHMARK)
+    bad_revision["revision"] = ""
     bad_count = deepcopy(BENCHMARK)
     bad_count["case_count"] = 0
-    bad_direction = deepcopy(BENCHMARK)
-    assert isinstance(bad_direction["metrics"], dict)
-    bad_direction["metrics"]["direction"] = "sideways"
-    bad_invocations = deepcopy(BENCHMARK)
-    bad_invocations["candidate_invocations"] = 0
+    bad_required_models = deepcopy(BENCHMARK)
+    bad_required_models["required_models"] = "provider/judge"
 
     invalid_values: tuple[object, ...] = (
         [],
         {},
-        bad_capabilities,
+        bad_revision,
         bad_count,
-        bad_direction,
-        bad_invocations,
+        bad_required_models,
     )
     for value in invalid_values:
         with pytest.raises(sf.PlanningError):
             _decode_benchmark_resource(
                 value,
-                requested_id="draco-lite",
+                requested_id="draco",
                 requested_limit=1,
             )
 
@@ -480,7 +501,7 @@ def test_compiler_normalizes_url4_parameters_and_rejects_control_characters() ->
 def test_candidate_result_decoder_rejects_contract_drift() -> None:
     resource = _decode_benchmark_resource(
         BENCHMARK,
-        requested_id="draco-lite",
+        requested_id="draco",
         requested_limit=1,
     )
     evaluation = compile_evaluation(
@@ -491,10 +512,10 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
     candidate = evaluation.candidates.only
     valid: dict[str, Any] = {
         "schema": "screamingface.candidate-result.v1",
-        "benchmark_id": "draco-lite",
+        "benchmark_id": "draco",
         "case_count": 1,
         "score": 0.7,
-        "metrics": {"normalized_score": 0.7},
+        "metrics": {"coverage": 1.0},
         "failures": [],
     }
 
@@ -506,7 +527,7 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
         {**valid, "case_count": 2},
         {**valid, "score": "high"},
         {**valid, "metrics": []},
-        {**valid, "metrics": {"normalized_score": True}},
+        {**valid, "metrics": {"coverage": True}},
         {**valid, "failures": [{"code": "failed"}]},
     )
     for payload in invalid_payloads:
@@ -521,3 +542,47 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
         )
         with pytest.raises(sf.ExecutionError):
             _candidate_result(evaluation, candidate, outcome)
+
+
+def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None:
+    resource = _decode_benchmark_resource(
+        BENCHMARK,
+        requested_id="draco",
+        requested_limit=1,
+    )
+    evaluation = compile_evaluation(
+        (sf.Model("anthropic/claude-haiku-4-5"),),
+        resource,
+        1,
+    )
+    candidate = evaluation.candidates.only
+    outcome = _RunOutcome(
+        run_id="run_partial",
+        started_at=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 28, 10, 0, 1, tzinfo=UTC),
+        result_body=json.dumps(
+            {
+                "schema": "screamingface.candidate-result.v1",
+                "benchmark_id": "draco",
+                "case_count": 1,
+                "score": 0.65,
+                "metrics": {
+                    "coverage": 0.761,
+                    "coverage_target": 0.95,
+                    "verdicts_expected": 159,
+                    "verdicts_accepted": 121,
+                },
+                "failures": [],
+            }
+        ),
+        media_type="application/json",
+        root_usage=None,
+    )
+
+    with pytest.warns(
+        sf.CoverageWarning,
+        match="121/159 verdicts accepted.*76.1%.*target 95.0%",
+    ):
+        result = _candidate_result(evaluation, candidate, outcome)
+
+    assert result.metrics["coverage"] == 0.761

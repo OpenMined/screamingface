@@ -2,7 +2,7 @@
 
 ## Scope
 
-The isolated DRACO-Lite demo exposes the intended Client discovery interface against the real
+The isolated DRACO demo exposes the intended Client discovery interface against the real
 OME-587 local Engine:
 
 ```python
@@ -25,9 +25,9 @@ the existing lazy default Client.
   ```json
   {
     "object": "list",
-    "default": "draco-lite",
+    "default": "draco",
     "data": [
-      {"id": "draco-lite", "object": "benchmark"},
+      {"id": "draco", "object": "benchmark"},
       {"id": "healthbench-lite", "object": "benchmark"}
     ]
   }
@@ -36,7 +36,7 @@ the existing lazy default Client.
 - Benchmark discovery returns an immutable ordered sequence of strings.
 - Benchmark evaluation without an override resolves the catalog's explicit `default`; list order
   is presentation-only.
-- The public DRACO-Lite identifier is `draco-lite`; manifests remain reproducibly pinned by their
+- The public DRACO identifier is `draco`; manifests remain reproducibly pinned by their
   digest rather than by exposing an `@1` suffix in the user-facing name.
 - The Client calls only the configured SF Engine.
 - Trusted loopback local mode may use its configured AI Gateway credential when the caller sends

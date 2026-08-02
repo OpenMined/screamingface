@@ -11,7 +11,7 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Literal
 
-from screamingface._evaluation.model import Operation, _canonical_url4, _operation_dag
+from screamingface._evaluation.model import _canonical_url4
 from screamingface._named_values import _NamedValues
 from screamingface._operation_projection import _operation_dict, _require_operation_references
 from screamingface._report_primitives import (
@@ -22,6 +22,7 @@ from screamingface._report_primitives import (
     _usage,
 )
 from screamingface.discovery import BenchmarkInfo
+from screamingface.operation import OperationInfo, _operation_dag
 
 type RecipeKind = Literal["model", "fusion"]
 
@@ -75,7 +76,7 @@ class MemberResult:
 
 @dataclass(frozen=True, slots=True, init=False)
 class CandidateResult:
-    """One independently executed and scored Candidate outcome."""
+    """One independently executed Candidate outcome; a higher score is always better."""
 
     run_id: str
     started_at: datetime
@@ -84,13 +85,11 @@ class CandidateResult:
     kind: RecipeKind
     url4: str
     models: tuple[str, ...]
-    operations: tuple[Operation, ...]
+    operations: tuple[OperationInfo, ...]
     score: float | None
     members: tuple[MemberResult, ...]
     failures: tuple[Failure, ...]
     usage: Usage
-    baseline: float | None
-    gain: float | None
     _metric_items: tuple[tuple[str, float], ...] = field(repr=False)
 
     def __init__(
@@ -103,25 +102,23 @@ class CandidateResult:
         kind: RecipeKind,
         url4: str,
         models: Sequence[str],
-        operations: Sequence[Operation],
+        operations: Sequence[OperationInfo],
         score: float | None,
         metrics: Mapping[str, float],
         members: Sequence[MemberResult],
         failures: Sequence[Failure],
         usage: Usage,
-        baseline: float | None = None,
-        gain: float | None = None,
     ) -> None:
-        normalized_score = _optional_number(score, "Candidate score")
+        selected_score = _optional_number(score, "Candidate score")
         metric_items = _metrics(metrics)
-        if normalized_score is None and metric_items:
+        if selected_score is None and metric_items:
             raise ValueError("a failed or unscored Candidate cannot contain metrics")
         selected_kind, selected_models, selected_members, selected_failures = _candidate_shape(
             kind,
             models,
             members,
             failures,
-            scored=normalized_score is not None,
+            scored=selected_score is not None,
         )
         selected_operations = _operation_dag(operations)
         _require_operation_references(
@@ -143,12 +140,10 @@ class CandidateResult:
             "url4": _canonical_url4(url4, "Candidate"),
             "models": selected_models,
             "operations": selected_operations,
-            "score": normalized_score,
+            "score": selected_score,
             "members": selected_members,
             "failures": selected_failures,
             "usage": _usage(usage, "Candidate"),
-            "baseline": _optional_number(baseline, "Candidate baseline"),
-            "gain": _optional_number(gain, "Candidate gain"),
             "_metric_items": metric_items,
         }
         for attribute, value in values.items():
@@ -163,7 +158,7 @@ class CandidateResult:
         return round((self.completed_at - self.started_at).total_seconds() * 1000)
 
     def to_dict(self) -> dict[str, object]:
-        value: dict[str, object] = {
+        return {
             "run_id": self.run_id,
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),
@@ -179,11 +174,6 @@ class CandidateResult:
             "duration_ms": self.duration_ms,
             "usage": self.usage.to_dict(),
         }
-        if self.baseline is not None:
-            value["baseline"] = self.baseline
-        if self.gain is not None:
-            value["gain"] = self.gain
-        return value
 
 
 class _CandidateResults(_NamedValues[CandidateResult]):
@@ -218,7 +208,6 @@ class Report:
             raise TypeError("Report benchmark must be an sf.BenchmarkInfo")
         benchmark._result_dict(case_count)
         selected_candidates = _CandidateResults(candidates)
-        _validate_primary_scores(selected_candidates, benchmark)
         values = {
             "benchmark": benchmark,
             "case_count": case_count,
@@ -409,39 +398,11 @@ def _timestamp_text(value: datetime) -> str:
     return text[:-6] + "Z" if text.endswith("+00:00") else text
 
 
-def _validate_primary_scores(
-    candidates: _CandidateResults,
-    benchmark: BenchmarkInfo,
-) -> None:
-    for candidate in candidates:
-        primary = candidate.metrics.get(benchmark.primary_metric)
-        if candidate.score is None:
-            if primary is not None:
-                raise ValueError("unscored Candidate cannot contain its primary metric")
-            continue
-        if primary is None or not math.isclose(
-            candidate.score,
-            primary,
-            rel_tol=0.0,
-            abs_tol=1e-12,
-        ):
-            raise ValueError("Candidate score must equal the Benchmark primary metric")
-        if (candidate.baseline is None) != (candidate.gain is None):
-            raise ValueError("Candidate baseline and gain must be present together")
-        if candidate.baseline is not None and candidate.gain is not None:
-            expected = (
-                candidate.score - candidate.baseline
-                if benchmark.score_direction == "maximize"
-                else candidate.baseline - candidate.score
-            )
-            if not math.isclose(candidate.gain, expected, rel_tol=0.0, abs_tol=1e-12):
-                raise ValueError("Candidate gain must be direction-aware")
-
-
 __all__ = [
     "CandidateResult",
     "Failure",
     "MemberResult",
+    "OperationInfo",
     "Report",
     "Usage",
 ]

@@ -11,7 +11,7 @@ from nbformat import NotebookNode
 def notebooks() -> dict[str, NotebookNode]:
     return {
         "00_quickstart.ipynb": _quickstart(),
-        "05_draco_lite_e2e.ipynb": _draco_lite_e2e(),
+        "05_draco_e2e.ipynb": _draco_e2e(),
         "06_draco_full_e2e.ipynb": _draco_full_e2e(),
     }
 
@@ -57,30 +57,32 @@ frontier = sf.Fusion([opus, gpt])"""
         nbformat.v4.new_markdown_cell(
             """## Evaluate
 
-The Engine defaults to the real-model DRACO Smoke benchmark: one case, one rubric criterion, and
-eight total model calls for this three-Candidate comparison. The Benchmark owns answer, synthesis,
-judge, and aggregation policy."""
+The Engine defaults to DRACO. `limit=1` selects one of its 100 cases, but still evaluates every
+criterion in that case with the paper-aligned five Judge passes. The Benchmark owns Judge and
+aggregation policy."""
         ),
         nbformat.v4.new_code_cell(
             """report = sf.evaluate(
     [opus, gpt, frontier],
     limit=1,
+    on_event=print,
+    progress=False,
 )
 report"""
         ),
     )
 
 
-def _draco_lite_e2e() -> NotebookNode:
+def _draco_e2e() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell(
-            """# DRACO-Lite: Client → URL4 Engine → AI Gateway
+            """# DRACO smoke run: Client → URL4 Engine → AI Gateway
 
 This notebook exercises the complete pipeline through the public ScreamingFace SDK. The Engine
-owns the dataset, answer policy, judge, and aggregation.
+owns the dataset, judge, grading, and aggregation; the SDK Candidate owns answer policy.
 
-> **Cost warning:** the evaluation cell performs one answer call and ten judge calls. Discovery
-> makes no model calls."""
+> **Cost warning:** the evaluation cell performs one Candidate call plus five Judge calls for
+> every criterion in the selected case. Discovery makes no model calls."""
         ),
         nbformat.v4.new_markdown_cell(
             """## Before running
@@ -93,16 +95,17 @@ AI Gateway; the Client never calls AI Gateway directly."""
         nbformat.v4.new_markdown_cell("## Connect OpenRouter"),
         nbformat.v4.new_code_cell("sf.connect()"),
         nbformat.v4.new_markdown_cell("## Define a Candidate"),
-        nbformat.v4.new_code_cell('haiku = sf.Model("anthropic/claude-haiku-4-5")'),
+        nbformat.v4.new_code_cell('haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")'),
         nbformat.v4.new_markdown_cell(
             """## Evaluate the benchmark
 
-Running the next cell makes **11 model calls**: one Candidate answer and ten rubric-judge calls."""
+Running the next cell evaluates one Candidate answer against every rubric criterion, with five
+independent Judge calls per criterion."""
         ),
         nbformat.v4.new_code_cell(
             """report = sf.evaluate(
     haiku,
-    benchmark="draco-lite",
+    benchmark="draco",
     limit=1,
 )
 report"""
@@ -122,7 +125,8 @@ def _draco_full_e2e() -> NotebookNode:
 This is the SDK-native port of the full `pipeline_walkthrough.ipynb` in
 `screamingface-benchmarks/notebooks/general/`.
 It preserves the published Candidate surface—**7 solo Models and 9 Fusions**—using only the public
-SDK. The Engine owns DRACO's dataset, answer policy, tools, judge, grading, and aggregation.
+SDK. The Engine owns DRACO's dataset, judge, grading, and aggregation. Each SDK Candidate owns its
+answer and synthesis policy.
 
 > **Spend warning:** the evaluation cell is paid. It uses one case per Candidate; remove `limit=1`
 > only when you intend to run the complete dataset."""
@@ -171,7 +175,7 @@ best_open_source = sf.Fusion([deepseek, kimi, qwen])"""
         nbformat.v4.new_markdown_cell(
             """## 4. Evaluate every Candidate
 
-One lazy SDK call evaluates the complete Candidate lineup against DRACO-Lite. Candidates run
+One lazy SDK call evaluates the complete Candidate lineup against DRACO. Candidates run
 concurrently under the Client's internal scheduler; the Benchmark supplies all other execution
 policy."""
         ),
@@ -195,7 +199,7 @@ policy."""
         pareto_lean,
         best_open_source,
     ],
-    benchmark="draco-lite",
+    benchmark="draco",
     limit=1,
 )
 report"""

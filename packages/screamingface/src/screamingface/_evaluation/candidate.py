@@ -8,7 +8,6 @@ from typing import Literal
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 
 from screamingface._evaluation.model import (
-    Operation,
     _compiled_operation,
     _member_projection,
     _MemberProjection,
@@ -21,6 +20,7 @@ from screamingface._evaluation.policy import (
 )
 from screamingface.fusion import Fusion
 from screamingface.model import Model
+from screamingface.operation import OperationInfo
 from screamingface.recipe import Recipe
 
 
@@ -29,7 +29,7 @@ class _CompiledCandidate:
     kind: Literal["model", "fusion"]
     url4: str
     models: tuple[str, ...]
-    operations: tuple[Operation, ...]
+    operations: tuple[OperationInfo, ...]
     members: tuple[_MemberProjection, ...]
 
 
@@ -53,7 +53,7 @@ class _CandidateCompiler:
 
     def __init__(self) -> None:
         self._sources: list[Node] = []
-        self._operations: list[Operation] = []
+        self._operations: list[OperationInfo] = []
         self._resolved: dict[int, _ResolvedRecipe] = {}
         self._models_by_content: dict[tuple[object, ...], _ResolvedRecipe] = {}
         self._active: set[int] = set()

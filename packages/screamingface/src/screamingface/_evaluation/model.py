@@ -12,22 +12,10 @@ from screamingface._named_values import _NamedValues
 from screamingface.discovery import BenchmarkInfo
 from screamingface.fusion import Fusion
 from screamingface.model import Model
+from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.recipe import Recipe
 
 type CandidateKind = Literal["model", "fusion"]
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class Operation:
-    """One compiled logical unit in a Candidate URL4 DAG."""
-
-    id: str
-    kind: str
-    label: str
-    depends_on: tuple[str, ...]
-
-    def __init__(self) -> NoReturn:
-        raise TypeError("Operation values are derived internally; they are not constructed")
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +36,7 @@ class Candidate:
     kind: CandidateKind
     models: tuple[str, ...]
     url4: str
-    operations: tuple[Operation, ...]
+    operations: tuple[OperationInfo, ...]
     members: tuple[_MemberProjection, ...]
 
     def __init__(self) -> NoReturn:
@@ -82,7 +70,6 @@ class _Evaluation:
     limit: int | None
     case_count: int
     candidates: _Candidates
-    required_capabilities: tuple[str, ...]
     required_models: tuple[str, ...]
 
     def __init__(self) -> NoReturn:
@@ -102,23 +89,10 @@ def _compiled_operation(
     kind: str,
     label: str,
     depends_on: Sequence[str],
-) -> Operation:
+) -> OperationInfo:
     """Build one validated Operation from no-spend Candidate compilation."""
 
-    operation_id = _nonblank(id, "Operation id")
-    dependencies = _unique_texts(
-        depends_on,
-        "Operation depends_on",
-        allow_empty=True,
-    )
-    if operation_id in dependencies:
-        raise ValueError("an Operation cannot depend on itself")
-    operation = object.__new__(Operation)
-    object.__setattr__(operation, "id", operation_id)
-    object.__setattr__(operation, "kind", _nonblank(kind, "Operation kind"))
-    object.__setattr__(operation, "label", _nonblank(label, "Operation label"))
-    object.__setattr__(operation, "depends_on", dependencies)
-    return operation
+    return OperationInfo(id=id, kind=kind, label=label, depends_on=depends_on)
 
 
 def _compiled_candidate(
@@ -127,7 +101,7 @@ def _compiled_candidate(
     kind: CandidateKind,
     models: Sequence[str],
     url4: str,
-    operations: Sequence[Operation],
+    operations: Sequence[OperationInfo],
     members: Sequence[_MemberProjection] = (),
 ) -> Candidate:
     """Build one validated Candidate from its locally linked compilation."""
@@ -181,7 +155,6 @@ def _compiled_evaluation(
     limit: int | None,
     case_count: int,
     candidates: Sequence[Candidate],
-    required_capabilities: Sequence[str],
     required_models: Sequence[str],
 ) -> _Evaluation:
     """Build one validated private Evaluation after no-spend compilation."""
@@ -199,11 +172,6 @@ def _compiled_evaluation(
         "limit": limit,
         "case_count": selected_count,
         "candidates": _Candidates(candidates),
-        "required_capabilities": _unique_texts(
-            required_capabilities,
-            "Evaluation required_capabilities",
-            allow_empty=True,
-        ),
         "required_models": _unique_texts(
             required_models,
             "Evaluation required_models",
@@ -240,50 +208,6 @@ def _validate_limit(limit: int | None) -> None:
         raise TypeError("limit must be a positive integer or None")
     if limit < 1:
         raise ValueError("limit must be a positive integer or None")
-
-
-def _operation_dag(values: Sequence[Operation]) -> tuple[Operation, ...]:
-    operations = _operation_values(values)
-    _require_acyclic(operations)
-    return operations
-
-
-def _operation_values(values: Sequence[Operation]) -> tuple[Operation, ...]:
-    try:
-        operations = tuple(values)
-    except TypeError as exc:
-        raise TypeError("Candidate operations must be an ordered sequence") from exc
-    if not operations:
-        raise ValueError("a Candidate requires at least one Operation")
-    if any(not isinstance(operation, Operation) for operation in operations):
-        raise TypeError("Candidate operations must contain only sf.Operation values")
-
-    operation_ids = tuple(operation.id for operation in operations)
-    if len(operation_ids) != len(set(operation_ids)):
-        raise ValueError("Candidate Operation IDs must be unique")
-    known_ids = set(operation_ids)
-    if unknown := {
-        dependency
-        for operation in operations
-        for dependency in operation.depends_on
-        if dependency not in known_ids
-    }:
-        raise ValueError(f"Candidate Operation has unknown dependency {min(unknown)!r}")
-    return operations
-
-
-def _require_acyclic(operations: tuple[Operation, ...]) -> None:
-    # INVARIANT: operation identity, not URL equality, defines the Candidate DAG.
-    remaining = {operation.id: set(operation.depends_on) for operation in operations}
-    resolved: set[str] = set()
-    while ready := {
-        operation_id for operation_id, dependencies in remaining.items() if dependencies <= resolved
-    }:
-        resolved.update(ready)
-        for operation_id in ready:
-            del remaining[operation_id]
-    if remaining:
-        raise ValueError("Candidate Operations must form an acyclic DAG; cycle detected")
 
 
 def _positive_count(value: object, label: str) -> int:

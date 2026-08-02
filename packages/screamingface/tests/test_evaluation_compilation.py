@@ -7,12 +7,12 @@ import pytest
 import screamingface as sf
 from screamingface._evaluation.model import (
     Candidate,
-    Operation,
     _compiled_candidate,
     _compiled_evaluation,
     _compiled_operation,
     _Evaluation,
 )
+from screamingface.operation import OperationInfo
 
 
 def planned_candidate(name: str = "opus") -> Candidate:
@@ -37,17 +37,13 @@ def evaluation_plan(
 ) -> _Evaluation:
     return _compiled_evaluation(
         benchmark=sf.BenchmarkInfo(
-            name="draco",
             id="draco@1",
-            title="DRACO",
+            revision="fixture-revision",
             case_count=100,
-            primary_metric="normalized_score",
-            score_direction="maximize",
         ),
         limit=1,
         case_count=1,
         candidates=candidates or (planned_candidate(),),
-        required_capabilities=("web_search",),
         required_models=("provider/opus", "provider/judge"),
     )
 
@@ -57,7 +53,7 @@ def operation(
     kind: str,
     label: str,
     depends_on: tuple[str, ...],
-) -> Operation:
+) -> OperationInfo:
     return _compiled_operation(
         id=id,
         kind=kind,
@@ -189,7 +185,7 @@ def test_operation_rejects_malformed_identity_and_dependencies(
     ],
 )
 def test_candidate_rejects_an_invalid_operation_dag(
-    operations: tuple[Operation, ...],
+    operations: tuple[OperationInfo, ...],
     message: str,
 ) -> None:
     with pytest.raises((TypeError, ValueError), match=message):
@@ -209,7 +205,7 @@ def test_plan_candidate_collection_is_immutable() -> None:
 
 
 def test_engine_resolved_values_cannot_be_fabricated_through_public_constructors() -> None:
-    for value_type in (Operation, Candidate, _Evaluation):
+    for value_type in (Candidate, _Evaluation):
         with pytest.raises(TypeError, match="derived internally"):
             value_type()
 
@@ -291,7 +287,6 @@ def test_planned_candidate_rejects_invalid_state(factory: object, message: str) 
         ({"limit": 0}, "limit"),
         ({"case_count": 0}, "case_count"),
         ({"limit": 1, "case_count": 2}, "case_count"),
-        ({"required_capabilities": ("web_search", "web_search")}, "unique"),
     ],
 )
 def test_evaluation_plan_rejects_invalid_state(
@@ -300,17 +295,13 @@ def test_evaluation_plan_rejects_invalid_state(
 ) -> None:
     values: dict[str, object] = {
         "benchmark": sf.BenchmarkInfo(
-            name="draco",
             id="draco@1",
-            title="DRACO",
+            revision="fixture-revision",
             case_count=100,
-            primary_metric="normalized_score",
-            score_direction="maximize",
         ),
         "limit": 1,
         "case_count": 1,
         "candidates": (planned_candidate(),),
-        "required_capabilities": ("web_search",),
         "required_models": ("provider/opus", "provider/judge"),
     }
     values.update(overrides)

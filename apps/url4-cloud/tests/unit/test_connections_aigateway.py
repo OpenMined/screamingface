@@ -12,6 +12,7 @@ from url4_cloud.connections.port import (
     ConnectionBadResponse,
     ConnectionRejected,
     Connections,
+    ConnectionTimeout,
     ConnectionUnavailable,
 )
 
@@ -189,7 +190,21 @@ async def test_timeout_is_typed_and_secret_safe() -> None:
 
     adapter, _ = _adapter(timeout)
 
-    with pytest.raises(ConnectionUnavailable) as failure:
+    with pytest.raises(ConnectionTimeout) as failure:
         await adapter.connect(Caller(), "openrouter", SECRET)
 
+    assert SECRET not in str(failure.value)
+
+
+async def test_connection_refusal_is_reported_as_gateway_unavailable() -> None:
+    def refused(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(SECRET, request=request)
+
+    adapter, _ = _adapter(refused)
+
+    with pytest.raises(ConnectionUnavailable) as failure:
+        await adapter.list(Caller())
+
+    assert failure.value.status == 503
+    assert failure.value.detail == "AI Gateway is unavailable"
     assert SECRET not in str(failure.value)

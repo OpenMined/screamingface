@@ -17,6 +17,7 @@ from url4_cloud.connections.port import (
     ConnectionRateLimited,
     ConnectionRejected,
     ConnectionStatus,
+    ConnectionTimeout,
     ConnectionUnavailable,
 )
 
@@ -115,13 +116,13 @@ class AigatewayConnections:
             )
         except httpx.TimeoutException as exc:
             logger.warning("AI Gateway provider-connection request timed out")
-            raise ConnectionUnavailable() from exc
+            raise ConnectionTimeout() from exc
         except httpx.HTTPError as exc:
             logger.warning(
                 "AI Gateway provider-connection transport failure (%s)",
                 type(exc).__name__,
             )
-            raise ConnectionBadResponse() from exc
+            raise ConnectionUnavailable() from exc
         _raise_for_status(response)
         return response
 
@@ -217,8 +218,10 @@ def _raise_for_status(response: httpx.Response) -> None:
         raise ConnectionConflict()
     if status == 429:
         raise ConnectionRateLimited()
-    if status in {503, 504}:
+    if status == 503:
         raise ConnectionUnavailable()
+    if status == 504:
+        raise ConnectionTimeout()
     raise ConnectionBadResponse()
 
 

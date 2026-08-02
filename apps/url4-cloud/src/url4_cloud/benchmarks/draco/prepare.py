@@ -1,17 +1,15 @@
-"""Build DRACO's declared world — download the dataset, emit artifacts and the `[data]` table.
+"""Download the pinned DRACO dataset and emit its private runtime assets.
 
-Run at IMAGE BUILD time, never at run time: a Job's rootfs is read-only apart from `/tmp`, it
-holds no HuggingFace credential, and `[data]` routes are exact-match with no wildcard form, so
-every artifact must already be declared before the Job starts.
+Run at IMAGE BUILD time, never at run time: a Job's rootfs is read-only apart from `/tmp` and it
+holds no HuggingFace credential, so every benchmark artifact must exist before the Job starts.
 
     uv run python -m url4_cloud.benchmarks.draco.prepare --out /opt/benchmarks/draco --limit 5
 
 Emits::
 
     <out>/cases.json           [{"id": …, "input": …}]  — the ONLY thing a client ever sees
-    <out>/criteria/<id>.json   [{id, requirement}]      — WEIGHT-FREE, what the judge reads
+    <out>/criteria/<id>.json   [{id, requirement, criterion_type}] — private task-builder input
     <out>/rubrics/<id>.json    the weighted rubric      — private, read by `aggregate.py`
-    <out>/url4.data.toml       the [data] table         — merged into the image's url4.toml
 
 INVARIANT — the judge NEVER sees weights. `grading_mode: "official"` (arXiv:2602.11685 §4.2)
 judges one criterion at a time, blind to its weight and to its siblings; a judge that can see a
@@ -38,7 +36,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-DATASET = "perplexity-ai/draco"
+from url4_cloud.benchmarks.draco.definition import CASE_COUNT, DATASET, DATASET_REVISION
+
 COLUMN_QUESTION = "problem"
 COLUMN_RUBRIC = "answer"
 COLUMN_DOMAIN = "domain"
@@ -48,7 +47,7 @@ class PrepareError(RuntimeError):
     """The dataset could not be turned into a declared world."""
 
 
-def load_rows(dataset: str = DATASET, limit: int | None = None) -> list[dict[str, Any]]:
+def load_rows(limit: int | None = None) -> list[dict[str, Any]]:
     """Download the dataset and return its rows.
 
     `datasets` is NOT a dependency of url4-cloud. This module runs at image BUILD time on a
@@ -67,7 +66,7 @@ def load_rows(dataset: str = DATASET, limit: int | None = None) -> list[dict[str
             "`uv pip install datasets` in the build environment"
         ) from exc
 
-    loaded = datasets_mod.load_dataset(dataset)
+    loaded = datasets_mod.load_dataset(DATASET, revision=DATASET_REVISION)
     rows: list[dict[str, Any]] = []
     for split in loaded:  # null split in draco.yaml means "all splits"
         for row in loaded[split]:
@@ -98,20 +97,34 @@ def parse_rubric(raw: Any, case_id: int) -> dict[str, Any]:
 
 
 def judge_criteria(rubric: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The criteria as the JUDGE sees them — id and requirement, never the weight.
+    """The criteria as the JUDGE sees them — id, requirement, and sign-derived type.
 
-    See the module INVARIANT: `official` grading shows one criterion at a time with no weight,
-    so anything extra here is a protocol violation that no test downstream would catch.
+    The official protocol hides the numeric weight but explicitly supplies whether a criterion
+    is positive or negative. Deriving that label here preserves both requirements: the judge can
+    interpret MET correctly without learning how strongly the criterion affects the score.
     """
     return [
-        {"id": criterion.get("id"), "requirement": criterion.get("requirement", "")}
+        {
+            "id": criterion.get("id"),
+            "requirement": criterion.get("requirement", ""),
+            "criterion_type": ("negative" if float(criterion.get("weight", 0)) < 0 else "positive"),
+        }
         for section in rubric.get("sections", [])
         for criterion in section.get("criteria") or []
     ]
 
 
-def build(rows: Sequence[dict[str, Any]], out: Path, route_prefix: str) -> dict[str, Any]:
-    """Write `cases.json`, the rubric files, and the generated `[data]` table."""
+def build(
+    rows: Sequence[dict[str, Any]],
+    out: Path,
+    *,
+    expected_count: int | None = None,
+) -> dict[str, Any]:
+    """Write the cases and private criterion/rubric files read by DRACO's runtime."""
+    if expected_count is not None and len(rows) != expected_count:
+        raise PrepareError(
+            f"expected {expected_count} DRACO cases, but the pinned dataset produced {len(rows)}"
+        )
     rubric_dir = out / "rubrics"
     criteria_dir = out / "criteria"
     rubric_dir.mkdir(parents=True, exist_ok=True)
@@ -133,48 +146,21 @@ def build(rows: Sequence[dict[str, Any]], out: Path, route_prefix: str) -> dict[
         )
 
     (out / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
-    (out / "url4.data.toml").write_text(render_data_table(cases, out, route_prefix), "utf-8")
     return {"cases": len(cases), "out": str(out)}
-
-
-def render_data_table(cases: Sequence[dict[str, Any]], out: Path, route_prefix: str) -> str:
-    """Render the `[data]` table — one entry per artifact, because routing is exact-match.
-
-    Rubrics are declared as `file` providers rather than inline values so an operator can edit
-    one in a running node without a rebuild, and so the table stays readable at 100+ cases.
-    """
-    lines = [
-        "# GENERATED by url4_cloud.benchmarks.draco.prepare — do not edit by hand.",
-        f"# {len(cases)} case(s) from {DATASET}. Regenerate after any dataset change.",
-        "#",
-        "# Routing is exact-match: there is no wildcard form, so every artifact is declared.",
-        "",
-        "[data]",
-        f'"{route_prefix}/cases" = '
-        f'{{ file = "{out}/cases.json", media_type = "application/json" }}',
-    ]
-    # Only the JUDGE-facing criteria are declared as routes. `rubrics/` is deliberately NOT
-    # addressable: it carries the weights, and an expression that could fetch one could feed it
-    # to the judge. `aggregate.py` reads it off disk instead.
-    lines.extend(
-        f'"{route_prefix}/criteria/{case["id"]}" = '
-        f'{{ file = "{out}/criteria/{case["id"]}.json", media_type = "application/json" }}'
-        for case in cases
-    )
-    lines.append("")
-    return "\n".join(lines)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="draco-prepare", description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("/opt/benchmarks/draco"))
-    parser.add_argument("--dataset", default=DATASET)
     parser.add_argument("--limit", type=int, default=None, help="cap the case count (probes)")
-    parser.add_argument("--route-prefix", default="/draco", help="url4 path prefix for artifacts")
     args = parser.parse_args(argv)
 
     try:
-        summary = build(load_rows(args.dataset, args.limit), args.out, args.route_prefix)
+        summary = build(
+            load_rows(args.limit),
+            args.out,
+            expected_count=CASE_COUNT if args.limit is None else args.limit,
+        )
     except PrepareError as exc:
         print(f"prepare failed: {exc}", file=sys.stderr)
         return 1

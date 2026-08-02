@@ -16,13 +16,14 @@ import httpx
 from url4.streaming.lifecycle import run
 from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
+from url4_cloud.benchmarks import assets_root
 from url4_cloud.runner.config import RunnerConfig, RunnerConfigError, load_config
 from url4_cloud.runner.connector import (
     AigatewayConfig,
     build_aigateway_world,
     build_local_world,
 )
-from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world
+from url4_cloud.runner.executor import Url4Executor, World
 
 
 @dataclass(frozen=True)
@@ -102,9 +103,14 @@ def build_executor(
             # WHY: a world with no [aigateway] table is a legitimate world, not necessarily an
             # empty one — a Job may declare only `[commands]` and/or `[data]` and never call a
             # model. With none of the three, the node denies everything undeclared, as always.
-            if resolved.commands or resolved.data:
-                return build_local_world(resolved.commands, resolved.data), None
-            return deny_by_default_world(), None
+            return (
+                build_local_world(
+                    resolved.commands,
+                    resolved.data,
+                    benchmark_assets=assets_root(env),
+                ),
+                None,
+            )
         # WHY no credential check here any more: aigateway runs `cloudflare_headers` when deployed
         # and `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to
         # demand. Identity is forwarded when present and simply absent locally, where every caller
@@ -125,6 +131,7 @@ def build_executor(
             tavily_client=tavily_client,
             commands=resolved.commands,
             data=resolved.data,
+            benchmark_assets=assets_root(env),
         )
         return world.node, world.aclose
 

@@ -197,17 +197,31 @@ def test_engine_failures_are_safe_and_typed() -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "code", "retryable"),
+    ("status", "code", "message", "retryable"),
     [
-        (404, "unknown_provider", False),
-        (409, "connection_conflict", False),
-        (429, "connection_rate_limited", True),
-        (500, "connection_engine_error", True),
+        (404, "unknown_provider", "The provider is not available on this SF Engine", False),
+        (409, "connection_conflict", "The provider connection is ambiguous in AI Gateway", False),
+        (
+            429,
+            "connection_rate_limited",
+            "Provider connection requests are temporarily rate limited",
+            True,
+        ),
+        (502, "connection_gateway_bad_response", "AI Gateway returned an unusable response", True),
+        (503, "connection_gateway_unavailable", "AI Gateway is unavailable", True),
+        (504, "connection_gateway_timeout", "AI Gateway did not respond in time", True),
+        (
+            500,
+            "connection_engine_error",
+            "SF Engine provider connection failed with HTTP 500",
+            True,
+        ),
     ],
 )
 def test_engine_failure_statuses_have_stable_retry_semantics(
     status: int,
     code: str,
+    message: str,
     retryable: bool,
 ) -> None:
     client = _sync_client(lambda _: httpx.Response(status))
@@ -217,6 +231,7 @@ def test_engine_failure_statuses_have_stable_retry_semantics(
 
     assert failure.value.status == status
     assert failure.value.code == code
+    assert str(failure.value) == message
     assert failure.value.retryable is retryable
 
 

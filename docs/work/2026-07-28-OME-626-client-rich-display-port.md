@@ -51,6 +51,6 @@ notebooks.
   distribution check green; new display modules have 99% aggregate coverage.
 - **Deviations:** the whole-package 95% coverage gate remains at 89% because the surrounding
   uncommitted OME-620 demo modules entered this unit below the gate. The notebook-set gate is
-  blocked by the user-owned `05_draco_lite_e2e-Copy1.ipynb`, and the canonical DRACO-Lite
+  blocked by the user-owned `05_draco_lite_e2e-Copy1.ipynb`, and the canonical DRACO
   notebook contains execution output rather than matching its cleared deterministic build.
   Neither notebook was altered.

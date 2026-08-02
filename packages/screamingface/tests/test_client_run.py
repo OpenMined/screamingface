@@ -28,16 +28,11 @@ BENCHMARK_URL4 = render(
 
 BENCHMARK = {
     "schema": "screamingface.benchmark.v1",
-    "object": "benchmark",
     "id": "draco",
-    "title": "DRACO",
-    "description": "Test benchmark.",
+    "revision": "fixture-revision",
     "case_count": 1,
     "total_case_count": 1,
-    "metrics": {"primary": "score", "direction": "maximize"},
-    "capabilities": {"candidate": [], "runtime": []},
     "required_models": ["provider/judge"],
-    "candidate_invocations": 1,
     "url4": BENCHMARK_URL4,
 }
 

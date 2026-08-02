@@ -6,12 +6,12 @@ from typing import Any, cast
 import pytest
 
 import screamingface as sf
-from screamingface._evaluation.model import Operation, _compiled_operation
+from screamingface._evaluation.model import _compiled_operation
 
 NOW = datetime(2026, 7, 25, 16, 0, tzinfo=UTC)
 
 
-def operations(*ids: str) -> tuple[Operation, ...]:
+def operations(*ids: str) -> tuple[sf.OperationInfo, ...]:
     return tuple(
         _compiled_operation(
             id=operation_id,
@@ -43,8 +43,6 @@ def candidate(
     name: str = "candidate",
     *,
     score: float | None = 0.5,
-    baseline: float | None = None,
-    gain: float | None = None,
 ) -> sf.CandidateResult:
     return sf.CandidateResult(
         run_id=f"run-{name}",
@@ -60,31 +58,25 @@ def candidate(
         members=(member("first"), member("second")),
         failures=(),
         usage=sf.Usage(input_tokens=1),
-        baseline=baseline,
-        gain=gain,
     )
 
 
-def benchmark(direction: str = "maximize") -> sf.BenchmarkInfo:
+def benchmark() -> sf.BenchmarkInfo:
     return sf.BenchmarkInfo(
-        name="bench",
         id="bench@1",
-        title="Benchmark",
-        primary_metric="score",
-        score_direction=cast(Any, direction),
+        revision="fixture-revision",
         case_count=10,
     )
 
 
-def test_report_values_cover_members_collections_and_direction_aware_gain() -> None:
-    selected = candidate(baseline=0.4, gain=0.1)
+def test_report_values_cover_members_and_collections() -> None:
+    selected = candidate()
     value = sf.Report(
         benchmark=benchmark(),
         case_count=1,
         candidates=(selected,),
     )
 
-    assert selected.to_dict()["baseline"] == 0.4
     assert member().to_dict()["name"] == "member"
     assert value.candidates[:] == (selected,)
     with pytest.raises(KeyError, match="unknown Candidate"):
@@ -336,7 +328,7 @@ def test_report_values_reject_invalid_state(factory: Any, message: str) -> None:
         factory()
 
 
-def test_candidate_rejects_timestamps_and_report_rejects_gain_inconsistency() -> None:
+def test_candidate_rejects_invalid_timestamps() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         sf.CandidateResult(
             run_id="run",
@@ -368,18 +360,6 @@ def test_candidate_rejects_timestamps_and_report_rejects_gain_inconsistency() ->
             members=(),
             failures=(),
             usage=sf.Usage(),
-        )
-    with pytest.raises(ValueError, match="present together"):
-        sf.Report(
-            benchmark=benchmark(),
-            case_count=1,
-            candidates=(candidate(baseline=0.4),),
-        )
-    with pytest.raises(ValueError, match="direction-aware"):
-        sf.Report(
-            benchmark=benchmark("minimize"),
-            case_count=1,
-            candidates=(candidate(baseline=0.4, gain=0.1),),
         )
 
 

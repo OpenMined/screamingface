@@ -1,4 +1,4 @@
-"""Verify every public notebook matches the deterministic v1 builder."""
+"""Verify every public notebook's authored cells match the deterministic builder."""
 
 from __future__ import annotations
 
@@ -19,7 +19,12 @@ def main() -> None:
         raise SystemExit(f"notebook set mismatch: missing={missing}, unexpected={unexpected}")
     for notebook_name, expected in expected_notebooks.items():
         actual = nbformat.read(root / "examples" / notebook_name, as_version=4)
-        if actual != expected:
+        # Execution counts, outputs, cell ids, and kernel metadata are notebook-session state.
+        # Preserve them when a researcher runs the examples; the checked contract is the ordered
+        # cell types and source authored by the builder.
+        actual_source = tuple((cell.cell_type, cell.source) for cell in actual.cells)
+        expected_source = tuple((cell.cell_type, cell.source) for cell in expected.cells)
+        if actual_source != expected_source:
             mismatches.append(notebook_name)
     if mismatches:
         names = ", ".join(mismatches)

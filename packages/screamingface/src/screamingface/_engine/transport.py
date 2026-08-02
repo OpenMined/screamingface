@@ -20,8 +20,8 @@ from websockets.sync import client as sync_ws
 from websockets.sync.connection import Connection as SyncConnection
 from websockets.typing import Subprotocol
 
-from screamingface._core.ports import _CallerAuth, _RunOutcome
-from screamingface._engine.auth import _default_caller_auth
+from screamingface._core.ports import _RunOutcome
+from screamingface._engine.auth import _default_caller_auth, _TransportAuth
 from screamingface._engine.contract import _RunState
 from screamingface._evaluation.model import Candidate
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
@@ -81,7 +81,7 @@ class _Lifecycle:
 class Url4CloudTransport:
     """Synchronous adapter for the confirmed url4-cloud lifecycle."""
 
-    def __init__(self, engine_url: str, caller_auth: _CallerAuth | None = None) -> None:
+    def __init__(self, engine_url: str, caller_auth: _TransportAuth | None = None) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -159,7 +159,7 @@ class Url4CloudTransport:
 class AsyncUrl4CloudTransport:
     """Asynchronous adapter with the same lifecycle semantics."""
 
-    def __init__(self, engine_url: str, caller_auth: _CallerAuth | None = None) -> None:
+    def __init__(self, engine_url: str, caller_auth: _TransportAuth | None = None) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)

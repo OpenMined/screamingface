@@ -51,6 +51,7 @@ def _default_model_slugs() -> list[str]:
     """
     return [
         "openrouter/anthropic/claude-fable-5",
+        "openrouter/anthropic/claude-haiku-4.5",
         "openrouter/openai/gpt-5.5",
         "openrouter/anthropic/claude-opus-4.8",
         # AIDEV-NOTE: the DRACO benchmark judge. arXiv:2602.11685 §4.2 PINS it, and the

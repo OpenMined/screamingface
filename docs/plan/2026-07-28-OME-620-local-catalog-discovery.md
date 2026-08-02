@@ -10,7 +10,7 @@
 5. Permit anonymous model discovery only in the isolated loopback Engine demo by using the
    Engine process's configured AI Gateway credential.
 6. Align discovery fixtures and the generated demo notebook on the canonical unversioned
-   `draco-lite` identifier.
+   `draco` identifier.
 7. Validate Engine and Client tests, Ruff, Pyright, notebook structure, and a no-spend catalogue
    call.
 8. Add failing runner configuration and execution tests for `[commands]`, including substitutions,

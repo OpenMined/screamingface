@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 import pytest
@@ -12,9 +14,8 @@ from url4 import Iteration, Node, RelExpr, build, expr, iterate, render, src, te
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import NodeFinished, ObservationEvent, Usage
-from url4_cloud.benchmarks.base import chat_input
-from url4_cloud.benchmarks.draco import aggregate as draco_aggregate
-from url4_cloud.benchmarks.draco.benchmark import DRACO_LITE, JUDGE_MODEL
+from url4_cloud.benchmarks.definition import chat_input
+from url4_cloud.benchmarks.draco.definition import DRACO, JUDGE_MODEL
 from url4_cloud.runner.config import CommandSpec, DataSpec, ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
@@ -57,17 +58,38 @@ _ONE_CRITERION_RUBRIC = {
 }
 
 
-@pytest.mark.asyncio
-async def test_draco_definition_executes_candidate_judges_and_aggregate() -> None:
-    calls: list[str] = []
+def _draco_assets(root: Path) -> None:
+    (root / "criteria").mkdir(parents=True)
+    (root / "rubrics").mkdir()
+    (root / "cases.json").write_text('[{"id":1,"input":"What is two plus two?"}]', encoding="utf-8")
+    (root / "criteria" / "1.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "c1",
+                    "requirement": "The answer is four.",
+                    "criterion_type": "positive",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (root / "rubrics" / "1.json").write_text(json.dumps(_ONE_CRITERION_RUBRIC), encoding="utf-8")
 
+
+def _draco_responder(
+    calls: list[str], requests: list[dict[str, object]]
+) -> Callable[[httpx.Request], httpx.Response]:
     def respond(request: httpx.Request) -> httpx.Response:
-        model = json.loads(request.content)["model"]
+        payload = json.loads(request.content)
+        requests.append(payload)
+        model = payload["model"]
+        assert isinstance(model, str)
         calls.append(model)
         content = (
             "A complete answer."
             if model == "provider/candidate"
-            else '{"criterion_id":"c1","criterion_status":"MET"}'
+            else '{"explanation":"The answer is four.","criterion_status":"MET"}'
         )
         return httpx.Response(
             200,
@@ -77,7 +99,15 @@ async def test_draco_definition_executes_candidate_judges_and_aggregate() -> Non
             },
         )
 
-    resource = DRACO_LITE.resource(1)
+    return respond
+
+
+@pytest.mark.asyncio
+async def test_draco_definition_executes_candidate_judges_and_aggregate(tmp_path: Path) -> None:
+    calls: list[str] = []
+    requests: list[dict[str, object]] = []
+
+    resource = DRACO.resource(1)
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     candidate = RelExpr(
@@ -85,8 +115,10 @@ async def test_draco_definition_executes_candidate_judges_and_aggregate() -> Non
         context="$input",
         intent=text("Answer the question."),
     )
+    _draco_assets(tmp_path / "draco")
     async with httpx.AsyncClient(
-        transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
+        transport=httpx.MockTransport(_draco_responder(calls, requests)),
+        base_url="http://aigateway.test",
     ) as client:
         world = await build_aigateway_world(
             AigatewayConfig(
@@ -94,27 +126,8 @@ async def test_draco_definition_executes_candidate_judges_and_aggregate() -> Non
                 models=(ModelSpec(id="provider/candidate"), ModelSpec(id=JUDGE_MODEL)),
             ),
             client=client,
+            benchmark_assets=tmp_path,
         )
-        world.node.data(
-            "/draco/cases",
-            '[{"id":1,"input":"What is two plus two?"}]',
-            media_type="application/json",
-        )
-        world.node.data(
-            "/draco/criteria/1",
-            '[{"id":"c1","requirement":"The answer is four."}]',
-            media_type="application/json",
-        )
-
-        @world.node.endpoint("/benchmark")
-        def aggregate(request) -> str:
-            return json.dumps(
-                draco_aggregate.aggregate(
-                    request.intent,
-                    rubrics={1: _ONE_CRITERION_RUBRIC},
-                    benchmark_id="draco-lite",
-                )
-            )
 
         try:
             result = await world.node.evaluate(_link(candidate, build(benchmark_url4)))
@@ -123,7 +136,15 @@ async def test_draco_definition_executes_candidate_judges_and_aggregate() -> Non
 
     decoded = json.loads(result.text)
     assert decoded["score"] == 1.0
-    assert calls == ["provider/candidate", JUDGE_MODEL, JUDGE_MODEL, JUDGE_MODEL]
+    assert decoded["metrics"]["coverage"] == 1.0
+    assert calls == ["provider/candidate", *([JUDGE_MODEL] * 5)]
+    for request in requests[1:]:
+        serialized = json.dumps(request)
+        assert "What is two plus two?" in serialized
+        assert "<criterion_type>" in serialized
+        assert "positive" in serialized
+        assert "criterion_id" not in serialized
+        assert "$answer" not in serialized
 
 
 @pytest.mark.asyncio

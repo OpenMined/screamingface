@@ -525,8 +525,8 @@ def test_only_runner_adapters_and_benchmark_authors_import_url4() -> None:
     `url4.streaming` is exempt — it is the wire contract, which both halves speak. This scans
     the whole distribution now rather than a separate runner tree: merging the two packages
     means the control-plane modules are in scope too. Engine-owned Benchmark definitions are the
-    one deliberate construction boundary: authors use URL4's public typed AST, while execution
-    remains confined to the two narrow Runner adapters.
+    one deliberate construction boundary: authors use URL4's public typed AST and server API to
+    install their private runtime, while execution remains confined to Runner-owned worlds.
     """
     offenders = [
         py_file
@@ -550,7 +550,7 @@ def test_only_runner_adapters_and_benchmark_authors_import_url4() -> None:
         if _is_benchmark_author(py_file)
         for module in _url4_engine_modules(py_file)
     }
-    assert benchmark_imports <= {"url4"}
+    assert benchmark_imports <= {"url4", "url4.core.errors", "url4.peer.server"}
 
 
 # --- per-span usage accumulation ---------------------------------------------------------

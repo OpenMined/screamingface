@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     import httpx
 
     from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
+    from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
+    from screamingface._engine.connections import AsyncConnections, Connections
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection
     from screamingface.events import Event
@@ -61,8 +63,8 @@ class Client:
         from screamingface._engine.auth import _default_caller_auth
         from screamingface._engine.benchmark import BenchmarkResources
         from screamingface._engine.catalog import Benchmarks, Models
-        from screamingface._engine.registry import _default_transport_registry
-        from screamingface.connections import Connections
+        from screamingface._engine.connections import Connections
+        from screamingface._engine.transport import Url4CloudTransport
 
         self._engine_url = _engine_origin(engine_url)
         self._closed = False
@@ -77,12 +79,12 @@ class Client:
         self._transport: SyncRunTransport = (
             run_transport
             if run_transport is not None
-            else _default_transport_registry().sync(self._engine_url, self._auth)
+            else Url4CloudTransport(self._engine_url, self._auth)
         )
-        self.models = Models(self._http_get, self._engine_url)
-        self.benchmarks = Benchmarks(self._http_get, self._engine_url)
+        self.models: Models = Models(self._http_get, self._engine_url)
+        self.benchmarks: Benchmarks = Benchmarks(self._http_get, self._engine_url)
         self._benchmark_resources = BenchmarkResources(self._http)
-        self.connections = Connections(self._http_request, self._engine_url)
+        self.connections: Connections = Connections(self._http_request, self._engine_url)
 
     @property
     def engine_url(self) -> str:
@@ -258,8 +260,8 @@ class AsyncClient:
         from screamingface._engine.auth import _default_caller_auth
         from screamingface._engine.benchmark import AsyncBenchmarkResources
         from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels
-        from screamingface._engine.registry import _default_transport_registry
-        from screamingface.connections import AsyncConnections
+        from screamingface._engine.connections import AsyncConnections
+        from screamingface._engine.transport import AsyncUrl4CloudTransport
 
         self._engine_url = _engine_origin(engine_url)
         self._closed = False
@@ -274,12 +276,12 @@ class AsyncClient:
         self._transport: AsyncRunTransport = (
             run_transport
             if run_transport is not None
-            else _default_transport_registry().async_(self._engine_url, self._auth)
+            else AsyncUrl4CloudTransport(self._engine_url, self._auth)
         )
-        self.models = AsyncModels(self._http_get, self._engine_url)
-        self.benchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
+        self.models: AsyncModels = AsyncModels(self._http_get, self._engine_url)
+        self.benchmarks: AsyncBenchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
         self._benchmark_resources = AsyncBenchmarkResources(self._http)
-        self.connections = AsyncConnections(self._http_request, self._engine_url)
+        self.connections: AsyncConnections = AsyncConnections(self._http_request, self._engine_url)
 
     @property
     def engine_url(self) -> str:

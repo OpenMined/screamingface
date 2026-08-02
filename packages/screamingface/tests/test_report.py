@@ -17,7 +17,7 @@ def candidate(
     score: float | None = 0.5,
     failures: tuple[sf.Failure, ...] = (),
 ) -> sf.CandidateResult:
-    metrics = {} if score is None else {"normalized_score": score, "coverage": 1.0}
+    metrics = {} if score is None else {"coverage": 1.0}
     return sf.CandidateResult(
         run_id=f"run_{name}",
         started_at=datetime(2026, 7, 25, 16, 0, tzinfo=UTC),
@@ -51,11 +51,8 @@ def candidate(
 def report(*candidates: sf.CandidateResult) -> sf.Report:
     return sf.Report(
         benchmark=sf.BenchmarkInfo(
-            name="draco",
             id="draco@1",
-            title="DRACO",
-            primary_metric="normalized_score",
-            score_direction="maximize",
+            revision="fixture-revision",
             case_count=100,
         ),
         case_count=2,
@@ -82,12 +79,9 @@ def test_report_has_one_ordered_candidate_collection_for_one_or_many_candidates(
 
 def test_report_reuses_public_benchmark_info_and_records_the_selected_case_count() -> None:
     benchmark = sf.BenchmarkInfo(
-        name="draco",
         id="draco@1",
-        title="DRACO",
+        revision="fixture-revision",
         case_count=100,
-        primary_metric="normalized_score",
-        score_direction="maximize",
     )
 
     value = sf.Report(
@@ -100,8 +94,7 @@ def test_report_reuses_public_benchmark_info_and_records_the_selected_case_count
     assert value.case_count == 2
     assert value.to_dict()["benchmark"] == {
         "id": "draco@1",
-        "primary_metric": "normalized_score",
-        "score_direction": "maximize",
+        "revision": "fixture-revision",
         "case_count": 2,
     }
 
@@ -159,7 +152,7 @@ def test_report_derives_study_timing_and_complete_usage_from_candidate_runs() ->
             ),
         ),
         score=0.5,
-        metrics={"normalized_score": 0.5},
+        metrics={"coverage": 1.0},
         members=(),
         failures=(),
         usage=sf.Usage(input_tokens=50, output_tokens=None, cost_usd="0.03"),
@@ -263,7 +256,7 @@ def test_scored_fusion_preserves_partial_member_failure_evidence() -> None:
             ),
         ),
         score=0.6,
-        metrics={"normalized_score": 0.6, "coverage": 1.0},
+        metrics={"coverage": 1.0},
         members=(
             sf.MemberResult(
                 operation_id="op_opus",
@@ -319,7 +312,7 @@ def test_report_json_is_complete_portable_json_with_decimal_money_as_text() -> N
     assert "ok" not in payload
 
 
-def test_report_rejects_score_that_disagrees_with_the_primary_metric() -> None:
+def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:
     value = candidate("opus")
     inconsistent = sf.CandidateResult(
         run_id=value.run_id,
@@ -331,14 +324,16 @@ def test_report_rejects_score_that_disagrees_with_the_primary_metric() -> None:
         models=value.models,
         operations=value.operations,
         score=0.7,
-        metrics={"normalized_score": 0.6},
+        metrics={"coverage": 0.6},
         members=(),
         failures=(),
         usage=sf.Usage(),
     )
 
-    with pytest.raises(ValueError, match="primary metric"):
-        report(inconsistent)
+    result = report(inconsistent)
+
+    assert result.candidates.only.score == 0.7
+    assert result.candidates.only.metrics == {"coverage": 0.6}
 
 
 def test_candidate_names_must_be_unique() -> None:

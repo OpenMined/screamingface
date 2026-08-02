@@ -50,8 +50,8 @@ def _benchmarks(_: httpx.Request) -> httpx.Response:
         200,
         json={
             "object": "list",
-            "default": "draco-lite",
-            "data": [{"id": "draco-lite", "object": "benchmark"}],
+            "default": "draco",
+            "data": [{"id": "draco", "object": "benchmark"}],
         },
     )
 
@@ -72,7 +72,7 @@ def test_explicit_client_lists_typed_models_and_benchmarks() -> None:
         sf.ModelInfo(id="anthropic/claude-haiku-4-5", provider="anthropic"),
         sf.ModelInfo(id="openrouter/openai/gpt-5.5", provider="openrouter"),
     )
-    assert benchmarks == ("draco-lite",)
+    assert benchmarks == ("draco",)
 
 
 @pytest.mark.asyncio
@@ -82,7 +82,7 @@ async def test_async_client_has_the_same_catalogue_interface() -> None:
 
     async with _async_client(handler) as client:
         assert (await client.models.list())[0].id == "anthropic/claude-haiku-4-5"
-        assert (await client.benchmarks.list())[0] == "draco-lite"
+        assert (await client.benchmarks.list())[0] == "draco"
 
 
 def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any) -> None:

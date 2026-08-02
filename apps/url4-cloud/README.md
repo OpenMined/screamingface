@@ -122,10 +122,13 @@ installed by the wheel, so in a checkout local mode falls back to the checkout's
 `URL4_RUNNER_CONFIG` to override. Tuning: `URL4_CLOUD_LOCAL_MAX_CONCURRENT_RUNS`,
 `URL4_CLOUD_LOCAL_STREAM_MAX_FRAMES`, `URL4_CLOUD_LOCAL_MAX_RUN_HISTORY`.
 
-Alongside `[aigateway]` model routes, `[commands]` may declare shell-free subprocess routes using
-the same argv substitutions as `url4 serve`: `{context}`, `{intent}`, `{params}`, and
-`{param:<name>}`. This is the extension point for deterministic local handlers such as
-`/benchmark`; model and judge calls remain explicit AI Gateway nodes in the URL4 expression.
+Each registered Benchmark installs the deterministic routes referenced by its expression directly
+into every Runner world. Those routes are private and revision-qualified—for example,
+`/benchmarks/draco/<revision>/tasks`—so Benchmarks cannot collide and an old saved URL4 cannot
+silently execute against a newer protocol. DRACO's task preparation, verdict binding, and
+Aggregation are in-process Python functions; Candidate and Judge calls remain explicit nodes in
+the shareable URL4. Private assets load lazily from the Benchmark image, and the large cross-Case
+row collection stays in URL4 context rather than subprocess argv.
 
 ## Model catalog — `GET /v1/models`
 
@@ -178,25 +181,40 @@ it at `http://127.0.0.1:9105`. An ordinary deployed App returns `503` when
 
 ## Benchmark catalog — `GET /v1/benchmarks`
 
-Discover the benchmark manifests published by this Engine. The response follows the same list
+Discover the Benchmarks published by this Engine. The response follows the same list
 envelope as `GET /v1/models`:
 
 ```json
 {
   "object": "list",
-  "default": "draco-lite",
+  "default": "draco",
   "data": [
     {
-      "id": "draco-lite",
+      "id": "draco",
       "object": "benchmark",
-      "title": "DRACO Lite",
-      "description": "Research-quality rubric evaluation.",
-      "href": "/v1/benchmarks/draco-lite"
+      "title": "DRACO",
+      "description": "The 100-task DRACO deep-research benchmark.",
+      "href": "/v1/benchmarks/draco"
     }
   ]
 }
 ```
 
-`GET /v1/benchmarks/{id}` returns the YAML manifest used by the Client compiler. The manifest
-names the Runner-native case, criterion, and aggregate routes declared by the benchmark image;
-the control plane does not install a second Python handler registry.
+`GET /v1/benchmarks/{id}` returns one minimal executable resource containing its stable id,
+immutable protocol revision, selected and total Case counts, required fixed models, and the
+Candidate-independent URL4 expression. Human-facing title and description live only in the
+catalog above. `limit=N` selects the first `N`
+Cases while building that resource; it does not name a separate Lite Benchmark. The Client fetches
+the resource once, links each Candidate into its `/candidate` boundary, and sends each resulting
+complete URL4 directly to the Engine for execution. Reports retain the revision so results remain
+attributable after the stable public name points to a newer snapshot.
+
+The installed DRACO adapter uses the complete 100-task dataset and five independent Judge passes
+per criterion. Its fixed Judge is `openrouter/google/gemini-3.1-pro-preview`: the paper's exact
+`Gemini-3-Pro Preview` was shut down on 2026-03-09, and Google designated Gemini 3.1 Pro Preview
+as its replacement. Runs are therefore protocol-aligned but must disclose that Judge version
+difference rather than claiming bit-for-bit reproduction of the paper's scores.
+
+Candidate results expose one canonical, higher-is-better `score`. Benchmark-specific values such
+as DRACO's coverage, pass rate, Judge spread, and verdict counts are diagnostics under `metrics`;
+the primary score is not duplicated there.

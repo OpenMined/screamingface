@@ -615,7 +615,7 @@ useful inputs but are not themselves this public contract:
 
 - the active repository configuration currently declares three judge passes despite comments
   requiring five for paper-aligned runs;
-- Gemini 3.1 Pro Preview substitutes for the unavailable exact paper Judge;
+- Gemini 3.1 Pro Preview is Google's official replacement for the retired exact paper Judge;
 - the Tool blocklist and twelve-call limit contain reconstructed values;
 - bash is disabled because the current model endpoint cannot provide it.
 

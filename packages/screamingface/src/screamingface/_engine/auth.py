@@ -10,6 +10,7 @@ import re
 import threading
 import time
 import webbrowser
+from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -19,7 +20,6 @@ import httpx
 from nacl.exceptions import CryptoError
 from nacl.public import Box, PrivateKey, PublicKey
 
-from screamingface._core.ports import _CallerAuth
 from screamingface.errors import AuthenticationError, EngineUnavailableError
 
 _ACCESS_TRANSFER_STORE = "https://login.cloudflareaccess.org"
@@ -47,7 +47,28 @@ class _LoginAttempt:
 _BrowserPresenter = Callable[[str], None]
 
 
-class _CloudflareAccessAuth(_CallerAuth):
+class _TransportAuth(httpx.Auth, ABC):
+    """Credentials required by the Engine HTTP and WebSocket transport."""
+
+    requires_request_body = True
+
+    @abstractmethod
+    def reauthenticate(self, *, timeout: float = 300.0) -> None: ...
+
+    @abstractmethod
+    async def reauthenticate_async(self, *, timeout: float = 300.0) -> None: ...
+
+    @abstractmethod
+    def websocket_headers(self) -> Mapping[str, str]: ...
+
+    @abstractmethod
+    async def websocket_headers_async(self) -> Mapping[str, str]: ...
+
+    @abstractmethod
+    def close(self) -> None: ...
+
+
+class _CloudflareAccessAuth(_TransportAuth):
     """Automatic encrypted browser login for a Cloudflare Access application."""
 
     def __init__(
@@ -587,7 +608,7 @@ def _require_positive_timeout(timeout: float) -> None:
         raise ValueError("timeout must be a positive number")
 
 
-def _default_caller_auth(engine_url: str) -> _CallerAuth:
+def _default_caller_auth(engine_url: str) -> _CloudflareAccessAuth:
     return _CloudflareAccessAuth(engine_url)
 
 

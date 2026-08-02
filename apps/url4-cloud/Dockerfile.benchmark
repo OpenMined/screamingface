@@ -30,7 +30,6 @@ ARG BASE=url4-cloud:dev
 FROM ${BASE} AS prepare
 ARG BENCHMARK=draco
 ARG LIMIT=""
-ARG ROUTE_PREFIX=/draco
 # root only for the build stage; the runtime image below drops back to uid 1000.
 USER 0
 WORKDIR /app/apps/url4-cloud
@@ -44,32 +43,21 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN mkdir -p /opt/benchmarks/${BENCHMARK} \
  && /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.benchmarks.${BENCHMARK}.prepare \
       --out /opt/benchmarks/${BENCHMARK} \
-      --route-prefix ${ROUTE_PREFIX} \
       ${LIMIT:+--limit ${LIMIT}}
-# Merge the generated [data] fragment into the reviewed base config and VALIDATE the result with
-# the runner's own parser. A route collision or an unusable world fails the BUILD here, rather
-# than at Job boot — after a client has already minted a token and attached a WebSocket.
-RUN /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.runner.merge_config \
-      --base /app/apps/url4-cloud/url4.toml \
-      --fragment /opt/benchmarks/${BENCHMARK}/url4.data.toml \
-      --out /opt/benchmarks/${BENCHMARK}/url4.merged.toml
 
-# --- runtime: the base image + the artifacts and merged config -------------------------------
+# --- runtime: the base image + the prepared assets -------------------------------------------
 FROM ${BASE} AS runtime
 ARG BENCHMARK=draco
 LABEL org.opencontainers.image.title="url4-cloud-benchmark" \
       org.opencontainers.image.description="url4-cloud runner with a benchmark's declared world"
 USER 0
-# `rubrics/` ships too — `aggregate.py` reads it off disk. It is deliberately NOT declared as a
-# [data] route (see prepare.render_data_table): the weights must be unreachable from an
-# expression, or a judge prompt could be handed the thing it is being kept blind to.
+# `rubrics/` ships too — DRACO's installed runtime reads it off disk. It is deliberately NOT a
+# data route: the weights must be unreachable from an expression, or a judge prompt could be
+# handed the thing it is being kept blind to.
 COPY --from=prepare --chown=1000:1000 /opt/benchmarks /opt/benchmarks
-COPY --from=prepare --chown=1000:1000 \
-     /opt/benchmarks/${BENCHMARK}/url4.merged.toml /etc/url4/url4.toml
-# The aggregate script resolves its rubrics from here. Set in the IMAGE rather than in
-# `url4.toml` so the path travels with the artifacts it points at — a config literal made the two
-# disagree the moment the runner ran outside the image.
-ENV URL4_BENCHMARK_RUBRICS=/opt/benchmarks/${BENCHMARK}/rubrics
+# The Benchmark definition installs its own namespaced routes. This one root points those routes
+# at the immutable assets baked into this image; the shared url4.toml remains model-only.
+ENV URL4_BENCHMARK_ASSETS=/opt/benchmarks
 USER 1000
 # Unchanged from the base: `url4-cloud` (serve) by default, `["url4-cloud","run"]` for a Job.
 CMD ["url4-cloud"]

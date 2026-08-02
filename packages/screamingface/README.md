@@ -4,7 +4,7 @@ Evaluate Models and Fusions against URL4-native research Benchmarks.
 
 > **Development status:** immutable Model/Fusion authoring, Engine-backed discovery, the direct
 > evaluation API, Model/Fusion authoring, and the confirmed `url4-cloud` lifecycle are
-> implemented. The current Engine publishes `draco-lite` through the implemented one-fetch
+> implemented. The current Engine publishes `draco` through the implemented one-fetch
 > Benchmark-expression contract and its Runner-native URL4 routes. Additional Benchmark adapters
 > remain pre-release work. There is no fixture, embedded benchmark runtime, or Client-side
 > execution fallback.
@@ -35,15 +35,22 @@ report = sf.evaluate(
 `evaluate(...)` uses the Engine's explicitly declared default Benchmark, fetches its
 Candidate-independent URL4 expression once, compiles and structurally links every Candidate,
 executes those complete URL4s concurrently, and returns one immutable `Report` in declared order.
-Pass `benchmark="draco-lite"` only when making that default explicit. All no-spend validation
+Pass `benchmark="draco"` only when making that default explicit. All no-spend validation
 finishes before the first paid Run starts. Execution requires a Benchmark Runner image containing
 the expression's referenced data, grading, and Aggregation routes.
+
+The installed `draco` definition always refers to the complete official 100-task Benchmark;
+`limit=1` merely runs one Case. Grading uses five independent Judge passes per criterion. The
+current executable Judge is `openrouter/google/gemini-3.1-pro-preview`, Google's official
+replacement for the paper's retired `Gemini-3-Pro Preview`. Reports should disclose that Judge
+version difference when comparing scores with the paper.
 
 ### Candidate policy defaults
 
 Models and Fusions work without prompt configuration. The SDK supplies a general answer prompt,
 and a Fusion additionally receives the SDK's default synthesizer and constraint-aware synthesis
-prompt:
+prompt. The default synthesizer is the Engine-declared
+`openrouter/anthropic/claude-haiku-4.5` route:
 
 ```python
 plain = sf.Model("openrouter/openai/gpt-5.5")
@@ -71,7 +78,7 @@ These overrides never alter Benchmark-owned Cases, fixed judge models or prompts
 Aggregation. Resolved defaults and overrides are embedded in each final URL4.
 
 The Benchmark resource uses `screamingface.benchmark.v1` and carries its canonical expression in
-`url4`. The SDK compiles a Model or Fusion into an expression accepting `$input`, binds it once as
+`url4` plus an opaque immutable `revision`. The SDK compiles a Model or Fusion into an expression accepting `$input`, binds it once as
 `$candidate`, and links it to the Engine expression using URL4's AST. A Benchmark invokes it with
 `/candidate(input)!$candidate`; that route evaluates it inside the same Engine job, not through an
 additional Client or control-plane request. Unsupported Candidates fail with typed errors instead
@@ -92,18 +99,21 @@ Python 3.12 or newer is required.
 
 ## Engine configuration
 
-The module-level interface constructs one process-wide Client lazily. Set the Engine URL before
-the first catalogue, connection, or evaluation operation only when overriding the local default:
+The module-level interface constructs one process-wide Client lazily. Configure it explicitly when
+overriding the local default:
 
 ```python
-import os
-
-os.environ["SCREAMINGFACE_ENGINE_URL"] = "https://engine.screamingface.ai"
-
 import screamingface as sf
 
+sf.configure(engine_url="https://engine.screamingface.ai")
 report = sf.evaluate(candidates, limit=1)
+sf.close()
 ```
+
+`sf.configure(...)` replaces and closes any existing default Client. `sf.close()` releases the
+default Client and clears it so the next module-level operation can construct a fresh one. Setting
+`SCREAMINGFACE_ENGINE_URL` before the first operation remains supported for environment-driven
+configuration.
 
 The Client hides Benchmark resolution, URL4 compilation, REST/WebSocket transport, Event replay,
 and Report decoding behind `sf.evaluate(...)`.
@@ -188,8 +198,7 @@ the Engine catalogue remains authoritative.
 Local and hosted Engines use the same Client contract. Local mode may run the URL4 executor
 in-process with an in-memory event bus; hosted mode may use the REST/WebSocket control plane with
 NATS and scheduled workers. From the Client's perspective only `engine_url` changes. Generic URL4
-execution does not itself provide the still-missing ScreamingFace Benchmark and capability
-contracts.
+execution remains benchmark-agnostic; installed Engine definitions own Benchmark semantics.
 
 ## Progress and Reports
 
@@ -231,6 +240,8 @@ report.to_dict()
 report.to_json()
 ```
 
+Each entry in `CandidateResult.operations` is a public immutable `sf.OperationInfo` value.
+
 Authentication, validation, transport, execution, protocol, and invalid-result failures raise
 typed exceptions. Partial-result reporting remains a later Engine/Report contract.
 
@@ -249,6 +260,11 @@ dependency tracebacks. Notebook panels render the same safe text inline. Program
 catch a specific recovery class or catch `ScreamingFaceError` for every expected SDK failure;
 translated low-level failures remain attached through `error.__cause__` for debugging. Programmer
 errors such as invalid Python argument types retain their normal tracebacks.
+
+If a Benchmark returns both `coverage` and `coverage_target` metrics, evaluation emits the
+filterable public
+`CoverageWarning` when coverage misses that target; accepted/expected verdict counts are included
+when the Benchmark provides them. This warning does not discard the Report.
 
 ## Ownership boundary
 
@@ -273,7 +289,7 @@ Models and Fusions are immutable, Client-independent, and network-free. Models s
 optional answer policy; Fusions declare topology and optional synthesis policy. The SDK resolves
 their defaults and compiles the Candidate expression. Benchmarks are immutable Engine protocols
 that own Cases, Candidate Invocation order, fixed Judge configuration, Grading, Aggregation,
-required capabilities, and execution policy.
+and execution policy. Reports record the exact Engine-pinned Benchmark revision.
 
 Equivalent resolved Model calls deduplicate by content inside a compiled Candidate graph.
 Explicit Model names identify intentional independent samples. Durable reuse across Candidates,
@@ -302,8 +318,8 @@ or introduce a separate discovery operation.
 
 - [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb): runnable Model/Fusion authoring
   plus the canonical direct evaluation flow.
-- [`examples/05_draco_lite_e2e.ipynb`](examples/05_draco_lite_e2e.ipynb): one-case local
-  DRACO-Lite vertical slice.
+- [`examples/05_draco_e2e.ipynb`](examples/05_draco_e2e.ipynb): one-case local
+  DRACO smoke run (the filename is retained for compatibility).
 - [`examples/06_draco_full_e2e.ipynb`](examples/06_draco_full_e2e.ipynb): the complete seven-solo,
   nine-Fusion DRACO experiment ported from `screamingface-benchmarks` to the Client SDK.
 

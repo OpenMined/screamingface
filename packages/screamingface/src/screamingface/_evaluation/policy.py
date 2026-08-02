@@ -8,7 +8,7 @@ DEFAULT_ANSWER_PROMPT = (
     "Answer the request accurately and completely. "
     "Follow every instruction and formatting constraint in the request."
 )
-DEFAULT_SYNTHESIZER = "anthropic/claude-haiku-4-5"
+DEFAULT_SYNTHESIZER = "openrouter/anthropic/claude-haiku-4.5"
 DEFAULT_SYNTHESIS_PROMPT = (
     "Produce the final answer to the original request. "
     "Synthesize the strongest supported answer from the panel responses, and follow every "

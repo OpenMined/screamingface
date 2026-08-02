@@ -47,16 +47,11 @@ def _benchmark_url4() -> str:
 def _resource(*, url4: str | None = None) -> dict[str, object]:
     return {
         "schema": "screamingface.benchmark.v1",
-        "object": "benchmark",
         "id": "bench@1",
-        "title": "Benchmark",
-        "description": "A Benchmark expression fixture.",
+        "revision": "fixture-revision",
         "case_count": 1,
         "total_case_count": 3,
-        "metrics": {"primary": "score", "direction": "maximize"},
-        "capabilities": {"candidate": ["web_search"], "runtime": []},
         "required_models": ["provider/judge"],
-        "candidate_invocations": 1,
         "url4": _benchmark_url4() if url4 is None else url4,
     }
 
@@ -71,10 +66,8 @@ def test_benchmark_resource_is_data_plus_one_ordinary_url4_expression() -> None:
     assert benchmark.info.id == "bench@1"
     assert benchmark.info.case_count == 3
     assert benchmark.case_count == 1
-    assert benchmark.candidate_invocations == 1
     assert benchmark.required_models == ("provider/judge",)
-    assert benchmark.candidate_capabilities == ("web_search",)
-    assert benchmark.runtime_capabilities == ()
+    assert benchmark.info.revision == "fixture-revision"
     assert render(build(benchmark.url4)) == benchmark.url4
     assert not hasattr(benchmark, "protocol")
     assert not hasattr(benchmark, "plan_route")
@@ -85,7 +78,7 @@ def test_benchmark_resource_is_data_plus_one_ordinary_url4_expression() -> None:
     [
         ({"schema": "other"}, "schema"),
         ({"id": "other"}, "wrong Benchmark id"),
-        ({"candidate_invocations": 0}, "positive integer"),
+        ({"revision": ""}, "revision"),
         ({"url4": "not valid ("}, "URL4"),
     ],
 )
@@ -131,11 +124,11 @@ def test_fusion_compilation_is_benchmark_agnostic_and_uses_sdk_defaults() -> Non
     assert compiled.models == (
         "provider/a",
         "provider/b",
-        "anthropic/claude-haiku-4-5",
+        "openrouter/anthropic/claude-haiku-4.5",
     )
     assert "/provider/a" in compiled.url4
     assert "/provider/b" in compiled.url4
-    assert "/anthropic/claude-haiku-4-5" in compiled.url4
+    assert "/openrouter/anthropic/claude-haiku-4.5" in compiled.url4
     assert "Answer from A." in compiled.url4
     assert "Synthesize the strongest supported answer" in compiled.url4
     assert "follow every instruction and formatting constraint" in compiled.url4
@@ -193,10 +186,9 @@ def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -
     assert evaluation.required_models == (
         "provider/a",
         "provider/b",
-        "anthropic/claude-haiku-4-5",
+        "openrouter/anthropic/claude-haiku-4.5",
         "provider/judge",
     )
-    assert evaluation.required_capabilities == ("web_search",)
     assert [operation.kind for operation in evaluation.candidates[0].operations] == ["model"]
     assert [operation.kind for operation in evaluation.candidates[1].operations] == [
         "model",
@@ -221,7 +213,7 @@ class _Transport:
                     "benchmark_id": "bench@1",
                     "case_count": 1,
                     "score": 0.8,
-                    "metrics": {"score": 0.8},
+                    "metrics": {"coverage": 1.0},
                     "failures": [],
                 }
             ),
@@ -244,7 +236,7 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
             models = (
                 "provider/a",
                 "provider/b",
-                "anthropic/claude-haiku-4-5",
+                "openrouter/anthropic/claude-haiku-4.5",
                 "provider/judge",
             )
             return httpx.Response(

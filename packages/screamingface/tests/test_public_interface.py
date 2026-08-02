@@ -17,17 +17,22 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "Client",
         "Connection",
         "ConnectionPanel",
+        "CoverageWarning",
+        "close",
+        "configure",
         "connect",
         "connections",
         "disconnect",
         "Event",
         "ExecutionError",
         "EngineUnavailableError",
+        "EvaluationWarning",
         "evaluate",
         "Failure",
         "Fusion",
         "MemberResult",
         "Model",
+        "OperationInfo",
         "PlanningError",
         "ProviderConnectionError",
         "Recipe",
@@ -66,6 +71,7 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "CandidateResult",
         "Failure",
         "MemberResult",
+        "OperationInfo",
         "Report",
         "Usage",
     ]
@@ -110,3 +116,31 @@ def test_default_client_is_lazy_and_reads_environment_once(
     assert first.engine_url == "https://first.example"
     first.close()
     monkeypatch.setattr(_default_client, "_client", None)
+
+
+def test_default_client_can_be_reconfigured_and_closed() -> None:
+    _default_client.close()
+    first = sf.configure(engine_url="https://first.example")
+
+    second = sf.configure(engine_url="https://second.example")
+
+    assert first.closed is True
+    assert second is _default_client.default_client()
+    assert second.engine_url == "https://second.example"
+
+    sf.close()
+
+    assert second.closed is True
+    assert _default_client._client is None
+
+
+def test_operation_info_is_a_constructible_public_report_value() -> None:
+    operation = sf.OperationInfo(
+        id="op_answer",
+        kind="model",
+        label="answer",
+        depends_on=(),
+    )
+
+    assert operation.depends_on == ()
+    assert not hasattr(sf, "Operation")

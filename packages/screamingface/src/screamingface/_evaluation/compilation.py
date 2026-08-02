@@ -40,9 +40,6 @@ def compile_evaluation(
         limit=limit,
         case_count=benchmark.case_count,
         candidates=candidates,
-        required_capabilities=_ordered_unique(
-            (*benchmark.candidate_capabilities, *benchmark.runtime_capabilities)
-        ),
         required_models=_ordered_unique(
             (
                 *(model for value in compiled for model in value.models),

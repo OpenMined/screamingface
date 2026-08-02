@@ -35,6 +35,30 @@ def default_client() -> Client:
     return _client
 
 
+def configure(*, engine_url: str) -> Client:
+    """Replace the process-wide Client used by module-level convenience functions."""
+
+    global _client
+    replacement = Client(engine_url=engine_url)
+    with _lock:
+        previous = _client
+        _client = replacement
+    if previous is not None:
+        previous.close()
+    return replacement
+
+
+def close() -> None:
+    """Close and forget the process-wide Client, if it has been created."""
+
+    global _client
+    with _lock:
+        previous = _client
+        _client = None
+    if previous is not None:
+        previous.close()
+
+
 def evaluate(
     candidates: Recipe | Sequence[Recipe],
     *,
@@ -94,4 +118,4 @@ def disconnect(provider: str) -> Connection:
     return default_client().disconnect(provider)
 
 
-__all__ = ["connect", "disconnect", "evaluate"]
+__all__ = ["close", "configure", "connect", "disconnect", "evaluate"]

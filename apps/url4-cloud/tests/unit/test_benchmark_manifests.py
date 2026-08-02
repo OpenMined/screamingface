@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from url4 import build, render
 from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
+from url4_cloud.benchmarks.draco.definition import REVISION, ROUTE_PREFIX
 from url4_cloud.rest.benchmarks import router
 
 pytestmark = pytest.mark.anyio
@@ -59,31 +60,26 @@ def test_listing_is_publicly_cacheable_with_a_validator(client: TestClient) -> N
 def test_draco_resource_contains_one_complete_candidate_independent_url4(
     client: TestClient,
 ) -> None:
-    response = client.get("/v1/benchmarks/draco-lite?limit=1")
+    response = client.get("/v1/benchmarks/draco?limit=1")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
     body = response.json()
     assert body == {
         "schema": "screamingface.benchmark.v1",
-        "object": "benchmark",
-        "id": "draco-lite",
-        "title": "DRACO Lite",
-        "description": "Research-quality rubric evaluation.",
+        "id": "draco",
+        "revision": REVISION,
         "case_count": 1,
         "total_case_count": 100,
-        "metrics": {"primary": "normalized_score", "direction": "maximize"},
-        "capabilities": {
-            "candidate": ["web_search", "web_fetch"],
-            "runtime": [],
-        },
         "required_models": ["openrouter/google/gemini-3.1-pro-preview"],
-        "candidate_invocations": 1,
         "url4": body["url4"],
     }
     assert render(build(body["url4"])) == body["url4"]
     assert "/candidate" in body["url4"]
-    assert "$question" in body["url4"]
+    assert "$item.input" in body["url4"]
+    assert f"{ROUTE_PREFIX}/tasks" in body["url4"]
+    assert body["url4"].count(f"{ROUTE_PREFIX}/criterion-verdict") == 5
+    assert "/benchmark/tasks" not in body["url4"]
     assert "/openrouter/google/gemini-3.1-pro-preview" in body["url4"]
     assert "anthropic/claude-haiku" not in body["url4"]
     assert "protocol" not in body
@@ -91,12 +87,11 @@ def test_draco_resource_contains_one_complete_candidate_independent_url4(
 
 
 def test_limit_selects_cases_before_the_expression_is_returned(client: TestClient) -> None:
-    limited = client.get("/v1/benchmarks/draco-lite?limit=2").json()
-    complete = client.get("/v1/benchmarks/draco-lite").json()
+    limited = client.get("/v1/benchmarks/draco?limit=2").json()
+    complete = client.get("/v1/benchmarks/draco").json()
 
     assert limited["case_count"] == 2
     assert limited["total_case_count"] == 100
-    assert limited["candidate_invocations"] == 2
     assert limited["url4"] != complete["url4"]
     assert complete["case_count"] == 100
 
@@ -110,8 +105,8 @@ def test_default_alias_resolves_without_a_catalog_fetch(client: TestClient) -> N
 
 
 def test_resource_has_a_representation_specific_strong_etag(client: TestClient) -> None:
-    one = client.get("/v1/benchmarks/draco-lite?limit=1")
-    two = client.get("/v1/benchmarks/draco-lite?limit=2")
+    one = client.get("/v1/benchmarks/draco?limit=1")
+    two = client.get("/v1/benchmarks/draco?limit=2")
 
     assert "public" in one.headers["cache-control"]
     assert one.headers["etag"].startswith('"')
@@ -119,10 +114,10 @@ def test_resource_has_a_representation_specific_strong_etag(client: TestClient) 
 
 
 def test_matching_if_none_match_gets_304_with_no_body(client: TestClient) -> None:
-    etag = client.get("/v1/benchmarks/draco-lite?limit=1").headers["etag"]
+    etag = client.get("/v1/benchmarks/draco?limit=1").headers["etag"]
 
     response = client.get(
-        "/v1/benchmarks/draco-lite?limit=1",
+        "/v1/benchmarks/draco?limit=1",
         headers={"If-None-Match": etag},
     )
 
@@ -140,20 +135,20 @@ def test_unknown_id_is_404_problem_json(client: TestClient) -> None:
 
 @pytest.mark.parametrize("limit", ["0", "-1", "false", "1.5"])
 def test_limit_must_be_a_positive_integer(client: TestClient, limit: str) -> None:
-    response = client.get("/v1/benchmarks/draco-lite", params={"limit": limit})
+    response = client.get("/v1/benchmarks/draco", params={"limit": limit})
 
     assert response.status_code == 422
 
 
 def test_planning_post_route_no_longer_exists(client: TestClient) -> None:
-    response = client.post("/v1/benchmarks/draco-lite/plans", json={})
+    response = client.post("/v1/benchmarks/draco/plans", json={})
 
     assert response.status_code == 404
 
 
 @pytest.mark.parametrize(
     "hostile",
-    ["../../etc/passwd", "..%2f..%2fetc%2fpasswd", "draco-lite/../../secret", "%2e%2e%2f"],
+    ["../../etc/passwd", "..%2f..%2fetc%2fpasswd", "draco/../../secret", "%2e%2e%2f"],
 )
 def test_a_traversal_shaped_id_is_never_served(client: TestClient, hostile: str) -> None:
     response = client.get(f"/v1/benchmarks/{hostile}")
