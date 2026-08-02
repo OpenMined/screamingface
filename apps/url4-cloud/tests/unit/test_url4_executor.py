@@ -500,22 +500,40 @@ def _imports_url4_engine(py_file: Path) -> bool:
     return False
 
 
+def _url4_engine_modules(py_file: Path) -> set[str]:
+    tree = ast.parse(py_file.read_text(), filename=str(py_file))
+    selected: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            selected.update(alias.name for alias in node.names if _is_engine_module(alias.name))
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            if _is_engine_module(node.module):
+                selected.add(node.module)
+    return selected
+
+
 _ALLOWED_URL4_IMPORTERS = frozenset({"executor.py", "connector.py"})
 
 
-def test_only_runner_adapters_import_the_url4_engine() -> None:
-    """The ENGINE (`url4.dag`, `url4.peer`, …) has exactly two importers in the whole app.
+def _is_benchmark_author(py_file: Path) -> bool:
+    return "benchmarks" in py_file.relative_to(_SRC_ROOT).parts
+
+
+def test_only_runner_adapters_and_benchmark_authors_import_url4() -> None:
+    """Execution stays in two adapters; Benchmark authors may construct public URL4 ASTs.
 
     `url4.streaming` is exempt — it is the wire contract, which both halves speak. This scans
     the whole distribution now rather than a separate runner tree: merging the two packages
-    means the control-plane modules are in scope too, so the guard covers strictly more code
-    than it did when it could only see the separate runner source tree. The two adapters are
-    deliberately narrow: expression execution, plus declared model/data/subprocess routes.
+    means the control-plane modules are in scope too. Engine-owned Benchmark definitions are the
+    one deliberate construction boundary: authors use URL4's public typed AST, while execution
+    remains confined to the two narrow Runner adapters.
     """
     offenders = [
         py_file
         for py_file in _SRC_ROOT.rglob("*.py")
-        if _imports_url4_engine(py_file) and py_file.name not in _ALLOWED_URL4_IMPORTERS
+        if _imports_url4_engine(py_file)
+        and py_file.name not in _ALLOWED_URL4_IMPORTERS
+        and not _is_benchmark_author(py_file)
     ]
     assert offenders == []
 
@@ -525,6 +543,14 @@ def test_only_runner_adapters_import_the_url4_engine() -> None:
         if py_file.name in _ALLOWED_URL4_IMPORTERS and _imports_url4_engine(py_file)
     }
     assert allowed == _ALLOWED_URL4_IMPORTERS
+
+    benchmark_imports = {
+        module
+        for py_file in _SRC_ROOT.rglob("*.py")
+        if _is_benchmark_author(py_file)
+        for module in _url4_engine_modules(py_file)
+    }
+    assert benchmark_imports <= {"url4"}
 
 
 # --- per-span usage accumulation ---------------------------------------------------------

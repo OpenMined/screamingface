@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any, cast
 
 import pytest
@@ -9,15 +8,15 @@ import screamingface as sf
 from screamingface._evaluation.model import (
     Candidate,
     Operation,
-    _candidate_from_engine,
+    _compiled_candidate,
+    _compiled_evaluation,
+    _compiled_operation,
     _Evaluation,
-    _evaluation_from_engine,
-    _operation_from_engine,
 )
 
 
 def planned_candidate(name: str = "opus") -> Candidate:
-    return _candidate_from_engine(
+    return _compiled_candidate(
         name=name,
         kind="model",
         models=("provider/opus",),
@@ -36,7 +35,7 @@ def planned_candidate(name: str = "opus") -> Candidate:
 def evaluation_plan(
     candidates: tuple[Candidate, ...] | None = None,
 ) -> _Evaluation:
-    return _evaluation_from_engine(
+    return _compiled_evaluation(
         benchmark=sf.BenchmarkInfo(
             name="draco",
             id="draco@1",
@@ -50,7 +49,6 @@ def evaluation_plan(
         candidates=candidates or (planned_candidate(),),
         required_capabilities=("web_search",),
         required_models=("provider/opus", "provider/judge"),
-        operation_counts={"model": 1, "aggregation": 1},
     )
 
 
@@ -60,7 +58,7 @@ def operation(
     label: str,
     depends_on: tuple[str, ...],
 ) -> Operation:
-    return _operation_from_engine(
+    return _compiled_operation(
         id=id,
         kind=kind,
         label=label,
@@ -83,7 +81,7 @@ def test_plan_values_are_readable_and_support_strict_lookup() -> None:
         plan.candidates.only
 
 
-def test_candidate_exposes_its_engine_inspected_operation_dag() -> None:
+def test_candidate_exposes_its_compiled_operation_dag() -> None:
     answer = operation(
         id="op_answer",
         kind="model",
@@ -97,7 +95,7 @@ def test_candidate_exposes_its_engine_inspected_operation_dag() -> None:
         depends_on=("op_answer",),
     )
 
-    candidate = _candidate_from_engine(
+    candidate = _compiled_candidate(
         name="opus",
         kind="model",
         models=("provider/opus",),
@@ -163,7 +161,7 @@ def test_operation_rejects_malformed_identity_and_dependencies(
     message: str,
 ) -> None:
     with pytest.raises((TypeError, ValueError), match=message):
-        _operation_from_engine(**cast(Any, values))
+        _compiled_operation(**cast(Any, values))
 
 
 @pytest.mark.parametrize(
@@ -195,7 +193,7 @@ def test_candidate_rejects_an_invalid_operation_dag(
     message: str,
 ) -> None:
     with pytest.raises((TypeError, ValueError), match=message):
-        _candidate_from_engine(
+        _compiled_candidate(
             name="opus",
             kind="model",
             models=("provider/opus",),
@@ -204,13 +202,10 @@ def test_candidate_rejects_an_invalid_operation_dag(
         )
 
 
-def test_plan_collections_are_immutable() -> None:
+def test_plan_candidate_collection_is_immutable() -> None:
     plan = evaluation_plan()
-    counts: Mapping[str, int] = plan.operation_counts
 
     assert plan.candidates.only.name == "opus"
-    with pytest.raises(TypeError):
-        cast(Any, counts)["model"] = 99
 
 
 def test_engine_resolved_values_cannot_be_fabricated_through_public_constructors() -> None:
@@ -223,7 +218,7 @@ def test_engine_resolved_values_cannot_be_fabricated_through_public_constructors
     ("factory", "message"),
     [
         (
-            lambda: _candidate_from_engine(
+            lambda: _compiled_candidate(
                 name=" ",
                 kind="model",
                 models=("provider/opus",),
@@ -233,7 +228,7 @@ def test_engine_resolved_values_cannot_be_fabricated_through_public_constructors
             "name",
         ),
         (
-            lambda: _candidate_from_engine(
+            lambda: _compiled_candidate(
                 name="opus",
                 kind=cast(Any, "ensemble"),
                 models=("provider/opus",),
@@ -243,7 +238,7 @@ def test_engine_resolved_values_cannot_be_fabricated_through_public_constructors
             "kind",
         ),
         (
-            lambda: _candidate_from_engine(
+            lambda: _compiled_candidate(
                 name="opus",
                 kind="model",
                 models=(),
@@ -253,7 +248,7 @@ def test_engine_resolved_values_cannot_be_fabricated_through_public_constructors
             "models",
         ),
         (
-            lambda: _candidate_from_engine(
+            lambda: _compiled_candidate(
                 name="opus",
                 kind="model",
                 models=("provider/opus", "provider/gpt"),
@@ -263,7 +258,7 @@ def test_engine_resolved_values_cannot_be_fabricated_through_public_constructors
             "exactly one model route",
         ),
         (
-            lambda: _candidate_from_engine(
+            lambda: _compiled_candidate(
                 name="opus",
                 kind="model",
                 models=("provider/opus", "provider/opus"),
@@ -273,7 +268,7 @@ def test_engine_resolved_values_cannot_be_fabricated_through_public_constructors
             "unique",
         ),
         (
-            lambda: _candidate_from_engine(
+            lambda: _compiled_candidate(
                 name="opus",
                 kind="model",
                 models=("provider/opus",),
@@ -297,7 +292,6 @@ def test_planned_candidate_rejects_invalid_state(factory: object, message: str) 
         ({"case_count": 0}, "case_count"),
         ({"limit": 1, "case_count": 2}, "case_count"),
         ({"required_capabilities": ("web_search", "web_search")}, "unique"),
-        ({"operation_counts": {"model": -1}}, "operation count"),
     ],
 )
 def test_evaluation_plan_rejects_invalid_state(
@@ -318,12 +312,11 @@ def test_evaluation_plan_rejects_invalid_state(
         "candidates": (planned_candidate(),),
         "required_capabilities": ("web_search",),
         "required_models": ("provider/opus", "provider/judge"),
-        "operation_counts": {"model": 1},
     }
     values.update(overrides)
 
     with pytest.raises((TypeError, ValueError), match=message):
-        _evaluation_from_engine(**cast(Any, values))
+        _compiled_evaluation(**cast(Any, values))
 
 
 def test_evaluate_reports_an_unreachable_manifest_engine() -> None:

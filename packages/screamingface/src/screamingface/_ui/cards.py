@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from html import escape
 from typing import TYPE_CHECKING
 
@@ -21,6 +21,10 @@ def model_card_html(model: Model) -> str:
     fields = _field("route", _mono(model.model)) + _field(
         "provider", escape(_provider_of(model.model))
     )
+    if model.prompt is not None:
+        fields += _field("prompt", escape(model.prompt), wide=True)
+    if model.params:
+        fields += _field("params", _params(model.params), wide=True)
     return (
         f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace model'>"
         "<div class='sf-card__accent sf-card__accent--solid'></div>"
@@ -34,12 +38,22 @@ def fusion_card_html(fusion: Fusion) -> str:
     """Render the Benchmark-independent Fusion topology."""
 
     members = "".join(_member_detail(member) for member in fusion.members)
+    synthesis = ""
+    if fusion.synthesizer is not None or fusion.prompt is not None or fusion.params:
+        fields = ""
+        if fusion.synthesizer is not None:
+            fields += _field("synthesizer", _mono(fusion.synthesizer), wide=True)
+        if fusion.prompt is not None:
+            fields += _field("prompt", escape(fusion.prompt), wide=True)
+        if fusion.params:
+            fields += _field("params", _params(fusion.params), wide=True)
+        synthesis = _section("synthesis", f"<div class='sf-card__grid'>{fields}</div>")
     return (
         f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace fusion'>"
         "<div class='sf-card__accent'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(fusion.name)}</span>"
         "<span class='sf-card__kicker'>fusion</span></div>"
-        f"{_section('members', members)}</div>"
+        f"{_section('members', members)}{synthesis}</div>"
     )
 
 
@@ -108,6 +122,10 @@ def _provider_of(route: str) -> str:
 
 def _mono(value: str) -> str:
     return f"<span class='sf-mono'>{escape(value)}</span>"
+
+
+def _params(values: Mapping[str, object]) -> str:
+    return _mono(", ".join(f"{name}={value}" for name, value in values.items()))
 
 
 def _chip(value: str) -> str:

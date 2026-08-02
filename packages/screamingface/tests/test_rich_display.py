@@ -133,14 +133,17 @@ def test_model_card_renders_only_real_escaped_authoring_fields() -> None:
     model = sf.Model(
         "openrouter/anthropic/claude-opus-4.8",
         name="opus <script>",
+        prompt="Use <primary> evidence.",
+        params={"temperature": 0.2},
     )
 
     html = cast(Any, model)._repr_html_()
 
     assert "opus &lt;script&gt;" in html
     assert "openrouter/anthropic/claude-opus-4.8" in html
+    assert "Use &lt;primary&gt; evidence." in html
+    assert "temperature=0.2" in html
     assert "instructions" not in html
-    assert "temperature" not in html
     assert "reasoning" not in html
     assert "max output tokens" not in html
     for banned in _FABRICATED:
@@ -153,6 +156,9 @@ def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None
     fusion = sf.Fusion(
         [opus, gpt],
         name="frontier <pair>",
+        synthesizer="provider/synth",
+        prompt="Resolve <conflicts>.",
+        params={"reasoning": "high"},
     )
 
     html = cast(Any, fusion)._repr_html_()
@@ -161,7 +167,10 @@ def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None
     assert ">members<" in html
     assert "provider/opus" in html
     assert "provider/gpt" in html
-    assert ">synthesis<" not in html
+    assert ">synthesis<" in html
+    assert "provider/synth" in html
+    assert "Resolve &lt;conflicts&gt;." in html
+    assert "reasoning=high" in html
     assert "sf-card__accent" in html
     assert "sf-gain-grad" in html
 

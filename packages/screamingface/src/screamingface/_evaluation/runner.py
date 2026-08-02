@@ -9,15 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
-from screamingface._evaluation.benchmark import _BenchmarkManifest
+from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.model import (
     Candidate,
-    _candidate_from_engine,
     _candidate_values,
     _Evaluation,
-    _evaluation_from_engine,
-    _member_projection,
-    _operation_from_engine,
     _validate_limit,
 )
 from screamingface.discovery import ModelInfo
@@ -27,14 +23,14 @@ from screamingface.report import Report
 
 type _SyncModelListing = Callable[[], Sequence[ModelInfo]]
 type _AsyncModelListing = Callable[[], Awaitable[Sequence[ModelInfo]]]
-type _SyncManifestLoading = Callable[[str | None], _BenchmarkManifest]
-type _AsyncManifestLoading = Callable[[str | None], Awaitable[_BenchmarkManifest]]
+type _SyncBenchmarkLoading = Callable[[str | None, int | None], _BenchmarkResource]
+type _AsyncBenchmarkLoading = Callable[[str | None, int | None], Awaitable[_BenchmarkResource]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
 
 
 def evaluate_sync(
-    load_manifest: _SyncManifestLoading,
+    load_benchmark: _SyncBenchmarkLoading,
     transport: SyncRunTransport,
     list_models: _SyncModelListing,
     candidates: Recipe | Sequence[Recipe],
@@ -45,10 +41,13 @@ def evaluate_sync(
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
+    from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.results import report_from_outcomes
 
     _evaluation_options(on_event, progress)
-    evaluation = _compile_sync(load_manifest, candidates, benchmark, limit)
+    values = _evaluation_inputs(candidates, benchmark, limit)
+    resource = load_benchmark(benchmark, limit)
+    evaluation = compile_evaluation(values, resource, limit)
     _validate_required_models(evaluation, list_models())
     observer = _sync_event_observer(on_event, progress)
     outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
@@ -56,7 +55,7 @@ def evaluate_sync(
 
 
 async def evaluate_async(
-    load_manifest: _AsyncManifestLoading,
+    load_benchmark: _AsyncBenchmarkLoading,
     transport: AsyncRunTransport,
     list_models: _AsyncModelListing,
     candidates: Recipe | Sequence[Recipe],
@@ -67,10 +66,13 @@ async def evaluate_async(
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
+    from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.results import report_from_outcomes
 
     _evaluation_options(on_event, progress)
-    evaluation = await _compile_async(load_manifest, candidates, benchmark, limit)
+    values = _evaluation_inputs(candidates, benchmark, limit)
+    resource = await load_benchmark(benchmark, limit)
+    evaluation = compile_evaluation(values, resource, limit)
     _validate_required_models(evaluation, await list_models())
     observer = _async_event_observer(on_event, progress)
     outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
@@ -179,93 +181,6 @@ async def _run_candidates_async(
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
     return tuple(zip(candidates, outcomes, strict=True))
-
-
-def _compile_sync(
-    load_manifest: _SyncManifestLoading,
-    candidates: Recipe | Sequence[Recipe],
-    benchmark: str | None,
-    limit: int | None,
-) -> _Evaluation:
-    values = _evaluation_inputs(candidates, benchmark, limit)
-    return _compile(values, load_manifest(benchmark), limit)
-
-
-async def _compile_async(
-    load_manifest: _AsyncManifestLoading,
-    candidates: Recipe | Sequence[Recipe],
-    benchmark: str | None,
-    limit: int | None,
-) -> _Evaluation:
-    values = _evaluation_inputs(candidates, benchmark, limit)
-    return _compile(values, await load_manifest(benchmark), limit)
-
-
-def _compile(
-    candidates: tuple[Recipe, ...],
-    manifest: _BenchmarkManifest,
-    limit: int | None,
-) -> _Evaluation:
-    from screamingface._evaluation.compiler import compile_benchmark
-
-    case_count = manifest.info.case_count if limit is None else min(limit, manifest.info.case_count)
-    compiled = []
-    model_calls = 0
-    synthesis_calls = 0
-    for value in candidates:
-        candidate = compile_benchmark(value, manifest, limit=case_count)
-        model_calls += candidate.model_calls_per_case
-        synthesis_calls += candidate.synthesis_calls_per_case
-        compiled.append(
-            _candidate_from_engine(
-                name=value.name,
-                kind=candidate.kind,
-                models=candidate.models,
-                url4=candidate.url4,
-                operations=tuple(
-                    _operation_from_engine(
-                        id=operation.id,
-                        kind=operation.kind,
-                        label=operation.label,
-                        depends_on=operation.depends_on,
-                    )
-                    for operation in candidate.operations
-                ),
-                members=tuple(
-                    _member_projection(
-                        operation_id=member.operation_id,
-                        name=member.name,
-                        kind=member.kind,
-                        models=member.models,
-                    )
-                    for member in candidate.members
-                ),
-            )
-        )
-    return _evaluation_from_engine(
-        benchmark=manifest.info,
-        limit=limit,
-        case_count=case_count,
-        candidates=compiled,
-        required_capabilities=manifest.required_capabilities,
-        required_models=tuple(
-            dict.fromkeys(
-                (
-                    *(model for candidate in compiled for model in candidate.models),
-                    manifest.judge_model,
-                )
-            )
-        ),
-        operation_counts={
-            "model": model_calls * case_count,
-            "synthesis": synthesis_calls * case_count,
-            "judge": (
-                len(compiled) * case_count * manifest.criteria_per_case * manifest.judge_passes
-            ),
-            "grading": len(compiled) * case_count,
-            "aggregation": len(compiled),
-        },
-    )
 
 
 def _validate_required_models(

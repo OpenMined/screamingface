@@ -1,4 +1,4 @@
-"""Decode the Engine-owned metadata needed to compile one Benchmark evaluation."""
+"""Decode one Engine-owned Benchmark expression resource."""
 
 from __future__ import annotations
 
@@ -7,124 +7,103 @@ from typing import NoReturn, cast
 
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
+from screamingface._evaluation.model import _canonical_url4
 from screamingface.discovery import BenchmarkInfo, ScoreDirection
 from screamingface.errors import PlanningError
 
+_SCHEMA = "screamingface.benchmark.v1"
+
 
 @dataclass(frozen=True, slots=True)
-class _BenchmarkManifest:
+class _BenchmarkResource:
     info: BenchmarkInfo
-    cases_route: str
-    criteria_route: str
-    aggregate_route: str
-    answer_instructions: str
-    answer_params: tuple[tuple[str, str], ...]
-    synthesis_model: str
-    synthesis_instructions: str
-    synthesis_params: tuple[tuple[str, str], ...]
-    judge_model: str
-    judge_instructions: str
-    judge_passes: int
-    judge_params: tuple[tuple[str, str], ...]
-    criteria_per_case: int
-    required_capabilities: tuple[str, ...]
+    case_count: int
+    url4: str
+    required_models: tuple[str, ...]
+    candidate_capabilities: tuple[str, ...]
+    runtime_capabilities: tuple[str, ...]
+    candidate_invocations: int
 
 
-def _decode_manifest(decoded: object) -> _BenchmarkManifest:
-    manifest = _wire_mapping(decoded, "Benchmark manifest", _invalid)
-    cases = _wire_mapping(manifest.get("cases"), "manifest cases", _invalid)
-    answer = _wire_mapping(manifest.get("answer"), "manifest answer", _invalid)
-    synthesis = _wire_mapping(manifest.get("synthesis"), "manifest synthesis", _invalid)
-    grader = _wire_mapping(manifest.get("grader"), "manifest grader", _invalid)
-    aggregator = _wire_mapping(manifest.get("aggregator"), "manifest aggregator", _invalid)
-    metrics = _wire_mapping(manifest.get("metrics"), "manifest metrics", _invalid)
-    if grader.get("kind") != "rubric":
-        _invalid("manifest grader kind must be 'rubric'")
-    if aggregator.get("kind") != "mean":
-        _invalid("manifest aggregator kind must be 'mean'")
-    tools = manifest.get("tools", [])
-    if not isinstance(tools, list) or any(not isinstance(tool, str) for tool in tools):
-        _invalid("manifest tools must be an array of names")
-    selected_tools = cast(list[str], tools)
-    benchmark_id = _wire_text(manifest.get("id"), "Benchmark id", _invalid)
-    info = BenchmarkInfo(
-        name=benchmark_id,
-        id=benchmark_id,
-        title=_wire_text(manifest.get("title"), "Benchmark title", _invalid),
-        case_count=_positive(cases.get("count"), "Benchmark case count"),
-        primary_metric=_wire_text(metrics.get("primary"), "primary metric", _invalid),
-        score_direction=_direction(metrics.get("direction")),
+def _decode_benchmark_resource(
+    decoded: object,
+    *,
+    requested_id: str | None,
+    requested_limit: int | None,
+) -> _BenchmarkResource:
+    resource = _wire_mapping(decoded, "Benchmark resource", _invalid)
+    if resource.get("schema") != _SCHEMA:
+        _invalid(f"Benchmark resource schema must be {_SCHEMA!r}")
+    if resource.get("object") != "benchmark":
+        _invalid("Benchmark resource object must be 'benchmark'")
+
+    benchmark_id = _wire_text(resource.get("id"), "Benchmark id", _invalid)
+    if requested_id not in {None, "default", benchmark_id}:
+        _invalid("Benchmark resource has the wrong Benchmark id")
+    _wire_text(resource.get("description"), "Benchmark description", _invalid)
+    total_case_count = _positive(resource.get("total_case_count"), "total_case_count")
+    case_count = _positive(resource.get("case_count"), "case_count")
+    expected_count = (
+        total_case_count if requested_limit is None else min(requested_limit, total_case_count)
     )
-    return _BenchmarkManifest(
+    if case_count != expected_count:
+        _invalid("Benchmark resource case_count does not match the requested limit")
+
+    metrics = _wire_mapping(resource.get("metrics"), "Benchmark metrics", _invalid)
+    capabilities = _wire_mapping(resource.get("capabilities"), "Benchmark capabilities", _invalid)
+    invocations = _positive(
+        resource.get("candidate_invocations"),
+        "candidate_invocations",
+    )
+    try:
+        url4 = _canonical_url4(resource.get("url4"), "Benchmark")
+        info = BenchmarkInfo(
+            name=benchmark_id,
+            id=benchmark_id,
+            title=_wire_text(resource.get("title"), "Benchmark title", _invalid),
+            case_count=total_case_count,
+            primary_metric=_wire_text(metrics.get("primary"), "primary metric", _invalid),
+            score_direction=_direction(metrics.get("direction")),
+        )
+    except (TypeError, ValueError) as exc:
+        _invalid(str(exc))
+
+    return _BenchmarkResource(
         info=info,
-        cases_route=_route(cases.get("route"), "Benchmark cases route"),
-        criteria_route=_criteria_route(
-            grader.get("criteria_route"),
-            "Benchmark criteria route",
-        ),
-        aggregate_route=_route(aggregator.get("route"), "Benchmark aggregate route"),
-        answer_instructions=_wire_text(answer.get("instructions"), "answer instructions", _invalid),
-        answer_params=_params(answer.get("params"), "answer params"),
-        synthesis_model=_wire_text(synthesis.get("model"), "synthesis model", _invalid),
-        synthesis_instructions=_wire_text(
-            synthesis.get("instructions"), "synthesis instructions", _invalid
-        ),
-        synthesis_params=_params(synthesis.get("params"), "synthesis params"),
-        judge_model=_wire_text(grader.get("model"), "judge model", _invalid),
-        judge_instructions=_wire_text(grader.get("instructions"), "judge instructions", _invalid),
-        judge_passes=_positive(grader.get("passes"), "judge passes"),
-        judge_params=_params(grader.get("params"), "judge params"),
-        criteria_per_case=_positive(grader.get("criteria_per_case"), "criteria per case"),
-        required_capabilities=tuple(selected_tools),
+        case_count=case_count,
+        url4=url4,
+        required_models=_names(resource.get("required_models"), "required models"),
+        candidate_capabilities=_names(capabilities.get("candidate"), "candidate capabilities"),
+        runtime_capabilities=_names(capabilities.get("runtime"), "runtime capabilities"),
+        candidate_invocations=invocations,
     )
 
 
-def _route(value: object, label: str) -> str:
-    route = _wire_text(value, label, _invalid)
-    if not route.startswith("/"):
-        _invalid(f"{label} must begin with '/'")
-    return route
-
-
-def _criteria_route(value: object, label: str) -> str:
-    route = _route(value, label)
-    if route.count("{case_id}") != 1:
-        _invalid(f"{label} must contain exactly one '{{case_id}}' placeholder")
-    return route
+def _names(value: object, label: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        _invalid(f"Benchmark resource {label} must be an array")
+    selected = tuple(_wire_text(item, label, _invalid) for item in value)
+    if len(selected) != len(set(selected)):
+        _invalid(f"Benchmark resource {label} must be unique")
+    return selected
 
 
 def _positive(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        _invalid(f"{label} must be a positive integer")
+        _invalid(f"Benchmark resource {label} must be a positive integer")
     return cast(int, value)
-
-
-def _params(value: object, label: str) -> tuple[tuple[str, str], ...]:
-    raw = _wire_mapping(value, label, _invalid)
-    result: list[tuple[str, str]] = []
-    for name, item in raw.items():
-        if not isinstance(name, str) or not name.strip():
-            _invalid(f"{label} names must be non-blank text")
-        if isinstance(item, bool):
-            selected = "true" if item else "false"
-        elif isinstance(item, str | int | float):
-            selected = str(item)
-        else:
-            _invalid(f"{label} value {name!r} must be a scalar")
-        result.append((name, selected))
-    return tuple(result)
 
 
 def _direction(value: object) -> ScoreDirection:
     if value not in {"maximize", "minimize"}:
-        _invalid("metric direction must be maximize or minimize")
+        _invalid("Benchmark metric direction must be maximize or minimize")
     return cast(ScoreDirection, value)
 
 
 def _invalid(message: str) -> NoReturn:
     raise PlanningError(
         message,
-        code="invalid_benchmark_manifest",
+        code="invalid_benchmark_resource",
         permanent=True,
     )
 

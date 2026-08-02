@@ -59,7 +59,7 @@ class Client:
         import httpx
 
         from screamingface._engine.auth import _default_caller_auth
-        from screamingface._engine.benchmark import BenchmarkManifests
+        from screamingface._engine.benchmark import BenchmarkResources
         from screamingface._engine.catalog import Benchmarks, Models
         from screamingface._engine.registry import _default_transport_registry
         from screamingface.connections import Connections
@@ -81,7 +81,7 @@ class Client:
         )
         self.models = Models(self._http_get, self._engine_url)
         self.benchmarks = Benchmarks(self._http_get, self._engine_url)
-        self._manifests = BenchmarkManifests(self._http)
+        self._benchmark_resources = BenchmarkResources(self._http)
         self.connections = Connections(self._http_request, self._engine_url)
 
     @property
@@ -160,7 +160,7 @@ class Client:
 
         self._require_open()
         return evaluate_sync(
-            self._manifests.load,
+            self._benchmark_resources.load,
             self._transport,
             self.models.list,
             candidates,
@@ -256,7 +256,7 @@ class AsyncClient:
         import httpx
 
         from screamingface._engine.auth import _default_caller_auth
-        from screamingface._engine.benchmark import AsyncBenchmarkManifests
+        from screamingface._engine.benchmark import AsyncBenchmarkResources
         from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels
         from screamingface._engine.registry import _default_transport_registry
         from screamingface.connections import AsyncConnections
@@ -278,7 +278,7 @@ class AsyncClient:
         )
         self.models = AsyncModels(self._http_get, self._engine_url)
         self.benchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
-        self._manifests = AsyncBenchmarkManifests(self._http)
+        self._benchmark_resources = AsyncBenchmarkResources(self._http)
         self.connections = AsyncConnections(self._http_request, self._engine_url)
 
     @property
@@ -357,7 +357,7 @@ class AsyncClient:
 
         self._require_open()
         return await evaluate_async(
-            self._manifests.load,
+            self._benchmark_resources.load,
             self._transport,
             self.models.list,
             candidates,

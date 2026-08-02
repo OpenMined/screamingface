@@ -9,55 +9,81 @@ from typing import Any
 
 import httpx
 import pytest
-import yaml
+from url4 import RelExpr, Text, iterate, render, src
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
-from screamingface._engine.benchmark import _select_benchmark, _success, load_manifest
-from screamingface._evaluation.benchmark import _decode_manifest
-from screamingface._evaluation.compiler import _url4_text
+from screamingface._engine.benchmark import BenchmarkResources, _success
+from screamingface._evaluation.benchmark import _decode_benchmark_resource
+from screamingface._evaluation.candidate import _url4_text, compile_candidate
+from screamingface._evaluation.compilation import compile_evaluation
 from screamingface._evaluation.model import Candidate
 from screamingface._evaluation.results import _candidate_result
-from screamingface._evaluation.runner import _compile_sync
 
-MANIFEST = b"""\
-id: draco-lite
-title: DRACO Lite
-cases:
-  count: 1
-  route: /draco/cases
-answer:
-  instructions: Answer completely.
-  params:
-    temperature: 0.2
-    reasoning: low
-    max_output_tokens: 4096
-synthesis:
-  model: provider/synthesizer
-  instructions: Combine the panel answers.
-  params:
-    temperature: 0.2
-    reasoning: low
-    max_output_tokens: 4096
-grader:
-  kind: rubric
-  criteria_route: /draco/criteria/{case_id}
-  criteria_per_case: 10
-  model: provider/judge
-  passes: 1
-  instructions: Return JSON.
-  params:
-    temperature: 0.2
-aggregator:
-  kind: mean
-  route: /benchmark
-metrics:
-  primary: normalized_score
-  direction: maximize
-tools:
-  - web_search
-  - web_fetch
-"""
+
+def _draco_url4() -> str:
+    judge = RelExpr(
+        path="/provider/judge",
+        context="answer: $answer; criterion: $criterion",
+        intent=Text("Return JSON."),
+        params=(("temperature", "0.2"),),
+    )
+    criteria = iterate(
+        "/draco/criteria/$item.id",
+        body=(
+            src("$item.requirement", name="criterion", weight=0.0),
+            src(judge, name="verdict", weight=1.0),
+        ),
+        intent=Text("criterion"),
+    )
+    reducer = render(
+        RelExpr(
+            path="/benchmark",
+            context="aggregate",
+            intent=Text("Aggregate Candidate case grades."),
+        )
+    )
+    return render(
+        iterate(
+            "/draco/cases",
+            body=(
+                src("$item.id", name="case_id", weight=0.0),
+                src("$item.input", name="question", weight=0.0),
+                src(
+                    RelExpr(
+                        path="/candidate",
+                        context="$question",
+                        intent=Text("$candidate"),
+                    ),
+                    name="answer",
+                    weight=0.0,
+                ),
+                src(criteria, name="graded", weight=1.0),
+            ),
+            intent=Text("case"),
+            reduce=reducer,
+            on_error="collect",
+        )
+    )
+
+
+BENCHMARK: dict[str, object] = {
+    "schema": "screamingface.benchmark.v1",
+    "object": "benchmark",
+    "id": "draco-lite",
+    "title": "DRACO Lite",
+    "description": "Research-quality rubric evaluation.",
+    "case_count": 1,
+    "total_case_count": 1,
+    "metrics": {"primary": "normalized_score", "direction": "maximize"},
+    "capabilities": {
+        "candidate": ["web_search", "web_fetch"],
+        "runtime": [],
+    },
+    "required_models": ["provider/judge"],
+    "candidate_invocations": 1,
+    "url4": _draco_url4(),
+}
 
 
 class _FakeTransport:
@@ -157,7 +183,7 @@ def _engine(request: httpx.Request) -> httpx.Response:
             "provider/synthesizer",
             "provider/judge",
         )
-        response = httpx.Response(
+        return httpx.Response(
             200,
             json={
                 "object": "list",
@@ -167,20 +193,12 @@ def _engine(request: httpx.Request) -> httpx.Response:
                 ],
             },
         )
-    elif request.url.path == "/v1/benchmarks":
-        response = httpx.Response(
-            200,
-            json={
-                "object": "list",
-                "default": "draco-lite",
-                "data": [{"id": "draco-lite", "object": "benchmark"}],
-            },
-        )
-    elif request.url.path == "/v1/benchmarks/draco-lite":
-        response = httpx.Response(200, content=MANIFEST)
-    else:
-        response = httpx.Response(404)
-    return response
+    if request.url.path in {
+        "/v1/benchmarks/default",
+        "/v1/benchmarks/draco-lite",
+    }:
+        return httpx.Response(200, json=BENCHMARK)
+    return httpx.Response(404)
 
 
 def _client() -> tuple[sf.Client, _FakeTransport]:
@@ -196,36 +214,29 @@ def _client() -> tuple[sf.Client, _FakeTransport]:
 def test_client_evaluates_the_complete_draco_lite_vertical_slice() -> None:
     client, transport = _client()
 
-    model = sf.Model("anthropic/claude-haiku-4-5", name="haiku")
-
     with client:
-        report = client.evaluate(model, limit=1)
+        report = client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            limit=1,
+        )
 
     result = report.candidates.only
     assert report.benchmark.id == "draco-lite"
     assert result.models == ("anthropic/claude-haiku-4-5",)
-    assert tuple(operation.kind for operation in result.operations) == (
-        "model",
-        "judge",
-        "grading",
-        "aggregation",
-    )
+    assert tuple(operation.kind for operation in result.operations) == ("model",)
+    assert result.url4.count("/candidate") == 1
     assert result.url4.count("/benchmark") == 1
-    assert result.url4.startswith("(/draco/cases*")
-    assert "/draco/criteria/$case_id" in result.url4
+    assert "/draco/cases" in result.url4
+    assert "/draco/criteria/$item.id" in result.url4
     assert "/provider/judge" in result.url4
     assert "/benchmark(aggregate)" in result.url4
     assert "temperature=0.2" in result.url4
     assert "reasoning=low" in result.url4
     assert "max_output_tokens=4096" in result.url4
     assert "\n" not in result.url4
-
     assert result.name == "haiku"
     assert result.score == 0.7
-    assert result.metrics == {
-        "normalized_score": 0.7,
-        "coverage": 1.0,
-    }
+    assert result.metrics == {"normalized_score": 0.7, "coverage": 1.0}
     assert result.usage.input_tokens == 120
     assert result.duration_ms == 2000
     assert transport.closed is True
@@ -314,21 +325,18 @@ def test_client_compiles_and_evaluates_a_fusion_as_one_candidate_url4() -> None:
     assert result.models == (
         "provider/first",
         "provider/second",
-        "provider/synthesizer",
+        "anthropic/claude-haiku-4-5",
     )
     assert tuple(member.name for member in result.members) == ("first", "second")
     assert tuple(operation.kind for operation in result.operations) == (
         "model",
         "model",
         "synthesis",
-        "judge",
-        "grading",
-        "aggregation",
     )
     assert "/provider/first" in result.url4
     assert "/provider/second" in result.url4
-    assert "/provider/synthesizer" in result.url4
-    assert "Combine the panel answers." in result.url4
+    assert "/anthropic/claude-haiku-4-5" in result.url4
+    assert "Synthesize the strongest supported answer" in result.url4
 
 
 def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
@@ -345,14 +353,15 @@ def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
         report = client.evaluate(fusion, benchmark="draco-lite", limit=1)
 
     result = report.candidates.only
+    candidate_url4 = compile_candidate(fusion).url4
     assert tuple(member.name for member in result.members) == (
         "gemini-pro",
         "claude-opus-4.8",
     )
-    assert "gemini-pro:" not in result.url4
-    assert "claude-opus-4.8:" not in result.url4
-    assert "member_1: {name: 'gemini-pro', answer: '$model_1'}" in result.url4
-    assert "member_2: {name: 'claude-opus-4.8', answer: '$model_2'}" in result.url4
+    assert "gemini-pro:" not in candidate_url4
+    assert "claude-opus-4.8:" not in candidate_url4
+    assert "member_1: {name: 'gemini-pro', answer: '$model_1'}" in candidate_url4
+    assert "member_2: {name: 'claude-opus-4.8', answer: '$model_2'}" in candidate_url4
 
 
 def test_compiler_deduplicates_equivalent_model_values_by_content() -> None:
@@ -364,11 +373,14 @@ def test_compiler_deduplicates_equivalent_model_values_by_content() -> None:
         [sf.Model("provider/first"), sf.Model("provider/judge")],
         name="right",
     )
-    candidate = sf.Fusion([left, right], name="outer")
     client, _transport = _client()
 
     with client:
-        report = client.evaluate(candidate, benchmark="draco-lite", limit=1)
+        report = client.evaluate(
+            sf.Fusion([left, right], name="outer"),
+            benchmark="draco-lite",
+            limit=1,
+        )
 
     result = report.candidates.only
     assert tuple(operation.kind for operation in result.operations).count("model") == 3
@@ -390,18 +402,21 @@ def test_explicit_sample_names_prevent_model_content_deduplication() -> None:
         ],
         name="right",
     )
-    candidate = sf.Fusion([left, right], name="outer")
     client, _transport = _client()
 
     with client:
-        report = client.evaluate(candidate, benchmark="draco-lite", limit=1)
+        report = client.evaluate(
+            sf.Fusion([left, right], name="outer"),
+            benchmark="draco-lite",
+            limit=1,
+        )
 
     result = report.candidates.only
     assert tuple(operation.kind for operation in result.operations).count("model") == 4
     assert result.url4.count("/provider/first") == 2
 
 
-def test_manifest_reader_rejects_transport_and_integrity_failures() -> None:
+def test_benchmark_reader_rejects_transport_and_integrity_failures() -> None:
     def unreachable(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("offline", request=request)
 
@@ -410,121 +425,50 @@ def test_manifest_reader_rejects_transport_and_integrity_failures() -> None:
         transport=httpx.MockTransport(unreachable),
     ) as http:
         with pytest.raises(sf.EngineUnavailableError, match="Could not reach"):
-            load_manifest(http, "draco-lite")
-
-    malformed = b"schema: [unterminated"
-
-    def invalid_yaml(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/benchmarks":
-            return httpx.Response(
-                200,
-                json={
-                    "object": "list",
-                    "default": "draco-lite",
-                    "data": [{"id": "draco-lite", "object": "benchmark"}],
-                },
-            )
-        return httpx.Response(200, content=malformed)
+            BenchmarkResources(http).load("draco-lite", 1)
 
     with httpx.Client(
         base_url="https://engine.example",
-        transport=httpx.MockTransport(invalid_yaml),
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, text="{")),
     ) as http:
-        with pytest.raises(sf.PlanningError, match="valid YAML"):
-            load_manifest(http, "draco-lite")
+        with pytest.raises(sf.PlanningError, match="must be JSON"):
+            BenchmarkResources(http).load("draco-lite", 1)
 
 
-def test_manifest_decoder_rejects_every_required_field_boundary() -> None:
-    base = yaml.safe_load(MANIFEST)
-    assert isinstance(base, dict)
-
-    bad_tools = deepcopy(base)
-    bad_tools["tools"] = "web_search"
-    bad_count = deepcopy(base)
-    bad_count["cases"]["count"] = 0
-    bad_direction = deepcopy(base)
+def test_benchmark_decoder_rejects_required_field_boundaries() -> None:
+    bad_capabilities = deepcopy(BENCHMARK)
+    bad_capabilities["capabilities"] = []
+    bad_count = deepcopy(BENCHMARK)
+    bad_count["case_count"] = 0
+    bad_direction = deepcopy(BENCHMARK)
+    assert isinstance(bad_direction["metrics"], dict)
     bad_direction["metrics"]["direction"] = "sideways"
-    bad_route = deepcopy(base)
-    bad_route["aggregator"]["route"] = "relative"
-    bad_criteria_route = deepcopy(base)
-    bad_criteria_route["grader"]["criteria_route"] = "/draco/criteria"
-    bad_cases = deepcopy(base)
-    bad_cases["cases"] = []
+    bad_invocations = deepcopy(BENCHMARK)
+    bad_invocations["candidate_invocations"] = 0
 
     invalid_values: tuple[object, ...] = (
         [],
         {},
-        bad_tools,
+        bad_capabilities,
         bad_count,
         bad_direction,
-        bad_route,
-        bad_criteria_route,
-        bad_cases,
+        bad_invocations,
     )
     for value in invalid_values:
         with pytest.raises(sf.PlanningError):
-            _decode_manifest(value)
+            _decode_benchmark_resource(
+                value,
+                requested_id="draco-lite",
+                requested_limit=1,
+            )
 
 
-def test_manifest_catalogue_rejects_malformed_and_unknown_records() -> None:
-    with pytest.raises(sf.PlanningError, match="must be JSON"):
-        _select_benchmark(httpx.Response(200, text="{"), "draco-lite")
-    with pytest.raises(sf.PlanningError, match="must be an object"):
-        _select_benchmark(httpx.Response(200, json=[]), "draco-lite")
-    with pytest.raises(sf.PlanningError, match="object must be 'list'"):
-        _select_benchmark(httpx.Response(200, json={}), "draco-lite")
-    with pytest.raises(sf.PlanningError, match="entry"):
-        _select_benchmark(
-            httpx.Response(
-                200,
-                json={"object": "list", "default": "draco-lite", "data": [None]},
-            ),
-            "draco-lite",
-        )
-    with pytest.raises(sf.PlanningError, match="duplicate id"):
-        _select_benchmark(
-            httpx.Response(
-                200,
-                json={
-                    "object": "list",
-                    "default": "draco-lite",
-                    "data": [
-                        {"id": "draco-lite", "object": "benchmark"},
-                        {"id": "draco-lite", "object": "benchmark"},
-                    ],
-                },
-            ),
-            "draco-lite",
-        )
-    with pytest.raises(sf.PlanningError, match="does not expose"):
-        _select_benchmark(
-            httpx.Response(200, json={"object": "list", "default": None, "data": []}),
-            "draco-lite",
-        )
-    with pytest.raises(sf.PlanningError, match="no Benchmarks"):
-        _select_benchmark(
-            httpx.Response(200, json={"object": "list", "default": None, "data": []}),
-            None,
-        )
-    assert (
-        _select_benchmark(
-            httpx.Response(
-                200,
-                json={
-                    "object": "list",
-                    "default": "healthbench",
-                    "data": [
-                        {"id": "draco-lite", "object": "benchmark"},
-                        {"id": "healthbench", "object": "benchmark"},
-                    ],
-                },
-            ),
-            None,
-        )
-        == "healthbench"
-    )
-    with pytest.raises(sf.PlanningError, match="HTTP 404"):
-        _success(httpx.Response(404), "load Benchmark")
+def test_benchmark_http_errors_are_typed() -> None:
+    with pytest.raises(sf.PlanningError, match="not installed") as caught:
+        _success(httpx.Response(404))
+
+    assert caught.value.code == "unknown_benchmark"
+    assert caught.value.status == 404
 
 
 def test_compiler_normalizes_url4_parameters_and_rejects_control_characters() -> None:
@@ -534,16 +478,16 @@ def test_compiler_normalizes_url4_parameters_and_rejects_control_characters() ->
 
 
 def test_candidate_result_decoder_rejects_contract_drift() -> None:
-    with httpx.Client(
-        base_url="https://engine.example",
-        transport=httpx.MockTransport(_engine),
-    ) as http:
-        evaluation = _compile_sync(
-            lambda benchmark: load_manifest(http, benchmark),
-            sf.Model("anthropic/claude-haiku-4-5"),
-            "draco-lite",
-            1,
-        )
+    resource = _decode_benchmark_resource(
+        BENCHMARK,
+        requested_id="draco-lite",
+        requested_limit=1,
+    )
+    evaluation = compile_evaluation(
+        (sf.Model("anthropic/claude-haiku-4-5"),),
+        resource,
+        1,
+    )
     candidate = evaluation.candidates.only
     valid: dict[str, Any] = {
         "schema": "screamingface.candidate-result.v1",

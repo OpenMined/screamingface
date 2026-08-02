@@ -1,11 +1,18 @@
 ---
 title: SF Engine Benchmark Manifest v1 proposal
 ticket: OME-605
-status: proposed
+status: superseded
 date: 2026-07-26
 ---
 
 # SF Engine Benchmark Manifest v1 proposal
+
+> Superseded by
+> [`2026-08-01-OME-605-benchmark-protocol-contract.md`](2026-08-01-OME-605-benchmark-protocol-contract.md)
+> and
+> [`ADR 0001`](../adr/0001-link-benchmark-and-candidate-expressions.md). The implemented design
+> uses one JSON Benchmark expression resource and local structural linking; it does not expose
+> this YAML workflow manifest or a Candidate-specific planning request.
 
 ## Decision requested
 

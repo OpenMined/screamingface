@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 
 import screamingface as sf
-from screamingface._evaluation.model import _operation_from_engine
+from screamingface._evaluation.model import _compiled_operation
 
 
 def candidate(
@@ -27,13 +27,13 @@ def candidate(
         url4=url4 or f"(@)!'{name}'",
         models=(f"provider/{name}",),
         operations=(
-            _operation_from_engine(
+            _compiled_operation(
                 id=f"op_{name}",
                 kind="model",
                 label=f"{name} answer",
                 depends_on=(),
             ),
-            _operation_from_engine(
+            _compiled_operation(
                 id=f"op_{name}_aggregate",
                 kind="aggregation",
                 label=f"{name} aggregation",
@@ -151,7 +151,7 @@ def test_report_derives_study_timing_and_complete_usage_from_candidate_runs() ->
         url4="(@)!'gpt'",
         models=("provider/gpt",),
         operations=(
-            _operation_from_engine(
+            _compiled_operation(
                 id="op_gpt",
                 kind="model",
                 label="gpt answer",
@@ -237,25 +237,25 @@ def test_scored_fusion_preserves_partial_member_failure_evidence() -> None:
         url4="(@)!'frontier pair'",
         models=("provider/opus", "provider/gpt"),
         operations=(
-            _operation_from_engine(
+            _compiled_operation(
                 id="op_opus",
                 kind="model",
                 label="opus answer",
                 depends_on=(),
             ),
-            _operation_from_engine(
+            _compiled_operation(
                 id="op_gpt",
                 kind="model",
                 label="gpt answer",
                 depends_on=(),
             ),
-            _operation_from_engine(
+            _compiled_operation(
                 id="op_panel_2",
                 kind="model_call",
                 label="gpt failed attempt",
                 depends_on=("op_gpt",),
             ),
-            _operation_from_engine(
+            _compiled_operation(
                 id="op_synthesis",
                 kind="synthesis",
                 label="frontier pair synthesis",

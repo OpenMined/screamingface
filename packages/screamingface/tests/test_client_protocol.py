@@ -15,19 +15,19 @@ from screamingface._core.ports import _RunOutcome
 from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface._evaluation.model import (
     Candidate,
-    _candidate_from_engine,
-    _operation_from_engine,
+    _compiled_candidate,
+    _compiled_operation,
 )
 
 
 def _candidate() -> Candidate:
-    return _candidate_from_engine(
+    return _compiled_candidate(
         name="opus",
         kind="model",
         models=("provider/opus",),
         url4="(@)!'hello'",
         operations=(
-            _operation_from_engine(
+            _compiled_operation(
                 id="op_opus",
                 kind="model",
                 label="opus answer",

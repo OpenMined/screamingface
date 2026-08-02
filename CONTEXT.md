@@ -9,12 +9,16 @@ The complete process of evaluating one or more Candidates against one Benchmark.
 _Avoid_: Run, execution
 
 **Benchmark**:
-An Engine-owned evaluation protocol comprising Cases, grading behavior, and aggregation behavior.
+An Engine-owned evaluation protocol comprising Cases, Candidate Invocations, Grading, and Aggregation.
 _Avoid_: Test, dataset
 
 **Candidate**:
 A Model or Fusion submitted to a Benchmark for evaluation.
 _Avoid_: Ensemble when referring to both Models and Fusions
+
+**Candidate Invocation**:
+One request by a Benchmark for a Candidate answer; a Case may require multiple ordered Candidate Invocations.
+_Avoid_: Model call, because a Candidate may be a Fusion
 
 **Case**:
 One Benchmark item containing an input, its grading material, and optional metadata.

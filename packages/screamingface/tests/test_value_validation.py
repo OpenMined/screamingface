@@ -6,14 +6,14 @@ from typing import Any, cast
 import pytest
 
 import screamingface as sf
-from screamingface._evaluation.model import Operation, _operation_from_engine
+from screamingface._evaluation.model import Operation, _compiled_operation
 
 NOW = datetime(2026, 7, 25, 16, 0, tzinfo=UTC)
 
 
 def operations(*ids: str) -> tuple[Operation, ...]:
     return tuple(
-        _operation_from_engine(
+        _compiled_operation(
             id=operation_id,
             kind="model",
             label=operation_id,

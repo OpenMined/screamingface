@@ -186,6 +186,7 @@ async def test_declared_models_register_routes_one_to_one() -> None:
         world = await build_aigateway_world(cfg, client=client)
 
         assert set(world.node.processor_routes()) == {
+            "/candidate",
             "/anthropic/claude-haiku-4-5",
             "/openrouter/gpt-4o",
         }
@@ -211,6 +212,7 @@ async def test_no_bare_alias_is_registered_for_a_prefixed_id() -> None:
         world = await build_aigateway_world(cfg, client=client)
 
         assert set(world.node.processor_routes()) == {
+            "/candidate",
             "/openrouter/openai/gpt-5.5",
             "/codex/gpt-5.5",
         }
@@ -311,7 +313,11 @@ async def test_a_shared_bare_name_across_providers_stays_addressable_by_full_id(
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
 
-        assert set(world.node.processor_routes()) == {"/anthropic/x", "/openrouter/x"}
+        assert set(world.node.processor_routes()) == {
+            "/candidate",
+            "/anthropic/x",
+            "/openrouter/x",
+        }
 
         fanout = "(/anthropic/x(ctx)!probe)!combine"
         with pytest.raises(ResolutionError) as exc_info:

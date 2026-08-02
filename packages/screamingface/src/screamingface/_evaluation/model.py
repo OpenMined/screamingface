@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from types import MappingProxyType
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Literal, NoReturn
 
 from url4 import Url4Error, build, render
@@ -20,7 +19,7 @@ type CandidateKind = Literal["model", "fusion"]
 
 @dataclass(frozen=True, slots=True, init=False)
 class Operation:
-    """One Engine-derived logical unit in a Candidate URL4 DAG."""
+    """One compiled logical unit in a Candidate URL4 DAG."""
 
     id: str
     kind: str
@@ -85,14 +84,9 @@ class _Evaluation:
     candidates: _Candidates
     required_capabilities: tuple[str, ...]
     required_models: tuple[str, ...]
-    _operation_count_items: tuple[tuple[str, int], ...] = field(repr=False)
 
     def __init__(self) -> NoReturn:
         raise TypeError("Evaluation values are derived internally; they are not constructed")
-
-    @property
-    def operation_counts(self) -> Mapping[str, int]:
-        return MappingProxyType(dict(self._operation_count_items))
 
     def __repr__(self) -> str:
         names = ", ".join(candidate.name for candidate in self.candidates)
@@ -102,14 +96,14 @@ class _Evaluation:
         )
 
 
-def _operation_from_engine(
+def _compiled_operation(
     *,
     id: str,
     kind: str,
     label: str,
     depends_on: Sequence[str],
 ) -> Operation:
-    """Build a validated Operation from the Engine inspection response."""
+    """Build one validated Operation from no-spend Candidate compilation."""
 
     operation_id = _nonblank(id, "Operation id")
     dependencies = _unique_texts(
@@ -127,7 +121,7 @@ def _operation_from_engine(
     return operation
 
 
-def _candidate_from_engine(
+def _compiled_candidate(
     *,
     name: str,
     kind: CandidateKind,
@@ -136,7 +130,7 @@ def _candidate_from_engine(
     operations: Sequence[Operation],
     members: Sequence[_MemberProjection] = (),
 ) -> Candidate:
-    """Build a validated Candidate from one Engine inspection response."""
+    """Build one validated Candidate from its locally linked compilation."""
 
     selected_kind = _candidate_kind(kind)
     selected_models = _unique_texts(models, "Candidate models")
@@ -181,7 +175,7 @@ def _member_projection(
     )
 
 
-def _evaluation_from_engine(
+def _compiled_evaluation(
     *,
     benchmark: BenchmarkInfo,
     limit: int | None,
@@ -189,7 +183,6 @@ def _evaluation_from_engine(
     candidates: Sequence[Candidate],
     required_capabilities: Sequence[str],
     required_models: Sequence[str],
-    operation_counts: Mapping[str, int],
 ) -> _Evaluation:
     """Build one validated private Evaluation after no-spend compilation."""
 
@@ -215,7 +208,6 @@ def _evaluation_from_engine(
             required_models,
             "Evaluation required_models",
         ),
-        "_operation_count_items": _operation_counts(operation_counts),
     }
     for name, value in values.items():
         object.__setattr__(evaluation, name, value)
@@ -332,20 +324,6 @@ def _unique_texts(
     if len(selected) != len(set(selected)):
         raise ValueError(f"{label} must be unique")
     return selected
-
-
-def _operation_counts(values: object) -> tuple[tuple[str, int], ...]:
-    if not isinstance(values, Mapping):
-        raise TypeError("Evaluation operation_counts must be a mapping")
-    selected: list[tuple[str, int]] = []
-    for name, count in values.items():
-        operation = _nonblank(name, "Evaluation operation count name")
-        if isinstance(count, bool) or not isinstance(count, int):
-            raise TypeError("Evaluation operation counts must be non-negative integers")
-        if count < 0:
-            raise ValueError("Evaluation operation counts must be non-negative integers")
-        selected.append((operation, count))
-    return tuple(selected)
 
 
 def _canonical_url4(value: object, label: str) -> str:

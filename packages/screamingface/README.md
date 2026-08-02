@@ -3,10 +3,11 @@
 Evaluate Models and Fusions against URL4-native research Benchmarks.
 
 > **Development status:** immutable Model/Fusion authoring, Engine-backed discovery, the direct
-> evaluation API, Model/Fusion URL4 compilation, and the confirmed `url4-cloud` lifecycle are
-> implemented. The current Engine publishes `draco-lite` and its Runner-native URL4 routes.
-> Broader production Benchmark manifests remain Engine contract gates. There is no fixture,
-> embedded benchmark runtime, or Client-side execution fallback.
+> evaluation API, Model/Fusion authoring, and the confirmed `url4-cloud` lifecycle are
+> implemented. The current Engine publishes `draco-lite` through the implemented one-fetch
+> Benchmark-expression contract and its Runner-native URL4 routes. Additional Benchmark adapters
+> remain pre-release work. There is no fixture, embedded benchmark runtime, or Client-side
+> execution fallback.
 
 ## Target v1 workflow
 
@@ -31,15 +32,55 @@ report = sf.evaluate(
 )
 ```
 
-`evaluate(...)` uses the Engine's explicitly declared default Benchmark, validates every
-Candidate, compiles one complete URL4 per Candidate, executes those independent Candidates
-concurrently, and returns one immutable `Report` in declared order. Pass
-`benchmark="draco-lite"` only when making that default explicit. All no-spend validation finishes
-before the first paid Run starts. Execution requires a benchmark Runner image containing the
-manifest's declared case, criterion, and aggregate routes.
+`evaluate(...)` uses the Engine's explicitly declared default Benchmark, fetches its
+Candidate-independent URL4 expression once, compiles and structurally links every Candidate,
+executes those complete URL4s concurrently, and returns one immutable `Report` in declared order.
+Pass `benchmark="draco-lite"` only when making that default explicit. All no-spend validation
+finishes before the first paid Run starts. Execution requires a Benchmark Runner image containing
+the expression's referenced data, grading, and Aggregation routes.
 
-Model and Fusion Candidates compile against the provisional Benchmark manifest contract.
-Unsupported Candidates fail with typed errors instead of falling back to Client-side execution.
+### Candidate policy defaults
+
+Models and Fusions work without prompt configuration. The SDK supplies a general answer prompt,
+and a Fusion additionally receives the SDK's default synthesizer and constraint-aware synthesis
+prompt:
+
+```python
+plain = sf.Model("openrouter/openai/gpt-5.5")
+pair = sf.Fusion([opus, gpt])
+```
+
+Researchers can override only Candidate-owned policy when an experiment needs it:
+
+```python
+careful = sf.Model(
+    "openrouter/openai/gpt-5.5",
+    prompt="Answer from primary evidence and follow every requested output constraint.",
+    params={"reasoning": "high"},
+)
+
+constraint_aware = sf.Fusion(
+    [opus, gpt],
+    synthesizer="openrouter/openai/gpt-5.5",
+    prompt="Produce one final answer that preserves every constraint in the original request.",
+    params={"reasoning": "high"},
+)
+```
+
+These overrides never alter Benchmark-owned Cases, fixed judge models or prompts, Grading, or
+Aggregation. Resolved defaults and overrides are embedded in each final URL4.
+
+The Benchmark resource uses `screamingface.benchmark.v1` and carries its canonical expression in
+`url4`. The SDK compiles a Model or Fusion into an expression accepting `$input`, binds it once as
+`$candidate`, and links it to the Engine expression using URL4's AST. A Benchmark invokes it with
+`/candidate(input)!$candidate`; that route evaluates it inside the same Engine job, not through an
+additional Client or control-plane request. Unsupported Candidates fail with typed errors instead
+of falling back to Client-side execution.
+
+The Candidate input is normally plain text. Engine-owned Benchmarks that require native chat
+history wrap structured turns in the versioned Candidate-input envelope; the Runner preserves
+their roles while the SDK continues to treat `$input` as opaque. This supports multi-turn and
+stateful protocols without a Client-interpreted workflow language.
 
 ## Install
 
@@ -228,9 +269,11 @@ The Client calls only its configured SF Engine. It never calls AI Gateway, model
 Tavily, or Benchmark datasets directly. Local and hosted Engines expose the same Client-visible
 contract; in-memory channels, NATS, workers, and deployment topology are Engine details.
 
-Models and Fusions are immutable, Client-independent, and network-free. Models select routes;
-Fusions declare topology. Benchmarks are immutable Engine protocols that own answer policy,
-synthesis, cases, judge configuration, grading, aggregation, Tools, and execution policy.
+Models and Fusions are immutable, Client-independent, and network-free. Models select routes and
+optional answer policy; Fusions declare topology and optional synthesis policy. The SDK resolves
+their defaults and compiles the Candidate expression. Benchmarks are immutable Engine protocols
+that own Cases, Candidate Invocation order, fixed Judge configuration, Grading, Aggregation,
+required capabilities, and execution policy.
 
 Equivalent resolved Model calls deduplicate by content inside a compiled Candidate graph.
 Explicit Model names identify intentional independent samples. Durable reuse across Candidates,

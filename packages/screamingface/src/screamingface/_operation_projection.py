@@ -1,4 +1,4 @@
-"""Shared integrity and serialization for Engine-derived Operation projections."""
+"""Shared integrity and serialization for compiled Operation projections."""
 
 from __future__ import annotations
 

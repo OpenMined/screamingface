@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import Any, cast
 
 import pytest
@@ -33,6 +34,18 @@ def test_explicit_model_name_is_a_trimmed_sample_identity() -> None:
     assert model._sample_id == "Opus Sample 1"
 
 
+def test_model_accepts_optional_candidate_owned_prompt_and_parameters() -> None:
+    model = sf.Model(
+        "provider/model",
+        prompt="Answer using primary evidence.",
+        params={"temperature": 0.4, "reasoning": "high"},
+    )
+
+    assert model.prompt == "Answer using primary evidence."
+    assert model.params == {"temperature": 0.4, "reasoning": "high"}
+    assert isinstance(model.params, MappingProxyType)
+
+
 def test_fusion_keeps_members_in_order_and_infers_a_name() -> None:
     opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
     gpt = sf.Model("openrouter/openai/gpt-5.5")
@@ -55,6 +68,27 @@ def test_fusion_accepts_an_optional_display_name() -> None:
     )
 
     assert fusion.name == "Frontier"
+
+
+def test_fusion_accepts_optional_candidate_owned_synthesis_policy() -> None:
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        synthesizer="provider/synth",
+        prompt="Resolve disagreements using evidence.",
+        params={"temperature": 0.1},
+    )
+
+    assert fusion.synthesizer == "provider/synth"
+    assert fusion.prompt == "Resolve disagreements using evidence."
+    assert fusion.params == {"temperature": 0.1}
+
+
+def test_fusion_needs_no_explicit_synthesizer_policy() -> None:
+    fusion = sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")])
+
+    assert fusion.synthesizer is None
+    assert fusion.prompt is None
+    assert fusion.params == {}
 
 
 def test_nested_fusions_are_regular_members() -> None:
@@ -131,10 +165,9 @@ def test_candidates_reject_invalid_names(factory: object, message: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "keyword",
-    ["instructions", "temperature", "reasoning", "max_output_tokens", "params"],
+    "keyword", ["instructions", "temperature", "reasoning", "max_output_tokens"]
 )
-def test_model_rejects_benchmark_owned_configuration(keyword: str) -> None:
+def test_model_rejects_undeclared_generation_keywords(keyword: str) -> None:
     with pytest.raises(TypeError, match=f"unexpected keyword argument '{keyword}'"):
         cast(Any, sf.Model)("provider/model", **{keyword: object()})
 
@@ -157,4 +190,29 @@ def test_candidate_representations_are_compact() -> None:
     assert repr(sf.Fusion([opus, gpt])) == ("Fusion(['claude-opus-4.8', 'gpt-5.5'])")
     assert repr(sf.Fusion([opus, gpt], name="pair")) == (
         "Fusion(['claude-opus-4.8', 'gpt-5.5'], name='pair')"
+    )
+
+
+def test_candidate_representations_include_behavioral_overrides() -> None:
+    model = sf.Model(
+        "provider/model",
+        name="sample",
+        prompt="Use evidence.",
+        params={"temperature": 0.2},
+    )
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        name="pair",
+        synthesizer="provider/synth",
+        prompt="Resolve conflicts.",
+        params={"reasoning": "high"},
+    )
+
+    assert repr(model) == (
+        "Model('provider/model', name='sample', prompt='Use evidence.', "
+        "params={'temperature': 0.2})"
+    )
+    assert repr(fusion) == (
+        "Fusion(['a', 'b'], name='pair', synthesizer='provider/synth', "
+        "prompt='Resolve conflicts.', params={'reasoning': 'high'})"
     )

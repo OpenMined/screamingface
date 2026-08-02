@@ -6,44 +6,40 @@ from typing import NoReturn
 
 import httpx
 import pytest
+from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
 
-MANIFEST = b"""\
-id: draco@1
-title: DRACO
-cases:
-  count: 1
-  route: /draco/cases
-answer:
-  instructions: Answer completely.
-  params:
-    temperature: 0.2
-    reasoning: low
-    max_output_tokens: 4096
-synthesis:
-  model: provider/synthesis
-  instructions: Combine the panel answers.
-  params:
-    temperature: 0.2
-    reasoning: low
-    max_output_tokens: 4096
-grader:
-  kind: rubric
-  criteria_route: /draco/criteria/{case_id}
-  criteria_per_case: 1
-  model: provider/judge
-  passes: 1
-  instructions: Return JSON.
-  params: {}
-aggregator:
-  kind: mean
-  route: /benchmark
-metrics:
-  primary: score
-  direction: maximize
-tools: []
-"""
+BENCHMARK_URL4 = render(
+    expr(
+        src(
+            RelExpr(path="/candidate", context="question", intent=text("$candidate")),
+            name="answer",
+            weight=0.0,
+        ),
+        src(
+            RelExpr(path="/provider/judge", context="$answer", intent=text("Grade.")),
+            name="grade",
+            weight=0.0,
+        ),
+        intent=text("$grade"),
+    )
+)
+
+BENCHMARK = {
+    "schema": "screamingface.benchmark.v1",
+    "object": "benchmark",
+    "id": "draco",
+    "title": "DRACO",
+    "description": "Test benchmark.",
+    "case_count": 1,
+    "total_case_count": 1,
+    "metrics": {"primary": "score", "direction": "maximize"},
+    "capabilities": {"candidate": [], "runtime": []},
+    "required_models": ["provider/judge"],
+    "candidate_invocations": 1,
+    "url4": BENCHMARK_URL4,
+}
 
 
 def _engine(request: httpx.Request) -> httpx.Response:
@@ -58,17 +54,8 @@ def _engine(request: httpx.Request) -> httpx.Response:
                 ],
             },
         )
-    elif request.url.path == "/v1/benchmarks":
-        response = httpx.Response(
-            200,
-            json={
-                "object": "list",
-                "default": "draco",
-                "data": [{"id": "draco", "object": "benchmark"}],
-            },
-        )
     elif request.url.path == "/v1/benchmarks/draco":
-        response = httpx.Response(200, content=MANIFEST)
+        response = httpx.Response(200, json=BENCHMARK)
     else:
         response = httpx.Response(404)
     return response
@@ -172,6 +159,7 @@ def test_evaluate_rejects_an_unavailable_fusion_model_before_execution() -> None
     fusion = sf.Fusion(
         [sf.Model("provider/opus"), sf.Model("provider/gpt")],
         name="panel",
+        synthesizer="provider/synthesis",
     )
     transport = _ForbiddenTransport()
     client = sf.Client(
