@@ -27,6 +27,7 @@ from url4_cloud import job_env
 from url4_cloud.auth import ProblemException
 from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.catalog.port import CatalogError, Credential
+from url4_cloud.rest.conditional import validator_matches
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ async def list_models(
         "Cache-Control": f"private, max-age={service.max_age_s(credential)}",
         "Vary": _VARY,
     }
-    if _validator_matches(if_none_match, catalog.etag):
+    if validator_matches(if_none_match, catalog.etag):
         return Response(status_code=304, headers=headers)
     return JSONResponse(content=catalog.body, headers=headers)
 
@@ -143,28 +144,6 @@ def _caller(profile: str | None, headers: Mapping[str, str]) -> Credential:
     flood protection that remains is `catalog.cache`'s entry cap and single-flight bulkhead.
     """
     return Credential.derive(profile, job_env.identity_from_headers(headers))
-
-
-def _validator_matches(if_none_match: str | None, etag: str) -> bool:
-    """RFC 9110 §13.1.2 weak comparison of an ``If-None-Match`` list against our ETag.
-
-    WHY weak: the RFC mandates weak comparison for ``If-None-Match``, so a ``W/``-prefixed tag
-    added by an intermediary must still register as a match — otherwise a client behind such a
-    proxy would re-download the catalog on every poll.
-    """
-    if if_none_match is None:
-        return False
-    return any(_tag_matches(raw, etag) for raw in if_none_match.split(","))
-
-
-def _tag_matches(raw: str, etag: str) -> bool:
-    """One entity-tag from an ``If-None-Match`` list, compared weakly."""
-    candidate = raw.strip()
-    if candidate == "*":
-        return True
-    if candidate.startswith("W/"):
-        candidate = candidate[2:]
-    return candidate.strip('"') == etag
 
 
 __all__ = ["router"]
