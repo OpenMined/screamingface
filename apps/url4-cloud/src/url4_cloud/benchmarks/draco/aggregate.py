@@ -32,12 +32,13 @@ AIDEV-NOTE — PROTOCOL CAVEATS, the two ways a run here still differs from the 
   from the OpenRouter plugin's rule set, and the gateway fails closed on an unknown parameter, so
   sending it would turn every judge call into a 400 rather than a deviation. `judge_temperature`
   and `max_tokens` DO reach the model.
-* Retrieval is enabled on the three routes a SOLO or `fable_plus_gpt` candidate answers with
-  (`native_web_search`, verified live), but NOT on the four models added for `budget_trio`,
-  `pareto_cross`, `pareto_lean`, `beat_runner_up` and `best_open_source` — those are declared
-  and unverified, so they answer from weights alone. DRACO is a deep-research benchmark and the
-  paper treats retrieval as mandatory, so a score for those five configurations is not
-  comparable to the reference chart.
+* Retrieval reaches EVERY answering route as of 2026-08-02, but by TWO different mechanisms
+  (owner decision, same date): provider-side `native_web_search` on the OpenRouter routes that
+  support it, and the runner-driven Tavily loop on `kimi-k2.6`, `deepseek-v4-pro` and
+  `qwen3.6-plus`, which answer `404` to native search. Both honour the same declared blocklist —
+  verified live on both paths — but they are not the same search product, so a candidate that
+  answered through Tavily and one that answered natively did not read the same web. A comparison
+  ACROSS those two groups carries that caveat; the reference chart used neither exactly.
 
 Neither is visible in the numbers this module emits. A score published as "DRACO-reproduced"
 has to state both.
