@@ -10,6 +10,7 @@ import asyncio
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -688,20 +689,31 @@ def _caller_exclusions(params: Mapping[str, str]) -> tuple[str, ...]:
 
 
 async def _retrieval_exclusions(
-    params: Mapping[str, str], policy: RetrievalPolicyResolver | None, *, native: bool
+    params: Mapping[str, str], policy: RetrievalPolicyResolver | None, *, retrieves: bool
 ) -> tuple[str, ...]:
     """The expression's contribution to this call's blocklist: its policy plus any ad-hoc adds.
 
+    INVARIANT: the gate is "does this call RETRIEVE", not "which mechanism runs it". Both are
+    enforceable — a native call carries the list to the provider, and on a `web_tools` route the
+    RUNNER is the searcher and applies it itself (`_tavily_search` / `_tavily_extract`).
+
+    # AIDEV-NOTE: this used to demand PROVIDER-side retrieval and refuse a policy on a Tavily
+    # route, reasoning that domain exclusion was a control only the searching provider could
+    # honour. MEASURED 2026-08-02 against the live API, that premise is false: Tavily's `/search`
+    # accepts `exclude_domains` and honours it. The refusal then became the bug it was written to
+    # prevent — an unguardable retrieval path — once the DRACO lineup's non-native models were
+    # put on that loop. `test_naming_a_policy_on_a_tavily_route_is_loud` pinned the old rule and
+    # was retired with owner approval; `test_tavily_retrieval_guard.py` pins the new one.
+
     Raises:
-        ResolutionError: either option was named on a call that will not run PROVIDER-side
-            retrieval. Domain exclusion is a control the searching provider honours, so on a
-            `web_tools` route (where the RUNNER searches) or a route that does not retrieve at
-            all, a declared policy would be accepted and never enforced — which is precisely the
-            failure this parameter exists to close, not an instance of it.
+        ResolutionError: either option was named on a call that runs NO retrieval by either
+            mechanism. A policy there would be accepted and never enforced, reading as a guarded
+            run while no retrieval happens at all — precisely the failure this parameter exists
+            to close, not an instance of it.
     """
     path = params.get(WEB_SEARCH_POLICY_PARAM)
     ad_hoc = _caller_exclusions(params)
-    if not native:
+    if not retrieves:
         named = [
             name
             for name, value in (
@@ -712,9 +724,10 @@ async def _retrieval_exclusions(
         ]
         if named:
             raise ResolutionError(
-                f"{', '.join(named)} needs provider-side retrieval, which this route does not "
-                "run — declare `native_web_search` on its [[aigateway.models]] entry, or drop "
-                "the option rather than letting it read as an enforced guard"
+                f"{', '.join(named)} needs retrieval, which this route does not run — declare "
+                "`native_web_search` (provider-driven) or `web_tools` (runner-driven) on its "
+                "[[aigateway.models]] entry, or drop the option rather than letting it read as "
+                "an enforced guard"
             )
         return ()
     if path is None or path == POLICY_NONE:
@@ -765,7 +778,7 @@ async def _chat_completion_loop(
     offer_tools = wants_search and web_tools and tavily_http is not None
     # Resolved BEFORE the loop with the sampling params: a tool-calling turn re-posts, and the
     # blocklist must hold on every hop or a later turn retrieves what the first one was denied.
-    exclusions = await _retrieval_exclusions(params, policy, native=native)
+    exclusions = await _retrieval_exclusions(params, policy, retrieves=native or offer_tools)
     if native:
         # A gateway-level flag, not a tools payload: no `tool_choice` (the OpenAI selection
         # control does not govern provider-run retrieval) and no collision with function calling.
@@ -802,7 +815,7 @@ async def _chat_completion_loop(
         )
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
         results = await asyncio.gather(
-            *(_execute_tool(tc, tavily_http, cfg, tavily_api_key) for tc in served)
+            *(_execute_tool(tc, tavily_http, cfg, tavily_api_key, exclusions) for tc in served)
         )
         for tc, result in zip(served, results, strict=True):
             messages.append(
@@ -864,20 +877,49 @@ def _tool_args(tool_call: dict) -> tuple[str, dict | None]:
     return (name, args) if isinstance(args, dict) else (name, None)
 
 
+def _is_blocked(url: str, exclusions: Sequence[str]) -> bool:
+    """Whether ``url`` matches a blocklist entry, host-wise or host+path-wise.
+
+    INVARIANT: a bare-host entry covers SUBDOMAINS (`cdn.leak.test` matches `leak.test`), or the
+    guard is walked around by the first CDN hostname the model tries. An entry carrying a path
+    matches only that path prefix, because the shipped DRACO blocklist is path-shaped
+    (`arxiv.org/abs/2602.11685`) and blocking all of `arxiv.org` would strip a major legitimate
+    source from a deep-research benchmark — distorting the score in the other direction.
+
+    # AIDEV-NOTE: MEASURED 2026-08-02 — a path-shaped entry does NOT cover the same document's
+    # other paths. Tavily returned `arxiv.org/pdf/2602.11685` while `arxiv.org/abs/2602.11685`
+    # was excluded, i.e. the DRACO paper itself. The matcher below is correct; the LIST is what
+    # has to enumerate a document's forms. See `prepare.EXCLUDED_DOMAINS`.
+    """
+    parsed = urlsplit(url if "//" in url else f"//{url}")
+    host = parsed.netloc.lower().split("@")[-1].split(":")[0]
+    path = parsed.path.lower()
+    for entry in exclusions:
+        entry_host, _, entry_path = entry.strip().lower().lstrip("*.").partition("/")
+        if not entry_host:
+            continue
+        if host != entry_host and not host.endswith(f".{entry_host}"):
+            continue
+        if not entry_path or path.startswith(f"/{entry_path}"):
+            return True
+    return False
+
+
 async def _dispatch_tool(
     name: str,
     args: dict,
     tavily_client: httpx.AsyncClient | None,
     cfg: AigatewayConfig,
     tavily_api_key: str | None,
+    exclusions: Sequence[str] = (),
 ) -> str:
     if name not in ("web_search", "web_fetch"):
         return f"unknown tool: {name}"
     if tavily_client is None or tavily_api_key is None:
         raise RuntimeError(f"{name} requested but Tavily is not configured")
     if name == "web_search":
-        return await _tavily_search(tavily_client, cfg, tavily_api_key, args)
-    return await _tavily_extract(tavily_client, cfg, tavily_api_key, args)
+        return await _tavily_search(tavily_client, cfg, tavily_api_key, args, exclusions)
+    return await _tavily_extract(tavily_client, cfg, tavily_api_key, args, exclusions)
 
 
 async def _execute_tool(
@@ -885,12 +927,13 @@ async def _execute_tool(
     tavily_client: httpx.AsyncClient | None,
     cfg: AigatewayConfig,
     tavily_api_key: str | None,
+    exclusions: Sequence[str] = (),
 ) -> str:
     name, args = _tool_args(tool_call)
     if args is None:
         return f"invalid arguments for {name}"
     try:
-        return await _dispatch_tool(name, args, tavily_client, cfg, tavily_api_key)
+        return await _dispatch_tool(name, args, tavily_client, cfg, tavily_api_key, exclusions)
     except Exception as exc:  # noqa: BLE001 — fed back to the model, not raised (dec:W2)
         return f"{name} failed: {exc}"
 
@@ -900,18 +943,32 @@ async def _tavily_search(
     cfg: AigatewayConfig,
     api_key: str,
     args: dict,
+    exclusions: Sequence[str] = (),
 ) -> str:
+    """Run one search, minus anything the run's retrieval policy excludes.
+
+    `exclude_domains` is TAVILY's spelling; ours is `excluded_domains`. The translation happens
+    HERE and only here, exactly as `_apply_web_search` is the one boundary for OpenRouter's
+    `exclude_domains`. MEASURED 2026-08-02: the key is honoured — `huggingface.co` disappears
+    from the results.
+
+    INVARIANT: omitted when empty rather than sent as `[]`, so "no benchmark policy" and "exclude
+    nothing" stay distinguishable upstream.
+    """
     query = args.get("query")
     if not isinstance(query, str) or not query:
         raise ValueError("web_search requires a non-empty 'query'")
+    payload: dict[str, object] = {
+        "query": query,
+        "search_depth": cfg.tavily_search_depth,
+        "max_results": cfg.tavily_max_results,
+    }
+    if exclusions:
+        payload["exclude_domains"] = list(exclusions)
     resp = await client.post(
         "/search",
         headers=_tavily_headers(api_key),
-        json={
-            "query": query,
-            "search_depth": cfg.tavily_search_depth,
-            "max_results": cfg.tavily_max_results,
-        },
+        json=payload,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -930,25 +987,51 @@ async def _tavily_extract(
     cfg: AigatewayConfig,
     api_key: str,
     args: dict,
+    exclusions: Sequence[str] = (),
 ) -> str:
+    """Fetch one page, unless the run's retrieval policy excludes it.
+
+    INVARIANT: this is the SHARPER of the two leaks and the runner is its only guard. `/search`
+    returns ranked snippets the model may or may not use; `/extract` returns the document
+    VERBATIM, so an unguarded fetch of the DRACO paper hands over the answer key in full — and
+    Tavily's `/extract` has no exclusion parameter to delegate to.
+
+    The refusal is RETURNED, not raised: the model gets a tool message it can act on, the same
+    way every other tool failure is fed back. A silent empty result would read as "the page was
+    empty" and invite a retry through a different URL to the same document.
+    """
     url = args.get("url")
     if not isinstance(url, str) or not url:
         raise ValueError("web_fetch requires a non-empty 'url'")
+    if _is_blocked(url, exclusions):
+        return (
+            f"{url} was not fetched: the host is excluded by this run's retrieval policy. "
+            "Do not try to reach it by another URL — answer from other sources."
+        )
     resp = await client.post(
         "/extract",
         headers=_tavily_headers(api_key),
         json={"urls": url, "format": "markdown", "extract_depth": "advanced"},
     )
     resp.raise_for_status()
-    data = resp.json()
+    return _extracted_content(resp.json(), url)
+
+
+def _extracted_content(data: dict, url: str) -> str:
+    """The page text, or the reason there is none — the tail of one `/extract` call.
+
+    Split out from `_tavily_extract` so the guard clause there reads as the one early exit it is,
+    rather than one of four returns.
+    """
     results = data.get("results") or []
     if results and isinstance(results[0], dict) and results[0].get("raw_content"):
         return str(results[0]["raw_content"])
     failed = data.get("failed_results") or []
     if failed and isinstance(failed[0], dict):
-        failed_url = failed[0].get("url", url)
-        failed_err = failed[0].get("error", "unknown")
-        return f"{failed_url} could not be extracted: {failed_err}"
+        return (
+            f"{failed[0].get('url', url)} could not be extracted: "
+            f"{failed[0].get('error', 'unknown')}"
+        )
     return "no content extracted"
 
 
