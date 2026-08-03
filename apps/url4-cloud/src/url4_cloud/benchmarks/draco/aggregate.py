@@ -336,17 +336,23 @@ def aggregate(
     if not isinstance(rows, list):
         raise AggregateError(f"reducer payload must be a JSON array, got {type(rows).__name__}")
 
+    # Harvested ONCE, before scoring: the mapping guard below needs to know which rows carry an
+    # echoed id, and re-scanning a multi-hundred-KB payload to find out would double the only
+    # expensive step in this module.
+    harvested = [harvest_verdicts(raw) for raw in rows]
+    _require_verifiable_mapping(harvested, rubrics)
+
     case_results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
-    for index, raw in enumerate(rows):
-        verdicts = harvest_verdicts(raw)
+    for index, verdicts in enumerate(harvested):
         if not verdicts:
             failures.append({"index": index, "reason": "no judge verdicts in row"})
             continue
-        # WHY position is a legitimate fallback: the BENCHMARK produced the case list, and row
-        # order is preserved — `iteration.on_error=collect` substitutes an error object in place
-        # rather than dropping a row. The echoed id still wins when present, because it survives
-        # a future change to row ordering that position would not.
+        # WHY position is a legitimate fallback HERE: `_require_verifiable_mapping` has already
+        # established that the rows ARE the whole declared case set, and row order is preserved —
+        # `iteration.on_error=collect` substitutes an error object in place rather than dropping a
+        # row. The echoed id still wins when present, because it survives a change to row ordering
+        # that position would not.
         case_id = case_id_of(verdicts)
         if case_id is None:
             case_id = index + 1
@@ -371,6 +377,38 @@ def aggregate(
         "case_results": case_results,
         "failures": failures,
     }
+
+
+def _require_verifiable_mapping(
+    harvested: Sequence[Sequence[Mapping[str, Any]]],
+    rubrics: Mapping[int, Mapping[str, Any]],
+) -> None:
+    """Refuse to score against a case -> rubric mapping that cannot be proven.
+
+    INVARIANT: row POSITION identifies a case only when the rows are the whole declared set.
+    `iteration.on_error=collect` preserves order and substitutes an error object in place, so
+    index N is case N+1 — but `;iteration.slice=10:20` hands us cases 11-20 at positions 1-10,
+    and `on_error=skip` drops rows outright. Either way every case would be scored against the
+    WRONG rubric, with no `failures` entry and a `terminated: succeeded` run carrying a plausible
+    number. That is reachable from the DOCUMENTED path: `Dockerfile.benchmark` removed its
+    build-time case cap specifically to make `;iteration.slice` the way to size a run.
+
+    The row count is the signal. It cannot tell us the slice OFFSET — nothing in the payload can —
+    so the only honest response is to stop rather than to guess, and to name the two ways out.
+
+    A row that produced no verdicts is exempt: it becomes a `failures` entry and never reaches a
+    rubric, so counting it here would turn a partial judge failure into a dead run.
+    """
+    positional = sum(1 for verdicts in harvested if verdicts and case_id_of(verdicts) is None)
+    if not positional or len(harvested) == len(rubrics):
+        return
+    raise AggregateError(
+        f"the case->rubric mapping is unverifiable: {positional} row(s) carry no echoed "
+        f"case_id, and the payload holds {len(harvested)} row(s) against {len(rubrics)} "
+        "declared rubric(s). Row position identifies a case only when the rows are the whole "
+        "declared set, and nothing in the payload records a slice offset. Either have the judge "
+        "echo case_id in each verdict (it is preferred whenever present), or score the full set."
+    )
 
 
 def _as_int(value: Any) -> int | None:

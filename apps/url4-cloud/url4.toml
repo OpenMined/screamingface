@@ -315,6 +315,7 @@ web_tools = true
 # case. Three nesting levels.
 #
 #   (/draco/cases*(
+#      caseid:0.0:/read($item.id)!'get',
 #      answer:0.0:/openrouter/anthropic/claude-opus-4.8(
 #        m0:1.0:/openrouter/anthropic/claude-fable-5($item.input)!'Answer completely.'
 #          ;max_tokens=8192;web_search_policy=/draco/policy/retrieval,
@@ -327,8 +328,9 @@ web_tools = true
 #        crit:1.0:/read($item.requirement)!'get',
 #        runs:1.0:(1,2,3)*(
 #          v:1.0:/openrouter/google/gemini-3.1-pro-preview(
-#            answer:1.0:$answer, criterion_id:1.0:$cid, criterion:1.0:$crit
-#          )!'Meets this ONE criterion? Reply JSON {"criterion_id":"…","criterion_status":"MET"|"UNMET"}'
+#            answer:1.0:$answer, case_id:1.0:$caseid, criterion_id:1.0:$cid, criterion:1.0:$crit
+#          )!'Meets this ONE criterion? Reply JSON
+#             {"case_id":"…","criterion_id":"…","criterion_status":"MET"|"UNMET"}'
 #          ;temperature=0.2;max_tokens=8192,
 #          pass:1.0:$item
 #        )!'collect'
@@ -365,6 +367,15 @@ web_tools = true
 #                   and `default_route` REPLACES all three grades with its own output — a run that
 #                   still reports success. One data sibling degrades the reduce to a text join, so
 #                   the judge's JSON survives. It also records the run index.
+#
+#   case_id         the judge must ECHO the case id, or `aggregate` has only the row's POSITION
+#                   to identify it by. Position is correct exactly when the rows are the whole
+#                   declared set: `;iteration.slice=10:20` hands rows 1-10 that are really cases
+#                   11-20, and every one is then scored against the WRONG rubric — no failures
+#                   entry, `terminated: succeeded`, a plausible number. `aggregate` now REFUSES a
+#                   short row set that carries no echoed id rather than guessing an offset it
+#                   cannot know, so a sliced run WITHOUT this binding is a loud error. The id is
+#                   opaque, so echoing it leaks no weight — same argument as `criterion_id`.
 #
 #   criterion_id    the judge must be TOLD which criterion it is grading or it cannot echo the id
 #                   back, and every verdict collapses onto one criterion: n_runs inflates, coverage
