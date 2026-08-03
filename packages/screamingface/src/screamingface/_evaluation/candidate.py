@@ -30,6 +30,15 @@ class _CompiledCandidate:
     models: tuple[str, ...]
     operations: tuple[OperationInfo, ...]
     members: tuple[_MemberProjection, ...]
+    member_expressions: tuple[_MemberExpression, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _MemberExpression:
+    """One direct Fusion member exposed through the universal binding contract."""
+
+    kind: Literal["model", "fusion"]
+    url4: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +51,7 @@ class _ResolvedRecipe:
 
 
 def compile_candidate(recipe: Recipe, *, default_synthesizer: str) -> _CompiledCandidate:
-    """Compile one Candidate once; its only external input is ``$input``."""
+    """Compile an ordinary Model or Fusion whose sole external input is ``$input``."""
 
     return _CandidateCompiler(default_synthesizer).compile(recipe)
 
@@ -73,12 +82,27 @@ class _CandidateCompiler:
                 )
                 for member in recipe.members
             )
+        member_expressions = (
+            tuple(
+                _MemberExpression(
+                    kind="model" if isinstance(member, Model) else "fusion",
+                    url4=compile_candidate(
+                        member,
+                        default_synthesizer=self._default_synthesizer,
+                    ).url4,
+                )
+                for member in recipe.members
+            )
+            if isinstance(recipe, Fusion)
+            else ()
+        )
         return _CompiledCandidate(
             kind=root.kind,
             url4=render(expr(*self._sources, intent=Text(root.reference))),
             models=root.models,
             operations=tuple(self._operations),
             members=members,
+            member_expressions=member_expressions,
         )
 
     def _recipe(self, recipe: Recipe) -> _ResolvedRecipe:

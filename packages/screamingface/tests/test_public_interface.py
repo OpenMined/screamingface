@@ -11,7 +11,9 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
     assert set(sf.__all__) == {
         "AsyncClient",
         "AuthenticationError",
+        "Benchmark",
         "BenchmarkInfo",
+        "CaseInfo",
         "ModelInfo",
         "CandidateResult",
         "Client",
@@ -52,7 +54,8 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "Operation",
         "plan",
         "run",
-        "Benchmark",
+        # WHY "Benchmark" left this list: OME-724 reintroduces it deliberately as the
+        # rich discovery value (spec 2026-08-03-OME-722) — not the legacy plan-era type.
         "Case",
         "StudyReport",
         "Grader",
@@ -67,7 +70,7 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
     ):
         assert not hasattr(sf, removed)
     assert sf.models.__all__ == ["list"]
-    assert sf.benchmarks.__all__ == ["list"]
+    assert sf.benchmarks.__all__ == ["get", "list"]
     assert sf.connections.__all__ == [
         "AsyncOAuthFlow",
         "Connection",

@@ -3,12 +3,19 @@
 from collections.abc import Sequence
 
 from screamingface._default_client import default_client
+from screamingface.discovery import Benchmark
 
 
-def list() -> Sequence[str]:
-    """List Benchmark IDs currently exposed by the configured SF Engine."""
+def list() -> Sequence[Benchmark]:
+    """List the Benchmarks currently exposed by the configured SF Engine."""
 
     return default_client().benchmarks.list()
 
 
-__all__ = ["list"]
+def get(benchmark_id: str) -> Benchmark:
+    """Fetch one Benchmark's identity card by its catalog id."""
+
+    return default_client().benchmarks.get(benchmark_id)
+
+
+__all__ = ["get", "list"]
