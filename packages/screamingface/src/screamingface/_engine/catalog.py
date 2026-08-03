@@ -72,11 +72,11 @@ class Benchmarks:
         )
         return _BenchmarkCatalog(tuple(self._benchmark(entry) for entry in catalog.entries))
 
-    def get(self, benchmark_id: str) -> Benchmark:
+    def get(self, benchmark_id: str, *, method: str | None = None) -> Benchmark:
         catalog = _decode_benchmarks(
             _sync_json(self._get, self._engine_url, _BENCHMARKS_PATH, "Benchmark catalogue")
         )
-        return self._benchmark(_entry_of(catalog, benchmark_id))
+        return self._benchmark(_entry_of(catalog, benchmark_id), method=method)
 
     def cases(self, benchmark_id: str, *, limit: int = 50, offset: int = 0) -> _CaseCatalog:
         page = _decode_case_page(
@@ -89,12 +89,12 @@ class Benchmarks:
         )
         return _CaseCatalog(page.rows, total=page.total, limit=page.limit, offset=page.offset)
 
-    def _benchmark(self, entry: _BenchmarkEntry) -> Benchmark:
+    def _benchmark(self, entry: _BenchmarkEntry, method: str | None = None) -> Benchmark:
         summary = _decode_benchmark_summary(
             _sync_json(
                 self._get,
                 self._engine_url,
-                _summary_path(entry.id),
+                _summary_path(entry.id, method),
                 "Benchmark resource",
             )
         )
@@ -154,7 +154,7 @@ class AsyncBenchmarks:
         values = [await self._benchmark(entry) for entry in catalog.entries]
         return _BenchmarkCatalog(tuple(values))
 
-    async def get(self, benchmark_id: str) -> Benchmark:
+    async def get(self, benchmark_id: str, *, method: str | None = None) -> Benchmark:
         catalog = _decode_benchmarks(
             await _async_json(
                 self._get,
@@ -163,7 +163,7 @@ class AsyncBenchmarks:
                 "Benchmark catalogue",
             )
         )
-        return await self._benchmark(_entry_of(catalog, benchmark_id))
+        return await self._benchmark(_entry_of(catalog, benchmark_id), method=method)
 
     async def cases(self, benchmark_id: str, *, limit: int = 50, offset: int = 0) -> _CaseCatalog:
         page = _decode_case_page(
@@ -176,12 +176,12 @@ class AsyncBenchmarks:
         )
         return _CaseCatalog(page.rows, total=page.total, limit=page.limit, offset=page.offset)
 
-    async def _benchmark(self, entry: _BenchmarkEntry) -> Benchmark:
+    async def _benchmark(self, entry: _BenchmarkEntry, method: str | None = None) -> Benchmark:
         summary = _decode_benchmark_summary(
             await _async_json(
                 self._get,
                 self._engine_url,
-                _summary_path(entry.id),
+                _summary_path(entry.id, method),
                 "Benchmark resource",
             )
         )
@@ -209,10 +209,13 @@ def _async_cases_redirect(benchmark_id: str) -> Callable[[int, int], _CaseCatalo
     return redirect
 
 
-def _summary_path(benchmark_id: str) -> str:
+def _summary_path(benchmark_id: str, method: str | None = None) -> str:
     # WHY limit=1: discovery needs only revision + total_case_count; the unbounded
     # resource would make the Engine render the full url4 expression per catalog row.
-    return f"{_BENCHMARKS_PATH}/{quote(benchmark_id, safe='')}?limit=1"
+    path = f"{_BENCHMARKS_PATH}/{quote(benchmark_id, safe='')}?limit=1"
+    if method is not None:
+        path += f"&method={quote(method, safe='')}"
+    return path
 
 
 def _cases_path(benchmark_id: str, limit: int, offset: int) -> str:

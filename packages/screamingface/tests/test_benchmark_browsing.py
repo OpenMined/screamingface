@@ -299,16 +299,18 @@ def test_case_catalog_renders_rows_and_escapes_prompt_text() -> None:
 
 
 def test_module_get_delegates_to_the_lazy_default_client(monkeypatch: Any) -> None:
+    # Stub tracks the real Benchmarks.get signature — `method` joined it in OME-726.
     class Benchmarks:
-        def get(self, benchmark_id: str) -> str:
-            return f"got:{benchmark_id}"
+        def get(self, benchmark_id: str, *, method: str | None = None) -> str:
+            return f"got:{benchmark_id}:{method}"
 
     class FakeClient:
         benchmarks = Benchmarks()
 
     monkeypatch.setattr(_default_client, "_client", FakeClient())
     try:
-        assert sf.benchmarks.get("ifeval") == "got:ifeval"
+        assert sf.benchmarks.get("ifeval") == "got:ifeval:None"
+        assert sf.benchmarks.get("ifeval", method="single_pass") == "got:ifeval:single_pass"
     finally:
         monkeypatch.setattr(_default_client, "_client", None)
 

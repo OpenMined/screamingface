@@ -139,8 +139,11 @@ IFEval (arXiv:2311.07911) carries 541 prompts with machine-checkable constraints
 counts, forbidden punctuation, required sections. The Engine grades every response with a
 deterministic verifier: **no judge model, zero grading cost**.
 
-> **Cost note:** the evaluation cell performs exactly one Candidate call per selected
-> case and nothing else. Discovery makes no model calls."""
+This notebook runs the **corrective** method (the default): a bounded retry loop where
+the checker's violations feed each retry — the protocol of
+[*Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles*](https://openreview.net/forum?id=XSIYfTm2h7)
+(Skurikhin et al., Los Alamos National Laboratory). Model calls are the only spend;
+discovery and grading are free."""
         ),
         nbformat.v4.new_markdown_cell(
             """## Before running
@@ -184,146 +187,182 @@ grading needs no judge model. Page further with `ifeval.cases(limit=3, offset=10
         nbformat.v4.new_markdown_cell("## Define a Candidate"),
         nbformat.v4.new_code_cell('haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")'),
         nbformat.v4.new_markdown_cell(
-            """## Evaluate the benchmark
+            """## Evaluate — the corrective chain (the default method)
 
-`limit=5` selects the first five of IFEval's 541 prompts — five Candidate calls total.
-The primary score is the paper's prompt-level strict accuracy; instruction-level and
-loose readings arrive in the metrics."""
+IFEval here has two **methods** (the catalog entry above lists them):
+
+- **`corrective`** (default) — the retry loop from
+  [Skurikhin et al. (Los Alamos National Laboratory)](https://openreview.net/forum?id=XSIYfTm2h7),
+  unrolled: the candidate answers, the deterministic checker grades it, the checker's
+  *violations* are fed back, and the candidate retries — up to 3 attempts per prompt.
+- **`single_pass`** — the paper's protocol: one answer, one check. This is the only
+  score comparable to published IFEval numbers.
+
+> **Cost note:** the chain is unrolled, so `limit=3` spends **9 candidate calls**
+> (3 prompts × 3 attempts — every attempt runs even when the first one passed).
+> Grading is still free.
+
+Data flow (the exam owns the loop; haiku is just the answerer):
+
+```text
+SDK ── GET /v1/benchmarks/ifeval ──▶ Engine returns the CORRECTIVE url4
+SDK links haiku into the one /candidate slot, submits ONE url4
+
+per case (×3):
+  haiku answers ─────────────────────▶ /check ▶ record 1
+  haiku + answer 1 + verdict 1 ──────▶ /check ▶ record 2   (retry sees violations)
+  haiku + answer 2 + verdict 2 ──────▶ /check ▶ record 3   (always runs — unrolled)
+
+/aggregate: earliest strict-passing attempt is the case's answer
+  ▶ score (retry protocol) + pass_at_1/2/3 + corrected_cases
+```"""
         ),
         nbformat.v4.new_code_cell(
             """report = sf.evaluate(
     haiku,
     benchmark="ifeval",
-    limit=5,
+    limit=3,
 )
 report"""
         ),
-        nbformat.v4.new_markdown_cell("## Inspect the Report"),
+        nbformat.v4.new_markdown_cell(
+            """### Observe 1 — pass@attempt: two experiments hiding in one run
+
+- `pass_at_1` is the **single-pass baseline**: the fraction of prompts the model
+  nailed on its first try. This is the number you would compare (informally) to
+  published IFEval scores.
+- `pass_at_3` is what the corrective loop achieves — the headline `score`.
+- `corrected_cases` counts prompts the checker's feedback actually **saved**: failed
+  at attempt 1, passed later. If `pass_at_1 == pass_at_3`, the model needed no help
+  on this slice — try a bigger `limit` or a smaller model to see the loop earn its
+  keep."""
+        ),
+        nbformat.v4.new_code_cell("report.candidates[0].metrics"),
+        nbformat.v4.new_markdown_cell(
+            """### Observe 2 — the experiment protocol is readable
+
+The Engine sent back the *entire experiment* as one url4 expression before anything
+ran — `report.candidates[0].url4` is the exact plan that executed. You can audit the
+loop right in the string: three candidate slots, three checker calls, and the retry
+prompt threading the previous verdict forward."""
+        ),
+        nbformat.v4.new_code_cell(
+            """plan = report.candidates[0].url4
+print("attempts per case       :", plan.count("/candidate("))
+print("checker calls per case  :", plan.count("/check("))
+print("retry sees the verdict  :", "Checker verdict (JSON)" in plan)
+print("exam revision in routes :", report.benchmark.revision in plan)"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """### Observe 3 — what the loop costs
+
+Run the same slice with `method="single_pass"` and compare: the corrective run burns
+roughly 3× the tokens for whatever accuracy it buys. (This is why corrective scores
+must never sit next to published single-pass numbers — different protocol, different
+budget.)"""
+        ),
+        nbformat.v4.new_code_cell(
+            """baseline = sf.evaluate(haiku, benchmark="ifeval", limit=3, method="single_pass")
+{
+    "corrective": {
+        "score": report.candidates[0].score,
+        "output_tokens": report.usage.output_tokens,
+    },
+    "single_pass": {
+        "score": baseline.candidates[0].score,
+        "output_tokens": baseline.usage.output_tokens,
+    },
+}"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """### Observe 4 — peek at the raw execution stream (optional)
+
+Every run streams events while it executes. Today they describe raw url4 node
+lifecycle (semantic events — "case 3, attempt 2" — are in flight engine-side), but
+even the raw counts show the machine at work: one evaluation fans out into dozens of
+nodes, and only the model calls cost anything."""
+        ),
+        nbformat.v4.new_code_cell(
+            """from collections import Counter
+
+events = []
+sf.evaluate(haiku, benchmark="ifeval", limit=1, on_event=events.append, progress=False)
+Counter(getattr(event, "name", None) or event.kind for event in events)"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## The verifying ensemble — `sf.CorrectiveEnsemble`
+
+The corrective method above put the retry loop in the BENCHMARK. The philosophically
+clean home for it is the CANDIDATE — and that is exactly the system of
+[Skurikhin et al. (Los Alamos National Laboratory)](https://openreview.net/forum?id=XSIYfTm2h7):
+small-model members answer in parallel, the benchmark's own checker grades every
+draft mid-flight, violations feed each member's retry (3 bounded attempts), and a
+judge model tie-breaks among passers — with deterministic engine actions returning
+the winner verbatim, so the judge cannot mutate it.
+
+Because the loop lives inside the candidate, it runs against the frozen
+**`single_pass`** exam — the ensemble and a solo model land in the SAME comparable
+column.
+
+> **Cost note:** per case the ensemble spends up to 3 members × 3 attempts + 3 judge
+> calls = 12 model calls (checking is free). `limit=2` below ≈ 24 small-model calls
+> plus 2 solo-model calls.
+
+Data flow (the exam is identical for both rows; only the candidate differs):
+
+```text
+exam, per case:  /candidate(input, case) ──▶ ONE final answer ──▶ /check ▶ record
+/aggregate: plain single-pass score — paper-comparable
+
+row 1  haiku:     prompt ──▶ haiku ──▶ answer                     (1 call/case)
+
+row 2  ensemble — everything below happens INSIDE the /candidate slot:
+  attempt (×3):   kimi ─┐
+                  deepseek ─┼─▶ each draft ──▶ /check ▶ feedback (violations text)
+                  qwen ─┘
+                  judge reads drafts + verdicts ──▶ letter ──▶ /select (verbatim)
+  /finalize: earliest PASSED selection ──▶ the ONE answer the exam sees
+                                                                 (12 calls/case)
+```"""
+        ),
+        nbformat.v4.new_code_cell(
+            """kimi = sf.Model("openrouter/moonshotai/kimi-k2.6")
+deepseek = sf.Model("openrouter/deepseek/deepseek-v4-pro")
+qwen = sf.Model("openrouter/qwen/qwen3.6-plus")
+flash = sf.Model("openrouter/google/gemini-3-flash-preview")
+
+ensemble = sf.CorrectiveEnsemble([kimi, deepseek, qwen], judge=flash)
+ensemble"""
+        ),
+        nbformat.v4.new_code_cell(
+            """duel = sf.evaluate(
+    [haiku, ensemble],
+    benchmark="ifeval",
+    limit=2,
+    method="single_pass",
+)
+duel"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """**What to observe:** both rows are the same exam and the same protocol — a fair
+fight. The ensemble's `score` is what verification-and-retry buys; its
+`output_tokens` next to the solo model's is the token overhead it costs. That
+accuracy-vs-tokenomics tradeoff is the paper's whole argument, reproduced in one
+dict:"""
+        ),
+        nbformat.v4.new_code_cell(
+            """{
+    candidate.name: {
+        "score": candidate.score,
+        "output_tokens": candidate.usage.output_tokens,
+    }
+    for candidate in duel.candidates
+}"""
+        ),
+        nbformat.v4.new_markdown_cell("## Inspect the full Report"),
         nbformat.v4.new_code_cell("report.candidates"),
         nbformat.v4.new_code_cell("report.usage"),
         nbformat.v4.new_code_cell("report.to_json()"),
-        nbformat.v4.new_markdown_cell(
-            """## R1 preview — probing the corrective-loop syntax (no services, no cost)
-
-Everything above was **R0**: each candidate answers each prompt once. The LANL paper's
-result (97.34% strict with small models) comes from a **corrective loop**: answer →
-deterministic check → turn violations into feedback → retry, bounded at 3 attempts.
-
-In url4 that loop *unrolls* into a nested expression with **named siblings**:
-
-```
-( prior_2:( prior_1:()/member!'attempt-1',
-            grade:($prior_1)/check!'…'      ← checker reads the FIRST answer
-          )/member!'attempt-2',              ← second attempt sees answer + feedback
-  grade:($prior_2)/check!'…' )!'$…'
-```
-
-Two things must be true for this to work, and we can test both **right here** — the
-`url4` package in this environment is the *same* DAG engine the Cloud embeds. The probe
-below builds a miniature world with two fake routes (no model, no network, $0):
-
-- `/member` — a stand-in candidate. It answers **with a comma** on attempt 1; if its
-  input contains checker feedback, it corrects itself.
-- `/grade` — a stand-in verifier: passes iff the answer has no comma (the real thing is
-  the vendored IFEval checker behind `/check`).
-
-What we're proving: **(a)** named siblings (`prior_1:`, `grade_1:`) execute and are
-referenceable as `$prior_1`; **(b)** a `grade:` node can target a *deterministic route*,
-not just a model."""
-        ),
-        nbformat.v4.new_code_cell(
-            """import json
-
-from url4 import RelExpr, Text, expr, render, src
-from url4.peer.server import Request, Url4Node
-
-probe = Url4Node("r1-probe")
-# Every route call is recorded here in execution order, so each attempt's answer
-# and each checker verdict stay visible after the run.
-trace: list[dict] = []
-
-
-@probe.endpoint("/member")
-def member(request: Request) -> str:
-    context = request.context or ""
-    # Attempt 2 receives the attempt-1 answer + checker feedback as its input.
-    if "feedback" in context.lower() and "PASSED" not in context:
-        answer = "Tea is warm and nice without a single comma"
-    else:
-        answer = "Tea is warm, and it is nice."
-    trace.append({"route": "/member", "intent": request.intent, "in": context, "out": answer})
-    return answer
-
-
-@probe.endpoint("/grade")
-def grade(request: Request) -> str:
-    answer = request.context or ""
-    passed = "," not in answer
-    verdict = json.dumps(
-        {"passed": passed, "feedback": "PASSED" if passed else "violation: remove every comma"}
-    )
-    trace.append({"route": "/grade", "intent": request.intent, "in": answer, "out": verdict})
-    return verdict"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """Build the two-attempt chain. Reading inside-out: `prior_1` answers, `grade_1`
-checks it (note its input is the *reference* `$prior_1`), the whole group becomes
-attempt 2's input, and `grade_2` checks the retry. The rendered string is the same
-syntax shape as the full 3-attempt R1 chain."""
-        ),
-        nbformat.v4.new_code_cell(
-            """def check(reference: str) -> RelExpr:
-    return RelExpr(path="/grade", context=reference, intent=Text("no_comma"))
-
-
-attempt_1 = expr(
-    src(
-        RelExpr(path="/member", context="Describe tea. No commas.", intent=Text("attempt-1")),
-        name="prior_1",
-        weight=0.0,
-    ),
-    src(check("$prior_1"), name="grade_1", weight=0.0),
-    intent=Text("previous answer: $prior_1 | checker feedback: $grade_1"),
-)
-chain = expr(
-    src(
-        RelExpr(path="/member", context=render(attempt_1), intent=Text("attempt-2")),
-        name="prior_2",
-        weight=0.0,
-    ),
-    src(check("$prior_2"), name="grade_2", weight=0.0),
-    intent=Text("final answer: $prior_2 | final grade: $grade_2"),
-)
-print(render(chain))"""
-        ),
-        nbformat.v4.new_code_cell(
-            """trace.clear()
-result = await probe.evaluate(render(chain))
-result.text"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """### Watch the loop happen
-
-The trace shows every route call in execution order — `prior_1`'s answer, its verdict,
-the feedback flowing into attempt 2, and the retry's verdict:"""
-        ),
-        nbformat.v4.new_code_cell(
-            """for index, step in enumerate(trace, 1):
-    print(f"step {index} — {step['route']} !{step['intent']}")
-    print(f"   in : {step['in'][:110]}")
-    print(f"   out: {step['out']}")
-    print()"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """**How to read the trace:** step 1 — attempt 1 answers *with* a comma. Step 2 — the
-checker fails it and names the exact violation. Step 3 — attempt 2's input carries the
-prior answer **and** that feedback, so it corrects itself. Step 4 — the retry passes.
-The corrective loop's data flow works end-to-end in today's url4 syntax.
-
-Still open before real R1 (`OME-721`): linking the *same real candidate* into all
-attempt slots, per-member checks for ensembles, and the cost caveat — an unrolled chain
-runs every attempt even when attempt 1 already passed, so R1 claims accuracy only."""
-        ),
     )
 
 

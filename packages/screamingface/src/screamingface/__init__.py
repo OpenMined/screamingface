@@ -5,6 +5,7 @@ from screamingface._default_client import close, configure, connect, disconnect,
 from screamingface._ui.connections import ConnectionPanel
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import Connection
+from screamingface.corrective import CorrectiveEnsemble
 from screamingface.discovery import Benchmark, BenchmarkInfo, CaseInfo, ModelInfo
 from screamingface.errors import (
     AuthenticationError,
@@ -44,6 +45,7 @@ __all__ = [
     "EvaluationWarning",
     "evaluate",
     "Failure",
+    "CorrectiveEnsemble",
     "Fusion",
     "MemberResult",
     "Model",

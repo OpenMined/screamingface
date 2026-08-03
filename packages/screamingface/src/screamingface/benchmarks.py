@@ -12,10 +12,14 @@ def list() -> Sequence[Benchmark]:
     return default_client().benchmarks.list()
 
 
-def get(benchmark_id: str) -> Benchmark:
-    """Fetch one Benchmark's identity card by its catalog id."""
+def get(benchmark_id: str, *, method: str | None = None) -> Benchmark:
+    """Fetch one Benchmark's identity card by its catalog id.
 
-    return default_client().benchmarks.get(benchmark_id)
+    ``method`` selects a protocol variant's identity (e.g. ifeval's
+    ``"single_pass"``); ``None`` shows the Benchmark's default method.
+    """
+
+    return default_client().benchmarks.get(benchmark_id, method=method)
 
 
 __all__ = ["get", "list"]

@@ -64,6 +64,7 @@ def evaluate(
     *,
     benchmark: str,
     limit: int | None = None,
+    method: str | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
 ) -> Report:
@@ -73,6 +74,7 @@ def evaluate(
         candidates,
         benchmark=benchmark,
         limit=limit,
+        method=method,
         on_event=on_event,
         progress=progress,
     )

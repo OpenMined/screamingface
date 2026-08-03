@@ -83,8 +83,11 @@ def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
 def cases_rows_html(records: Sequence[CaseInfo]) -> str:
     if not records:
         return "<div class='sf-catalog__empty'>No cases match.</div>"
+    # WHY the --case modifier: the base row grid is title+tags proportioned; a case
+    # row is chip + long prompt, so the chip hugs the left at natural width and the
+    # prompt takes the remaining line length.
     return "".join(
-        "<div class='sf-catalog__row'>"
+        "<div class='sf-catalog__row sf-catalog__row--case'>"
         f"{_tags(_chip(f'case {record.id}'))}"
         f"<div class='sf-card__hint'>{escape(record.input)}</div></div>"
         for record in records

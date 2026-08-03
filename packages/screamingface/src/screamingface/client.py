@@ -153,10 +153,15 @@ class Client:
         *,
         benchmark: str,
         limit: int | None = None,
+        method: str | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
     ) -> Report:
-        """Evaluate one or more Candidates against an Engine-owned Benchmark."""
+        """Evaluate one or more Candidates against an Engine-owned Benchmark.
+
+        ``method`` selects a Benchmark protocol variant (e.g. ifeval's
+        ``"single_pass"``); ``None`` runs the Benchmark's default method.
+        """
 
         from screamingface._evaluation.runner import evaluate_sync
 
@@ -168,6 +173,7 @@ class Client:
             candidates,
             benchmark,
             limit,
+            method,
             on_event,
             progress,
         )
@@ -350,10 +356,15 @@ class AsyncClient:
         *,
         benchmark: str,
         limit: int | None = None,
+        method: str | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
     ) -> Report:
-        """Asynchronously evaluate Candidates against an Engine-owned Benchmark."""
+        """Asynchronously evaluate Candidates against an Engine-owned Benchmark.
+
+        ``method`` selects a Benchmark protocol variant (e.g. ifeval's
+        ``"single_pass"``); ``None`` runs the Benchmark's default method.
+        """
 
         from screamingface._evaluation.runner import evaluate_async
 
@@ -365,6 +376,7 @@ class AsyncClient:
             candidates,
             benchmark,
             limit,
+            method,
             on_event,
             progress,
         )

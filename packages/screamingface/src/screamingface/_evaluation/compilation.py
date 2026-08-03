@@ -22,7 +22,7 @@ def compile_evaluation(
 ) -> _Evaluation:
     """Compile all Candidates locally after the Evaluation's only Benchmark fetch."""
 
-    compiled = tuple(compile_candidate(recipe) for recipe in recipes)
+    compiled = tuple(compile_candidate(recipe, actions=benchmark.actions) for recipe in recipes)
     candidates = tuple(
         _compiled_candidate(
             name=recipe.name,
