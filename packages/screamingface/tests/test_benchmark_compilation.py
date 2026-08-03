@@ -201,7 +201,7 @@ def test_linker_preserves_a_top_level_benchmark_iteration_without_templates() ->
         )
     )
 
-    linked = link_candidate(candidate.url4, benchmark)
+    linked = link_candidate(candidate.url4, benchmark).url4
 
     assert render(build(linked)) == linked
     assert linked.count("/provider/model") == 1
@@ -242,6 +242,90 @@ def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -
         "model",
         "synthesis",
     ]
+
+
+def _three_member_benchmark_url4() -> str:
+    return render(
+        expr(
+            *(
+                src(
+                    RelExpr(
+                        path="/candidate",
+                        context="question",
+                        intent=text(f"$candidate_model_member_{index}"),
+                    ),
+                    name=f"answer_{index}",
+                    weight=0.0,
+                )
+                for index in range(1, 4)
+            ),
+            intent=text("$answer_1 $answer_2 $answer_3"),
+        )
+    )
+
+
+def test_structural_member_bindings_keep_benchmark_logic_out_of_the_sdk() -> None:
+    benchmark = _decode_benchmark_resource(
+        _resource(url4=_three_member_benchmark_url4()),
+        requested_id="bench@1",
+        requested_limit=1,
+    )
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b"), sf.Model("provider/c")],
+        name="trio",
+    )
+
+    evaluation = compile_evaluation(
+        (fusion,),
+        benchmark,
+        1,
+        default_synthesizer="provider/default",
+    )
+    candidate = evaluation.candidates[0]
+
+    assert candidate.models == ("provider/a", "provider/b", "provider/c")
+    assert evaluation.required_models == (
+        "provider/a",
+        "provider/b",
+        "provider/c",
+        "provider/judge",
+    )
+    assert [operation.kind for operation in candidate.operations] == ["model", "model", "model"]
+    for index in range(1, 4):
+        assert candidate.url4.count(f"candidate_model_member_{index}") == 2
+    assert "openrouter/anthropic/claude-haiku-4.5" not in candidate.url4
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        sf.Model("provider/solo"),
+        sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")]),
+        sf.Fusion(
+            [
+                sf.Model("provider/a"),
+                sf.Fusion([sf.Model("provider/b"), sf.Model("provider/c")]),
+                sf.Model("provider/d"),
+            ]
+        ),
+    ],
+)
+def test_structural_model_member_requirements_fail_during_planning(candidate) -> None:
+    benchmark = _decode_benchmark_resource(
+        _resource(url4=_three_member_benchmark_url4()),
+        requested_id="bench@1",
+        requested_limit=1,
+    )
+
+    with pytest.raises(sf.PlanningError, match="member|members") as error:
+        compile_evaluation(
+            (candidate,),
+            benchmark,
+            1,
+            default_synthesizer="provider/default",
+        )
+
+    assert error.value.code == "candidate_shape_mismatch"
 
 
 class _Transport:

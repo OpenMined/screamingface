@@ -5,7 +5,7 @@ from screamingface._default_client import close, configure, connect, disconnect,
 from screamingface._ui.connections import ConnectionPanel
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
-from screamingface.discovery import BenchmarkInfo, ModelInfo
+from screamingface.discovery import Benchmark, BenchmarkInfo, CaseInfo, ModelInfo
 from screamingface.errors import (
     AuthenticationError,
     EngineUnavailableError,
@@ -25,7 +25,9 @@ from screamingface.warnings import CoverageWarning, EvaluationWarning
 __all__ = [
     "AsyncClient",
     "AuthenticationError",
+    "Benchmark",
     "BenchmarkInfo",
+    "CaseInfo",
     "CandidateResult",
     "Client",
     "Connection",

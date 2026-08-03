@@ -27,7 +27,7 @@ class BenchmarkResources:
         try:
             response = self._http.get(
                 f"/v1/benchmarks/{quote(benchmark, safe='')}",
-                params={} if limit is None else {"limit": limit},
+                params=_query(limit),
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -56,7 +56,7 @@ class AsyncBenchmarkResources:
         try:
             response = await self._http.get(
                 f"/v1/benchmarks/{quote(benchmark, safe='')}",
-                params={} if limit is None else {"limit": limit},
+                params=_query(limit),
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -69,6 +69,13 @@ class AsyncBenchmarkResources:
             requested_id=benchmark,
             requested_limit=limit,
         )
+
+
+def _query(limit: int | None) -> dict[str, int]:
+    params: dict[str, int] = {}
+    if limit is not None:
+        params["limit"] = limit
+    return params
 
 
 def _json(response: httpx.Response) -> object:

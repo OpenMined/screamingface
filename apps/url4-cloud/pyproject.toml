@@ -36,6 +36,13 @@ dependencies = [
     # pydantic — it is NOT a base dependency of the engine, so that embedders who only run
     # expressions do not install a wire-format library they never import.
     "url4[streaming]",
+    # --- run mode only: the vendored IFEval verifier (benchmarks/ifeval/vendor) ---
+    # The judge-free grader executes INSIDE the Job, so unlike draco's build-only `datasets`
+    # these are runtime dependencies. Tokenizer DATA still ships as a prepared asset
+    # (nltk_data/) — nltk here is code only, it never downloads at run time.
+    "immutabledict>=4.2.0",
+    "langdetect>=1.0.9",
+    "nltk>=3.9.1",
 ]
 
 [project.scripts]
@@ -60,6 +67,9 @@ url4 = { path = "../../packages/url4", editable = true }
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Vendored third-party code (Apache-2.0, provenance in its __init__) is kept verbatim —
+# lint/format churn there would be an untracked fork of the IFEval verifier.
+extend-exclude = ["src/url4_cloud/benchmarks/ifeval/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
@@ -80,12 +90,21 @@ known-first-party = [
     "url4_cloud",
 ]
 
+[tool.pyright]
+# Same rationale as the ruff exclude: the vendored verifier is not our code to type-fix.
+ignore = ["src/url4_cloud/benchmarks/ifeval/vendor"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 testpaths = ["tests"]
 filterwarnings = [
     "error::DeprecationWarning:url4_cloud",
 ]
+
+[tool.coverage.run]
+# Third-party vendored code is exercised through grading tests but its long tail (25
+# instruction classes) is the fork's own test suite's job, not this app's coverage bar.
+omit = ["src/url4_cloud/benchmarks/ifeval/vendor/*"]
 
 [dependency-groups]
 dev = [

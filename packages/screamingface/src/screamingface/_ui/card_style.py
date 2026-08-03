@@ -63,6 +63,9 @@ details[open]>.sf-summary::before{content:'▾'}
   gap:12px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--sf-line)}
 .sf-catalog__row:last-child{border-bottom:0}.sf-catalog__id{font-family:"IBM Plex Mono",
   ui-monospace,monospace;font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.sf-catalog__row--case{grid-template-columns:auto minmax(0,1fr);align-items:start}
+.sf-catalog__row--case .sf-catalog__tags{justify-content:flex-start}
+.sf-catalog__row--case .sf-card__hint{margin:0}
 .sf-catalog__sub{color:var(--sf-ink-2)}
 .sf-catalog__tags{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
 .sf-catalog__empty{padding:16px 12px;color:var(--sf-ink-3);text-align:center;

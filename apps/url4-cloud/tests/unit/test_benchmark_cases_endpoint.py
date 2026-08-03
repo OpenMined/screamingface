@@ -2,6 +2,8 @@
 
 FEATURE: benchmark researcher discovery (OME-722/OME-723) — a researcher reads a
 benchmark's actual prompts through plain REST before spending money evaluating.
+STORY: as a researcher, `sf.benchmarks.get("ifeval").cases(limit=5)` shows me real
+prompts; the same contract later feeds the web frontend unchanged.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from url4_cloud.rest.benchmarks import router
 pytestmark = pytest.mark.anyio
 
 DRACO_TOTAL = 7
+IFEVAL_TOTAL = 5
 
 
 @pytest.fixture
@@ -33,6 +36,12 @@ def assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         for index in range(DRACO_TOTAL)
     ]
     (draco_dir / "cases.json").write_text(json.dumps(draco_rows), encoding="utf-8")
+    ifeval_dir = tmp_path / "ifeval"
+    ifeval_dir.mkdir()
+    ifeval_rows = [
+        {"id": index + 1, "input": f"ifeval prompt {index + 1}"} for index in range(IFEVAL_TOTAL)
+    ]
+    (ifeval_dir / "cases.json").write_text(json.dumps(ifeval_rows), encoding="utf-8")
     monkeypatch.setenv(ASSETS_ENV, str(tmp_path))
     return tmp_path
 
@@ -112,6 +121,17 @@ def test_default_alias_serves_the_default_benchmark(client: TestClient) -> None:
 
     assert default.status_code == 200
     assert default.json() == explicit.json()
+
+
+def test_ifeval_cases_are_served_through_the_same_generic_route(client: TestClient) -> None:
+    body = client.get("/v1/benchmarks/ifeval/cases", params={"limit": 2}).json()
+
+    assert body["benchmark"] == "ifeval"
+    assert body["total"] == IFEVAL_TOTAL
+    assert body["data"] == [
+        {"id": 1, "input": "ifeval prompt 1"},
+        {"id": 2, "input": "ifeval prompt 2"},
+    ]
 
 
 def test_unknown_benchmark_is_404_problem_json(client: TestClient) -> None:

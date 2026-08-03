@@ -5,13 +5,14 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import NoReturn
+from urllib.parse import quote
 
 import httpx
 
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
-from screamingface._ui.catalog import _BenchmarkCatalog, _ModelCatalog
-from screamingface.discovery import ModelInfo
+from screamingface._ui.catalog import _BenchmarkCatalog, _CaseCatalog, _ModelCatalog
+from screamingface.discovery import Benchmark, CaseInfo, ModelInfo
 from screamingface.errors import AuthenticationError, EngineUnavailableError, PlanningError
 
 _MODELS_PATH = "/v1/models"
@@ -19,8 +20,17 @@ _BENCHMARKS_PATH = "/v1/benchmarks"
 
 
 @dataclass(frozen=True, slots=True)
+class _BenchmarkEntry:
+    id: str
+    family: str
+    variant: str
+    title: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
 class _BenchmarkCatalogData:
-    ids: tuple[str, ...]
+    entries: tuple[_BenchmarkEntry, ...]
     default: str | None
 
 
@@ -28,6 +38,20 @@ class _BenchmarkCatalogData:
 class _ModelCatalogData:
     models: Sequence[ModelInfo]
     default_synthesizer: str
+
+
+@dataclass(frozen=True, slots=True)
+class _BenchmarkSummary:
+    revision: str
+    case_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _CasePage:
+    total: int
+    limit: int
+    offset: int
+    rows: tuple[CaseInfo, ...]
 
 
 class Models:
@@ -53,9 +77,53 @@ class Benchmarks:
         self._get = get
         self._engine_url = engine_url
 
-    def list(self) -> Sequence[str]:
-        return _decode_benchmarks(
+    def list(self) -> Sequence[Benchmark]:
+        catalog = _decode_benchmarks(
             _sync_json(self._get, self._engine_url, _BENCHMARKS_PATH, "Benchmark catalogue")
+        )
+        return _BenchmarkCatalog(tuple(self._benchmark(entry) for entry in catalog.entries))
+
+    def get(self, benchmark_id: str) -> Benchmark:
+        catalog = _decode_benchmarks(
+            _sync_json(self._get, self._engine_url, _BENCHMARKS_PATH, "Benchmark catalogue")
+        )
+        return self._benchmark(_entry_of(catalog, benchmark_id))
+
+    def cases(self, benchmark_id: str, *, limit: int = 50, offset: int = 0) -> _CaseCatalog:
+        page = _decode_case_page(
+            _sync_json(
+                self._get,
+                self._engine_url,
+                _cases_path(benchmark_id, limit, offset),
+                "Benchmark cases",
+            )
+        )
+        return _CaseCatalog(page.rows, total=page.total, limit=page.limit, offset=page.offset)
+
+    def _benchmark(self, entry: _BenchmarkEntry) -> Benchmark:
+        summary = _decode_benchmark_summary(
+            _sync_json(
+                self._get,
+                self._engine_url,
+                _summary_path(entry.id),
+                "Benchmark resource",
+            )
+        )
+
+        # WHY: the value carries a bound page-fetcher instead of a client so it stays a
+        # frozen comparable; `benchmark.cases(...)` is this adapter's `cases` in disguise.
+        def fetch(limit: int, offset: int, benchmark_id: str = entry.id) -> _CaseCatalog:
+            return self.cases(benchmark_id, limit=limit, offset=offset)
+
+        return Benchmark(
+            id=entry.id,
+            family=entry.family,
+            variant=entry.variant,
+            title=entry.title,
+            description=entry.description,
+            revision=summary.revision,
+            case_count=summary.case_count,
+            _fetch_cases=fetch,
         )
 
 
@@ -90,8 +158,8 @@ class AsyncBenchmarks:
         self._get = get
         self._engine_url = engine_url
 
-    async def list(self) -> Sequence[str]:
-        return _decode_benchmarks(
+    async def list(self) -> Sequence[Benchmark]:
+        catalog = _decode_benchmarks(
             await _async_json(
                 self._get,
                 self._engine_url,
@@ -99,6 +167,85 @@ class AsyncBenchmarks:
                 "Benchmark catalogue",
             )
         )
+        values = [await self._benchmark(entry) for entry in catalog.entries]
+        return _BenchmarkCatalog(tuple(values))
+
+    async def get(self, benchmark_id: str) -> Benchmark:
+        catalog = _decode_benchmarks(
+            await _async_json(
+                self._get,
+                self._engine_url,
+                _BENCHMARKS_PATH,
+                "Benchmark catalogue",
+            )
+        )
+        return await self._benchmark(_entry_of(catalog, benchmark_id))
+
+    async def cases(self, benchmark_id: str, *, limit: int = 50, offset: int = 0) -> _CaseCatalog:
+        page = _decode_case_page(
+            await _async_json(
+                self._get,
+                self._engine_url,
+                _cases_path(benchmark_id, limit, offset),
+                "Benchmark cases",
+            )
+        )
+        return _CaseCatalog(page.rows, total=page.total, limit=page.limit, offset=page.offset)
+
+    async def _benchmark(self, entry: _BenchmarkEntry) -> Benchmark:
+        summary = _decode_benchmark_summary(
+            await _async_json(
+                self._get,
+                self._engine_url,
+                _summary_path(entry.id),
+                "Benchmark resource",
+            )
+        )
+        return Benchmark(
+            id=entry.id,
+            family=entry.family,
+            variant=entry.variant,
+            title=entry.title,
+            description=entry.description,
+            revision=summary.revision,
+            case_count=summary.case_count,
+            _fetch_cases=_async_cases_redirect(entry.id),
+        )
+
+
+def _async_cases_redirect(benchmark_id: str) -> Callable[[int, int], _CaseCatalog]:
+    # WHY: an async-born value cannot page synchronously; failing loudly with the exact
+    # replacement call beats returning an un-awaited coroutine from a sync-looking API.
+    def redirect(limit: int, offset: int) -> _CaseCatalog:
+        raise PlanningError(
+            "This Benchmark came from an AsyncClient — page its cases with "
+            f"await client.benchmarks.cases({benchmark_id!r}, limit=…, offset=…)",
+            code="sync_cases_on_async_client",
+            permanent=True,
+        )
+
+    return redirect
+
+
+def _summary_path(benchmark_id: str) -> str:
+    # WHY limit=1: discovery needs only revision + total_case_count; the unbounded
+    # resource would make the Engine render the full url4 expression per catalog row.
+    return f"{_BENCHMARKS_PATH}/{quote(benchmark_id, safe='')}?limit=1"
+
+
+def _cases_path(benchmark_id: str, limit: int, offset: int) -> str:
+    return f"{_BENCHMARKS_PATH}/{quote(benchmark_id, safe='')}/cases?limit={limit}&offset={offset}"
+
+
+def _entry_of(catalog: _BenchmarkCatalogData, benchmark_id: str) -> _BenchmarkEntry:
+    for entry in catalog.entries:
+        if entry.id == benchmark_id:
+            return entry
+    raise PlanningError(
+        f"Benchmark {benchmark_id!r} is not installed on this Engine",
+        code="unknown_benchmark",
+        permanent=True,
+    )
 
 
 def _sync_json(
@@ -182,12 +329,11 @@ def _decode_model_catalog(payload: object) -> _ModelCatalogData:
     return _ModelCatalogData(models=models, default_synthesizer=default_synthesizer)
 
 
-def _decode_benchmarks(payload: object) -> Sequence[str]:
+def _decode_benchmarks(payload: object) -> _BenchmarkCatalogData:
     try:
-        catalog = _decode_benchmark_catalog(payload)
+        return _decode_benchmark_catalog(payload)
     except ValueError as exc:
         _invalid(str(exc))
-    return _BenchmarkCatalog(catalog.ids)
 
 
 def _decode_benchmark_catalog(payload: object) -> _BenchmarkCatalogData:
@@ -199,12 +345,16 @@ def _decode_benchmark_catalog(payload: object) -> _BenchmarkCatalogData:
     rows = root.get("data")
     if not isinstance(rows, list):
         _catalog_invalid("Benchmark catalog must contain a data array")
-    ids = _benchmark_ids(rows)
-    return _BenchmarkCatalogData(ids=ids, default=_benchmark_default(root["default"], ids))
+    entries = _benchmark_entries(rows)
+    ids = tuple(entry.id for entry in entries)
+    return _BenchmarkCatalogData(
+        entries=entries,
+        default=_benchmark_default(root["default"], ids),
+    )
 
 
-def _benchmark_ids(rows: list[object]) -> tuple[str, ...]:
-    values: list[str] = []
+def _benchmark_entries(rows: list[object]) -> tuple[_BenchmarkEntry, ...]:
+    values: list[_BenchmarkEntry] = []
     seen: set[str] = set()
     for row in rows:
         item = _wire_mapping(row, "Benchmark catalog entry", _catalog_invalid)
@@ -214,7 +364,23 @@ def _benchmark_ids(rows: list[object]) -> tuple[str, ...]:
         if benchmark_id in seen:
             _catalog_invalid(f"Benchmark catalog contains duplicate id {benchmark_id!r}")
         seen.add(benchmark_id)
-        values.append(benchmark_id)
+        values.append(
+            _BenchmarkEntry(
+                id=benchmark_id,
+                # Additive compatibility: an older Engine exposed only canonical entries.
+                # Its id is therefore both family and canonical variant by definition.
+                family=_wire_text(
+                    item.get("family", benchmark_id), "Benchmark family", _catalog_invalid
+                ),
+                variant=_wire_text(
+                    item.get("variant", "canonical"), "Benchmark variant", _catalog_invalid
+                ),
+                title=_wire_text(item.get("title"), "Benchmark title", _catalog_invalid),
+                description=_wire_text(
+                    item.get("description"), "Benchmark description", _catalog_invalid
+                ),
+            )
+        )
     return tuple(values)
 
 
@@ -227,6 +393,51 @@ def _benchmark_default(value: object, ids: tuple[str, ...]) -> str | None:
     if selected not in ids:
         _catalog_invalid(f"Benchmark catalog default {selected!r} is not installed")
     return selected
+
+
+def _decode_benchmark_summary(payload: object) -> _BenchmarkSummary:
+    root = _wire_mapping(payload, "Benchmark resource", _invalid)
+    revision = _wire_text(root.get("revision"), "Benchmark revision", _invalid)
+    total = root.get("total_case_count")
+    if isinstance(total, bool) or not isinstance(total, int) or total < 1:
+        _invalid("Benchmark total_case_count must be a positive integer")
+    return _BenchmarkSummary(revision=revision, case_count=total)
+
+
+def _decode_case_page(payload: object) -> _CasePage:
+    root = _wire_mapping(payload, "Benchmark cases page", _invalid)
+    if root.get("object") != "list":
+        _invalid("Benchmark cases page object must be 'list'")
+    counters: dict[str, int] = {}
+    for name, minimum in (("total", 0), ("limit", 1), ("offset", 0)):
+        value = root.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            _invalid(f"Benchmark cases page {name} must be an integer >= {minimum}")
+        counters[name] = value
+    rows = root.get("data")
+    if not isinstance(rows, list):
+        _invalid("Benchmark cases page must contain a data array")
+    cases: list[CaseInfo] = []
+    for row in rows:
+        item = _wire_mapping(row, "Benchmark case", _invalid)
+        case_id = item.get("id")
+        if isinstance(case_id, bool) or not isinstance(case_id, int):
+            _invalid("Benchmark case id must be an integer")
+        try:
+            cases.append(
+                CaseInfo(
+                    id=case_id,
+                    input=_wire_text(item.get("input"), "Benchmark case input", _invalid),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            _invalid(str(exc))
+    return _CasePage(
+        total=counters["total"],
+        limit=counters["limit"],
+        offset=counters["offset"],
+        rows=tuple(cases),
+    )
 
 
 def _catalog_invalid(message: str) -> NoReturn:

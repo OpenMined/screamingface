@@ -17,21 +17,6 @@ from url4_cloud.benchmarks.contract import (
 
 
 @dataclass(frozen=True, slots=True)
-class BenchmarkMethod:
-    """One named execution protocol of a Benchmark — same exam material, different DAG.
-
-    WHY methods instead of sibling registry entries: two protocols over one exam (e.g.
-    IFEval single-pass vs the LANL corrective chain) are NOT two benchmarks — separate
-    catalog entries invite cross-column comparisons the protocols forbid. A method keeps
-    one catalog identity while every variant keeps its own revision (its own exam hash).
-    """
-
-    name: str
-    revision: str
-    build: Callable[[int], Node]
-
-
-@dataclass(frozen=True, slots=True)
 class Benchmark:
     """Metadata plus ordinary Python that builds one Engine-owned URL4 expression.
 
@@ -39,12 +24,13 @@ class Benchmark:
     public resource, caching, validation, Candidate linkage, asset-root resolution, and execution
     transport remain shared infrastructure.
 
-    ``methods`` is optional: a benchmark with one protocol leaves it empty and nothing
-    changes. When present, the top-level ``revision``/``build`` MUST be the default
-    method's — the invariants below enforce it.
+    Each definition returns one complete evaluation protocol. Alternative protocols are
+    separate Benchmark definitions that may share family assets and runtime functions.
     """
 
     id: str
+    family: str
+    variant: str
     title: str
     description: str
     revision: str
@@ -52,86 +38,38 @@ class Benchmark:
     required_models: tuple[str, ...]
     build: Callable[[int], Node]
     install: Callable[[Url4Node, Path], None]
-    methods: tuple[BenchmarkMethod, ...] = ()
-    default_method: str = ""
-    # Optional candidate-facing action routes (e.g. a verifier benchmark's check /
-    # select / finalize). Advertised additively in the resource so an SDK recipe can
-    # address them without hardcoding revision prefixes.
-    actions: Mapping[str, str] | None = None
 
-    def __post_init__(self) -> None:
-        if not self.methods:
-            if self.default_method:
-                raise ValueError("a Benchmark without methods cannot name a default_method")
-            return
-        names = [method.name for method in self.methods]
-        if len(set(names)) != len(names):
-            raise ValueError("Benchmark method names must be unique")
-        default = next((m for m in self.methods if m.name == self.default_method), None)
-        if default is None:
-            raise ValueError("default_method must name one of the Benchmark's methods")
-        if default.revision != self.revision:
-            raise ValueError("Benchmark revision must equal its default method's revision")
-
-    def method_names(self) -> tuple[str, ...]:
-        return tuple(method.name for method in self.methods)
-
-    def resource(self, limit: int | None, method: str | None = None) -> dict[str, object]:
+    def resource(self, limit: int | None) -> dict[str, object]:
         """Build the exact JSON representation fetched by an SDK."""
 
-        selected_method = self._select_method(method)
-        build = selected_method.build if selected_method else self.build
-        revision = selected_method.revision if selected_method else self.revision
         selected = self.case_count if limit is None else min(limit, self.case_count)
         if selected < 1:
             raise ValueError("Benchmark case selection must not be empty")
-        expression = build(selected)
+        expression = self.build(selected)
         if not isinstance(expression, Node):
             raise TypeError("Benchmark build must return a URL4 Node")
         resource: dict[str, object] = {
             "schema": "screamingface.benchmark.v1",
             "id": self.id,
-            "revision": revision,
+            "family": self.family,
+            "variant": self.variant,
+            "revision": self.revision,
             "case_count": selected,
             "total_case_count": self.case_count,
             "required_models": list(self.required_models),
             "url4": render(expression),
         }
-        if selected_method is not None:
-            # Additive fields, present only for multi-method benchmarks — a
-            # single-protocol manifest stays byte-identical to the pre-method format.
-            resource["method"] = selected_method.name
-            resource["methods"] = list(self.method_names())
-            resource["default_method"] = self.default_method
-        if self.actions is not None:
-            resource["actions"] = dict(self.actions)
         return resource
-
-    def _select_method(self, method: str | None) -> BenchmarkMethod | None:
-        if not self.methods:
-            if method is not None:
-                raise ValueError(f"Benchmark {self.id!r} has no methods; got {method!r}")
-            return None
-        selected = method or self.default_method
-        for candidate_method in self.methods:
-            if candidate_method.name == selected:
-                return candidate_method
-        raise ValueError(f"unknown method {selected!r} for Benchmark {self.id!r}")
 
 
 def candidate(
     input: str,
-    case: str | None = None,
     *,
+    binding: str = "$candidate",
     web_search: bool | None = None,
     web_search_exclude: Sequence[str] = (),
 ) -> Node:
     """Invoke the structurally linked Candidate with one Benchmark-owned input.
-
-    ``case`` optionally passes the case identity as a second named context slot —
-    the Runner binds it as ``$case`` in the Candidate's lexical scope so candidate-
-    side loops can address the benchmark's verifier (OME-727). Case rides FIRST so
-    the slot parse is immune to whatever the input text contains.
 
     Retrieval is Benchmark policy, not Candidate policy. These options are carried on the
     ``/candidate`` call and applied to every model call inside the linked Candidate while it is
@@ -139,12 +77,15 @@ def candidate(
     DRACO require guarded retrieval while IFEval explicitly disables it in the same Runner.
     """
 
-    context = _candidate_context(input, case)
+    if not isinstance(input, str) or not input:
+        raise ValueError("Candidate Invocation input must be non-empty URL4 context")
+    if not isinstance(binding, str) or not binding.startswith("$candidate"):
+        raise ValueError("Candidate binding must be a $candidate structural reference")
     params = _candidate_params(web_search, web_search_exclude)
     call = RelExpr(
         path=CANDIDATE_ROUTE,
-        context=context,
-        intent=Text("$candidate"),
+        context=input,
+        intent=Text(binding),
         params=tuple(params),
     )
     if not params:
@@ -156,16 +97,6 @@ def candidate(
         src(call, name="candidate_result", weight=0.0),
         intent=Text("$candidate_result"),
     )
-
-
-def _candidate_context(input: str, case: str | None) -> str:
-    if not isinstance(input, str) or not input:
-        raise ValueError("Candidate Invocation input must be non-empty URL4 context")
-    if case is None:
-        return input
-    if not isinstance(case, str) or not case:
-        raise ValueError("Candidate Invocation case must be a non-empty reference")
-    return f"case: {case}, input: {input}"
 
 
 def _candidate_params(
@@ -232,4 +163,4 @@ def _chat_json(messages: object) -> str:
     return json.dumps(selected, ensure_ascii=False, separators=(",", ":"))
 
 
-__all__ = ["Benchmark", "BenchmarkMethod", "candidate", "chat_input"]
+__all__ = ["Benchmark", "candidate", "chat_input"]

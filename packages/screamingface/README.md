@@ -4,10 +4,10 @@ Evaluate Models and Fusions against URL4-native research Benchmarks.
 
 > **Development status:** immutable Model/Fusion authoring, Engine-backed discovery, the direct
 > evaluation API, Model/Fusion authoring, and the confirmed `url4-cloud` lifecycle are
-> implemented. The current Engine publishes `draco` through the implemented one-fetch
-> Benchmark-expression contract and its Runner-native URL4 routes. Additional Benchmark adapters
-> remain pre-release work. There is no fixture, embedded benchmark runtime, or Client-side
-> execution fallback.
+> implemented. The current Engine publishes `draco`, canonical `ifeval`, and
+> `ifeval-corrective`, and `ifeval-corrective-ensemble` through the one-fetch
+> Benchmark-expression contract and Runner-native URL4 routes. There is no fixture, embedded
+> benchmark runtime, or Client-side execution fallback.
 
 ## Target v1 workflow
 
@@ -45,6 +45,34 @@ The installed `draco` definition always refers to the complete official 100-task
 current executable Judge is `openrouter/google/gemini-3.1-pro-preview`, Google's official
 replacement for the paper's retired `Gemini-3-Pro Preview`. Reports should disclose that Judge
 version difference when comparing scores with the paper.
+
+Related protocols are separate Benchmark identities rather than SDK options. Canonical IFEval
+invokes each Candidate once and grades it with deterministic code. `ifeval-corrective` uses the
+same 541 Cases and verifier but executes a fixed three-attempt Engine-owned correction protocol:
+
+```python
+canonical = sf.evaluate(fusion, benchmark="ifeval", limit=3)
+corrective = sf.evaluate(fusion, benchmark="ifeval-corrective", limit=3)
+```
+
+The two entries share the `ifeval` Benchmark Family and Engine assets, but have different ids,
+revisions, URL4 expressions, costs, and score comparability. `limit` only selects fewer Cases; it
+does not create a `smoke` or `lite` Benchmark. Because current URL4 has no conditional early stop,
+the corrective Variant always runs all three attempts and then scores the earliest strict pass,
+or the final attempt when none passes.
+
+The member-level protocol is separately identified because it performs a different experiment.
+It requires exactly three direct Model members, checks and retries each member independently for
+three attempts, and uses the Benchmark's pinned selection Judge before canonical scoring:
+
+```python
+panel = sf.Fusion([kimi, deepseek, qwen])
+ensemble = sf.evaluate(panel, benchmark="ifeval-corrective-ensemble", limit=3)
+```
+
+Here the Benchmark deliberately invokes the Fusion's structural member bindings rather than its
+ordinary final synthesizer. The SDK exposes those bindings generically; retry, verification,
+selection, finalization, and scoring remain entirely Engine-owned.
 
 ### Candidate policy defaults
 

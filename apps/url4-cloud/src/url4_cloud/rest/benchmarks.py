@@ -48,14 +48,12 @@ def _catalog() -> list[dict[str, object]]:
         entry: dict[str, object] = {
             "object": "benchmark",
             "id": benchmark.id,
+            "family": benchmark.family,
+            "variant": benchmark.variant,
             "title": benchmark.title,
             "description": benchmark.description,
             "href": f"/v1/benchmarks/{benchmark.id}",
         }
-        if benchmark.methods:
-            # Additive: single-protocol entries stay byte-identical.
-            entry["methods"] = list(benchmark.method_names())
-            entry["default_method"] = benchmark.default_method
         entries.append(entry)
     return entries
 
@@ -86,10 +84,6 @@ async def list_benchmarks(
 async def get_benchmark(
     benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
     limit: Annotated[int | None, Query(ge=1, description="Maximum selected cases.")] = None,
-    method: Annotated[
-        str | None,
-        Query(description="Execution method; omitted means the Benchmark's default."),
-    ] = None,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
     selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
@@ -100,13 +94,7 @@ async def get_benchmark(
             "Unknown benchmark",
             f"no Benchmark is installed under {benchmark_id!r}",
         )
-    if method is not None and method not in benchmark.method_names():
-        return _problem(
-            404,
-            "Unknown method",
-            f"Benchmark {selected_id!r} has no method {method!r}",
-        )
-    return _response(benchmark.resource(limit, method=method), if_none_match)
+    return _response(benchmark.resource(limit), if_none_match)
 
 
 class _CasesUnavailableError(Exception):
@@ -135,7 +123,7 @@ async def list_benchmark_cases(
             f"no Benchmark is installed under {benchmark_id!r}",
         )
     try:
-        rows = _case_rows(selected_id)
+        rows = _case_rows(benchmark.family)
     except _CasesUnavailableError as exc:
         # WHY: a control plane deployed without the assets must fail loudly with the
         # node-route error code — an empty list would read as "benchmark has no cases".

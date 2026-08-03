@@ -56,7 +56,7 @@ jobs:
           cache-from: type=gha,scope=dev-url4-cloud
           cache-to: type=gha,scope=dev-url4-cloud,mode=max
 
-  # The BENCHMARK image: the engine above plus DRACO's prepared assets.
+  # The BENCHMARK image: the engine above plus every registered Benchmark's prepared assets.
   # A Runner Job runs this instead of the App image when
   # `runner.image.repository` points at it; the control plane never does, so a rubric never lands
   # on the pod that terminates client connections.

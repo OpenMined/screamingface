@@ -140,3 +140,6 @@ Benchmark template or protocol branch.
 - The Candidate-specific planning endpoint and its SDK request/response types are superseded once
   the one-fetch Benchmark contract passes the vertical-slice gates. They have been removed from
   the implemented DRACO vertical slice.
+- Protocol alternatives are separate Engine-owned Benchmark identities rather than resource
+  methods or Candidate capabilities; see ADR 0002. One fetched resource therefore continues to
+  mean exactly one executable and comparable URL4 protocol.

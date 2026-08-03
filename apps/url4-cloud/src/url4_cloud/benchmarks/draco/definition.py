@@ -147,6 +147,8 @@ def _install(node: Url4Node, assets: Path) -> None:
 
 DRACO = Benchmark(
     id=BENCHMARK_ID,
+    family=BENCHMARK_ID,
+    variant="canonical",
     title="DRACO",
     description="The 100-task DRACO deep-research benchmark.",
     revision=REVISION,

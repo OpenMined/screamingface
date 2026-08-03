@@ -10,6 +10,19 @@ from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
 from url4_cloud.benchmarks.draco.definition import AGGREGATE_ROUTE, TASKS_ROUTE, VERDICT_ROUTE
+from url4_cloud.benchmarks.ifeval.corrective import (
+    AGGREGATE_ROUTE as CORRECTIVE_AGGREGATE_ROUTE,
+)
+from url4_cloud.benchmarks.ifeval.definition import (
+    AGGREGATE_ROUTE as IFEVAL_AGGREGATE_ROUTE,
+)
+from url4_cloud.benchmarks.ifeval.definition import (
+    CHECK_ROUTE as IFEVAL_CHECK_ROUTE,
+)
+from url4_cloud.benchmarks.ifeval.ensemble import (
+    AGGREGATE_ROUTE as ENSEMBLE_AGGREGATE_ROUTE,
+)
+from url4_cloud.benchmarks.ifeval.ensemble import FINALIZE_ROUTE, SELECT_ROUTE
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
@@ -19,7 +32,19 @@ _TOKEN = "test-token"  # noqa: S105 - not a real credential
 _TAVILY_TOKEN = "tvly-test"  # noqa: S105 - not a real credential
 
 _FANOUT = "(/openrouter/gpt-4o(ctx)!probe)!combine"
-_BENCHMARK_ROUTES = {AGGREGATE_ROUTE, TASKS_ROUTE, VERDICT_ROUTE}
+# Every installed benchmark family contributes its processor routes to each world —
+# extended in OME-719 when ifeval joined draco in the registry.
+_BENCHMARK_ROUTES = {
+    AGGREGATE_ROUTE,
+    TASKS_ROUTE,
+    VERDICT_ROUTE,
+    IFEVAL_AGGREGATE_ROUTE,
+    IFEVAL_CHECK_ROUTE,
+    CORRECTIVE_AGGREGATE_ROUTE,
+    ENSEMBLE_AGGREGATE_ROUTE,
+    SELECT_ROUTE,
+    FINALIZE_ROUTE,
+}
 
 
 class _Recorder:
@@ -848,7 +873,7 @@ async def test_malformed_neither_content_nor_tool_calls_still_raises() -> None:
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
 
-        with pytest.raises(ResolutionError) as exc_info:
+        with pytest.raises(ResolutionError, match="exhausted its completion budget") as exc_info:
             await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
 
     assert exc_info.value.code == "aigateway_bad_response"
