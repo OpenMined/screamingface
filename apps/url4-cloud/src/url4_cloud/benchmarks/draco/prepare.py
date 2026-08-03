@@ -46,44 +46,59 @@ COLUMN_DOMAIN = "domain"
 RETRIEVAL_POLICY_ID = "draco/official"
 
 EXCLUDED_DOMAINS = (
-    "huggingface.co/datasets/perplexity-ai/draco",
-    "openrouter.ai/blog/announcements/fusion-beats-frontier",
-    "paperswithcode.com/dataset/draco",
-    # Upstream's entry, kept verbatim so our list stays comparable with the reference harness.
-    # It is a MONTH PREFIX (arXiv ids are YYMM.NNNNN), so it blocks all of September 2025.
-    "arxiv.org/abs/2509",
-    # The DRACO paper ITSELF — "DRACO: a Cross-Domain Benchmark for Deep Research Accuracy,
-    # Completeness, and Objectivity", submitted 2026-02-12 (verified against arXiv 2026-07-31).
-    # WHY this is a separate entry: the upstream prefix above covers 2025-09 and the paper is
-    # 2026-02, so upstream blocks a month that holds nothing and leaves the paper reachable. A
-    # candidate reading the benchmark's own paper is the leak this list exists to stop, and it
-    # INFLATES the score, so it never looks like a bug.
-    "arxiv.org/abs/2602.11685",
+    # INVARIANT: BARE HOSTS ONLY — no paths, no wildcards, no schemes.
+    #
+    # MEASURED 2026-08-02 (straight to OpenRouter and through the deployed gateway on kind): the
+    # provider accepts a host and REJECTS anything longer, with a 400 that kills the whole request:
+    #
+    #     ["arxiv.org"]                -> 200
+    #     ["arxiv.org/abs/2602.11685"] -> 400  "Invalid domain 'arxiv.org/abs/2602.11685'"
+    #     ["*.substack.com"]           -> 400
+    #
+    # This list was page-shaped until that measurement, which means every native answering call in
+    # a DRACO run was a hard 400 — a run that finished in five seconds, reported
+    # `terminated: succeeded`, and scored nothing. No earlier test caught it: they all used a bare
+    # host in a probe policy, and only the real expression carries the real list.
+    #
+    # OpenRouter's own docs describe wildcards and path filtering as supported values. They are not
+    # supported by the provider behind native search, and an earlier note here retracted the
+    # "paths do not match" concern on the strength of those docs. Reasoning from documentation is
+    # what cost this feature a working guard twice; measure the effect.
+    #
+    # TRADEOFF, owner decision 2026-08-02: whole SITES are blocked. `arxiv.org` and
+    # `huggingface.co` are legitimate deep-research sources, so this makes a candidate look worse
+    # at research than it is — a real distortion that belongs beside any published score. It was
+    # chosen over under-blocking, which INFLATES scores, and an inflated score is the one nobody
+    # audits.
+    "arxiv.org",
+    "huggingface.co",
+    "openrouter.ai",
+    "paperswithcode.com",
+    # Mirrors that republish the paper under their own hosts, so blocking arxiv.org alone leaves
+    # it reachable. Each was observed in a live result set while probing the entries above.
+    "alphaxiv.org",
+    "semanticscholar.org",
+    # The authors' own write-up of the DRACO evaluation — observed citing DRACO material directly
+    # in live searches. A subdomain, so `perplexity.ai` at large stays reachable.
+    "research.perplexity.ai",
 )
-"""The blocklist a DRACO candidate answers under, copied from
-`screamingface-benchmarks/benchmarks_config/draco.yaml`.
+"""The blocklist a DRACO candidate answers under, derived from
+`screamingface-benchmarks/benchmarks_config/draco.yaml` and reduced to HOSTS.
 
 DRACO is a deep-research benchmark, so a candidate that retrieves the dataset card, the
 reproduction post, or the paper is reading the answer key. That INFLATES the score, which is why
 it does not look like a bug.
 
-The SHAPE of these entries is correct: OpenRouter documents wildcards (`*.substack.com`) and
-path filtering (`openai.com/blog`) as supported values, and a live probe on 2026-07-31 drove
-blocked-host citations to zero on both the `native` and `exa` engines. An earlier note here
-claimed path prefixes could not match; that reading came from a probe run while the gateway was
-still emitting the WRONG WIRE KEY (`excluded_domains` for `exclude_domains`), so it measured the
-typo rather than the value shape. Retracted.
+Upstream's list is page-shaped (`huggingface.co/datasets/perplexity-ai/draco`,
+`arxiv.org/abs/2509`). Those values cannot ship: the provider rejects anything longer than a host
+with a 400 that fails the entire call, so a page-shaped list does not weaken the guard — it stops
+the benchmark. Ours is therefore NOT byte-comparable with the reference harness, and that is a
+deliberate divergence rather than a drift.
 
-RESOLVED 2026-07-31 — upstream's `arxiv.org/abs/2509` is annotated "DRACO paper preprint range"
-but arXiv ids are `YYMM.NNNNN`, so it covers September 2025 while the paper is **2602.11685**,
-submitted 2026-02-12 (verified against arXiv). Upstream therefore blocks a month that holds
-nothing and leaves the paper itself reachable. Both entries are kept: theirs so the list stays
-comparable with the reference harness, ours so the guard actually holds.
-
-AIDEV-NOTE: the benchmarks repo calls the whole list "our best guess" — OpenRouter never
-published theirs — so treat it as a floor, not a ceiling. Extend it from the audit logs in eval
-JSONLs (`tool_calls` in metadata) as real leak sources turn up. Because the policy is DATA,
-each addition is an artifact edit rather than a code release.
+AIDEV-NOTE: still a floor, not a ceiling — the benchmarks repo calls their list "our best guess"
+and OpenRouter never published theirs. Extend it from the audit logs in eval JSONLs (`tool_calls`
+in metadata) as real leak sources turn up. Because the policy is DATA, each addition is an
+artifact edit rather than a code release. Add HOSTS; anything longer is a 400.
 """
 
 
@@ -195,6 +210,16 @@ def write_policy(out: Path) -> Path:
     """
     if not EXCLUDED_DOMAINS:
         raise PrepareError("the retrieval policy is empty — a DRACO run needs its blocklist")
+    # INVARIANT: bare hosts only, enforced at BUILD time. A path or wildcard is a 400 from the
+    # provider on every answering call, which surfaces as a run that terminates SUCCEEDED with a
+    # zero score — so the build is the last place it can still be loud. MEASURED 2026-08-02:
+    # "Invalid domain 'arxiv.org/abs/2602.11685'".
+    malformed = sorted(d for d in EXCLUDED_DOMAINS if any(c in d for c in "/*:"))
+    if malformed:
+        raise PrepareError(
+            f"retrieval policy entries must be bare hosts, got {malformed} — a path or wildcard "
+            "is rejected by the provider with a 400 that fails every answering call"
+        )
     policy_dir = out / "policy"
     policy_dir.mkdir(parents=True, exist_ok=True)
     path = policy_dir / "retrieval.json"
