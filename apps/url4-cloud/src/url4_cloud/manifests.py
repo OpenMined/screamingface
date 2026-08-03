@@ -97,11 +97,22 @@ def field(text: str, name: str) -> str | None:
 
 
 def etag_of(text: str) -> str:
-    """A STRONG validator over the exact bytes served.
+    """A STRONG validator over the exact bytes served, UNQUOTED.
 
     Strong (no ``W/``) because the response body is this string verbatim — byte-for-byte equality
     is exactly what the validator asserts. Content-derived rather than a version counter, so two
     manifests can never collide and a manifest edit invalidates caches without anyone remembering
     to bump anything.
+
+    Bare, like `catalog.port.compute_etag`: the quotes are wire syntax added at the header, so a
+    comparison never has to strip them. See `rest.conditional`.
     """
-    return '"' + hashlib.sha256(text.encode("utf-8")).hexdigest()[:32] + '"'
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
+
+
+ETAGS: dict[str, str] = {key: etag_of(text) for key, text in MANIFESTS.items()}
+"""Every manifest's validator, computed ONCE at import.
+
+`MANIFESTS` is a build-time constant, so hashing a manifest per request is provably repeated work
+— including on the 304 path, where recomputing the validator is the whole cost of the response.
+"""
