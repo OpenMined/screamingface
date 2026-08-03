@@ -82,6 +82,15 @@ updates:
         update-types: ["major"]
 
   - package-ecosystem: "uv"
+    directory: "/packages/screamingface"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      screamingface-python:
+        patterns: ["*"]
+
+  - package-ecosystem: "uv"
     directory: "/apps/url4-cloud"
     schedule:
       interval: "weekly"
