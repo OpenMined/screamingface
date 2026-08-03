@@ -50,17 +50,22 @@ def _response(value: object, if_none_match: str | None) -> Response:
     return Response(content=body, media_type="application/json", headers=headers)
 
 
-def _catalog() -> list[dict[str, str]]:
-    return [
-        {
+def _catalog() -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    for benchmark in sorted(BENCHMARKS.values(), key=lambda value: value.id):
+        entry: dict[str, object] = {
             "object": "benchmark",
             "id": benchmark.id,
             "title": benchmark.title,
             "description": benchmark.description,
             "href": f"/v1/benchmarks/{benchmark.id}",
         }
-        for benchmark in sorted(BENCHMARKS.values(), key=lambda value: value.id)
-    ]
+        if benchmark.methods:
+            # Additive: single-protocol entries stay byte-identical.
+            entry["methods"] = list(benchmark.method_names())
+            entry["default_method"] = benchmark.default_method
+        entries.append(entry)
+    return entries
 
 
 @router.get(
@@ -89,6 +94,10 @@ async def list_benchmarks(
 async def get_benchmark(
     benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
     limit: Annotated[int | None, Query(ge=1, description="Maximum selected cases.")] = None,
+    method: Annotated[
+        str | None,
+        Query(description="Execution method; omitted means the Benchmark's default."),
+    ] = None,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
     selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
@@ -99,7 +108,13 @@ async def get_benchmark(
             "Unknown benchmark",
             f"no Benchmark is installed under {benchmark_id!r}",
         )
-    return _response(benchmark.resource(limit), if_none_match)
+    if method is not None and method not in benchmark.method_names():
+        return _problem(
+            404,
+            "Unknown method",
+            f"Benchmark {selected_id!r} has no method {method!r}",
+        )
+    return _response(benchmark.resource(limit, method=method), if_none_match)
 
 
 class _CasesUnavailableError(Exception):

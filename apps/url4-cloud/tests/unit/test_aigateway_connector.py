@@ -16,6 +16,11 @@ from url4_cloud.benchmarks.ifeval.definition import (
 from url4_cloud.benchmarks.ifeval.definition import (
     CHECK_ROUTE as IFEVAL_CHECK_ROUTE,
 )
+from url4_cloud.benchmarks.ifeval.definition import (
+    CORRECTIVE_AGGREGATE_ROUTE,
+    FINALIZE_ROUTE,
+    SELECT_ROUTE,
+)
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
@@ -33,6 +38,9 @@ _BENCHMARK_ROUTES = {
     VERDICT_ROUTE,
     IFEVAL_AGGREGATE_ROUTE,
     IFEVAL_CHECK_ROUTE,
+    CORRECTIVE_AGGREGATE_ROUTE,
+    SELECT_ROUTE,
+    FINALIZE_ROUTE,
 }
 
 

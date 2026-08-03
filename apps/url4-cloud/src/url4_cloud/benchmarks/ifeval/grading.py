@@ -53,6 +53,48 @@ def check_case(
     return {"strict": strict, "loose": loose}
 
 
+def describe_failures(
+    *,
+    instruction_id_list: Sequence[str],
+    kwargs_list: Sequence[Mapping[str, Any]],
+    prompt: str,
+    strict: Sequence[bool],
+) -> list[str]:
+    """The checker's own wording for every failed instruction — the retry's feedback.
+
+    WHY the verifier's own ``build_description`` text: the feedback a corrective
+    attempt sees must describe the constraint exactly as the checker enforces it —
+    a paraphrase could drift from what the exam actually grades.
+    """
+
+    if not (len(instruction_id_list) == len(kwargs_list) == len(strict)):
+        raise ValueError("instruction ids, kwargs and verdicts must be positionally parallel")
+    return [
+        _describe(instruction_id, kwargs, prompt)
+        for instruction_id, kwargs, passed in zip(
+            instruction_id_list, kwargs_list, strict, strict=True
+        )
+        if not passed
+    ]
+
+
+def _describe(instruction_id: str, kwargs: Mapping[str, Any], prompt: str) -> str:
+    from url4_cloud.benchmarks.ifeval.vendor import instructions_registry
+
+    try:
+        instruction_cls = instructions_registry.INSTRUCTION_DICT[instruction_id]
+        instruction = instruction_cls(instruction_id)
+        description = instruction.build_description(**kwargs)
+        args = instruction.get_instruction_args()
+        if args and "prompt" in args:
+            description = instruction.build_description(prompt=prompt)
+        return str(description)
+    except Exception:  # noqa: BLE001
+        # Same crash-policy boundary as _follows: a describer bug must never take the
+        # whole check down — the retry still learns which instruction id failed.
+        return f"instruction {instruction_id} unsatisfied"
+
+
 def _loose_variants(response: str) -> list[str]:
     # The paper's loose protocol: the response plus 7 markdown/edge-line-stripped variants;
     # compliant under ANY variant counts. Mirrors evaluation.py verbatim.
@@ -93,4 +135,4 @@ def _follows(
         return False
 
 
-__all__ = ["check_case", "configure_nltk"]
+__all__ = ["check_case", "configure_nltk", "describe_failures"]

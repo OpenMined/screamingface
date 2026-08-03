@@ -97,6 +97,157 @@ def aggregate(
     }
 
 
+def aggregate_corrective(
+    rows_json: str,
+    specs: Mapping[int, Mapping[str, Any]],
+    benchmark_id: str,
+    max_attempts: int = 3,
+) -> dict[str, Any]:
+    """Reduce corrective-chain rows — one scored entry per case, pass@attempt metrics.
+
+    Selection mirrors the LANL protocol for a single candidate: the EARLIEST attempt
+    whose strict checks all pass is the case's answer; a case that never passes is
+    scored on its last recorded attempt.
+    """
+
+    rows = _rows(rows_json)
+    case_results: list[dict[str, Any]] = []
+    fallback_count = 0
+    for index, raw in enumerate(rows):
+        case_id = index + 1
+        spec = specs.get(case_id)
+        if spec is None:
+            raise AggregateError(
+                f"row {index} has no spec for case {case_id}; "
+                "the installed IFEval assets are incomplete"
+            )
+        records = _attempt_records(raw, case_id, spec, max_attempts)
+        if not records:
+            size = len(_instruction_ids(spec))
+            case_results.append(
+                _corrective_case(case_id, max_attempts, 0, [False] * size, [False] * size)
+            )
+            fallback_count += 1
+            continue
+        earliest_pass = min(
+            (attempt for attempt, record in records.items() if all(record["strict"])),
+            default=0,
+        )
+        selected_attempt = earliest_pass or max(records)
+        selected = records[selected_attempt]
+        case_results.append(
+            _corrective_case(
+                case_id,
+                selected_attempt,
+                earliest_pass,
+                [bool(value) for value in selected["strict"]],
+                [bool(value) for value in selected["loose"]],
+            )
+        )
+    if case_results and fallback_count == len(case_results):
+        raise AggregateError(
+            "no row carried a valid IFEval check record; "
+            "an all-crash run must be loud, never a plausible zero score"
+        )
+
+    strict_all = [case["follow_all_strict"] for case in case_results]
+    loose_all = [case["follow_all_loose"] for case in case_results]
+    strict_flat = [value for case in case_results for value in case["strict"]]
+    loose_flat = [value for case in case_results for value in case["loose"]]
+    total = len(case_results)
+    pass_at = {
+        f"pass_at_{attempt}": (
+            round(
+                sum(
+                    1
+                    for case in case_results
+                    if case["pass_attempt"] and case["pass_attempt"] <= attempt
+                )
+                / total,
+                4,
+            )
+            if total
+            else 0.0
+        )
+        for attempt in range(1, max_attempts + 1)
+    }
+    return {
+        "schema": "screamingface.candidate-result.v1",
+        "benchmark_id": benchmark_id,
+        "case_count": total,
+        "score": _accuracy(strict_all),
+        "metrics": {
+            "inst_level_strict_accuracy": _accuracy(strict_flat),
+            "prompt_level_loose_accuracy": _accuracy(loose_all),
+            "inst_level_loose_accuracy": _accuracy(loose_flat),
+            **pass_at,
+            "corrected_cases": sum(1 for case in case_results if case["pass_attempt"] > 1),
+            "cases_checked": total - fallback_count,
+            "cases_fallback": fallback_count,
+        },
+        "case_results": case_results,
+        "failures": [],
+    }
+
+
+def _attempt_records(
+    row: Any,
+    case_id: int,
+    spec: Mapping[str, Any],
+    max_attempts: int,
+) -> dict[int, dict[str, Any]]:
+    """Every valid check record for this row, keyed by attempt (first per attempt wins).
+
+    INVARIANT: a Candidate that echoes a forged record into its answer text cannot
+    self-grade — a record must carry THIS row's case id and the private spec's exact
+    instruction id list, which the prompt never reveals.
+    """
+
+    expected_ids = list(_instruction_ids(spec))
+    text = row if isinstance(row, str) else json.dumps(row)
+    records: dict[int, dict[str, Any]] = {}
+    for span in _RECORD_SPAN_RE.finditer(text):
+        record = _decode_escaped(span.group(0))
+        if not isinstance(record, dict) or record.get("schema") != SCHEMA:
+            continue
+        attempt = _as_int(record.get("attempt"))
+        strict = record.get("strict")
+        loose = record.get("loose")
+        if (
+            record.get("valid") is True
+            and _as_int(record.get("case_id")) == case_id
+            and record.get("instruction_id_list") == expected_ids
+            and attempt is not None
+            and 1 <= attempt <= max_attempts
+            and attempt not in records
+            and isinstance(strict, list)
+            and isinstance(loose, list)
+            and len(strict) == len(expected_ids)
+            and len(loose) == len(expected_ids)
+        ):
+            records[attempt] = record
+    return records
+
+
+def _corrective_case(
+    case_id: int,
+    selected_attempt: int,
+    pass_attempt: int,
+    strict: list[bool],
+    loose: list[bool],
+) -> dict[str, Any]:
+    return {
+        "case_id": case_id,
+        "selected_attempt": selected_attempt,
+        # 0 means "never passed" — kept numeric so case_results stays JSON-simple.
+        "pass_attempt": pass_attempt,
+        "strict": strict,
+        "loose": loose,
+        "follow_all_strict": all(strict),
+        "follow_all_loose": all(loose),
+    }
+
+
 def load_specs(directory: Path) -> dict[int, dict[str, Any]]:
     """Load ``<directory>/<case_id>.json`` for every private instruction spec on disk.
 
@@ -193,4 +344,4 @@ def _as_int(value: Any) -> int | None:
         return None
 
 
-__all__ = ["SCHEMA", "AggregateError", "aggregate", "load_specs"]
+__all__ = ["SCHEMA", "AggregateError", "aggregate", "aggregate_corrective", "load_specs"]

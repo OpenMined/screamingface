@@ -50,13 +50,19 @@ def test_listing_returns_stable_benchmark_links(client: TestClient) -> None:
     by_id = {entry["id"]: entry for entry in body["data"]}
     assert set(by_id) == set(BENCHMARKS)
     for key, entry in by_id.items():
-        assert entry == {
+        expected: dict[str, object] = {
             "object": "benchmark",
             "id": key,
             "title": BENCHMARKS[key].title,
             "description": BENCHMARKS[key].description,
             "href": f"/v1/benchmarks/{key}",
         }
+        if BENCHMARKS[key].methods:
+            # The catalog is where a researcher learns a benchmark has protocol
+            # variants and which one runs by default.
+            expected["methods"] = list(BENCHMARKS[key].method_names())
+            expected["default_method"] = BENCHMARKS[key].default_method
+        assert entry == expected
 
 
 def test_listing_is_publicly_cacheable_with_a_validator(client: TestClient) -> None:
@@ -95,8 +101,8 @@ def test_draco_resource_contains_one_complete_candidate_independent_url4(
     assert "plan" not in body
 
 
-def test_ifeval_resource_is_a_complete_judge_free_url4(client: TestClient) -> None:
-    response = client.get("/v1/benchmarks/ifeval?limit=1")
+def test_ifeval_single_pass_method_is_a_complete_judge_free_url4(client: TestClient) -> None:
+    response = client.get("/v1/benchmarks/ifeval?limit=1&method=single_pass")
 
     assert response.status_code == 200
     body = response.json()
@@ -109,9 +115,14 @@ def test_ifeval_resource_is_a_complete_judge_free_url4(client: TestClient) -> No
         # INVARIANT: the judge-free exam declares NO model requirement — grading is code.
         "required_models": [],
         "url4": body["url4"],
+        "method": "single_pass",
+        "methods": ["corrective", "single_pass"],
+        "default_method": "corrective",
+        "actions": body["actions"],
     }
+    assert set(body["actions"]) == {"check", "select", "finalize"}
     assert render(build(body["url4"])) == body["url4"]
-    assert "/candidate" in body["url4"]
+    assert body["url4"].count("/candidate") == 1
     assert "$item.input" in body["url4"]
     assert f"{IFEVAL_ROUTE_PREFIX}/check" in body["url4"]
     assert f"{IFEVAL_ROUTE_PREFIX}/aggregate" in body["url4"]
@@ -122,6 +133,40 @@ def test_ifeval_resource_is_a_complete_judge_free_url4(client: TestClient) -> No
 
 def test_ifeval_total_case_count_is_the_full_dataset(client: TestClient) -> None:
     assert IFEVAL_CASE_COUNT == 541
+
+
+def test_ifeval_default_resource_is_the_corrective_chain(client: TestClient) -> None:
+    # WHY corrective by default: the LANL reproduction IS ifeval's purpose here
+    # (owner decision, OME-725) — and the manifest says so via the method fields.
+    response = client.get("/v1/benchmarks/ifeval?limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema"] == "screamingface.benchmark.v1"
+    assert body["id"] == "ifeval"
+    assert body["method"] == "corrective"
+    assert body["default_method"] == "corrective"
+    assert body["required_models"] == []
+    assert body["total_case_count"] == IFEVAL_CASE_COUNT
+    assert render(build(body["url4"])) == body["url4"]
+    # Three unrolled attempts: the candidate answers and is checked three times per case.
+    assert body["url4"].count("/candidate") == 3
+    assert body["url4"].count(f"{IFEVAL_ROUTE_PREFIX}/check") == 3
+    assert "openrouter/" not in body["url4"]
+
+
+def test_an_unknown_method_is_a_404_problem(client: TestClient) -> None:
+    response = client.get("/v1/benchmarks/ifeval?method=bogus")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+
+def test_a_method_on_a_methodless_benchmark_is_a_404_problem(client: TestClient) -> None:
+    response = client.get("/v1/benchmarks/draco?method=single_pass")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/problem+json")
 
 
 def test_limit_selects_cases_before_the_expression_is_returned(client: TestClient) -> None:

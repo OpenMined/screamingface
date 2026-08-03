@@ -195,7 +195,7 @@ async def test_ifeval_definition_executes_candidate_check_and_aggregate(tmp_path
     calls: list[str] = []
     requests: list[dict[str, object]] = []
 
-    resource = IFEVAL.resource(1)
+    resource = IFEVAL.resource(1, method="single_pass")
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     candidate = RelExpr(
@@ -231,6 +231,82 @@ async def test_ifeval_definition_executes_candidate_check_and_aggregate(tmp_path
     assert decoded["failures"] == []
     assert calls == ["provider/candidate"]
     assert "Describe tea without using any commas." in json.dumps(requests[0])
+
+
+def _corrective_responder(
+    calls: list[str], answers: list[str]
+) -> Callable[[httpx.Request], httpx.Response]:
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        model = payload["model"]
+        assert isinstance(model, str)
+        calls.append(model)
+        serialized = json.dumps(payload)
+        # The first attempt fails the no-comma constraint; a retry that can SEE the
+        # checker's violations corrects itself.
+        if "violations" in serialized and "remove" not in serialized:
+            answer = "Tea is a warm drink made from steeped leaves"
+        else:
+            answer = "Tea is warm, and it is nice."
+        answers.append(answer)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": answer}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    return respond
+
+
+@pytest.mark.asyncio
+async def test_ifeval_corrective_definition_retries_until_the_check_passes(
+    tmp_path: Path,
+) -> None:
+    # INVARIANT: the chain is UNROLLED — all three attempts execute even after a pass
+    # (the R2 conditional-skip caveat), so exactly MAX_ATTEMPTS model calls per case.
+    calls: list[str] = []
+    answers: list[str] = []
+
+    resource = IFEVAL.resource(1)
+    benchmark_url4 = resource["url4"]
+    assert isinstance(benchmark_url4, str)
+    candidate = RelExpr(
+        path="/provider/candidate",
+        context="$input",
+        intent=text("Answer the question."),
+    )
+    _ifeval_assets(tmp_path / "ifeval")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_corrective_responder(calls, answers)),
+        base_url="http://aigateway.test",
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(
+                default_model="provider/candidate",
+                models=(ModelSpec(id="provider/candidate"),),
+            ),
+            client=client,
+            benchmark_assets=tmp_path,
+        )
+
+        try:
+            result = await world.node.evaluate(_link(candidate, build(benchmark_url4)))
+        finally:
+            await world.aclose()
+
+    decoded = json.loads(result.text)
+    assert decoded["schema"] == "screamingface.candidate-result.v1"
+    assert decoded["benchmark_id"] == "ifeval"
+    assert calls == ["provider/candidate"] * 3
+    assert decoded["score"] == 1.0
+    assert decoded["metrics"]["pass_at_1"] == 0.0
+    assert decoded["metrics"]["pass_at_2"] == 1.0
+    assert decoded["metrics"]["corrected_cases"] == 1
+    assert decoded["failures"] == []
+    assert decoded["case_results"][0]["selected_attempt"] == 2
 
 
 @pytest.mark.asyncio

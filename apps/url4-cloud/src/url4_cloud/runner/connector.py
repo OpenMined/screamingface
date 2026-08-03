@@ -241,10 +241,31 @@ class _CandidateEndpoint:
         self._calls += 1
         token = self._active.set(True)
         try:
-            result = await self._node.evaluate(request.intent, env={"input": request.context})
+            result = await self._node.evaluate(request.intent, env=_candidate_env(request.context))
             return result.text
         finally:
             self._active.reset(token)
+
+
+def _candidate_env(context: str) -> dict[str, str]:
+    """Bind the Candidate's lexical scope from the invocation context.
+
+    Legacy single-slot invocations bind ``$input`` only. A two-slot invocation
+    (``case: <id>, input: <text>`` — case FIRST, so the parse is immune to the input
+    text's content) additionally binds ``$case``, letting candidate-side verifier
+    loops address the benchmark's check route (OME-727).
+    """
+
+    raw = context or ""
+    if raw.startswith("case: "):
+        # Slot-packed form (DAG lowering) uses newlines; the surface form keeps the
+        # comma. The case value is an id (never contains either separator), so taking
+        # the FIRST separator leaves the input text verbatim regardless of content.
+        for separator in ("\ninput: ", ", input: "):
+            head, found, rest = raw.partition(separator)
+            if found:
+                return {"input": rest, "case": head[len("case: ") :].strip()}
+    return {"input": raw}
 
 
 def _register_candidate(node: Url4Node, max_invocations: int) -> None:

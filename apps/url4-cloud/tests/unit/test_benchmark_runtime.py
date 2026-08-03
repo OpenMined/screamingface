@@ -56,7 +56,9 @@ async def test_registry_installs_all_versioned_draco_routes(tmp_path: Path) -> N
 def _ifeval_assets(root: Path) -> None:
     (root / "instructions").mkdir(parents=True)
     (root / "cases.json").write_text(
-        '[{"id":1,"input":"Write one sentence without commas."}]', encoding="utf-8"
+        '[{"id":1,"input":"Write one sentence without commas."},'
+        '{"id":2,"input":"Write at least 50 words without commas."}]',
+        encoding="utf-8",
     )
     (root / "instructions" / "1.json").write_text(
         json.dumps(
@@ -65,6 +67,20 @@ def _ifeval_assets(root: Path) -> None:
                 "prompt": "Write one sentence without commas.",
                 "instruction_id_list": ["punctuation:no_comma"],
                 "kwargs": [{}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "instructions" / "2.json").write_text(
+        json.dumps(
+            {
+                "key": 1001,
+                "prompt": "Write at least 50 words without commas.",
+                "instruction_id_list": [
+                    "punctuation:no_comma",
+                    "length_constraints:number_words",
+                ],
+                "kwargs": [{}, {"relation": "at least", "num_words": 50}],
             }
         ),
         encoding="utf-8",
@@ -96,6 +112,57 @@ async def test_ifeval_check_route_grades_a_response(tmp_path: Path) -> None:
     assert record["valid"] is True
     assert record["strict"] == [True]
     assert record["loose"] == [True]
+
+
+@pytest.mark.asyncio
+async def test_ifeval_check_intent_carries_an_optional_attempt(tmp_path: Path) -> None:
+    # AIDEV-NOTE: raw commas in a literal url4 context act as group separators — the
+    # real chain passes REFERENCES ($prior_N) resolved after parsing, so this test
+    # violates the word-count constraint with comma-free text instead.
+    _ifeval_assets(tmp_path / "ifeval")
+    node = Url4Node("test")
+    install_benchmarks(node, tmp_path)
+
+    record = json.loads(
+        (
+            await node.evaluate(
+                render(
+                    RelExpr(
+                        path=IFEVAL_CHECK_ROUTE,
+                        context="A short comma-free answer.",
+                        intent=Text("2:2"),
+                    )
+                )
+            )
+        ).text
+    )
+
+    assert record["case_id"] == 2
+    assert record["attempt"] == 2
+    assert record["strict"] == [True, False]
+    # The retry path needs the checker's own wording of what failed.
+    assert record["violations"]
+    assert "50" in record["violations"][0]
+
+
+@pytest.mark.asyncio
+async def test_ifeval_check_rejects_a_malformed_attempt(tmp_path: Path) -> None:
+    _ifeval_assets(tmp_path / "ifeval")
+    node = Url4Node("test")
+    install_benchmarks(node, tmp_path)
+
+    with pytest.raises(ResolutionError) as caught:
+        await node.evaluate(
+            render(
+                RelExpr(
+                    path=IFEVAL_CHECK_ROUTE,
+                    context="anything",
+                    intent=Text("1:zero"),
+                )
+            )
+        )
+
+    assert caught.value.code == "benchmark_unavailable"
 
 
 @pytest.mark.asyncio
