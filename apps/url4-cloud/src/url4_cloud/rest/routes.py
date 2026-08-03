@@ -9,6 +9,7 @@ first.
 """
 
 import asyncio
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -34,6 +35,8 @@ from url4_cloud.auth import (
 from url4_cloud.config import Settings
 from url4_cloud.ports import IdentityAwareJobRunner
 from url4_cloud.rest.interest import SubscriberGate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -424,7 +427,22 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
         # INVARIANT: best-effort and BOUNDED. The result is discarded on purpose — a Pod that
         # died without publishing (SIGKILL past the grace period) must not strand the stream it
         # was holding, so teardown below is unconditional.
-        await _await_terminal(deps.stream, sub, deps.settings.stop_drain_s)
+        #
+        # "Unconditional" has to include a FAILED drain, not just a timed-out one. `_await_terminal`
+        # absorbs `TimeoutError` alone, while the read underneath can fail other ways — `subscribe`
+        # on a broker-backed adapter, or `_scan_terminal`'s own error when a stream ends with no
+        # terminal frame. Letting one past here skips `delete_stream` below, so the Job is gone and
+        # its stream, consumer state and filestore directory are kept forever: the very leak the
+        # `delete`-and-not-`purge` note is about. The drain is an OPTIMISATION over teardown, never
+        # a precondition for it — losing a terminal frame costs evidence, losing the reclaim costs
+        # a stream permanently, and only the second is invisible to the caller.
+        try:
+            await _await_terminal(deps.stream, sub, deps.settings.stop_drain_s)
+        except Exception:  # noqa: BLE001 - the drain's failure must never block the reclaim
+            # Logged, not swallowed: a broker that cannot be read during cancel is worth seeing,
+            # and it is not the DELETE caller's problem — the Job is stopped either way, and a 500
+            # would invite a retry with nothing left to do.
+            logger.warning("stop drain failed for topic %s; reclaiming anyway", sub, exc_info=True)
     # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
     # stream empties it but leaves the stream object, its consumer state and its filestore
     # directory behind — one permanent stream per run, forever. `delete_stream` defaults to
