@@ -24,7 +24,7 @@ from screamingface._report_primitives import (
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 
-type RecipeKind = Literal["model", "fusion"]
+type RecipeKind = Literal["model", "fusion", "corrective"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -268,7 +268,9 @@ def _kind(value: object, label: str) -> RecipeKind:
         return "model"
     if value == "fusion":
         return "fusion"
-    raise ValueError(f"{label} kind must be 'model' or 'fusion'")
+    if value == "corrective":
+        return "corrective"
+    raise ValueError(f"{label} kind must be 'model', 'fusion', or 'corrective'")
 
 
 def _models(values: Sequence[str], label: str) -> tuple[str, ...]:

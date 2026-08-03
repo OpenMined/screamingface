@@ -93,9 +93,11 @@ uv run url4-cloud   # serve on :9108 (`serve` is the default subcommand)
 ## Local mode
 
 ```sh
-# Prepare the pinned DRACO dataset once. The runtime never downloads benchmark data.
+# Prepare the pinned benchmark datasets once. The runtime never downloads benchmark data.
 uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare \
   --out /tmp/screamingface-benchmark-assets/draco
+uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare \
+  --out /tmp/screamingface-benchmark-assets/ifeval
 
 # Point the local Runner world at the prepared benchmark root.
 URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \
@@ -166,11 +168,11 @@ docker build \
   .
 ```
 
-`Dockerfile.benchmark` downloads DRACO's pinned dataset during the build, prepares its runtime
-files under `/opt/benchmarks/draco`, discards the build-only dataset tooling, and sets
-`URL4_BENCHMARK_ASSETS=/opt/benchmarks` in the runtime image. The resulting image must be published
-where the cluster can pull it. Adding a Benchmark means adding its definition to the registry and
-its deterministic preparation command to this image.
+`Dockerfile.benchmark` downloads every registered Benchmark's pinned dataset during the build,
+prepares the runtime files under `/opt/benchmarks/<benchmark-id>`, discards the build-only dataset
+tooling, and sets `URL4_BENCHMARK_ASSETS=/opt/benchmarks` in the runtime image. The resulting image
+must be published where the cluster can pull it. Adding a Benchmark therefore means adding its
+definition to the registry and its deterministic preparation command to this image.
 
 Select that image for Runner Jobs while leaving the control plane on the base image:
 

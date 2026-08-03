@@ -23,8 +23,8 @@ from screamingface.report import Report
 
 type _SyncModelListing = Callable[[], Sequence[ModelInfo]]
 type _AsyncModelListing = Callable[[], Awaitable[Sequence[ModelInfo]]]
-type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
-type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
+type _SyncBenchmarkLoading = Callable[[str, int | None, str | None], _BenchmarkResource]
+type _AsyncBenchmarkLoading = Callable[[str, int | None, str | None], Awaitable[_BenchmarkResource]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
 
@@ -36,6 +36,7 @@ def evaluate_sync(
     candidates: Recipe | Sequence[Recipe],
     benchmark: str,
     limit: int | None,
+    method: str | None,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
 ) -> Report:
@@ -45,8 +46,8 @@ def evaluate_sync(
     from screamingface._evaluation.results import report_from_outcomes
 
     _evaluation_options(on_event, progress)
-    values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = load_benchmark(benchmark, limit)
+    values = _evaluation_inputs(candidates, benchmark, limit, method)
+    resource = load_benchmark(benchmark, limit, method)
     evaluation = compile_evaluation(values, resource, limit)
     _validate_required_models(evaluation, list_models())
     observer = _sync_event_observer(on_event, progress)
@@ -61,6 +62,7 @@ async def evaluate_async(
     candidates: Recipe | Sequence[Recipe],
     benchmark: str,
     limit: int | None,
+    method: str | None,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
 ) -> Report:
@@ -70,8 +72,8 @@ async def evaluate_async(
     from screamingface._evaluation.results import report_from_outcomes
 
     _evaluation_options(on_event, progress)
-    values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = await load_benchmark(benchmark, limit)
+    values = _evaluation_inputs(candidates, benchmark, limit, method)
+    resource = await load_benchmark(benchmark, limit, method)
     evaluation = compile_evaluation(values, resource, limit)
     _validate_required_models(evaluation, await list_models())
     observer = _async_event_observer(on_event, progress)
@@ -210,12 +212,15 @@ def _evaluation_inputs(
     candidates: Recipe | Sequence[Recipe],
     benchmark: str,
     limit: int | None,
+    method: str | None = None,
 ) -> tuple[Recipe, ...]:
     values = _candidate_values(candidates)
     if not isinstance(benchmark, str) or not benchmark.strip():
         raise ValueError("benchmark must be a non-empty string")
     if benchmark == "default":
         raise ValueError("benchmark must name an explicit Benchmark, not 'default'")
+    if method is not None and (not isinstance(method, str) or not method.strip()):
+        raise ValueError("method must be a non-empty string or None")
     _validate_limit(limit)
     return values
 

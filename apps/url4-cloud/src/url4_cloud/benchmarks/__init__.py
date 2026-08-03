@@ -6,10 +6,11 @@ from pathlib import Path
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.definition import Benchmark
 from url4_cloud.benchmarks.draco.definition import DRACO
+from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 
-# INVARIANT: one entry per real Benchmark, never per execution variant. New families extend this
-# explicit registry without changing the generic REST or Runner integration.
-BENCHMARKS: dict[str, Benchmark] = {DRACO.id: DRACO}
+# INVARIANT: one entry per real benchmark (exam), never per protocol — execution
+# variants live in Benchmark.methods (owner decision 2026-08-03, OME-725).
+BENCHMARKS: dict[str, Benchmark] = {DRACO.id: DRACO, IFEVAL.id: IFEVAL}
 DEFAULT_BENCHMARK_ID = DRACO.id
 ASSETS_ENV = "URL4_BENCHMARK_ASSETS"
 DEFAULT_ASSETS_ROOT = Path("/opt/benchmarks")

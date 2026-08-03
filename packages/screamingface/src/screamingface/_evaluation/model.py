@@ -9,13 +9,14 @@ from typing import Literal, NoReturn
 from url4 import Url4Error, build, render
 
 from screamingface._named_values import _NamedValues
+from screamingface.corrective import CorrectiveEnsemble
 from screamingface.discovery import BenchmarkInfo
 from screamingface.fusion import Fusion
 from screamingface.model import Model
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.recipe import Recipe
 
-type CandidateKind = Literal["model", "fusion"]
+type CandidateKind = Literal["model", "fusion", "corrective"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,8 +192,10 @@ def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
         raise TypeError("candidates must be an sf.Model, sf.Fusion, or ordered sequence")
     if not values:
         raise ValueError("an Evaluation requires at least one Candidate")
-    if any(not isinstance(candidate, Model | Fusion) for candidate in values):
-        raise TypeError("candidates must contain only sf.Model or sf.Fusion values")
+    if any(not isinstance(candidate, Model | Fusion | CorrectiveEnsemble) for candidate in values):
+        raise TypeError(
+            "candidates must contain only sf.Model, sf.Fusion, or sf.CorrectiveEnsemble values"
+        )
     names: set[str] = set()
     for candidate in values:
         if candidate.name in names:
@@ -223,7 +226,9 @@ def _candidate_kind(value: object) -> CandidateKind:
         return "model"
     if value == "fusion":
         return "fusion"
-    raise ValueError("Candidate kind must be 'model' or 'fusion'")
+    if value == "corrective":
+        return "corrective"
+    raise ValueError("Candidate kind must be 'model', 'fusion', or 'corrective'")
 
 
 def _nonblank(value: object, label: str) -> str:

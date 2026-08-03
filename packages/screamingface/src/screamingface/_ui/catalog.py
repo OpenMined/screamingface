@@ -9,10 +9,11 @@ from typing import Any, overload
 from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.cards import (
     benchmarks_rows_html,
+    cases_rows_html,
     catalog_html,
     models_rows_html,
 )
-from screamingface.discovery import ModelInfo
+from screamingface.discovery import Benchmark, CaseInfo, ModelInfo
 
 
 class _Catalog[T](Sequence[T], ABC):
@@ -118,16 +119,41 @@ class _ModelCatalog(_Catalog[ModelInfo]):
         return models_rows_html(values)
 
 
-class _BenchmarkCatalog(_Catalog[str]):
+class _BenchmarkCatalog(_Catalog[Benchmark]):
     _title = "Benchmarks"
     _aria = "ScreamingFace benchmark catalogue"
     _placeholder = "Filter benchmarks…"
 
-    def _search_text(self, value: str) -> str:
-        return value
+    def _search_text(self, value: Benchmark) -> str:
+        return f"{value.id} {value.title} {value.description}"
 
-    def _rows(self, values: Sequence[str]) -> str:
+    def _rows(self, values: Sequence[Benchmark]) -> str:
         return benchmarks_rows_html(values)
+
+
+class _CaseCatalog(_Catalog[CaseInfo]):
+    """One fetched page of a Benchmark's public cases, with its paging envelope."""
+
+    __slots__ = ("limit", "offset", "total")
+
+    _title = "Cases"
+    _aria = "ScreamingFace benchmark cases"
+    _placeholder = "Filter cases…"
+
+    def __init__(self, values: Sequence[CaseInfo], *, total: int, limit: int, offset: int) -> None:
+        super().__init__(values)
+        self.total = total
+        self.limit = limit
+        self.offset = offset
+
+    def __repr__(self) -> str:
+        return f"Cases({len(self)} of {self.total}, offset={self.offset})"
+
+    def _search_text(self, value: CaseInfo) -> str:
+        return f"{value.id} {value.input}"
+
+    def _rows(self, values: Sequence[CaseInfo]) -> str:
+        return cases_rows_html(values)
 
 
 __all__: list[str] = []

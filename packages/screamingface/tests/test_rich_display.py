@@ -38,17 +38,41 @@ def _benchmarks(_: httpx.Request) -> httpx.Response:
         json={
             "object": "list",
             "default": "draco-<lite>",
-            "data": [{"id": "draco-<lite>", "object": "benchmark"}],
+            "data": [
+                {
+                    "id": "draco-<lite>",
+                    "object": "benchmark",
+                    "title": "DRACO <lite>",
+                    "description": "A tiny probe tier.",
+                }
+            ],
+        },
+    )
+
+
+def _lite_summary(_: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "schema": "screamingface.benchmark.v1",
+            "id": "draco-<lite>",
+            "revision": "rev0000000000000",
+            "case_count": 1,
+            "total_case_count": 30,
+            "required_models": [],
+            "url4": "(ignored)",
         },
     )
 
 
 def _handler(request: httpx.Request) -> httpx.Response:
-    if request.url.path == "/v1/models":
-        return _models(request)
-    if request.url.path == "/v1/benchmarks":
-        return _benchmarks(request)
-    return httpx.Response(404)
+    routes = {
+        "/v1/models": _models,
+        "/v1/benchmarks": _benchmarks,
+        "/v1/benchmarks/draco-<lite>": _lite_summary,
+    }
+    route = routes.get(request.url.path)
+    return route(request) if route else httpx.Response(404)
 
 
 def _walk(widget: Any) -> tuple[Any, ...]:
@@ -65,7 +89,7 @@ def test_catalogues_are_compact_immutable_sequences_with_static_html() -> None:
         sf.ModelInfo(id="anthropic/claude-opus-4.8", provider="anthropic"),
         sf.ModelInfo(id="openrouter/openai/gpt-5.5", provider="openrouter"),
     )
-    assert benchmarks[0] == "draco-<lite>"
+    assert benchmarks[0].id == "draco-<lite>"
     assert len(models) == 2
     assert tuple(model.id for model in models) == (
         "anthropic/claude-opus-4.8",

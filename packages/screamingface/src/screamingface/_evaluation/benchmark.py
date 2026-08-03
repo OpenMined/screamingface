@@ -20,6 +20,9 @@ class _BenchmarkResource:
     case_count: int
     url4: str
     required_models: tuple[str, ...]
+    # Candidate-facing verifier action routes (additive manifest field) — present on
+    # verifier benchmarks like ifeval; None elsewhere.
+    actions: dict[str, str] | None = None
 
 
 def _decode_benchmark_resource(
@@ -57,7 +60,18 @@ def _decode_benchmark_resource(
         case_count=case_count,
         url4=url4,
         required_models=_names(resource.get("required_models"), "required models"),
+        actions=_actions(resource.get("actions")),
     )
+
+
+def _actions(value: object) -> dict[str, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not all(
+        isinstance(key, str) and isinstance(route, str) for key, route in value.items()
+    ):
+        _invalid("Benchmark resource actions must map names to route strings")
+    return dict(value)
 
 
 def _names(value: object, label: str) -> tuple[str, ...]:
