@@ -51,18 +51,42 @@ def _benchmarks(_: httpx.Request) -> httpx.Response:
         json={
             "object": "list",
             "default": "draco",
-            "data": [{"id": "draco", "object": "benchmark"}],
+            "data": [
+                {
+                    "id": "draco",
+                    "object": "benchmark",
+                    "title": "DRACO",
+                    "description": "The 100-task deep-research benchmark.",
+                }
+            ],
+        },
+    )
+
+
+def _draco_summary(_: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "schema": "screamingface.benchmark.v1",
+            "id": "draco",
+            "revision": "rev0000000000000",
+            "case_count": 1,
+            "total_case_count": 100,
+            "required_models": [],
+            "url4": "(ignored)",
         },
     )
 
 
 def test_explicit_client_lists_typed_models_and_benchmarks() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/models":
-            return _models(request)
-        if request.url.path == "/v1/benchmarks":
-            return _benchmarks(request)
-        return httpx.Response(404)
+        routes = {
+            "/v1/models": _models,
+            "/v1/benchmarks": _benchmarks,
+            "/v1/benchmarks/draco": _draco_summary,
+        }
+        route = routes.get(request.url.path)
+        return route(request) if route else httpx.Response(404)
 
     with _sync_client(handler) as client:
         models = client.models.list()
@@ -72,17 +96,23 @@ def test_explicit_client_lists_typed_models_and_benchmarks() -> None:
         sf.ModelInfo(id="anthropic/claude-haiku-4-5", provider="anthropic"),
         sf.ModelInfo(id="openrouter/openai/gpt-5.5", provider="openrouter"),
     )
-    assert benchmarks == ("draco",)
+    assert [benchmark.id for benchmark in benchmarks] == ["draco"]
+    assert benchmarks[0].title == "DRACO"
+    assert benchmarks[0].case_count == 100
 
 
 @pytest.mark.asyncio
 async def test_async_client_has_the_same_catalogue_interface() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return _models(request) if request.url.path == "/v1/models" else _benchmarks(request)
+        if request.url.path == "/v1/models":
+            return _models(request)
+        if request.url.path == "/v1/benchmarks/draco":
+            return _draco_summary(request)
+        return _benchmarks(request)
 
     async with _async_client(handler) as client:
         assert (await client.models.list())[0].id == "anthropic/claude-haiku-4-5"
-        assert (await client.benchmarks.list())[0] == "draco"
+        assert (await client.benchmarks.list())[0].id == "draco"
 
 
 def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any) -> None:
@@ -140,8 +170,8 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
                 "object": "list",
                 "default": "draco",
                 "data": [
-                    {"id": "draco", "object": "benchmark"},
-                    {"id": "draco", "object": "benchmark"},
+                    {"id": "draco", "object": "benchmark", "title": "D", "description": "d"},
+                    {"id": "draco", "object": "benchmark", "title": "D", "description": "d"},
                 ],
             },
             "duplicate id",
@@ -151,7 +181,7 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
             {
                 "object": "list",
                 "default": "missing",
-                "data": [{"id": "draco", "object": "benchmark"}],
+                "data": [{"id": "draco", "object": "benchmark", "title": "D", "description": "d"}],
             },
             "default 'missing' is not installed",
         ),

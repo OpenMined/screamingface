@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from screamingface._ui.card_style import CARD_STYLE
 
 if TYPE_CHECKING:
-    from screamingface.discovery import ModelInfo
+    from screamingface.discovery import Benchmark, CaseInfo, ModelInfo
     from screamingface.fusion import Fusion
     from screamingface.model import Model
     from screamingface.recipe import Recipe
@@ -68,13 +68,44 @@ def models_rows_html(records: Sequence[ModelInfo]) -> str:
     )
 
 
-def benchmarks_rows_html(records: Sequence[str]) -> str:
+def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
     if not records:
         return "<div class='sf-catalog__empty'>No benchmarks match.</div>"
     return "".join(
         "<div class='sf-catalog__row'>"
-        f"<div class='sf-catalog__id'>{escape(benchmark_id)}</div></div>"
-        for benchmark_id in records
+        f"<div class='sf-catalog__id'>{escape(record.title)}</div>"
+        f"{_tags(_chip(record.id) + _chip(f'{record.case_count} cases'))}"
+        f"<div class='sf-card__hint'>{escape(record.description)}</div></div>"
+        for record in records
+    )
+
+
+def cases_rows_html(records: Sequence[CaseInfo]) -> str:
+    if not records:
+        return "<div class='sf-catalog__empty'>No cases match.</div>"
+    return "".join(
+        "<div class='sf-catalog__row'>"
+        f"{_tags(_chip(f'case {record.id}'))}"
+        f"<div class='sf-card__hint'>{escape(record.input)}</div></div>"
+        for record in records
+    )
+
+
+def benchmark_card_html(benchmark: Benchmark) -> str:
+    """Render the identity card a researcher reads before evaluating."""
+
+    fields = (
+        _field("id", _mono(benchmark.id))
+        + _field("cases", escape(str(benchmark.case_count)))
+        + _field("revision", _mono(benchmark.revision))
+        + _field("description", escape(benchmark.description), wide=True)
+    )
+    return (
+        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace benchmark'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(benchmark.title)}</span>"
+        "<span class='sf-card__kicker'>benchmark</span></div>"
+        f"<div class='sf-card__grid'>{fields}</div></div>"
     )
 
 

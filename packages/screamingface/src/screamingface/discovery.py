@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from screamingface._ui.catalog import _CaseCatalog
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +58,61 @@ class BenchmarkInfo:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class CaseInfo:
+    """One public benchmark case — the id and the prompt a Candidate would receive.
+
+    INVARIANT (answer-key discipline): exactly id + input — grading criteria, kwargs,
+    and rubrics never cross the Engine boundary, so this value cannot carry them.
+    """
+
+    id: int
+    input: str
+
+    def __post_init__(self) -> None:
+        if isinstance(self.id, bool) or not isinstance(self.id, int) or self.id < 1:
+            raise ValueError("Case id must be a positive integer")
+        object.__setattr__(self, "input", _nonblank(self.input, "Case input"))
+
+
+@dataclass(frozen=True, slots=True)
+class Benchmark:
+    """What one Engine-owned Benchmark is — identity, size, and browsable cases.
+
+    FEATURE: benchmark researcher discovery (OME-724) — a researcher reads this card
+    and pages real prompts before spending money evaluating.
+    """
+
+    id: str
+    title: str
+    description: str
+    revision: str
+    case_count: int
+    # WHY: the value stays frozen/comparable data; the transport it was born from is
+    # carried only as a non-comparing private field so `.cases()` can page lazily.
+    _fetch_cases: Callable[[int, int], _CaseCatalog] = field(compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        for name in ("id", "title", "description", "revision"):
+            object.__setattr__(self, name, _nonblank(getattr(self, name), f"Benchmark {name}"))
+        if (
+            isinstance(self.case_count, bool)
+            or not isinstance(self.case_count, int)
+            or self.case_count < 1
+        ):
+            raise ValueError("Benchmark case_count must be a positive integer")
+
+    def cases(self, limit: int = 50, offset: int = 0) -> _CaseCatalog:
+        """Fetch one page of this Benchmark's public cases from the Engine."""
+
+        return self._fetch_cases(limit, offset)
+
+    def _repr_html_(self) -> str:
+        from screamingface._ui.cards import benchmark_card_html
+
+        return benchmark_card_html(self)
+
+
 def _nonblank(value: object, label: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{label} must be a string")
@@ -61,4 +121,4 @@ def _nonblank(value: object, label: str) -> str:
     return value.strip()
 
 
-__all__ = ["BenchmarkInfo", "ModelInfo"]
+__all__ = ["Benchmark", "BenchmarkInfo", "CaseInfo", "ModelInfo"]
