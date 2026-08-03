@@ -21,12 +21,18 @@ import httpx
 # the operator's template only) must not exist in two copies. This mirrors the note in
 # `config.py`: the Runner is the SECOND consumer of `_serve`, and the agreed threshold for
 # promoting a shared public module is a THIRD. Promote this import then, not before.
-from url4.cli._serve import ProviderSpec, make_command_handler, make_data_provider
+from url4.cli._serve import (
+    DataCallable,
+    ProviderSpec,
+    make_command_handler,
+    make_data_provider,
+)
 from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
 from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
 from url4_cloud.runner.config import (
+    DEFAULT_WEB_TOOL_MAX_ITERATIONS,
     CommandSpec,
     DataSpec,
     ModelSpec,
@@ -182,7 +188,7 @@ class AigatewayConfig:
     tavily_search_depth: str = "advanced"
     tavily_max_results: int = 5
     tavily_timeout_s: float = 30.0
-    web_tool_max_iterations: int = 5
+    web_tool_max_iterations: int = DEFAULT_WEB_TOOL_MAX_ITERATIONS
     # INVARIANT: the iteration count alone does NOT bound this loop's cost. Two other dimensions
     # have to be bounded or a single expression can run away:
     #
@@ -286,13 +292,11 @@ class _ModelEndpoint:
             http_client=self._http_client,
             cfg=self._cfg,
             profile=self._profile,
-            model=spec.id,
             messages=_messages(request.context, request.intent),
             params=request.params,
             spec=spec,
             tavily_http=self._tavily_http,
             tavily_api_key=self._tavily_api_key,
-            web_tools=spec.web_tools,
             identity_headers=self._identity_headers,
             policy=self._policy,
         )
@@ -330,19 +334,31 @@ def register_data(node: Url4Node, data: Sequence[DataSpec]) -> None:
     operator sees a `RunnerConfigError` naming the route.
     """
     for spec in data:
-        provider = make_data_provider(
-            ProviderSpec(
-                value=spec.value,
-                file=spec.file,
-                command=spec.command,
-                media_type=spec.media_type,
-            ),
-            spec.timeout_s,
-        )
+        provider = _provider_for(spec)
         try:
             node.data(spec.path, provider, media_type=spec.media_type)
         except ValueError as exc:
             raise RunnerConfigError(f"[data] {spec.path!r} is not registrable: {exc}") from exc
+
+
+def _provider_for(spec: DataSpec) -> DataCallable:
+    """Build one `[data]` route's provider from its parsed declaration.
+
+    INVARIANT: the ONLY construction site. `register_data` serves a path and
+    `RetrievalPolicyResolver` dereferences one, and the leak guard's whole argument is that the
+    policy it reads is the SAME artifact the node serves at that address. Two literals that
+    happen to match make that equality a coincidence — a field added to `DataSpec` and wired at
+    one site would silently give the two different views of one route.
+    """
+    return make_data_provider(
+        ProviderSpec(
+            value=spec.value,
+            file=spec.file,
+            command=spec.command,
+            media_type=spec.media_type,
+        ),
+        spec.timeout_s,
+    )
 
 
 class RetrievalPolicyResolver:
@@ -362,24 +378,18 @@ class RetrievalPolicyResolver:
     is unreachable in production, and a DRACO run would otherwise re-read the file on every
     answering call. TRADEOFF: a LOCAL run that edits a policy file needs a restart, which differs
     from `[data]` routes generally (a `file` provider is re-read per request).
+
+    INVARIANT: the memo holds the in-flight TASK, not just the settled value. Answering calls fan
+    out concurrently, so a value-only cache is written after the first read COMPLETES and every
+    call that starts before then misses it — the run's opening burst would each re-read the same
+    file, which is the cost this memo exists to remove.
     """
 
-    __slots__ = ("_cache", "_providers")
+    __slots__ = ("_inflight", "_specs")
 
     def __init__(self, data: Sequence[DataSpec] = ()) -> None:
-        self._providers = {
-            spec.path: make_data_provider(
-                ProviderSpec(
-                    value=spec.value,
-                    file=spec.file,
-                    command=spec.command,
-                    media_type=spec.media_type,
-                ),
-                spec.timeout_s,
-            )
-            for spec in data
-        }
-        self._cache: dict[str, tuple[str, ...]] = {}
+        self._specs = {spec.path: spec for spec in data}
+        self._inflight: dict[str, asyncio.Task[tuple[str, ...]]] = {}
 
     async def resolve(self, path: str) -> tuple[str, ...]:
         """The policy's excluded domains.
@@ -389,18 +399,28 @@ class RetrievalPolicyResolver:
                 a usable policy. NEVER returns an empty tuple on failure — empty means "retrieve
                 unguarded", and the run would report success carrying an inflated score.
         """
-        cached = self._cache.get(path)
-        if cached is not None:
-            return cached
-        provider = self._providers.get(path)
-        if provider is None:
+        spec = self._specs.get(path)
+        if spec is None:
             raise ResolutionError(
                 f"{WEB_SEARCH_POLICY_PARAM}={path!r} is not a declared [data] route — a retrieval "
                 "policy is an artifact the benchmark image declares, like its cases and criteria"
             )
-        domains = _parse_policy(await provider(), path)
-        self._cache[path] = domains
-        return domains
+        task = self._inflight.get(path)
+        if task is None:
+            task = asyncio.ensure_future(self._load(spec))
+            self._inflight[path] = task
+        try:
+            return await task
+        except BaseException:
+            # WHY the failed task is DISCARDED: a settled failure would otherwise be the answer
+            # for the world's lifetime, turning one transient read error into a permanently
+            # unguarded-or-broken policy. A deterministic failure simply fails again on the
+            # retry, which is the behaviour the value-only cache had.
+            self._inflight.pop(path, None)
+            raise
+
+    async def _load(self, spec: DataSpec) -> tuple[str, ...]:
+        return _parse_policy(await _provider_for(spec)(), spec.path)
 
 
 def _parse_policy(raw: str, path: str) -> tuple[str, ...]:
@@ -668,7 +688,7 @@ restating its rules.
 """
 
 
-def _wants_web_search(params: Mapping[str, str], spec: ModelSpec | None) -> bool:
+def _wants_web_search(params: Mapping[str, str], spec: ModelSpec) -> bool:
     """Whether THIS call retrieves — the route's declaration, overridden by the expression.
 
     The route declares what it CAN do; the expression decides whether to use it. Absent means
@@ -680,14 +700,14 @@ def _wants_web_search(params: Mapping[str, str], spec: ModelSpec | None) -> bool
             Loud, because the silent alternative is an answer written from weights alone that
             reads exactly like a retrieved one.
     """
-    declared = bool(spec and (spec.web_tools or spec.native_web_search))
+    declared = spec.web_tools or spec.native_web_search
     raw = params.get(WEB_SEARCH_PARAM)
     if raw is None:
         return declared
     wanted = _coerce_param(raw) is True
     if wanted and not declared:
         raise ResolutionError(
-            f"{WEB_SEARCH_PARAM}=true but route {'/' + spec.id if spec else '?'} declares no web "
+            f"{WEB_SEARCH_PARAM}=true but route /{spec.id} declares no web "
             "search — add `web_tools` (runner-driven) or `native_web_search` (provider-driven) "
             "to its [[aigateway.models]] entry"
         )
@@ -800,13 +820,11 @@ async def _chat_completion_loop(
     http_client: httpx.AsyncClient,
     cfg: AigatewayConfig,
     profile: str | None,
-    model: str,
     messages: list[dict],
+    spec: ModelSpec,
     params: Mapping[str, str] = {},  # noqa: B006 - read-only, never mutated
-    spec: ModelSpec | None = None,
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
-    web_tools: bool,
     identity_headers: Mapping[str, str] | None = None,
     policy: RetrievalPolicyResolver | None = None,
 ) -> str:
@@ -828,8 +846,8 @@ async def _chat_completion_loop(
     # model's request payload, and without the client the model could call a tool nothing can
     # execute.
     wants_search = _wants_web_search(params, spec)
-    native = wants_search and bool(spec and spec.native_web_search)
-    offer_tools = wants_search and web_tools and tavily_http is not None
+    native = wants_search and spec.native_web_search
+    offer_tools = wants_search and spec.web_tools and tavily_http is not None
     # Resolved BEFORE the loop with the sampling params: a tool-calling turn re-posts, and the
     # blocklist must hold on every hop or a later turn retrieves what the first one was denied.
     exclusions = await _retrieval_exclusions(params, policy, retrieves=native or offer_tools)
@@ -852,11 +870,11 @@ async def _chat_completion_loop(
             headers=headers,
             # `extra` LAST: the route's declared tools are not the caller's to override.
             # `_model_params` already rejects them, so this is defense in depth.
-            json={"model": model, "messages": messages, **sampling, **extra},
+            json={"model": spec.id, "messages": messages, **sampling, **extra},
         )
         _raise_for_status(resp)
         data = _json_or_raise(resp)
-        _report_usage(model, data.get("usage"), data.get("model"))
+        _report_usage(spec.id, data.get("usage"), data.get("model"))
         choice = _parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
@@ -940,15 +958,20 @@ def _is_blocked(url: str, exclusions: Sequence[str]) -> bool:
     """Whether ``url`` matches a blocklist entry, host-wise or host+path-wise.
 
     INVARIANT: a bare-host entry covers SUBDOMAINS (`cdn.leak.test` matches `leak.test`), or the
-    guard is walked around by the first CDN hostname the model tries. An entry carrying a path
-    matches only that path prefix, because the shipped DRACO blocklist is path-shaped
-    (`arxiv.org/abs/2602.11685`) and blocking all of `arxiv.org` would strip a major legitimate
-    source from a deep-research benchmark — distorting the score in the other direction.
+    guard is walked around by the first CDN hostname the model tries.
+
+    An entry carrying a path matches only that path prefix. NOTE that a DECLARED policy can no
+    longer contain one: `prepare.write_policy` rejects any entry holding `/`, `*` or `:` at build
+    time, because the native-search provider 400s on anything longer than a host and that 400
+    fails every answering call. So the path branch is reachable only from an ad-hoc
+    `;web_search_exclude=`, which the runner enforces itself and no provider ever sees.
 
     # AIDEV-NOTE: MEASURED 2026-08-02 — a path-shaped entry does NOT cover the same document's
     # other paths. Tavily returned `arxiv.org/pdf/2602.11685` while `arxiv.org/abs/2602.11685`
-    # was excluded, i.e. the DRACO paper itself. The matcher below is correct; the LIST is what
-    # has to enumerate a document's forms. See `prepare.EXCLUDED_DOMAINS`.
+    # was excluded, i.e. the DRACO paper itself. That measurement is why the shipped list went to
+    # whole hosts (`prepare.EXCLUDED_DOMAINS`, owner decision the same day) rather than trying to
+    # enumerate a document's forms. The matcher keeps the path form for the ad-hoc case; anyone
+    # using it inherits that trap.
     """
     parsed = urlsplit(url if "//" in url else f"//{url}")
     host = parsed.netloc.lower().split("@")[-1].split(":")[0]
