@@ -878,7 +878,7 @@ def _refs_of_ast(node: Node) -> set[str]:
             refs |= find_references(descendant.context)
         elif isinstance(descendant, StructObject):
             refs |= find_references(descendant.raw)
-        elif isinstance(descendant, VarRef) and descendant.name not in ("item", "current"):
+        elif isinstance(descendant, VarRef) and descendant.name not in _ROW_NAMES:
             refs.add(descendant.name)
     return refs
 
