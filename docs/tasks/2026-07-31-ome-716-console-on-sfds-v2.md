@@ -1,12 +1,12 @@
 ---
 id: OME-716
 linear_url: https://linear.app/openmined/issue/OME-716/re-skin-the-admin-console-on-screamingface-design-system-v2-replacing
-status: in_review
+status: done
 type: task
 priority: P2
 labels: [autonomous, agentic]
 created: 2026-07-31
-closed:
+closed: 2026-08-03
 ---
 
 # OME-716 — re-skin the admin console on ScreamingFace Design System v2
@@ -48,5 +48,20 @@ invisible to the colour gate, so they had survived the entire OMDS build.
 
 `theme.test.tsx` still says "OMDS tokens" in one test title. The append-only test gate refused the
 rename (sdlc rule 5); the assertion is correct and unchanged. Known cosmetic wart.
+
+## Shipped separately — it missed its own PR
+
+This work and `OME-715` were committed to `OME-706-admin-api` **after** PR #451 squash-merged
+(11:50Z; these landed 12:53Z and 13:32Z). No PR was ever opened for them, so `main` kept serving the
+OpenMined Design System for three days while the branch looked "done".
+
+**Squash-merge is what hid it.** `git log origin/main..HEAD` showed 11 commits — 9 of them already
+in `main`, flattened into `14d54f0a` — so the branch read as wholly unmerged and the two genuinely
+stranded commits did not stand out. Reachability says nothing in a squash-merge repo; the check that
+works is content-level (`design-system.test.ts` 404s on `main`). Same failure mode as #380.
+
+Recovered by cherry-picking the 2 commits onto a fresh branch off `main` rather than rebasing all
+11. Verified byte-identical to the browser-verified original:
+`git diff 1524d090 HEAD -- apps/aigateway-ui .claude/skills/screamingface-design` is empty.
 
 Full detail: `docs/work/2026-07-31-OME-716-console-on-sfds-v2.md`.

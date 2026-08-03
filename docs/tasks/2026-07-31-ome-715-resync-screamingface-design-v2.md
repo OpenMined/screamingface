@@ -1,12 +1,12 @@
 ---
 id: OME-715
 linear_url: https://linear.app/openmined/issue/OME-715/re-sync-the-screamingface-design-skill-to-sfds-v2-its-snapshot-is-a
-status: in_review
+status: done
 type: task
 priority: P2
 labels: [repo, autonomous, agentic]
 created: 2026-07-31
-closed:
+closed: 2026-08-03
 ---
 
 # OME-715 — re-sync the screamingface-design skill to SFDS v2
