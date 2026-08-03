@@ -31,11 +31,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _PLUGINS = _REPO_ROOT / "apps/aigateway/src/aigateway/plugins"
 _RUNNER_CONFIG = _REPO_ROOT / "apps/url4-cloud/url4.toml"
 
-# (source file, the assigned name holding the slug list, the gateway's id prefix).
-# WHY anthropic has no prefix: its ModelEntry.model_name is the BARE slug — the `anthropic/`
-# prefix appears only in litellm_params, so `/v1/models` advertises `claude-haiku-4-5`.
+# (source file, the assigned name holding the slug list, the gateway's canonical id prefix).
+# AI Gateway's catalogue canonicalizes every bare provider model as ``<provider>/<model>``;
+# Anthropic's bare ModelEntry names therefore advertise as ``anthropic/claude-haiku-4-5``.
 _SLUG_SOURCES = (
-    ("anthropic_provider/settings.py", "names", ""),
+    ("anthropic_provider/settings.py", "names", "anthropic/"),
     ("codex_provider/models.py", "_MODEL_SLUGS", "codex/"),
     ("gemini_provider/models.py", "_MODEL_SLUGS", "gemini-cli/"),
     ("antigravity_provider/settings.py", "names", "antigravity/"),
@@ -115,7 +115,7 @@ def test_the_guard_actually_finds_the_plugin_registries() -> None:
     ids = _aigateway_model_ids()
 
     assert len(ids) >= 10
-    assert "claude-haiku-4-5" in ids
+    assert "anthropic/claude-haiku-4-5" in ids
     assert "codex/gpt-5.5" in ids
     # The returned-list extractor is the one that would silently contribute nothing.
     assert "openrouter/openai/gpt-5.5" in ids
@@ -131,6 +131,13 @@ def test_every_declared_model_exists_in_aigateway() -> None:
         "Either the plugin list changed, or the id is misspelled — a declared route that "
         "resolves to nothing fails inside a user's expression, not at boot."
     )
+
+
+def test_runner_allows_five_minutes_for_each_aigateway_request() -> None:
+    with _RUNNER_CONFIG.open("rb") as handle:
+        timeout_s = tomllib.load(handle)["aigateway"]["timeout_s"]
+
+    assert timeout_s == 300
 
 
 @pytest.mark.parametrize("model", _declared_models())

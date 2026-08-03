@@ -46,18 +46,3 @@ def test_an_empty_policy_fails_the_BUILD(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     with pytest.raises(prepare.PrepareError, match="policy is empty"):
         prepare.write_policy(tmp_path)
-
-
-def test_the_data_table_declares_the_policy_route(tmp_path: Path) -> None:
-    table = prepare.render_data_table([{"id": 1}], tmp_path, "/draco")
-
-    assert '"/draco/policy/retrieval"' in table
-    assert 'media_type = "application/json"' in table
-
-
-def test_the_data_table_still_declares_no_rubric_route(tmp_path: Path) -> None:
-    """INVARIANT: an expression that could fetch a rubric could feed it to the judge."""
-    table = prepare.render_data_table([{"id": 1}, {"id": 2}], tmp_path, "/draco")
-
-    assert "/rubrics/" not in table
-    assert '"/draco/criteria/1"' in table

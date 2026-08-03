@@ -7,9 +7,12 @@ resolves and runs an expression against.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
+from typing import NoReturn
 from urllib.parse import urlsplit
 
 import httpx
@@ -31,6 +34,12 @@ from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
 from url4.observe import current_usage_sink
 from url4.peer.server import Request, Url4Node
+from url4_cloud.benchmarks import DEFAULT_ASSETS_ROOT, install_benchmarks
+from url4_cloud.benchmarks.contract import (
+    CANDIDATE_INPUT_SCHEMA,
+    CANDIDATE_MESSAGE_ROLES,
+    CANDIDATE_ROUTE,
+)
 from url4_cloud.runner.config import (
     DEFAULT_WEB_TOOL_MAX_ITERATIONS,
     CommandSpec,
@@ -71,6 +80,8 @@ _WEB_TOOLS = [
         },
     },
 ]
+
+_DEFAULT_CANDIDATE_MAX_INVOCATIONS = 10_000
 
 
 WEB_SEARCH_PARAM = "web_search"
@@ -137,6 +148,18 @@ _RUNNER_INTERPRETED_PARAMS = frozenset(
 """Params the runner CONSUMES. Forwarded, each would be an unknown gateway field and fail closed
 on every call that carried it."""
 
+_candidate_model_params: contextvars.ContextVar[Mapping[str, str] | None] = contextvars.ContextVar(
+    "url4_cloud_candidate_model_params", default=None
+)
+"""Benchmark-owned model policy active only while one linked Candidate is evaluated.
+
+The Candidate expression remains ordinary URL4 and can be shared independently. The Benchmark's
+``/candidate`` call supplies the retrieval policy, and this task-local binding applies it to every
+model call inside that nested evaluation. A ContextVar is required because one Runner may execute
+different case calls concurrently; mutable world-level state would leak one Benchmark's policy
+into another Candidate.
+"""
+
 
 def _native_web_search(
     cfg: AigatewayConfig, extra_domains: Sequence[str] = ()
@@ -175,7 +198,7 @@ class AigatewayConfig:
     Tavily tool loop."""
 
     base_url: str = "http://127.0.0.1:9105"
-    default_model: str = "claude-haiku-4-5"
+    default_model: str = "anthropic/claude-haiku-4-5"
     # WHY: DECLARED, never discovered — see `config.routes_for`. Empty is a config error, not a
     # signal to go ask the gateway what it serves. Each entry carries its own capabilities
     # (`web_tools`), so a route's behavior is declared beside the route.
@@ -210,6 +233,10 @@ class AigatewayConfig:
     # them. A runner that set them would be re-specifying one provider's envelope through a
     # flag whose whole point is that it names no provider.
     web_search_excluded_domains: tuple[str, ...] = ()
+    # Per Runner job, not per nested Candidate evaluation. The Benchmark resource reports its
+    # planned invocation count for inspection; this independent runtime bound remains authoritative
+    # if a malformed or dynamically behaving expression exceeds that declaration.
+    candidate_max_invocations: int = _DEFAULT_CANDIDATE_MAX_INVOCATIONS
 
 
 @dataclass
@@ -288,17 +315,134 @@ class _ModelEndpoint:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
         spec = self._routes[request.path]
+        candidate_policy = _candidate_model_params.get()
+        params = (
+            request.params if candidate_policy is None else {**request.params, **candidate_policy}
+        )
         return await _chat_completion_loop(
             http_client=self._http_client,
             cfg=self._cfg,
             profile=self._profile,
             messages=_messages(request.context, request.intent),
-            params=request.params,
+            params=params,
             spec=spec,
             tavily_http=self._tavily_http,
             tavily_api_key=self._tavily_api_key,
             identity_headers=self._identity_headers,
             policy=self._policy,
+        )
+
+
+class _CandidateEndpoint:
+    """Evaluate one linked Candidate expression against this run's world.
+
+    The Benchmark owns the call site and supplies ``request.context``; the SDK-owned Candidate
+    expression arrives as the resolved intent. Evaluating it in-process keeps every declared
+    model, command, data route, credential, and cancellation boundary in the same Runner job.
+    Only ``$input`` crosses into the Candidate's lexical scope.
+    """
+
+    __slots__ = ("_active", "_calls", "_max_invocations", "_node")
+
+    def __init__(self, node: Url4Node, max_invocations: int) -> None:
+        if max_invocations < 1:
+            raise RunnerConfigError("candidate_max_invocations must be at least 1")
+        self._node = node
+        self._max_invocations = max_invocations
+        self._calls = 0
+        # Context-local rather than object-global: concurrent Benchmark call sites are valid,
+        # but a nested evaluation inherits this marker and cannot recursively re-enter the
+        # adapter. Each Runner world owns its own ContextVar instance.
+        self._active: contextvars.ContextVar[bool] = contextvars.ContextVar(
+            "url4_cloud_candidate_active", default=False
+        )
+
+    async def __call__(self, request: Request) -> str:
+        if self._active.get():
+            raise ResolutionError(
+                "a Candidate expression cannot invoke /candidate",
+                code="candidate_recursion",
+                permanent=True,
+            )
+        # There is deliberately no await between check and increment: Runner handlers share one
+        # event loop, so concurrent call sites cannot both claim the same remaining slot.
+        if self._calls >= self._max_invocations:
+            raise ResolutionError(
+                f"Candidate Invocation limit of {self._max_invocations} exceeded",
+                code="candidate_invocation_limit",
+                permanent=True,
+            )
+        self._calls += 1
+        token = self._active.set(True)
+        policy_token = _candidate_model_params.set(_candidate_policy(request.params))
+        try:
+            result = await self._node.evaluate(request.intent, env=_candidate_env(request.context))
+            return result.text
+        finally:
+            _candidate_model_params.reset(policy_token)
+            self._active.reset(token)
+
+
+def _candidate_env(context: str) -> dict[str, str]:
+    """Bind the Candidate's lexical scope from the invocation context.
+
+    Legacy single-slot invocations bind ``$input`` only. A two-slot invocation
+    (``case: <id>, input: <text>`` — case FIRST, so the parse is immune to the input
+    text's content) additionally binds ``$case``, letting candidate-side verifier
+    loops address the benchmark's check route (OME-727).
+    """
+
+    raw = context or ""
+    if raw.startswith("case: "):
+        # Slot-packed form (DAG lowering) uses newlines; the surface form keeps the
+        # comma. The case value is an id (never contains either separator), so taking
+        # the FIRST separator leaves the input text verbatim regardless of content.
+        for separator in ("\ninput: ", ", input: "):
+            head, found, rest = raw.partition(separator)
+            if found:
+                return {"input": rest, "case": head[len("case: ") :].strip()}
+    return {"input": raw}
+
+
+def _register_candidate(node: Url4Node, max_invocations: int) -> None:
+    """Reserve and install the Engine-owned Candidate Invocation route."""
+
+    node.endpoint(CANDIDATE_ROUTE)(_CandidateEndpoint(node, max_invocations))
+
+
+def _candidate_policy(params: Mapping[str, str]) -> dict[str, str]:
+    """Validate the narrow policy surface a Benchmark may apply to its Candidate.
+
+    Generation settings remain Candidate-owned. Only Runner-interpreted retrieval controls cross
+    this boundary, and they are applied after the Candidate's own params so a Candidate cannot
+    disable a Benchmark's leak guard.
+    """
+
+    unknown = sorted(set(params) - _RUNNER_INTERPRETED_PARAMS)
+    if unknown:
+        raise ResolutionError(
+            f"unsupported Candidate policy parameter(s) {unknown}",
+            code="candidate_policy_invalid",
+            permanent=True,
+        )
+    return dict(params)
+
+
+def _reject_candidate_route_claims(
+    models: Sequence[ModelSpec],
+    commands: Sequence[CommandSpec],
+    data: Sequence[DataSpec],
+) -> None:
+    claims = (
+        *("aigateway model" for model in models if "/" + model.id == CANDIDATE_ROUTE),
+        *("command" for command in commands if command.path == CANDIDATE_ROUTE),
+        *("data" for item in data if item.path == CANDIDATE_ROUTE),
+    )
+    if claims:
+        owners = ", ".join(claims)
+        raise RunnerConfigError(
+            f"route {CANDIDATE_ROUTE!r} is reserved for Candidate Invocation; "
+            f"it cannot also be declared as {owners}"
         )
 
 
@@ -445,7 +589,10 @@ def _parse_policy(raw: str, path: str) -> tuple[str, ...]:
 
 
 def build_local_world(
-    commands: Sequence[CommandSpec] = (), data: Sequence[DataSpec] = ()
+    commands: Sequence[CommandSpec] = (),
+    data: Sequence[DataSpec] = (),
+    *,
+    benchmark_assets: Path = DEFAULT_ASSETS_ROOT,
 ) -> Url4Node:
     """A world with declared routes and nothing else — no models, no outbound fetches.
 
@@ -456,6 +603,7 @@ def build_local_world(
     `deny_by_default_world` is the declared routes.
     """
     node = Url4Node("local", outbound=StaticIOLayer())
+    install_benchmarks(node, benchmark_assets)
     register_commands(node, commands)
     register_data(node, data)
     return node
@@ -471,6 +619,7 @@ async def build_aigateway_world(
     identity_headers: Mapping[str, str] | None = None,
     commands: Sequence[CommandSpec] = (),
     data: Sequence[DataSpec] = (),
+    benchmark_assets: Path = DEFAULT_ASSETS_ROOT,
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
@@ -492,6 +641,7 @@ async def build_aigateway_world(
         raise RunnerConfigError(
             f"default_model {cfg.default_model!r} is not a declared model {declared_ids!r}"
         )
+    _reject_candidate_route_claims(cfg.models, commands, data)
 
     owns_client = client is None
     http_client = (
@@ -524,8 +674,12 @@ async def build_aigateway_world(
         default_processor="/" + cfg.default_model,
         outbound=None if cfg.allow_outbound else StaticIOLayer(),
     )
+    # Engine-owned protocol routes are reserved before operator-declared routes. A model,
+    # command, or data route cannot silently shadow Candidate Invocation.
+    _register_candidate(node, cfg.candidate_max_invocations)
     for path in routes:
         node.endpoint(path)(call_model)
+    install_benchmarks(node, benchmark_assets)
     # INVARIANT: commands are registered AFTER the model routes, so a path claimed by both is
     # rejected by the engine here rather than silently shadowing a model. `config` already
     # rejects that pair with a better message; this is the backstop for a world built directly.
@@ -811,12 +965,14 @@ async def _chat_completion_loop(
     sampling = _model_params(params)
     headers = _headers(profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
-        resp = await http_client.post(
-            "/v1/chat/completions",
-            headers=headers,
+        resp = await _post_chat_completion(
+            http_client,
+            cfg,
+            spec.id,
+            headers,
             # `extra` LAST: the route's declared tools are not the caller's to override.
             # `_model_params` already rejects them, so this is defense in depth.
-            json={"model": spec.id, "messages": messages, **sampling, **extra},
+            {"model": spec.id, "messages": messages, **sampling, **extra},
         )
         _raise_for_status(resp)
         data = _json_or_raise(resp)
@@ -861,6 +1017,29 @@ async def _chat_completion_loop(
         code="web_tool_loop_limit",
         permanent=False,
     )
+
+
+async def _post_chat_completion(
+    http_client: httpx.AsyncClient,
+    cfg: AigatewayConfig,
+    model: str,
+    headers: Mapping[str, str],
+    body: Mapping[str, object],
+) -> httpx.Response:
+    """Post one model turn and translate transport timeouts at the HTTP boundary."""
+
+    try:
+        return await http_client.post(
+            "/v1/chat/completions",
+            headers=headers,
+            json=dict(body),
+        )
+    except httpx.TimeoutException as exc:
+        raise ResolutionError(
+            f"aigateway did not respond within {cfg.timeout_s:g} seconds for model {model!r}",
+            code="aigateway_timeout",
+            permanent=False,
+        ) from exc
 
 
 _TOOL_TRUNCATION_MARKER = "\n…[truncated]"
@@ -1066,8 +1245,78 @@ def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
     if intent:
         messages.append({"role": "system", "content": intent})
-    messages.append({"role": "user", "content": context or ""})
+    native = _native_messages(context)
+    if native is None:
+        messages.append({"role": "user", "content": context or ""})
+    else:
+        messages.extend(native)
     return messages
+
+
+def _native_messages(context: str | None) -> list[dict[str, str]] | None:
+    envelope = _candidate_input_envelope(context)
+    if envelope is None:
+        return None
+    return _candidate_messages(envelope["messages"])
+
+
+def _candidate_input_envelope(context: str | None) -> dict[str, object] | None:
+    envelope = _json_mapping(context)
+    if envelope is None:
+        return None
+    schema = envelope.get("schema")
+    if schema == CANDIDATE_INPUT_SCHEMA:
+        if set(envelope) != {"schema", "messages"}:
+            _invalid_candidate_input("the chat envelope must contain only schema and messages")
+        return envelope
+    if isinstance(schema, str) and schema.startswith("screamingface.candidate-input."):
+        _invalid_candidate_input(f"unsupported schema {schema!r}")
+    return None
+
+
+def _json_mapping(context: str | None) -> dict[str, object] | None:
+    if not context:
+        return None
+    try:
+        value = json.loads(context)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _candidate_messages(raw_messages: object) -> list[dict[str, str]]:
+    if isinstance(raw_messages, str):
+        raw_messages = _message_json(raw_messages)
+    if not isinstance(raw_messages, list) or not raw_messages:
+        _invalid_candidate_input("messages must be a non-empty array")
+    return [_candidate_message(index, value) for index, value in enumerate(raw_messages)]
+
+
+def _message_json(value: str) -> object:
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        _invalid_candidate_input("messages must contain valid JSON")
+
+
+def _candidate_message(index: int, value: object) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != {"role", "content"}:
+        _invalid_candidate_input(f"message {index} must contain exactly role and content")
+    role = value.get("role")
+    content = value.get("content")
+    if not isinstance(role, str) or role not in CANDIDATE_MESSAGE_ROLES:
+        _invalid_candidate_input(f"message {index} has unsupported role {role!r}")
+    if not isinstance(content, str):
+        _invalid_candidate_input(f"message {index} content must be text")
+    return {"role": role, "content": content}
+
+
+def _invalid_candidate_input(detail: str) -> NoReturn:
+    raise ResolutionError(
+        f"invalid Candidate chat input: {detail}",
+        code="invalid_candidate_input",
+        permanent=True,
+    )
 
 
 def _headers(

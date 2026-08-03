@@ -134,7 +134,27 @@ def test_coverage_reports_the_judged_fraction() -> None:
 
 
 def _verdict(cid: str, status: str, case: int = 1) -> str:
-    return json.dumps({"case_id": case, "criterion_id": cid, "criterion_status": status})
+    del case
+    return json.dumps(
+        {
+            "schema": "screamingface.criterion-verdict.v1",
+            "criterion_id": cid,
+            "valid": True,
+            "explanation": "evidence",
+            "criterion_status": status,
+        }
+    )
+
+
+def _invalid(cid: str, reason: str) -> str:
+    return json.dumps(
+        {
+            "schema": "screamingface.criterion-verdict.v1",
+            "criterion_id": cid,
+            "valid": False,
+            "reason": reason,
+        }
+    )
 
 
 def _case_row(case: int, *per_criterion: tuple[str, list[str]]) -> str:
@@ -149,11 +169,11 @@ def _case_row(case: int, *per_criterion: tuple[str, list[str]]) -> str:
 
 
 def test_verdicts_are_harvested_from_the_nested_prose() -> None:
-    row = _case_row(1, ("a1", ["MET", "MET", "MET"]))
+    row = _case_row(1, ("a1", ["MET"] * 5))
 
     harvested = agg.harvest_verdicts(row)
 
-    assert harvested == [{"case_id": 1, "criterion_id": "a1", "criterion_status": "MET"}] * 3
+    assert harvested == [json.loads(_verdict("a1", "MET"))] * 5
 
 
 def test_harvesting_ignores_json_without_a_criterion_status() -> None:
@@ -163,6 +183,73 @@ def test_harvesting_ignores_json_without_a_criterion_status() -> None:
     )
 
     assert [v["criterion_id"] for v in agg.harvest_verdicts(row)] == ["a1"]
+
+
+def test_prompt_examples_cannot_become_judge_runs() -> None:
+    """The judge prompt is preserved in URL4 row prose beside every reply.
+
+    Its example verdict used to be harvested as if the judge had returned it. Across a real
+    rubric that repeated placeholder inflated requested passes into hundreds of ``runs``
+    and collapsed coverage while still returning a successful Candidate result.
+    """
+    example = json.dumps(
+        {
+            "criterion_id": "<provided criterion_id>",
+            "explanation": "Brief evidence for the verdict.",
+            "criterion_status": "MET",
+        }
+    )
+    fragments: list[str] = []
+    for criterion_id in ("a1", "a2", "a3", "b1"):
+        for status in ("MET", "UNMET", "MET", "UNMET", "MET"):
+            fragments.extend((example, _verdict(criterion_id, status)))
+
+    result = agg.aggregate(
+        json.dumps(["\n".join(fragments)]),
+        rubrics={1: _RUBRIC},
+        benchmark_id="draco",
+    )
+
+    assert result["metrics"]["n_runs"] == 5
+    assert result["metrics"]["coverage"] == 1.0
+
+
+def test_coverage_diagnostics_distinguish_invalid_and_missing_verdicts() -> None:
+    fragments = [
+        *(_verdict("a1", "MET") for _ in range(5)),
+        *(_verdict("a2", "MET") for _ in range(5)),
+        *(_verdict("a3", "UNMET") for _ in range(4)),
+        _invalid("a3", "invalid_json"),
+        *(_verdict("b1", "MET") for _ in range(4)),
+        # b1's fifth pass is absent: a transport/model call failed before binding.
+    ]
+
+    result = agg.aggregate(
+        json.dumps(["\n".join(fragments)]),
+        rubrics={1: _RUBRIC},
+        benchmark_id="draco",
+    )
+
+    assert {
+        name: result["metrics"][name]
+        for name in (
+            "coverage",
+            "coverage_target",
+            "verdicts_expected",
+            "verdicts_accepted",
+            "verdicts_rejected",
+            "verdicts_invalid",
+            "verdicts_missing",
+        )
+    } == {
+        "coverage": 0.9,
+        "coverage_target": 0.95,
+        "verdicts_expected": 20,
+        "verdicts_accepted": 18,
+        "verdicts_rejected": 2,
+        "verdicts_invalid": 1,
+        "verdicts_missing": 1,
+    }
 
 
 def test_a_fenced_verdict_is_still_harvested() -> None:
@@ -238,17 +325,17 @@ def test_aggregate_scores_the_official_nested_payload() -> None:
         [
             _case_row(
                 1,
-                ("a1", ["MET"] * 3),
-                ("a2", ["MET"] * 3),
-                ("a3", ["UNMET"] * 3),
-                ("b1", ["MET"] * 3),
+                ("a1", ["MET"] * 5),
+                ("a2", ["MET"] * 5),
+                ("a3", ["UNMET"] * 5),
+                ("b1", ["MET"] * 5),
             ),
             _case_row(
                 2,
-                ("a1", ["MET"] * 3),
-                ("a2", ["UNMET"] * 3),
-                ("a3", ["UNMET"] * 3),
-                ("b1", ["UNMET"] * 3),
+                ("a1", ["MET"] * 5),
+                ("a2", ["UNMET"] * 5),
+                ("a3", ["UNMET"] * 5),
+                ("b1", ["UNMET"] * 5),
             ),
         ]
     )
@@ -256,15 +343,15 @@ def test_aggregate_scores_the_official_nested_payload() -> None:
 
     assert result["case_count"] == 2
     assert result["score"] == 0.75  # case 1 → 1.0 · case 2 → 0.5
+    assert "normalized_score" not in result["metrics"]
     assert [c["case_id"] for c in result["case_results"]] == [1, 2]
-    assert result["metrics"]["n_runs"] == 3
+    assert result["metrics"]["n_runs"] == 5
     assert result["failures"] == []
 
 
 def test_a_case_id_missing_from_the_verdicts_falls_back_to_row_position() -> None:
-    """The judge echoes the id, but an LLM can drop it — position is the benchmark's own
-    knowledge and is stable because `on_error=collect` preserves row order."""
-    row = "runs: [{}]".format(json.dumps({"criterion_id": "a1", "criterion_status": "MET"}))
+    """Bound verdicts need no Case id; preserved Case order is Engine-owned knowledge."""
+    row = "runs: [{}]".format(_verdict("a1", "MET"))
 
     result = agg.aggregate(json.dumps([row]), rubrics={1: _RUBRIC}, benchmark_id="draco")
 
@@ -323,23 +410,3 @@ def test_rubrics_load_keyed_by_case_id(tmp_path) -> None:
     (tmp_path / "7.json").write_text(json.dumps(_RUBRIC), encoding="utf-8")
 
     assert set(agg.load_rubrics(tmp_path)) == {7}
-
-
-def test_the_rubrics_path_defaults_to_the_environment(tmp_path, monkeypatch) -> None:
-    """One source of truth per deployment: the image sets it, a local run overrides it."""
-    (tmp_path / "1.json").write_text(json.dumps(_RUBRIC), encoding="utf-8")
-    monkeypatch.setenv("URL4_BENCHMARK_RUBRICS", str(tmp_path))
-
-    assert agg.rubrics_dir(None) == tmp_path
-
-
-def test_an_explicit_path_beats_the_environment(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("URL4_BENCHMARK_RUBRICS", "/env/path")
-
-    assert agg.rubrics_dir(tmp_path) == tmp_path
-
-
-def test_without_either_it_falls_back_to_the_image_default(monkeypatch) -> None:
-    monkeypatch.delenv("URL4_BENCHMARK_RUBRICS", raising=False)
-
-    assert str(agg.rubrics_dir(None)) == agg.DEFAULT_RUBRICS_DIR

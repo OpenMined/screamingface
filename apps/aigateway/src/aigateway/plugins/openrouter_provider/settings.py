@@ -56,6 +56,7 @@ def _default_model_slugs() -> list[str]:
     """
     return [
         "openrouter/anthropic/claude-fable-5",
+        "openrouter/anthropic/claude-haiku-4.5",
         "openrouter/openai/gpt-5.5",
         "openrouter/anthropic/claude-opus-4.8",
         # AIDEV-NOTE: the DRACO benchmark judge. arXiv:2602.11685 §4.2 PINS it, and the
@@ -63,13 +64,10 @@ def _default_model_slugs() -> list[str]:
         # seeded here rather than left to a deployment. `apps/url4-cloud/url4.toml` declares the
         # matching route; `test_declared_models_match_aigateway.py` fails if the two drift.
         "openrouter/google/gemini-3.1-pro-preview",
-        # AIDEV-NOTE: the rest of the DRACO candidate lineup — the four models that appear in
-        # `screamingface-benchmarks/benchmarks_config/draco.yaml` but nowhere above. Seeded for
-        # the same reason as the judge: the BENCHMARK pins its lineup (7 solos + 9 fusions, whose
-        # published scores are per-configuration), so which models exist is not a deployment
-        # choice. Without these, `budget_trio`, `pareto_cross`, `pareto_lean`, `beat_runner_up`
-        # and `best_open_source` cannot be addressed at all — routing is exact-match, so an
-        # undeclared model is not a degraded run, it is a `ResolutionError`.
+        # The remaining DRACO candidate lineup, also used by the Fusion and
+        # CorrectiveEnsemble examples. These must be real gateway seeds: merely adding them to
+        # a dev environment makes catalog checks pass while execution still fails elsewhere.
+        # All were present in the live OpenRouter catalog on 2026-08-03; re-check at release.
         "openrouter/google/gemini-3-flash-preview",
         "openrouter/moonshotai/kimi-k2.6",
         "openrouter/deepseek/deepseek-v4-pro",
