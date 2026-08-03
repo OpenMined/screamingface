@@ -38,6 +38,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+# INVARIANT: ONE walker of the `{"sections": [{"criteria": […]}]}` shape, shared with the scorer.
+# This module decides which criteria the JUDGE is shown and `aggregate` decides which criteria the
+# denominator counts, so the two must enumerate the same set or `coverage` is wrong BY
+# CONSTRUCTION — and a run built on two different walks still reports success with a plausible
+# score. Intra-package import: both are leaves of `benchmarks/`, which imports neither app half.
+from url4_cloud.benchmarks.draco.aggregate import flatten_criteria
+
 DATASET = "perplexity-ai/draco"
 COLUMN_QUESTION = "problem"
 COLUMN_RUBRIC = "answer"
@@ -149,8 +156,7 @@ def parse_rubric(raw: Any, case_id: int) -> dict[str, Any]:
             f"case {case_id}: rubric has no 'sections' key — got {got}. A flat criteria list "
             "is a different grader (healthbench_rubric), not this one."
         )
-    n_criteria = sum(len(s.get("criteria") or []) for s in rubric["sections"])
-    if n_criteria == 0:
+    if sum(1 for _ in flatten_criteria(rubric)) == 0:
         raise PrepareError(f"case {case_id}: rubric flattened to 0 criteria")
     return rubric
 
@@ -160,11 +166,14 @@ def judge_criteria(rubric: Mapping[str, Any]) -> list[dict[str, Any]]:
 
     See the module INVARIANT: `official` grading shows one criterion at a time with no weight,
     so anything extra here is a protocol violation that no test downstream would catch.
+
+    INVARIANT: this PROJECTS `flatten_criteria` rather than copying its rows — that walker attaches
+    the criterion's weight and axis, and forwarding a row unchanged would put the weight in front
+    of the judge. Two keys, named explicitly, is what keeps that impossible.
     """
     return [
         {"id": criterion.get("id"), "requirement": criterion.get("requirement", "")}
-        for section in rubric.get("sections", [])
-        for criterion in section.get("criteria") or []
+        for criterion in flatten_criteria(rubric)
     ]
 
 
