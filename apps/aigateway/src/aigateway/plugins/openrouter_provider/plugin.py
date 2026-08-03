@@ -22,7 +22,7 @@ An API-key-only provider (no OAuth) routed through LiteLLM's built-in
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
@@ -178,7 +178,20 @@ supported values (`openai.com/blog`, `*.substack.com`).
 """
 
 
-def _apply_web_search(body: dict[str, Any], settings: Any) -> None:
+class _WebSearchSettings(Protocol):
+    """The ONE setting `_apply_web_search` reads.
+
+    A Protocol rather than `Any`: this function assembles a security-relevant blocklist, and an
+    untyped parameter means the type checker cannot tell a renamed setting from a missing one —
+    the failure mode being an empty deployment list, i.e. a guard that silently does nothing.
+    Structural, so the plugin's real settings object and a test's minimal stub both satisfy it
+    without either importing the other.
+    """
+
+    web_search_excluded_domains: list[str]
+
+
+def _apply_web_search(body: dict[str, Any], settings: _WebSearchSettings) -> None:
     """Translate the caller's `web_search` intent into OpenRouter's `plugins` envelope.
 
     INVARIANT: both caller-facing keys are POPPED. Neither is an OpenRouter field, and leaving
@@ -192,8 +205,7 @@ def _apply_web_search(body: dict[str, Any], settings: Any) -> None:
     caller_excluded = body.pop(WEB_SEARCH_EXCLUDED_DOMAINS_PARAM, None) or []
     if wanted is not True:
         return
-    deployment_excluded = list(getattr(settings, "web_search_excluded_domains", None) or [])
-    excluded = sorted({*deployment_excluded, *caller_excluded})
+    excluded = sorted({*settings.web_search_excluded_domains, *caller_excluded})
     plugin = dict(_WEB_SEARCH_POLICY)
     if excluded:
         plugin[EXCLUDE_DOMAINS_KEY] = excluded
