@@ -15,28 +15,40 @@ keyed by id, and the route serves the value for that key, so a mismatch would ha
 manifest naming a benchmark they did not ask for.
 
 A manifest describes the BENCHMARK PROTOCOL — what a faithful run requires — not what any one
-deployment currently delivers. Two fields say more than the stack guarantees today, and neither
-gap is visible in a result:
+deployment currently delivers. One field still says more than the stack guarantees, and the gap
+is not visible in a result:
 
-* `tools` names the retrieval a DRACO candidate is meant to have. Retrieval IS enabled on the
-  three routes a solo or `fable_plus_gpt` candidate answers with (`native_web_search` in the
-  image's `url4.toml`, verified live), but the four models the remaining fusions use are
-  declared with it OFF pending a live check — so those answer from weights alone. The paper
-  treats retrieval as mandatory.
 * `judge_reasoning: "low"` is pinned by arXiv:2602.11685 §4.2 and is deliberately ABSENT here
   rather than advertised-and-unhonored: `reasoning_effort` has no OpenRouter rule, and the
   gateway fails closed on an unknown parameter.
 
-AIDEV-NOTE: two things here are unenforced and will drift.
+`tools` names the retrieval a DRACO candidate is meant to have, and as of 2026-08-02 EVERY
+answering route delivers it — by one of two mechanisms, per the owner's decision of that date:
+provider-side `native_web_search` where OpenRouter supports it, and the runner-driven Tavily loop
+(`web_tools`) for `kimi-k2.6`, `deepseek-v4-pro` and `qwen3.6-plus`, which answer `404` to native
+search. Both are guarded by the same declared retrieval policy. The judge declares neither, which
+is what the paper requires.
 
-1. `routes` must match what the benchmark image's `url4.toml` actually declares
-   (`prepare.render_data_table`).
-2. `cases` is the UPSTREAM dataset's size. The image is built with `prepare --limit`
-   (`Dockerfile.benchmark` `ARG LIMIT`), so a limited image serves fewer cases than this claims —
-   a probe image built with `LIMIT=3` still advertises 100.
+AIDEV-NOTE: the two mechanisms are not the same product, and a published comparison should say
+so — a native-search candidate and a Tavily candidate did not read the same web. This is a
+protocol caveat, not a defect: the alternative on the table (`exa` everywhere, uniform but
+different again) was considered and rejected.
 
-A pinning test in the spirit of `test_declared_models_match_aigateway.py` is the right home for
-both once a second benchmark lands. Until then the numbers here are a claim, not a guarantee.
+AIDEV-NOTE — what holds these honest, and the one thing still open.
+
+1. `routes`, the judge, and the retrieval declarations are pinned against the GENERATOR and
+   `url4.toml` by `tests/unit/test_manifest_matches_declared_world.py` — not against a second
+   copy of this literal, which would only prove the manifest equals itself.
+2. `cases` is the UPSTREAM dataset's size, and a benchmark image now always carries the WHOLE
+   dataset — `Dockerfile.benchmark`'s truncating build arg was removed 2026-08-02 precisely
+   because a truncated image was indistinguishable from a full one while still advertising 100
+   here. Run size is an EXPRESSION concern (`;iteration.slice=0:5`), which leaves this number
+   true by construction rather than by anyone remembering.
+
+STILL OPEN: `cases: 100` assumes the upstream dataset has 100 rows. `prepare.load_rows` calls
+`load_dataset()` with no `revision=`, so a dataset edit changes the truth of this line with no
+signal anywhere. That is the dataset-provenance gap, not a manifest gap — fixing it belongs with
+the revision pin.
 """
 
 from __future__ import annotations

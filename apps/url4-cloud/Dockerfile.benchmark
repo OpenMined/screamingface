@@ -3,8 +3,21 @@
 #
 #   docker build -f apps/url4-cloud/Dockerfile -t url4-cloud:dev .
 #   docker build -f apps/url4-cloud/Dockerfile.benchmark \
-#       --build-arg BASE=url4-cloud:dev --build-arg LIMIT=5 \
-#       -t url4-cloud-draco:dev .
+#       --build-arg BASE=url4-cloud:dev \
+#       -t url4-cloud-benchmark:dev .
+#
+# INVARIANT: a benchmark image carries the WHOLE dataset. There is deliberately no build arg to
+# truncate it.
+#
+# WHY (removed 2026-08-02): run size is an EXPRESSION concern — `…!'case';iteration.slice=0:5`
+# picks how many declared cases a run touches, needs no rebuild, and lives inside the recipe
+# identity the scoreboard hashes. A build-time cap addressed the same need one layer down and
+# produced a DIFFERENT ARTIFACT THAT LOOKS IDENTICAL: same tags, a manifest still advertising
+# `cases: 100`, and nothing in the result recording the truncation — so a partial run was
+# indistinguishable from a full one, in the flattering direction. It also bought almost nothing,
+# because `load_dataset` downloads the full split regardless and only the file writes were
+# skipped. `prepare --limit` still exists for a local generator run; it just cannot shape a
+# deployable image any more.
 #
 # WHY a SEPARATE image layered on the base rather than a stage in the main Dockerfile:
 #
@@ -29,7 +42,6 @@ ARG BASE=url4-cloud:dev
 # --- build stage: download the dataset, emit the declared world -----------------------------
 FROM ${BASE} AS prepare
 ARG BENCHMARK=draco
-ARG LIMIT=""
 ARG ROUTE_PREFIX=/draco
 # root only for the build stage; the runtime image below drops back to uid 1000.
 USER 0
@@ -44,8 +56,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN mkdir -p /opt/benchmarks/${BENCHMARK} \
  && /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.benchmarks.${BENCHMARK}.prepare \
       --out /opt/benchmarks/${BENCHMARK} \
-      --route-prefix ${ROUTE_PREFIX} \
-      ${LIMIT:+--limit ${LIMIT}}
+      --route-prefix ${ROUTE_PREFIX}
 # Merge the generated [data] fragment into the reviewed base config and VALIDATE the result with
 # the runner's own parser. A route collision or an unusable world fails the BUILD here, rather
 # than at Job boot — after a client has already minted a token and attached a WebSocket.
