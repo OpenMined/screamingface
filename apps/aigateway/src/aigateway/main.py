@@ -48,6 +48,7 @@ from .routes import (
     model_parameters,
     models,
     oauth_connections,
+    providers,
 )
 
 logger = logging.getLogger(__name__)
@@ -340,6 +341,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(oauth_connections.router)
     app.include_router(health.router)
     app.include_router(models.router)
+    app.include_router(providers.router)
     app.include_router(model_parameters.router)
     app.include_router(chat.router)
 

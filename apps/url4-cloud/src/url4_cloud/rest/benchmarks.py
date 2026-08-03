@@ -1,137 +1,209 @@
-"""``GET /v1/benchmarks`` — the benchmark catalog, and the manifests it indexes.
-
-Unlike `/v1/models`, which proxies aigateway per caller, these two routes are identical for every
-caller: a manifest describes a benchmark, not an entitlement, and holds nothing private (the
-weighted rubrics behind `routes.criteria` are never declared as a route and never appear here).
-That is what makes the responses `public`-cacheable rather than `private`, and what makes the
-validator a plain content hash rather than something scoped to an identity.
-"""
+"""Benchmark discovery and the one-fetch Engine-owned expression resource."""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+from collections.abc import Mapping
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Path
+from fastapi import APIRouter, Header, Path, Query
 from fastapi.responses import JSONResponse, Response
 
-from url4_cloud import manifests
-from url4_cloud.auth import PROBLEM_MEDIA_TYPE, Problem
+from url4_cloud.auth import PROBLEM_MEDIA_TYPE
+from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID, assets_root
 from url4_cloud.rest.conditional import validator_matches
 
 router = APIRouter()
 
-# Manifests change only with a release, and a stale one costs a caller nothing worse than an
-# out-of-date description — but `must-revalidate` keeps a cache from serving one past its TTL, so
-# a corrected judge or route reaches callers on the next request rather than whenever a cache
-# feels like it.
 _CACHE_CONTROL = "public, max-age=300, must-revalidate"
 
-_LIST_RESPONSES: dict[int | str, dict[str, object]] = {
-    200: {"description": "Every published benchmark manifest, summarised."},
-    304: {"description": "The catalog is unchanged since the supplied `If-None-Match`."},
-}
-_MANIFEST_RESPONSES: dict[int | str, dict[str, object]] = {
-    200: {"description": "The manifest, verbatim, as `text/plain`."},
-    304: {"description": "The manifest is unchanged since the supplied `If-None-Match`."},
-    404: {
-        "description": "No manifest is published under that id.",
-        "content": {PROBLEM_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}}},
-    },
-}
+
+def _json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
 
 
-def _catalog() -> list[dict[str, str]]:
-    return [
-        {
-            "id": key,
-            "title": manifests.field(text, "title") or key,
-            "description": manifests.field(text, "description") or "",
-            "href": f"/v1/benchmarks/{key}",
+def _etag(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest()[:32]
+
+
+def _response(value: object, if_none_match: str | None) -> Response:
+    body = _json_bytes(value)
+    etag = _etag(body)
+    headers = {"ETag": f'"{etag}"', "Cache-Control": _CACHE_CONTROL}
+    if validator_matches(if_none_match, etag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
+def _catalog() -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    for benchmark in sorted(BENCHMARKS.values(), key=lambda value: value.id):
+        entry: dict[str, object] = {
+            "object": "benchmark",
+            "id": benchmark.id,
+            "title": benchmark.title,
+            "description": benchmark.description,
+            "href": f"/v1/benchmarks/{benchmark.id}",
         }
-        for key, text in sorted(manifests.MANIFESTS.items())
-    ]
-
-
-# Both are derived from `manifests.MANIFESTS`, a build-time constant, so they are computed ONCE at
-# import rather than re-scanning every manifest and re-hashing the result per request — work that
-# a 304 would otherwise pay in full to return an empty body.
-_CATALOG = _catalog()
-_CATALOG_ETAG = manifests.etag_of(repr(_CATALOG))
+        if benchmark.methods:
+            # Additive: single-protocol entries stay byte-identical.
+            entry["methods"] = list(benchmark.method_names())
+            entry["default_method"] = benchmark.default_method
+        entries.append(entry)
+    return entries
 
 
 @router.get(
     "/v1/benchmarks",
     tags=["Catalog"],
-    summary="List the published benchmark manifests",
-    responses=_LIST_RESPONSES,
-    description=(
-        "Summarise every benchmark this deployment publishes: its id, title, description, and a "
-        "link to the full manifest.\n\n"
-        "The response is an OBJECT, not a bare array, so a `next_cursor` can be added without "
-        "breaking clients. The set is fixed at build time and small, so it is not paginated "
-        "today."
-    ),
+    summary="List the installed Benchmarks",
 )
 async def list_benchmarks(
-    if_none_match: Annotated[
-        str | None, Header(alias="If-None-Match", description="Conditional-request validator.")
-    ] = None,
+    if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
-    """Summarise every published benchmark, with a link to each full manifest."""
-    # The validator is derived from the SUMMARIES rather than the manifest bodies: it must change
-    # when what THIS route returns changes, and a body edit that leaves title/description alone
-    # does not alter the catalog.
-    headers = {"ETag": f'"{_CATALOG_ETAG}"', "Cache-Control": _CACHE_CONTROL}
-    if validator_matches(if_none_match, _CATALOG_ETAG):
-        return Response(status_code=304, headers=headers)
-    return JSONResponse({"benchmarks": _CATALOG}, headers=headers)
+    return _response(
+        {
+            "object": "list",
+            "default": DEFAULT_BENCHMARK_ID,
+            "data": _catalog(),
+        },
+        if_none_match,
+    )
 
 
 @router.get(
     "/v1/benchmarks/{benchmark_id}",
     tags=["Catalog"],
-    summary="Fetch one benchmark manifest",
-    response_class=Response,
-    responses=_MANIFEST_RESPONSES,
-    description=(
-        "Return the manifest verbatim as `text/plain`.\n\n"
-        "The manifest IS a string — wrapping it in JSON would only make every caller unescape it "
-        "back. It names the data routes the benchmark's cases and criteria are served from, the "
-        "judge and its grading protocol, and the tools a candidate may use."
-    ),
+    summary="Fetch one Engine-owned Benchmark expression",
 )
-async def get_benchmark_manifest(
-    benchmark_id: Annotated[
-        str, Path(description="The manifest's `id`, as listed by `GET /v1/benchmarks`.")
-    ],
-    if_none_match: Annotated[
-        str | None, Header(alias="If-None-Match", description="Conditional-request validator.")
+async def get_benchmark(
+    benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
+    limit: Annotated[int | None, Query(ge=1, description="Maximum selected cases.")] = None,
+    method: Annotated[
+        str | None,
+        Query(description="Execution method; omitted means the Benchmark's default."),
     ] = None,
+    if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
-    """Return one manifest verbatim as `text/plain`, or 404 if no such benchmark is published."""
-    # INVARIANT: a registry lookup, never a path join. The id is a dict key, so a traversal-shaped
-    # id is simply absent rather than dangerous — there is no filesystem behind this route.
-    text = manifests.MANIFESTS.get(benchmark_id)
-    if text is None:
-        # WHY the body is rendered here rather than raised as a `ProblemException`: these two
-        # routes serve build-time constants and depend on NO app state, so they are mountable on
-        # a bare router — which `tests/unit/test_benchmark_manifests.py` relies on. Raising would
-        # make the only reachable error depend on `install_problem_handlers` having run. The
-        # shared `Problem` MODEL still defines the shape, both here and in the OpenAPI entry.
-        return JSONResponse(
-            status_code=404,
-            media_type=PROBLEM_MEDIA_TYPE,
-            content=Problem(
-                title="Unknown benchmark",
-                status=404,
-                # The id is echoed so a caller can tell a typo from an unpublished benchmark. It
-                # is caller-supplied, and it is serialised as a JSON string value, so it cannot
-                # break out of the field.
-                detail=f"no manifest is published under {benchmark_id!r}",
-            ).model_dump(exclude_none=True),
+    selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
+    benchmark = BENCHMARKS.get(selected_id)
+    if benchmark is None:
+        return _problem(
+            404,
+            "Unknown benchmark",
+            f"no Benchmark is installed under {benchmark_id!r}",
         )
-    etag = manifests.ETAGS[benchmark_id]
-    headers = {"ETag": f'"{etag}"', "Cache-Control": _CACHE_CONTROL}
-    if validator_matches(if_none_match, etag):
-        return Response(status_code=304, headers=headers)
-    return Response(content=text, media_type="text/plain; charset=utf-8", headers=headers)
+    if method is not None and method not in benchmark.method_names():
+        return _problem(
+            404,
+            "Unknown method",
+            f"Benchmark {selected_id!r} has no method {method!r}",
+        )
+    return _response(benchmark.resource(limit, method=method), if_none_match)
+
+
+class _CasesUnavailableError(Exception):
+    """The prepared cases asset is missing or unusable on this control plane."""
+
+
+@router.get(
+    "/v1/benchmarks/{benchmark_id}/cases",
+    tags=["Catalog"],
+    summary="Read one page of a Benchmark's cases",
+)
+async def list_benchmark_cases(
+    benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
+    limit: Annotated[int, Query(ge=1, le=200, description="Page size.")] = 50,
+    offset: Annotated[int, Query(ge=0, description="Cases to skip.")] = 0,
+    if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
+) -> Response:
+    # FEATURE: benchmark researcher discovery (OME-723) — the SDK and the future web
+    # frontend read real prompts through this one paginated contract before evaluating.
+    selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
+    benchmark = BENCHMARKS.get(selected_id)
+    if benchmark is None:
+        return _problem(
+            404,
+            "Unknown benchmark",
+            f"no Benchmark is installed under {benchmark_id!r}",
+        )
+    try:
+        rows = _case_rows(selected_id)
+    except _CasesUnavailableError as exc:
+        # WHY: a control plane deployed without the assets must fail loudly with the
+        # node-route error code — an empty list would read as "benchmark has no cases".
+        return _problem(
+            503,
+            "Benchmark unavailable",
+            str(exc),
+            code="benchmark_unavailable",
+        )
+    return _response(
+        {
+            "object": "list",
+            "benchmark": selected_id,
+            "revision": benchmark.revision,
+            "total": len(rows),
+            "limit": limit,
+            "offset": offset,
+            "data": rows[offset : offset + limit],
+        },
+        if_none_match,
+    )
+
+
+def _case_rows(benchmark_id: str) -> list[dict[str, object]]:
+    """Read the family's prepared ``cases.json`` down to ``id`` + ``input`` rows.
+
+    INVARIANT (answer-key discipline): exactly ``id`` and ``input`` pass through —
+    every other prepared column (e.g. draco's ``domain``) stays inside the Engine.
+    """
+    path = assets_root(os.environ) / benchmark_id / "cases.json"
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise _CasesUnavailableError(
+            f"could not read the prepared cases for {benchmark_id!r}: {exc}"
+        ) from exc
+    try:
+        value = json.loads(raw)
+    except ValueError as exc:
+        raise _CasesUnavailableError(
+            f"the prepared cases for {benchmark_id!r} are not JSON: {exc}"
+        ) from exc
+    if not isinstance(value, list):
+        raise _CasesUnavailableError(f"the prepared cases for {benchmark_id!r} must be an array")
+    rows: list[dict[str, object]] = []
+    for index, row in enumerate(value):
+        if not isinstance(row, Mapping) or "id" not in row or "input" not in row:
+            raise _CasesUnavailableError(
+                f"prepared case {index} for {benchmark_id!r} lacks the id/input contract"
+            )
+        rows.append({"id": row["id"], "input": row["input"]})
+    return rows
+
+
+def _problem(status: int, title: str, detail: str, *, code: str | None = None) -> JSONResponse:
+    content: dict[str, object] = {
+        "type": "about:blank",
+        "title": title,
+        "status": status,
+        "detail": detail,
+    }
+    if code is not None:
+        content["code"] = code
+    return JSONResponse(
+        status_code=status,
+        media_type=PROBLEM_MEDIA_TYPE,
+        content=content,
+    )
+
+
+__all__ = ["router"]

@@ -8,7 +8,15 @@ route modules.
 
 from url4_cloud.rest.benchmarks import router as benchmarks_router
 from url4_cloud.rest.catalog import router as catalog_router
+from url4_cloud.rest.connections import router as connection_router
 from url4_cloud.rest.interest import DenyAllGate, SubscriberGate
 from url4_cloud.rest.routes import router
 
-__all__ = ["DenyAllGate", "SubscriberGate", "benchmarks_router", "catalog_router", "router"]
+__all__ = [
+    "DenyAllGate",
+    "SubscriberGate",
+    "benchmarks_router",
+    "catalog_router",
+    "connection_router",
+    "router",
+]

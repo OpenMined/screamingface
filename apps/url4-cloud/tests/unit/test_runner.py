@@ -1,4 +1,5 @@
 import json
+import sys
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -28,7 +29,7 @@ from url4.streaming.protocol import (
 )
 from url4.streaming.protocol.taxonomy import CostBreakdown
 from url4_cloud import job_env
-from url4_cloud.runner.config import AigatewaySection, ModelSpec, RunnerConfig
+from url4_cloud.runner.config import AigatewaySection, CommandSpec, ModelSpec, RunnerConfig
 from url4_cloud.runner.executor import Url4Executor
 from url4_cloud.runner.main import RunnerConfigError, build_executor, params_from_env
 from url4_cloud.testing import InMemoryEventStream
@@ -314,6 +315,29 @@ async def test_a_config_with_no_aigateway_table_is_deny_by_default() -> None:
     with pytest.raises(ResolutionError):
         async for _ in executor.execute(f"/{_MODEL}(ctx)!go"):
             pass
+
+
+@pytest.mark.asyncio
+async def test_build_executor_runs_a_declared_command_only_world() -> None:
+    config = RunnerConfig(
+        commands=(
+            CommandSpec(
+                "/benchmark",
+                (
+                    sys.executable,
+                    "-c",
+                    "import sys;print('benchmark:' + sys.stdin.read())",
+                ),
+            ),
+        )
+    )
+    executor = build_executor({}, config)
+
+    frames = [frame async for frame in executor.execute("/benchmark('case-1')!'load'")]
+
+    completed = frames[-1]
+    assert isinstance(completed, Completed)
+    assert completed.result.body.strip() == "benchmark:case-1"
 
 
 # INVARIANT: a declared gateway world runs with NO credential of any kind. aigateway is in

@@ -31,10 +31,11 @@ _REJECTION_STATUSES = frozenset({401, 403})
 
 
 class AigatewayCatalogSource:
-    """Fetches and validates the model catalog from aigateway, per credential."""
+    """Fetch and enrich the model catalog with the Engine's synthesis default."""
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(self, client: httpx.AsyncClient, *, default_synthesizer: str) -> None:
         self._client = client
+        self._default_synthesizer = default_synthesizer
 
     async def fetch(self, credential: Credential) -> ModelCatalog:
         """Fetch the catalog for ``credential``, raising a typed ``CatalogError`` on failure.
@@ -52,6 +53,7 @@ class AigatewayCatalogSource:
             raise CatalogBadResponse(CatalogBadResponse.detail)
         body = self._decode(response)
         _validate(body)
+        _publish_default(body, self._default_synthesizer)
         return ModelCatalog(body=body, etag=compute_etag(body))
 
     async def _get(self, credential: Credential) -> httpx.Response:
@@ -103,6 +105,14 @@ def _validate(body: dict[str, Any]) -> None:
     for entry in data:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
             raise CatalogBadResponse(CatalogBadResponse.detail)
+
+
+def _publish_default(body: dict[str, Any], default_synthesizer: str) -> None:
+    ids = {entry["id"] for entry in body["data"]}
+    if default_synthesizer not in ids:
+        logger.warning("configured default synthesizer is absent from the aigateway catalog")
+        raise CatalogBadResponse(CatalogBadResponse.detail)
+    body["default_synthesizer"] = default_synthesizer
 
 
 __all__ = ["AigatewayCatalogSource"]

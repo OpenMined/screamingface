@@ -2,10 +2,11 @@
 (`url4.dag.run`) and bridges its synchronous `url4.observe` callback events into the async
 `url4.streaming.protocol` wire frames the run publishes over NATS.
 
-This is the only module (besides `connector`) that may import the url4 ENGINE — the composition
-root (`runner.main`) types its world factory against `World`/`WorldFactory` here without ever
-importing the engine itself. `tests/unit/test_url4_executor.py` pins that pair over the whole
-distribution, control plane included.
+This is one of the three narrow modules (`executor`, `connector`, and `commands`) that may import
+the url4 ENGINE — the composition root (`runner.main`) types its world factory against
+`World`/`WorldFactory` here without ever importing the engine itself.
+`tests/unit/test_url4_executor.py` pins that set over the whole distribution, control plane
+included.
 """
 
 from __future__ import annotations

@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
-# A BENCHMARK image — the url4-cloud runner plus one benchmark's declared world.
+# The BENCHMARK image — the url4-cloud Runner plus DRACO's prepared assets.
 #
 #   docker build -f apps/url4-cloud/Dockerfile -t url4-cloud:dev .
 #   docker build -f apps/url4-cloud/Dockerfile.benchmark \
 #       --build-arg BASE=url4-cloud:dev \
 #       -t url4-cloud-benchmark:dev .
 #
-# INVARIANT: a benchmark image carries the WHOLE dataset. There is deliberately no build arg to
-# truncate it.
+# INVARIANT: the benchmark image carries DRACO's WHOLE dataset. There is deliberately no build
+# arg to truncate it.
 #
 # WHY (removed 2026-08-02): run size is an EXPRESSION concern — `…!'case';iteration.slice=0:5`
 # picks how many declared cases a run touches, needs no rebuild, and lives inside the recipe
@@ -23,7 +23,7 @@
 #
 #   - the default url4-cloud image stays dataset-free. Baking DRACO into it would put ~40
 #     rubrics per case into every deployment, including ones that never benchmark;
-#   - a dataset revision rebuilds THIS image only, so benchmark releases do not force an
+#   - dataset revisions rebuild THIS image only, so benchmark releases do not force an
 #     engine release (and cannot silently change the engine a published score was produced by);
 #   - `datasets` (and its pyarrow tail) is installed in a build stage that is thrown away — the
 #     runtime image never carries it. `prepare.py` imports it through `importlib` for exactly
@@ -32,7 +32,7 @@
 # INVARIANT: build context is the REPO ROOT, like the base image — `prepare` runs from the
 # installed package, which path-depends on `packages/url4`.
 #
-# TRADEOFF worth revisiting: the dataset is welded to an image, so adding a benchmark means a
+# TRADEOFF worth revisiting: datasets are welded to an image, so adding a benchmark means a
 # rebuild and anyone who can pull the image has the rubrics. The alternative is a mounted volume
 # plus `URL4_RUNNER_CONFIG` pointing beside it — which needs a volume the Job spec does not have
 # today (read-only rootfs, one emptyDir at /tmp). Decide before this leaves experimentation.
@@ -41,8 +41,6 @@ ARG BASE=url4-cloud:dev
 
 # --- build stage: download the dataset, emit the declared world -----------------------------
 FROM ${BASE} AS prepare
-ARG BENCHMARK=draco
-ARG ROUTE_PREFIX=/draco
 # root only for the build stage; the runtime image below drops back to uid 1000.
 USER 0
 WORKDIR /app/apps/url4-cloud
@@ -53,34 +51,22 @@ WORKDIR /app/apps/url4-cloud
 COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim /usr/local/bin/uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /app/apps/url4-cloud/.venv/bin/python --quiet "datasets>=2.19"
-RUN mkdir -p /opt/benchmarks/${BENCHMARK} \
- && /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.benchmarks.${BENCHMARK}.prepare \
-      --out /opt/benchmarks/${BENCHMARK} \
-      --route-prefix ${ROUTE_PREFIX}
-# Merge the generated [data] fragment into the reviewed base config and VALIDATE the result with
-# the runner's own parser. A route collision or an unusable world fails the BUILD here, rather
-# than at Job boot — after a client has already minted a token and attached a WebSocket.
-RUN /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.runner.merge_config \
-      --base /app/apps/url4-cloud/url4.toml \
-      --fragment /opt/benchmarks/${BENCHMARK}/url4.data.toml \
-      --out /opt/benchmarks/${BENCHMARK}/url4.merged.toml
+RUN mkdir -p /opt/benchmarks/draco \
+ && /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.benchmarks.draco.prepare \
+      --out /opt/benchmarks/draco
 
-# --- runtime: the base image + the artifacts and merged config -------------------------------
+# --- runtime: the base image + the prepared assets -------------------------------------------
 FROM ${BASE} AS runtime
-ARG BENCHMARK=draco
 LABEL org.opencontainers.image.title="url4-cloud-benchmark" \
-      org.opencontainers.image.description="url4-cloud runner with a benchmark's declared world"
+      org.opencontainers.image.description="url4-cloud Runner with DRACO Benchmark assets"
 USER 0
-# `rubrics/` ships too — `aggregate.py` reads it off disk. It is deliberately NOT declared as a
-# [data] route (see prepare.render_data_table): the weights must be unreachable from an
-# expression, or a judge prompt could be handed the thing it is being kept blind to.
+# `rubrics/` ships too — DRACO's installed runtime reads it off disk. It is deliberately NOT a
+# data route: the weights must be unreachable from an expression, or a judge prompt could be
+# handed the thing it is being kept blind to.
 COPY --from=prepare --chown=1000:1000 /opt/benchmarks /opt/benchmarks
-COPY --from=prepare --chown=1000:1000 \
-     /opt/benchmarks/${BENCHMARK}/url4.merged.toml /etc/url4/url4.toml
-# The aggregate script resolves its rubrics from here. Set in the IMAGE rather than in
-# `url4.toml` so the path travels with the artifacts it points at — a config literal made the two
-# disagree the moment the runner ran outside the image.
-ENV URL4_BENCHMARK_RUBRICS=/opt/benchmarks/${BENCHMARK}/rubrics
+# The Benchmark definition installs its own namespaced routes. This one root points those routes
+# at the immutable assets baked into this image; the shared url4.toml remains model-only.
+ENV URL4_BENCHMARK_ASSETS=/opt/benchmarks
 USER 1000
 # Unchanged from the base: `url4-cloud` (serve) by default, `["url4-cloud","run"]` for a Job.
 CMD ["url4-cloud"]

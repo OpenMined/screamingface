@@ -19,9 +19,11 @@ from url4_cloud.auth import Clock, install_problem_handlers
 from url4_cloud.catalog import build_catalog_service
 from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
+from url4_cloud.connections import build_connections
+from url4_cloud.connections.port import Connections
 from url4_cloud.metrics import MetricsMiddleware, build_metrics, register_catalog_metrics
 from url4_cloud.ops import router as ops_router
-from url4_cloud.rest import SubscriberGate, benchmarks_router, catalog_router
+from url4_cloud.rest import SubscriberGate, benchmarks_router, catalog_router, connection_router
 from url4_cloud.rest import router as rest_router
 from url4_cloud.schemas import customize_openapi
 from url4_cloud.ws import ConnectionRegistry
@@ -45,6 +47,7 @@ def create_app(
     clock: Clock | None = None,
     interest: SubscriberGate | None = None,
     catalog: CatalogService | None = None,
+    connections: Connections | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -57,6 +60,7 @@ def create_app(
     app.state.stream = stream
     app.state.job_runner = job_runner
     app.state.catalog = catalog
+    app.state.connections = connections
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
@@ -72,6 +76,7 @@ def create_app(
     app.include_router(rest_router)
     app.include_router(catalog_router)
     app.include_router(benchmarks_router)
+    app.include_router(connection_router)
     app.include_router(ws_router)
     app.include_router(ops_router)
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
@@ -119,8 +124,17 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
     catalog = build_catalog_service(settings)
-    app = create_app(settings, stream=stream, job_runner=job_runner, catalog=catalog)
+    connections = build_connections(settings)
+    app = create_app(
+        settings,
+        stream=stream,
+        job_runner=job_runner,
+        catalog=catalog,
+        connections=connections,
+    )
     app.router.on_shutdown.append(stream.close)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
+    if connections is not None:
+        app.router.on_shutdown.append(connections.aclose)
     return app

@@ -19,10 +19,11 @@ from aigateway.plugins.openrouter_provider.settings import (
 # therefore expected to touch this pin; the judge below was added 2026-07-31 for DRACO.
 _SEEDS = [
     "openrouter/anthropic/claude-fable-5",
+    "openrouter/anthropic/claude-haiku-4.5",
     "openrouter/openai/gpt-5.5",
     "openrouter/anthropic/claude-opus-4.8",
     "openrouter/google/gemini-3.1-pro-preview",
-    # The rest of the DRACO candidate lineup, added 2026-07-31.
+    # The remaining DRACO / small-model candidate lineup.
     "openrouter/google/gemini-3-flash-preview",
     "openrouter/moonshotai/kimi-k2.6",
     "openrouter/deepseek/deepseek-v4-pro",

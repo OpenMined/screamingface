@@ -1,135 +1,42 @@
-# url4-cloud RUNNER — the declared world.
+# url4-cloud Runner declared world.
 #
-# Baked into the image at /etc/url4/url4.toml (see Dockerfile). The image decides what CAN
-# exist; env supplies only per-Job values (the token, and optional base_url / model overrides).
-#
-# INVARIANT: a route path is exactly "/" + the gateway id. No renaming, no aliases. `id`
-# entries must match aigateway's `/v1/models` ids EXACTLY — note that Anthropic's ids are
-# UNPREFIXED (`claude-haiku-4-5`), the `anthropic/` prefix appearing only in litellm_params,
-# while every other provider prefixes. `tests/unit/test_declared_models_match_aigateway.py`
-# fails if this list drifts from the plugins' MODELS.
-#
-# Adding a model is a deliberate, reviewable edit: these paths are a public naming surface that
-# url4 expressions depend on.
-#
-# Each route is a TABLE, not a bare id, so its capabilities are declared beside it:
-#
-#   web_tools          Offer the Tavily-backed web_search/web_fetch tool loop to this model.
-#                      The RUNNER drives it: it declares OpenAI-shape functions, the model asks,
-#                      the runner searches and feeds results back. For providers with no
-#                      server-side search of their own. Needs TAVILY_API_KEY in the deployment,
-#                      or the route serves plain completions (see `runner/connector.py`).
-#
-#   native_web_search  The PROVIDER runs the search and answers with retrieval already done.
-#                      No runner loop, no second search backend, and the provider's own controls
-#                      apply — including domain exclusion, which is how a benchmark candidate is
-#                      kept from retrieving the rubric it is graded against. Prefer this wherever
-#                      a provider offers it: it is the surface published scores were produced on.
-#
-# Both default to FALSE — a route retrieves only by declaring it, never by inheriting the mere
-# presence of a key. Declaring BOTH is rejected at parse: the request would carry two tool
-# populations and DOUBLE-DISPATCH, searching twice per turn and billing for both.
-#
-# An expression overrides per call with `;web_search=true|false`. Absent means "as declared", so
-# an expression that never mentions retrieval behaves exactly as it did before the toggle
-# existed. Asking a route that declares neither mechanism to search is a loud error.
-#
-# WHAT a retrieving call may not reach — the blocklist, named by the expression:
-#
-#   ;web_search_policy=/draco/policy/retrieval   a declared [data] route holding
-#                                                {"id": …, "excluded_domains": [...]}
-#   ;web_search_policy=none                      select no benchmark policy
-#   ;web_search_exclude=a.test:b.test            ad-hoc additions, COLON-separated
-#
-# WHY the policy is DATA and named in the EXPRESSION rather than set here: the scoreboard hashes
-# `url4_expression` into a recipe identity, so a blocklist carried in operator config is invisible
-# to it — a run with retrieval unguarded would hash IDENTICALLY to an honest one. Addressing it
-# also lets benchmarks that disagree about what to exclude share these same model routes, which a
-# per-route setting could not.
-#
-# The three layers compose by UNION only — this deployment's list, the policy, and any ad-hoc
-# additions — so a caller can TIGHTEN the guard and can never loosen it. `none` therefore drops
-# only the BENCHMARK's list; the aigateway deployment's list is enforcement and is unreachable
-# from any expression. That split is what lets one mechanism serve a self-service run and a
-# hosted leaderboard.
-#
-# ⚠️ `;web_search_exclude` takes COLONS. A source list splits on `,` at depth 0 before a param
-# value is read, so a comma truncates the value AND turns the remainder into an extra SOURCE of
-# the enclosing group. The runner cannot detect it — same shape as the `;iteration.slice=0,5`
-# trap. Prefer a declared policy route over a long ad-hoc chain.
+# A model route is always exactly "/" + its AI Gateway model id. Benchmark-owned deterministic
+# routes are installed in-process from the Python registry and therefore do not belong here.
+# Retrieval is opt-in per model. ``native_web_search`` asks the provider to search;
+# ``web_tools`` uses the Runner's guarded Tavily loop when native search is unavailable or cannot
+# apply DRACO's domain exclusions. Never enable both mechanisms on one route.
 
 [aigateway]
 base_url = "http://127.0.0.1:9105"
-default_route = "/claude-haiku-4-5"
+default_route = "/anthropic/claude-haiku-4-5"
 
-# How long ONE call to aigateway may take. The default is 60s, which a DRACO answer does not fit
-# in: a deep-research question answered WITH provider-side web search runs well past a minute
-# before the first token, and the judge calls are long too.
-#
-# MEASURED 2026-08-02 on a real Kubernetes Job: at 60s the answering call raised `ReadTimeout`,
-# `iteration.on_error=collect` (the default) replaced that case's row with an error object exactly
-# as designed, and the run reported `terminated: succeeded` with `case_count: 0` and
-# "no judge verdicts in row". Nothing in the result named the timeout — the row array carried
-# `{"error": {"kind": "ReadTimeout"}}` and the aggregate simply found nothing to score.
-#
-# ⚠️ THAT IS THE FAILURE SHAPE TO REMEMBER: a per-call timeout does not fail the RUN, it silently
-# empties it. A benchmark that scores zero because of a network setting looks exactly like a
-# candidate that answered badly.
+# A deep-research answer or long judge call regularly exceeds the generic 60-second default.
 timeout_s = 300.0
 
-# How many ROUNDS a runner-driven tool loop may take before it gives up. One round is one post to
-# the gateway, and a round that comes back with tool calls costs a model turn plus its searches.
-#
-# WHY 12 and not the default 5: MEASURED 2026-08-02 against live models and live Tavily,
-# `kimi-k2.6` spent ALL 5 default rounds on tool calls and never returned content — for a trivial
-# question whose sources were freely reachable (3 searches + 2 fetches, then `ResolutionError`).
-# On a deep-research benchmark that is a hard per-case failure, not a shorter answer, and the
-# three DRACO routes without native search answer through exactly this loop.
-#
-# 12 mirrors the paper's `max_calls_per_row: 12` (arXiv:2602.11685 §4.2). CAVEAT: it is not the
-# same quantity — the paper bounds CALLS PER ROW, this bounds ROUNDS PER TURN, and one round may
-# carry up to `web_tool_max_calls_per_turn` (8) calls. So this does not implement the paper's
-# budget; it removes a ceiling that sat far below it. A published score still cannot claim that
-# budget was honoured.
+# Tavily-backed routes can spend several rounds gathering sources before producing an answer.
+# This mirrors DRACO's published max_calls_per_row numerically, although a Runner round is not
+# identical to a call-per-row budget and should not be reported as such.
 web_tool_max_iterations = 12
 
-# Absolute-URL sources (`https://…`) are a real url4 feature and a Url4Node world has always
-# been able to fetch them. Set false to hand the node a denying outbound layer instead.
 allow_outbound = true
 
-# --- anthropic — unprefixed ids -----------------------------------------------------------
-# This provider has no server-side search the gateway can reach, so the runner-driven Tavily
-# loop is the ONLY retrieval available here — which is exactly why that mechanism stays.
-#
-# `claude-opus-4-8` carries it; the rest stay off. One route rather than five because the loop
-# is still UNVERIFIED against a live Anthropic credential: the plugin dispatches OpenAI-shape
-# tool calls through litellm, which IS the shape `_WEB_TOOLS` declares, so it is expected to
-# round-trip — expected is not verified, and declaring it on five routes would multiply one
-# unconfirmed claim rather than test it. Verify this route, then widen.
-#
-# It is also the config's only declared consumer of the Tavily path, which
-# `test_no_route_declares_web_tools_it_cannot_use` requires: with the OpenRouter routes moved to
-# `native_web_search`, nothing else exercises that code, and an unreachable retrieval loop rots.
+# Anthropic. Tool calling remains off until it is verified end-to-end for this provider path.
 [[aigateway.models]]
-id = "claude-opus-4-8"
-web_tools = true
+id = "anthropic/claude-opus-4-8"
 
 [[aigateway.models]]
-id = "claude-opus-4-7"
+id = "anthropic/claude-opus-4-7"
 
 [[aigateway.models]]
-id = "claude-sonnet-4-6"
+id = "anthropic/claude-sonnet-4-6"
 
 [[aigateway.models]]
-id = "claude-sonnet-4-5"
+id = "anthropic/claude-sonnet-4-5"
 
 [[aigateway.models]]
-id = "claude-haiku-4-5"
+id = "anthropic/claude-haiku-4-5"
 
-# --- codex ---------------------------------------------------------------------------------
-# web_tools stays OFF: these dispatch through the Codex OAuth backend, whose tool-call handling
-# is not verified end-to-end here. Flip a route to true once it is — the flag is per route
-# precisely so that is a one-line, reviewable change rather than a global switch.
+# Codex OAuth routes. Tool calling remains off until verified through this backend.
 [[aigateway.models]]
 id = "codex/gpt-5.5"
 
@@ -145,8 +52,7 @@ id = "codex/gpt-5.3-codex"
 [[aigateway.models]]
 id = "codex/gpt-5.2"
 
-# --- gemini --------------------------------------------------------------------------------
-# web_tools OFF for the same reason as codex: Google Code Assist backend, unverified here.
+# Gemini CLI / Code Assist routes. Tool calling remains off until verified through this backend.
 [[aigateway.models]]
 id = "gemini-cli/gemini-3.1-flash-lite"
 
@@ -159,34 +65,11 @@ id = "gemini-cli/gemini-2.5-flash"
 [[aigateway.models]]
 id = "gemini-cli/gemini-2.5-flash-lite"
 
-# --- antigravity ---------------------------------------------------------------------------
 [[aigateway.models]]
 id = "antigravity/gemini-3-flash"
 
-# --- openrouter ----------------------------------------------------------------------------
-# aigateway's OpenRouter SEED models (`_default_model_slugs()`). The provider is gated behind
-# AIGW_OPENROUTER_ENABLED, so a deployment that leaves it disabled serves none of them and
-# these routes resolve to nothing. They are declared anyway because a declared route is how an
-# expression addresses a model at all; the deployment decides whether it answers.
-#
-# CAVEAT: unlike the four static catalogs above, this list is env-overridable at deploy time
-# (AIGW_OPENROUTER_DEFAULT_MODELS), so the pinning test can only hold it to the seeds compiled
-# into the plugin — a deployment that overrides them is on its own.
-# native_web_search: the PROVIDER retrieves and answers with the search already done — no runner
-# loop and no second search backend. The runner asks the GATEWAY for this with a provider-
-# agnostic `web_search: true`; aigateway decides which providers can honor it and translates it
-# into that provider's own spelling (`prepare_chat_body`). Nothing here knows what OpenRouter
-# calls it, which is what keeps provider knowledge out of the runner.
-#
-# The Tavily loop (`web_tools`) remains for providers with no server-side search of their own.
-# It is a different mechanism, not a substitute.
-#
-# ⚠️ DO NOT "fix" this into a `tools: [{"type": "openrouter:web_search"}]` payload. That spelling
-# appears in OpenRouter's server-tool docs and in `screamingface-benchmarks`
-# (`runners/llm_client.py::build_openrouter_tool_params`), and it is INERT: measured live
-# 2026-07-31 it returns HTTP 200 with zero `annotations`, no web-search line in `cost_details`,
-# and an answer written from the model's training cutoff. A route declaring retrieval that
-# silently does not retrieve is the worst failure shape available here.
+# OpenRouter seeds. These ids must match the AI Gateway registry exactly; the cross-package
+# declaration test fails if the two lists drift.
 [[aigateway.models]]
 id = "openrouter/openai/gpt-5.5"
 native_web_search = true
@@ -196,63 +79,18 @@ id = "openrouter/anthropic/claude-opus-4.8"
 native_web_search = true
 
 [[aigateway.models]]
+id = "openrouter/anthropic/claude-haiku-4.5"
+
+[[aigateway.models]]
 id = "openrouter/anthropic/claude-fable-5"
 native_web_search = true
 
-# The DRACO judge. arXiv:2602.11685 §4.2 PINS this model, and a different judge materially
-# changes the scores — so a benchmark expression names it explicitly rather than inheriting
-# `default_route`. Seeded in aigateway's `_default_model_slugs()`; the two lists must agree or
-# `test_declared_models_match_aigateway.py` fails.
-#
-# web_tools stays OFF, deliberately: the judge sees only the answer and one criterion. Giving it
-# retrieval would let it check claims against the live web, which is a DIFFERENT benchmark from
-# the one the paper defines.
+# DRACO's judge is deliberately retrieval-free. The benchmark pins this route explicitly.
 [[aigateway.models]]
 id = "openrouter/google/gemini-3.1-pro-preview"
 
-# --- the rest of the DRACO candidate lineup -------------------------------------------------
-#
-# `budget_trio`, `pareto_cross`, `pareto_lean`, `beat_runner_up` and `best_open_source` are
-# defined over these four. Routing is exact-match, so before they were declared those five
-# fusions could not be addressed at all — a `ResolutionError`, not a degraded run.
-#
-# RETRIEVAL MECHANISM, decided by owner 2026-08-02 and MEASURED the same day: native where
-# OpenRouter provides it, the runner-driven Tavily loop otherwise. DRACO is a deep-research
-# benchmark and the paper treats retrieval as mandatory, so every ANSWERING route retrieves by
-# one mechanism or the other; only the judge declares none.
-#
-#   route                      native?           declared
-#   gemini-3-flash-preview     ⚠️ no BLOCKLIST   web_tools  (Tavily)
-#   kimi-k2.6                  ❌ 404            web_tools  (Tavily)
-#   deepseek-v4-pro            ❌ 404            web_tools  (Tavily)
-#   qwen3.6-plus               ❌ 404            web_tools  (Tavily)
-#
-# The 404 is explicit — "The requested model does not support native web search" — and
-# `engine: "auto"`, which that message recommends, is a NAMED 400 on every model (measured: the
-# validator accepts only native|exa|firecrawl|parallel|perplexity). `exa` would work on all of
-# them and was REJECTED by the owner: it is a different retrieval product, so candidates would
-# have searched differently within one benchmark.
-#
-# ⚠️ GOOGLE NATIVE SEARCH CANNOT BE GUARDED. `gemini-3-flash-preview` DOES support native search,
-# and declaring it would still be wrong: adding a blocklist to a Google native call is a hard 400
-# — measured 2026-08-02:
-#
-#     "Domain filters (include_domains/exclude_domains) are not supported with native search on
-#      Google. Use engine: \"exa\" or remove domain filters"
-#
-# So on a Google route the choice is retrieval OR the guard, never both, and for a benchmark
-# whose candidates must not read the answer key the guard is not optional. It goes on Tavily,
-# which is the same fallback the 404 routes take. This applies to the DEPLOYMENT's list too, not
-# just an expression policy — any Google native route in a deployment with a blocklist is a 400.
-#
-# A second reason to keep Google off native here: it reports every citation as a
-# `vertexaisearch.cloud.google.com` redirect, so what it retrieved cannot be audited from
-# annotations at all — a guard nobody can verify is not a guard.
-#
-# ⚠️ A `web_tools` route is guarded by the RUNNER, not the provider — `_tavily_search` sends the
-# policy as `exclude_domains` and `_tavily_extract` refuses a blocked host outright. Until
-# 2026-08-02 naming a policy on one of these was a hard error, and putting these models on the
-# Tavily loop without that fix would have made them the leak path the blocklist exists to close.
+# Remaining DRACO / small-model lineup. These routes use the Runner-owned Tavily loop: native
+# search either returns 404 or, for Google, cannot apply the benchmark's required blocklist.
 [[aigateway.models]]
 id = "openrouter/google/gemini-3-flash-preview"
 web_tools = true
@@ -268,196 +106,3 @@ web_tools = true
 [[aigateway.models]]
 id = "openrouter/qwen/qwen3.6-plus"
 web_tools = true
-
-# --- [commands] — local subprocess routes --------------------------------------------------
-#
-# A route path mapped to an operator-owned argv template, exec'd directly (no shell). stdout is
-# the result; a non-zero exit is a 502. The template sees the same surface a Python handler
-# would, each token substituted ONCE, in the operator's template only — token-shaped text in
-# caller input stays literal:
-#
-#   {intent}          the resolved intent
-#   {context}         the resolved context — ALSO piped to the command's stdin
-#   {param:<name>}    one decoded protocol param (`/benchmark?operation=grade`); "" if absent
-#   {params}          every param as JSON
-#
-# CAVEAT: protocol params are STATIC — they are never `$`-substituted from scope (see
-# `dag/nodes._wire_params`), so `{param:…}` can only carry run-constants. Per-item data must
-# ride in `{context}`/stdin or the intent.
-#
-# Three spellings; only the table form can declare a per-route timeout (default 120s):
-#
-#   [commands]
-#   "/upper"     = ["tr", "a-z", "A-Z"]
-#   "/echo"      = "cat -"
-#   "/benchmark" = { argv = ["python3", "/opt/bench/run.py", "--op", "{param:operation}"], timeout_s = 300.0 }
-#
-# The script must be baked into the image: a Job's rootfs is read-only apart from /tmp.
-
-[commands]
-# The all-calls bridge. A reduce dispatches to the processor only when EVERY source is a CALL,
-# and `$` is legal in a DATA path but illegal in a CALL path — so a per-item artifact cannot be
-# addressed directly and still keep the reduce dispatching. `cat` echoes the resolved context
-# (which arrives on stdin), turning a dynamic data fetch into a call:
-#
-#   rubric:1.0:/read(/draco/rubrics/$item.id)!'get'
-#
-# INVARIANT: this route reads NOTHING of its own — it has no file argument and no network. It is
-# a shim over the engine's own resolution, so it cannot widen what an expression can reach.
-"/read" = ["cat"]
-
-# The cross-row reducer. Reached as `…!/benchmark(aggregate)!'x'`, where the engine replaces the
-# intent with the JSON array of every row's judge output. `{context}` is the operation token
-# ("aggregate"); `{intent}` is that array.
-#
-# The DRACO expression it reduces — the paper's OFFICIAL protocol (arXiv:2602.11685 §4.2): one
-# judge call PER CRITERION, three independent passes each, and the ensemble answered ONCE per
-# case. Three nesting levels.
-#
-#   (/draco/cases*(
-#      caseid:0.0:/read($item.id)!'get',
-#      answer:0.0:/openrouter/anthropic/claude-opus-4.8(
-#        m0:1.0:/openrouter/anthropic/claude-fable-5($item.input)!'Answer completely.'
-#          ;max_tokens=8192;web_search_policy=/draco/policy/retrieval,
-#        m1:1.0:/openrouter/openai/gpt-5.5($item.input)!'Answer completely.'
-#          ;max_tokens=8192;web_search_policy=/draco/policy/retrieval
-#      )!'Synthesize the strongest answer.';max_tokens=8192
-#        ;web_search_policy=/draco/policy/retrieval,
-#      graded:1.0:/draco/criteria/$item.id*(
-#        cid:1.0:/read($item.id)!'get',
-#        crit:1.0:/read($item.requirement)!'get',
-#        runs:1.0:(1,2,3)*(
-#          v:1.0:/openrouter/google/gemini-3.1-pro-preview(
-#            answer:1.0:$answer, case_id:1.0:$caseid, criterion_id:1.0:$cid, criterion:1.0:$crit
-#          )!'Meets this ONE criterion? Reply JSON
-#             {"case_id":"…","criterion_id":"…","criterion_status":"MET"|"UNMET"}'
-#          ;temperature=0.2;max_tokens=8192,
-#          pass:1.0:$item
-#        )!'collect'
-#      )!'criterion'
-#    )!'case')!/benchmark(aggregate)!'x'
-#
-# That fusion is the paper's `fable_plus_gpt` (panel: fable-5 + gpt-5.5, synthesizer: opus-4.8),
-# the OpenRouter post's strongest at 69.0%.
-#
-# ROUTES — why OpenRouter and not the Anthropic-native ids. DRACO's whole lineup is OpenRouter
-# slugs (`screamingface-benchmarks/benchmarks_config/draco.yaml`: "calls go through OpenRouter,
-# default for closed models"), so `/openrouter/anthropic/claude-opus-4.8` is the SAME dispatch
-# path the published numbers were produced on, while `/claude-opus-4-8` is a different provider
-# path to a same-named model. It is also the only family whose retrieval is verified: DRACO is a
-# deep-research benchmark, the paper treats retrieval as mandatory, and `native_web_search = true`
-# is declared on exactly these three routes — measured live, not assumed. Answering through the
-# Anthropic-native routes would silently produce weights-only answers and score well below the
-# reference chart.
-#
-# CAVEAT: the paper's `max_calls_per_row: 12` has no equivalent here. The cap that exists is the
-# runner's own `web_tool_max_calls_per_turn`, and it bounds a TURN rather than a row — so a
-# published score cannot claim that budget was honoured.
-#
-# Five things in that shape are load-bearing:
-#
-#   EXPLICIT JUDGE  the judge is a NAMED route, not `default_route`. That is what lets a
-#                   benchmark pin its own judge (the paper fixes DRACO's, and a different judge
-#                   materially changes the scores) without an image rebuild or a deploy change —
-#                   and it is the ONLY way judge parameters reach the model, since the per-row
-#                   reduce hop carries no params.
-#
-#   pass:1.0:$item  a JOIN ANCHOR, and it is not optional. With the judge call as the body's only
-#                   source, every source is a call, the all-calls rule fires the per-row reduce,
-#                   and `default_route` REPLACES all three grades with its own output — a run that
-#                   still reports success. One data sibling degrades the reduce to a text join, so
-#                   the judge's JSON survives. It also records the run index.
-#
-#   case_id         the judge must ECHO the case id, or `aggregate` has only the row's POSITION
-#                   to identify it by. Position is correct exactly when the rows are the whole
-#                   declared set: `;iteration.slice=10:20` hands rows 1-10 that are really cases
-#                   11-20, and every one is then scored against the WRONG rubric — no failures
-#                   entry, `terminated: succeeded`, a plausible number. `aggregate` now REFUSES a
-#                   short row set that carries no echoed id rather than guessing an offset it
-#                   cannot know, so a sliced run WITHOUT this binding is a loud error. The id is
-#                   opaque, so echoing it leaks no weight — same argument as `criterion_id`.
-#
-#   criterion_id    the judge must be TOLD which criterion it is grading or it cannot echo the id
-#                   back, and every verdict collapses onto one criterion: n_runs inflates, coverage
-#                   collapses, axes vanish — all while looking like a clean result. The id is
-#                   opaque, so this leaks no weight.
-#
-#   answer:0.0:     instrumental — referenced as $answer, kept OUT of the row text. A 0.0 binding
-#                   is still in scope; weight 0.0 excludes from the CONTEXT, not from `$name`.
-#
-#   web_search_policy
-#                   the blocklist that keeps a candidate from retrieving the rubric it is graded
-#                   against, on the three ANSWERING calls only. It is deliberately ABSENT from
-#                   the judge call: the judge declares no retrieval, so naming it there is a loud
-#                   error rather than a no-op. Naming it in the expression is also what puts the
-#                   guard inside the recipe the scoreboard hashes — see the retrieval notes at
-#                   the top of this file.
-#
-#   (1,2,3)*        judge_runs=3. The passes are byte-identical on purpose — independence comes
-#                   from judge temperature, not from varying the prompt.
-#
-#   ;k=v            reaches the gateway request body (`connector._model_params`), JSON-coerced —
-#                   the gateway's schemas are strictly typed, so "0.2" as text fails closed. The
-#                   runner refuses only the fields IT owns (model / messages / tools /
-#                   tool_choice / stream); everything else is the gateway's to validate, and it
-#                   rejects an unknown field with a named 400.
-#
-# CAVEAT (judge_reasoning): arXiv:2602.11685 §4.2 also pins `judge_reasoning: "low"`, and this
-# expression does NOT carry it. `reasoning_effort` is absent from the OpenRouter plugin's rule
-# set (`plugins/openrouter_provider/parameters.py`), and unknown parameters fail closed — so
-# `;reasoning=low` would now turn every judge call into a 400 rather than being ignored. Enabling
-# it is a provider-local rule + schema in aigateway; until then this run deviates from the paper
-# on that one setting, and a published score must say so.
-#
-# `/draco/criteria/<case>` is emitted WEIGHT-FREE by `prepare.py`, and the weighted rubric is
-# deliberately NOT a declared route: `official` grading keeps the judge blind to weights.
-#
-# STDIN, not argv. `stdin = "intent"` pipes the row array in; the operation token still arrives
-# as `--operation {context}`, because the selector changes what is PIPED and withdraws no
-# substitution. Until 2026-07-31 the payload went through `--args {intent}`, and a single argv
-# token is capped by the kernel at MAX_ARG_STRLEN (131,072 bytes) — NOT the ~2 MB ARG_MAX this
-# file used to cite, which does not apply to one argument. At ~200 bytes per verdict and
-# 53 criteria × 3 passes per case, that ceiling arrived at roughly the FOURTH case, as a hard
-# `OSError [Errno 7]` at exec rather than a truncation. A pipe has no such bound.
-# INVARIANT: no --rubrics here. The `[data]` routes get absolute paths from `prepare --out`, so
-# the rubrics path must come from the SAME deployment — it resolves from `URL4_BENCHMARK_RUBRICS`
-# (the benchmark image sets it; a local run exports it). Baking the container path into this file
-# made the two disagree the moment the runner ran outside the image, and the aggregate then found
-# no rubrics and returned a terminated-SUCCEEDED run scoring nothing. Observed live 2026-07-31.
-"/benchmark" = { argv = [
-  "python3", "-m", "url4_cloud.benchmarks.draco.aggregate",
-  "--operation", "{context}",
-], timeout_s = 120.0, stdin = "intent" }
-
-# --- [data] — read-only artifacts at their own url4 addresses ------------------------------
-#
-# Each entry declares ONE artifact at ONE exact path. Routing is exact-match — there is no
-# prefix or wildcard form — so a benchmark with N cases declares N rubric entries. Generate
-# this table at image build from the dataset rather than hand-writing it.
-#
-#   [data]
-#   "/draco/cases"      = { file = "/opt/bench/cases.json", media_type = "application/json" }
-#   "/draco/rubrics/42" = { file = "/opt/bench/rubrics/42.md" }
-#   "/motd"             = "inline string shorthand"
-#   "/rows"             = { command = ["./rows.sh"], media_type = "application/json" }
-#
-# Exactly one of value/file/command per entry. `file` is re-read PER REQUEST, so editing an
-# artifact needs no restart. `media_type` is load-bearing for a collection: a one-line JSON
-# array served as text/plain collapses to a SINGLE element, which silently iterates once over a
-# blob instead of once per case.
-#
-# CAVEAT — the all-calls rule. A reduce dispatches to the processor only when EVERY source is a
-# CALL. A bare data source makes it degrade to a text join instead, silently. And `$` is legal
-# in a data path but ILLEGAL in a call path, so a per-item artifact needs a static call wrapping
-# a dynamic fetch:
-#
-#   rubric:1.0:/read(/draco/rubrics/$item.id)!'get'     # with [commands] "/read" = ["cat"]
-#
-# RESERVED — still carried by the format but not parsed; declaring one is a loud config error:
-#
-#   [holdings]    default = { file = "…" }
-#   [identities]
-#
-# ollama / huggingface build their model lists at runtime from local installs or fetched slugs,
-# so they are undeclarable here by construction; a deployment that serves them adds its own
-# entries.

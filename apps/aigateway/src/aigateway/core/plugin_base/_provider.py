@@ -48,6 +48,7 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     """
 
     custom_llm_provider: str
+    provider_display_name: str
     settings_cls: ClassVar[type[PluginSettings]] = PluginSettings
 
     def __init__(self, settings: TSettings | None = None) -> None:
