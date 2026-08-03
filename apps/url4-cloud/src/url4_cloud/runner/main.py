@@ -16,7 +16,12 @@ import httpx
 from url4.streaming.lifecycle import run
 from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
-from url4_cloud.runner.config import RunnerConfig, RunnerConfigError, load_config
+from url4_cloud.runner.config import (
+    AigatewaySection,
+    RunnerConfig,
+    RunnerConfigError,
+    load_config,
+)
 from url4_cloud.runner.connector import (
     AigatewayConfig,
     build_aigateway_world,
@@ -111,13 +116,7 @@ def build_executor(
         # is anonymous. The old unconditional token requirement made every deployed run fail
         # before it issued a single request, because a deployed caller has no way to obtain one.
         world = await build_aigateway_world(
-            AigatewayConfig(
-                base_url=section.base_url,
-                default_model=section.default_model,
-                models=section.models,
-                allow_outbound=section.allow_outbound,
-                timeout_s=section.timeout_s,
-            ),
+            aigateway_config_from(section),
             profile=env.get(job_env.AIGATEWAY_PROFILE),
             identity_headers=job_env.identity_from_env(env),
             client=client,
@@ -129,6 +128,27 @@ def build_executor(
         return world.node, world.aclose
 
     return Url4Executor(world_factory=_world)
+
+
+def aigateway_config_from(section: AigatewaySection) -> AigatewayConfig:
+    """Project a parsed `[aigateway]` table onto the connector's config.
+
+    # AIDEV-NOTE: EVERY declarable field must be copied here. This was a field-by-field literal
+    # inline in `_world`, and `web_tool_max_iterations` was simply absent from it — so the
+    # connector's default of 5 was unreachable from any `url4.toml`, and MEASURED 2026-08-02 that
+    # default is a hard per-case failure on the Tavily loop. A parsed field that no projection
+    # copies is indistinguishable from one that was never declared: the config validates, the run
+    # starts, and the value silently is not the one the operator wrote. Adding a field to
+    # `AigatewaySection` without adding it here is the same bug again.
+    """
+    return AigatewayConfig(
+        base_url=section.base_url,
+        default_model=section.default_model,
+        models=section.models,
+        allow_outbound=section.allow_outbound,
+        timeout_s=section.timeout_s,
+        web_tool_max_iterations=section.web_tool_max_iterations,
+    )
 
 
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
