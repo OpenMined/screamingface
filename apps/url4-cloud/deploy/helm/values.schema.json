@@ -83,7 +83,7 @@
           "properties": {
             "repository": {
               "type": "string",
-              "description": "Empty = use .Values.image.repository. Set ONLY to give Runner Jobs a payload the control plane must not carry (a benchmark image, which bakes in the private rubrics)."
+              "description": "Empty = `<image.repository>-benchmark`, so mirroring the chart into a private registry moves the Runner Job image with the App image. Set ONLY when the benchmark image is not named `<app>-benchmark`. It must never equal image.repository: that image bakes in the private rubrics the control plane must not carry."
             },
             "tag": {
               "type": "string",

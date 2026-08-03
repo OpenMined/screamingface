@@ -293,8 +293,13 @@ runner:
   #     image:
   #       repository: ghcr.io/openmined/screamingface-url4-cloud
   #
+  # `repository` is DERIVED, not written out: empty means `<image.repository>-benchmark`. It was
+  # a literal public path, which made the override always set and the derivation unreachable — so
+  # `--set image.repository=registry.internal/...` mirrored the control plane and left every Job
+  # pointing at ghcr.io. That install succeeds and the first submitted run ImagePullBackOffs.
+  # Empty keeps the benchmark-image default AND lets it travel with the registry.
   image:
-    repository: ghcr.io/openmined/screamingface-url4-cloud-benchmark
+    repository: ""   # "" => "<image.repository>-benchmark"
     tag: ""          # "" => the App image's resolved tag
   #
   # NOTE: there is deliberately no `command` here either. The Job's command is the mode switch

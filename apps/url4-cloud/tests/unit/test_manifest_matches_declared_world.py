@@ -177,10 +177,18 @@ def test_runner_jobs_default_to_the_benchmark_image() -> None:
     """A Runner exists to execute a benchmark, and the plain engine image declares no `[data]`
     routes — MEASURED on a real Job, the first expression fails `endpoint_not_found ... at
     '/draco/cases'`. Defaulting to the App image makes a whole deployment unable to run a single
-    case until someone remembers an override."""
-    values = _values()
+    case until someone remembers an override.
 
-    assert values["runner"]["image"]["repository"].endswith("-benchmark")
+    The default is DERIVED (`<image.repository>-benchmark`) rather than written out, so this
+    asserts on the helper that derives it. A literal path here made the override always set,
+    which left the derivation unreachable and pinned Runner Jobs to ghcr.io even when the App
+    was mirrored to a private registry — see `test_runner_image_tracks_the_app_registry.py`,
+    which pins the same invariant against a REAL `helm template` render.
+    """
+    helpers = (_CHART_VALUES.parent / "templates" / "_helpers.tpl").read_text(encoding="utf-8")
+
+    assert _values()["runner"]["image"]["repository"] == ""
+    assert '"%s-benchmark"' in helpers
 
 
 def test_the_control_plane_never_runs_the_benchmark_image() -> None:
