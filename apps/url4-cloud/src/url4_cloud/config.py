@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     iat_window_s: int = 60
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
     sync_max_wait_s: float = 30.0
+    # WHY: how long `DELETE /` waits for the stopped run's terminal frame before reclaiming the
+    # stream. Stopping and reclaiming are two different processes — the Runner publishes
+    # `Terminated(stopped)` while its Pod shuts down — so reclaiming immediately races that frame
+    # and wins, dropping the only evidence the cancel took effect.
+    # WHY seconds and not the sync cap: this bounds a SHUTDOWN, not an answer. It needs to cover
+    # unwinding in-flight calls plus one publish, and it holds a client's DELETE open while it
+    # runs. It must also stay under the Job's termination grace period (k8s default 30s), past
+    # which SIGKILL means no frame is coming and waiting only adds latency.
+    stop_drain_s: float = 5.0
     # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).
     ws_heartbeat_s: float = 15.0
     # INVARIANT: k8s Job activeDeadlineSeconds ceiling = 16h (spec §3).

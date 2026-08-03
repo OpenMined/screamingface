@@ -297,7 +297,11 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
     504: _problem("The run exceeded its 16 h deadline."),
 }
 _STOP_RESPONSES: dict[int | str, dict[str, Any]] = {
-    204: {"description": "Stopped and the stream purged (idempotent)."},
+    204: {
+        "description": (
+            "Stopped, the run's terminal frame awaited, and the stream purged (idempotent)."
+        )
+    },
     403: _problem("The capability token is not authorized for that topic."),
 }
 
@@ -386,7 +390,11 @@ async def start_run(
     summary="Stop a run and purge its stream",
     responses=_STOP_RESPONSES,
     description=(
-        "Stop the Job for the token's topic and purge its stream (idempotent) → ``204`` (spec §5)."
+        "Stop the Job for the token's topic and purge its stream (idempotent) → ``204`` "
+        "(spec §5).\n\n"
+        "When a run was in flight, the response is held until its `ai.url4.terminated` frame is "
+        "observed (bounded by `stop_drain_s`) so an attached subscriber sees the run END rather "
+        "than the stream vanish under it. A frame that never arrives does not block teardown."
     ),
 )
 async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None = None) -> Response:
@@ -399,7 +407,24 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             title="Forbidden",
             detail="the capability token is not authorized for that topic",
         )
+    # WHY `exists` is read BEFORE stopping: it is the only signal available for "was there a run
+    # to cancel", and `stop` is deliberately idempotent, so afterwards the two cases are
+    # identical. A repeat DELETE — the documented idempotent path — must not pay the drain
+    # bound waiting for a frame no process will ever publish.
+    running = await deps.job_runner.exists(sub)
     await deps.job_runner.stop(sub)
+    if running:
+        # WHY the drain: stopping and reclaiming target two different PROCESSES. `stop` returns
+        # as soon as the Job is deleted, while the Runner publishes `Terminated(stopped)` on its
+        # way down (see `runner.main.cancel_on_signal`) — so reclaiming immediately races that
+        # frame and wins, and the cancel lands as an eternally silent topic. That is the failure
+        # the Runner's signal handling exists to remove; undoing it here would be worse than not
+        # having fixed it, because the REST path is the one that looks deliberate.
+        #
+        # INVARIANT: best-effort and BOUNDED. The result is discarded on purpose — a Pod that
+        # died without publishing (SIGKILL past the grace period) must not strand the stream it
+        # was holding, so teardown below is unconditional.
+        await _await_terminal(deps.stream, sub, deps.settings.stop_drain_s)
     # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
     # stream empties it but leaves the stream object, its consumer state and its filestore
     # directory behind — one permanent stream per run, forever. `delete_stream` defaults to
