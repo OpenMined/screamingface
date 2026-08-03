@@ -19,7 +19,7 @@ rubric on its disk is one bug away from reaching the client it is being withheld
 ```yaml
 runner:
   image:
-    repository: ghcr.io/openmined/screamingface-url4-cloud-draco   # tag omitted on purpose
+    repository: ghcr.io/openmined/screamingface-url4-cloud-benchmark   # tag omitted on purpose
 ```
 
 `runner.image.tag` defaults to the **App image's resolved tag**, not `latest` — a benchmark image
