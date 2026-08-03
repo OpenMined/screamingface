@@ -20,13 +20,17 @@
 # size one against.
 replicaCount: 1
 
-# ONE image, used two ways BY DEFAULT: the Deployment runs it as the control plane
-# (`url4-cloud serve`), and every Runner Job runs the same image in run mode (`url4-cloud run`) —
-# see `URL4_CLOUD_RUNNER_IMAGE` in configmap.yaml. The two artifacts were merged so they cannot
-# drift out of version alignment. `runner.image` below can point Jobs at a DIFFERENT image when
-# they need a payload the control plane must not carry (a benchmark dataset); it keeps this tag
-# unless explicitly told otherwise, so the pair still moves as one. Build-time OCI labels the
-# image should carry are listed in README.md (org.opencontainers.image.*).
+# The CONTROL PLANE's image, and only the control plane's: the Deployment runs it as
+# `url4-cloud serve`. Runner Jobs deliberately run a DIFFERENT image — see `runner.image` below.
+#
+# WHY the split, when both modes live in one codebase: the benchmark image carries the private
+# weighted rubrics a Runner has to read, and the control plane is the process that terminates
+# CLIENT connections. Keeping the answer key off that pod means a bug there cannot leak it. The
+# two images still move as one version — `runner.image.tag` defaults to this tag — so the merged
+# build that prevented drift is preserved without putting rubrics where clients are served.
+#
+# Build-time OCI labels the image should carry are listed in README.md
+# (org.opencontainers.image.*).
 image:
   repository: ghcr.io/openmined/screamingface-url4-cloud
   tag: ""            # defaults to .Chart.AppVersion
@@ -262,25 +266,35 @@ runner:
   # Which JobRunner substrate the App schedules on (url4_cloud.config.RunnerBackend). `k8s` is the
   # point of this chart; `none` degrades the App to a token-minting NATS bridge that cannot run.
   backend: k8s
-  # OPTIONAL override of the image Runner Jobs run. Unset (the default) => a Job runs the App's
-  # OWN image (the `image:` block at the top of this file) in its run mode: one artifact, two
-  # modes, nothing that can drift out of version alignment during an upgrade.
+  # The image Runner Jobs run — the BENCHMARK image by default, not the App image.
   #
-  # Set this ONLY to give the Runner a payload the control plane must not carry — today that means
-  # a benchmark image (`Dockerfile.benchmark`), which bakes in a dataset AND its private rubrics.
-  # The Runner executes the run and reads them; the control plane terminates client connections,
-  # so a rubric on its disk is one bug away from reaching the client it is being kept from.
+  # WHY this is the default rather than an opt-in: a Runner exists to execute a benchmark, and a
+  # benchmark cannot run on the plain engine image. That image declares no `[data]` routes, so the
+  # first expression fails with
+  #   `endpoint_not_found: node 'aigateway' has no ... data route at '/draco/cases'`
+  # (measured on a real Job, 2026-08-02). Loud rather than silent, but it is a whole deployment
+  # that cannot run a single case, discovered at the first submitted run instead of at install.
+  # Defaulting the other way makes the working configuration the one you get by not thinking.
   #
-  # `tag` defaults to the APP image's resolved tag, not to `latest`: a benchmark image is built
-  # `FROM` a specific base tag, so overriding `repository` alone keeps the pair on one version.
-  # Overriding `tag` too opts out of that and is for a staged rollout only.
+  # INVARIANT: the control plane must NOT run this image. It bakes in the dataset AND its private
+  # weighted rubrics — the answer key. The Runner reads them to score; the control plane
+  # terminates client connections, so a rubric on that pod is one bug away from reaching the
+  # client it is being kept from. That asymmetry is the whole reason there are two images.
+  #
+  # `tag` defaults to the APP image's resolved tag, not to `latest`: the benchmark image is built
+  # `FROM` a specific base tag, so leaving this empty keeps engine and dataset on one version and
+  # lets a published score name the engine that produced it. Overriding `tag` opts out of that and
+  # is for a staged rollout only.
+  #
+  # A deployment that runs NO benchmarks (a plain url4 execution service) should point this back
+  # at the App image, which is the one case where the two are interchangeable:
   #
   #   runner:
   #     image:
-  #       repository: ghcr.io/openmined/screamingface-url4-cloud-draco
+  #       repository: ghcr.io/openmined/screamingface-url4-cloud
   #
   image:
-    repository: ""   # "" => .Values.image.repository
+    repository: ghcr.io/openmined/screamingface-url4-cloud-benchmark
     tag: ""          # "" => the App image's resolved tag
   #
   # NOTE: there is deliberately no `command` here either. The Job's command is the mode switch

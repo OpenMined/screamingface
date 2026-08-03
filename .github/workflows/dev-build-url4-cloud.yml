@@ -21,6 +21,8 @@ concurrency:
 jobs:
   image:
     runs-on: ubuntu-latest
+    outputs:
+      short: ${{ steps.sha.outputs.short }}
     steps:
       - uses: actions/checkout@v7
       - id: sha
@@ -58,3 +60,39 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=dev-url4-cloud
           cache-to: type=gha,scope=dev-url4-cloud,mode=max
+
+  # The BENCHMARK image: the engine above plus one benchmark's declared world (dataset, private
+  # rubrics, generated [data] table). A Runner Job runs this instead of the App image when
+  # `runner.image.repository` points at it; the control plane never does, so a rubric never lands
+  # on the pod that terminates client connections.
+  #
+  # WHY a second job rather than a second `docker/build-push-action` step in the first: it must
+  # not run unless the base actually PUBLISHED. `needs:` gives that ordering, and `BASE` is the
+  # exact digest-bearing tag the previous job pushed — never a floating tag, so the pair can never
+  # drift apart mid-rollout.
+  benchmark-image:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/url4-cloud/Dockerfile.benchmark
+          platforms: linux/amd64
+          push: true
+          # AIDEV-NOTE: this build DOWNLOADS the dataset from HuggingFace (`prepare.py` calls
+          # `load_dataset`), so it needs egress and is slower than the base build. It carries the
+          # WHOLE dataset by design — the truncating build arg was removed 2026-08-02 so a partial
+          # image can never be mistaken for a full one.
+          build-args: |
+            BASE=ghcr.io/openmined/screamingface-url4-cloud:main-${{ needs.image.outputs.short }}
+          tags: ghcr.io/openmined/screamingface-url4-cloud-benchmark:main-${{ needs.image.outputs.short }}
+          cache-from: type=gha,scope=dev-url4-cloud-benchmark
+          cache-to: type=gha,scope=dev-url4-cloud-benchmark,mode=max
