@@ -62,6 +62,37 @@
 base_url = "http://127.0.0.1:9105"
 default_route = "/claude-haiku-4-5"
 
+# How long ONE call to aigateway may take. The default is 60s, which a DRACO answer does not fit
+# in: a deep-research question answered WITH provider-side web search runs well past a minute
+# before the first token, and the judge calls are long too.
+#
+# MEASURED 2026-08-02 on a real Kubernetes Job: at 60s the answering call raised `ReadTimeout`,
+# `iteration.on_error=collect` (the default) replaced that case's row with an error object exactly
+# as designed, and the run reported `terminated: succeeded` with `case_count: 0` and
+# "no judge verdicts in row". Nothing in the result named the timeout — the row array carried
+# `{"error": {"kind": "ReadTimeout"}}` and the aggregate simply found nothing to score.
+#
+# ⚠️ THAT IS THE FAILURE SHAPE TO REMEMBER: a per-call timeout does not fail the RUN, it silently
+# empties it. A benchmark that scores zero because of a network setting looks exactly like a
+# candidate that answered badly.
+timeout_s = 300.0
+
+# How many ROUNDS a runner-driven tool loop may take before it gives up. One round is one post to
+# the gateway, and a round that comes back with tool calls costs a model turn plus its searches.
+#
+# WHY 12 and not the default 5: MEASURED 2026-08-02 against live models and live Tavily,
+# `kimi-k2.6` spent ALL 5 default rounds on tool calls and never returned content — for a trivial
+# question whose sources were freely reachable (3 searches + 2 fetches, then `ResolutionError`).
+# On a deep-research benchmark that is a hard per-case failure, not a shorter answer, and the
+# three DRACO routes without native search answer through exactly this loop.
+#
+# 12 mirrors the paper's `max_calls_per_row: 12` (arXiv:2602.11685 §4.2). CAVEAT: it is not the
+# same quantity — the paper bounds CALLS PER ROW, this bounds ROUNDS PER TURN, and one round may
+# carry up to `web_tool_max_calls_per_turn` (8) calls. So this does not implement the paper's
+# budget; it removes a ceiling that sat far below it. A published score still cannot claim that
+# budget was honoured.
+web_tool_max_iterations = 12
+
 # Absolute-URL sources (`https://…`) are a real url4 feature and a Url4Node world has always
 # been able to fetch them. Set false to hand the node a denying outbound layer instead.
 allow_outbound = true
@@ -185,28 +216,58 @@ id = "openrouter/google/gemini-3.1-pro-preview"
 # defined over these four. Routing is exact-match, so before they were declared those five
 # fusions could not be addressed at all — a `ResolutionError`, not a degraded run.
 #
-# Retrieval stays OFF on all four pending a LIVE check, and that is a real gap, not an oversight.
-# They are OpenRouter routes, so `native_web_search = true` is the right declaration and the same
-# one the three answering routes above carry — but no one has yet confirmed that these specific
-# models accept OpenRouter's server-side tool entries. The DRACO harness ran them with retrieval,
-# so the expectation is that they do; the rule this file follows is that expectation is not
-# verification.
+# RETRIEVAL MECHANISM, decided by owner 2026-08-02 and MEASURED the same day: native where
+# OpenRouter provides it, the runner-driven Tavily loop otherwise. DRACO is a deep-research
+# benchmark and the paper treats retrieval as mandatory, so every ANSWERING route retrieves by
+# one mechanism or the other; only the judge declares none.
 #
-# Turning each on is a ONE-LINE reviewable change once checked. Until then these answer from
-# weights alone, which scores well below the reference chart for reasons unrelated to the
-# candidate — so `budget_trio`, `pareto_*` and `best_open_source` are addressable but not yet
-# publishable.
+#   route                      native?           declared
+#   gemini-3-flash-preview     ⚠️ no BLOCKLIST   web_tools  (Tavily)
+#   kimi-k2.6                  ❌ 404            web_tools  (Tavily)
+#   deepseek-v4-pro            ❌ 404            web_tools  (Tavily)
+#   qwen3.6-plus               ❌ 404            web_tools  (Tavily)
+#
+# The 404 is explicit — "The requested model does not support native web search" — and
+# `engine: "auto"`, which that message recommends, is a NAMED 400 on every model (measured: the
+# validator accepts only native|exa|firecrawl|parallel|perplexity). `exa` would work on all of
+# them and was REJECTED by the owner: it is a different retrieval product, so candidates would
+# have searched differently within one benchmark.
+#
+# ⚠️ GOOGLE NATIVE SEARCH CANNOT BE GUARDED. `gemini-3-flash-preview` DOES support native search,
+# and declaring it would still be wrong: adding a blocklist to a Google native call is a hard 400
+# — measured 2026-08-02:
+#
+#     "Domain filters (include_domains/exclude_domains) are not supported with native search on
+#      Google. Use engine: \"exa\" or remove domain filters"
+#
+# So on a Google route the choice is retrieval OR the guard, never both, and for a benchmark
+# whose candidates must not read the answer key the guard is not optional. It goes on Tavily,
+# which is the same fallback the 404 routes take. This applies to the DEPLOYMENT's list too, not
+# just an expression policy — any Google native route in a deployment with a blocklist is a 400.
+#
+# A second reason to keep Google off native here: it reports every citation as a
+# `vertexaisearch.cloud.google.com` redirect, so what it retrieved cannot be audited from
+# annotations at all — a guard nobody can verify is not a guard.
+#
+# ⚠️ A `web_tools` route is guarded by the RUNNER, not the provider — `_tavily_search` sends the
+# policy as `exclude_domains` and `_tavily_extract` refuses a blocked host outright. Until
+# 2026-08-02 naming a policy on one of these was a hard error, and putting these models on the
+# Tavily loop without that fix would have made them the leak path the blocklist exists to close.
 [[aigateway.models]]
 id = "openrouter/google/gemini-3-flash-preview"
+web_tools = true
 
 [[aigateway.models]]
 id = "openrouter/moonshotai/kimi-k2.6"
+web_tools = true
 
 [[aigateway.models]]
 id = "openrouter/deepseek/deepseek-v4-pro"
+web_tools = true
 
 [[aigateway.models]]
 id = "openrouter/qwen/qwen3.6-plus"
+web_tools = true
 
 # --- [commands] — local subprocess routes --------------------------------------------------
 #

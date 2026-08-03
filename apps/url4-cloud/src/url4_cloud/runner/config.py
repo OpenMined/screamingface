@@ -41,7 +41,16 @@ DEFAULT_COMMAND_TIMEOUT_S = 120.0
 """Matches ``url4 serve``'s ``ServeConfig.timeout``, so the same url4.toml behaves the same
 under both runtimes. Per route, not global — see :class:`CommandSpec`."""
 
-_AIGATEWAY_KEYS = frozenset({"base_url", "default_route", "models", "allow_outbound", "timeout_s"})
+_AIGATEWAY_KEYS = frozenset(
+    {
+        "base_url",
+        "default_route",
+        "models",
+        "allow_outbound",
+        "timeout_s",
+        "web_tool_max_iterations",
+    }
+)
 _MODEL_KEYS = frozenset({"id", "web_tools", "native_web_search"})
 _COMMAND_KEYS = frozenset({"argv", "timeout_s", "stdin"})
 _DATA_KEYS = frozenset({"value", "file", "command", "media_type", "timeout_s"})
@@ -101,6 +110,13 @@ class AigatewaySection:
     models: tuple[ModelSpec, ...]
     allow_outbound: bool = True
     timeout_s: float = 60.0
+    # WHY declarable rather than a constant: the runner-driven tool loop posts once per ROUND, and
+    # a research answer legitimately takes more rounds than a lookup. MEASURED 2026-08-02 —
+    # `kimi-k2.6` spent all 5 default rounds on tool calls and never returned content, for a
+    # trivial question with freely reachable sources, so on the Tavily loop the default is a hard
+    # per-case failure rather than a safety margin. It stays 5 for everyone who does not declare
+    # it: raising the default would change the cost profile of every existing tool-using world.
+    web_tool_max_iterations: int = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -387,6 +403,23 @@ def _reject_route_collisions(
             )
 
 
+def _positive_int(table: Mapping[str, object], key: str, default: int) -> int:
+    """An `[aigateway]` count that must be a whole number above zero.
+
+    INVARIANT: `bool` is rejected explicitly. It IS an `int` subclass in Python, so `true` would
+    otherwise parse as 1 — a world where every tool-using route fails on its second round,
+    configured by an operator who thought they were setting a flag.
+    """
+    value = table.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RunnerConfigError(f"[aigateway] {key} must be an integer, got {value!r}")
+    if value <= 0:
+        raise RunnerConfigError(f"[aigateway] {key} must be > 0, got {value!r}")
+    return value
+
+
 def _parse_aigateway(table: Mapping[str, object], env: Mapping[str, str]) -> AigatewaySection:
     unknown = sorted(set(map(str, table)) - _AIGATEWAY_KEYS)
     if unknown:
@@ -400,6 +433,7 @@ def _parse_aigateway(table: Mapping[str, object], env: Mapping[str, str]) -> Aig
         models=models,
         allow_outbound=_bool(table, "allow_outbound", default=True),
         timeout_s=_float(table, "timeout_s", 60.0),
+        web_tool_max_iterations=_positive_int(table, "web_tool_max_iterations", 5),
     )
     section = _apply_env(section, env)
     _require_declared(section.default_model, models)
