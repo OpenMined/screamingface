@@ -270,14 +270,17 @@ async def test_naming_a_policy_on_a_non_retrieving_route_is_loud() -> None:
         await _bodies(_call(_PLAIN, f";web_search_policy={_POLICY_PATH}"), data=(_policy_route(),))
 
 
-@pytest.mark.asyncio
-async def test_naming_a_policy_on_a_tavily_route_is_loud() -> None:
-    """WHY the Tavily loop is not a home for this: domain exclusion is a PROVIDER-side control,
-    honoured by the provider running the search. On a `web_tools` route the RUNNER searches, so a
-    declared policy would be accepted and never enforced — which is the failure this closes, not
-    a case of it."""
-    with pytest.raises(ResolutionError):
-        await _bodies(_call(_TAVILY, f";web_search_policy={_POLICY_PATH}"), data=(_policy_route(),))
+# RETIRED 2026-08-02 (owner-approved): `test_naming_a_policy_on_a_tavily_route_is_loud`.
+#
+# It pinned the rule that a policy on a `web_tools` route must RAISE, reasoning that domain
+# exclusion was a PROVIDER-side control the runner could not enforce. MEASURED 2026-08-02 against
+# the live API, that premise is false — Tavily's `/search` accepts `exclude_domains` and honours
+# it — and once the DRACO models without native search were put on the Tavily loop, the refusal
+# became the very hole it was written to prevent: an unguardable retrieval path.
+#
+# The rule is INVERTED, not dropped. Its replacement lives in `test_tavily_retrieval_guard.py`,
+# which asserts the policy actually reaches Tavily and that a blocked `web_fetch` never leaves.
+# The two tests below are untouched: a route that retrieves by NEITHER mechanism is still loud.
 
 
 @pytest.mark.asyncio
