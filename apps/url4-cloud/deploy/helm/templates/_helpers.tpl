@@ -54,6 +54,14 @@ The ONLY intended override is a benchmark image (`Dockerfile.benchmark`), which 
 — including the private rubrics — onto the base. The Runner executes the run and needs them; the
 control plane terminates client connections and must never hold a rubric on disk.
 
+WHY `repository` falls back to the APP's repository plus `-benchmark` rather than to the app
+repository itself: a Runner needs a benchmark image (the plain engine declares no `[data]` routes),
+and the default has to survive a MIRROR. Carrying the full public path in `values.yaml` made the
+override always truthy, so this fallback was unreachable and `--set image.repository=...` moved the
+control plane to a private registry while leaving every Job pointing at ghcr.io — a clean install
+whose first submitted run ImagePullBackOffs. Deriving keeps `186271ca`'s default and lets one
+override move both. An operator whose benchmark image is named otherwise still sets it explicitly.
+
 WHY `tag` falls back to the APP's resolved tag rather than to `latest`: a benchmark image is built
 `FROM` a specific base tag, so the two are a matched pair. Overriding `repository` alone therefore
 keeps the Job and the App on one version — which is the drift protection the merged-image design
@@ -61,7 +69,7 @@ was built for, kept intact while allowing the split payload.
 */}}
 {{- define "url4-cloud.runnerImage" -}}
 {{- $override := (.Values.runner).image | default dict -}}
-{{- $repo := $override.repository | default .Values.image.repository -}}
+{{- $repo := $override.repository | default (printf "%s-benchmark" .Values.image.repository) -}}
 {{- $tag := $override.tag | default (default .Chart.AppVersion .Values.image.tag) -}}
 {{- printf "%s:%s" $repo $tag -}}
 {{- end -}}
