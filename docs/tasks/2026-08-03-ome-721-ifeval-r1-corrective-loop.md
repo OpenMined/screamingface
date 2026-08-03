@@ -1,10 +1,10 @@
 ---
 ticket: OME-721
 linear_url: https://linear.app/openmined/issue/OME-721/build-r1-corrective-loop-ifeval-variant-unrolled-lanl-chain
-status: deferred
+status: in_progress
 type: feature
 priority: P2
-labels: [url4-cloud, agentic, deferred]
+labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-03
 closed:
 ---
