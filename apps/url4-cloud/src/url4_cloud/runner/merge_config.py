@@ -1,6 +1,6 @@
 """Combine the hand-written `url4.toml` with generated `[data]` fragments, at image build.
 
-    python -m url4_cloud.benchmarks.merge_config \\
+    python -m url4_cloud.runner.merge_config \\
         --base url4.toml --fragment /opt/benchmarks/draco/url4.data.toml \\
         --out /etc/url4/url4.toml
 
@@ -108,7 +108,7 @@ def _strip_data_table(base_text: str) -> str:
 
 def _render_data(data: Mapping[str, Any]) -> str:
     lines = [
-        "# --- GENERATED — merged by url4_cloud.benchmarks.merge_config. Do not edit. ---",
+        "# --- GENERATED — merged by url4_cloud.runner.merge_config. Do not edit. ---",
         f"# {len(data)} declared artifact(s). Regenerate by rebuilding the benchmark image.",
         "[data]",
     ]

@@ -10,7 +10,7 @@ import asyncio
 import os
 import signal
 from collections.abc import Coroutine, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any
 
 import httpx
@@ -135,22 +135,24 @@ def build_executor(
 def aigateway_config_from(section: AigatewaySection) -> AigatewayConfig:
     """Project a parsed `[aigateway]` table onto the connector's config.
 
-    # AIDEV-NOTE: EVERY declarable field must be copied here. This was a field-by-field literal
-    # inline in `_world`, and `web_tool_max_iterations` was simply absent from it — so the
-    # connector's default of 5 was unreachable from any `url4.toml`, and MEASURED 2026-08-02 that
-    # default is a hard per-case failure on the Tavily loop. A parsed field that no projection
-    # copies is indistinguishable from one that was never declared: the config validates, the run
-    # starts, and the value silently is not the one the operator wrote. Adding a field to
-    # `AigatewaySection` without adding it here is the same bug again.
+    INVARIANT: the projection is MECHANICAL — every field `AigatewaySection` declares is copied by
+    construction, so a new `[aigateway]` key cannot be parsed and then dropped here.
+
+    # AIDEV-NOTE: this was a field-by-field literal inline in `_world`, and
+    # `web_tool_max_iterations` was simply absent from it — so the connector's default of 5 was
+    # unreachable from any `url4.toml`, and MEASURED 2026-08-02 that default is a hard per-case
+    # failure on the Tavily loop. A parsed field that no projection copies is indistinguishable
+    # from one that was never declared: the config validates, the run starts, and the value
+    # silently is not the one the operator wrote. Listing the fields again — even correctly —
+    # leaves that bug one forgotten line away, which is why the names are read off the dataclass.
+    #
+    # `fields()` rather than `asdict()`: the latter deep-converts, which would turn each
+    # `ModelSpec` into a plain dict and lose the declared route capabilities.
+    #
+    # The section is a NAME-FOR-NAME subset of `AigatewayConfig`; a field added to one and not the
+    # other is a TypeError here, at Job boot, rather than a silently defaulted value at run time.
     """
-    return AigatewayConfig(
-        base_url=section.base_url,
-        default_model=section.default_model,
-        models=section.models,
-        allow_outbound=section.allow_outbound,
-        timeout_s=section.timeout_s,
-        web_tool_max_iterations=section.web_tool_max_iterations,
-    )
+    return AigatewayConfig(**{f.name: getattr(section, f.name) for f in fields(section)})
 
 
 _CANCEL_SIGNALS: tuple[signal.Signals, ...] = (signal.SIGTERM,)

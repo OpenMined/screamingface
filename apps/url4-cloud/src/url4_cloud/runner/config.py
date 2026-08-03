@@ -41,6 +41,19 @@ DEFAULT_COMMAND_TIMEOUT_S = 120.0
 """Matches ``url4 serve``'s ``ServeConfig.timeout``, so the same url4.toml behaves the same
 under both runtimes. Per route, not global — see :class:`CommandSpec`."""
 
+DEFAULT_WEB_TOOL_MAX_ITERATIONS = 5
+"""Rounds a runner-driven tool loop may take before it gives up, when nothing declares it.
+
+MEASURED 2026-08-02 — `kimi-k2.6` spent all 5 rounds on tool calls and never returned content,
+for a trivial question with freely reachable sources, so on the Tavily loop this is a hard
+per-case failure rather than a safety margin. It stays 5 for a world that does not declare the
+key: raising it would change the cost profile of every existing tool-using world. A benchmark
+raises it in its own `url4.toml` (DRACO declares 12).
+
+Shared with the connector's :class:`AigatewayConfig` so the parsed default and the runtime
+default cannot drift — a mismatch there is invisible, since both spellings look declared.
+"""
+
 _AIGATEWAY_KEYS = frozenset(
     {
         "base_url",
@@ -111,12 +124,9 @@ class AigatewaySection:
     allow_outbound: bool = True
     timeout_s: float = 60.0
     # WHY declarable rather than a constant: the runner-driven tool loop posts once per ROUND, and
-    # a research answer legitimately takes more rounds than a lookup. MEASURED 2026-08-02 —
-    # `kimi-k2.6` spent all 5 default rounds on tool calls and never returned content, for a
-    # trivial question with freely reachable sources, so on the Tavily loop the default is a hard
-    # per-case failure rather than a safety margin. It stays 5 for everyone who does not declare
-    # it: raising the default would change the cost profile of every existing tool-using world.
-    web_tool_max_iterations: int = 5
+    # a research answer legitimately takes more rounds than a lookup. The default and the reason
+    # it stays 5 live on :data:`DEFAULT_WEB_TOOL_MAX_ITERATIONS`.
+    web_tool_max_iterations: int = DEFAULT_WEB_TOOL_MAX_ITERATIONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,7 +443,9 @@ def _parse_aigateway(table: Mapping[str, object], env: Mapping[str, str]) -> Aig
         models=models,
         allow_outbound=_bool(table, "allow_outbound", default=True),
         timeout_s=_float(table, "timeout_s", 60.0),
-        web_tool_max_iterations=_positive_int(table, "web_tool_max_iterations", 5),
+        web_tool_max_iterations=_positive_int(
+            table, "web_tool_max_iterations", DEFAULT_WEB_TOOL_MAX_ITERATIONS
+        ),
     )
     section = _apply_env(section, env)
     _require_declared(section.default_model, models)
