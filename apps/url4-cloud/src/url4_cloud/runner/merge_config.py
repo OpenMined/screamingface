@@ -94,12 +94,22 @@ def _strip_data_table(base_text: str) -> str:
     """Drop the base's own ``[data]`` section — its entries are re-emitted in the merged table.
 
     Only a top-level ``[data]`` header starts the section; it ends at the next top-level header.
+
+    INVARIANT: ``[[x]]`` is a top-level header and ENDS the section. It only ever failed to start
+    one, and the guard that expressed that (`not startswith("[[")`) was applied to the whole
+    decision — so an array-of-tables header left the flag untouched and its lines were dropped.
+    The base carries no ``[data]`` today, which is exactly why this stayed invisible: add one
+    above the model list and the merged image loses every ``[[aigateway.models]]`` after it.
+    ``_validate`` cannot catch the common case, because a SHORTER model list is still a valid
+    one — the build succeeds and the missing routes surface as `endpoint_not_found` at the first
+    expression that names them.
     """
     out: list[str] = []
     skipping = False
     for line in base_text.splitlines(keepends=True):
         stripped = line.strip()
-        if stripped.startswith("[") and not stripped.startswith("[["):
+        if stripped.startswith("["):
+            # `[[data]]` is an array-of-tables, a different construct — it must not start one.
             skipping = stripped == "[data]"
         if not skipping:
             out.append(line)
