@@ -8,6 +8,15 @@ from fastapi.testclient import TestClient
 from url4 import build, render
 from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
 from url4_cloud.benchmarks.draco.definition import REVISION, ROUTE_PREFIX
+from url4_cloud.benchmarks.ifeval.definition import (
+    CASE_COUNT as IFEVAL_CASE_COUNT,
+)
+from url4_cloud.benchmarks.ifeval.definition import (
+    REVISION as IFEVAL_REVISION,
+)
+from url4_cloud.benchmarks.ifeval.definition import (
+    ROUTE_PREFIX as IFEVAL_ROUTE_PREFIX,
+)
 from url4_cloud.rest.benchmarks import router
 
 pytestmark = pytest.mark.anyio
@@ -84,6 +93,35 @@ def test_draco_resource_contains_one_complete_candidate_independent_url4(
     assert "anthropic/claude-haiku" not in body["url4"]
     assert "protocol" not in body
     assert "plan" not in body
+
+
+def test_ifeval_resource_is_a_complete_judge_free_url4(client: TestClient) -> None:
+    response = client.get("/v1/benchmarks/ifeval?limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "schema": "screamingface.benchmark.v1",
+        "id": "ifeval",
+        "revision": IFEVAL_REVISION,
+        "case_count": 1,
+        "total_case_count": IFEVAL_CASE_COUNT,
+        # INVARIANT: the judge-free exam declares NO model requirement — grading is code.
+        "required_models": [],
+        "url4": body["url4"],
+    }
+    assert render(build(body["url4"])) == body["url4"]
+    assert "/candidate" in body["url4"]
+    assert "$item.input" in body["url4"]
+    assert f"{IFEVAL_ROUTE_PREFIX}/check" in body["url4"]
+    assert f"{IFEVAL_ROUTE_PREFIX}/aggregate" in body["url4"]
+    # No model node of any kind: the only routes are /candidate and the benchmark's own.
+    assert "openrouter/" not in body["url4"]
+    assert "judge" not in body["url4"]
+
+
+def test_ifeval_total_case_count_is_the_full_dataset(client: TestClient) -> None:
+    assert IFEVAL_CASE_COUNT == 541
 
 
 def test_limit_selects_cases_before_the_expression_is_returned(client: TestClient) -> None:

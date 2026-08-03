@@ -6,8 +6,9 @@ from pathlib import Path
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.definition import Benchmark
 from url4_cloud.benchmarks.draco.definition import DRACO
+from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 
-BENCHMARKS: dict[str, Benchmark] = {DRACO.id: DRACO}
+BENCHMARKS: dict[str, Benchmark] = {DRACO.id: DRACO, IFEVAL.id: IFEVAL}
 DEFAULT_BENCHMARK_ID = DRACO.id
 ASSETS_ENV = "URL4_BENCHMARK_ASSETS"
 DEFAULT_ASSETS_ROOT = Path("/opt/benchmarks")
