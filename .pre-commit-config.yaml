@@ -8,8 +8,17 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # VENDORED-VERBATIM EXCLUSION (OME-715). These two hooks REWRITE files, and the design-system
+      # reference is a byte-identical copy of brand.screamingface.ai. `end-of-file-fixer` appended a
+      # newline to tokens.json, which broke the `cmp`-against-upstream drift check that file exists
+      # to support — a one-byte edit that silently turned "verbatim" into "nearly verbatim".
+      #
+      # Vendored third-party content is not ours to format. Edit SKILL.md (our interpretation) or
+      # re-pull (upstream's content); never reformat in between.
       - id: trailing-whitespace
+        exclude: '^\.claude/skills/screamingface-design/reference/'
       - id: end-of-file-fixer
+        exclude: '^\.claude/skills/screamingface-design/reference/'
       - id: check-yaml
         args: [--allow-multiple-documents]
         exclude: '(^|/)templates/.*\.ya?ml$'   # Helm templates use Go-template syntax, not valid YAML

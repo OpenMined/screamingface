@@ -1,29 +1,33 @@
 import type { Metadata } from "next";
-import { Inter, Rubik } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 
 import { ThemeSwitch } from "./theme";
 
 import "./globals.css";
 
-// OMDS pairs Rubik (headings) with Inter (body). next/font self-hosts both at build time, so the
-// rendered page makes no request to a font CDN — upstream's typography.css carries a TODO to do
-// exactly that "before production". It matters here specifically: this console is internal tooling
-// behind Cloudflare Access, and a third-party request from an admin page is both a leak and a
-// failure mode.
+// SFDS v2 pairs IBM Plex Sans (UI, body, wordmark) with IBM Plex Mono (data, labels, IDs,
+// receipts). next/font self-hosts both at build time, so the rendered page makes no request to a
+// font CDN — the same posture the brand site takes, and it matters here specifically: this console
+// is internal tooling behind Cloudflare Access, so a third-party request from an admin page is
+// both a leak and a failure mode.
 //
-// The vendored token files reference these as var(--font-inter) / var(--font-rubik) rather than
-// the literal family names upstream hardcodes — the one documented divergence, see
-// src/brand/README.md.
-const inter = Inter({
+// PARASTOO IS DELIBERATELY ABSENT. It is v2's display face and is display/marketing-only; the
+// anti-rule is explicit — "never serif in product UI chrome, table cells, or buttons". This
+// console has no display type, so loading it would cost bytes for a face nothing may use. The
+// vendored `--f-display` points at Plex Sans instead. See src/brand/README.md.
+//
+// Weights follow v2's spec: Sans 400/500/600, Mono 500/600. Mono 400 is included because table
+// cells set data at regular weight.
+const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-inter",
+  weight: ["400", "500", "600"],
+  variable: "--font-plex-sans",
 });
 
-const rubik = Rubik({
+const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
-  weight: ["400"],
-  variable: "--font-rubik",
+  weight: ["400", "500", "600"],
+  variable: "--font-plex-mono",
 });
 
 export const metadata: Metadata = {
@@ -36,7 +40,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // `suppressHydrationWarning` because the served script below sets `data-theme` on this element
     // before React hydrates, so the client DOM legitimately differs from the server markup. Scoped
     // to <html> only — it does not mask a mismatch anywhere else.
-    <html lang="en" className={`${inter.variable} ${rubik.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${plexSans.variable} ${plexMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {/*
           Applies the stored theme BEFORE first paint. A React effect runs after paint, so the page

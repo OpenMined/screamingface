@@ -11,7 +11,7 @@
  * text) rather than generating one. That keeps the id stable across server render and hydration,
  * which a random id would not.
  *
- * Styling is class-only, against the OMDS tokens in `src/brand/tokens/tokens.css`; every class
+ * Styling is class-only, against the SFDS v2 tokens in `src/brand/tokens/tokens.css`; every class
  * used here is defined in `src/app/globals.css` under the "UI primitives" banner.
  */
 import * as React from "react";

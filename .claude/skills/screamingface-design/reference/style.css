@@ -1,7 +1,4 @@
 /* =====================================================================
-   SNAPSHOT 2026-06-11 from brand.screamingface.ai — canonical source is
-   the screamingface-brand repo. Re-pull if it diverges. Reference only.
-
    screamingface — brand system  ·  brand.screamingface.ai
    Aesthetic: infra-retro-modern. Square, hairline, monochrome-with-one-
    accent. Refined, not "vibe-coded" (see the anti-rules in the guide).
@@ -11,7 +8,8 @@
    into the interface — it contains no raw colors, sizes, or fonts.
 
    Type roles (the whole scale, deliberately few):
-     display  Garamond  --text-display   h1
+     hero     Parastoo  --text-hero      marketing hero only
+     display  Parastoo  --text-display   h1
      metric   Mono      --text-metric    big stat numbers
      lead     Sans      --text-lead      opening line
      body     Sans      --text-body      prose (incl. notes)
@@ -35,30 +33,46 @@ body {
 
 /* ---- top rail (infra header) -------------------------------------- */
 .rail {
-  position: sticky; top: 0; z-index: 20;
+  position: relative; z-index: 20;
   height: var(--rail-h); display: flex; align-items: center; gap: var(--space-4);
   padding: 0 var(--space-5); background: var(--bg);
   border-bottom: var(--border-hairline) solid var(--line);
   font-family: var(--f-mono); font-size: var(--text-micro);
 }
-.rail .brand { display: flex; align-items: center; gap: var(--space-2); color: var(--ink); font-family: var(--f-wordmark); font-weight: var(--weight-regular); letter-spacing: var(--tracking-tight); }
+/* the rail scrolls with the page, then re-pins to the top once scrolled past
+   (JS toggles .stuck + a spacer to hold its place) */
+.rail.stuck { position: fixed; top: 0; left: 0; right: 0; animation: rail-in .18s ease; }
+@keyframes rail-in { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .rail.stuck { animation: none; } }
+.rail .brand { display: flex; align-items: center; gap: var(--space-2); color: var(--ink); font-family: var(--f-wordmark); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-tight); }
 .rail .brand .m { font-size: var(--text-body); }
-.rail .sep { color: var(--ink-3); }
-.rail .crumbs { display: flex; gap: var(--space-4); color: var(--ink-3); }
+.rail .sep { color: var(--ink-2); }
+.rail .crumbs { display: flex; gap: var(--space-4); color: var(--ink-2); }
 .rail .crumbs a { color: var(--ink-2); text-decoration: none; }
 .rail .crumbs a:hover { color: var(--ink); }
 .rail .crumbs a.here { color: var(--ink); border-bottom: var(--border-hairline) solid var(--ink); }
 .rail .spacer { margin-left: auto; }
+/* the mode toggle is FIXED top-right so it travels with the user — the rail's
+   sticky is defeated by the page's overflow-x clipping, so the toggle pins itself.
+   Borderless: just the glyph on a surface pad for legibility over content. */
 .rail .toggle {
-  font-family: var(--f-mono); font-size: var(--text-micro); cursor: pointer;
-  background: none; border: var(--border-hairline) solid var(--line-2); color: var(--ink-2);
-  padding: var(--space-1) var(--space-2); line-height: 1; border-radius: var(--radius-none);
+  position: fixed; top: calc(var(--rail-h) / 2); right: var(--space-5); transform: translateY(-50%); z-index: 60;
+  font-family: var(--f-mono); font-size: var(--text-sm); cursor: pointer;
+  background: none; border: 0;
+  color: var(--ink-2); padding: 0; line-height: 1;
 }
-.rail .toggle:hover { color: var(--ink); border-color: var(--ink-2); }
+.rail .toggle:hover { color: var(--ink); }
 
 /* ---- column ------------------------------------------------------- */
 .wrap { max-width: var(--col); margin: 0 auto; padding: var(--space-8) var(--space-5) var(--space-12); }
 .wrap.wide { max-width: var(--col-wide); }
+
+/* ---- band: viewport-centered full-bleed break-out (can never overflow) -------------- */
+/* Full-bleed width, then pad so content caps at ~1140px and centers, with a min gutter on
+   narrow screens (viewport-relative, unlike a column-relative translate). Used by any section
+   inside .wrap that needs more width than the 760px prose column (color reference, model logos,
+   the type-registers demo). */
+.band { width: 100vw; margin-left: calc(50% - 50vw); padding-inline: max(var(--space-5), calc((100vw - 1140px) / 2)); }
 
 /* ---- type --------------------------------------------------------- */
 h1 {
@@ -67,19 +81,33 @@ h1 {
   line-height: var(--leading-tight); color: var(--ink); margin: 0 0 var(--space-4);
 }
 /* label role — the single treatment for every small caps label */
-h2, .eyebrow, .kicker, thead th, .stage-head, .deltawrap .k, .stats .k, .logo-cell .cap, .rules h4, #gate .t {
+.eyebrow, .kicker, thead th, .stage-head, .deltawrap .k, .stats .k, .logo-cell .cap, .rules h4, #gate .t {
   font-family: var(--f-mono); font-weight: var(--weight-semibold);
   font-size: var(--text-label); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--ink-3);
+  text-transform: uppercase; color: var(--ink-2);
 }
-h2 { margin: var(--space-9) 0 var(--space-4); padding-bottom: var(--space-2); border-bottom: var(--border-hairline) solid var(--line); }
-h3 { font-family: var(--f-sans); font-weight: var(--weight-semibold); font-size: var(--text-body); margin: var(--space-6) 0 var(--space-2); color: var(--ink); }
+/* headline hierarchy — hero (h1) > section (h2) > subsection (h3), all sans display.
+   mono is reserved for labels/kickers/data, so a section title reads louder than the
+   subsections inside it (fixes the old inversion where h2 was a mono micro-label). */
+h2 { font-family: var(--f-sans); font-weight: var(--weight-semibold); font-size: var(--text-display);
+     line-height: var(--leading-tight); color: var(--ink);
+     margin: var(--space-9) 0 var(--space-4); padding-bottom: var(--space-3);
+     border-bottom: var(--border-hairline) solid var(--line); }
+h3 { font-family: var(--f-sans); font-weight: var(--weight-semibold); font-size: var(--text-title); margin: var(--space-7) 0 var(--space-3); color: var(--ink); }
+/* paired subsection specs (clear space | minimum size) — two columns for space use */
+.mark-specs { display: grid; grid-template-columns: 0.92fr 1.08fr; gap: var(--space-6) var(--space-8); align-items: start; }
+.mark-specs > section > :first-child { margin-top: 0; }
+@media (max-width: 640px) { .mark-specs { grid-template-columns: 1fr; } }
 
 p { margin: 0 0 var(--space-4); }
 .lead { font-family: var(--f-sans); font-size: var(--text-lead); line-height: var(--leading-snug); color: var(--ink); letter-spacing: var(--tracking-tight); }
 small, .small { font-size: var(--text-sm); }
-.meta { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-3); }
-.faint { color: var(--ink-3); }
+.meta { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-2); }
+/* .faint — de-emphasized supporting prose (section deks). Uses the SECONDARY text role
+   (--ink-2 = --text-2, APCA Lc 60 contracted), NOT --ink-3: that's neutral-8, a border/
+   decoration step never contracted for reading (~WCAG 2.0 on light). Text only ever uses
+   the two contracted text roles — --ink (Lc 90) or --ink-2 (Lc 60). */
+.faint { color: var(--ink-2); }
 .mono { font-family: var(--f-mono); }
 strong, b { font-weight: var(--weight-semibold); color: var(--ink); }
 
@@ -100,18 +128,106 @@ pre {
   background: var(--surface); border: var(--border-hairline) solid var(--line);
   padding: var(--space-4) var(--space-5); overflow-x: auto; margin: 0 0 var(--space-4); color: var(--ink);
 }
-pre .ok { color: var(--gain); }
-pre .dim { color: var(--ink-3); }
+pre .ok { color: var(--gain-text-low); }
+pre .dim { color: var(--ink-2); }
+
+/* ---- typographic craft (systemic, not per-element vigilance) -------
+   balance: headings + deks never strand a widowed word on their last line.
+   pretty:  prose paragraphs/list items avoid orphans + poor breaks.
+   Progressive enhancement — older engines simply ignore these. */
+h1, h2, h3, h4, .lead, .kicker { text-wrap: balance; }
+p, li, .desc, .note { text-wrap: pretty; }
+
+/* ---- the o-mark logotype (system pattern) --------------------------
+   The 😱 mark set AS a lowercase o inside display serif type (e.g. "The l😱ok").
+   Metrics are derived from Parastoo's o at any size (em-relative, so it scales):
+   the WHOLE mark (face + hands) occupies the o's box with a whisker of optical
+   overshoot; bottom shared with the o; side margins ≈ the o's side bearings.
+   Use only in Parastoo display settings; never in product UI chrome. */
+.o-mark { height: .46em; width: auto; display: inline-block; vertical-align: baseline;
+  transform: translateY(.016em); margin: 0 .02em; }
+/* capital variant — the mark set AS a capital O (e.g. "S😱TA"): occupies the cap band,
+   baseline-shared with a whisker of overshoot, side margins ≈ a cap O's bearings. Never
+   set the raw OS emoji inside display type — its glyph box word-spaces the letters apart
+   and dips below baseline like a descender (kerning audit 2026-07-17). */
+.o-mark--cap { height: .66em; transform: translateY(.014em); margin: 0 .025em; }
 
 /* ---- masthead ----------------------------------------------------- */
-.masthead { margin-bottom: var(--space-1); }
-.masthead .eyebrow { display: block; margin-bottom: var(--space-3); }
+.masthead { margin-bottom: var(--space-10); padding-top: var(--space-7); }
+.masthead .eyebrow { display: block; margin-bottom: var(--space-6); }
 
 /* ---- kicker / note ------------------------------------------------ */
 .kicker { display: block; margin-bottom: var(--space-2); }
-.note { border: var(--border-hairline) solid var(--line); border-left: var(--border-strong) solid var(--ink); background: var(--surface); padding: var(--space-4); margin: 0 0 var(--space-4); font-size: var(--text-body); }
-.note.gain { border-left-color: var(--gain); }
-.note.gain .kicker { color: var(--gain); }
+/* .kv — page-level spec list. The cognitive-load rule made structural: a section
+   intro gets ~2 lines of prose; everything beyond that becomes one fact per row.
+   Mono keys, hairline-separated rows. (The terminal's .note-kv is its fixed-dark
+   sibling; this is the page-surface version.) */
+.kv { display: grid; grid-template-columns: max-content 1fr; margin: 0 0 var(--space-5); }
+.kv dt { font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase;
+  letter-spacing: .06em; color: var(--ink-2); padding: var(--space-2) var(--space-5) var(--space-2) 0;
+  white-space: nowrap; align-self: baseline; }
+.kv dd { margin: 0; padding: var(--space-2) 0; font-size: var(--text-sm); color: var(--ink-2); }
+.kv dt, .kv dd { border-top: var(--border-hairline) solid var(--line); }
+.kv > :nth-child(-n+2) { border-top: 0; }
+@media (max-width: 620px) {
+  .kv { grid-template-columns: 1fr; }
+  .kv dt { padding-bottom: 0; white-space: normal; }
+  .kv dd { border-top: 0; }
+}
+
+/* .note — the highlight box as a NATIVE macOS TERMINAL WINDOW.
+   A floating surface: --shadow-window (the ONE sanctioned shadow) instead of an
+   outline, --radius-window corners, traffic-light dots left, centered mono title,
+   and a FIXED-DARK body — this audience's terminals are dark in any OS theme.
+   The window-edge hairline is rgba-white so the window separates on dark pages
+   exactly the way macOS does. Optional <span class="note-cmd"> renders a prompt line. */
+.note { position: relative; border: 1px solid var(--terminal-line); border-radius: var(--radius-window);
+  overflow: hidden; background: var(--terminal-bg); color: var(--terminal-ink); box-shadow: var(--shadow-window);
+  padding: var(--space-4) var(--space-5) var(--space-5); margin: 0 0 var(--space-5);
+  font-family: var(--f-mono); font-size: var(--text-sm); line-height: var(--leading-snug); }
+.note b, .note strong { color: var(--terminal-strong); }
+.note > .kicker { display: flex; align-items: center; justify-content: center; position: relative;
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5)) var(--space-4);
+  padding: var(--space-2) var(--space-5); background: var(--terminal-chrome); border-bottom: 1px solid var(--terminal-line);
+  color: var(--terminal-deco); } /* decorative window-chrome label — quiet by design */
+/* traffic lights — monochrome (the window reads without the candy) */
+.note > .kicker::before { content: ""; position: absolute; left: var(--space-4); top: 50%; transform: translateY(-50%);
+  width: 10px; height: 10px; border-radius: 50%; background: var(--terminal-deco);
+  box-shadow: 17px 0 0 var(--terminal-deco), 34px 0 0 var(--terminal-deco); }
+.note .note-cmd { display: block; color: var(--terminal-dim); margin-bottom: var(--space-3); }
+.note .note-cmd::before { content: "$ "; color: var(--terminal-accent); }
+.note .note-title { margin: 0 0 var(--space-4); color: var(--terminal-strong); font-weight: var(--weight-semibold); }
+.note .note-line { margin: 0 0 var(--space-4); }
+.note .note-kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-5); margin: 0 0 var(--space-5); }
+.note .note-kv dt { color: var(--terminal-accent); white-space: nowrap; font-weight: var(--weight-semibold); /* weight-compensates the gold Lc-62 brand exception */ }
+.note .note-kv dd { margin: 0; }
+@media (max-width: 620px) {
+  .note .note-kv { grid-template-columns: 1fr; gap: var(--space-1) 0; }
+  .note .note-kv dt { white-space: normal; }
+  .note .note-kv dd { margin: 0 0 var(--space-3); }
+}
+/* .note-board — terminal-rendered sample leaderboard. The fusion gradient appears
+   exactly once, on the winning row's bar — the "win is the story" rule, demonstrated
+   in the same breath it's claimed. */
+.note .note-board { display: grid; gap: var(--space-2); margin: 0 0 var(--space-4); }
+/* fixed name column (not max-content) so every bar begins at the same left edge */
+.note .nb-row { display: grid; grid-template-columns: 1.5ch 16ch 1fr 4.5ch max-content; gap: var(--space-3); align-items: center; }
+.note .nb-rank { color: var(--terminal-dim); text-align: right; }
+.note .nb-name { color: var(--terminal-ink); }
+.note .nb-row--win .nb-name, .note .nb-row--win .nb-score { color: var(--terminal-strong); font-weight: var(--weight-semibold); }
+.note .nb-bar { height: 8px; background: var(--terminal-track); overflow: hidden; }
+.note .nb-bar i { display: block; height: 100%; background: var(--terminal-deco); }
+.note .nb-row--win .nb-bar i { background: var(--fusion-grad); }
+.note .nb-score { text-align: right; font-variant-numeric: tabular-nums; }
+.note .nb-receipt { color: var(--terminal-dim); }
+.note .nb-row--win .nb-receipt { color: var(--terminal-accent); }
+@media (max-width: 620px) { .note .nb-receipt { display: none; } }
+.note .note-close { margin: 0; color: var(--terminal-dim); }
+.note.gain > .kicker { color: var(--terminal-accent); }
+/* colors: the --terminal-* tokens reference family scales that already flip, so the
+   window is dark in dark mode and light in light mode. Elevation is the one thing that
+   must differ per theme — a soft cool shadow in light, the deeper one in dark. */
+[data-theme="dark"] .note { box-shadow: var(--shadow-window-dark); }
 
 /* ---- tables ------------------------------------------------------- */
 table { width: 100%; border-collapse: collapse; font-family: var(--f-mono); font-size: var(--text-sm); margin: 0 0 var(--space-5); }
@@ -121,6 +237,86 @@ tbody tr:hover { background: var(--surface); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.sota td { background: var(--gain-bg); }
 tr.sota td:first-child { box-shadow: inset var(--border-strong) 0 0 var(--gain); }
+/* horizontal-scroll shell for wide data tables — the page body never scrolls sideways;
+   the table does, inside its own container (responsive contract for board/receipt surfaces) */
+.table-wrap { overflow-x: auto; border: var(--border-hairline) solid var(--line); }
+.table-wrap > table { margin: 0; }
+.table-wrap > table th, .table-wrap > table td { padding: var(--space-3) var(--space-4); }
+
+/* ---- verified badge ----------------------------------------------- */
+/* The system's VERIFIED semantic: a run OpenMined independently reproduced. Green
+   (--success) — the canonical "this checks out / reproduced" color, matching the
+   guide's verified specimen. Deliberately NOT gold: gold (--gain) is rationed to
+   the WIN (the leading row, the SOTA counter) so the win is always the story; a
+   green pill can sit inside a gold-tinted winning row without the two competing.
+   Absence of the pill = unverified — never a red/negative treatment; unverified is
+   "not yet reproduced", not "wrong". */
+.badge-verified { display: inline-flex; align-items: center; gap: var(--space-1);
+  font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase;
+  letter-spacing: var(--tracking-label); padding: 2px var(--space-2);
+  color: var(--success-text-low); background: color-mix(in oklch, var(--success-solid) 15%, transparent);
+  border: var(--border-hairline) solid color-mix(in oklch, var(--success-solid) 55%, transparent); border-radius: var(--radius-none); }
+
+/* ---- SOTA signature badge ----------------------------------------- */
+/* The WIN announcement — the one badge that earns motion. All-caps mono, the letter
+   runs pulse gold<->blue in sync, and the wavy screaming-face mark (canvas.wave-mark,
+   driven by wave-mark.js) sits in place of the O. Gold is rationed to the win; this is
+   one of the few places it lives. Reduced-motion → static gold, no loop.
+   Markup: <span class="badge-sota"><span class="gt-flow">S</span><canvas class="wave-mark
+   gt-wave" data-src=".../sf-mark-wave.webp"></canvas><span class="gt-flow">TA</span></span> */
+.badge-sota { display: inline-flex; align-items: center; gap: 0; font-family: var(--f-mono);
+  font-size: var(--text-label); font-weight: var(--weight-semibold); letter-spacing: 0.06em;
+  text-transform: uppercase; padding: .35em .9em; color: var(--gold-11);
+  border: var(--border-hairline) solid var(--gold-11); border-radius: var(--radius-none);
+  animation: sota-pulse 7s ease-in-out infinite; }
+.badge-sota .gt-flow { color: inherit; }
+.badge-sota .gt-wave { height: 1.15em; width: 1.15em; display: inline-block; flex: none; margin: 0 -.08em; }
+@keyframes sota-pulse { 0%, 100% { color: var(--gold-11); border-color: var(--gold-11); }
+  50% { color: var(--blue-11); border-color: var(--blue-11); } }
+@media (prefers-reduced-motion: reduce) { .badge-sota { animation: none; color: var(--gold-11); border-color: var(--gold-11); } }
+
+/* ---- inline status ------------------------------------------------- */
+/* Sentence-case status word + a 1cap square as the ONLY state signal (caps stay
+   reserved for badge chips). .on = connected/live: green square with a translucent
+   glow halo. Off-state text drops to the whisper tone (one step below muted).
+   Markup: <span class="status on"><span class="sq"></span>connected</span> */
+.status { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-sans); font-size: var(--text-sm); color: var(--ink-2); }
+.status .sq { flex: 0 0 auto; width: 1cap; height: 1cap; background: var(--ink-3); display: inline-block; }
+.status.on .sq { background: var(--success-solid); box-shadow: 0 0 0 3px color-mix(in oklch, var(--success-solid) 24%, transparent); }
+.status:not(.on) { color: color-mix(in oklch, var(--ink-2) 64%, transparent); }
+
+/* ---- status mark: correct / incorrect ----------------------------- */
+/* A small square ✓/✗ with a geometric masked glyph (Remix check-line / close-line).
+   Green = correct (success), red = incorrect (danger) — mirrored construction so the two
+   read as a pair. Add .sm for the compact 14px size. */
+.markbox { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 16px; height: 16px; box-sizing: border-box; border: var(--border-hairline) solid; border-radius: var(--radius-none); }
+/* glyph is a FIXED even pixel size (not a %) so it lands dead-center in every instance —
+   fractional %-sizes rounded differently per position and drifted off-center */
+.markbox::before { content: ""; width: 10px; height: 10px; background: currentColor;
+  -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
+.markbox.sm { width: 14px; height: 14px; }
+.markbox.sm::before { width: 8px; height: 8px; }
+/* glyph color adapts per theme for contrast: light = the deep *-text-low (a solid glyph
+   washes out on a pale tint); dark = the vivid *-solid (pops on the dark tint) */
+.markbox--ok { color: var(--success-text-low); border-color: color-mix(in oklch, var(--success-solid) 55%, transparent); background: color-mix(in oklch, var(--success-solid) 15%, transparent); }
+.markbox--ok::before { -webkit-mask-image: url(/assets/remix/System/check-line.svg); mask-image: url(/assets/remix/System/check-line.svg); }
+.markbox--bad { color: var(--danger-text-low); border-color: color-mix(in oklch, var(--danger-solid) 55%, transparent); background: color-mix(in oklch, var(--danger-solid) 15%, transparent); }
+.markbox--bad::before { -webkit-mask-image: url(/assets/remix/System/close-line.svg); mask-image: url(/assets/remix/System/close-line.svg); }
+[data-theme="dark"] .markbox--ok { color: var(--success-solid); } /* lint-ok: icon-glyph — currentColor paints the masked mark, no text */
+[data-theme="dark"] .markbox--bad { color: var(--danger-solid); } /* lint-ok: icon-glyph — currentColor paints the masked mark, no text */
+
+/* ---- checkbox ----------------------------------------------------- */
+/* One control for every toggle: hidden native input + a drawn square that fills accent
+   (blue = interaction) with a geometric check when on. Pair with any label span. */
+.checkbox { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.checkbox input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.checkbox-box { flex: 0 0 auto; width: 14px; height: 14px; box-sizing: border-box; border-radius: var(--radius-none);
+  border: var(--border-hairline) solid var(--line-2); display: inline-flex; align-items: center; justify-content: center; }
+.checkbox input:checked + .checkbox-box { background: var(--accent-solid); border-color: var(--accent-solid); }
+.checkbox input:checked + .checkbox-box::after { content: ""; width: 9px; height: 9px; background: var(--accent-contrast-text);
+  -webkit-mask: url(/assets/remix/System/check-line.svg) center / contain no-repeat; mask: url(/assets/remix/System/check-line.svg) center / contain no-repeat; }
+.checkbox input:focus-visible + .checkbox-box { border-color: var(--accent-solid); outline: var(--border-hairline) solid var(--accent-solid); outline-offset: 1px; }
 
 /* ---- swatches ----------------------------------------------------- */
 .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: var(--border-hairline); background: var(--line); border: var(--border-hairline) solid var(--line); }
@@ -128,7 +324,7 @@ tr.sota td:first-child { box-shadow: inset var(--border-strong) 0 0 var(--gain);
 .swatch .chip { height: var(--space-10); border-bottom: var(--border-hairline) solid var(--line); }
 .swatch .m { font-family: var(--f-mono); font-size: var(--text-label); padding: var(--space-2); text-transform: none; letter-spacing: var(--tracking-normal); }
 .swatch .m b { display: block; }
-.swatch .m span { color: var(--ink-3); }
+.swatch .m span { color: var(--ink-2); }
 
 /* big-figure unit (the % set small + muted so the number leads) */
 .v .u, .big .u { font-size: 0.45em; font-weight: var(--weight-regular); opacity: 0.5; margin-left: 2px; letter-spacing: 0; }
@@ -139,20 +335,78 @@ tr.sota td:first-child { box-shadow: inset var(--border-strong) 0 0 var(--gain);
 
 /* logo / mark */
 .logo-row { display: flex; flex-wrap: wrap; border: var(--border-hairline) solid var(--line); margin: 0 0 var(--space-4); }
-.logo-cell { padding: var(--space-6) var(--space-7); border-right: var(--border-hairline) solid var(--line); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); text-align: center; flex: 1; min-width: 150px; }
+/* the mark gallery breaks out to the band; the border hugs the 1140 content
+   (band on a wrapper, not the row itself, or the border would span 100vw).
+   margin-block only — a margin shorthand here would zero .band's margin-left and kill the breakout */
+.logo-band { margin-block: var(--space-4); }
+.logo-band .logo-row { margin: 0; }
+.logo-cell { padding: var(--space-6) var(--space-5) var(--space-5); border-right: var(--border-hairline) solid var(--line); display: flex; flex-direction: column; align-items: center; text-align: center; flex: 1; min-width: 150px; }
 .logo-cell:last-child { border-right: 0; }
+/* every specimen — square emoji or wide lockup — centers in one fixed-height stage,
+   so all four sit on a common vertical band regardless of the specimen's own shape */
+.logo-cell .specimen { display: flex; align-items: center; justify-content: center; width: 100%; height: var(--space-11); margin-bottom: var(--space-5); }
 .logo-cell .big-mark { font-size: var(--space-10); line-height: 1; user-select: none; }
-.logo-cell img { width: 72px; height: 72px; }
-.logo-cell .cap { display: block; }
+/* caption is a deliberate two-line block (label / qualifier) — never a mid-phrase wrap */
+.logo-cell .cap { display: flex; flex-direction: column; gap: var(--space-1); line-height: 1.25; margin-bottom: var(--space-4); }
+.logo-cell .cap b { color: var(--ink-2); }
+/* download options — mono format tag + size links; the smallest is Slack-ready */
+.logo-cell .dl-opts { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-micro); }
+.logo-cell .dl-fmt { color: var(--ink-2); text-transform: uppercase; letter-spacing: .08em; }
+.logo-cell .dl { color: var(--ink-2); text-decoration: none; border: var(--border-hairline) solid var(--line-2); border-radius: var(--radius-none); padding: 2px var(--space-2); background: none; cursor: pointer; transition: border-color .12s, color .12s; }
+.logo-cell .dl:hover { color: var(--ink); border-color: var(--ink-3); }
+.logo-cell .dl--slack { position: relative; border-color: color-mix(in oklch, var(--gain) 45%, var(--line-2)); }
+.logo-cell .dl--slack::after { content: "slack"; color: var(--gain-text-low); text-transform: uppercase; letter-spacing: .06em; margin-left: var(--space-1); }
+.logo-cell .dl-copy.is-copied { color: var(--gain-text-low); border-color: var(--gain-text-low); }
+
+/* animated mark — the system 😱 emoji shaking with fear (no raster). em-based
+   transforms so the shake scales with font-size; respects reduced-motion. */
+.scream-shake { display: inline-block; transform-origin: center; animation: scream-shake 0.5s linear infinite; }
+@keyframes scream-shake {
+  0%, 100% { transform: rotate(0deg); }
+  9%  { transform: rotate(-11deg); }
+  18% { transform: rotate(10deg); }
+  27% { transform: rotate(-10deg); }
+  36% { transform: rotate(9deg); }
+  45% { transform: rotate(-8deg); }
+  54% { transform: rotate(7deg); }
+  63% { transform: rotate(-6deg); }
+  72% { transform: rotate(5deg); }
+  81% { transform: rotate(-4deg); }
+  90% { transform: rotate(3deg); }
+}
+/* wavy mark — "The Scream" horizontal ripple that travels downward. The emoji is
+   sliced into horizontal bands (built by the band-builder script); each band sways
+   left↔right and its phase increases down the glyph, so the wave propagates down.
+   Pure CSS transforms → animates reliably and loops with no seam. */
+.wave-emoji { position: relative; display: inline-block; line-height: 1; }
+.wave-emoji .wb-base { visibility: hidden; }
+.wave-emoji .wb { position: absolute; left: 0; top: 0; width: 100%; text-align: center; animation: wave-x 0.5s linear infinite; will-change: transform; }
+@keyframes wave-x {
+  0%    { transform: translateX(0); }
+  12.5% { transform: translateX(0.018em); }
+  25%   { transform: translateX(0.025em); }
+  37.5% { transform: translateX(0.018em); }
+  50%   { transform: translateX(0); }
+  62.5% { transform: translateX(-0.018em); }
+  75%   { transform: translateX(-0.025em); }
+  87.5% { transform: translateX(-0.018em); }
+  100%  { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) { .wave-emoji .wb { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .scream-shake { animation: none; } }
+/* specimen sizing (static PNG + wave canvas → one visible size; emoji via font-size)
+   lives with the page's other specimen scaffolding in index.html's head <style> */
 
 /* ---- anti-rules grid (do / don't) --------------------------------- */
-.rules { display: grid; grid-template-columns: 1fr 1fr; gap: var(--border-hairline); background: var(--line); border: var(--border-hairline) solid var(--line); font-size: var(--text-sm); }
-.rules > div { background: var(--bg); padding: var(--space-3); }
-.rules .no { border-top: var(--border-strong) solid var(--blind); }
-.rules .yes { border-top: var(--border-strong) solid var(--gain); }
+.rules { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); font-size: var(--text-sm); }
+.rules > div { padding: var(--space-3) 0 0; }
+/* the two brand poles bracket the guidance: gain gold on the left (never),
+   info blue on the right (instead) — same gold→blue direction as the fusion gradient */
+.rules .no { border-top: var(--border-strong) solid var(--gain); }
+.rules .yes { border-top: var(--border-strong) solid var(--info-solid); }
 .rules h4 { margin-bottom: var(--space-2); }
-.rules .no h4 { color: var(--blind); }
-.rules .yes h4 { color: var(--gain); }
+.rules .no h4 { color: var(--gain-text-low); }
+.rules .yes h4 { color: var(--info-text-low); }
 .rules ul { padding-left: var(--space-4); margin: 0; }
 .rules li { font-family: var(--f-sans); }
 @media (max-width: 620px) { .rules { grid-template-columns: 1fr; } }
@@ -160,7 +414,7 @@ tr.sota td:first-child { box-shadow: inset var(--border-strong) 0 0 var(--gain);
 /* ---- figure / chart ----------------------------------------------- */
 figure { margin: 0 0 var(--space-4); border: var(--border-hairline) solid var(--line); background: var(--bg); }
 figure svg { display: block; width: 100%; height: auto; }
-figcaption { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-3); padding: var(--space-2) var(--space-3); border-top: var(--border-hairline) solid var(--line); }
+figcaption { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-2); padding: var(--space-2) var(--space-3); border-top: var(--border-hairline) solid var(--line); }
 /* all chart text is mono/micro by default; bold via inline font-weight where needed */
 figure svg text { font-family: var(--f-mono); font-size: var(--text-micro); }
 /* svg theme hooks */
@@ -182,24 +436,36 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
 /* ---- climb (direction A) ------------------------------------------ */
 .climb { font-family: var(--f-mono); font-size: var(--text-sm); margin: var(--space-2) 0 var(--space-4); }
 .climb .row { display: grid; grid-template-columns: 210px 1fr 52px; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
-.climb .lbl { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.climb .lbl { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.6s ease; }
 .climb .track { display: block; background: var(--surface); border: var(--border-hairline) solid var(--line); height: 18px; overflow: hidden; }
 .climb .fill { display: block; height: 100%; }
 .climb .fill.base { background: var(--ink-3); opacity: 0.5; }
 .climb .fill.ens  { background: var(--ink-3); }
 .climb .fill.priv { background: var(--gain); opacity: 0.6; }
-.climb .fill.sota { background: var(--gain); }
-.climb .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.climb .fill.sota { background: var(--fusion-grad-flow); background-size: 200% 100%; background-position: 0 0; }
+.climb .row:hover .fill.sota { animation: sf-flow 14s linear infinite; }
+.climb .row:hover .lbl, .climb .row:hover .val { color: var(--gain-text-low); }
+
+/* Gradient flow on hover — the SF signature comes alive. Seamless because
+   --fusion-grad-flow is a gold→blue→gold palindrome tiled at 200%, so scrolling
+   background-position one full tile loops with no visible jump. */
+.fusion-flow { background: var(--fusion-grad-flow); background-size: 200% 100%; background-position: 0 0; }
+.fusion-flow:hover { animation: sf-flow 14s linear infinite; }
+@keyframes sf-flow { from { background-position: 0 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .climb .row:hover .fill.sota, .fusion-flow:hover { animation: none; }
+}
+.climb .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); transition: color 0.6s ease; }
 .stage-head { display: block; margin: var(--space-4) 0 var(--space-1); }
 
 /* ---- before/after delta (direction C) ----------------------------- */
 .deltawrap { display: grid; grid-template-columns: 1fr auto 1fr; border: var(--border-hairline) solid var(--line); font-family: var(--f-mono); margin: var(--space-1) 0 var(--space-4); }
 .deltawrap .cell { padding: var(--space-6) var(--space-5); }
-.deltawrap .cell.mid { display: flex; align-items: center; justify-content: center; border-left: var(--border-hairline) solid var(--line); border-right: var(--border-hairline) solid var(--line); background: var(--surface); font-size: var(--text-lead); color: var(--gain); }
+.deltawrap .cell.mid { display: flex; align-items: center; justify-content: center; border-left: var(--border-hairline) solid var(--line); border-right: var(--border-hairline) solid var(--line); background: var(--surface); font-size: var(--text-lead); color: var(--gain-text-low); }
 .deltawrap .k { display: block; }
 .deltawrap .big { font-size: var(--text-display); line-height: var(--leading-tight); margin: var(--space-2) 0 var(--space-1); font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
 .deltawrap .cell.before .big { color: var(--blind); }
-.deltawrap .cell.after .big { color: var(--gain); }
+.deltawrap .cell.after .big { color: var(--gain-text-low); }
 @media (max-width: 620px) { .deltawrap { grid-template-columns: 1fr; } .deltawrap .cell.mid { border: 0; border-top: var(--border-hairline) solid var(--line); border-bottom: var(--border-hairline) solid var(--line); } }
 
 /* ---- stat row (demo) ---------------------------------------------- */
@@ -207,27 +473,75 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
 .stats .s { padding: var(--space-4); border-right: var(--border-hairline) solid var(--line); }
 .stats .s:last-child { border-right: 0; }
 .stats .s .v { font-size: var(--text-metric); font-weight: var(--weight-semibold); margin-top: var(--space-2); font-variant-numeric: tabular-nums; color: var(--ink); }
-.stats .s .v.gain { color: var(--gain); }
+.stats .s .v.gain { color: var(--gain-text-low); }
 @media (max-width: 620px) { .stats { grid-template-columns: 1fr; } .stats .s { border-right: 0; border-bottom: var(--border-hairline) solid var(--line); } }
 
 /* ---- buttons / deep-link ------------------------------------------ */
-.btn { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-sm); padding: var(--space-2) var(--space-3); border: var(--border-hairline) solid var(--ink); background: var(--ink); color: var(--bg); text-decoration: none; cursor: pointer; border-radius: var(--radius-none); }
+/* SYSTEM RULE: every button carries the SAME border width regardless of variant — solid,
+   outline, and ghost all use --border-hairline. Solid/ghost keep it (colored or transparent)
+   so an outline button is never larger than a solid one (a border adds to an auto-width box
+   even under border-box). Never give a solid button `border: none`. */
+.btn { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); padding: var(--space-2) var(--space-3); border: var(--border-hairline) solid var(--ink); background: var(--ink); color: var(--bg); text-decoration: none; cursor: pointer; border-radius: var(--radius-none); } /* lint-ok: inverse-on-ink — bg-on-ink is the scale's endpoint pairing, max contrast by construction */
+/* secondary — the ladder's outline tier: the LABEL matches the OUTLINE (both the family's
+   text-low role), hover is the family's component tint (never a solid invert). Default
+   accent; add .gain for the gold/brand variant. */
+.btn--sec { display: inline-flex; align-items: center; gap: var(--space-2); --sec: var(--accent-text-low); --sec-h: var(--accent-component); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); background: none; color: var(--sec); border: var(--border-hairline) solid var(--sec); padding: var(--space-2) var(--space-4); text-decoration: none; cursor: pointer; border-radius: var(--radius-none); transition: background .12s; }
+.btn--sec:hover { background: var(--sec-h); }
+.btn--sec.gain { --sec: var(--gain-text-low); --sec-h: var(--gain-component); }
+/* primary action — the product register's filled-blue CTA. Accent-solid fill with
+   the gate-solved contrast foreground; the one "loud" button, for the positive/
+   forward action (connect, run, publish). Secondary/quiet actions use .btn.ghost. */
+.btn--primary { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); padding: var(--space-2) var(--space-4); background: var(--accent-solid); color: var(--accent-contrast-text); border: var(--border-hairline) solid var(--accent-solid); text-decoration: none; cursor: pointer; border-radius: var(--radius-none); transition: background .12s, border-color .12s; } /* lint-ok: contrast-text-on-accent-solid — the gate-solved solid-9 foreground, APCA >=58 by construction */
+.btn--primary:hover { background: var(--accent-solid-hover); border-color: var(--accent-solid-hover); }
+/* quiet link-button — a subtle secondary action (disconnect, revoke): a blue
+   underlined text control, no box. The lightest rung below .btn.ghost. */
+.btn--link { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--accent-text-low); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.btn--link:hover { color: var(--accent-text-high); }
+/* small size — matches a compact input's height; on any button variant */
+.btn.sm, .btn--sec.sm, .btn--primary.sm { font-size: var(--text-label); padding: var(--space-1) var(--space-3); }
+
+/* ---- status badge ------------------------------------------------- */
+/* a small state pill; --ok = the success/connected green (sibling of .badge-verified) */
+.badge { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-label); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: var(--tracking-label); padding: 1px var(--space-2); border: var(--border-hairline) solid var(--line); border-radius: var(--radius-none); line-height: 1.6; }
+/* THE STATUS-THEME RECIPE (one look per color, everywhere): text = *-text-low ·
+   glyph = *-solid (vivid) · border = 55% solid mix · tint bg = 15% solid mix.
+   .badge--*, .markbox--*, .badge-verified, and the widgets' answer cards all follow it. */
+.badge--ok { color: var(--success-text-low); background: color-mix(in oklch, var(--success-solid) 15%, transparent); border-color: color-mix(in oklch, var(--success-solid) 55%, transparent); }
+.badge--bad { color: var(--danger-text-low); background: color-mix(in oklch, var(--danger-solid) 15%, transparent); border-color: color-mix(in oklch, var(--danger-solid) 55%, transparent); }
+/* the SFDS square status indicator (1cap filled square, the SOLID status color — matches .sdot) */
+.badge .sq { flex: 0 0 auto; width: 1cap; height: 1cap; background: currentColor; display: inline-block; }
+.badge--ok .sq { background: var(--success-solid); }
+.badge--bad .sq { background: var(--danger-solid); }
+/* geometric ✓/✗ glyphs inside a themed badge (vivid solid, matching .markbox) */
+.badge .gl { flex: 0 0 auto; width: 1.5cap; height: 1.5cap; display: inline-block; background: currentColor;
+  -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
+.badge--ok .gl-check { background: var(--success-text-low); -webkit-mask-image: url(/assets/remix/System/check-line.svg); mask-image: url(/assets/remix/System/check-line.svg); }
+.badge--bad .gl-x { background: var(--danger-text-low); -webkit-mask-image: url(/assets/remix/System/close-line.svg); mask-image: url(/assets/remix/System/close-line.svg); }
+[data-theme="dark"] .badge--ok .gl-check { background: var(--success-solid); }
+[data-theme="dark"] .badge--bad .gl-x { background: var(--danger-solid); }
 .btn:hover { background: transparent; color: var(--ink); }
 .btn.ghost { background: transparent; color: var(--ink); }
 .btn.ghost:hover { background: var(--surface); }
 
+/* ---- email signup (connected input + button) --------------------- */
+.signup { display: flex; justify-content: center; max-width: 440px; margin: var(--space-6) auto var(--space-2); }
+.signup input { flex: 1 1 auto; min-width: 0; font-family: var(--f-mono); font-size: var(--text-sm); padding: var(--space-3); background: var(--bg); border: var(--border-hairline) solid var(--line-2); border-right: 0; color: var(--ink); outline: none; border-radius: var(--radius-none); }
+.signup input::placeholder { color: var(--ink-2); }
+.signup input:focus { border-color: var(--ink); }
+.signup .btn { padding: var(--space-3) var(--space-5); white-space: nowrap; }
+
 /* ---- footer ------------------------------------------------------- */
-.foot { margin-top: var(--space-10); padding-top: var(--space-4); border-top: var(--border-hairline) solid var(--line); font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); justify-content: space-between; }
+.foot { margin-top: var(--space-10); padding-top: var(--space-4); border-top: var(--border-hairline) solid var(--line); font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-2); display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); justify-content: space-between; }
 
 /* ---- gate --------------------------------------------------------- */
 #gate { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4); padding: var(--space-6); z-index: 100; }
 #gate .m { font-size: var(--space-9); }
-#gate .t { color: var(--ink-3); }
+#gate .t { color: var(--ink-2); }
 #gate form { display: flex; gap: var(--space-2); }
 #gate input { font-family: var(--f-mono); font-size: var(--text-sm); padding: var(--space-2) var(--space-3); background: var(--bg); border: var(--border-hairline) solid var(--line-2); color: var(--ink); outline: none; width: 200px; border-radius: var(--radius-none); }
 #gate input:focus { border-color: var(--ink); }
 #gate input.err { border-color: var(--blind); }
-#gate button { font-family: var(--f-mono); font-size: var(--text-sm); padding: var(--space-2) var(--space-4); background: var(--ink); color: var(--bg); border: var(--border-hairline) solid var(--ink); cursor: pointer; border-radius: var(--radius-none); }
+#gate button { font-family: var(--f-mono); font-size: var(--text-sm); padding: var(--space-2) var(--space-4); background: var(--ink); color: var(--bg); border: var(--border-hairline) solid var(--ink); cursor: pointer; border-radius: var(--radius-none); } /* lint-ok: inverse-on-ink */
 #gate .e { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--blind); height: 14px; }
 body.locked { overflow: hidden; }
 
