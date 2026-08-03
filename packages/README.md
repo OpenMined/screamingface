@@ -1,18 +1,17 @@
 # packages/ — shared libraries
 
-Convention: a `packages/<name>` is a library consumed by **≥2** components and
-is **not** independently deployed. Each package is self-contained (own
-toolchain, lockfile, CI lane) like an app, but publishes to a registry (PyPI,
-npm) instead of deploying.
+Convention: a `packages/<name>` is a reusable library and is **not** itself an independently
+deployed service. Each package is self-contained (toolchain, lockfile, CI lane) and may publish
+to a registry. Deployable integration code belongs under root `apps/` or in its owning repository.
 
 Apps must never import another app's internals — shared code moves here.
 
-## Planned residents
+## Current residents
 
-- **`url4-python-sdk`** — the url4 grammar/AST/resolver as a standalone SDK,
-  publishing to PyPI as `url4` (name already reserved on the OpenMined
-  account). Extraction source: the url4 executor plugin under
-  `apps/server/src/screamingface/plugins/url4_executor/` at the git tag
-  `legacy-monorepo-2026-07-08`.
-- A Node SDK is planned as `@openmind/url4` (the unscoped npm `url4` name is
-  taken).
+- **`url4`** — the Python URL4 grammar/parser, builders, DAG executor, I/O layers, `Url4Node`,
+  raw ASGI surface, and `url4 serve` / `url4 eval` CLI.
+- **`screamingface`** — the Python Fusion and benchmark SDK. It compiles work to URL4 and calls
+  only a configured ScreamingFace URL4 engine; benchmark data loading, grading, aggregation,
+  model dispatch, and tools are engine responsibilities.
+
+A Node SDK may be added later under a separately approved package and release contract.
