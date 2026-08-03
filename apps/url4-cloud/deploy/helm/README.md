@@ -12,8 +12,8 @@ namespace.
 `image:` block, so by default the two cannot drift out of version alignment.
 
 **Splitting the Runner image.** `runner.image` overrides it, for the one case that needs it: a
-benchmark image (`Dockerfile.benchmark`) bakes DRACO's dataset and private grading assets onto the
-base. The Runner executes the run and reads them; the control plane terminates
+benchmark image (`Dockerfile.benchmark`) bakes every registered dataset and its private grading
+assets onto the base. The Runner executes the run and reads them; the control plane terminates
 client connections, so private grading material on its disk is one bug away from reaching the
 client it is being withheld from.
 

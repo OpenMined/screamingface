@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
-# The BENCHMARK image — the url4-cloud Runner plus DRACO's prepared assets.
+# The BENCHMARK image — the url4-cloud Runner plus every registered benchmark's assets.
 #
 #   docker build -f apps/url4-cloud/Dockerfile -t url4-cloud:dev .
 #   docker build -f apps/url4-cloud/Dockerfile.benchmark \
 #       --build-arg BASE=url4-cloud:dev \
 #       -t url4-cloud-benchmark:dev .
 #
-# INVARIANT: the benchmark image carries DRACO's WHOLE dataset. There is deliberately no build
-# arg to truncate it.
+# INVARIANT: the benchmark image carries every registered Benchmark's WHOLE dataset. There is
+# deliberately no build arg to truncate any of them.
 #
 # WHY (removed 2026-08-02): run size is an EXPRESSION concern — `…!'case';iteration.slice=0:5`
 # picks how many declared cases a run touches, needs no rebuild, and lives inside the recipe
@@ -51,14 +51,16 @@ WORKDIR /app/apps/url4-cloud
 COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim /usr/local/bin/uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /app/apps/url4-cloud/.venv/bin/python --quiet "datasets>=2.19"
-RUN mkdir -p /opt/benchmarks/draco \
+RUN mkdir -p /opt/benchmarks/draco /opt/benchmarks/ifeval \
  && /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.benchmarks.draco.prepare \
-      --out /opt/benchmarks/draco
+      --out /opt/benchmarks/draco \
+ && /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.benchmarks.ifeval.prepare \
+      --out /opt/benchmarks/ifeval
 
 # --- runtime: the base image + the prepared assets -------------------------------------------
 FROM ${BASE} AS runtime
 LABEL org.opencontainers.image.title="url4-cloud-benchmark" \
-      org.opencontainers.image.description="url4-cloud Runner with DRACO Benchmark assets"
+      org.opencontainers.image.description="url4-cloud Runner with registered Benchmark assets"
 USER 0
 # `rubrics/` ships too — DRACO's installed runtime reads it off disk. It is deliberately NOT a
 # data route: the weights must be unreachable from an expression, or a judge prompt could be

@@ -79,7 +79,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.verify.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-  # The BENCHMARK image: the engine above plus DRACO's prepared assets.
+  # The BENCHMARK image: the engine above plus every registered Benchmark's prepared assets.
   # A Runner Job runs this when
   # `runner.image.repository` names it; the control plane never does, so a rubric never lands on
   # the pod that terminates client connections.

@@ -93,9 +93,11 @@ uv run url4-cloud   # serve on :9108 (`serve` is the default subcommand)
 ## Local mode
 
 ```sh
-# Prepare the pinned DRACO dataset once. The runtime never downloads benchmark data.
+# Prepare the pinned benchmark datasets once. The runtime never downloads benchmark data.
 uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare \
   --out /tmp/screamingface-benchmark-assets/draco
+uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare \
+  --out /tmp/screamingface-benchmark-assets/ifeval
 
 # Point the local Runner world at the prepared benchmark root.
 URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \
@@ -108,9 +110,11 @@ in either mode.
 
 `/opt/benchmarks` is the benchmark image's container path; it normally does not exist when running
 directly from a host checkout. `URL4_BENCHMARK_ASSETS` must name a root containing one directory
-per installed Benchmark, such as `draco/cases.json`. If `/tmp` is cleared, run the preparation
-command again. Preparation is deliberately separate from startup so a run cannot silently
-download a different dataset revision.
+per Benchmark Family, such as `draco/cases.json` and `ifeval/cases.json`. Canonical `ifeval`,
+`ifeval-corrective`, and `ifeval-corrective-ensemble` share the latter assets and family runtime
+while publishing distinct URL4 protocols. If `/tmp` is cleared, run the preparation command
+again. Preparation is deliberately separate from startup so a run cannot silently download a
+different dataset revision.
 
 No Kubernetes, no NATS: `InProcessJobRunner` spawns each run as an `asyncio` task and
 `InMemoryEventStream` carries its frames, with real sequence numbers, replay-from and purge.
@@ -166,11 +170,11 @@ docker build \
   .
 ```
 
-`Dockerfile.benchmark` downloads DRACO's pinned dataset during the build, prepares its runtime
-files under `/opt/benchmarks/draco`, discards the build-only dataset tooling, and sets
-`URL4_BENCHMARK_ASSETS=/opt/benchmarks` in the runtime image. The resulting image must be published
-where the cluster can pull it. Adding a Benchmark means adding its definition to the registry and
-its deterministic preparation command to this image.
+`Dockerfile.benchmark` downloads every registered Benchmark Family's pinned dataset during the
+build, prepares the runtime files under `/opt/benchmarks/<family-id>`, discards the build-only dataset
+tooling, and sets `URL4_BENCHMARK_ASSETS=/opt/benchmarks` in the runtime image. The resulting image
+must be published where the cluster can pull it. Adding a Benchmark therefore means adding its
+definition to the registry and its deterministic preparation command to this image.
 
 Select that image for Runner Jobs while leaving the control plane on the base image:
 

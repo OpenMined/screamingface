@@ -384,24 +384,9 @@ class _CandidateEndpoint:
 
 
 def _candidate_env(context: str) -> dict[str, str]:
-    """Bind the Candidate's lexical scope from the invocation context.
+    """Bind the sole Candidate input supplied by a Benchmark Invocation."""
 
-    Legacy single-slot invocations bind ``$input`` only. A two-slot invocation
-    (``case: <id>, input: <text>`` — case FIRST, so the parse is immune to the input
-    text's content) additionally binds ``$case``, letting candidate-side verifier
-    loops address the benchmark's check route (OME-727).
-    """
-
-    raw = context or ""
-    if raw.startswith("case: "):
-        # Slot-packed form (DAG lowering) uses newlines; the surface form keeps the
-        # comma. The case value is an id (never contains either separator), so taking
-        # the FIRST separator leaves the input text verbatim regardless of content.
-        for separator in ("\ninput: ", ", input: "):
-            head, found, rest = raw.partition(separator)
-            if found:
-                return {"input": rest, "case": head[len("case: ") :].strip()}
-    return {"input": raw}
+    return {"input": context or ""}
 
 
 def _register_candidate(node: Url4Node, max_invocations: int) -> None:
@@ -790,7 +775,10 @@ def _raise_if_unusable(choice: _Choice) -> None:
         )
     if not choice.tool_calls and choice.content is None:
         raise ResolutionError(
-            "malformed aigateway response", code="aigateway_bad_response", permanent=True
+            "aigateway returned neither answer content nor tool calls; the model may have "
+            "exhausted its completion budget before producing an answer",
+            code="aigateway_bad_response",
+            permanent=True,
         )
 
 

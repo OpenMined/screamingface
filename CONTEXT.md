@@ -12,6 +12,14 @@ _Avoid_: Run, execution
 An Engine-owned evaluation protocol comprising Cases, Candidate Invocations, Grading, and Aggregation.
 _Avoid_: Test, dataset
 
+**Benchmark Family**:
+A named group of Benchmark Variants that share research material or deterministic runtime assets; a Family is organizational and is not itself executable.
+_Avoid_: Benchmark directory, manifest
+
+**Benchmark Variant**:
+One independently identified and revisioned Benchmark protocol within a Benchmark Family. The canonical protocol is also a Variant.
+_Avoid_: Method, mode, option
+
 **Candidate**:
 A Model or Fusion submitted to a Benchmark for evaluation.
 _Avoid_: Ensemble when referring to both Models and Fusions

@@ -8,6 +8,19 @@ from fastapi.testclient import TestClient
 from url4 import build, render
 from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
 from url4_cloud.benchmarks.draco.definition import REVISION, ROUTE_PREFIX
+from url4_cloud.benchmarks.ifeval.corrective import (
+    IFEVAL_CORRECTIVE,
+    MAX_ATTEMPTS,
+)
+from url4_cloud.benchmarks.ifeval.definition import (
+    CASE_COUNT as IFEVAL_CASE_COUNT,
+)
+from url4_cloud.benchmarks.ifeval.definition import (
+    REVISION as IFEVAL_REVISION,
+)
+from url4_cloud.benchmarks.ifeval.definition import (
+    ROUTE_PREFIX as IFEVAL_ROUTE_PREFIX,
+)
 from url4_cloud.rest.benchmarks import router
 
 pytestmark = pytest.mark.anyio
@@ -41,13 +54,16 @@ def test_listing_returns_stable_benchmark_links(client: TestClient) -> None:
     by_id = {entry["id"]: entry for entry in body["data"]}
     assert set(by_id) == set(BENCHMARKS)
     for key, entry in by_id.items():
-        assert entry == {
+        expected: dict[str, object] = {
             "object": "benchmark",
             "id": key,
+            "family": BENCHMARKS[key].family,
+            "variant": BENCHMARKS[key].variant,
             "title": BENCHMARKS[key].title,
             "description": BENCHMARKS[key].description,
             "href": f"/v1/benchmarks/{key}",
         }
+        assert entry == expected
 
 
 def test_listing_is_publicly_cacheable_with_a_validator(client: TestClient) -> None:
@@ -68,6 +84,8 @@ def test_draco_resource_contains_one_complete_candidate_independent_url4(
     assert body == {
         "schema": "screamingface.benchmark.v1",
         "id": "draco",
+        "family": "draco",
+        "variant": "canonical",
         "revision": REVISION,
         "case_count": 1,
         "total_case_count": 100,
@@ -84,6 +102,58 @@ def test_draco_resource_contains_one_complete_candidate_independent_url4(
     assert "anthropic/claude-haiku" not in body["url4"]
     assert "protocol" not in body
     assert "plan" not in body
+
+
+def test_ifeval_is_the_complete_canonical_judge_free_url4(client: TestClient) -> None:
+    response = client.get("/v1/benchmarks/ifeval?limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "schema": "screamingface.benchmark.v1",
+        "id": "ifeval",
+        "family": "ifeval",
+        "variant": "canonical",
+        "revision": IFEVAL_REVISION,
+        "case_count": 1,
+        "total_case_count": IFEVAL_CASE_COUNT,
+        # INVARIANT: the judge-free exam declares NO model requirement — grading is code.
+        "required_models": [],
+        "url4": body["url4"],
+    }
+    assert render(build(body["url4"])) == body["url4"]
+    assert body["url4"].count("/candidate") == 1
+    assert "$item.input" in body["url4"]
+    assert f"{IFEVAL_ROUTE_PREFIX}/check" in body["url4"]
+    assert f"{IFEVAL_ROUTE_PREFIX}/aggregate" in body["url4"]
+    # No model node of any kind: the only routes are /candidate and the benchmark's own.
+    assert "openrouter/" not in body["url4"]
+    assert "judge" not in body["url4"]
+
+
+def test_ifeval_total_case_count_is_the_full_dataset(client: TestClient) -> None:
+    assert IFEVAL_CASE_COUNT == 541
+
+
+def test_ifeval_corrective_is_a_distinct_complete_protocol(client: TestClient) -> None:
+    response = client.get("/v1/benchmarks/ifeval-corrective?limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema"] == "screamingface.benchmark.v1"
+    assert body["id"] == "ifeval-corrective"
+    assert body["family"] == "ifeval"
+    assert body["variant"] == "corrective"
+    assert body["revision"] == IFEVAL_CORRECTIVE.revision
+    assert body["required_models"] == []
+    assert body["total_case_count"] == IFEVAL_CASE_COUNT
+    assert render(build(body["url4"])) == body["url4"]
+    # Three unrolled attempts: the candidate answers and is checked three times per case.
+    assert body["url4"].count("/candidate") == MAX_ATTEMPTS
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        assert f"$item.id:{attempt}" in body["url4"]
+    assert body["url4"].count("!'feedback'") == MAX_ATTEMPTS - 1
+    assert "openrouter/" not in body["url4"]
 
 
 def test_limit_selects_cases_before_the_expression_is_returned(client: TestClient) -> None:
