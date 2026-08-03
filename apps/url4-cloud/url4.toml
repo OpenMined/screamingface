@@ -121,6 +121,23 @@ web_tools = true
 [[aigateway.models]]
 id = "openrouter/google/gemini-3.1-pro-preview"
 
+# The small-model lineup notebooks 06/07 evaluate (Fusion members and the
+# CorrectiveEnsemble's SLM members, OME-727). Seeded in aigateway's dev defaults;
+# `test_declared_models_match_aigateway.py` keeps the two lists honest — these four
+# were previously seeded but undeclared, which made catalog checks pass and execution
+# fail (recon finding, 2026-08-03).
+[[aigateway.models]]
+id = "openrouter/google/gemini-3-flash-preview"
+
+[[aigateway.models]]
+id = "openrouter/moonshotai/kimi-k2.6"
+
+[[aigateway.models]]
+id = "openrouter/deepseek/deepseek-v4-pro"
+
+[[aigateway.models]]
+id = "openrouter/qwen/qwen3.6-plus"
+
 # Benchmark-owned deterministic routes are installed in-process from the Python registry.
 # Keep this file focused on operator-declared model routes; Benchmark definitions own their
 # versioned routes and private asset locations.

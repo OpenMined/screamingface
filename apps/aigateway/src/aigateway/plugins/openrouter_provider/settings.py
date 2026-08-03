@@ -59,6 +59,14 @@ def _default_model_slugs() -> list[str]:
         # seeded here rather than left to a deployment. `apps/url4-cloud/url4.toml` declares the
         # matching route; `test_declared_models_match_aigateway.py` fails if the two drift.
         "openrouter/google/gemini-3.1-pro-preview",
+        # The small-model lineup the example notebooks evaluate (Fusion members and
+        # CorrectiveEnsemble members). Previously only env-seeded by the dev script,
+        # which let catalog checks pass while execution failed (OME-729). All present
+        # in the live OpenRouter catalog on 2026-08-03; re-check at release.
+        "openrouter/google/gemini-3-flash-preview",
+        "openrouter/moonshotai/kimi-k2.6",
+        "openrouter/deepseek/deepseek-v4-pro",
+        "openrouter/qwen/qwen3.6-plus",
     ]
 
 
