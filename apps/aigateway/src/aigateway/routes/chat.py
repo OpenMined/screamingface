@@ -149,8 +149,9 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # INVARIANT (§57): this merged body is the ONE body used for both the key and
         # the dispatch, so the two cannot describe different requests.
         body, default_paths = _apply_defaults(body, key_defaults, plugin)
-        # AIDEV-NOTE: this must not be wrapped in ``in_transaction()`` — see the module
-        # docstring of ``chat_cache_stage`` for the measured failure.
+        # AIDEV-NOTE: do not wrap this in ``in_transaction()``. On Postgres, a failed
+        # cache SELECT or hit-metadata UPDATE aborts the outer transaction even though
+        # this stage converts the failure to a bypass, poisoning later route statements.
         cache_outcome = await look_up_global_cache(
             request, body=body, plugin=plugin, controls=cache_controls
         )

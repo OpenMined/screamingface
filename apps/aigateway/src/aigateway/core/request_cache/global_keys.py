@@ -333,9 +333,9 @@ def build_global_cache_key(
         return dto
     try:
         canonical = canonical_key_material(dto)
+        key_hash = _sha256(canonical)
     except (CanonicalizationError, TypeError, ValueError):
         return CacheBypass(BYPASS_CANONICALIZATION)
-    key_hash = _sha256(canonical)
     return GlobalCacheKeyResult(
         key_hash=key_hash,
         key_version=KEY_VERSION_V2,

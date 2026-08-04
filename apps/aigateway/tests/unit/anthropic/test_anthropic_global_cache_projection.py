@@ -39,6 +39,7 @@ from typing import Any
 import pytest
 
 from aigateway.core.cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
+from aigateway.core.request_cache.global_keys import GlobalCacheKeyResult, build_global_cache_key
 from aigateway.plugins.anthropic_provider import chat_handler
 from aigateway.plugins.anthropic_provider.chat_handler import (
     claude_code_attribution_revision,
@@ -64,6 +65,19 @@ def _project(**overrides: Any) -> dict[str, Any]:
     produced = AnthropicProviderPlugin().global_cache_projection(_body(**overrides))
     assert not isinstance(produced, CacheBypass), produced
     return produced
+
+
+def _key(**overrides: Any) -> str:
+    plugin = AnthropicProviderPlugin()
+    built = build_global_cache_key(
+        provider="anthropic",
+        body=_body(**overrides),
+        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=None),
+        projection=plugin.global_cache_projection,
+        provider_auth_modes=plugin.available_auth_modes(),
+    )
+    assert isinstance(built, GlobalCacheKeyResult), built
+    return built.key_hash
 
 
 # --- the closed shape --------------------------------------------------------
@@ -149,6 +163,45 @@ def test_the_projection_agrees_with_what_prepare_chat_body_actually_does() -> No
         assert ("reasoning_effort" in prepared_body) == ("reasoning_effort" in projected)
         if "reasoning_effort" in projected:
             assert projected["reasoning_effort"] == prepared_body["reasoning_effort"]
+
+
+# --- keyed-rule coverage -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "first", "second"),
+    [
+        ("stop", ["alpha"], ["beta"]),
+        ("max_tokens", 32, 64),
+        ("top_p", 0.2, 0.8),
+    ],
+)
+def test_two_anthropic_requests_differing_only_in_one_keyed_value_never_share_a_key(
+    path: str, first: Any, second: Any
+) -> None:
+    assert _key(**{path: first}) != _key(**{path: second})
+
+
+def test_every_anthropic_keyed_path_has_an_explicit_key_difference_proof() -> None:
+    """Ruling 7: every keyed path is represented by a named value-sensitive test."""
+    plugin = AnthropicProviderPlugin()
+    keyed = {
+        rule.request_path
+        for rule in plugin.chat_parameter_rules(model=_MODEL, auth_type=None)
+        if rule.cache_behavior == "keyed"
+    }
+    assert keyed == {"reasoning_effort", "temperature", "max_tokens", "top_p", "stop"}
+
+
+def test_api_key_only_top_k_publishes_an_honest_cache_bypass() -> None:
+    plugin = AnthropicProviderPlugin()
+    rule = next(
+        rule
+        for rule in plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key")
+        if rule.request_path == "provider_params.top_k"
+    )
+    assert rule.applicable_auth_modes == ("api_key",)
+    assert rule.cache_behavior == "bypass"
 
 
 # --- purity ------------------------------------------------------------------

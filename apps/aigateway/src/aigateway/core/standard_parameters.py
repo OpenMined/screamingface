@@ -125,9 +125,8 @@ def provider_native_rule(
     # full rationale (owner decision 52). This factory carries an extra hazard worth
     # naming: a ``provider_params.*`` rule restricted to SOME of the provider's auth
     # modes can never actually be keyed, because the key is built before any credential
-    # exists. ``global_eligibility`` refuses it with ``BYPASS_MODE_RESTRICTED`` rather
-    # than trusting the declaration, so declaring ``keyed`` on a mode-restricted path
-    # is legal but inert — Anthropic's ``provider_params.top_k`` is exactly that case.
+    # exists. Owner decision 59 therefore requires such a rule to declare ``bypass``;
+    # the mode-restriction check in ``global_eligibility`` remains defence in depth.
     """
     return ParameterProjectionRule(
         request_path=request_path,

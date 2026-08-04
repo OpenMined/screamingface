@@ -1143,6 +1143,23 @@ The Anthropic cross-mode matrix now uses a genuine `auth_type="api_key"` connect
 OAuth connection for both fill/read directions. Each direction proves that the reader performs no
 provider dispatch and no auth-specific body preparation. Linear OME-305 was intentionally not updated.
 
+## Owner ruling 59 — mode-restricted parameters bypass the global cache
+
+The owner confirmed that Anthropic `provider_params.top_k` remains available for `api_key` only.
+OAuth forwarding is still unproven and must not be enabled without separate provider evidence.
+
+The global cache key is built before auth-mode and credential resolution and must remain identical
+across callers. A parameter whose `applicable_auth_modes` is narrower than the provider's complete
+`available_auth_modes()` therefore cannot honestly declare `cache_behavior="keyed"`: the pre-auth
+stage can neither know that this caller will use the supported mode nor partition the key by that
+identity-derived fact. Such a rule must declare `bypass`; the runtime mode-restriction guard remains
+defence in depth.
+
+This ruling clarifies rulings 7 and 52. Their requirement to key reviewed output-affecting parameters
+applies where the auth-independent key can represent the parameter safely. Anthropic's API-key-only
+`top_k` is the explicit exception: its request remains dispatchable under API-key auth but bypasses
+the global cache. Do not widen it to OAuth merely to make caching reachable.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** v2 plaintext persistence in `core/request_cache/store.py`; static configured

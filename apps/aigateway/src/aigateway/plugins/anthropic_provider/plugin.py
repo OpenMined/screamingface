@@ -210,10 +210,10 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         ``GLOBAL_CACHE_ADAPTER_REVISION`` unconditionally, so changing the scheme
         abandons every entry rather than re-serving old ones under new attribution.
 
-        AIDEV-NOTE: ``prepared`` deliberately does NOT describe ``top_k``. It is this
-        provider's only ``provider_native`` rule and it is api-key-only, so the core's
-        mode-restriction guard can never key it — describing it here would suggest a
-        promotion that is not reachable.
+        AIDEV-NOTE: ``prepared`` deliberately does NOT describe ``top_k``. Owner
+        decision 59 keeps this api-key-only parameter as a cache bypass because the
+        key is built before auth resolution; describing it here would overstate the
+        auth-independent projection.
         """
         model = body.get("model")
         if not isinstance(model, str) or not model.startswith(_GATEWAY_MODEL_PREFIX):

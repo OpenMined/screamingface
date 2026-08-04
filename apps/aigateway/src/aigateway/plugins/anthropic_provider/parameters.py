@@ -16,7 +16,8 @@ Auth-mode split (§6.3 — Anthropic offers BOTH api-key and OAuth):
   SUBSCRIPTION path's native-param forwarding is uncaptured in v1 and §6.3 forbids
   credentialed discovery, so OAuth "cannot prove it". It therefore surfaces ENABLED
   in the api-key detailed contract but is DROPPED from the inline summary
-  intersection. Promoting it for OAuth later needs only a captured-body proof.
+  intersection. Because the global key is built before auth resolution, its presence
+  bypasses the cache. Promoting it for OAuth later needs a captured-body proof.
 
 # AIDEV-NOTE: the caller-facing wrapper ``provider_params.top_k`` matches OpenRouter
 # for client consistency; only the projection TARGET is provider-specific (top-level
@@ -50,15 +51,11 @@ _AUTH: tuple[AuthMode, ...] = ("api_key", "oauth")
 # top_k: proven through the DIRECT api-key transform only (OAuth subscription path
 # uncaptured in v1) — so it is authorized under api_key alone.
 _API_KEY_ONLY: tuple[AuthMode, ...] = ("api_key",)
-# AIDEV-NOTE (OME-305, owner decision B — READ BEFORE CHANGING A ``cache_behavior``).
-# The output-affecting rules below state ``cache_behavior="keyed"`` EXPLICITLY: their
-# values change the response, so they must be in the global fingerprint or two callers
-# who sent different values would share one entry. This provider is one of only two
-# that carry keyed rules, and the reason is a PRECONDITION rather than a preference —
-# it implements ``global_cache_projection``. A provider without that port bypasses at
-# the projection step no matter what its rules say, so ``keyed`` there would advertise
-# a cacheable parameter that can never be cached (see the sibling note in the
-# non-projecting providers' rule files).
+# AIDEV-NOTE (OME-305, owner decisions 52 and 59 — READ BEFORE CHANGING A
+# ``cache_behavior``). Output-affecting rules available under every Anthropic auth mode
+# are keyed. The api-key-only ``top_k`` is the deliberate exception: the global key is
+# built before auth resolution, so it must bypass rather than advertise an unreachable
+# keyed contract. A provider without ``global_cache_projection`` also cannot key rules.
 #
 # ``tools`` and ``tool_choice`` are NOT keyed anywhere and must stay that way: their
 # presence bypasses structurally, ahead of any rule, via ``PRESENCE_BYPASS_REASONS``.
@@ -146,7 +143,7 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         provider_target="top_k",
         auth_modes=_API_KEY_ONLY,
         schema=TOP_K_SCHEMA,
-        cache_behavior="keyed",
+        cache_behavior="bypass",
         projection_revision=_REVISION,
     ),
     # OME-583: tools + tool_choice (enabled under both auth modes, §9 proof above).

@@ -357,6 +357,21 @@ async def test_hit_metadata_failure_still_returns_the_hit(store, monkeypatch) ->
     assert await store.get_global(_KEY) == _RESPONSE
 
 
+@pytest.mark.asyncio
+async def test_unexpected_hit_metadata_failure_still_returns_the_hit(store, monkeypatch) -> None:
+    """Plan §5.4 — metadata is best-effort after the response is validated."""
+    await store.set_if_absent(_global_write())
+
+    async def _broken_update(*_args, **_kwargs) -> int:
+        raise RuntimeError("unexpected metadata update failure")
+
+    monkeypatch.setattr(
+        "aigateway.core.request_cache.store.record_global_hit_metadata", _broken_update
+    )
+
+    assert await store.get_global(_KEY) == _RESPONSE
+
+
 # --- write failure -------------------------------------------------------------------------------
 
 
@@ -541,8 +556,8 @@ async def test_a_global_row_with_a_past_expiry_is_refused_without_being_rewritte
 
     AIDEV-NOTE: the refusal is a MISS (``None``), so the route dispatches and then tries to fill —
     and the fill returns ``race_lost``, because the create-only writer will not replace an existing
-    row. An expired global row is therefore inert until some unrelated v1 write's opportunistic
-    ``delete_expired()`` reclaims it. Worth revisiting if the deferred v2 TTL lands.
+    row. No runtime v1 writer currently invokes the opportunistic purge, so the occupied row remains
+    inert indefinitely. Refill semantics belong to the deferred v2 TTL work.
     """
     await store.set_if_absent(_global_write())
     await RequestCacheEntry.filter(key_hash=_KEY).update(

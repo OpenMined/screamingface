@@ -180,7 +180,7 @@ async def look_up_global_cache(
         # INVARIANT: a read failure is a BYPASS, never a miss. Reporting a miss would
         # send the route on to write into a store that has just failed to read.
         logger.warning(
-            "global cache unavailable on read provider=%s model=%s key=%s…",
+            "global cache unavailable on read provider=%s model=%r key=%s…",
             plan.key.provider,
             plan.key.model,
             plan.key.key_hash[:KEY_PREFIX_LENGTH],
@@ -195,7 +195,7 @@ async def look_up_global_cache(
     if cached is None:
         return GlobalCacheOutcome(status="miss", reason="", key=plan.key)
     logger.info(
-        "global cache hit provider=%s model=%s key=%s…",
+        "global cache hit provider=%s model=%r key=%s…",
         plan.key.provider,
         plan.key.model,
         plan.key.key_hash[:KEY_PREFIX_LENGTH],
@@ -279,7 +279,7 @@ async def store_global_response(
         # Shape only, never content: that a response lacked a finish_reason is a
         # structural fact, whereas any excerpt of it would be response plaintext.
         logger.info(
-            "global cache fill skipped: incomplete response provider=%s model=%s key=%s…",
+            "global cache fill skipped: incomplete response provider=%s model=%r key=%s…",
             key.provider,
             key.model,
             key.key_hash[:KEY_PREFIX_LENGTH],
@@ -310,7 +310,7 @@ async def store_global_response(
         # Size only, never content: the byte count of an oversized response is a
         # capacity fact, whereas any excerpt of it would be response plaintext.
         logger.info(
-            "global cache fill skipped: response too large provider=%s model=%s key=%s… bytes=%d",
+            "global cache fill skipped: response too large provider=%s model=%r key=%s… bytes=%d",
             key.provider,
             key.model,
             key.key_hash[:KEY_PREFIX_LENGTH],
@@ -335,14 +335,14 @@ async def store_global_response(
         # A write failure after a successful dispatch must still return that response
         # (plan §8 #16). The caller is unaffected; only the fill is lost.
         logger.warning(
-            "global cache write failed provider=%s model=%s key=%s…",
+            "global cache write failed provider=%s model=%r key=%s…",
             key.provider,
             key.model,
             key.key_hash[:KEY_PREFIX_LENGTH],
         )
         return "not_stored"
     logger.info(
-        "global cache fill %s provider=%s model=%s key=%s… bytes=%d",
+        "global cache fill %s provider=%s model=%r key=%s… bytes=%d",
         written,
         key.provider,
         key.model,

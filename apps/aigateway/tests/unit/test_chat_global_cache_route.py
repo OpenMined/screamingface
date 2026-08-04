@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from functools import partial
 from typing import Any, Literal, cast
@@ -13,7 +14,7 @@ from fastapi.testclient import TestClient
 from aigateway.core.cache_ports import CACHE_UNAVAILABLE_REASON, PUBLISHED_CACHE_REASONS
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.request_cache import CacheUnavailable, GlobalRequestCacheWrite
-from aigateway.core.request_cache.global_keys import KEY_VERSION_V2
+from aigateway.core.request_cache.global_keys import BYPASS_CANONICALIZATION, KEY_VERSION_V2
 from aigateway.core.request_cache.models.request_cache_entry import RequestCacheEntry
 from aigateway.core.request_cache.store import GLOBAL_SENTINEL
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -226,6 +227,64 @@ def test_a_store_that_cannot_be_read_yields_a_bypass_and_never_a_500(
     # INVARIANT: a read failure is a BYPASS, not a miss — so NO write was attempted.
     assert store.set_calls == []
     assert "X-AIGW-Cache-Write" not in resp.headers
+
+
+def test_a_surrogate_in_the_prompt_bypasses_instead_of_failing_the_request(
+    credential_blobs, cache_client
+) -> None:
+    _arrange_account(cache_client, credential_blobs)
+    counter = _DispatchCounter()
+    body = _chat_body(messages=[{"role": "user", "content": "cut " + chr(0xD800)}])
+    with patch(_PATCH_TARGET, counter):
+        response = cache_client.post(
+            _CHAT_PATH,
+            content=json.dumps(body, ensure_ascii=True).encode("ascii"),
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["X-AIGW-Cache"] == "bypass"
+    assert response.headers["X-AIGW-Cache-Reason"] == BYPASS_CANONICALIZATION
+    assert len(counter.calls) == 1
+
+
+def test_cache_failure_logs_escape_caller_controlled_model_newlines(
+    credential_blobs, cache_client, caplog
+) -> None:
+    _arrange_account(cache_client, credential_blobs)
+    _install(cache_client, _ContractStore(get_raises=CacheUnavailable("read failed")))
+    forged_marker = "FORGED-CACHE-LOG-LINE"
+    model = f"anthropic/claude-haiku-4-5\n{forged_marker}"
+
+    with caplog.at_level(logging.WARNING, logger="aigateway.routes.chat_cache_stage"):
+        response = cache_client.post(_CHAT_PATH, json=_chat_body(model=model))
+
+    assert response.status_code < 500, response.text
+    messages = [
+        record.getMessage() for record in caplog.records if forged_marker in record.getMessage()
+    ]
+    assert messages, "the test did not exercise the caller-controlled model log"
+    assert all("\n" not in message for message in messages)
+
+
+def test_cache_on_does_not_hide_invalid_parameter_validation(
+    credential_blobs, cache_client
+) -> None:
+    _arrange_account(cache_client, credential_blobs)
+    counter = _DispatchCounter()
+    with patch(_PATCH_TARGET, counter):
+        fill = cache_client.post(_CHAT_PATH, json=_chat_body())
+        invalid = cache_client.post(
+            _CHAT_PATH,
+            json=_chat_body(unknown_field_entirely=1),
+        )
+
+    assert fill.status_code == 200, fill.text
+    assert fill.headers["X-AIGW-Cache"] == "miss"
+    assert invalid.status_code == 400, invalid.text
+    assert invalid.headers.get("X-AIGW-Cache") != "hit"
+    assert len(counter.calls) == 1, "the invalid request must not replay or dispatch"
+    assert cache_client.portal.call(RequestCacheEntry.all().count) == 1
 
 
 def test_a_closed_gate_bypasses_without_attempting_a_write(credential_blobs, cache_client) -> None:

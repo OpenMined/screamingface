@@ -194,7 +194,7 @@ async def test_an_unmigrated_database_reports_not_stored_rather_than_a_lost_race
 
 @pytest.mark.asyncio
 async def test_0009_drops_not_null_on_a_populated_database_without_touching_indexes() -> None:
-    """Plan §4.2 steps 3–5 on the dialect that takes the declarative path.
+    """Plan §4.2 steps 3–4 on the dialect that takes the declarative path.
 
     Postgres needs no table rebuild, so migration 0009's index restoration is deliberately a no-op
     here. That makes the index set a falsifiable claim: if the Postgres path ever started rebuilding

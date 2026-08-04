@@ -76,13 +76,13 @@ _WRAPPER_PREFIX = "provider_params."
 # rather than estimated. Stated so a DROP reads as a regression rather than as a pass —
 # the failure mode is a sweep that keeps passing while examining nothing.
 #
-# 75 of 186 swept instances (40%), contributed by the two providers that implement
-# ``global_cache_projection``: 24 anthropic, 51 openrouter. The other five contribute
+# 72 of 186 swept instances (39%), contributed by the two providers that implement
+# ``global_cache_projection``: 21 anthropic, 51 openrouter. The other five contribute
 # zero BY RULING (owner decision 51 ships two providers; the rest keep the bypassing
 # base default), so a low provider count here is intended and a low INSTANCE count is
-# not. Before decision B this was 15 of 186 — if you are updating this number
-# DOWNWARD, that is the regression this constant exists to catch, not a stale figure.
-_OBSERVED_NON_BYPASS_INSTANCES = 75
+# not. Owner decision 59 deliberately removed the three model instances of Anthropic's
+# api-key-only ``top_k`` because a pre-auth key cannot honor a mode-restricted promise.
+_OBSERVED_NON_BYPASS_INSTANCES = 72
 
 
 def _non_bypass_instances() -> list[tuple[Any, str, Any]]:
@@ -164,6 +164,23 @@ def test_every_non_bypass_rule_uses_an_addressing_form_the_key_builder_can_see()
         examined += 1
         reachable = "." not in rule.request_path or rule.request_path.startswith(_WRAPPER_PREFIX)
         assert reachable, (plugin.custom_llm_provider, model, rule.request_path)
+    assert examined, "examined no non-bypass rule; this sweep proved nothing"
+
+
+def test_every_non_bypass_rule_applies_in_every_mode_its_provider_offers() -> None:
+    """Owner ruling 59: the pre-auth cache cannot key a mode-restricted rule."""
+    examined = 0
+    for plugin, model, rule in _non_bypass_instances():
+        examined += 1
+        provider_modes = set(plugin.available_auth_modes())
+        assert provider_modes <= set(rule.applicable_auth_modes), (
+            plugin.custom_llm_provider,
+            model,
+            rule.request_path,
+            rule.cache_behavior,
+            provider_modes,
+            rule.applicable_auth_modes,
+        )
     assert examined, "examined no non-bypass rule; this sweep proved nothing"
 
 

@@ -381,6 +381,57 @@ def test_every_reviewed_control_is_covered_by_a_key_difference_test() -> None:
     assert {control.leaf for control in ROUTING_CONTROLS} == covered | {"sort"}
 
 
+@pytest.mark.parametrize(
+    ("path", "first", "second"),
+    [
+        ("seed", 1, 2),
+        ("response_format", {"type": "text"}, {"type": "json_object"}),
+        ("n", 1, 2),
+        ("logprobs", False, True),
+        ("top_logprobs", 1, 2),
+        ("stop", ["alpha"], ["beta"]),
+        ("max_tokens", 32, 64),
+        ("temperature", 0.2, 0.8),
+        ("frequency_penalty", 0.1, 0.2),
+        ("presence_penalty", 0.1, 0.2),
+    ],
+)
+def test_two_openrouter_requests_differing_only_in_one_keyed_value_never_share_a_key(
+    path: str, first: Any, second: Any
+) -> None:
+    assert _key(**{path: first}) != _key(**{path: second})
+
+
+def test_every_openrouter_keyed_path_has_an_explicit_key_difference_proof() -> None:
+    """Ruling 7: the tables in this module account for every keyed path."""
+    plugin = _plugin()
+    keyed = {
+        rule.request_path
+        for rule in plugin.chat_parameter_rules(model=_MODEL, auth_type=None)
+        if rule.cache_behavior == "keyed"
+    }
+    covered_by_two_values = {
+        "seed",
+        "response_format",
+        "n",
+        "logprobs",
+        "top_logprobs",
+        "stop",
+        "max_tokens",
+        "temperature",
+        "frequency_penalty",
+        "presence_penalty",
+        "top_p",
+        "provider_params.max_price_prompt",
+        "provider_params.max_price_completion",
+        "provider_params.data_collection",
+        "provider_params.zdr",
+        "provider_params.top_k",
+    }
+    # `sort` has one valid value and is pinned by presence versus absence above.
+    assert keyed == covered_by_two_values | {"provider_params.sort"}
+
+
 def test_the_two_price_ceilings_are_keyed_independently() -> None:
     # A ceiling on the prompt is not a ceiling on the completion; collapsing them
     # would serve a completion-capped answer to a prompt-capped request.

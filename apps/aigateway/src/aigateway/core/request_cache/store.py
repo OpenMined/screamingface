@@ -143,7 +143,8 @@ class TortoiseRequestCacheStore:
     # INVARIANT (OME-305): v1 behaviour is FROZEN. The availability gate and the global lane's
     # never-delete policy apply to the v2 methods only. v1 rows are legacy — readable, unreachable
     # from v2 (§8 #17) — and changing how they are purged or gated is out of this ticket's scope.
-    # The only OME-305 edit here is the NULL-safe expiry comparison, which removes a TypeError path.
+    # OME-305 made two owner-approved v1 corrections: the NULL-safe expiry comparison and the
+    # narrowed corrupt-entry catch, so unrelated programming errors no longer delete a row.
 
     async def get(
         self, key_hash: str, *, max_age_seconds: int | None = None
@@ -228,9 +229,9 @@ class TortoiseRequestCacheStore:
     # --- global v2 lane --------------------------------------------------------------------------
 
     async def get_global(self, key_hash: str) -> dict[str, Any] | None:
-        """Look up one global row. ``None`` is a genuine miss; every failure raises.
+        """Look up one global row. ``None`` means no currently serveable row; every failure raises.
 
-        INVARIANT: ``None`` means "no such row" and nothing else.
+        INVARIANT: an absent or expired row is a miss; read and decode failures raise.
         """
         if not self._availability.cache_available():
             # WHY raise rather than return None: `None` is this module's documented miss signal, and
@@ -287,7 +288,9 @@ class TortoiseRequestCacheStore:
 
         try:
             await record_global_hit_metadata(row.id, datetime.now(UTC))
-        except _INFRASTRUCTURE_ERRORS as exc:
+        except Exception as exc:
+            # WHY broad only here: the response is already decoded and validated. Metadata is
+            # best-effort, so no ordinary update failure may discard a hit already in hand.
             logger.warning(
                 "global cache hit metadata was not recorded (%s); serving the hit anyway",
                 type(exc).__name__,

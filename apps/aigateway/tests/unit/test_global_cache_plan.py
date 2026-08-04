@@ -108,9 +108,9 @@ class _BrokenRules(_Plugin):
 class _ModeRestricted(_Plugin):
     """Offers two auth modes, but its keyed rule applies in only one of them.
 
-    This is the shape Anthropic's api-key-only ``provider_params.top_k`` will take
-    the moment scope B promotes it: a real provider offering both credential types
-    with a parameter that exists in only one of them.
+    No shipped provider may publish this shape after owner ruling 59. It remains a
+    core fail-safe fixture so a third-party or future rule-table bug bypasses rather
+    than under-keying a request before auth resolution.
     """
 
     custom_llm_provider = "restricted"
