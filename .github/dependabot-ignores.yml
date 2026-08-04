@@ -1,0 +1,87 @@
+# Why every `ignore:` in .github/dependabot.yml exists — in a form a machine can re-check.
+#
+# An ignore rule is a promise that something upstream is broken. Promises rot: when the blocker
+# lifts, nothing notices, and a tree stays pinned majors behind for a reason that expired months
+# ago. This file makes each promise checkable, and `.claude/scripts/audit_dependabot_ignores.py`
+# checks it.
+#
+# INVARIANT: strict 1:1 with dependabot.yml. Every ignore needs an entry here; every entry needs a
+# matching ignore. The audit FAILS on either mismatch — that is our own inconsistency and is always
+# fixable on the spot. A merely *liftable* ignore only warns, because failing a PR because upstream
+# shipped a release would train people to disable the check.
+#
+# blocker kinds:
+#   npm_peer   — read `package`'s peer range for `peer` from the npm registry. Liftable when that
+#                range admits the ignored version.
+#   ci_matrix  — read `matrix_key` from `workflow`. Liftable when the matrix covers the ignored
+#                version. Use this when WE are the blocker, not upstream — say so plainly.
+ignores:
+  - directory: /apps/aigateway-ui
+    dependency: typescript
+    versions: ">=6"
+    ticket: OME-742
+    blocker:
+      kind: npm_peer
+      package: openapi-typescript
+      peer: typescript
+    note: >-
+      openapi-typescript caps at peer typescript ^5.x and has no TS6/7 build. Note it is MANUAL
+      codegen — absent from every npm script, output committed at src/lib/aigateway/schema.d.ts —
+      so OME-742 can also lift this by dropping it from devDependencies entirely, without waiting
+      for upstream.
+
+  - directory: /apps/aigateway-ui
+    dependency: eslint
+    versions: ">=10"
+    ticket: null
+    blocker:
+      kind: npm_peer
+      package: eslint-plugin-react
+      peer: eslint
+    note: >-
+      ESLint 10 crashes eslint-plugin-react (contextOrFilename.getFilename is not a function). It
+      is bundled inside eslint-config-next, which declares peer eslint ">=9.0.0" at both 16.2.12
+      and 16.3.0 — a range it does not honor. Checking eslint-plugin-react directly rather than
+      eslint-config-next, because the config's range is wrong and would report a false lift.
+
+  # NOTE: /public-docs `typescript >=7` is NOT listed here yet — it arrives with #503 (OME-748),
+  # which is still open. That PR must add BOTH its ignore and its entry here in the same change,
+  # or this audit will fail on drift, correctly. Deliberately not stacked: this repo squash-merges
+  # and stacked PRs have caused a branch to miss main before.
+  #   blocker when added: npm_peer / typescript-eslint / peer `typescript`
+  #   (refuses TS 7 outright; bound is >=7 NOT >=6, because public-docs is already on ~6.0.0 and
+  #    is capped by a different package than aigateway-ui — do not unify the two.)
+
+  - directory: /apps/url4-cloud
+    dependency: python
+    versions: ">=3.14"
+    ticket: OME-747
+    blocker:
+      kind: ci_matrix
+      workflow: .github/workflows/url4-cloud-tests.yml
+      matrix_key: python-version
+    note: >-
+      NOT upstream-blocked. Python 3.14 works; we simply do not test against it. Lifting this is
+      our own decision — extend the matrix — not something to wait on.
+
+  - directory: /apps/aigateway
+    dependency: python
+    versions: ">=3.14"
+    ticket: OME-747
+    blocker:
+      kind: ci_matrix
+      workflow: .github/workflows/aigateway-tests.yml
+      matrix_key: python-version
+    note: >-
+      NOT upstream-blocked; see the url4-cloud entry. Extending this matrix is what lifts it.
+
+  - directory: /apps/scoreboard
+    dependency: python
+    versions: ">=3.14"
+    ticket: OME-747
+    blocker:
+      kind: ci_matrix
+      workflow: .github/workflows/scoreboard-tests.yml
+      matrix_key: python-version
+    note: >-
+      NOT upstream-blocked; see the url4-cloud entry. Extending this matrix is what lifts it.
