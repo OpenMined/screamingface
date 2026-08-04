@@ -8,6 +8,11 @@ repo := justfile_directory() / "../.."
 default:
     @just --list
 
+# Sync the SDK venv and open JupyterLab in examples/ (run just stack-up first)
+jupyter:
+    uv sync --extra notebook
+    uv run jupyter lab examples
+
 # Start AI Gateway (:9105) and url4-cloud engine (:9108) in the background
 stack-up:
     #!/usr/bin/env bash
@@ -75,3 +80,4 @@ stack-logs:
 stack-prepare:
     cd {{repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare --out {{assets}}/draco
     cd {{repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare --out {{assets}}/ifeval
+

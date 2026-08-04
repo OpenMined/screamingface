@@ -156,14 +156,11 @@ judge on `ifeval-iterative-correction`."""
         nbformat.v4.new_markdown_cell(
             """## Before running
 
-AI Gateway on `127.0.0.1:9105`, Engine on `127.0.0.1:9108`. For a host-local Engine,
-prepare IFEval's pinned cases first:
+AI Gateway on `127.0.0.1:9105`, Engine on `127.0.0.1:9108`. From `packages/screamingface/`:
 
 ```bash
-uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare \\
-  --out /tmp/screamingface-benchmark-assets/ifeval
-URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \\
-  uv run url4-cloud serve --local
+just stack-prepare   # once — downloads the pinned benchmark cases
+just stack-up        # gateway :9105 + engine :9108 (logs: just stack-logs)
 ```"""
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
@@ -171,19 +168,18 @@ URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \\
         nbformat.v4.new_markdown_cell(
             """## The Candidates
 
-Three small models and one Fusion. Note the Fusion's synthesizer is also a member —
-the paper's winning ensemble is shaped exactly like this (its judge doubles as a
-member)."""
+Two models and one Fusion. The Fusion's synthesizer is also a member — the
+winning ensemble of Skurikhin et al. ([Ens-1]) is shaped exactly like this: two
+members, with the judge doubling as one of them."""
         ),
         nbformat.v4.new_code_cell(
-            """kimi = sf.Model("openrouter/moonshotai/kimi-k2.6", params={"max_tokens": 16384})
-deepseek = sf.Model("openrouter/deepseek/deepseek-v4-pro")
-qwen = sf.Model("openrouter/qwen/qwen3.6-plus")
+            """kimi = sf.Model("openrouter/moonshotai/kimi-k3", params={"max_tokens": 4096})
+haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
 
 fusion = sf.Fusion(
-    [kimi, deepseek, qwen],
-    name="kimi-deepseek-qwen",
-    synthesizer="openrouter/moonshotai/kimi-k2.6",
+    [kimi, haiku],
+    name="kimi-haiku",
+    synthesizer="openrouter/moonshotai/kimi-k3",
 )
 fusion"""
         ),
