@@ -18,8 +18,9 @@ any other node failure.
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
@@ -71,6 +72,27 @@ class Usage:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelResponse:
+    """Emitted once per model round trip, carrying HOW that call ended.
+
+    Deliberately separate from :class:`Usage` rather than fields on it: `Usage`
+    is token accounting, and embedders derive cost frames from it, so a finish
+    reason there would put a non-cost fact into cost accounting. A node may emit
+    several of these — a tool-calling turn is several round trips against one
+    span — so consumers keep the sequence rather than overwriting.
+
+    ``finish_reason`` is the provider's own value, normalized upstream to the
+    OpenAI vocabulary (``stop`` | ``length`` | ``content_filter`` |
+    ``tool_calls``); ``refusal`` is the provider's refusal text when it sends
+    one. Both are optional because not every provider reports either.
+    """
+
+    span_id: str | None
+    finish_reason: str | None
+    refusal: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class RunFinished:
     """Emitted once, after the top-level run settles (success or failure)."""
 
@@ -78,7 +100,9 @@ class RunFinished:
     engine_seq: int
 
 
-ObservationEvent = RunStarted | NodeStarted | NodeFinished | Log | Usage | RunFinished
+ObservationEvent = (
+    RunStarted | NodeStarted | NodeFinished | Log | Usage | ModelResponse | RunFinished
+)
 
 
 @runtime_checkable
@@ -121,16 +145,67 @@ def current_usage_sink() -> UsageSink | None:
     return _usage_sink.get()
 
 
+ResponseSink = Callable[..., None]  # matches ExecutionContext.report_response's kwargs:
+# (*, finish_reason: str | None, refusal: str | None) -> None
+
+_response_sink: contextvars.ContextVar[ResponseSink | None] = contextvars.ContextVar(
+    "url4_response_sink", default=None
+)
+
+
+def current_response_sink() -> ResponseSink | None:
+    """The response sink bound to the currently-resolving node's span, or
+    ``None`` when no observer is attached / outside a node resolve.
+
+    The :class:`ModelResponse` counterpart of :func:`current_usage_sink`, bound
+    by the same executor hook with the same per-:class:`asyncio.Task` scoping.
+    WHY a second sink rather than widening the usage one: a world adapter learns
+    a call's finish reason even when the provider reports no usage at all, and
+    the two facts have different lifetimes on the wire.
+    """
+    return _response_sink.get()
+
+
+@contextlib.contextmanager
+def _bind_node_sinks(usage: UsageSink, response: ResponseSink) -> Iterator[None]:
+    """Bind both ctx-less sinks to the currently-resolving node, for the duration
+    of its own ``resolve`` only.
+
+    Lives here rather than in the executor because the ContextVars are this
+    module's private state — the executor should not have to reach into them to
+    scope a binding it does not own. Takes the two bound methods rather than an
+    ``ExecutionContext`` so this module stays the dependency-free leaf its
+    docstring promises (``url4.dag.node`` imports *this*, never the reverse).
+
+    INVARIANT: no cross-talk between concurrent siblings. ContextVar values are
+    copied into each :class:`asyncio.Task`'s context at creation, so every
+    sibling node sees its own binding, never another's.
+
+    INVARIANT: neither binding outlives the node's resolve — both are reset on
+    the success path and the failure path alike.
+    """
+    usage_token = _usage_sink.set(usage)
+    response_token = _response_sink.set(response)
+    try:
+        yield
+    finally:
+        _usage_sink.reset(usage_token)
+        _response_sink.reset(response_token)
+
+
 __all__ = [
     "Log",
+    "ModelResponse",
     "NodeFinished",
     "NodeStarted",
     "NullObserver",
     "ObservationEvent",
     "Observer",
+    "ResponseSink",
     "RunFinished",
     "RunStarted",
     "Usage",
     "UsageSink",
+    "current_response_sink",
     "current_usage_sink",
 ]
