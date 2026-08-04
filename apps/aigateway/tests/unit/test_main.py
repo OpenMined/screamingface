@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi import APIRouter
+from fastapi.testclient import TestClient
 
 
 @pytest.mark.asyncio
@@ -79,4 +80,13 @@ def test_create_app_mounts_provider_auth_router(monkeypatch) -> None:
     monkeypatch.setattr(main_module, "load_plugins", _load_plugins)
 
     app = main_module.create_app()
-    assert any(getattr(route, "path", None) == "/v1/auth/dummy/ping" for route in app.routes)
+
+    # WHY: FastAPI 0.141 stopped flattening included routers into `app.routes` — it stores
+    # lazy `_IncludedRouter` wrappers instead, so the previous `route.path` scan found
+    # nothing even though the endpoint served normally. Asserting through a real request is
+    # strictly stronger than the scan it replaces: it proves the route is reachable and
+    # serving, not merely that an object sits in a list. See OME-735.
+    # INVARIANT: a plugin's auth_router is mounted under /v1/auth/<custom_llm_provider>.
+    response = TestClient(app).get("/v1/auth/dummy/ping")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}

@@ -109,6 +109,13 @@ _D6_CONTROL_FIELDS = {
     "braintrust_host",
     "slack_webhook_url",
     "lunary_public_key",
+    # OME-735: litellm 1.95 added the Datadog dynamic-callback params. Mirrors the same
+    # four names added to _CALLBACK_DYNAMIC_FIELDS in request_hardening.py. This pin is a
+    # deliberate review checkpoint — the control plane only grows through it.
+    "dd_api_key",
+    "dd_agent_host",
+    "dd_agent_port",
+    "dd_site",
 }
 
 

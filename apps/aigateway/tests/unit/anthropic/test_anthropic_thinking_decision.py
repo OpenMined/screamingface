@@ -137,10 +137,19 @@ def test_the_budget_table_matches_the_installed_transform() -> None:
     registered = [entry.model_name for entry in settings.models]
     efforts = [value for value in (REASONING_EFFORT_SCHEMA.enum or ()) if value != "none"]
 
+    # WHY: litellm 1.94 added `custom_llm_provider` as a required parameter here. It did
+    # NOT replace `llm_provider`, which still defaults to "anthropic" — so passing
+    # "anthropic" reproduces the pre-upgrade call exactly rather than changing what is
+    # being asserted. See OME-735.
+    # AIDEV-NOTE: `_map_reasoning_effort` is a litellm PRIVATE method, which is why a
+    # routine minor bump breaks this gate. If it breaks again, re-anchor onto the public
+    # `litellm.get_optional_params` already used further down this file.
     manual: dict[str, dict[str, int]] = {}
     for model in registered:
         for effort in efforts:
-            mapped = AnthropicConfig._map_reasoning_effort(effort, model)
+            mapped = AnthropicConfig._map_reasoning_effort(
+                effort, model, custom_llm_provider="anthropic"
+            )
             assert mapped is not None
             budget = mapped.get("budget_tokens")
             if budget is None:
@@ -158,7 +167,10 @@ def test_disabling_thinking_really_emits_no_budget() -> None:
     from litellm.llms.anthropic.chat.transformation import AnthropicConfig
 
     for model in MANUAL_THINKING_MODELS:
-        assert AnthropicConfig._map_reasoning_effort("none", model) is None
+        assert (
+            AnthropicConfig._map_reasoning_effort("none", model, custom_llm_provider="anthropic")
+            is None
+        )
 
 
 def test_litellm_raises_max_tokens_only_when_the_caller_omits_it() -> None:
