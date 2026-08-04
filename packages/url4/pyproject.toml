@@ -104,5 +104,5 @@ dev = [
 # `graphviz` also needs the system Graphviz binary: `apt install graphviz` /
 # `brew install graphviz`.
 notebook = [
-    "graphviz>=0.20",
+    "graphviz>=0.21",
 ]
