@@ -165,3 +165,17 @@ already was. Recorded in the config comment so the two are not "tidied" into one
 This entire failure was caught by the `public-docs` lane added in `OME-738` (#484). Before that
 lane existed — five hours ago — #497 would have merged into `public-docs` with **nothing checking
 it**, exactly as #460 and #432 did.
+
+### Follow-on after OME-749 merged (#505)
+
+`OME-749` landed the ignore audit while this PR was open, and the audit immediately did its job:
+it flagged this branch's `typescript >=7` as **UNDOCUMENTED**, because the registry on `main`
+covered only the five ignores that existed there.
+
+That is the designed behaviour — an ignore without a documented, machine-checkable blocker must
+not land. So this branch was rebased onto `main` and now adds its registry entry **alongside** its
+ignore, in the same change, keeping the 1:1 invariant intact.
+
+Audit on this branch: 6 entries, no drift, all six still blocking. The new one reports
+`typescript-eslint peer typescript: '>=4.8.4 <6.1.0'` — exactly the constraint that motivated the
+hold, now re-checked from live registry data rather than trusted from a comment.

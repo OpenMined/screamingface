@@ -44,13 +44,20 @@ ignores:
       and 16.3.0 — a range it does not honor. Checking eslint-plugin-react directly rather than
       eslint-config-next, because the config's range is wrong and would report a false lift.
 
-  # NOTE: /public-docs `typescript >=7` is NOT listed here yet — it arrives with #503 (OME-748),
-  # which is still open. That PR must add BOTH its ignore and its entry here in the same change,
-  # or this audit will fail on drift, correctly. Deliberately not stacked: this repo squash-merges
-  # and stacked PRs have caused a branch to miss main before.
-  #   blocker when added: npm_peer / typescript-eslint / peer `typescript`
-  #   (refuses TS 7 outright; bound is >=7 NOT >=6, because public-docs is already on ~6.0.0 and
-  #    is capped by a different package than aigateway-ui — do not unify the two.)
+  - directory: /public-docs
+    dependency: typescript
+    versions: ">=7"
+    ticket: OME-748
+    blocker:
+      kind: npm_peer
+      package: typescript-eslint
+      peer: typescript
+    note: >-
+      typescript-eslint refuses TS 7 outright ("typescript-eslint does not support TS 7.0"), so
+      eslint cannot even load its config — it is bundled inside @vue/eslint-config-typescript.
+      Bound is >=7, NOT the >=6 used on aigateway-ui: this tree is already on ~6.0.0 and the two
+      are capped by different packages for different reasons. Do not unify them; they lift on
+      unrelated triggers.
 
   - directory: /apps/url4-cloud
     dependency: python
