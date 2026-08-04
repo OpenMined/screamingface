@@ -75,9 +75,3 @@ stack-logs:
 stack-prepare:
     cd {{repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare --out {{assets}}/draco
     cd {{repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare --out {{assets}}/ifeval
-
-# Execute the IFEval notebook headless against the running stack (output stays in /tmp)
-notebook-ifeval:
-    uv run --with jupyter,ipykernel jupyter nbconvert --to notebook --execute \
-        examples/07_ifeval_e2e.ipynb --output /tmp/07_ifeval_out.ipynb \
-        --ExecutePreprocessor.timeout=1800
