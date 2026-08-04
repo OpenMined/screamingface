@@ -17,9 +17,9 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "clsx": "^2.1.1",
-    "lucide-vue-next": "^0.577.0",
-    "markdown-it": "^14.3.0",
-    "pinia": "^3.0.4",
+    "lucide-vue-next": "^1.0.0",
+    "markdown-it": "^15.0.0",
+    "pinia": "^4.0.2",
     "prismjs": "^1.30.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.2",
@@ -29,8 +29,7 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.20",
-    "@types/markdown-it": "^14.1.2",
-    "@types/node": "^24.13.2",
+    "@types/node": "^26.1.2",
     "@types/prismjs": "^1.26.6",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/eslint-config-typescript": "^14.8.0",

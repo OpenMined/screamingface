@@ -142,6 +142,17 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # OME-748. `typescript-eslint` — bundled inside @vue/eslint-config-typescript — refuses TS 7
+      # outright ("typescript-eslint does not support TS 7.0"), so eslint cannot even load its
+      # config. #497 was a permanently-red major PR for this one reason; every other major in that
+      # group landed fine once typescript was held.
+      # NOTE the bound is >=7, NOT >=6 as on aigateway-ui. public-docs is already on ~6.0.0, a
+      # whole major ahead, and the two trees are capped by DIFFERENT packages for different
+      # reasons — aigateway-ui by openapi-typescript (peer ^5.x), this one by typescript-eslint.
+      # They lift on unrelated triggers; do not unify them.
+      - dependency-name: "typescript"
+        versions: [">=7"]
     groups:
       public-docs-npm-security:
         applies-to: security-updates

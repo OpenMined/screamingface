@@ -47,7 +47,14 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
   const hrefIdx = token?.attrIndex('href') ?? -1
   const attr = hrefIdx >= 0 ? token?.attrs?.[hrefIdx] : undefined
-  const match = attr?.[1].match(/([^/]+)\.(ipynb|md)$/i)
+  // WHY the typeof guard: markdown-it 15 ships its own typings (14 had none, so
+  // @types/markdown-it supplied them) and widens a token attribute to
+  // `[name: string, value: string | number]` — attrSet/attrJoin genuinely accept numbers.
+  // An href is a string in every path we produce, but a numeric value cannot be a notebook
+  // link, so narrowing to string and otherwise not matching is the honest read rather than
+  // a cast that asserts something the type no longer guarantees.
+  const href = attr?.[1]
+  const match = typeof href === 'string' ? href.match(/([^/]+)\.(ipynb|md)$/i) : null
   const basename = match?.[1]
   if (attr && basename) {
     const route = props.linkMap[basename]
