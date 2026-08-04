@@ -367,11 +367,42 @@ def test_a_row_with_no_verdicts_is_a_failure_not_a_zero() -> None:
     assert result["score"] == 1.0
 
 
-def test_no_rows_at_all_yields_a_zero_result_rather_than_an_exception() -> None:
-    result = agg.aggregate("[]", rubrics={1: _RUBRIC}, benchmark_id="draco")
+def test_no_rows_at_all_is_an_execution_failure() -> None:
+    """INVARIANT: a run with no evaluated Cases cannot report Candidate score zero."""
+    with pytest.raises(agg.AggregateError, match="no DRACO rows"):
+        agg.aggregate("[]", rubrics={1: _RUBRIC}, benchmark_id="draco")
 
-    assert result["case_count"] == 0
+
+def test_all_failed_rows_raise_with_the_collected_execution_error() -> None:
+    rows = json.dumps(
+        [
+            {
+                "error": {
+                    "kind": "ResolutionError",
+                    "message": "aigateway returned neither answer content nor tool calls",
+                }
+            }
+        ]
+    )
+
+    with pytest.raises(
+        agg.AggregateError,
+        match=(
+            "no row carried a valid DRACO judge verdict.*"
+            "row 1: ResolutionError: aigateway returned neither answer content nor tool calls"
+        ),
+    ):
+        agg.aggregate(rows, rubrics={1: _RUBRIC}, benchmark_id="draco")
+
+
+def test_a_valid_evaluated_case_may_legitimately_score_zero() -> None:
+    rows = json.dumps([_case_row(1, ("a1", ["UNMET"]))])
+
+    result = agg.aggregate(rows, rubrics={1: _RUBRIC}, benchmark_id="draco")
+
+    assert result["case_count"] == 1
     assert result["score"] == 0.0
+    assert result["failures"] == []
 
 
 def test_a_malformed_top_level_payload_raises() -> None:

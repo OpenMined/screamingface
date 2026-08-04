@@ -351,6 +351,9 @@ def aggregate(
         raise AggregateError(f"reducer payload must be a JSON array, got {type(rows).__name__}")
     if isinstance(judge_passes, bool) or not isinstance(judge_passes, int) or judge_passes < 1:
         raise AggregateError("judge_passes must be a positive integer")
+    # INVARIANT: absence of evaluated Cases is an execution failure, not Candidate score zero.
+    if not rows:
+        raise AggregateError("no DRACO rows were collected; the Candidate cannot be scored")
 
     # Harvested ONCE, before scoring: the mapping guard below needs to know which rows carry an
     # echoed id, and re-scanning a multi-hundred-KB payload to find out would double the only
@@ -359,6 +362,8 @@ def aggregate(
     _require_verifiable_mapping(harvested_rows, rubrics)
 
     case_results, failures = _aggregate_rows(harvested_rows, rubrics, judge_passes)
+    if not case_results:
+        raise AggregateError(_no_scored_cases_message(rows, failures))
 
     return {
         "schema": "screamingface.candidate-result.v1",
@@ -418,6 +423,31 @@ def _aggregate_rows(
             continue
         case_results.append(_case_result(case_id, rubric, records, verdicts, judge_passes))
     return case_results, failures
+
+
+def _no_scored_cases_message(rows: Sequence[Any], failures: Sequence[Mapping[str, Any]]) -> str:
+    """Keep a bounded trace of collected execution errors when every Case failed."""
+    base = "no row carried a valid DRACO judge verdict; the Candidate cannot be scored"
+    details: list[str] = []
+    for index, row in enumerate(rows):
+        error = row.get("error") if isinstance(row, Mapping) else None
+        if not isinstance(error, Mapping):
+            continue
+        message = error.get("message")
+        if not isinstance(message, str) or not message.strip():
+            continue
+        clean = " ".join(message.split())[:200]
+        kind = error.get("kind")
+        clean_kind = " ".join(kind.split())[:80] if isinstance(kind, str) else ""
+        detail = f"{clean_kind}: {clean}" if clean_kind else clean
+        details.append(f"row {index + 1}: {detail}")
+        if len(details) == 3:
+            break
+    if not details:
+        details = [
+            f"row {int(failure['index']) + 1}: {failure['reason']}" for failure in failures[:3]
+        ]
+    return f"{base}; collected row error: {'; '.join(details)}" if details else base
 
 
 def _case_result(

@@ -117,12 +117,10 @@ def test_a_full_row_set_without_echoed_ids_still_falls_back_to_position() -> Non
     assert [c["case_id"] for c in result["case_results"]] == [1, 2, 3, 4]
 
 
-def test_no_rows_at_all_does_not_trip_the_guard() -> None:
-    """An empty payload consults no rubric, so there is no mapping to be wrong about."""
-    result = agg.aggregate("[]", rubrics=_RUBRICS, benchmark_id="draco")
-
-    assert result["case_count"] == 0
-    assert result["failures"] == []
+def test_no_rows_at_all_fails_after_the_mapping_guard() -> None:
+    """An empty payload has no mapping error, but it still cannot produce a valid result."""
+    with pytest.raises(agg.AggregateError, match="no DRACO rows"):
+        agg.aggregate("[]", rubrics=_RUBRICS, benchmark_id="draco")
 
 
 def test_rows_that_produced_no_verdicts_do_not_trip_the_guard() -> None:
