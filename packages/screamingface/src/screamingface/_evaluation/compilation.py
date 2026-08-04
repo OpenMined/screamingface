@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from screamingface._evaluation.benchmark import _BenchmarkResource
-from screamingface._evaluation.candidate import _CompiledCandidate, compile_candidate
+from screamingface._evaluation.candidate import (
+    _CompiledCandidate,
+    compile_candidate,
+    member_count,
+)
 from screamingface._evaluation.linking import link_candidate
 from screamingface._evaluation.model import (
     _compiled_candidate,
@@ -18,18 +22,25 @@ from screamingface.recipe import Recipe
 
 def compile_evaluation(
     recipes: Sequence[Recipe],
-    benchmark: _BenchmarkResource,
+    resources: Mapping[int, _BenchmarkResource],
     limit: int | None,
     *,
     default_synthesizer: str,
 ) -> _Evaluation:
-    """Compile all Candidates locally after the Evaluation's only Benchmark fetch."""
+    """Compile all Candidates locally against their shape's Benchmark resource."""
 
+    benchmark = next(iter(resources.values()))
     compiled = tuple(
         compile_candidate(recipe, default_synthesizer=default_synthesizer) for recipe in recipes
     )
     linked = tuple(
-        link_candidate(value.url4, benchmark.url4, value.member_expressions) for value in compiled
+        link_candidate(
+            value.url4,
+            resources[member_count(recipe)].url4,
+            value.member_expressions,
+            value.synthesizer_expression,
+        )
+        for recipe, value in zip(recipes, compiled, strict=True)
     )
     candidates = tuple(
         _compiled_candidate(
@@ -53,7 +64,7 @@ def compile_evaluation(
         required_models=_ordered_unique(
             (
                 *(model for candidate in candidates for model in candidate.models),
-                *benchmark.required_models,
+                *(model for value in resources.values() for model in value.required_models),
             )
         ),
     )

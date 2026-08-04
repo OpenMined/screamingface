@@ -11,6 +11,7 @@ from typing import Protocol
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
 from screamingface._evaluation.benchmark import _BenchmarkResource
+from screamingface._evaluation.candidate import member_count
 from screamingface._evaluation.model import (
     Candidate,
     _candidate_values,
@@ -33,8 +34,8 @@ class _ModelCatalog(Protocol):
 
 type _SyncModelLoading = Callable[[], _ModelCatalog]
 type _AsyncModelLoading = Callable[[], Awaitable[_ModelCatalog]]
-type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
-type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
+type _SyncBenchmarkLoading = Callable[[str, int | None, int], _BenchmarkResource]
+type _AsyncBenchmarkLoading = Callable[[str, int | None, int], Awaitable[_BenchmarkResource]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
 
@@ -56,11 +57,17 @@ def evaluate_sync(
 
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = load_benchmark(benchmark, limit)
+    # WHY per-shape fetches: a shape-adaptive Benchmark serves a different URL4 for a
+    # member-shaped Candidate than for a solo one, so mixed Candidate lists need one
+    # resource per distinct shape (usually one or two small GETs).
+    resources = {
+        members: load_benchmark(benchmark, limit, members)
+        for members in sorted({member_count(value) for value in values})
+    }
     catalog = load_models()
     evaluation = compile_evaluation(
         values,
-        resource,
+        resources,
         limit,
         default_synthesizer=catalog.default_synthesizer,
     )
@@ -87,11 +94,14 @@ async def evaluate_async(
 
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = await load_benchmark(benchmark, limit)
+    resources = {
+        members: await load_benchmark(benchmark, limit, members)
+        for members in sorted({member_count(value) for value in values})
+    }
     catalog = await load_models()
     evaluation = compile_evaluation(
         values,
-        resource,
+        resources,
         limit,
         default_synthesizer=catalog.default_synthesizer,
     )

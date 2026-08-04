@@ -31,11 +31,10 @@ class _Engine:
                         }
                         for benchmark_id, variant, title in (
                             ("ifeval", "canonical", "IFEval"),
-                            ("ifeval-corrective", "corrective", "IFEval Corrective"),
                             (
-                                "ifeval-corrective-ensemble",
-                                "corrective-ensemble",
-                                "IFEval Corrective Ensemble",
+                                "ifeval-iterative-correction",
+                                "iterative-correction",
+                                "IFEval Iterative Correction",
                             ),
                         )
                     ],
@@ -49,7 +48,11 @@ class _Engine:
                     "schema": "screamingface.benchmark.v1",
                     "id": benchmark_id,
                     "family": "ifeval",
-                    "variant": "corrective" if benchmark_id.endswith("corrective") else "canonical",
+                    "variant": (
+                        "iterative-correction"
+                        if benchmark_id.endswith("correction")
+                        else "canonical"
+                    ),
                     "revision": f"{benchmark_id}-revision",
                     "case_count": 1,
                     "total_case_count": 541,
@@ -67,14 +70,11 @@ def test_each_variant_is_fetched_as_one_explicit_benchmark_identity() -> None:
         http_transport=httpx.MockTransport(engine),
     ) as client:
         canonical = client.benchmarks.get("ifeval")
-        corrective = client.benchmarks.get("ifeval-corrective")
-        ensemble = client.benchmarks.get("ifeval-corrective-ensemble")
+        corrective = client.benchmarks.get("ifeval-iterative-correction")
 
-    assert canonical.family == corrective.family == ensemble.family == "ifeval"
+    assert canonical.family == corrective.family == "ifeval"
     assert canonical.variant == "canonical"
-    assert corrective.variant == "corrective"
-    assert ensemble.variant == "corrective-ensemble"
+    assert corrective.variant == "iterative-correction"
     assert "/v1/benchmarks/ifeval?limit=1" not in engine.paths
     assert "/v1/benchmarks/ifeval" in engine.paths
-    assert "/v1/benchmarks/ifeval-corrective" in engine.paths
-    assert "/v1/benchmarks/ifeval-corrective-ensemble" in engine.paths
+    assert "/v1/benchmarks/ifeval-iterative-correction" in engine.paths

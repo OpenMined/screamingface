@@ -12,7 +12,7 @@ from url4 import RelExpr, build, expr, iterate, render, src, text
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.benchmark import _decode_benchmark_resource
-from screamingface._evaluation.candidate import compile_candidate
+from screamingface._evaluation.candidate import compile_candidate, member_count
 from screamingface._evaluation.compilation import compile_evaluation
 from screamingface._evaluation.linking import link_candidate
 from screamingface._evaluation.model import Candidate
@@ -225,7 +225,7 @@ def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -
 
     evaluation = compile_evaluation(
         recipes,
-        benchmark,
+        {0: benchmark, 2: benchmark},
         1,
         default_synthesizer="provider/default",
     )
@@ -277,7 +277,7 @@ def test_structural_member_bindings_keep_benchmark_logic_out_of_the_sdk() -> Non
 
     evaluation = compile_evaluation(
         (fusion,),
-        benchmark,
+        {3: benchmark},
         1,
         default_synthesizer="provider/default",
     )
@@ -320,7 +320,7 @@ def test_structural_model_member_requirements_fail_during_planning(candidate) ->
     with pytest.raises(sf.PlanningError, match="member|members") as error:
         compile_evaluation(
             (candidate,),
-            benchmark,
+            {member_count(candidate): benchmark},
             1,
             default_synthesizer="provider/default",
         )
@@ -399,7 +399,11 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
         report = client.evaluate(candidates, benchmark="bench@1", limit=1)
 
     assert [candidate.name for candidate in report.candidates] == ["a", "pair"]
-    assert len(benchmark_requests) == 1
+    # One fetch per DISTINCT candidate shape: solo (no members param) and the
+    # two-member Fusion. A shape-adaptive Benchmark may serve different URL4s.
+    assert len(benchmark_requests) == 2
+    assert "members" not in str(benchmark_requests[0].url)
+    assert "members=2" in str(benchmark_requests[1].url)
     assert dict(benchmark_requests[0].url.params) == {"limit": "1"}
     assert len(transport.candidates) == 2
     for candidate in transport.candidates:

@@ -11,6 +11,7 @@ from screamingface._evaluation.candidate import _MemberExpression
 from screamingface.errors import PlanningError
 
 _WHOLE_CANDIDATE = "$candidate"
+_SYNTHESIZER = "$candidate_synthesizer"
 _MODEL_MEMBER = re.compile(r"\$candidate_model_member_([1-9][0-9]*)")
 
 
@@ -25,6 +26,7 @@ def link_candidate(
     candidate_url4: str,
     benchmark_url4: str,
     member_expressions: tuple[_MemberExpression, ...] = (),
+    synthesizer_expression: str | None = None,
 ) -> _LinkedCandidate:
     """Bind the universal Candidate surface without interpreting Benchmark behavior."""
 
@@ -32,6 +34,7 @@ def link_candidate(
     benchmark = build(benchmark_url4)
     references = _text_references(benchmark)
     uses_whole = _WHOLE_CANDIDATE in references
+    uses_synthesizer = _SYNTHESIZER in references
     member_indices = tuple(
         sorted(
             {
@@ -50,6 +53,7 @@ def link_candidate(
     bindings = []
     if uses_whole:
         bindings.append(src(text(render(candidate)), name="candidate", weight=0.0))
+    bindings.extend(_synthesizer_bindings(uses_synthesizer, synthesizer_expression))
     if member_indices and (
         member_indices != tuple(range(1, len(member_indices) + 1))
         or len(member_expressions) != len(member_indices)
@@ -61,13 +65,6 @@ def link_candidate(
             permanent=True,
         )
     for index in member_indices:
-        if index > len(member_expressions):
-            raise PlanningError(
-                f"Benchmark requires Fusion member {index}, but this Candidate has "
-                f"{len(member_expressions)} direct members",
-                code="candidate_shape_mismatch",
-                permanent=True,
-            )
         member = member_expressions[index - 1]
         if member.kind != "model":
             raise PlanningError(
@@ -101,6 +98,22 @@ def link_candidate(
     )
 
 
+def _synthesizer_bindings(uses_synthesizer: bool, expression: str | None) -> list:
+    if not uses_synthesizer:
+        return []
+    if expression is None:
+        # WHY loud: on this exam the Fusion's synthesizer serves as the JUDGE (it
+        # tie-breaks passing answers and authors feedback — it never writes the
+        # answer). A Candidate without one cannot play the protocol.
+        raise PlanningError(
+            "Benchmark requires the Candidate's synthesizer to act as its judge, "
+            "but this Candidate has no synthesizer — use an sf.Fusion",
+            code="candidate_shape_mismatch",
+            permanent=True,
+        )
+    return [src(text(render(build(expression))), name="candidate_synthesizer", weight=0.0)]
+
+
 def _text_references(value: object) -> set[str]:
     """Collect exact URL4 Text references from the parsed Benchmark tree."""
 
@@ -108,7 +121,9 @@ def _text_references(value: object) -> set[str]:
     if isinstance(value, Text):
         references.add(value.value)
     elif isinstance(value, str):
-        references.update(re.findall(r"\$candidate(?:_model_member_[1-9][0-9]*)?", value))
+        references.update(
+            re.findall(r"\$candidate(?:_model_member_[1-9][0-9]*|_synthesizer)?", value)
+        )
     elif isinstance(value, tuple | list):
         for item in value:
             references.update(_text_references(item))

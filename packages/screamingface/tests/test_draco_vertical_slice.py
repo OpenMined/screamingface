@@ -509,7 +509,7 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
     )
     evaluation = compile_evaluation(
         (sf.Model("anthropic/claude-haiku-4-5"),),
-        resource,
+        {0: resource},
         1,
         default_synthesizer="anthropic/claude-haiku-4-5",
     )
@@ -556,7 +556,7 @@ def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None
     )
     evaluation = compile_evaluation(
         (sf.Model("anthropic/claude-haiku-4-5"),),
-        resource,
+        {0: resource},
         1,
         default_synthesizer="anthropic/claude-haiku-4-5",
     )
