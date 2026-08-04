@@ -45,7 +45,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # Must track the builder's Python minor exactly — see the INVARIANT above.
-FROM python:3.13-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 LABEL org.opencontainers.image.title="url4-cloud" \
       org.opencontainers.image.source="https://github.com/openmined/screamingface" \
       org.opencontainers.image.description="url4-cloud — REST + WebSocket control plane and url4 run mode"
