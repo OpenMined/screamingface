@@ -5,11 +5,10 @@ case's deterministic check into one scored result.
 STORY: as a researcher, the number I publish is the IFEval paper's prompt-level strict
 accuracy (arXiv:2311.07911).
 
-INVARIANT: `case_count` is EXACT (one entry per selected case) and `failures` is ALWAYS
-empty — the SDK's result decoder hard-rejects anything else. A row whose check produced no
-record scores as fail-all-instructions: a deterministic checker crash is a harness BUG,
-not judge flake, so it may never silently shrink the exam (deliberate divergence from
-draco's unscored-never-zero rule, decided in OME-719).
+INVARIANT: `case_count` is EXACT (one entry per selected Case) and every scored Case has a
+real verifier record. A missing record is an operational failure rather than an incorrect
+answer, so Aggregation raises with the in-band Case error instead of publishing a plausible
+score. This is the fail-loud bridge until the SDK decodes typed partial failures.
 """
 
 from __future__ import annotations
@@ -45,11 +44,11 @@ def aggregate(
 
     rows = _rows(rows_json)
     case_results: list[dict[str, Any]] = []
-    fallback_count = 0
+    recordless_case_ids: list[int] = []
     for index, raw in enumerate(rows):
         record = _first_valid_record(raw, specs)
         if record is None:
-            # WHY position is the fallback identity: the Benchmark produced the case list
+            # WHY position is the failure identity: the Benchmark produced the Case list
             # and `on_error=collect` preserves row order, so row N is case N even when the
             # row itself is an error object.
             case_id = index + 1
@@ -59,9 +58,7 @@ def aggregate(
                     f"row {index} has no check record and no spec for case {case_id}; "
                     "the installed IFEval assets are incomplete"
                 )
-            size = len(_instruction_ids(spec))
-            case_results.append(_case_result(case_id, [False] * size, [False] * size))
-            fallback_count += 1
+            recordless_case_ids.append(case_id)
             continue
         case_results.append(
             _case_result(
@@ -70,8 +67,8 @@ def aggregate(
                 [bool(value) for value in record["loose"]],
             )
         )
-    if case_results and fallback_count == len(case_results):
-        raise AggregateError(_all_crash_message(rows))
+    if recordless_case_ids:
+        raise AggregateError(_recordless_message(rows, recordless_case_ids))
 
     strict_all = [case["follow_all_strict"] for case in case_results]
     loose_all = [case["follow_all_loose"] for case in case_results]
@@ -86,8 +83,8 @@ def aggregate(
             "inst_level_strict_accuracy": _accuracy(strict_flat),
             "prompt_level_loose_accuracy": _accuracy(loose_all),
             "inst_level_loose_accuracy": _accuracy(loose_flat),
-            "cases_checked": len(case_results) - fallback_count,
-            "cases_fallback": fallback_count,
+            "cases_checked": len(case_results),
+            "cases_fallback": 0,
         },
         "case_results": case_results,
         "failures": [],
@@ -109,7 +106,7 @@ def aggregate_corrective(
 
     rows = _rows(rows_json)
     case_results: list[dict[str, Any]] = []
-    fallback_count = 0
+    recordless_case_ids: list[int] = []
     for index, raw in enumerate(rows):
         case_id = index + 1
         spec = specs.get(case_id)
@@ -120,11 +117,7 @@ def aggregate_corrective(
             )
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
-            size = len(_instruction_ids(spec))
-            case_results.append(
-                _corrective_case(case_id, max_attempts, 0, [False] * size, [False] * size)
-            )
-            fallback_count += 1
+            recordless_case_ids.append(case_id)
             continue
         earliest_pass = min(
             (attempt for attempt, record in records.items() if all(record["strict"])),
@@ -141,8 +134,8 @@ def aggregate_corrective(
                 [bool(value) for value in selected["loose"]],
             )
         )
-    if case_results and fallback_count == len(case_results):
-        raise AggregateError(_all_crash_message(rows))
+    if recordless_case_ids:
+        raise AggregateError(_recordless_message(rows, recordless_case_ids))
 
     strict_all = [case["follow_all_strict"] for case in case_results]
     loose_all = [case["follow_all_loose"] for case in case_results]
@@ -176,8 +169,8 @@ def aggregate_corrective(
             "inst_level_loose_accuracy": _accuracy(loose_flat),
             **pass_at,
             "corrected_cases": sum(1 for case in case_results if case["pass_attempt"] > 1),
-            "cases_checked": total - fallback_count,
-            "cases_fallback": fallback_count,
+            "cases_checked": total,
+            "cases_fallback": 0,
         },
         "case_results": case_results,
         "failures": [],
@@ -273,15 +266,17 @@ def _rows(rows_json: str) -> list[Any]:
     return rows
 
 
-def _all_crash_message(rows: Sequence[Any]) -> str:
-    """Name sanitized row failures that URL4 collected before IFEval could check them."""
+def _recordless_message(rows: Sequence[Any], case_ids: Sequence[int]) -> str:
+    """Name Cases and sanitized errors that URL4 collected before IFEval could check."""
 
-    base = (
-        "no row carried a valid IFEval check record; "
-        "an all-crash run must be loud, never a plausible zero score"
-    )
+    shown = ", ".join(str(case_id) for case_id in case_ids[:10])
+    if len(case_ids) > 10:
+        shown = f"{shown}, … (+{len(case_ids) - 10} more)"
+    label = "case" if len(case_ids) == 1 else "cases"
+    base = f"{label} {shown} carried no valid IFEval check record; the Candidate cannot be scored"
     failures: list[str] = []
-    for row in rows:
+    for case_id in case_ids:
+        row = rows[case_id - 1]
         error = row.get("error") if isinstance(row, Mapping) else None
         if not isinstance(error, Mapping):
             continue
@@ -291,8 +286,7 @@ def _all_crash_message(rows: Sequence[Any]) -> str:
             continue
         clean = " ".join(message.split())[:200]
         detail = f"{kind}: {clean}" if isinstance(kind, str) and kind else clean
-        if detail not in failures:
-            failures.append(detail)
+        failures.append(f"case {case_id}: {detail}")
         if len(failures) == 3:
             break
     if not failures:

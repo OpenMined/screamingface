@@ -77,3 +77,16 @@ select, revision covers all prose + bounds. Post-review gates: engine ALL GREEN 
 SDK 407 + ruff + pyright + notebooks green. Judge params remain a known limitation
 (synthesizer route carries no params on this exam) — candidate for a Fusion API
 follow-up with Keelan.
+
+## Post-E2E safety amendment (2026-08-04)
+
+A three-Case self-corrective Evaluation demonstrated that the former fail-all fallback
+could publish `score=0.6667` while one Case had no grade and the final Report contained
+no failure evidence. `aggregate_corrective(...)` now distinguishes a valid never-passing
+check record (scoreable) from an absent check record (operational failure, unscorable)
+and retains the latter's Case position and sanitized collected error in the raised
+Aggregation error. Canonical and iterative-correction regressions cover the shared
+aggregation invariant.
+
+The amendment is isolated in the focused restack commit
+`fix(url4-cloud): reject unscored IFEval cases`.

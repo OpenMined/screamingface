@@ -36,7 +36,8 @@ owner call 2026-07-31. Design: `.dk/plans/2026-07-31-benchmark-framework-spec-v3
   `ResolutionError(code="benchmark_unavailable", permanent=True)`
 - `apps/url4-cloud/src/url4_cloud/benchmarks/ifeval/aggregate.py` — 4 canonical metrics;
   `score = prompt_level_strict_accuracy`; per-instruction-type breakdown as top-level
-  extra; `case_count` exact; `failures=[]` always
+  extra; `case_count` exact for scored results; any recordless Case raises with its
+  positional identity and sanitized in-band error; successful results use `failures=[]`
 - `apps/url4-cloud/src/url4_cloud/benchmarks/ifeval/definition.py` — pins, content-hash
   `REVISION`, judge-free 2-level `_build()`, `IFEVAL = Benchmark(...)`,
   `required_models=()`
@@ -57,9 +58,9 @@ owner call 2026-07-31. Design: `.dk/plans/2026-07-31-benchmark-framework-spec-v3
   - grading: strict pass/fail on known cases (no-comma violation, word-count boundary
     at exactly N words, 3-section pass); loose passes where strict fails (leading
     asterisk variant); `combination:repeat_prompt` uses the prompt kwarg; verifier
-    crash ⇒ all instructions failed, case still scored (INVARIANT: failures=[] —
-    deliberate divergence from draco's unscored-never-zero, a deterministic verifier
-    crash is OUR bug, not judge flake)
+    exception inside a successfully invoked verifier ⇒ a valid all-false check record
+    and a legitimate zero; an operationally recordless Case aborts Aggregation instead
+    of becoming benchmark evidence
   - prepare: kwargs null-stripping; positional parallelism `instruction_id_list` ↔
     `kwargs` preserved; case slice `--limit`
   - aggregate: 4 metrics computed per paper definitions on a hand-built fixture;
@@ -69,10 +70,10 @@ owner call 2026-07-31. Design: `.dk/plans/2026-07-31-benchmark-framework-spec-v3
     `required_models: []` and NO judge/model route in its url4; `/candidate` present
   - executable gate: linked fake candidate through `build_aigateway_world` — exactly ONE
     model call per case, zero judge calls, deterministic score
-- All prior tests stay green and unmodified (test-preservation rule); the one allowed
-  change is relaxing `test_benchmark_runtime.py:44` (pre-declared here: it asserts every
-  route starts with `/benchmarks/draco/`, structurally incompatible with any second
-  family — surfaced as a finding, not silently edited)
+- All unrelated prior tests stay green. The recordless-Case Aggregation assertions are
+  amended alongside the safety behavior; the other allowed prior-test change is
+  relaxing `test_benchmark_runtime.py:44` (pre-declared here: it asserts every route
+  starts with `/benchmarks/draco/`, structurally incompatible with any second family).
 
 ## Acceptance
 
@@ -113,3 +114,23 @@ owner call 2026-07-31. Design: `.dk/plans/2026-07-31-benchmark-framework-spec-v3
      (documented as WHY comment in `definition.py`; probe: scratchpad/dag_probe.py).
   4. Coverage config: vendor dir omitted from coverage + ruff/pyright excludes —
      third-party code, provenance in `vendor/__init__.py`.
+
+## Post-E2E safety amendment (2026-08-04)
+
+Khoa's saved three-Case self-corrective Evaluation exposed a partial operational
+failure as `score=0.6667`, `cases_checked=2`, `cases_fallback=1`, `failures=[]`, and
+`Report(ok=True)`. The collected Case error had been available to Aggregation but was
+discarded when the recordless Case was fabricated as an all-false grade. Canonical and
+corrective Aggregation now fail loudly whenever any Case has no valid check record,
+including the positional Case identity and up to three sanitized collected errors.
+This is the safe Engine-only bridge until the SDK decodes typed unscored Candidate
+failures; valid verifier records containing false verdicts remain ordinary scores.
+
+Verification: 9 focused recordless-Case regressions passed; the 58-test IFEval and
+Candidate Invocation slice passed; Ruff, formatting, Pyright, and layering passed; and
+`run_gates.py url4-cloud --skip-append-only` completed with all gates green. A direct
+replay of one valid Case plus Khoa's collected `ResolutionError` now reports `case 2`
+and the sanitized AI Gateway message instead of returning a score.
+
+The amendment is isolated in the focused restack commit
+`fix(url4-cloud): reject unscored IFEval cases`.

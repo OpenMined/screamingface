@@ -15,5 +15,7 @@ New `benchmarks/ifeval/` package following draco's anatomy at `b6cc2a97`: defini
 (content-hash REVISION, judge-free 2-level DAG, `required_models=()`), prepare (HF
 `google/IFEval` @ pinned revision + offline NLTK corpus as asset), runtime, grading
 (strict + loose over the vendored verifier), aggregate, vendored josejg verifier @
-`0c495b2f` (Apache-2.0). Score = prompt-level strict accuracy; every case scored;
-`failures=[]` always. Parent epic: `OME-718`.
+`0c495b2f` (Apache-2.0). Score = prompt-level strict accuracy when every selected Case
+produces a valid verifier record. A recordless Case aborts scoring with its positional
+identity and sanitized in-band error; successful results carry `failures=[]` until the
+SDK supports typed partial failures. Parent epic: `OME-718`.

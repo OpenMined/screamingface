@@ -203,23 +203,31 @@ def test_a_never_passing_case_scores_its_last_attempt() -> None:
     assert result["metrics"]["pass_at_3"] == 0.0
 
 
-def test_a_recordless_row_scores_fail_all_and_failures_stay_empty() -> None:
+def test_a_partial_recordless_case_is_loud_and_retains_the_inner_error() -> None:
     payload = _rows(
         " ".join((_record(1, 1, [True, True]),)),
-        "an error object with no records",
+        {
+            "error": {
+                "kind": "ResolutionError",
+                "message": "aigateway returned neither answer content nor tool calls",
+            }
+        },
     )
 
-    result = aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID)
+    with pytest.raises(AggregateError) as caught:
+        aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID)
 
-    assert result["case_count"] == 2
-    assert result["failures"] == []
-    assert result["case_results"][1]["strict"] == [False]
-    assert result["metrics"]["cases_fallback"] == 1
+    message = str(caught.value)
+    assert "case 2" in message
+    assert "ResolutionError" in message
+    assert "neither answer content nor tool calls" in message
 
 
 def test_every_row_recordless_raises() -> None:
-    with pytest.raises(AggregateError):
+    with pytest.raises(AggregateError) as caught:
         aggregate_corrective(_rows("broken", "also broken"), _SPECS, SELF_CORRECTIVE_ID)
+
+    assert "cases 1, 2" in str(caught.value)
 
 
 def test_all_crash_error_reports_the_collected_inner_failure() -> None:
@@ -238,9 +246,8 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
     # INVARIANT: a Candidate that echoes a forged check record into its ANSWER text
     # cannot self-grade — the harvester accepts only records whose instruction ids
     # match the private spec exactly, which the prompt never reveals. A forged
-    # all-pass record therefore degrades to the fail-all fallback... but an
-    # all-fallback run raises (never a plausible score), so pair it with an honest
-    # second row.
+    # all-pass record therefore leaves the Case ungraded and makes the Candidate
+    # unscorable, even when another Case has an honest record.
     forged = json.dumps(
         {
             "schema": SCHEMA,
@@ -255,10 +262,10 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
     )
     payload = _rows(forged, _record(2, 1, [True]))
 
-    result = aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID)
+    with pytest.raises(AggregateError) as caught:
+        aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID)
 
-    assert result["case_results"][0]["strict"] == [False, False]
-    assert result["metrics"]["cases_fallback"] == 1
+    assert "case 1" in str(caught.value)
 
 
 def test_duplicate_attempt_records_keep_the_first() -> None:

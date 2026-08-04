@@ -83,42 +83,47 @@ def test_records_survive_prose_wrapping_and_json_escaping() -> None:
     assert result["case_count"] == 2
 
 
-def test_a_recordless_row_scores_fail_all_and_is_never_a_failure() -> None:
-    # INVARIANT: `failures` is ALWAYS empty and `case_count` exact — the SDK hard-rejects
-    # anything else (results.py contract). A row whose check crashed scores as
-    # fail-all-instructions; deliberate divergence from draco's unscored-never-zero,
-    # because a deterministic checker crash is a harness BUG, not judge flake (OME-719).
+def test_a_partial_recordless_case_is_loud_and_retains_the_inner_error() -> None:
+    # INVARIANT: an operationally failed Case is not a legitimate incorrect answer and
+    # must never be folded into a plausible Benchmark score.
     payload = _rows(
         json.dumps(_record(1, [True, True], [True, True])),
-        "an error object with no check record",
+        {
+            "error": {
+                "kind": "ResolutionError",
+                "message": "aigateway returned neither answer content nor tool calls",
+            }
+        },
     )
 
-    result = aggregate(payload, _SPECS, "ifeval")
+    with pytest.raises(AggregateError) as caught:
+        aggregate(payload, _SPECS, "ifeval")
 
-    assert result["case_count"] == 2
-    assert result["failures"] == []
-    assert result["score"] == 0.5
-    assert result["metrics"]["cases_fallback"] == 1
+    message = str(caught.value)
+    assert "case 2" in message
+    assert "ResolutionError" in message
+    assert "neither answer content nor tool calls" in message
 
 
-def test_fallback_uses_row_position_for_the_case_identity() -> None:
+def test_a_recordless_case_without_error_detail_still_names_its_position() -> None:
     payload = _rows(
         "broken row",
         json.dumps(_record(2, [True], [True])),
     )
 
-    result = aggregate(payload, _SPECS, "ifeval")
+    with pytest.raises(AggregateError) as caught:
+        aggregate(payload, _SPECS, "ifeval")
 
-    fallback = result["case_results"][0]
-    assert fallback["case_id"] == 1
-    assert fallback["strict"] == [False, False]
+    assert "case 1" in str(caught.value)
 
 
 def test_every_row_recordless_raises_instead_of_reporting_zero() -> None:
-    # INVARIANT: an all-crash run must be LOUD. Scoring it would hand the client a
-    # plausible 0.0 from a misconfigured assets path — draco's load_rubrics lesson.
-    with pytest.raises(AggregateError):
+    # Scoring this would hand the client a plausible 0.0 from a misconfigured assets
+    # path — draco's load_rubrics lesson.
+    with pytest.raises(AggregateError) as caught:
         aggregate(_rows("broken", "also broken"), _SPECS, "ifeval")
+
+    assert "cases 1, 2" in str(caught.value)
 
 
 def test_all_crash_error_reports_the_collected_inner_failure() -> None:
@@ -145,12 +150,12 @@ def test_a_record_for_an_unknown_case_id_is_ignored() -> None:
     stray = dict(_record(2, [True], [True]), case_id=99)
     payload = _rows(json.dumps(_record(1, [True, True], [True, True])), json.dumps(stray))
 
-    result = aggregate(payload, _SPECS, "ifeval")
+    with pytest.raises(AggregateError) as caught:
+        aggregate(payload, _SPECS, "ifeval")
 
-    # Row 2 falls back to positional identity (case 2) with fail-all — the stray record
-    # cannot smuggle a score into a case its check never ran for.
-    assert result["case_results"][1]["case_id"] == 2
-    assert result["case_results"][1]["strict"] == [False]
+    # The stray record cannot smuggle a score into a Case its check never ran for, and
+    # the missing authentic grade cannot be recast as an incorrect answer.
+    assert "case 2" in str(caught.value)
 
 
 def test_non_array_payload_raises() -> None:

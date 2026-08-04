@@ -12,3 +12,6 @@ created: 2026-08-04
 
 Engine half of the accepted two-benchmark design. See ledger
 docs/work/2026-08-04-OME-731-ifeval-shape-adaptive-corrective.md.
+
+A valid never-passing Case scores its last attempt. A Case with no valid check record is
+an operational failure: aggregation aborts and retains its sanitized in-band error.
