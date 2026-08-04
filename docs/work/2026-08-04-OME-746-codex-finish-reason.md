@@ -1,9 +1,9 @@
 ---
 ticket: OME-746
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-08-04
-finished:
+finished: 2026-08-04
 ---
 
 # OME-746 — derive the Codex finish_reason instead of fabricating "stop"
@@ -89,6 +89,7 @@ Failing tests first:
 
 ## Outcome
 
+- **Merged:** `29487f20` squash-merged as `0571f440` (#501), remote CI **6/6 pass**.
 - **Actual files:**
 
   | File | Planned? | What |

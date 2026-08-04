@@ -1,12 +1,12 @@
 ---
 id: OME-746
 linear_url: https://linear.app/openmined/issue/OME-746/stop-fabricating-the-codex-finish-reason-derive-it-from-status-and
-status: in_progress
+status: done
 type:
 priority: P2
 labels: [aigateway, autonomous, agentic]
 created: 2026-08-04
-closed:
+closed: 2026-08-04
 ---
 
 # OME-746 — derive the Codex finish_reason instead of fabricating "stop"
