@@ -47,7 +47,7 @@ from url4.io.layer import (
     SupportsHoldings,
     SupportsProcessorRoutes,
 )
-from url4.observe import Log, ObservationEvent, Observer, Usage
+from url4.observe import Log, ModelResponse, ObservationEvent, Observer, Usage
 
 
 @dataclass(frozen=True)
@@ -362,6 +362,18 @@ class ExecutionContext:
             self._obs.emit(
                 Usage(self._current_span_id, provider, model, input_tokens, output_tokens)
             )
+
+    def report_response(self, *, finish_reason: str | None, refusal: str | None) -> None:
+        """Report how one model round trip ended, under this node's current
+        span. A no-op when no ``observer`` was passed to
+        :func:`~url4.dag.executor.run`.
+
+        INVARIANT: emits one event per call — a node making several round trips
+        (a tool-calling turn) produces several events on the same span, never a
+        single collapsed one.
+        """
+        if self._obs is not None:
+            self._obs.emit(ModelResponse(self._current_span_id, finish_reason, refusal))
 
     def log(self, severity: str, body: str) -> None:
         """Emit a log line attributed to this node's current span. A no-op

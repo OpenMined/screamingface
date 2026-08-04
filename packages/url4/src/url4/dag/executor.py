@@ -30,7 +30,14 @@ from url4.core.context import Context
 from url4.core.errors import CycleError
 from url4.core.nodes import Node as AstNode
 from url4.io.layer import IOLayer
-from url4.observe import NodeFinished, NodeStarted, Observer, RunFinished, RunStarted, _usage_sink
+from url4.observe import (
+    NodeFinished,
+    NodeStarted,
+    Observer,
+    RunFinished,
+    RunStarted,
+    _bind_node_sinks,
+)
 
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import (  # isort: skip
@@ -185,34 +192,23 @@ class Executor:
             # re-attributing its code/permanent here would double-count it.
             obs.emit(NodeFinished(span_id, "cancelled", obs.next_seq()))
             raise
-        # Bind the usage-sink ContextVar to THIS node's span for the duration
-        # of its own `resolve` only — a world handler reached from inside
-        # `resolve` (e.g. an aigateway connector with no ExecutionContext of
-        # its own) can call `url4.observe.current_usage_sink()` and land a
-        # Usage event attributed to this span. ContextVar values are copied
-        # into each asyncio.Task's context at creation (`_run` -> `create_task`),
-        # so concurrent sibling nodes each see their own binding, never a
-        # sibling's — no cross-talk. Reset in `finally` so the binding never
-        # leaks past this node's resolve, success or failure.
-        _token = _usage_sink.set(node_ctx.report_usage)
-        try:
-            result = await node.resolve(dict(zip(roles, values, strict=True)), node_ctx)
-        except BaseException as exc:
-            status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
-            code = getattr(exc, "code", None)
-            permanent = getattr(exc, "permanent", None)
-            obs.emit(
-                NodeFinished(
-                    span_id,
-                    status,
-                    obs.next_seq(),
-                    code if isinstance(code, str) else None,
-                    permanent if isinstance(permanent, bool) else None,
+        with _bind_node_sinks(node_ctx.report_usage, node_ctx.report_response):
+            try:
+                result = await node.resolve(dict(zip(roles, values, strict=True)), node_ctx)
+            except BaseException as exc:
+                status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
+                code = getattr(exc, "code", None)
+                permanent = getattr(exc, "permanent", None)
+                obs.emit(
+                    NodeFinished(
+                        span_id,
+                        status,
+                        obs.next_seq(),
+                        code if isinstance(code, str) else None,
+                        permanent if isinstance(permanent, bool) else None,
+                    )
                 )
-            )
-            raise
-        finally:
-            _usage_sink.reset(_token)
+                raise
         obs.emit(NodeFinished(span_id, "ok", obs.next_seq()))
         return result
 

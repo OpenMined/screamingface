@@ -461,7 +461,7 @@ dev = [
     { name = "ruff", specifier = ">=0.15.13" },
     { name = "url4", extras = ["streaming"] },
 ]
-notebook = [{ name = "graphviz", specifier = ">=0.20" }]
+notebook = [{ name = "graphviz", specifier = ">=0.21" }]
 
 [[package]]
 name = "uvicorn"
