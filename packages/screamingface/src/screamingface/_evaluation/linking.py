@@ -180,9 +180,13 @@ def _text_references(value: object) -> set[str]:
     if isinstance(value, Text):
         references.add(value.value)
     elif isinstance(value, str):
+        # INVARIANT: the trailing lookahead keeps unrelated names that merely start with
+        # "$candidate" (e.g. the "$candidate_result" plumbing binding) from matching as a
+        # bare whole-Candidate reference — that false positive made the linker bind the
+        # full Candidate expression as dead text on exams that never invoke it.
         references.update(
             re.findall(
-                r"\$candidate(?:_model_member_[1-9][0-9]*|_members|_synthesizer)?",
+                r"\$candidate(?:_model_member_[1-9][0-9]*|_members|_synthesizer)?(?![A-Za-z0-9_])",
                 value,
             )
         )

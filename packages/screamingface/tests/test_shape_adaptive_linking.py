@@ -80,6 +80,30 @@ def test_a_solo_model_against_a_judge_shaped_benchmark_fails_loudly() -> None:
     assert "sf.Fusion" in str(caught.value)
 
 
+def test_plumbing_names_starting_with_candidate_are_not_a_whole_candidate_reference() -> None:
+    # INVARIANT: "$candidate_result" (the engine's parameterized-call plumbing binding)
+    # must not read as a bare "$candidate" — that false positive bound the full Candidate
+    # expression as dead text into every member-shaped run.
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        name="pair",
+        synthesizer="provider/judge",
+    )
+    value = _compiled(fusion)
+    benchmark = (
+        "(answer_1:0.0:(candidate_result:0.0:/candidate?web_search=false"
+        "&q=($item.input)!'$candidate_model_member_1')!'$candidate_result', "
+        "answer_2:0.0:(candidate_result:0.0:/candidate?web_search=false"
+        "&q=($item.input)!'$candidate_model_member_2')!'$candidate_result', "
+        "pick:0.0:/candidate?q=(verdicts)!'$candidate_synthesizer')!'$pick'"
+    )
+    linked = link_candidate(
+        value.url4, benchmark, value.member_expressions, value.synthesizer_expression
+    )
+    assert not linked.uses_whole_candidate
+    assert "(candidate:0.0:" not in linked.url4
+
+
 def test_a_model_has_no_synthesizer_expression_and_whole_binding_still_works() -> None:
     value = _compiled(sf.Model("provider/solo"))
     linked = link_candidate(
