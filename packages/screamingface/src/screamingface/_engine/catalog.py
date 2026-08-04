@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NoReturn
 from urllib.parse import quote
@@ -26,6 +26,7 @@ class _BenchmarkEntry:
     variant: str
     title: str
     description: str
+    resource_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,39 +82,62 @@ class Benchmarks:
         catalog = _decode_benchmarks(
             _sync_json(self._get, self._engine_url, _BENCHMARKS_PATH, "Benchmark catalogue")
         )
-        return _BenchmarkCatalog(tuple(self._benchmark(entry) for entry in catalog.entries))
+        resources: dict[str, object] = {}
+        values = []
+        for entry in catalog.entries:
+            if entry.resource_id not in resources:
+                resources[entry.resource_id] = _sync_json(
+                    self._get,
+                    self._engine_url,
+                    _summary_path(entry.resource_id),
+                    "Benchmark resource",
+                )
+            values.append(self._benchmark(entry, resources[entry.resource_id]))
+        return _BenchmarkCatalog(tuple(values))
 
     def get(self, benchmark_id: str) -> Benchmark:
         catalog = _decode_benchmarks(
             _sync_json(self._get, self._engine_url, _BENCHMARKS_PATH, "Benchmark catalogue")
         )
-        return self._benchmark(_entry_of(catalog, benchmark_id))
+        entry = _entry_of(catalog, benchmark_id)
+        resource = _sync_json(
+            self._get,
+            self._engine_url,
+            _summary_path(entry.resource_id),
+            "Benchmark resource",
+        )
+        return self._benchmark(entry, resource)
 
     def cases(self, benchmark_id: str, *, limit: int = 50, offset: int = 0) -> _CaseCatalog:
+        catalog = _decode_benchmarks(
+            _sync_json(self._get, self._engine_url, _BENCHMARKS_PATH, "Benchmark catalogue")
+        )
+        entry = _entry_of(catalog, benchmark_id)
         page = _decode_case_page(
             _sync_json(
                 self._get,
                 self._engine_url,
-                _cases_path(benchmark_id, limit, offset),
+                _cases_path(entry.resource_id, limit, offset),
                 "Benchmark cases",
             )
         )
         return _CaseCatalog(page.rows, total=page.total, limit=page.limit, offset=page.offset)
 
-    def _benchmark(self, entry: _BenchmarkEntry) -> Benchmark:
-        summary = _decode_benchmark_summary(
-            _sync_json(
-                self._get,
-                self._engine_url,
-                _summary_path(entry.id),
-                "Benchmark resource",
-            )
-        )
+    def _benchmark(self, entry: _BenchmarkEntry, resource: object) -> Benchmark:
+        summary = _decode_benchmark_summary(resource, entry)
 
         # WHY: the value carries a bound page-fetcher instead of a client so it stays a
         # frozen comparable; `benchmark.cases(...)` is this adapter's `cases` in disguise.
-        def fetch(limit: int, offset: int, benchmark_id: str = entry.id) -> _CaseCatalog:
-            return self.cases(benchmark_id, limit=limit, offset=offset)
+        def fetch(limit: int, offset: int, resource_id: str = entry.resource_id) -> _CaseCatalog:
+            page = _decode_case_page(
+                _sync_json(
+                    self._get,
+                    self._engine_url,
+                    _cases_path(resource_id, limit, offset),
+                    "Benchmark cases",
+                )
+            )
+            return _CaseCatalog(page.rows, total=page.total, limit=page.limit, offset=page.offset)
 
         return Benchmark(
             id=entry.id,
@@ -167,7 +191,17 @@ class AsyncBenchmarks:
                 "Benchmark catalogue",
             )
         )
-        values = [await self._benchmark(entry) for entry in catalog.entries]
+        resources: dict[str, object] = {}
+        values = []
+        for entry in catalog.entries:
+            if entry.resource_id not in resources:
+                resources[entry.resource_id] = await _async_json(
+                    self._get,
+                    self._engine_url,
+                    _summary_path(entry.resource_id),
+                    "Benchmark resource",
+                )
+            values.append(self._benchmark(entry, resources[entry.resource_id]))
         return _BenchmarkCatalog(tuple(values))
 
     async def get(self, benchmark_id: str) -> Benchmark:
@@ -179,28 +213,37 @@ class AsyncBenchmarks:
                 "Benchmark catalogue",
             )
         )
-        return await self._benchmark(_entry_of(catalog, benchmark_id))
+        entry = _entry_of(catalog, benchmark_id)
+        resource = await _async_json(
+            self._get,
+            self._engine_url,
+            _summary_path(entry.resource_id),
+            "Benchmark resource",
+        )
+        return self._benchmark(entry, resource)
 
     async def cases(self, benchmark_id: str, *, limit: int = 50, offset: int = 0) -> _CaseCatalog:
+        catalog = _decode_benchmarks(
+            await _async_json(
+                self._get,
+                self._engine_url,
+                _BENCHMARKS_PATH,
+                "Benchmark catalogue",
+            )
+        )
+        entry = _entry_of(catalog, benchmark_id)
         page = _decode_case_page(
             await _async_json(
                 self._get,
                 self._engine_url,
-                _cases_path(benchmark_id, limit, offset),
+                _cases_path(entry.resource_id, limit, offset),
                 "Benchmark cases",
             )
         )
         return _CaseCatalog(page.rows, total=page.total, limit=page.limit, offset=page.offset)
 
-    async def _benchmark(self, entry: _BenchmarkEntry) -> Benchmark:
-        summary = _decode_benchmark_summary(
-            await _async_json(
-                self._get,
-                self._engine_url,
-                _summary_path(entry.id),
-                "Benchmark resource",
-            )
-        )
+    def _benchmark(self, entry: _BenchmarkEntry, resource: object) -> Benchmark:
+        summary = _decode_benchmark_summary(resource, entry)
         return Benchmark(
             id=entry.id,
             family=entry.family,
@@ -358,30 +401,71 @@ def _benchmark_entries(rows: list[object]) -> tuple[_BenchmarkEntry, ...]:
     seen: set[str] = set()
     for row in rows:
         item = _wire_mapping(row, "Benchmark catalog entry", _catalog_invalid)
-        if item.get("object") != "benchmark":
-            _catalog_invalid("Benchmark catalog entry object must be 'benchmark'")
-        benchmark_id = _wire_text(item.get("id"), "Benchmark id", _catalog_invalid)
-        if benchmark_id in seen:
-            _catalog_invalid(f"Benchmark catalog contains duplicate id {benchmark_id!r}")
-        seen.add(benchmark_id)
-        values.append(
+        object_type = item.get("object")
+        if object_type == "benchmark":
+            entries = (_legacy_benchmark_entry(item),)
+        elif object_type == "benchmark_family":
+            entries = _family_benchmark_entries(item)
+        else:
+            _catalog_invalid(
+                "Benchmark catalog entry object must be 'benchmark' or 'benchmark_family'"
+            )
+        for entry in entries:
+            if entry.id in seen:
+                _catalog_invalid(f"Benchmark catalog contains duplicate id {entry.id!r}")
+            seen.add(entry.id)
+            values.append(entry)
+    return tuple(values)
+
+
+def _legacy_benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
+    benchmark_id = _wire_text(item.get("id"), "Benchmark id", _catalog_invalid)
+    return _BenchmarkEntry(
+        id=benchmark_id,
+        # Additive compatibility: an older Engine exposed only standalone entries.
+        family=_wire_text(item.get("family", benchmark_id), "Benchmark family", _catalog_invalid),
+        variant=_wire_text(item.get("variant", "canonical"), "Benchmark variant", _catalog_invalid),
+        title=_wire_text(item.get("title"), "Benchmark title", _catalog_invalid),
+        description=_wire_text(item.get("description"), "Benchmark description", _catalog_invalid),
+        resource_id=benchmark_id,
+    )
+
+
+def _family_benchmark_entries(item: Mapping[str, object]) -> tuple[_BenchmarkEntry, ...]:
+    family_id = _wire_text(item.get("id"), "Benchmark Family id", _catalog_invalid)
+    default_variant = _wire_text(
+        item.get("default_variant"), "Benchmark Family default Variant", _catalog_invalid
+    )
+    variants = item.get("variants")
+    if not isinstance(variants, list) or not variants:
+        _catalog_invalid("Benchmark Family variants must be a non-empty array")
+    selected: list[_BenchmarkEntry] = []
+    seen: set[str] = set()
+    for raw_variant in variants:
+        variant = _wire_mapping(raw_variant, "Benchmark Variant", _catalog_invalid)
+        variant_id = _wire_text(variant.get("id"), "Benchmark Variant id", _catalog_invalid)
+        if variant_id in seen:
+            _catalog_invalid(
+                f"Benchmark Family {family_id!r} contains duplicate Variant {variant_id!r}"
+            )
+        seen.add(variant_id)
+        selected.append(
             _BenchmarkEntry(
-                id=benchmark_id,
-                # Additive compatibility: an older Engine exposed only canonical entries.
-                # Its id is therefore both family and canonical variant by definition.
-                family=_wire_text(
-                    item.get("family", benchmark_id), "Benchmark family", _catalog_invalid
-                ),
-                variant=_wire_text(
-                    item.get("variant", "canonical"), "Benchmark variant", _catalog_invalid
-                ),
-                title=_wire_text(item.get("title"), "Benchmark title", _catalog_invalid),
+                id=family_id if variant_id == default_variant else f"{family_id}/{variant_id}",
+                family=family_id,
+                variant=variant_id,
+                title=_wire_text(variant.get("title"), "Benchmark Variant title", _catalog_invalid),
                 description=_wire_text(
-                    item.get("description"), "Benchmark description", _catalog_invalid
+                    variant.get("description"),
+                    "Benchmark Variant description",
+                    _catalog_invalid,
                 ),
+                resource_id=family_id,
             )
         )
-    return tuple(values)
+    if default_variant not in seen:
+        _catalog_invalid(f"Benchmark Family default Variant {default_variant!r} is not installed")
+    return tuple(selected)
 
 
 def _benchmark_default(value: object, ids: tuple[str, ...]) -> str | None:
@@ -395,10 +479,22 @@ def _benchmark_default(value: object, ids: tuple[str, ...]) -> str | None:
     return selected
 
 
-def _decode_benchmark_summary(payload: object) -> _BenchmarkSummary:
+def _decode_benchmark_summary(payload: object, entry: _BenchmarkEntry) -> _BenchmarkSummary:
     root = _wire_mapping(payload, "Benchmark resource", _invalid)
-    revision = _wire_text(root.get("revision"), "Benchmark revision", _invalid)
-    total = root.get("total_case_count")
+    if root.get("schema") == "screamingface.benchmark-family.v1":
+        family_id = _wire_text(root.get("id"), "Benchmark Family id", _invalid)
+        if family_id != entry.family:
+            _invalid("Benchmark resource has the wrong Benchmark Family id")
+        variants = _wire_mapping(root.get("variants"), "Benchmark Variants", _invalid)
+        if entry.variant not in variants:
+            _invalid(f"Benchmark Variant {entry.variant!r} is not installed in {entry.family!r}")
+        selected = _wire_mapping(
+            variants[entry.variant], f"Benchmark Variant {entry.variant!r}", _invalid
+        )
+    else:
+        selected = root
+    revision = _wire_text(selected.get("revision"), "Benchmark revision", _invalid)
+    total = selected.get("total_case_count")
     if isinstance(total, bool) or not isinstance(total, int) or total < 1:
         _invalid("Benchmark total_case_count must be a positive integer")
     return _BenchmarkSummary(revision=revision, case_count=total)

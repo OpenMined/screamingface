@@ -40,6 +40,7 @@ class _CompiledCandidate:
 class _MemberExpression:
     """One direct Fusion member exposed through the universal binding contract."""
 
+    name: str
     kind: Literal["model", "fusion"]
     url4: str
 
@@ -94,6 +95,7 @@ class _CandidateCompiler:
         member_expressions = (
             tuple(
                 _MemberExpression(
+                    name=member.name,
                     kind="model" if isinstance(member, Model) else "fusion",
                     url4=compile_candidate(
                         member,

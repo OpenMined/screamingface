@@ -23,12 +23,12 @@ class BenchmarkResources:
         self,
         benchmark: str,
         limit: int | None,
-        members: int = 0,
     ) -> _BenchmarkResource:
+        family = _family_id(benchmark)
         try:
             response = self._http.get(
-                f"/v1/benchmarks/{quote(benchmark, safe='')}",
-                params=_query(limit, members),
+                f"/v1/benchmarks/{quote(family, safe='')}",
+                params=_query(limit),
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -53,12 +53,12 @@ class AsyncBenchmarkResources:
         self,
         benchmark: str,
         limit: int | None,
-        members: int = 0,
     ) -> _BenchmarkResource:
+        family = _family_id(benchmark)
         try:
             response = await self._http.get(
-                f"/v1/benchmarks/{quote(benchmark, safe='')}",
-                params=_query(limit, members),
+                f"/v1/benchmarks/{quote(family, safe='')}",
+                params=_query(limit),
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -73,15 +73,22 @@ class AsyncBenchmarkResources:
         )
 
 
-def _query(limit: int | None, members: int = 0) -> dict[str, int]:
+def _query(limit: int | None) -> dict[str, int]:
     params: dict[str, int] = {}
     if limit is not None:
         params["limit"] = limit
-    # WHY: a shape-adaptive Benchmark (ifeval-iterative-correction) serves a member-shaped URL4
-    # when told the Candidate's direct Model member count; other Benchmarks ignore it.
-    if members:
-        params["members"] = members
     return params
+
+
+def _family_id(selection: str) -> str:
+    family, separator, variant = selection.partition("/")
+    if not family.strip() or (separator and not variant.strip()) or "/" in variant:
+        raise PlanningError(
+            "Benchmark must be selected as 'family' or 'family/variant'",
+            code="invalid_benchmark_selection",
+            permanent=True,
+        )
+    return family
 
 
 def _json(response: httpx.Response) -> object:

@@ -1,13 +1,16 @@
-"""Universal synthesizer binding and shape-adaptive Benchmark fetches.
+"""Universal synthesizer and dynamic direct-member bindings.
 
-FEATURE: shape-adaptive exams (ifeval-iterative-correction) whose URL4 binds the Fusion's
-synthesizer as the protocol's judge.
+FEATURE: Benchmark Variants whose URL4 binds a Fusion's direct members and synthesizer.
 STORY: as a researcher, I hand any exam my Fusion and the SDK satisfies whatever the
 exam's URL4 names — members, synthesizer, or the whole Candidate — without ever
 interpreting the protocol.
 """
 
 from __future__ import annotations
+
+import base64
+import json
+import re
 
 import pytest
 
@@ -22,6 +25,11 @@ _JUDGE_SHAPED_BENCHMARK = (
     "pick:0.0:/candidate?q=(verdicts)!'$candidate_synthesizer')!'$pick'"
 )
 _WHOLE_CANDIDATE_BENCHMARK = "(answer:0.0:/candidate?q=($item.input)!'$candidate')!'$answer'"
+_MEMBER_COLLECTION_BENCHMARK = (
+    "(validated:0.0:/bench/validate('$candidate_members')!'validate', "
+    "answers:0.0:$validated*(answer:0.0:/candidate?q=(question)!'$item.expression')!"
+    "'$answer', pick:0.0:/candidate?q=($answers)!'$candidate_synthesizer')!'$pick'"
+)
 
 
 def _compiled(recipe):
@@ -82,3 +90,34 @@ def test_a_model_has_no_synthesizer_expression_and_whole_binding_still_works() -
     )
     assert linked.uses_whole_candidate
     assert "candidate_synthesizer" not in linked.url4
+
+
+@pytest.mark.parametrize("member_count", [2, 3, 4])
+def test_one_member_collection_binding_handles_every_supported_fusion_size(
+    member_count: int,
+) -> None:
+    fusion = sf.Fusion(
+        [sf.Model(f"provider/member-{index}") for index in range(1, member_count + 1)],
+        name="panel",
+        synthesizer="provider/judge",
+    )
+    value = _compiled(fusion)
+
+    linked = link_candidate(
+        value.url4,
+        _MEMBER_COLLECTION_BENCHMARK,
+        value.member_expressions,
+        value.synthesizer_expression,
+    )
+
+    assert linked.member_indices == tuple(range(1, member_count + 1))
+    assert "$candidate_members" in linked.url4
+    assert "$candidate_synthesizer" in linked.url4
+    assert "$candidate_model_member_" not in linked.url4
+    match = re.search(r"candidate_members:0\.0:'([^']+)'", linked.url4)
+    assert match is not None
+    payload = json.loads(base64.urlsafe_b64decode(match.group(1)))
+    for index in range(1, member_count + 1):
+        assert f"provider/member-{index}" in payload[index - 1]["expression"]
+        assert payload[index - 1]["key"] == chr(64 + index)
+    assert json.loads(json.dumps(linked.url4)) == linked.url4

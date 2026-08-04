@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import re
 from dataclasses import dataclass, fields, is_dataclass
 
@@ -12,6 +14,7 @@ from screamingface.errors import PlanningError
 
 _WHOLE_CANDIDATE = "$candidate"
 _SYNTHESIZER = "$candidate_synthesizer"
+_MEMBERS = "$candidate_members"
 _MODEL_MEMBER = re.compile(r"\$candidate_model_member_([1-9][0-9]*)")
 
 
@@ -19,6 +22,14 @@ _MODEL_MEMBER = re.compile(r"\$candidate_model_member_([1-9][0-9]*)")
 class _LinkedCandidate:
     url4: str
     uses_whole_candidate: bool
+    member_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _BindingRequirements:
+    whole_candidate: bool
+    synthesizer: bool
+    member_collection: bool
     member_indices: tuple[int, ...]
 
 
@@ -32,53 +43,21 @@ def link_candidate(
 
     candidate = build(candidate_url4)
     benchmark = build(benchmark_url4)
-    references = _text_references(benchmark)
-    uses_whole = _WHOLE_CANDIDATE in references
-    uses_synthesizer = _SYNTHESIZER in references
-    member_indices = tuple(
-        sorted(
-            {
-                int(match.group(1))
-                for reference in references
-                if (match := _MODEL_MEMBER.fullmatch(reference)) is not None
-            }
-        )
-    )
-    if not uses_whole and not member_indices:
+    requirements = _requirements(benchmark, len(member_expressions))
+    if not requirements.whole_candidate and not requirements.member_indices:
         raise PlanningError(
             "Benchmark URL4 does not invoke the Candidate",
             code="invalid_benchmark_resource",
             permanent=True,
         )
     bindings = []
-    if uses_whole:
+    if requirements.whole_candidate:
         bindings.append(src(text(render(candidate)), name="candidate", weight=0.0))
-    bindings.extend(_synthesizer_bindings(uses_synthesizer, synthesizer_expression))
-    if member_indices and (
-        member_indices != tuple(range(1, len(member_indices) + 1))
-        or len(member_expressions) != len(member_indices)
-    ):
-        raise PlanningError(
-            f"Benchmark requires exactly {len(member_indices)} direct Model members, "
-            f"but this Candidate has {len(member_expressions)} direct members",
-            code="candidate_shape_mismatch",
-            permanent=True,
-        )
-    for index in member_indices:
-        member = member_expressions[index - 1]
-        if member.kind != "model":
-            raise PlanningError(
-                f"Benchmark requires Fusion member {index} to be an sf.Model",
-                code="candidate_shape_mismatch",
-                permanent=True,
-            )
-        bindings.append(
-            src(
-                text(render(build(member.url4))),
-                name=f"candidate_model_member_{index}",
-                weight=0.0,
-            )
-        )
+    bindings.extend(_synthesizer_bindings(requirements.synthesizer, synthesizer_expression))
+    if requirements.member_collection:
+        bindings.extend(_member_collection_binding(member_expressions))
+    else:
+        bindings.extend(_static_member_bindings(requirements.member_indices, member_expressions))
     if isinstance(benchmark, Iteration):
         # The surface grammar greedily reads a top-level ``*(...)`` as a reduce envelope. This
         # ordinary instrumental passthrough gives the iteration an unambiguous nested boundary.
@@ -93,9 +72,89 @@ def link_candidate(
     )
     return _LinkedCandidate(
         url4=render(linked),
-        uses_whole_candidate=uses_whole,
-        member_indices=member_indices,
+        uses_whole_candidate=requirements.whole_candidate,
+        member_indices=requirements.member_indices,
     )
+
+
+def _requirements(benchmark: object, member_count: int) -> _BindingRequirements:
+    references = _text_references(benchmark)
+    member_collection = _MEMBERS in references
+    indices = tuple(
+        sorted(
+            {
+                int(match.group(1))
+                for reference in references
+                if (match := _MODEL_MEMBER.fullmatch(reference)) is not None
+            }
+        )
+    )
+    if member_collection:
+        indices = tuple(range(1, member_count + 1))
+    return _BindingRequirements(
+        whole_candidate=_WHOLE_CANDIDATE in references,
+        synthesizer=_SYNTHESIZER in references,
+        member_collection=member_collection,
+        member_indices=indices,
+    )
+
+
+def _static_member_bindings(
+    indices: tuple[int, ...],
+    members: tuple[_MemberExpression, ...],
+) -> list:
+    if indices and (indices != tuple(range(1, len(indices) + 1)) or len(members) != len(indices)):
+        raise PlanningError(
+            f"Benchmark requires exactly {len(indices)} direct Model members, "
+            f"but this Candidate has {len(members)} direct members",
+            code="candidate_shape_mismatch",
+            permanent=True,
+        )
+    bindings = []
+    for index in indices:
+        member = members[index - 1]
+        if member.kind != "model":
+            raise PlanningError(
+                f"Benchmark requires Fusion member {index} to be an sf.Model",
+                code="candidate_shape_mismatch",
+                permanent=True,
+            )
+        bindings.append(
+            src(
+                text(render(build(member.url4))),
+                name=f"candidate_model_member_{index}",
+                weight=0.0,
+            )
+        )
+    return bindings
+
+
+def _member_collection_binding(members: tuple[_MemberExpression, ...]) -> list:
+    if not members:
+        raise PlanningError(
+            "Benchmark requires direct Candidate members — use an sf.Fusion",
+            code="candidate_shape_mismatch",
+            permanent=True,
+        )
+    payload = [
+        {
+            "key": chr(64 + index),
+            "name": member.name,
+            "kind": member.kind,
+            "expression": render(build(member.url4)),
+        }
+        for index, member in enumerate(members, 1)
+    ]
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+    return [
+        src(
+            text(encoded),
+            name="candidate_members",
+            weight=0.0,
+        )
+    ]
 
 
 def _synthesizer_bindings(uses_synthesizer: bool, expression: str | None) -> list:
@@ -122,7 +181,10 @@ def _text_references(value: object) -> set[str]:
         references.add(value.value)
     elif isinstance(value, str):
         references.update(
-            re.findall(r"\$candidate(?:_model_member_[1-9][0-9]*|_synthesizer)?", value)
+            re.findall(
+                r"\$candidate(?:_model_member_[1-9][0-9]*|_members|_synthesizer)?",
+                value,
+            )
         )
     elif isinstance(value, tuple | list):
         for item in value:

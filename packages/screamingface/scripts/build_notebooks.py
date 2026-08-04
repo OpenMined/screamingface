@@ -133,25 +133,26 @@ report"""
 def _ifeval_e2e() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell(
-            """# IFEval on ScreamingFace: two exams, four experiments
+            """# IFEval on ScreamingFace: one family, four experiments
 
 IFEval (arXiv:2311.07911) is 541 prompts with machine-checkable constraints — word
 counts, forbidden punctuation, required sections. The Engine grades every response with
 a deterministic verifier: **no judge model in the grading path, zero grading cost**.
 
-There are two Benchmarks, and each adapts to the Candidate you hand it:
+There is one IFEval family with three explicit Variants:
 
 - `ifeval` — one shot. A solo Model answers once; a Fusion's members answer and its
   synthesizer **blends** them into one new answer. The blend is checked.
-- `ifeval-iterative-correction` — up to three attempts. A solo Model reads the checker's
-  violations, **writes its own feedback, and retries**. A Fusion runs the verifying
-  ensemble of Skurikhin et al. (https://openreview.net/forum?id=XSIYfTm2h7): every
+- `ifeval/self-corrective` — up to three attempts. The whole Candidate reads the
+  checker's violations, **writes its own feedback, and retries**.
+- `ifeval/verifying-ensemble` — the current verifying ensemble implementation based on
+  Skurikhin et al. (https://openreview.net/forum?id=XSIYfTm2h7): every direct Fusion
   member is checked individually, and the **synthesizer acts as JUDGE** — it picks a
   passing answer word-for-word, or turns the violations into coaching when nobody
   passed. It never writes the answer on this exam.
 
 One rule to remember: **the synthesizer plays two roles.** Blender on `ifeval`,
-judge on `ifeval-iterative-correction`."""
+judge on `ifeval/verifying-ensemble`."""
         ),
         nbformat.v4.new_markdown_cell(
             """## Before running
@@ -226,7 +227,7 @@ unrolled."""
         nbformat.v4.new_code_cell(
             """iterative_1_model = sf.evaluate(
     kimi,
-    benchmark="ifeval-iterative-correction",
+    benchmark="ifeval/self-corrective",
     limit=3,
     progress=False,
 )
@@ -247,7 +248,7 @@ synthesizer inherits provider-default params on this exam."""
         nbformat.v4.new_code_cell(
             """iterative_fusion = sf.evaluate(
     fusion,
-    benchmark="ifeval-iterative-correction",
+    benchmark="ifeval/verifying-ensemble",
     limit=3,
     progress=False,
 )

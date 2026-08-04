@@ -4,9 +4,9 @@ Evaluate Models and Fusions against URL4-native research Benchmarks.
 
 > **Development status:** immutable Model/Fusion authoring, Engine-backed discovery, the direct
 > evaluation API, Model/Fusion authoring, and the confirmed `url4-cloud` lifecycle are
-> implemented. The current Engine publishes `draco`, canonical `ifeval`, and
-> `ifeval-corrective`, and `ifeval-corrective-ensemble` through the one-fetch
-> Benchmark-expression contract and Runner-native URL4 routes. There is no fixture, embedded
+> implemented. The current Engine publishes the `draco` and `ifeval` Benchmark Families. Each
+> family resource contains its Engine-owned protocol Variants and their complete URL4
+> expressions. There is no fixture, embedded
 > benchmark runtime, or Client-side execution fallback.
 
 ## Target v1 workflow
@@ -46,28 +46,28 @@ current executable Judge is `openrouter/google/gemini-3.1-pro-preview`, Google's
 replacement for the paper's retired `Gemini-3-Pro Preview`. Reports should disclose that Judge
 version difference when comparing scores with the paper.
 
-Related protocols are separate Benchmark identities rather than SDK options. Canonical IFEval
-invokes each Candidate once and grades it with deterministic code. `ifeval-corrective` uses the
-same 541 Cases and verifier but executes a fixed three-attempt Engine-owned correction protocol:
+Related protocols are explicit Variants rather than SDK options. Canonical IFEval invokes each
+Candidate once and grades it with deterministic code. `ifeval/self-corrective` uses the same 541
+Cases and verifier but executes a fixed three-attempt whole-Candidate correction protocol:
 
 ```python
 canonical = sf.evaluate(fusion, benchmark="ifeval", limit=3)
-corrective = sf.evaluate(fusion, benchmark="ifeval-corrective", limit=3)
+self_corrective = sf.evaluate(fusion, benchmark="ifeval/self-corrective", limit=3)
 ```
 
-The two entries share the `ifeval` Benchmark Family and Engine assets, but have different ids,
+The two Variants share the `ifeval` Benchmark Family and Engine assets, but have different ids,
 revisions, URL4 expressions, costs, and score comparability. `limit` only selects fewer Cases; it
-does not create a `smoke` or `lite` Benchmark. Because current URL4 has no conditional early stop,
-the corrective Variant always runs all three attempts and then scores the earliest strict pass,
-or the final attempt when none passes.
+does not create a `smoke` or `lite` Benchmark. The current self-corrective implementation
+intentionally runs all three attempts and then scores the earliest strict pass, or the final
+attempt when none passes.
 
 The member-level protocol is separately identified because it performs a different experiment.
-It requires exactly three direct Model members, checks and retries each member independently for
-three attempts, and uses the Benchmark's pinned selection Judge before canonical scoring:
+It accepts two to four direct Model members, checks and retries each independently for three
+attempts, and uses the Fusion's synthesizer as its selection Judge before canonical scoring:
 
 ```python
 panel = sf.Fusion([kimi, deepseek, qwen])
-ensemble = sf.evaluate(panel, benchmark="ifeval-corrective-ensemble", limit=3)
+ensemble = sf.evaluate(panel, benchmark="ifeval/verifying-ensemble", limit=3)
 ```
 
 Here the Benchmark deliberately invokes the Fusion's structural member bindings rather than its
@@ -106,8 +106,9 @@ constraint_aware = sf.Fusion(
 These overrides never alter Benchmark-owned Cases, fixed judge models or prompts, Grading, or
 Aggregation. Resolved defaults and overrides are embedded in each final URL4.
 
-The Benchmark resource uses `screamingface.benchmark.v1` and carries its canonical expression in
-`url4` plus an opaque immutable `revision`. The SDK compiles a Model or Fusion into an expression accepting `$input`, binds it once as
+The Benchmark Family resource uses `screamingface.benchmark-family.v1`. Every Variant carries one
+canonical `url4` plus an opaque immutable `revision`. The SDK selects the requested Variant from
+that one fetch, compiles a Model or Fusion into an expression accepting `$input`, binds it once as
 `$candidate`, and links it to the Engine expression using URL4's AST. A Benchmark invokes it with
 `/candidate(input)!$candidate`; that route evaluates it inside the same Engine job, not through an
 additional Client or control-plane request. Unsupported Candidates fail with typed errors instead
