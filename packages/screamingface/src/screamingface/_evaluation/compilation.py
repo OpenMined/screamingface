@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.candidate import (
     _CompiledCandidate,
     compile_candidate,
-    member_count,
 )
 from screamingface._evaluation.linking import link_candidate
 from screamingface._evaluation.model import (
@@ -22,21 +21,20 @@ from screamingface.recipe import Recipe
 
 def compile_evaluation(
     recipes: Sequence[Recipe],
-    resources: Mapping[int, _BenchmarkResource],
+    resource: _BenchmarkResource,
     limit: int | None,
     *,
     default_synthesizer: str,
 ) -> _Evaluation:
-    """Compile all Candidates locally against their shape's Benchmark resource."""
+    """Compile all Candidates locally against one selected Benchmark Variant."""
 
-    benchmark = next(iter(resources.values()))
     compiled = tuple(
         compile_candidate(recipe, default_synthesizer=default_synthesizer) for recipe in recipes
     )
     linked = tuple(
         link_candidate(
             value.url4,
-            resources[member_count(recipe)].url4,
+            resource.url4,
             value.member_expressions,
             value.synthesizer_expression,
         )
@@ -57,14 +55,14 @@ def compile_evaluation(
     )
 
     return _compiled_evaluation(
-        benchmark=benchmark.info,
+        benchmark=resource.info,
         limit=limit,
-        case_count=benchmark.case_count,
+        case_count=resource.case_count,
         candidates=candidates,
         required_models=_ordered_unique(
             (
                 *(model for candidate in candidates for model in candidate.models),
-                *(model for value in resources.values() for model in value.required_models),
+                *resource.required_models,
             )
         ),
     )
