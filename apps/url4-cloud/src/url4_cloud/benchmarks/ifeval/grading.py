@@ -97,7 +97,8 @@ def _describe(instruction_id: str, kwargs: Mapping[str, Any], prompt: str) -> st
 
 
 def _loose_variants(response: str) -> list[str]:
-    # The paper's loose protocol: the response plus 7 markdown/edge-line-stripped variants;
+    # IFEval's loose protocol (Zhou et al., arXiv:2311.07911): the response plus 7
+    # markdown/edge-line-stripped variants;
     # compliant under ANY variant counts. Mirrors evaluation.py verbatim.
     variants = [
         response,

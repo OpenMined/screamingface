@@ -6,15 +6,13 @@ from pathlib import Path
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.definition import Benchmark
 from url4_cloud.benchmarks.draco.definition import DRACO
-from url4_cloud.benchmarks.ifeval.corrective import IFEVAL_CORRECTIVE
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
-from url4_cloud.benchmarks.ifeval.ensemble import IFEVAL_CORRECTIVE_ENSEMBLE
+from url4_cloud.benchmarks.ifeval.iterative_correction import IFEVAL_ITERATIVE_CORRECTION
 
 BENCHMARKS: dict[str, Benchmark] = {
     DRACO.id: DRACO,
     IFEVAL.id: IFEVAL,
-    IFEVAL_CORRECTIVE.id: IFEVAL_CORRECTIVE,
-    IFEVAL_CORRECTIVE_ENSEMBLE.id: IFEVAL_CORRECTIVE_ENSEMBLE,
+    IFEVAL_ITERATIVE_CORRECTION.id: IFEVAL_ITERATIVE_CORRECTION,
 }
 DEFAULT_BENCHMARK_ID = DRACO.id
 ASSETS_ENV = "URL4_BENCHMARK_ASSETS"

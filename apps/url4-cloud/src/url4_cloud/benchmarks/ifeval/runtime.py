@@ -10,35 +10,32 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.ifeval import aggregate as scoring
 from url4_cloud.benchmarks.ifeval import grading
-from url4_cloud.benchmarks.ifeval.corrective import (
-    AGGREGATE_ROUTE as CORRECTIVE_AGGREGATE_ROUTE,
-)
-from url4_cloud.benchmarks.ifeval.corrective import MAX_ATTEMPTS
 from url4_cloud.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
     CASES_ROUTE,
     CHECK_ROUTE,
 )
-from url4_cloud.benchmarks.ifeval.ensemble import (
-    AGGREGATE_ROUTE as ENSEMBLE_AGGREGATE_ROUTE,
+from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    AGGREGATE_ROUTE as CORRECTIVE_AGGREGATE_ROUTE,
 )
-from url4_cloud.benchmarks.ifeval.ensemble import FINALIZE_ROUTE, SELECT_ROUTE
-from url4_cloud.benchmarks.ifeval.ensemble import (
-    MAX_ATTEMPTS as ENSEMBLE_MAX_ATTEMPTS,
+from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    MAX_ATTEMPTS,
+    MAX_MEMBERS,
+    MEMBER_LETTERS,
+    MIN_MEMBERS,
+    SELECT_ROUTE,
 )
 
 
 def install(node: Url4Node, root: Path) -> None:
-    """Register the shared family runtime for both IFEval protocol variants."""
+    """Register the shared family runtime for both IFEval protocols."""
 
     node.data(CASES_ROUTE, _cases(root), media_type="application/json")
     node.endpoint(CHECK_ROUTE)(_check(root))
     node.endpoint(AGGREGATE_ROUTE)(_aggregate(root))
     node.endpoint(CORRECTIVE_AGGREGATE_ROUTE)(_aggregate_corrective(root))
-    node.endpoint(ENSEMBLE_AGGREGATE_ROUTE)(_aggregate_ensemble(root))
     node.endpoint(SELECT_ROUTE)(_select)
-    node.endpoint(FINALIZE_ROUTE)(_finalize)
 
 
 def _cases(root: Path):
@@ -143,7 +140,7 @@ def _aggregate_corrective(root: Path):
             result = scoring.aggregate_corrective(
                 request.context,
                 scoring.load_specs(root / "instructions"),
-                "ifeval-corrective",
+                "ifeval-iterative-correction",
                 max_attempts=MAX_ATTEMPTS,
             )
         except (OSError, ValueError) as exc:
@@ -153,61 +150,60 @@ def _aggregate_corrective(root: Path):
     return aggregate
 
 
-def _aggregate_ensemble(root: Path):
-    def aggregate(request: Request) -> str:
-        if request.intent != "aggregate":
-            raise _unsupported("IFEval corrective ensemble aggregation", request.intent)
-        try:
-            result = scoring.aggregate(
-                request.context,
-                scoring.load_specs(root / "instructions"),
-                "ifeval-corrective-ensemble",
-            )
-        except (OSError, ValueError) as exc:
-            raise _unavailable(str(exc)) from exc
-        return _json(result)
-
-    return aggregate
-
-
 def _select(request: Request) -> str:
-    """Return the judge's chosen member answer verbatim; fall back to the first."""
+    """Deterministically select one member answer, verbatim.
+
+    The payload carries each member's answer (keys a..d), each answer's checker verdict
+    (keys fa..fd, the literal PASSED or a failure text), and the judge's reply (pick).
+
+    Selection rules, in order:
+    1. Exactly one answer PASSED the checker -> that answer wins. The judge cannot
+       discard the only compliant draft.
+    2. Two or more answers PASSED -> the judge's letter chooses among them; a letter
+       naming a failing answer (or no valid letter) falls back to the first passer.
+    3. No answer PASSED -> the judge's letter stands, so this attempt's grading record
+       reflects the judged pick; without a valid letter the first answer stands.
+
+    INVARIANT: the returned text is always a member's exact answer — selection can
+    choose but never rewrite, so it cannot break a requirement a member satisfied.
+    """
 
     if request.intent != "select":
-        raise _unsupported("IFEval corrective ensemble selection", request.intent)
+        raise _unsupported("IFEval corrective selection", request.intent)
     payload = _json_payload(request.context, "selection")
     answers = [
         (letter, value)
-        for letter in ("a", "b", "c")
+        for letter in MEMBER_LETTERS
         if isinstance((value := payload.get(letter)), str)
     ]
-    if len(answers) != 3:
-        raise _unavailable("selection input must carry exactly three member answers")
+    if not MIN_MEMBERS <= len(answers) <= MAX_MEMBERS:
+        raise _unavailable(
+            f"selection input must carry {MIN_MEMBERS}..{MAX_MEMBERS} member answers"
+        )
     selected = {letter.upper(): answer for letter, answer in answers}
-    pick = next(
-        (character for character in str(payload.get("pick", "")).upper() if character in selected),
-        None,
-    )
+    passers = [
+        letter for letter, _ in answers if str(payload.get(f"f{letter}", "")).strip() == "PASSED"
+    ]
+    pick = _judge_letter(payload.get("pick"), selected)
+    if passers:
+        judged = pick if pick is not None and pick.lower() in passers else passers[0].upper()
+        return selected[judged]
     return selected[pick] if pick is not None else answers[0][1]
 
 
-def _finalize(request: Request) -> str:
-    """Return the earliest passing per-attempt selection, otherwise the last."""
+def _judge_letter(reply: object, selected: dict[str, str]) -> str | None:
+    """Accept only an unambiguous single-letter judge reply; prose gets no vote.
 
-    if request.intent != "finalize":
-        raise _unsupported("IFEval corrective ensemble finalization", request.intent)
-    payload = _json_payload(request.context, "finalization")
-    last: str | None = None
-    for attempt in range(1, ENSEMBLE_MAX_ATTEMPTS + 1):
-        selection = payload.get(f"s{attempt}")
-        if not isinstance(selection, str):
-            continue
-        last = selection
-        if str(payload.get(f"f{attempt}", "")).strip() == "PASSED":
-            return selection
-    if last is None:
-        raise _unavailable("finalization input carries no selected answers")
-    return last
+    A letter names a member answer (``a`` = member 1's answer, ``b`` = member 2's,
+    and so on). Anything else — prose, an empty reply, a letter outside the answer
+    set — returns None so ``_select``'s deterministic fallbacks apply.
+    """
+
+    raw = str(reply or "").strip().upper()
+    if not raw:
+        return None
+    token = raw.split()[0].strip(".,:;!()[]'\"")
+    return token if len(token) == 1 and token in selected else None
 
 
 def _json_payload(context: str, label: str) -> dict[str, object]:

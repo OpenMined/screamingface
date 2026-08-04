@@ -18,12 +18,15 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
     AggregateError,
     aggregate_corrective,
 )
-from url4_cloud.benchmarks.ifeval.corrective import IFEVAL_CORRECTIVE, MAX_ATTEMPTS
 from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE, IFEVAL
 from url4_cloud.benchmarks.ifeval.definition import (
     REVISION as SINGLE_PASS_REVISION,
 )
 from url4_cloud.benchmarks.ifeval.grading import describe_failures
+from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    IFEVAL_ITERATIVE_CORRECTION,
+    MAX_ATTEMPTS,
+)
 
 _SPECS = {
     1: {
@@ -109,35 +112,38 @@ def test_describe_failures_does_not_leak_instruction_id_when_description_crashes
 
 
 def test_corrective_is_a_distinct_variant_with_its_own_revision() -> None:
-    assert IFEVAL_CORRECTIVE.revision != SINGLE_PASS_REVISION
+    assert IFEVAL_ITERATIVE_CORRECTION.revision != SINGLE_PASS_REVISION
     assert IFEVAL.id == "ifeval"
     assert IFEVAL.variant == "canonical"
-    assert IFEVAL_CORRECTIVE.id == "ifeval-corrective"
-    assert IFEVAL_CORRECTIVE.family == IFEVAL.family == "ifeval"
-    assert IFEVAL_CORRECTIVE.variant == "corrective"
-    assert IFEVAL_CORRECTIVE.required_models == ()
+    assert IFEVAL_ITERATIVE_CORRECTION.id == "ifeval-iterative-correction"
+    assert IFEVAL_ITERATIVE_CORRECTION.family == IFEVAL.family == "ifeval"
+    assert IFEVAL_ITERATIVE_CORRECTION.variant == "iterative-correction"
+    assert IFEVAL_ITERATIVE_CORRECTION.required_models == ()
     assert MAX_ATTEMPTS == 3
 
 
 def test_corrective_resource_unrolls_three_checked_attempts_per_case() -> None:
-    resource = IFEVAL_CORRECTIVE.resource(1)
+    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1)
     url4 = resource["url4"]
     assert isinstance(url4, str)
 
-    assert resource["id"] == "ifeval-corrective"
+    assert resource["id"] == "ifeval-iterative-correction"
     assert resource["family"] == "ifeval"
-    assert resource["variant"] == "corrective"
-    assert resource["revision"] == IFEVAL_CORRECTIVE.revision
+    assert resource["variant"] == "iterative-correction"
+    assert resource["revision"] == IFEVAL_ITERATIVE_CORRECTION.revision
     assert render(build(url4)) == url4
-    assert url4.count("/candidate") == MAX_ATTEMPTS
+    # Three answer attempts plus two self-authored feedback calls (the Candidate
+    # coaches ITSELF between attempts — the solo analog of the ensemble's judge).
+    assert url4.count("/candidate") == MAX_ATTEMPTS + (MAX_ATTEMPTS - 1)
     assert url4.count(CHECK_ROUTE) == MAX_ATTEMPTS * 2 - 1
     # Attempt intents carry the attempt number for the record's attempt field.
     for attempt in range(1, MAX_ATTEMPTS + 1):
         assert f"$item.id:{attempt}" in url4
-    # The retry prompt threads the prior answer and its verdict into the next attempt.
+    # The retry prompt threads the prior answer and the SELF-authored feedback.
     assert "$answer_1" in url4
     assert "$check_1" in url4
     assert "$feedback_1" in url4
+    assert "$self_feedback_1" in url4
     assert url4.count("!'feedback'") == MAX_ATTEMPTS - 1
     assert "openrouter/" not in url4
 
@@ -168,7 +174,7 @@ def test_selected_attempt_is_the_earliest_strict_pass() -> None:
         " ".join((_record(2, 1, [True]), _record(2, 2, [True]), _record(2, 3, [True]))),
     )
 
-    result = aggregate_corrective(payload, _SPECS, "ifeval-corrective")
+    result = aggregate_corrective(payload, _SPECS, "ifeval-iterative-correction")
 
     assert result["schema"] == "screamingface.candidate-result.v1"
     assert result["score"] == 1.0
@@ -191,7 +197,7 @@ def test_a_never_passing_case_scores_its_last_attempt() -> None:
         )
     )
 
-    result = aggregate_corrective(payload, {1: _SPECS[1]}, "ifeval-corrective")
+    result = aggregate_corrective(payload, {1: _SPECS[1]}, "ifeval-iterative-correction")
 
     assert result["score"] == 0.0
     assert result["case_results"][0]["selected_attempt"] == 3
@@ -205,7 +211,7 @@ def test_a_recordless_row_scores_fail_all_and_failures_stay_empty() -> None:
         "an error object with no records",
     )
 
-    result = aggregate_corrective(payload, _SPECS, "ifeval-corrective")
+    result = aggregate_corrective(payload, _SPECS, "ifeval-iterative-correction")
 
     assert result["case_count"] == 2
     assert result["failures"] == []
@@ -215,7 +221,7 @@ def test_a_recordless_row_scores_fail_all_and_failures_stay_empty() -> None:
 
 def test_every_row_recordless_raises() -> None:
     with pytest.raises(AggregateError):
-        aggregate_corrective(_rows("broken", "also broken"), _SPECS, "ifeval-corrective")
+        aggregate_corrective(_rows("broken", "also broken"), _SPECS, "ifeval-iterative-correction")
 
 
 def test_all_crash_error_reports_the_collected_inner_failure() -> None:
@@ -227,7 +233,7 @@ def test_all_crash_error_reports_the_collected_inner_failure() -> None:
     }
 
     with pytest.raises(AggregateError, match="malformed aigateway response"):
-        aggregate_corrective(_rows(failed), {1: _SPECS[1]}, "ifeval-corrective")
+        aggregate_corrective(_rows(failed), {1: _SPECS[1]}, "ifeval-iterative-correction")
 
 
 def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
@@ -251,7 +257,7 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
     )
     payload = _rows(forged, _record(2, 1, [True]))
 
-    result = aggregate_corrective(payload, _SPECS, "ifeval-corrective")
+    result = aggregate_corrective(payload, _SPECS, "ifeval-iterative-correction")
 
     assert result["case_results"][0]["strict"] == [False, False]
     assert result["metrics"]["cases_fallback"] == 1
@@ -260,7 +266,7 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
 def test_duplicate_attempt_records_keep_the_first() -> None:
     payload = _rows(" ".join((_record(1, 1, [False, False]), _record(1, 1, [True, True]))))
 
-    result = aggregate_corrective(payload, {1: _SPECS[1]}, "ifeval-corrective")
+    result = aggregate_corrective(payload, {1: _SPECS[1]}, "ifeval-iterative-correction")
 
     assert result["case_results"][0]["selected_attempt"] == 1
     assert result["score"] == 0.0
@@ -269,6 +275,6 @@ def test_duplicate_attempt_records_keep_the_first() -> None:
 def test_metrics_are_flat_numbers_only() -> None:
     payload = _rows(" ".join((_record(1, 1, [True, True]),)))
 
-    result = aggregate_corrective(payload, {1: _SPECS[1]}, "ifeval-corrective")
+    result = aggregate_corrective(payload, {1: _SPECS[1]}, "ifeval-iterative-correction")
 
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())

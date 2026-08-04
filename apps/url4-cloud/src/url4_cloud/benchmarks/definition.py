@@ -38,14 +38,22 @@ class Benchmark:
     required_models: tuple[str, ...]
     build: Callable[[int], Node]
     install: Callable[[Url4Node, Path], None]
+    # WHY optional: most exams treat the Candidate as one opaque answerer. An exam whose
+    # protocol addresses direct Fusion members individually (ifeval-iterative-correction) supplies
+    # this second build; the fetch's member count selects it. Absent → member count is
+    # ignored and the whole-candidate build serves every shape.
+    member_build: Callable[[int, int], Node] | None = None
 
-    def resource(self, limit: int | None) -> dict[str, object]:
+    def resource(self, limit: int | None, members: int = 0) -> dict[str, object]:
         """Build the exact JSON representation fetched by an SDK."""
 
         selected = self.case_count if limit is None else min(limit, self.case_count)
         if selected < 1:
             raise ValueError("Benchmark case selection must not be empty")
-        expression = self.build(selected)
+        if members and self.member_build is not None:
+            expression = self.member_build(selected, members)
+        else:
+            expression = self.build(selected)
         if not isinstance(expression, Node):
             raise TypeError("Benchmark build must return a URL4 Node")
         resource: dict[str, object] = {
