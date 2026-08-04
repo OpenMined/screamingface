@@ -40,7 +40,11 @@ AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
 
 
 def _build(case_count: int) -> Node:
-    """Build the paper-comparable one-invocation IFEval expression."""
+    """Build the canonical one-invocation IFEval expression.
+
+    One Candidate answer per case, graded once — the protocol of Zhou et al.
+    (arXiv:2311.07911), so scores compare directly to published IFEval results.
+    """
 
     checked_call = RelExpr(
         path=CHECK_ROUTE,

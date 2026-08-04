@@ -8,10 +8,6 @@ from fastapi.testclient import TestClient
 from url4 import build, render
 from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
 from url4_cloud.benchmarks.draco.definition import REVISION, ROUTE_PREFIX
-from url4_cloud.benchmarks.ifeval.corrective import (
-    IFEVAL_CORRECTIVE,
-    MAX_ATTEMPTS,
-)
 from url4_cloud.benchmarks.ifeval.definition import (
     CASE_COUNT as IFEVAL_CASE_COUNT,
 )
@@ -20,6 +16,10 @@ from url4_cloud.benchmarks.ifeval.definition import (
 )
 from url4_cloud.benchmarks.ifeval.definition import (
     ROUTE_PREFIX as IFEVAL_ROUTE_PREFIX,
+)
+from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    IFEVAL_ITERATIVE_CORRECTION,
+    MAX_ATTEMPTS,
 )
 from url4_cloud.rest.benchmarks import router
 
@@ -136,24 +136,43 @@ def test_ifeval_total_case_count_is_the_full_dataset(client: TestClient) -> None
 
 
 def test_ifeval_corrective_is_a_distinct_complete_protocol(client: TestClient) -> None:
-    response = client.get("/v1/benchmarks/ifeval-corrective?limit=1")
+    response = client.get("/v1/benchmarks/ifeval-iterative-correction?limit=1")
 
     assert response.status_code == 200
     body = response.json()
     assert body["schema"] == "screamingface.benchmark.v1"
-    assert body["id"] == "ifeval-corrective"
+    assert body["id"] == "ifeval-iterative-correction"
     assert body["family"] == "ifeval"
-    assert body["variant"] == "corrective"
-    assert body["revision"] == IFEVAL_CORRECTIVE.revision
+    assert body["variant"] == "iterative-correction"
+    assert body["revision"] == IFEVAL_ITERATIVE_CORRECTION.revision
     assert body["required_models"] == []
     assert body["total_case_count"] == IFEVAL_CASE_COUNT
     assert render(build(body["url4"])) == body["url4"]
-    # Three unrolled attempts: the candidate answers and is checked three times per case.
-    assert body["url4"].count("/candidate") == MAX_ATTEMPTS
+    # Three unrolled answer attempts plus two self-authored feedback calls per case.
+    assert body["url4"].count("/candidate") == MAX_ATTEMPTS + (MAX_ATTEMPTS - 1)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         assert f"$item.id:{attempt}" in body["url4"]
     assert body["url4"].count("!'feedback'") == MAX_ATTEMPTS - 1
     assert "openrouter/" not in body["url4"]
+
+
+def test_member_count_selects_the_member_shaped_corrective_protocol(
+    client: TestClient,
+) -> None:
+    response = client.get("/v1/benchmarks/ifeval-iterative-correction?limit=1&members=2")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["revision"] == IFEVAL_ITERATIVE_CORRECTION.revision
+    assert body["url4"].count("$candidate_model_member_") == 2 * MAX_ATTEMPTS
+    assert "$candidate_synthesizer" in body["url4"]
+
+
+def test_an_unsupported_member_count_is_a_422_problem(client: TestClient) -> None:
+    response = client.get("/v1/benchmarks/ifeval-iterative-correction?limit=1&members=5")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "candidate_shape"
 
 
 def test_limit_selects_cases_before_the_expression_is_returned(client: TestClient) -> None:

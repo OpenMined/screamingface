@@ -84,6 +84,10 @@ async def list_benchmarks(
 async def get_benchmark(
     benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
     limit: Annotated[int | None, Query(ge=1, description="Maximum selected cases.")] = None,
+    members: Annotated[
+        int | None,
+        Query(ge=1, description="Direct Model member count of the Candidate being linked."),
+    ] = None,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
     selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
@@ -94,7 +98,11 @@ async def get_benchmark(
             "Unknown benchmark",
             f"no Benchmark is installed under {benchmark_id!r}",
         )
-    return _response(benchmark.resource(limit), if_none_match)
+    try:
+        resource = benchmark.resource(limit, members or 0)
+    except ValueError as exc:
+        return _problem(422, "Unsupported candidate shape", str(exc), code="candidate_shape")
+    return _response(resource, if_none_match)
 
 
 class _CasesUnavailableError(Exception):

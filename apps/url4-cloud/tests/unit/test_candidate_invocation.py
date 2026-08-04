@@ -16,14 +16,8 @@ from url4.dag import run as url4_run
 from url4.observe import NodeFinished, ObservationEvent, Usage
 from url4_cloud.benchmarks.definition import chat_input
 from url4_cloud.benchmarks.draco.definition import DRACO, EXCLUDED_DOMAINS, JUDGE_MODEL
-from url4_cloud.benchmarks.ifeval.corrective import IFEVAL_CORRECTIVE
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
-from url4_cloud.benchmarks.ifeval.ensemble import (
-    IFEVAL_CORRECTIVE_ENSEMBLE,
-)
-from url4_cloud.benchmarks.ifeval.ensemble import (
-    JUDGE_MODEL as IFEVAL_ENSEMBLE_JUDGE,
-)
+from url4_cloud.benchmarks.ifeval.iterative_correction import IFEVAL_ITERATIVE_CORRECTION
 from url4_cloud.runner.config import CommandSpec, DataSpec, ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
@@ -56,23 +50,24 @@ def _link(candidate: Node, benchmark: Node) -> str:
     )
 
 
-def _link_model_members(candidates: tuple[Node, ...], benchmark: Node) -> str:
+def _link_model_members(
+    candidates: tuple[Node, ...],
+    benchmark: Node,
+    synthesizer: Node | None = None,
+) -> str:
     """The same generic structural bindings emitted by the SDK for a Fusion."""
 
-    return render(
-        expr(
-            *(
-                src(
-                    text(render(candidate)),
-                    name=f"candidate_model_member_{index}",
-                    weight=0.0,
-                )
-                for index, candidate in enumerate(candidates, 1)
-            ),
-            benchmark,
-            intent=text(""),
+    bindings = [
+        src(
+            text(render(candidate)),
+            name=f"candidate_model_member_{index}",
+            weight=0.0,
         )
-    )
+        for index, candidate in enumerate(candidates, 1)
+    ]
+    if synthesizer is not None:
+        bindings.append(src(text(render(synthesizer)), name="candidate_synthesizer", weight=0.0))
+    return render(expr(*bindings, benchmark, intent=text("")))
 
 
 _ONE_CRITERION_RUBRIC = {
@@ -277,9 +272,11 @@ def _corrective_responder(
         assert isinstance(model, str)
         calls.append(model)
         serialized = json.dumps(payload)
-        # The first attempt fails the no-comma constraint; a retry that can SEE the
-        # checker's violations corrects itself.
-        if "Previous answer" in serialized:
+        # The first attempt fails the no-comma constraint. The Candidate then AUTHORS
+        # its own feedback (the self-reflection call) and the coached retry corrects it.
+        if "Do not write a new answer" in serialized:
+            answer = "Remove every comma from your answer"
+        elif "Previous answer" in serialized:
             answer = "Tea is a warm drink made from steeped leaves"
         else:
             answer = "Tea is warm, and it is nice."
@@ -300,11 +297,11 @@ async def test_ifeval_corrective_definition_retries_until_the_check_passes(
     tmp_path: Path,
 ) -> None:
     # INVARIANT: the chain is UNROLLED — all three attempts execute even after a pass
-    # (the R2 conditional-skip caveat), so exactly MAX_ATTEMPTS model calls per case.
+    # (the R2 conditional-skip caveat): MAX_ATTEMPTS answers + two self-feedback calls.
     calls: list[str] = []
     answers: list[str] = []
 
-    resource = IFEVAL_CORRECTIVE.resource(1)
+    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1)
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     candidate = RelExpr(
@@ -334,8 +331,8 @@ async def test_ifeval_corrective_definition_retries_until_the_check_passes(
 
     decoded = json.loads(result.text)
     assert decoded["schema"] == "screamingface.candidate-result.v1"
-    assert decoded["benchmark_id"] == "ifeval-corrective"
-    assert calls == ["provider/candidate"] * 3
+    assert decoded["benchmark_id"] == "ifeval-iterative-correction"
+    assert calls == ["provider/candidate"] * 5
     assert decoded["score"] == 1.0
     assert decoded["metrics"]["pass_at_1"] == 0.0
     assert decoded["metrics"]["pass_at_2"] == 1.0
@@ -368,7 +365,7 @@ async def test_ifeval_corrective_accepts_a_fusion_candidate(tmp_path: Path) -> N
             },
         )
 
-    resource = IFEVAL_CORRECTIVE.resource(1)
+    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1)
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     candidate = build(
@@ -407,13 +404,15 @@ async def test_ifeval_corrective_accepts_a_fusion_candidate(tmp_path: Path) -> N
             await world.aclose()
 
     decoded = json.loads(result.text)
-    assert decoded["benchmark_id"] == "ifeval-corrective"
+    assert decoded["benchmark_id"] == "ifeval-iterative-correction"
     assert decoded["score"] == 1.0
+    # Three answer attempts plus two self-feedback invocations, each running the
+    # WHOLE Fusion (solo shape treats the Candidate as one opaque answerer).
     assert {model: calls.count(model) for model in set(calls)} == {
-        "provider/member-a": 3,
-        "provider/member-b": 3,
-        "provider/member-c": 3,
-        "provider/synth": 3,
+        "provider/member-a": 5,
+        "provider/member-b": 5,
+        "provider/member-c": 5,
+        "provider/synth": 5,
     }
 
 
@@ -426,9 +425,12 @@ def _ensemble_responder(
         model = payload["model"]
         assert isinstance(model, str)
         calls.append(model)
-        if model == IFEVAL_ENSEMBLE_JUDGE:
-            answer = "B"
-        elif "checker_feedback" in json.dumps(payload):
+        serialized = json.dumps(payload)
+        if model == "provider/synth":
+            # The Candidate's synthesizer serves as JUDGE: it picks a letter or
+            # authors corrective feedback — it never writes an answer.
+            answer = "B" if "exactly one letter" in serialized else "Drop every comma"
+        elif "Judge feedback" in serialized:
             answer = "Tea is a warm drink made from steeped leaves"
         else:
             answer = "Tea is warm, fragrant and calming."
@@ -444,13 +446,15 @@ def _ensemble_responder(
 
 
 @pytest.mark.asyncio
-async def test_ifeval_corrective_ensemble_runs_member_checks_retries_and_judging(
+async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
     tmp_path: Path,
 ) -> None:
+    """The verifying-ensemble shape: per-member checks, judge-authored feedback, select."""
+
     calls: list[str] = []
     requests: list[dict[str, object]] = []
 
-    resource = IFEVAL_CORRECTIVE_ENSEMBLE.resource(1)
+    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1, members=3)
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     members = tuple(
@@ -460,6 +464,11 @@ async def test_ifeval_corrective_ensemble_runs_member_checks_retries_and_judging
             intent=text("Answer the question."),
         )
         for index in range(1, 4)
+    )
+    synthesizer = RelExpr(
+        path="/provider/synth",
+        context="$input",
+        intent=text("Follow the task."),
     )
     _ifeval_assets(tmp_path / "ifeval")
 
@@ -472,7 +481,7 @@ async def test_ifeval_corrective_ensemble_runs_member_checks_retries_and_judging
                 default_model="provider/member-1",
                 models=(
                     *(ModelSpec(id=f"provider/member-{index}") for index in range(1, 4)),
-                    ModelSpec(id=IFEVAL_ENSEMBLE_JUDGE),
+                    ModelSpec(id="provider/synth"),
                 ),
             ),
             client=client,
@@ -480,19 +489,25 @@ async def test_ifeval_corrective_ensemble_runs_member_checks_retries_and_judging
         )
 
         try:
-            result = await world.node.evaluate(_link_model_members(members, build(benchmark_url4)))
+            result = await world.node.evaluate(
+                _link_model_members(members, build(benchmark_url4), synthesizer)
+            )
         finally:
             await world.aclose()
 
     decoded = json.loads(result.text)
-    assert decoded["benchmark_id"] == "ifeval-corrective-ensemble"
+    assert decoded["benchmark_id"] == "ifeval-iterative-correction"
     assert decoded["score"] == 1.0
     assert decoded["failures"] == []
-    assert calls.count(IFEVAL_ENSEMBLE_JUDGE) == 3
-    assert len(calls) == 12
+    assert decoded["metrics"]["pass_at_1"] == 0.0
+    assert decoded["metrics"]["pass_at_2"] == 1.0
+    # 9 member answers + 3 judge picks + 2 judge feedback authorings, all unrolled.
+    assert calls.count("provider/synth") == 5
+    assert len(calls) == 14
+    # Judge-authored feedback reaches every member on attempts two and three.
     assert (
         sum(
-            request["model"] != IFEVAL_ENSEMBLE_JUDGE and "checker_feedback" in json.dumps(request)
+            request["model"] != "provider/synth" and "Judge feedback" in json.dumps(request)
             for request in requests
         )
         == 6
