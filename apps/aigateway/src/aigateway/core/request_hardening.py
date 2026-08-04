@@ -48,6 +48,18 @@ _CALLBACK_DYNAMIC_FIELDS: frozenset[str] = frozenset(
         "braintrust_host",
         "slack_webhook_url",
         "lunary_public_key",
+        # WHY: litellm 1.95 added the Datadog dynamic-callback params. `dd_api_key` is a
+        # caller-injectable credential and `dd_agent_host`/`dd_agent_port`/`dd_site`
+        # redirect where prompt/response telemetry is shipped — the same exfiltration
+        # category as the langfuse/arize/braintrust host+key fields above.
+        # INVARIANT: every name in litellm's `_supported_callback_params` must appear
+        # here, so a client can never turn a chat request into a telemetry redirect.
+        # test_litellm_dynamic_callback_parameter_set_is_covered is what caught these on
+        # the 1.87 -> 1.95 upgrade; it will catch the next batch the same way.
+        "dd_api_key",
+        "dd_agent_host",
+        "dd_agent_port",
+        "dd_site",
         "turn_off_message_logging",
     }
 )
