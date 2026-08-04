@@ -91,6 +91,8 @@ Failing tests first:
   | `packages/url4/uv.lock` | **no** | see Deviations |
   | `packages/url4/tests/unit/test_observe.py` | planned, **not needed** | the new file covers the event shape; nothing to append without duplicating it |
 
+- **Commits:** `604e070d` — feat(url4): add a ModelResponse observation event and its ctx-less
+  sink (this ledger line follows in a second commit so the recorded sha is the real one).
 - **Gates:** `run_gates.py url4` — **ALL GATES GREEN**. append-only check ✓ · ruff check ✓ ·
   ruff format --check ✓ · pyright ✓ (no `# type: ignore` added) · pytest `--cov=url4
   --cov-fail-under=95` ✓ — **1100 passed**, coverage **97%**, every new line covered
