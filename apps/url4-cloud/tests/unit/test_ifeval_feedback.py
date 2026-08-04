@@ -10,8 +10,8 @@ import pytest
 from url4 import RelExpr, Text, expr, render, src
 from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks import install_benchmarks
-from url4_cloud.benchmarks.ifeval.corrective import IFEVAL_CORRECTIVE
 from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE, IFEVAL
+from url4_cloud.benchmarks.ifeval.iterative_correction import IFEVAL_SELF_CORRECTIVE
 
 
 def _assets(root: Path) -> None:
@@ -65,9 +65,9 @@ def _record(strict: list[bool], violations: list[str]) -> str:
 
 
 def test_variants_share_family_assets_but_not_protocol_identity() -> None:
-    assert IFEVAL_CORRECTIVE.family == IFEVAL.family == "ifeval"
-    assert IFEVAL_CORRECTIVE.id != IFEVAL.id
-    assert IFEVAL_CORRECTIVE.revision != IFEVAL.revision
+    assert IFEVAL_SELF_CORRECTIVE.family == IFEVAL.family == "ifeval"
+    assert IFEVAL_SELF_CORRECTIVE.id != IFEVAL.id
+    assert IFEVAL_SELF_CORRECTIVE.revision != IFEVAL.revision
 
 
 @pytest.mark.asyncio

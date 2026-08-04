@@ -309,7 +309,7 @@ def test_module_get_delegates_to_the_lazy_default_client(monkeypatch: Any) -> No
     monkeypatch.setattr(_default_client, "_client", FakeClient())
     try:
         assert sf.benchmarks.get("ifeval") == "got:ifeval"
-        assert sf.benchmarks.get("ifeval-corrective") == "got:ifeval-corrective"
+        assert sf.benchmarks.get("ifeval/self-corrective") == "got:ifeval/self-corrective"
     finally:
         monkeypatch.setattr(_default_client, "_client", None)
 

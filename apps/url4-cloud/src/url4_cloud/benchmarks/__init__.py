@@ -4,19 +4,37 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks.definition import Benchmark
+from url4_cloud.benchmarks.definition import Benchmark, BenchmarkFamily
 from url4_cloud.benchmarks.draco.definition import DRACO
-from url4_cloud.benchmarks.ifeval.corrective import IFEVAL_CORRECTIVE
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
-from url4_cloud.benchmarks.ifeval.ensemble import IFEVAL_CORRECTIVE_ENSEMBLE
+from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    IFEVAL_SELF_CORRECTIVE,
+    IFEVAL_VERIFYING_ENSEMBLE,
+)
 
 BENCHMARKS: dict[str, Benchmark] = {
     DRACO.id: DRACO,
     IFEVAL.id: IFEVAL,
-    IFEVAL_CORRECTIVE.id: IFEVAL_CORRECTIVE,
-    IFEVAL_CORRECTIVE_ENSEMBLE.id: IFEVAL_CORRECTIVE_ENSEMBLE,
+    IFEVAL_SELF_CORRECTIVE.id: IFEVAL_SELF_CORRECTIVE,
+    IFEVAL_VERIFYING_ENSEMBLE.id: IFEVAL_VERIFYING_ENSEMBLE,
 }
-DEFAULT_BENCHMARK_ID = DRACO.id
+BENCHMARK_FAMILIES: dict[str, BenchmarkFamily] = {
+    "draco": BenchmarkFamily(
+        id="draco",
+        title="DRACO",
+        description="The DRACO deep-research Benchmark Family.",
+        default_variant="canonical",
+        variants=(DRACO,),
+    ),
+    "ifeval": BenchmarkFamily(
+        id="ifeval",
+        title="IFEval",
+        description="Deterministic instruction-following evaluation.",
+        default_variant="canonical",
+        variants=(IFEVAL, IFEVAL_SELF_CORRECTIVE, IFEVAL_VERIFYING_ENSEMBLE),
+    ),
+}
+DEFAULT_BENCHMARK_ID = "draco"
 ASSETS_ENV = "URL4_BENCHMARK_ASSETS"
 DEFAULT_ASSETS_ROOT = Path("/opt/benchmarks")
 
@@ -30,6 +48,8 @@ for family in {benchmark.family for benchmark in BENCHMARKS.values()}:
         raise RuntimeError(f"Benchmark family {family!r} contains duplicate variants")
     if len({benchmark.install for benchmark in members}) != 1:
         raise RuntimeError(f"Benchmark family {family!r} must share one runtime installer")
+if set(BENCHMARK_FAMILIES) != {benchmark.family for benchmark in BENCHMARKS.values()}:
+    raise RuntimeError("Benchmark Family registry must cover every installed Variant")
 
 
 def assets_root(env: Mapping[str, str]) -> Path:
@@ -52,9 +72,11 @@ def install_benchmarks(node: Url4Node, root: Path) -> None:
 __all__ = [
     "ASSETS_ENV",
     "BENCHMARKS",
+    "BENCHMARK_FAMILIES",
     "DEFAULT_ASSETS_ROOT",
     "DEFAULT_BENCHMARK_ID",
     "Benchmark",
+    "BenchmarkFamily",
     "assets_root",
     "install_benchmarks",
 ]

@@ -10,19 +10,20 @@ from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
 from url4_cloud.benchmarks.draco.definition import AGGREGATE_ROUTE, TASKS_ROUTE, VERDICT_ROUTE
-from url4_cloud.benchmarks.ifeval.corrective import (
-    AGGREGATE_ROUTE as CORRECTIVE_AGGREGATE_ROUTE,
-)
 from url4_cloud.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE as IFEVAL_AGGREGATE_ROUTE,
 )
 from url4_cloud.benchmarks.ifeval.definition import (
     CHECK_ROUTE as IFEVAL_CHECK_ROUTE,
 )
-from url4_cloud.benchmarks.ifeval.ensemble import (
-    AGGREGATE_ROUTE as ENSEMBLE_AGGREGATE_ROUTE,
+from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    ENSEMBLE_AGGREGATE_ROUTE,
+    MEMBER_ANSWER_ROUTE,
+    MEMBER_RECORD_ROUTE,
+    SELECT_ROUTE,
+    SELF_AGGREGATE_ROUTE,
+    VALIDATE_MEMBERS_ROUTE,
 )
-from url4_cloud.benchmarks.ifeval.ensemble import FINALIZE_ROUTE, SELECT_ROUTE
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
@@ -40,10 +41,12 @@ _BENCHMARK_ROUTES = {
     VERDICT_ROUTE,
     IFEVAL_AGGREGATE_ROUTE,
     IFEVAL_CHECK_ROUTE,
-    CORRECTIVE_AGGREGATE_ROUTE,
+    SELF_AGGREGATE_ROUTE,
     ENSEMBLE_AGGREGATE_ROUTE,
     SELECT_ROUTE,
-    FINALIZE_ROUTE,
+    VALIDATE_MEMBERS_ROUTE,
+    MEMBER_RECORD_ROUTE,
+    MEMBER_ANSWER_ROUTE,
 }
 
 

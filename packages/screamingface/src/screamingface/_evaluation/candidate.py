@@ -31,12 +31,16 @@ class _CompiledCandidate:
     operations: tuple[OperationInfo, ...]
     members: tuple[_MemberProjection, ...]
     member_expressions: tuple[_MemberExpression, ...]
+    # WHY: a shape-adaptive exam may bind the Fusion's synthesizer model as its JUDGE
+    # ($candidate_synthesizer); a solo Model has none.
+    synthesizer_expression: str | None
 
 
 @dataclass(frozen=True, slots=True)
 class _MemberExpression:
     """One direct Fusion member exposed through the universal binding contract."""
 
+    name: str
     kind: Literal["model", "fusion"]
     url4: str
 
@@ -48,6 +52,12 @@ class _ResolvedRecipe:
     name: str
     kind: Literal["model", "fusion"]
     models: tuple[str, ...]
+
+
+def member_count(recipe: Recipe) -> int:
+    """A Fusion exposes its direct member count; every other Candidate is solo."""
+
+    return len(recipe.members) if isinstance(recipe, Fusion) else 0
 
 
 def compile_candidate(recipe: Recipe, *, default_synthesizer: str) -> _CompiledCandidate:
@@ -85,6 +95,7 @@ class _CandidateCompiler:
         member_expressions = (
             tuple(
                 _MemberExpression(
+                    name=member.name,
                     kind="model" if isinstance(member, Model) else "fusion",
                     url4=compile_candidate(
                         member,
@@ -96,6 +107,14 @@ class _CandidateCompiler:
             if isinstance(recipe, Fusion)
             else ()
         )
+        synthesizer_expression = (
+            compile_candidate(
+                Model(recipe.synthesizer or self._default_synthesizer),
+                default_synthesizer=self._default_synthesizer,
+            ).url4
+            if isinstance(recipe, Fusion)
+            else None
+        )
         return _CompiledCandidate(
             kind=root.kind,
             url4=render(expr(*self._sources, intent=Text(root.reference))),
@@ -103,6 +122,7 @@ class _CandidateCompiler:
             operations=tuple(self._operations),
             members=members,
             member_expressions=member_expressions,
+            synthesizer_expression=synthesizer_expression,
         )
 
     def _recipe(self, recipe: Recipe) -> _ResolvedRecipe:

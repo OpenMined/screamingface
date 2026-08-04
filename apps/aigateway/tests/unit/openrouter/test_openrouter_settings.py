@@ -23,9 +23,10 @@ _SEEDS = [
     "openrouter/openai/gpt-5.5",
     "openrouter/anthropic/claude-opus-4.8",
     "openrouter/google/gemini-3.1-pro-preview",
-    # The remaining DRACO / small-model candidate lineup.
+    # The remaining DRACO / IFEval small-model candidate lineup.
     "openrouter/google/gemini-3-flash-preview",
     "openrouter/moonshotai/kimi-k2.6",
+    "openrouter/moonshotai/kimi-k3",
     "openrouter/deepseek/deepseek-v4-pro",
     "openrouter/qwen/qwen3.6-plus",
 ]

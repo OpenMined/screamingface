@@ -11,7 +11,7 @@ base_url = "http://127.0.0.1:9105"
 default_route = "/anthropic/claude-haiku-4-5"
 
 # A deep-research answer or long judge call regularly exceeds the generic 60-second default.
-timeout_s = 300.0
+timeout_s = 600.0
 
 # Tavily-backed routes can spend several rounds gathering sources before producing an answer.
 # This mirrors DRACO's published max_calls_per_row numerically, although a Runner round is not
@@ -98,6 +98,11 @@ web_tools = true
 [[aigateway.models]]
 id = "openrouter/moonshotai/kimi-k2.6"
 web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/moonshotai/kimi-k3"
+web_tools = true
+
 
 [[aigateway.models]]
 id = "openrouter/deepseek/deepseek-v4-pro"

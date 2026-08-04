@@ -24,9 +24,10 @@ class BenchmarkResources:
         benchmark: str,
         limit: int | None,
     ) -> _BenchmarkResource:
+        family = _family_id(benchmark)
         try:
             response = self._http.get(
-                f"/v1/benchmarks/{quote(benchmark, safe='')}",
+                f"/v1/benchmarks/{quote(family, safe='')}",
                 params=_query(limit),
             )
         except httpx.HTTPError as exc:
@@ -53,9 +54,10 @@ class AsyncBenchmarkResources:
         benchmark: str,
         limit: int | None,
     ) -> _BenchmarkResource:
+        family = _family_id(benchmark)
         try:
             response = await self._http.get(
-                f"/v1/benchmarks/{quote(benchmark, safe='')}",
+                f"/v1/benchmarks/{quote(family, safe='')}",
                 params=_query(limit),
             )
         except httpx.HTTPError as exc:
@@ -76,6 +78,17 @@ def _query(limit: int | None) -> dict[str, int]:
     if limit is not None:
         params["limit"] = limit
     return params
+
+
+def _family_id(selection: str) -> str:
+    family, separator, variant = selection.partition("/")
+    if not family.strip() or (separator and not variant.strip()) or "/" in variant:
+        raise PlanningError(
+            "Benchmark must be selected as 'family' or 'family/variant'",
+            code="invalid_benchmark_selection",
+            permanent=True,
+        )
+    return family
 
 
 def _json(response: httpx.Response) -> object:

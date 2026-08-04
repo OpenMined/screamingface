@@ -399,7 +399,9 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
         report = client.evaluate(candidates, benchmark="bench@1", limit=1)
 
     assert [candidate.name for candidate in report.candidates] == ["a", "pair"]
+    # One candidate-independent family fetch is shared by every Candidate.
     assert len(benchmark_requests) == 1
+    assert "members" not in str(benchmark_requests[0].url)
     assert dict(benchmark_requests[0].url.params) == {"limit": "1"}
     assert len(transport.candidates) == 2
     for candidate in transport.candidates:

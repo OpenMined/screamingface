@@ -70,6 +70,7 @@ def _default_model_slugs() -> list[str]:
         # All were present in the live OpenRouter catalog on 2026-08-03; re-check at release.
         "openrouter/google/gemini-3-flash-preview",
         "openrouter/moonshotai/kimi-k2.6",
+        "openrouter/moonshotai/kimi-k3",
         "openrouter/deepseek/deepseek-v4-pro",
         "openrouter/qwen/qwen3.6-plus",
     ]

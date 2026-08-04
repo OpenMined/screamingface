@@ -133,239 +133,154 @@ report"""
 def _ifeval_e2e() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell(
-            """# IFEval: canonical and corrective protocols through ScreamingFace
+            """# IFEval on ScreamingFace: one family, four experiments
 
-IFEval (arXiv:2311.07911) carries 541 prompts with machine-checkable constraints — word
-counts, forbidden punctuation, required sections. The Engine grades every response with a
-deterministic verifier: **no judge model, zero grading cost**.
+IFEval (arXiv:2311.07911) is 541 prompts with machine-checkable constraints — word
+counts, forbidden punctuation, required sections. The Engine grades every response with
+a deterministic verifier: **no judge model in the grading path, zero grading cost**.
 
-The Engine publishes three independently named Benchmark protocols from the same IFEval
-family:
+There is one IFEval family with three explicit Variants:
 
-- `ifeval`: the canonical single-answer protocol, comparable to published IFEval results.
-- `ifeval-corrective`: three fixed answer/check attempts with sanitized verifier feedback.
-- `ifeval-corrective-ensemble`: three members are separately checked and retried before a
-  pinned Benchmark Judge selects one answer.
+- `ifeval` — one shot. A solo Model answers once; a Fusion's members answer and its
+  synthesizer **blends** them into one new answer. The blend is checked.
+- `ifeval/self-corrective` — up to three attempts. The whole Candidate reads the
+  checker's violations, **writes its own feedback, and retries**.
+- `ifeval/verifying-ensemble` — the current verifying ensemble implementation based on
+  Skurikhin et al. (https://openreview.net/forum?id=XSIYfTm2h7): every direct Fusion
+  member is checked individually, and the **synthesizer acts as JUDGE** — it picks a
+  passing answer word-for-word, or turns the violations into coaching when nobody
+  passed. It never writes the answer on this exam.
 
-The SDK does not implement any protocol. It links a Model or Fusion into the complete
-URL4 supplied by the selected Benchmark. Model calls are the only spend; discovery and
-deterministic grading are free."""
+One rule to remember: **the synthesizer plays two roles.** Blender on `ifeval`,
+judge on `ifeval/verifying-ensemble`."""
         ),
         nbformat.v4.new_markdown_cell(
             """## Before running
 
-The local AI Gateway must be running on `127.0.0.1:9105`, and the isolated Engine demo must be
-running on `127.0.0.1:9108`. The connection panel sends the OpenRouter key through the Engine to
-AI Gateway; the Client never calls AI Gateway directly.
-
-For a host-local Engine, prepare IFEval's pinned cases (this also downloads the offline
-NLTK tokenizer corpus the verifier reads) and pass the assets root explicitly:
+AI Gateway on `127.0.0.1:9105`, Engine on `127.0.0.1:9108`. From `packages/screamingface/`:
 
 ```bash
-uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare \\
-  --out /tmp/screamingface-benchmark-assets/ifeval
-URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \\
-  uv run url4-cloud serve --local
-```
-
-`/opt/benchmarks` is the container image default and normally does not exist on the host."""
+just stack-prepare   # once — downloads the pinned benchmark cases
+just stack-up        # gateway :9105 + engine :9108 (logs: just stack-logs)
+```"""
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
-        nbformat.v4.new_markdown_cell("## Connect OpenRouter"),
         nbformat.v4.new_code_cell("sf.connect()"),
         nbformat.v4.new_markdown_cell(
-            """## Meet the benchmark
+            """## The Candidates
 
-Before spending anything, read what the exams actually are. Discovery is free — plain
-Engine REST, no model calls. The three resources share `family="ifeval"`, but have different
-identities, revisions, protocols, costs, and scores."""
-        ),
-        nbformat.v4.new_code_cell("sf.benchmarks.list()"),
-        nbformat.v4.new_code_cell(
-            'canonical_benchmark = sf.benchmarks.get("ifeval")\n'
-            'corrective_benchmark = sf.benchmarks.get("ifeval-corrective")\n'
-            'ensemble_benchmark = sf.benchmarks.get("ifeval-corrective-ensemble")\n'
-            "canonical_benchmark, corrective_benchmark, ensemble_benchmark"
-        ),
-        nbformat.v4.new_markdown_cell(
-            """### Read real prompts
-
-Each prompt carries its constraints **in its own text** — "no commas", "at least 300
-words", "highlight 3 sections". That is what makes IFEval machine-checkable: the Engine's
-deterministic verifier re-reads the response against exactly those constraints, so
-grading needs no judge model. Both variants use the same cases. Page further with
-`canonical_benchmark.cases(limit=3, offset=100)`."""
-        ),
-        nbformat.v4.new_code_cell("canonical_benchmark.cases(limit=3)"),
-        nbformat.v4.new_markdown_cell("## Define a Candidate"),
-        nbformat.v4.new_code_cell('haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")'),
-        nbformat.v4.new_markdown_cell(
-            """## Run canonical IFEval
-
-Canonical IFEval invokes the Candidate once and deterministically checks that answer.
-`limit=3` selects three cases; it does not select a smaller Benchmark variant."""
+Two models and one Fusion. The Fusion's synthesizer is also a member — the
+winning ensemble of Skurikhin et al. ([Ens-1]) is shaped exactly like this: two
+members, with the judge doubling as one of them."""
         ),
         nbformat.v4.new_code_cell(
-            """canonical = sf.evaluate(
-    haiku,
+            """kimi = sf.Model("openrouter/moonshotai/kimi-k3", params={"max_tokens": 4096})
+haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
+
+fusion = sf.Fusion(
+    [kimi, haiku],
+    name="kimi-haiku",
+    synthesizer="openrouter/moonshotai/kimi-k3",
+)
+fusion"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## ① Baseline — one model, one shot
+
+Comparable to published IFEval numbers."""
+        ),
+        nbformat.v4.new_code_cell(
+            """canonical_1_model = sf.evaluate(
+    kimi,
     benchmark="ifeval",
     limit=3,
     progress=False,
 )
-canonical"""
+canonical_1_model"""
         ),
         nbformat.v4.new_markdown_cell(
-            """## Run the corrective IFEval variant
+            """## ② Does blending preserve instructions?
 
-The corrective Benchmark owns a fixed three-attempt protocol. After attempts one and
-two, its deterministic checker converts failures into sanitized constraint feedback and
-the same Candidate tries again. URL4 currently has no conditional early stop, so all
-three attempts run even if the first answer passes.
-
-For `limit=3`, this means nine Candidate calls. The aggregate selects the earliest strict
-pass, or the final attempt if none passes. Its result is a different experiment from
-canonical IFEval and must be reported under its own Benchmark identity."""
+The synthesizer writes one NEW answer from the members' answers — new text the checker
+never saw. A blend can break a constraint every member satisfied (add a comma, drop a
+section). This cell measures that risk."""
         ),
         nbformat.v4.new_code_cell(
-            """corrective = sf.evaluate(
-    haiku,
-    benchmark="ifeval-corrective",
+            """canonical_fusion = sf.evaluate(
+    fusion,
+    benchmark="ifeval",
     limit=3,
     progress=False,
 )
-corrective"""
+canonical_fusion"""
         ),
         nbformat.v4.new_markdown_cell(
-            """### Compare the two experiments
+            """## ③ Can a model correct itself?
 
-The corrective score may improve, but it pays for three attempts per case. Keep its score
-and token use separate from canonical published IFEval results."""
+The ablation the paper never ran: {solo + feedback loop}. The model answers, the
+checker reports violations, the model writes its own feedback and retries — up to
+three attempts, earliest pass wins.
+
+Cost: five model calls per case (three answers + two self-feedback authorings), all
+unrolled."""
         ),
         nbformat.v4.new_code_cell(
-            """{
-    "canonical": {
-        "score": canonical.candidates[0].score,
-        "output_tokens": canonical.usage.output_tokens,
-        "metrics": dict(canonical.candidates[0].metrics),
-    },
-    "corrective": {
-        "score": corrective.candidates[0].score,
-        "output_tokens": corrective.usage.output_tokens,
-        "metrics": dict(corrective.candidates[0].metrics),
-    },
-}"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """### Audit the complete URL4
-
-Each report contains the exact complete URL4 that executed. The canonical expression has
-one Candidate invocation; the corrective expression has three and two feedback steps.
-The client did not construct or interpret this workflow."""
-        ),
-        nbformat.v4.new_code_cell(
-            """canonical_url4 = canonical.candidates[0].url4
-corrective_url4 = corrective.candidates[0].url4
-
-print("canonical candidate invocations :", canonical_url4.count("/candidate?"))
-print("corrective candidate invocations:", corrective_url4.count("/candidate?"))
-print("corrective feedback steps       :", corrective_url4.count("!'feedback'"))"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """### Peek at the raw execution stream (optional)
-
-Every run streams events while it executes. Today they describe raw url4 node
-lifecycle (semantic events — "case 3, attempt 2" — are in flight engine-side), but
-even the raw counts show the machine at work: one evaluation fans out into dozens of
-nodes, and only the model calls cost anything."""
-        ),
-        nbformat.v4.new_code_cell(
-            """from collections import Counter
-
-events = []
-sf.evaluate(haiku, benchmark="ifeval-corrective", limit=1, on_event=events.append, progress=False)
-Counter(event.kind for event in events)"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """## Evaluate a normal Fusion
-
-A Fusion is still an ordinary Candidate: its members answer and its synthesizer produces
-one final answer. Either Benchmark can invoke that Candidate without any IFEval-specific
-SDK type.
-
-Running a Fusion against `ifeval-corrective` retries and verifies the **Fusion's final
-answer** three times. Kimi receives an explicit 16384-token ceiling because this reasoning
-model can consume smaller completion budgets before emitting final answer text on longer
-IFEval prompts. That is Candidate policy rather than Benchmark behavior."""
-        ),
-        nbformat.v4.new_code_cell(
-            """kimi = sf.Model(
-    "openrouter/moonshotai/kimi-k2.6",
-    params={"max_tokens": 16384},
-)
-deepseek = sf.Model("openrouter/deepseek/deepseek-v4-pro")
-qwen = sf.Model("openrouter/qwen/qwen3.6-plus")
-
-fusion = sf.Fusion(
-    [kimi, deepseek, qwen],
-    name="three-model fusion",
-    synthesizer="openrouter/google/gemini-3-flash-preview",
-)
-fusion"""
-        ),
-        nbformat.v4.new_code_cell(
-            """duel = sf.evaluate(
-    [haiku, fusion],
-    benchmark="ifeval-corrective",
-    limit=1,
+            """iterative_1_model = sf.evaluate(
+    kimi,
+    benchmark="ifeval/self-corrective",
+    limit=3,
     progress=False,
 )
-duel"""
+iterative_1_model"""
         ),
         nbformat.v4.new_markdown_cell(
-            """Both rows above use the same corrective Benchmark protocol. Their scores are
-comparable to one another, while their token totals expose the cost of the Fusion. Candidate
-lists execute concurrently, so this live example stays at one case to avoid turning the local
-Gateway and upstream provider's concurrency limits into part of the experiment."""
+            """## ④ The verifying ensemble (the paper's protocol)
+
+Members answer, the checker checks **each draft individually**, and the synthesizer —
+acting as judge here — picks a passing answer verbatim, or coaches everyone and retries
+when nobody passed. A judge cannot break a constraint a member satisfied, because it
+never rewrites the winning text.
+
+Choose a synthesizer that reliably answers tersely: a judge reply that is not a bare
+letter gets no vote (the deterministic passers-first rule decides instead), and the
+synthesizer inherits provider-default params on this exam."""
         ),
         nbformat.v4.new_code_cell(
-            """{
-    candidate.name: {
-        "score": candidate.score,
-        "output_tokens": candidate.usage.output_tokens,
-    }
-    for candidate in duel.candidates
-}"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """## Run the member-level corrective ensemble
-
-This is a separately revisioned experiment. It requires exactly three direct Model members.
-The Benchmark invokes those members structurally, verifies and retries each one independently
-for three attempts, and uses its pinned Flash Judge to select one answer per attempt. The
-earliest passing selection becomes the final answer and receives canonical IFEval scoring.
-
-The Fusion's ordinary final synthesizer is not invoked in this protocol. The SDK merely exposes
-the three member expressions as universal bindings; all correction and selection behavior lives
-inside the Engine-owned Benchmark URL4."""
-        ),
-        nbformat.v4.new_code_cell(
-            """ensemble_report = sf.evaluate(
+            """iterative_fusion = sf.evaluate(
     fusion,
-    benchmark="ifeval-corrective-ensemble",
-    limit=1,
+    benchmark="ifeval/verifying-ensemble",
+    limit=3,
     progress=False,
 )
-ensemble_report"""
+iterative_fusion"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## Reading the four scores
+
+- ① vs ② — did blending help or hurt instruction-following?
+- ① vs ③ — how much does a feedback loop help one model?
+- ③ vs ④ — self-correction vs ensemble correction, same loop, same exam.
+- ② vs ④ — blend-then-check vs check-then-select.
+
+Cost note: the iterative-correction exam has no early stop yet — all three attempts
+always run (and the solo shape adds two self-feedback calls), so its token totals
+overstate a stop-on-success system. Compare scores freely within a column; never
+compare our costs to the paper's."""
         ),
         nbformat.v4.new_code_cell(
-            """ensemble_url4 = ensemble_report.candidates[0].url4
-print("member invocations per case:", ensemble_url4.count("/candidate_model_member_"))
-print("judge invocations per case :", ensemble_url4.count("gemini-3-flash-preview"))"""
+            """{
+    name: {
+        "score": report.candidates[0].score,
+        "output_tokens": report.usage.output_tokens,
+    }
+    for name, report in {
+        "① ifeval · kimi": canonical_1_model,
+        "② ifeval · fusion": canonical_fusion,
+        "③ iterative-correction · kimi": iterative_1_model,
+        "④ iterative-correction · fusion": iterative_fusion,
+    }.items()
+}"""
         ),
-        nbformat.v4.new_markdown_cell("## Inspect the full Report"),
-        nbformat.v4.new_code_cell("corrective.candidates"),
-        nbformat.v4.new_code_cell("corrective.usage"),
-        nbformat.v4.new_code_cell("corrective.to_json()"),
     )
 
 
