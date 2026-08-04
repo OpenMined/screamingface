@@ -102,7 +102,7 @@ dev = [
 # standalone (e.g. from Jupyter, add .examples/utils to sys.path).
 examples = [
     "httpx>=0.28.1",
-    "websockets>=13.0",
+    "websockets>=17.0.1",
     "jupyterlab>=4.0",
     "ipykernel>=6.29",
 ]
