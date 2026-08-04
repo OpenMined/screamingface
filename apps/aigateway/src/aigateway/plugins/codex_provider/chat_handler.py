@@ -145,6 +145,28 @@ def _usage_from_response(response: dict[str, Any]) -> dict[str, int] | None:
     }
 
 
+_TERMINAL_EVENTS = frozenset({"response.completed", "response.incomplete"})
+
+# WHY: the Responses API reports truncation/filtering as `incomplete_details.reason`, whose
+# vocabulary (`max_output_tokens` | `content_filter`, per the OpenAI SDK's `IncompleteDetails`)
+# is not the OpenAI chat-completions `finish_reason` vocabulary the gateway speaks. Anything
+# unrecognized degrades to "stop" rather than leaking upstream's wording into a closed field.
+_INCOMPLETE_REASONS = {"max_output_tokens": "length", "content_filter": "content_filter"}
+
+
+def _finish_reason(response: dict[str, Any]) -> str:
+    """The chat-completions `finish_reason` for one Responses-API `Response`.
+
+    FEATURE: OME-679 — a provider refusal must be distinguishable from a bad answer, which is
+    only possible if this value is derived rather than fabricated.
+    """
+    details = response.get("incomplete_details")
+    reason = details.get("reason") if isinstance(details, dict) else None
+    if not isinstance(reason, str):
+        return "stop"
+    return _INCOMPLETE_REASONS.get(reason, "stop")
+
+
 def _consume_sse_event(data: str, state: dict[str, Any]) -> bool:
     try:
         event = json.loads(data)
@@ -161,8 +183,12 @@ def _consume_sse_event(data: str, state: dict[str, Any]) -> bool:
             state.setdefault("text_deltas", []).append(delta)
     if event_type == "response.output_item.done" and isinstance(event.get("item"), dict):
         state.setdefault("output_items", []).append(event["item"])
-    if event_type == "response.completed" and isinstance(event.get("response"), dict):
-        state["completed"] = event["response"]
+    # INVARIANT: BOTH terminal events end the stream. `response.incomplete` is how the
+    # Responses API delivers a length-truncated or content-filtered generation — treating
+    # only `response.completed` as terminal drained the stream and then raised a 502,
+    # discarding a partial answer the caller could have used (OME-746).
+    if event_type in _TERMINAL_EVENTS and isinstance(event.get("response"), dict):
+        state["final"] = event["response"]
         return True
     return False
 
@@ -186,12 +212,12 @@ async def _model_response_from_sse_stream(
 
 
 def _model_response_from_state(state: dict[str, Any], fallback_model: str) -> ModelResponse:
-    completed = state.get("completed")
+    final = state.get("final")
     error = state.get("error")
     if error is not None:
         message = error.get("message") if isinstance(error, dict) else str(error)
         raise CustomLLMError(status_code=502, message=message or "Codex upstream failed")
-    if not isinstance(completed, dict):
+    if not isinstance(final, dict):
         raise CustomLLMError(status_code=502, message="Codex upstream did not complete response")
 
     text_deltas = state.get("text_deltas")
@@ -204,19 +230,19 @@ def _model_response_from_state(state: dict[str, Any], fallback_model: str) -> Mo
         if isinstance(output_items, list):
             content = _extract_text_from_response({"output": output_items})
     if not content:
-        content = _extract_text_from_response(completed)
+        content = _extract_text_from_response(final)
     return ModelResponse(
-        id=completed.get("id"),
-        created=int(completed.get("created_at") or time.time()),
-        model=completed.get("model") or fallback_model,
+        id=final.get("id"),
+        created=int(final.get("created_at") or time.time()),
+        model=final.get("model") or fallback_model,
         choices=[
             {
                 "index": 0,
-                "finish_reason": "stop",
+                "finish_reason": _finish_reason(final),
                 "message": {"role": "assistant", "content": content},
             }
         ],
-        usage=_usage_from_response(completed),
+        usage=_usage_from_response(final),
     )
 
 
