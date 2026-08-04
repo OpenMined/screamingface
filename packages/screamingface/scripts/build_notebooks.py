@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import nbformat
+from _ifeval_notebook import kimi_appendix
 from nbformat import NotebookNode
 
 
@@ -133,7 +134,7 @@ report"""
 def _ifeval_e2e() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell(
-            """# IFEval on ScreamingFace: one family, four experiments
+            """# IFEval on ScreamingFace: stable first run, then the research experiment
 
 IFEval (arXiv:2311.07911) is 541 prompts with machine-checkable constraints — word
 counts, forbidden punctuation, required sections. The Engine grades every response with
@@ -152,7 +153,12 @@ There is one IFEval family with three explicit Variants:
   passed. It never writes the answer on this exam.
 
 One rule to remember: **the synthesizer plays two roles.** Blender on `ifeval`,
-judge on `ifeval/verifying-ensemble`."""
+judge on `ifeval/verifying-ensemble`.
+
+The required cells below use Haiku and Gemini Flash for a provider-stable one-Case
+validation. Khoa's Kimi K3 configuration remains in the optional appendix because a
+reasoning model can consume its completion budget before emitting answer text, and an
+upstream provider can fail even when Gateway discovery succeeds."""
         ),
         nbformat.v4.new_markdown_cell(
             """## Before running
@@ -162,41 +168,69 @@ AI Gateway on `127.0.0.1:9105`, Engine on `127.0.0.1:9108`. From `packages/screa
 ```bash
 just stack-prepare   # once — downloads the pinned benchmark cases
 just stack-up        # gateway :9105 + engine :9108 (logs: just stack-logs)
-```"""
+```
+
+If `just` is not installed, use two terminals after preparing the assets:
+
+```bash
+# Terminal 1
+cd ../../apps/aigateway
+./run-dev-gateway.sh
+
+# Terminal 2 — start only after Gateway is healthy
+cd ../../apps/url4-cloud
+URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \
+  uv run url4-cloud serve --local
+```
+
+After pulling or merging SDK code, **restart this notebook's kernel before Run All**.
+Python keeps already-imported SDK modules in memory; a stale kernel can ask the new Engine
+for a pre-merge Benchmark id and receive `unknown_benchmark`."""
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
         nbformat.v4.new_code_cell("sf.connect()"),
         nbformat.v4.new_markdown_cell(
-            """## The Candidates
+            """## Stable smoke Candidates
 
-Two models and one Fusion. The Fusion's synthesizer is also a member — the
-winning ensemble of Skurikhin et al. ([Ens-1]) is shaped exactly like this: two
-members, with the judge doubling as one of them."""
+These four cells are a **paid one-Case validation**, not a scientific result. Haiku is the
+solo Candidate. The Fusion pairs Haiku with Gemini Flash and uses Flash as its synthesizer,
+so the synthesizer is also a direct member — the shape used by Skurikhin et al. ([Ens-1]).
+
+`progress=True` shows the live Engine stream. Raw URL4 node names are expected until
+semantic Case/attempt events land."""
         ),
         nbformat.v4.new_code_cell(
-            """kimi = sf.Model("openrouter/moonshotai/kimi-k3", params={"max_tokens": 4096})
-haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
-
-fusion = sf.Fusion(
-    [kimi, haiku],
-    name="kimi-haiku",
-    synthesizer="openrouter/moonshotai/kimi-k3",
+            """smoke_model = sf.Model(
+    "openrouter/anthropic/claude-haiku-4.5",
+    params={"max_tokens": 4096},
 )
-fusion"""
+smoke_judge = sf.Model(
+    "openrouter/google/gemini-3-flash-preview",
+    params={"max_tokens": 4096},
+)
+
+smoke_fusion = sf.Fusion(
+    [smoke_model, smoke_judge],
+    name="haiku-flash-smoke",
+    synthesizer="openrouter/google/gemini-3-flash-preview",
+    params={"max_tokens": 4096},
+)
+smoke_fusion"""
         ),
         nbformat.v4.new_markdown_cell(
             """## ① Baseline — one model, one shot
 
-Comparable to published IFEval numbers."""
+This validates the canonical paper-comparable protocol. One Case is only a plumbing check;
+increase `limit` deliberately for a reported score."""
         ),
         nbformat.v4.new_code_cell(
-            """canonical_1_model = sf.evaluate(
-    kimi,
+            """canonical_smoke_model = sf.evaluate(
+    smoke_model,
     benchmark="ifeval",
-    limit=3,
-    progress=False,
+    limit=1,
+    progress=True,
 )
-canonical_1_model"""
+canonical_smoke_model"""
         ),
         nbformat.v4.new_markdown_cell(
             """## ② Does blending preserve instructions?
@@ -206,13 +240,13 @@ never saw. A blend can break a constraint every member satisfied (add a comma, d
 section). This cell measures that risk."""
         ),
         nbformat.v4.new_code_cell(
-            """canonical_fusion = sf.evaluate(
-    fusion,
+            """canonical_smoke_fusion = sf.evaluate(
+    smoke_fusion,
     benchmark="ifeval",
-    limit=3,
-    progress=False,
+    limit=1,
+    progress=True,
 )
-canonical_fusion"""
+canonical_smoke_fusion"""
         ),
         nbformat.v4.new_markdown_cell(
             """## ③ Can a model correct itself?
@@ -225,13 +259,13 @@ Cost: five model calls per case (three answers + two self-feedback authorings), 
 unrolled."""
         ),
         nbformat.v4.new_code_cell(
-            """iterative_1_model = sf.evaluate(
-    kimi,
+            """corrective_smoke_model = sf.evaluate(
+    smoke_model,
     benchmark="ifeval/self-corrective",
-    limit=3,
-    progress=False,
+    limit=1,
+    progress=True,
 )
-iterative_1_model"""
+corrective_smoke_model"""
         ),
         nbformat.v4.new_markdown_cell(
             """## ④ The verifying ensemble (the paper's protocol)
@@ -246,16 +280,16 @@ letter gets no vote (the deterministic passers-first rule decides instead), and 
 synthesizer inherits provider-default params on this exam."""
         ),
         nbformat.v4.new_code_cell(
-            """iterative_fusion = sf.evaluate(
-    fusion,
+            """corrective_smoke_fusion = sf.evaluate(
+    smoke_fusion,
     benchmark="ifeval/verifying-ensemble",
-    limit=3,
-    progress=False,
+    limit=1,
+    progress=True,
 )
-iterative_fusion"""
+corrective_smoke_fusion"""
         ),
         nbformat.v4.new_markdown_cell(
-            """## Reading the four scores
+            """## Read the smoke results
 
 - ① vs ② — did blending help or hurt instruction-following?
 - ① vs ③ — how much does a feedback loop help one model?
@@ -265,7 +299,10 @@ iterative_fusion"""
 Cost note: the iterative-correction exam has no early stop yet — all three attempts
 always run (and the solo shape adds two self-feedback calls), so its token totals
 overstate a stop-on-success system. Compare scores freely within a column; never
-compare our costs to the paper's."""
+compare our costs to the paper's.
+
+With one Case these values prove only that the complete contracts execute. They are not
+benchmark results."""
         ),
         nbformat.v4.new_code_cell(
             """{
@@ -274,13 +311,14 @@ compare our costs to the paper's."""
         "output_tokens": report.usage.output_tokens,
     }
     for name, report in {
-        "① ifeval · kimi": canonical_1_model,
-        "② ifeval · fusion": canonical_fusion,
-        "③ iterative-correction · kimi": iterative_1_model,
-        "④ iterative-correction · fusion": iterative_fusion,
+        "① ifeval · haiku": canonical_smoke_model,
+        "② ifeval · haiku-flash": canonical_smoke_fusion,
+        "③ self-corrective · haiku": corrective_smoke_model,
+        "④ verifying-ensemble · haiku-flash": corrective_smoke_fusion,
     }.items()
 }"""
         ),
+        *kimi_appendix(),
     )
 
 
