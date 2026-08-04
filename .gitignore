@@ -42,3 +42,9 @@ release/
 
 # Local AI-agent scratch docs (plans/specs staging, not committed)
 .docs/
+
+# Per-unit git worktrees (CLAUDE.md rule 5). These are nested working directories, not
+# content — committing one would vendor a second copy of the repo into itself. Previously
+# excluded only via .git/info/exclude, which is local to a clone and never travels, so a
+# fresh clone saw them as untracked.
+.claude/worktrees/
