@@ -23,11 +23,12 @@ class BenchmarkResources:
         self,
         benchmark: str,
         limit: int | None,
+        members: int = 0,
     ) -> _BenchmarkResource:
         try:
             response = self._http.get(
                 f"/v1/benchmarks/{quote(benchmark, safe='')}",
-                params=_query(limit),
+                params=_query(limit, members),
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -52,11 +53,12 @@ class AsyncBenchmarkResources:
         self,
         benchmark: str,
         limit: int | None,
+        members: int = 0,
     ) -> _BenchmarkResource:
         try:
             response = await self._http.get(
                 f"/v1/benchmarks/{quote(benchmark, safe='')}",
-                params=_query(limit),
+                params=_query(limit, members),
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -71,10 +73,14 @@ class AsyncBenchmarkResources:
         )
 
 
-def _query(limit: int | None) -> dict[str, int]:
+def _query(limit: int | None, members: int = 0) -> dict[str, int]:
     params: dict[str, int] = {}
     if limit is not None:
         params["limit"] = limit
+    # WHY: a shape-adaptive Benchmark (ifeval-iterative-correction) serves a member-shaped URL4
+    # when told the Candidate's direct Model member count; other Benchmarks ignore it.
+    if members:
+        params["members"] = members
     return params
 
 
