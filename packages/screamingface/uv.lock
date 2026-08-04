@@ -1779,10 +1779,10 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.3,<2" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "ruff", specifier = ">=0.15.13" },
+    { name = "ruff", specifier = ">=0.16.1" },
     { name = "url4", extras = ["streaming"] },
 ]
-notebook = [{ name = "graphviz", specifier = ">=0.20" }]
+notebook = [{ name = "graphviz", specifier = ">=0.21" }]
 
 [[package]]
 name = "urllib3"
