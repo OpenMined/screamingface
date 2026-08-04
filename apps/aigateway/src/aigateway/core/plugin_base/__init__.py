@@ -17,6 +17,7 @@ surface, and every name below is importable exactly as it was from the former
 single ``plugin_base`` module. Import from here, never from a half.
 """
 
+from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass, GlobalCacheProjection
 from ._contract import ProviderPluginBase
 from ._ports import (
     CredentialStrategy,
@@ -28,8 +29,22 @@ from ._ports import (
 )
 from ._resolvers import credential_service_provider_for, credential_strategy_from
 
+# WHY these three are re-exported here (OME-305): they are part of the
+# ``global_cache_projection`` port's SIGNATURE — a plugin cannot implement the hook
+# without naming ``CacheBypass``. The docstring above promises this module is the
+# public surface, so a plugin author reaching for the base class must find the port's
+# own vocabulary in the same import, not be sent to ``core.cache_ports`` to discover
+# which of two modules owns half a contract.
+#
+# INVARIANT: ``core.cache_ports`` stays the DEFINITION and is deliberately a leaf —
+# it imports nothing from the gateway, which is what lets both the plugin facade and
+# the request-cache internals depend on it without a cycle. This is a re-export, not
+# a second definition.
 __all__ = [
+    "PROJECTION_BYPASS_REASON",
+    "CacheBypass",
     "CredentialStrategy",
+    "GlobalCacheProjection",
     "ModelEntry",
     "OAuthCodeExchangeRequest",
     "OAuthConfig",

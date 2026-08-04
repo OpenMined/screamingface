@@ -1,0 +1,125 @@
+"""OME-305 — the pre-credential global cache decision for one chat request.
+
+FEATURE: one global exact-request cache. The route answers "is there a shared answer
+for exactly this effective call?" after merging profile defaults and before resolving
+an auth mode or provider credential. This module is that decision as a pure function.
+
+STORY: as a benchmark operator I re-run a suite from a second account and the
+identical calls are served from the first run's responses — the second account's
+key is never read, and it need not even be connected.
+
+INVARIANT: PURE and TOTAL. No ``Request``, no ``app.state``, no store, no await,
+no clock. Every failure — an operator gate that is off, a caller opt-out, a
+malformed control, an unkeyable request, a provider hook that raises — is a plan
+that does not participate, with a reason from the closed vocabulary. Nothing here
+raises into the request path, because the cache may never become an availability
+dependency.
+
+INVARIANT: identity is structurally absent. There is no account, profile, user,
+auth-mode or credential parameter on this signature, so the only rule set it can
+possibly consult is the auth-mode-INDEPENDENT one — which is what makes the plan
+the same for every caller sending the same call.
+
+AIDEV-NOTE: the async half — the store read, the write-back and the response
+headers — deliberately lives in the route layer. Keeping THIS half free of I/O is
+what lets the identity-invariance and projection-purity properties be tested
+without a profile, a connection, a credential blob or a database.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Final
+
+from ..cache_ports import CacheBypass
+from ..plugin_base import ProviderPluginBase
+from .global_controls import GlobalCacheControls
+from .global_eligibility import BYPASS_RULE_SET, BYPASS_UNSUPPORTED_SHAPE, is_text
+from .global_keys import GlobalCacheKeyResult, build_global_cache_key
+
+# The operator's kill switch. Published in ``X-AIGW-Cache-Reason`` like every other
+# reason, so an operator reading a response can tell "off" from "not cacheable".
+#
+# INVARIANT: this keeps v1's exact spelling (owner decision 53, "rename only what must
+# change"). URL4 reads these bytes, so a rename is a caller-visible break and the owner
+# declined to spend one on readability. Do NOT re-propose ``cache_disabled``: the
+# argument for it — that a bare ``disabled`` reads as "something was disabled" beside
+# siblings like ``opted_out`` — was made and REJECTED. The one accepted break in this
+# vocabulary is a removal, not a rename: v1's ``not_requested`` is gone because v2 is
+# default-on, so the condition it named no longer exists.
+BYPASS_DISABLED: Final = "disabled"
+
+
+@dataclass(frozen=True)
+class GlobalCachePlan:
+    """Whether this request participates in the global cache, and why not if it does not.
+
+    INVARIANT: exactly one of the two states is populated — a key with no reason,
+    or a reason with no key. A plan can therefore never be read as "cacheable but
+    also bypassed", which is the ambiguity a bool-plus-optional-key would allow.
+    """
+
+    key: GlobalCacheKeyResult | None
+    reason: str
+
+    @property
+    def participates(self) -> bool:
+        return self.key is not None
+
+
+def _refused(reason: str) -> GlobalCachePlan:
+    return GlobalCachePlan(key=None, reason=reason)
+
+
+def build_global_cache_plan(
+    *,
+    body: dict[str, Any],
+    plugin: ProviderPluginBase,
+    controls: GlobalCacheControls,
+    cache_enabled: bool,
+) -> GlobalCachePlan:
+    """The global cache plan for a hardened caller request.
+
+    ``body`` is the request after JSON shape validation, dispatch-control stripping,
+    cache-control removal and the body-wins profile-default merge, and before auth-mode
+    resolution, the auth-specific classifier, ``prepare_chat_body`` and credential injection.
+
+    WHY the operator gate is checked FIRST: when the cache is off, nothing about
+    the request can change the answer, and reporting the caller's opt-out or an
+    eligibility detail instead would describe a decision that was never reached.
+    """
+    if not cache_enabled:
+        return _refused(BYPASS_DISABLED)
+    if not controls.participate:
+        return _refused(controls.bypass_reason)
+    model = body.get("model")
+    if not is_text(model):
+        return _refused(BYPASS_UNSUPPORTED_SHAPE)
+    try:
+        # INVARIANT (decision 1): the AUTH-MODE-INDEPENDENT rule set. No auth mode
+        # is resolved yet, and ``cache_behavior`` is one unconditional value per
+        # request path, so the disposition is well-defined without one.
+        rules = tuple(plugin.chat_parameter_rules(model=str(model), auth_type=None))
+    except Exception:
+        # WHY this catch is broad: a provider rule table is third-party-shaped code
+        # on a path that must not fail. A bug there costs a bypass, never the
+        # caller's request. Same argument as the projection call below.
+        return _refused(BYPASS_RULE_SET)
+    try:
+        # Provider METADATA (which modes this provider offers), not caller identity.
+        # A rule the provider offers in only some of its modes cannot be keyed —
+        # ``_accept`` refuses it, because the key cannot see which mode the caller
+        # will resolve to.
+        provider_modes = tuple(plugin.available_auth_modes())
+    except Exception:
+        return _refused(BYPASS_RULE_SET)
+    built = build_global_cache_key(
+        provider=plugin.custom_llm_provider,
+        body=body,
+        rules=rules,
+        projection=plugin.global_cache_projection,
+        provider_auth_modes=provider_modes,
+    )
+    if isinstance(built, CacheBypass):
+        return _refused(built.reason)
+    return GlobalCachePlan(key=built, reason="")

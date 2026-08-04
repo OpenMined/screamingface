@@ -8,6 +8,7 @@ import pytest_asyncio
 from pydantic import SecretStr
 from tortoise import Tortoise
 
+from aigateway.config import Settings
 from aigateway.core.secrets.master_key import get_or_create_master_key
 from aigateway.core.secrets.models import SecretMasterKey
 from aigateway.db import build_tortoise_config
@@ -44,6 +45,14 @@ async def test_env_key_wrong_length_raises() -> None:
     short = SecretStr(base64.b64encode(os.urandom(16)).decode())
     with pytest.raises(RuntimeError, match="32 bytes"):
         await get_or_create_master_key(short)
+
+
+def test_empty_secret_key_setting_selects_database_managed_key() -> None:
+    assert Settings(**{"_env_file": None, "AIGATEWAY_SECRET_KEY": ""}).secret_key is None
+
+
+def test_blank_nonempty_secret_key_setting_remains_invalid_key_material() -> None:
+    assert Settings(**{"_env_file": None, "AIGATEWAY_SECRET_KEY": " "}).secret_key is not None
 
 
 @pytest.mark.asyncio

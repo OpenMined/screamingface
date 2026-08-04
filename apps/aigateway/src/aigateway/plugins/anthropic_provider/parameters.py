@@ -50,6 +50,19 @@ _AUTH: tuple[AuthMode, ...] = ("api_key", "oauth")
 # top_k: proven through the DIRECT api-key transform only (OAuth subscription path
 # uncaptured in v1) — so it is authorized under api_key alone.
 _API_KEY_ONLY: tuple[AuthMode, ...] = ("api_key",)
+# AIDEV-NOTE (OME-305, owner decision B — READ BEFORE CHANGING A ``cache_behavior``).
+# The output-affecting rules below state ``cache_behavior="keyed"`` EXPLICITLY: their
+# values change the response, so they must be in the global fingerprint or two callers
+# who sent different values would share one entry. This provider is one of only two
+# that carry keyed rules, and the reason is a PRECONDITION rather than a preference —
+# it implements ``global_cache_projection``. A provider without that port bypasses at
+# the projection step no matter what its rules say, so ``keyed`` there would advertise
+# a cacheable parameter that can never be cached (see the sibling note in the
+# non-projecting providers' rule files).
+#
+# ``tools`` and ``tool_choice`` are NOT keyed anywhere and must stay that way: their
+# presence bypasses structurally, ahead of any rule, via ``PRESENCE_BYPASS_REASONS``.
+
 _REVISION = "anthropic-2026-07"
 
 _SAMPLING_PATHS: frozenset[str] = frozenset({"temperature", "top_p", "provider_params.top_k"})
@@ -80,15 +93,24 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         "reasoning_effort",
         auth_modes=_AUTH,
         schema=REASONING_EFFORT_SCHEMA,
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     # direct: standard sampling param a client sends bare — proven to reach the
-    # Anthropic dispatch body (cache-bypass) by
-    # test_chat_request_cache.py::test_unsupported_field_bypasses.
+    # Anthropic dispatch body by test_chat_request_cache.py::
+    # test_a_keyed_parameter_is_cached_under_its_value_and_still_reaches_dispatch.
+    # OME-305: that test has now carried three names (`test_unsupported_field_bypasses`
+    # -> `test_a_declared_bypass_parameter_bypasses_the_global_cache` -> the current
+    # one), because the global key asks THIS rule for the disposition instead of
+    # refusing every field it does not recognise, and decision B then promoted
+    # temperature to `keyed` — so it is now cached UNDER ITS VALUE rather than
+    # bypassing. The bypass reason keeps v1's `unsupported_fields` spelling
+    # (decision 53); only the condition that produces it narrowed.
     direct_rule(
         "temperature",
         auth_modes=_AUTH,
         schema=ANTHROPIC_TEMPERATURE_SCHEMA,
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     # direct: proven through the installed AnthropicConfig transform (body top-level).
@@ -96,12 +118,14 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         "max_tokens",
         auth_modes=_AUTH,
         schema=MAX_TOKENS_SCHEMA,
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     direct_rule(
         "top_p",
         auth_modes=_AUTH,
         schema=TOP_P_SCHEMA,
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     # direct: standard stop (string | array[string]); the installed AnthropicConfig
@@ -111,6 +135,7 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         "stop",
         auth_modes=_AUTH,
         schema=STOP_SCHEMA,
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     # provider_native: Anthropic-native top_k (NOT an OpenAI param) projected to the
@@ -121,6 +146,7 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         provider_target="top_k",
         auth_modes=_API_KEY_ONLY,
         schema=TOP_K_SCHEMA,
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     # OME-583: tools + tool_choice (enabled under both auth modes, §9 proof above).

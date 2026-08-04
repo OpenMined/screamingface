@@ -165,13 +165,52 @@ def routing_policy_rules(
 ) -> tuple[ParameterProjectionRule, ...]:
     """The five wrapped-native rules for the reviewed routing controls.
 
-    INVARIANT: ``cache_behavior="bypass"`` on every one, stated explicitly rather
+    INVARIANT: ``cache_behavior="keyed"`` on every one, stated explicitly rather
     than inherited. The response a caller gets depends on WHICH endpoint served
     it, and the chosen endpoint is a function of the whole resolved routing
-    policy. Until the cache key can carry that policy (OME-702), a cached answer
-    produced under a different ceiling or data policy would otherwise be served as
-    though it satisfied this request's constraints — a correctness bug for price
-    and a privacy bug for data policy.
+    policy — so that policy has to be IN the fingerprint. It is: the global key
+    builder hashes ``prepared_request``, which the projection in ``global_cache``
+    fills with a policy from this module's ``build_provider_policy``. A cached
+    answer produced under a different ceiling or data policy therefore lands on a
+    different key and can never be served as though it satisfied this request's
+    constraints — the correctness bug for price and the privacy bug for data
+    policy are both closed by construction rather than by bypassing.
+
+    AIDEV-NOTE — a correction worth keeping, because the earlier wording described a
+    guarantee this code does not have. ``build_provider_policy`` is one function, but
+    its ARGUMENT has TWO INDEPENDENT PRODUCERS: the dispatch path rebuilds whatever
+    the classifier already placed at ``provider`` in the body, while the cache path
+    calls ``project_routing_controls`` on the caller's wrapper itself. The two agree
+    because BOTH are table-driven from ``ROUTING_CONTROLS`` — not because one calls
+    the other and not because it is "the same reconstruction". That distinction is
+    the whole maintenance burden here: a control added to one producer's table
+    without the other, or a hand-written special case in either, silently splits the
+    keyed policy from the dispatched one, and nothing in this module would notice.
+    The registry conformance sweep is what pins them together; keep it in mind before
+    editing either producer.
+
+    WHY these values are keyed through the RECONSTRUCTED policy and not through
+    the caller's spelling: ``normalize_price`` collapses ``"1"``, ``"1.0"`` and
+    ``"1.000"`` to one upstream value, and ``omit_if_false`` sends nothing at all
+    for ``zdr: false``. Hashing the caller's raw leaf would split one upstream
+    request across several entries and could never make ``false`` equal omission,
+    so the plan's pinned equivalences are reachable only this way.
+
+    AIDEV-NOTE: OME-702 is ABSORBED INTO OME-305 — do not re-defer to it. Its
+    precondition (a key that can carry the resolved policy) is discharged.
+
+    AIDEV-NOTE — the exact reach of the ``BYPASS_UNPROJECTED_NATIVE`` fail-safe, since
+    the earlier note here overstated it. The guard is
+    ``any(root not in prepared for root in projected_roots)``
+    (``core/request_cache/global_eligibility.py``): it is ROOT-LEVEL. It catches a
+    future control whose target ROOT — ``provider`` for all five of these — stops
+    being described by the projection at all. It CANNOT see a per-leaf omission
+    INSIDE a present ``provider`` object: drop ``max_price`` from the reconstruction
+    while still returning a ``provider`` dict and the root is present, the guard
+    passes, and two different ceilings share one key. Nothing structural protects the
+    leaves; only ``build_provider_policy``'s own allowlist and the tests over it do.
+    A new control that lands under a NEW root inherits the fail-safe; one that lands
+    under ``provider`` does not.
     """
     return tuple(
         provider_native_rule(
@@ -180,7 +219,7 @@ def routing_policy_rules(
             auth_modes=auth_modes,
             schema=control.schema,
             projection_revision=projection_revision,
-            cache_behavior="bypass",
+            cache_behavior="keyed",
             output_affecting=True,
         )
         for control in ROUTING_CONTROLS
@@ -292,7 +331,41 @@ def _place(policy: dict[str, Any], control: RoutingControl, value: Any) -> None:
         return
     if control.normalizer is not None:
         value = control.normalizer(value)
+    _write(policy, control.target_path, value)
+
+
+def _write(policy: dict[str, Any], target_path: tuple[str, ...], value: Any) -> None:
+    """Set one leaf, creating declared containers on the way. Never a merge."""
     node = policy
-    for segment in control.target_path[:-1]:
+    for segment in target_path[:-1]:
         node = node.setdefault(segment, {})
-    node[control.target_path[-1]] = value
+    node[target_path[-1]] = value
+
+
+def project_routing_controls(wrapper: Any) -> Any:
+    """The PROJECTED ``provider`` object for a caller's ``provider_params`` wrapper.
+
+    WHY this exists (OME-305): the global cache key is built from the
+    caller-visible request, BEFORE the core classifier projects
+    ``provider_params.*`` onto their targets — yet the fingerprint has to describe
+    the policy this provider will actually send. This reaches the same intermediate
+    object the classifier would produce, so ``build_provider_policy`` can then do
+    the one thing that makes the equivalences true: re-validate and canonicalize.
+
+    INVARIANT: table-driven from ``ROUTING_CONTROLS``, exactly like the rules and
+    the reconstruction, so a new control cannot be projected here without a row —
+    and a leaf that is NOT a routing control (``top_k``) contributes nothing.
+
+    Placement only: validation, normalization, ``omit_if_false`` and the refusal of
+    anything unexpected all stay in ``build_provider_policy``, which is the single
+    authority on what a routing policy may contain.
+    """
+    if not isinstance(wrapper, Mapping):
+        # Not something this table can place. Handing it on unchanged keeps ONE
+        # place deciding what is unexpected instead of a second refusal site.
+        return wrapper
+    projected: dict[str, Any] = {}
+    for control in ROUTING_CONTROLS:
+        if control.leaf in wrapper:
+            _write(projected, control.target_path, wrapper[control.leaf])
+    return projected or None

@@ -2,8 +2,10 @@
 
 Helper seams live in sibling modules (OME-428 Phase 1 split):
 ``chat_credentials`` (profile/connection resolution, defaults, credential
-injection) and ``chat_dispatch`` (backpressure, error mapping, request cache,
-streaming). This module keeps only the router and the request orchestration.
+injection), ``chat_dispatch`` (backpressure, error mapping, request cache,
+streaming), ``chat_cache_stage`` (the global cache's route-facing stage) and
+``chat_profile_defaults`` (the pre-credential defaults read, and rejection
+attribution). This module keeps only the router and the request orchestration.
 """
 
 from __future__ import annotations
@@ -32,13 +34,18 @@ from ..core.auth.middleware import CurrentAccount
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
-    caller_cache_bypass_paths,
     classify_and_project_chat_parameters,
 )
 from ..core.registry import ProviderRegistry
-from ..core.request_cache.keys import parse_cache_controls
-from ..core.request_cache.store import RequestCacheStore
+from ..core.request_cache.global_controls import parse_global_cache_controls
 from ..core.request_hardening import chat_body_shape_error, strip_dispatch_controls
+from .chat_cache_stage import (
+    defaults_unreadable_bypass,
+    global_cache_headers,
+    look_up_global_cache,
+    set_global_cache_headers,
+    store_global_response,
+)
 from .chat_credentials import (
     _apply_defaults,
     _credential_target_for_chat,
@@ -48,73 +55,14 @@ from .chat_credentials import (
 from .chat_dispatch import (
     _dispatch_with_backpressure,
     _litellm_http_exception,
-    _resolve_cache_plan,
     _safe_dispatch_failure_response,
-    _set_cache_headers,
-    _store_cached_response,
     _stream,
     _unknown_provider_exception,
 )
+from .chat_profile_defaults import _parameter_rejection_exception, profile_defaults_for_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def _parameter_rejection_exception(
-    exc: UnsupportedParametersError,
-    *,
-    provider: str,
-    profile_name: str,
-    default_paths: frozenset[str],
-) -> HTTPException:
-    """Render a classification failure against the source that actually caused it.
-
-    WHY two codes (OME-638): profile defaults are classified in the SAME pass as
-    caller fields, so one rejection map can mix an operator-configuration fault
-    with a request fault. Reporting a stored default under
-    ``unsupported_parameters`` would send the caller hunting through a request
-    that does not contain the named field, so a rejection caused solely by
-    defaults gets its own code and names the profile instead. 400 either way,
-    matching ``api_key_not_supported`` — stored configuration this provider
-    cannot serve is a bad request, not a server fault.
-
-    INVARIANT: the caller-facing ``rejected`` map lists only paths the CALLER
-    supplied. Defaults occupy only omitted paths, so the two sets are disjoint and
-    neither error can echo the other's fields.
-
-    WHY a caller fault wins when both are present: the request has to be fixed
-    regardless, and it is the only half the caller can act on. The profile half is
-    logged for the operator rather than dropped.
-    """
-    caller_rejected = {
-        path: reason for path, reason in exc.rejected.items() if path not in default_paths
-    }
-    if caller_rejected:
-        return HTTPException(
-            status_code=400,
-            detail={
-                "code": "unsupported_parameters",
-                "provider": provider,
-                "rejected": caller_rejected,
-                "message": (
-                    "one or more parameters are not enabled for this model; "
-                    "see the model parameter contract"
-                ),
-            },
-        )
-    return HTTPException(
-        status_code=400,
-        detail={
-            "code": "invalid_profile_defaults",
-            "provider": provider,
-            "profile": profile_name,
-            "rejected": exc.rejected,
-            "message": (
-                "the stored profile defaults are not enabled for this model; "
-                "see the model parameter contract"
-            ),
-        },
-    )
 
 
 @router.post("/v1/chat/completions")
@@ -129,7 +77,11 @@ async def chat_completions(request: Request, response: Response, current: Curren
         raise HTTPException(status_code=400, detail=shape_error)
 
     # Popped immediately so the control object can never reach providers.
-    cache_controls = parse_cache_controls(body)
+    # OME-305: the v2 grammar replaces v1's. ``{"cache": {"use-cache": false}}`` opts
+    # out; absent, empty and an explicit opt-in all participate; v1's `ttl`,
+    # `s-maxage`, `no-cache` and `no-store` are retired and now bypass as
+    # `unsupported_control` rather than being silently honoured.
+    cache_controls = parse_global_cache_controls(body)
     # The gateway owns upstream routing and credentials. Caller-supplied
     # LiteLLM control-plane fields (api_key/api_base/base_url/fallbacks/
     # model_list/...) would let LiteLLM send the injected credential to an
@@ -149,7 +101,81 @@ async def chat_completions(request: Request, response: Response, current: Curren
     if plugin is None:
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
 
+    # OME-479 §4.5 tier (a): neutralize this provider's own LiteLLM control-plane
+    # fields (caching/guardrails/prompt-management/named-credential selectors)
+    # BEFORE classification, so they are authorized structurally instead of being
+    # rejected as unknown model params. Pairs with the provider-neutral
+    # strip_dispatch_controls already applied at ingress; the default is identity.
+    #
+    # OME-305: MOVED ahead of the pre-cache stage. These fields are provider control
+    # plane, not part of the caller's model call, and the global key adjudicates every
+    # surviving field — so left in place they would make every request of an affected
+    # provider bypass on an unknown field. OpenRouter alone carries eleven of them,
+    # including ``litellm_credential_name``, a CREDENTIAL SELECTOR: keyed it would be
+    # a plan §10 stop condition, and ignored it would be a wrong-hit collision class.
+    # Stripping first is what makes it neither.
+    body = plugin.strip_provider_dispatch_controls(body)
+
+    # ==================================================================
+    # STAGE 1 — the global cache, BEFORE any CREDENTIAL is resolved.
+    # ==================================================================
+    # INVARIANT (the ticket's central inversion): no auth mode, no provider credential
+    # and no OAuth connection has been resolved at this point, and a hit returns
+    # without resolving any of them. That is what lets one stored response serve every
+    # caller who sends the identical request — including one whose provider is not
+    # connected, or whose profile is PENDING or ERRORED.
+    #
+    # OME-305 §57: the caller's stored profile DEFAULTS are the one thing now read
+    # first, because the key must cover the EFFECTIVE request — see
+    # ``chat_profile_defaults`` for why that read is separate and why it may not raise.
+    # A hit therefore costs one profile-index read, which is itself a credential_blobs
+    # row: one master-key decryption, and no provider credential.
     account_id = str(current.id)
+    key_defaults = await profile_defaults_for_key(
+        request, account_id=account_id, provider=provider, profile_name=profile_name
+    )
+    default_paths: frozenset[str] = frozenset()
+    if key_defaults is None:
+        cache_outcome = defaults_unreadable_bypass()
+    else:
+        # OME-638: merge the gateway-trusted profile defaults BEFORE classification, so
+        # a stored default is authorized by the same rule set, the same schema and the
+        # same resolved auth mode as a caller-supplied value — one pass, one projection,
+        # no second validation path to drift. Placed after both control-plane strips so
+        # those keep seeing caller input only; ProfileDefaults is a closed model of six
+        # typed fields and can carry no dispatch control.
+        # INVARIANT: the body still wins per field, so a default occupies only a path
+        # the caller omitted — which is what makes ``default_paths`` a sound attribution.
+        # INVARIANT (§57): this merged body is the ONE body used for both the key and
+        # the dispatch, so the two cannot describe different requests.
+        body, default_paths = _apply_defaults(body, key_defaults, plugin)
+        # AIDEV-NOTE: this must not be wrapped in ``in_transaction()`` — see the module
+        # docstring of ``chat_cache_stage`` for the measured failure.
+        cache_outcome = await look_up_global_cache(
+            request, body=body, plugin=plugin, controls=cache_controls
+        )
+    if cache_outcome.is_hit and cache_outcome.response is not None:
+        # ACCEPTED CONSEQUENCE (decision 2): a hit skips the auth-mode-specific
+        # parameter validation a miss would run. Deliberate and approved — the
+        # auth-INDEPENDENT half (schema validity, unknown fields, mode-restricted
+        # paths) is enforced inside the key builder, so what a hit skips is only the
+        # per-mode validation, and the response being served was produced by a real
+        # dispatch of this exact call. Do not add a credential read here to "check"
+        # it: that would defeat the entire purpose of the inversion.
+        # §57: "this exact call" now means the EFFECTIVE request — the hit was keyed on
+        # the caller's body WITH their profile defaults applied, so a stored default
+        # that changes what the provider is asked also changes the key.
+        set_global_cache_headers(response, cache_outcome)
+        return cache_outcome.response
+
+    # ==================================================================
+    # STAGE 2 — a miss or a bypass: resolve identity and dispatch.
+    # ==================================================================
+    # AIDEV-NOTE (§57): this stays HERE, after the cache stage, and the defaults it
+    # returns are NOT re-merged on the normal path. Two reasons, both load-bearing.
+    # It raises 404/409/401, so hoisting it would let those preempt a cache hit; and a
+    # second merge would re-read the profile, so a concurrent profile update between
+    # the two reads would dispatch a request the key does not describe.
     profile, connection, defaults = await _credential_target_for_chat(
         request,
         account_id=account_id,
@@ -158,24 +184,15 @@ async def chat_completions(request: Request, response: Response, current: Curren
         plugin=plugin,
     )
 
-    # OME-479 §4.5 tier (a): neutralize this provider's own LiteLLM control-plane
-    # fields (caching/guardrails/prompt-management/named-credential selectors)
-    # BEFORE classification, so they are authorized structurally instead of being
-    # rejected as unknown model params. Pairs with the provider-neutral
-    # strip_dispatch_controls already applied at ingress; the default is identity.
-    body = plugin.strip_provider_dispatch_controls(body)
-
     auth_mode = resolved_auth_mode(profile, connection, plugin=plugin)
 
-    # OME-638: merge the gateway-trusted profile defaults BEFORE classification, so
-    # a stored default is authorized by the same rule set, the same schema and the
-    # same resolved auth mode as a caller-supplied value — one pass, one projection,
-    # no second validation path to drift. Placed after both control-plane strips so
-    # those keep seeing caller input only; ProfileDefaults is a closed model of six
-    # typed fields and can carry no dispatch control.
-    # INVARIANT: the body still wins per field, so a default occupies only a path
-    # the caller omitted — which is what makes ``default_paths`` a sound attribution.
-    body, default_paths = _apply_defaults(body, defaults, plugin)
+    if key_defaults is None:
+        # The pre-cache read failed, so the merge that feeds the key never ran and the
+        # cache already bypassed. Merge here so the request still DISPATCHES with the
+        # operator's defaults: a transient index fault must cost a cache hit, never
+        # silently drop a stored system prompt. No key exists on this path, so there is
+        # nothing for the dispatch body to diverge from.
+        body, default_paths = _apply_defaults(body, defaults, plugin)
 
     # OME-479 §4.5: classify every optional parameter against the provider's enabled
     # rule set for the REAL (never caller-declared) auth mode, and project accepted
@@ -184,10 +201,10 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # wrong-auth, malformed and duplicate-channel parameters fail closed with
     # HTTP-safe paths before any credential is read or any provider is dispatched.
     rules = tuple(plugin.chat_parameter_rules(model=model, auth_type=auth_mode))
-    # The caller-visible parameter view, kept before projection replaces it: it is
-    # what the published contract describes, and therefore what the cache decision
-    # below must be taken from.
-    caller_parameters = body
+    # OME-305: the caller-visible parameter view was snapshotted HERE, because v1 took
+    # its cache decision after projection had already replaced ``body``. Stage 1 now
+    # runs before ANY of these passes, so the snapshot has no remaining reader — the
+    # view it preserved is simply the effective body Stage 1 saw.
     try:
         body = classify_and_project_chat_parameters(
             body,
@@ -244,30 +261,27 @@ async def chat_completions(request: Request, response: Response, current: Curren
             },
         ) from None
 
+    # OME-305: the v1 per-account cache stage stood HERE — key built after
+    # preparation, scoped to (account, profile), controls read from the same `cache`
+    # field the v2 grammar now owns. It is retired, not relocated:
+    #   * a v1 key needs `profile_name`, so it could only ever run AFTER profile
+    #     resolution — which contradicts the inversion Stage 1 exists to perform;
+    #   * v2 keys are global and identity does not partition them, so the
+    #     account-partitioned behaviour v1 provided is the opposite of the contract;
+    #   * with v2 owning the `cache` field, v1's `no-cache`/`s-maxage` were
+    #     unreachable, leaving a dead branch guarding a live read.
+    # The v1 PERSISTENCE api (`RequestCacheStore.get`/`set`/`delete_expired`) is
+    # deliberately preserved and still tested — existing rows stay readable and
+    # unreachable by v2 lookup (plan §8 #17). Only the route path is gone.
+    #
+    # INVARIANT preserved from the retired stage (was stated at this line): provider
+    # reconstruction failures precede ALL cache planning. Stage 1 runs BEFORE
+    # `prepare_chat_body`, so that ordering is now upheld inside the projection
+    # instead: OpenRouter's `global_cache_projection` calls the same
+    # `build_provider_policy` reconstruction and returns `CacheBypass` when it raises,
+    # so a body whose routing policy cannot be rebuilt performs no read and no write
+    # and reaches its existing 503 rather than being answered 200 from cache.
     body = plugin.prepare_chat_body(body)
-
-    # OME-479 §4.6 (closure Unit 1): resolve the cache POLICY from the preserved
-    # caller-visible contract after provider preparation has accepted its projected
-    # state. prepare_chat_body may remove, rename, flatten or nest an accepted field
-    # (anthropic drops reasoning_effort="none", which is what omission already means),
-    # so the prepared body alone could silently make a declared bypass look cacheable.
-    # INVARIANT: reconstruction failures precede ALL cache planning; successful
-    # requests still derive cache behavior from the same rule the contract publishes.
-    cache_bypass_paths = caller_cache_bypass_paths(
-        caller_parameters, rules=rules, auth_mode=auth_mode
-    )
-
-    # Cache key is computed from the normalized body, before credential
-    # injection, so no secret-bearing field can ever participate in the key.
-    cache_key, cache_status, cache_reason = _resolve_cache_plan(
-        request,
-        account_id=account_id,
-        profile_name=profile_name,
-        provider=provider,
-        body=body,
-        controls=cache_controls,
-        bypass_paths=cache_bypass_paths,
-    )
 
     if body.get("stream") and not plugin.supports_chat_streaming():
         raise HTTPException(
@@ -293,26 +307,17 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # NOTE: overload retry covers the non-streaming path only; streaming responses
     # commit a 200 status before dispatch, so a mid-stream 429/503 cannot be retried.
     if body.get("stream"):
+        # INVARIANT: reaching here means ``stream`` is truthy, and a truthy ``stream``
+        # is a structural bypass in the eligibility layer — so the outcome is always a
+        # bypass and no write can follow. The headers therefore come from the SAME
+        # outcome the non-streaming path publishes rather than being hand-spelled;
+        # v1 hardcoded ``bypass`` here with an ``or "stream"`` fallback, which could
+        # not distinguish "streaming" from "the operator disabled the cache".
         return StreamingResponse(
             _stream(plugin, body),
             media_type="text/event-stream",
-            headers={"X-AIGW-Cache": "bypass", "X-AIGW-Cache-Reason": cache_reason or "stream"},
+            headers=global_cache_headers(cache_outcome),
         )
-
-    if cache_key is not None and not cache_controls.no_cache:
-        cache_store: RequestCacheStore = request.app.state.request_cache_store
-        cached = await cache_store.get(cache_key.key_hash, max_age_seconds=cache_controls.s_maxage)
-        if cached is not None:
-            _set_cache_headers(response, "hit", "", cache_key)
-            logger.info(
-                "request cache hit provider=%s model=%s account=%s profile=%s key=%s…",
-                provider,
-                cache_key.model,
-                account_id,
-                profile_name,
-                cache_key.key_hash[:12],
-            )
-            return cached
 
     try:
         provider_response = await _dispatch_with_backpressure(request, plugin, provider, body)
@@ -387,23 +392,15 @@ async def chat_completions(request: Request, response: Response, current: Curren
     dumpable = cast(Any, provider_response)
     result = dumpable.model_dump() if hasattr(dumpable, "model_dump") else provider_response
 
-    if cache_key is not None:
-        cache_reason = await _store_cached_response(
-            request,
-            key=cache_key,
-            account_id=account_id,
-            result=result,
-            controls=cache_controls,
-        )
-    _set_cache_headers(response, cache_status, cache_reason, cache_key)
-    if cache_status != "bypass":
-        logger.info(
-            "request cache %s reason=%s provider=%s account=%s profile=%s key=%s…",
-            cache_status,
-            cache_reason,
-            provider,
-            account_id,
-            profile_name,
-            cache_key.key_hash[:12] if cache_key is not None else "",
-        )
+    # STAGE 3 — fill the global entry this request missed on.
+    # INVARIANT: only a MISS on an eligible request writes (``should_store``). A
+    # bypass never writes, and neither does a read that failed — see
+    # ``GlobalCacheOutcome.should_store``.
+    # INVARIANT: the write cannot fail this request. ``store_global_response`` never
+    # raises, and a lost race leaves the FIRST stored response in place, so the value
+    # returned to this caller is always the one their own dispatch produced.
+    write_status = None
+    if cache_outcome.should_store:
+        write_status = await store_global_response(request, outcome=cache_outcome, result=result)
+    set_global_cache_headers(response, cache_outcome, write_status=write_status)
     return result

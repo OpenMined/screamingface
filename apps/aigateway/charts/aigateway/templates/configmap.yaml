@@ -34,3 +34,9 @@ data:
   # value is declared rather than defaulted-by-absence: a disabled plugin contributes no models
   # and holds no credential strategy, so `false` is a real posture, not a missing key.
   AIGW_OPENROUTER_ENABLED: {{ .Values.config.openrouter.enabled | quote }}
+  # The global response cache (OME-305). Emitted in every case for the same reason as the flag
+  # above: a cache shared across every caller of the gateway is a posture that should be stated in
+  # the rendered manifest, not inferred from a missing key. `false` here and the app's own default
+  # agree, so a stock install shares nothing.
+  #
+  AIGW_REQUEST_CACHE_ENABLED: {{ .Values.config.requestCache.enabled | quote }}

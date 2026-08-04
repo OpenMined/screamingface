@@ -376,73 +376,105 @@ def test_the_boundary_refuses_a_provider_that_reaches_it_with_top_p_present() ->
 # (9) Observed cache behaviour matches the published declaration
 
 
-def test_the_contract_declares_bypass_for_top_p() -> None:
-    assert _parameters()["top_p"]["gateway"]["cache_behavior"] == "bypass"
+def test_the_contract_declares_top_p_as_keyed() -> None:
+    """SUPERSEDED (OME-305, owner decision B).
+
+    Was ``test_the_contract_declares_bypass_for_top_p``, asserting verbatim:
+    ``assert _parameters()["top_p"]["gateway"]["cache_behavior"] == "bypass"``.
+
+    Decision B keys every reviewed output-affecting parameter on a provider that
+    implements ``global_cache_projection``. ``top_p`` changes the response, so under v1
+    it had to bypass (a v1 key could not carry it and OpenRouter bodies were
+    structurally ineligible anyway); under v2 it is keyed, which is what makes the
+    cache usable by a real client instead of only by bare ``{model, messages}``.
+    """
+    assert _parameters()["top_p"]["gateway"]["cache_behavior"] == "keyed"
 
 
-def test_the_caller_visible_policy_reports_top_p_as_a_bypass_path() -> None:
-    """Attribution: the DECLARATION is what forces the bypass, on its own.
+def test_the_caller_visible_policy_reports_top_p_as_a_keyed_path() -> None:
+    """SUPERSEDED (OME-305, owner decision B).
 
-    AIDEV-NOTE: an end-to-end "bypass" header cannot attribute the decision for
-    this provider. Every OpenRouter dispatch body carries the pinned ``api_base``
-    and the gateway-owned ``provider`` policy block, and neither is a field
-    ``build_cache_key`` knows, so EVERY OpenRouter request — even a bare prompt
-    with no optional parameters — is structurally cache-ineligible. That is
-    pre-existing and safe (it can only ever bypass, never mis-serve), but it
-    means the route header alone would report "bypass" whatever this rule said.
+    Was ``test_the_caller_visible_policy_reports_top_p_as_a_bypass_path``, asserting
+    verbatim: ``assert rule.cache_behavior == "bypass"`` and ``assert paths ==
+    ("top_p",)``.
 
-    So the attribution is proven here instead, against the closure Unit 1
-    primitive that reads the published ``cache_behavior`` off the caller-visible
-    contract: ``top_p`` is a declared bypass path in its own right, independent
-    of anything preparation adds.
+    The old docstring's premise is ALSO retired and must not be restored: it said
+    "EVERY OpenRouter request — even a bare prompt with no optional parameters — is
+    structurally cache-ineligible" because the pinned ``api_base`` and ``provider``
+    block were fields the key builder did not know. That was true of v1's inspected
+    preparation. v2 PROJECTS preparation instead, so those two additions are described
+    rather than unexplained and an OpenRouter request is cacheable.
+
+    WHY the anti-vacuity half is now carried by a different parameter: with ``top_p``
+    keyed, "no bypass paths" is the expected answer for it, and a function that always
+    returned ``()`` would satisfy that. ``tools`` still bypasses — structurally, ahead
+    of any rule — so it is what proves the function still discriminates.
     """
     from aigateway.core.parameter_projection import caller_cache_bypass_paths
 
     rule = next(r for r in _rules() if r.request_path == "top_p")
-    assert rule.cache_behavior == "bypass", "the rule must declare what the contract publishes"
+    assert rule.cache_behavior == "keyed", "the rule must declare what the contract publishes"
 
-    paths = caller_cache_bypass_paths(
-        {"model": _MODEL, "messages": list(_MESSAGES), "top_p": 0.9},
-        rules=_rules(),
-        auth_mode="api_key",
-    )
-    assert paths == ("top_p",)
-    # …and the same body WITHOUT the parameter declares no bypass path, so the
-    # verdict tracks the promoted field rather than the prompt.
     assert (
         caller_cache_bypass_paths(
-            {"model": _MODEL, "messages": list(_MESSAGES)},
+            {"model": _MODEL, "messages": list(_MESSAGES), "top_p": 0.9},
             rules=_rules(),
             auth_mode="api_key",
         )
         == ()
     )
+    # The discriminating case: a parameter that IS still a declared bypass.
+    assert caller_cache_bypass_paths(
+        {"model": _MODEL, "messages": list(_MESSAGES), "tools": []},
+        rules=_rules(),
+        auth_mode="api_key",
+    ) == ("tools",)
 
 
-def test_a_top_p_request_bypasses_the_cache_through_the_real_route(
+def test_two_top_p_values_never_share_a_cache_entry_through_the_real_route(
     enabled_openrouter, credential_blobs, cache_client
 ) -> None:
-    # The published declaration, observed end-to-end: what the caller SEES must
-    # match ``gateway.cache_behavior`` for this path. Attribution is established
-    # by the test above; this one pins the observable header and the symmetry —
-    # a declared-bypass request neither reads nor writes an entry, so two
-    # identical requests both dispatch.
+    """SUPERSEDED (OME-305, owner decision B) — and STRENGTHENED, not merely flipped.
+
+    Was ``test_a_top_p_request_bypasses_the_cache_through_the_real_route``, asserting
+    verbatim: ``assert first.headers["X-AIGW-Cache"] == "bypass"``, ``assert
+    "X-AIGW-Cache-Key" not in first.headers`` and ``assert len(calls) == 2, "a declared
+    -bypass request must reach the provider every time"``.
+
+    INVARIANT that replaces it, and the one that actually matters once the parameter is
+    keyed: a repeat of the SAME ``top_p`` is served from cache, and a DIFFERENT
+    ``top_p`` is never served that entry. The old test could only prove the cache was
+    not used; keying makes a stronger property both available and necessary, because
+    the failure mode changed from "wasted dispatch" to "wrong answer".
+
+    WHY the differing-value half is not optional: promoting a parameter to ``keyed``
+    without it in the fingerprint is exactly how one caller receives another caller's
+    response. This is the case that would catch it.
+    """
     _create_connection(cache_client)
     calls: list[dict] = []
 
     async def counting_acompletion(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
-            model_dump=lambda: {"id": "or-1", "choices": [{"message": {"content": "ok"}}]}
+            model_dump=lambda: {
+                "id": f"or-{len(calls)}",
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            }
         )
 
     with patch("litellm.acompletion", counting_acompletion):
-        first = _post_chat(cache_client, {"top_p": 0.9, "cache": {"use-cache": True}})
-        second = _post_chat(cache_client, {"top_p": 0.9, "cache": {"use-cache": True}})
+        first = _post_chat(cache_client, {"top_p": 0.9})
+        repeat = _post_chat(cache_client, {"top_p": 0.9})
+        other = _post_chat(cache_client, {"top_p": 0.5})
 
-    assert first.status_code == second.status_code == 200, first.text
-    assert first.headers["X-AIGW-Cache"] == "bypass"
-    assert second.headers["X-AIGW-Cache"] == "bypass"
-    assert "X-AIGW-Cache-Key" not in first.headers
-    assert len(calls) == 2, "a declared-bypass request must reach the provider every time"
-    assert calls[0]["top_p"] == 0.9
+    assert first.status_code == repeat.status_code == other.status_code == 200, first.text
+    assert first.headers["X-AIGW-Cache"] == "miss"
+    assert first.headers["X-AIGW-Cache-Write"] == "stored"
+    assert repeat.headers["X-AIGW-Cache"] == "hit"
+    assert other.headers["X-AIGW-Cache"] == "miss", "a different top_p must not hit"
+    assert first.headers["X-AIGW-Cache-Key"] != other.headers["X-AIGW-Cache-Key"]
+    # Two dispatches, not three: the repeat was served from the entry, and the
+    # differing value was not.
+    assert len(calls) == 2
+    assert [c["top_p"] for c in calls] == [0.9, 0.5]

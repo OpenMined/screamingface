@@ -172,6 +172,20 @@ def caller_cache_bypass_paths(
 ) -> tuple[str, ...]:
     """Request paths present in ``body`` whose enabled rule declares ``bypass``.
 
+    AIDEV-NOTE (OME-305): this has had **no production caller** since the v1 route
+    retirement removed the one in ``routes/chat.py``. It is NOT dead code and must not
+    be deleted — it shipped, it is pure, and it remains the caller-visible policy view
+    that the published contract is checked against.
+    #
+    # WHY the note matters more than the function: v2's authority on "which paths
+    # bypass" is ``global_eligibility._accept``, reached through
+    # ``build_global_cache_key``. So two implementations of that question now coexist,
+    # and only one of them decides what actually happens. A reader who finds a
+    # well-tested public primitive here can reasonably conclude it is live policy and
+    # "fix a bug" by editing it — changing nothing about real behaviour, or worse,
+    # making the two disagree. If you need to change what bypasses, change
+    # ``global_eligibility``; if you change this, you are changing a VIEW.
+
     FEATURE: an honest ``cache_behavior``. Plan §4.6 defines ``bypass`` as "any
     presence of the field bypasses prompt caching", and the detailed contract
     publishes ONE unconditional value per request path. This derives the runtime

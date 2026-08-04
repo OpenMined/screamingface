@@ -17,10 +17,17 @@ KEY_VERSION = "aigw-chat-cache-v1"
 
 # Part of the prompt hash. Everything else is either ignored or a bypass.
 _PROMPT_FIELDS = ("model", "messages", "system")
-# PUBLIC (OME-479 §4.6): the ONLY request paths this key builder can key. A rule
-# declaring any other ``cache_behavior`` than ``bypass`` for a path outside this
-# set publishes a promise the pipeline cannot deliver — locked by the registry
-# conformance sweep rather than left to per-provider review.
+# PUBLIC (OME-479 §4.6): the ONLY request paths THIS (v1) key builder can key. A rule
+# declaring any ``cache_behavior`` other than ``bypass`` for a path outside this set
+# publishes a promise the v1 pipeline cannot deliver.
+#
+# AIDEV-NOTE (OME-305, ruling 32): this used to claim the set was "locked by the
+# registry conformance sweep". It is NOT, and no longer could be — that sweep moved to
+# the v2 sets in ``global_keys`` (``PROMPT_FIELDS``, ``EXCLUDED_TRANSPORT_FIELDS``,
+# ``PRESENCE_BYPASS_REASONS``, ``TRUTHY_BYPASS_REASONS``) when keying stopped being
+# prompt-only. Nothing sweeps this constant now. Do not restore the claim: a comment
+# asserting a guard that does not exist is worse than no comment, because the next
+# reader will trust it instead of checking.
 PROMPT_KEY_FIELDS: frozenset[str] = frozenset(_PROMPT_FIELDS)
 # Transport/auth fields that never affect provider output. ``cache`` is the
 # gateway's own control object and is popped before eligibility runs; it is

@@ -1,11 +1,3 @@
-"""Gateway-owned opt-in response cache for deterministic chat completions.
-
-Keying, eligibility, and persistence live here so ``routes/chat.py`` stays
-orchestration-only. Cache policy is gateway-wide (not per provider plugin),
-keys are computed before credential injection, and stored payloads are
-encrypted at rest through the active secret store.
-"""
-
 from __future__ import annotations
 
 from .keys import (
@@ -15,12 +7,28 @@ from .keys import (
     build_cache_key,
     parse_cache_controls,
 )
-from .store import RequestCacheStore, RequestCacheWrite, TortoiseRequestCacheStore
+from .store import (
+    GLOBAL_SENTINEL,
+    CacheAvailability,
+    CacheUnavailable,
+    ConfiguredCacheAvailability,
+    GlobalRequestCacheStore,
+    GlobalRequestCacheWrite,
+    RequestCacheStore,
+    RequestCacheWrite,
+    TortoiseRequestCacheStore,
+)
 
 __all__ = [
+    "GLOBAL_SENTINEL",
+    "CacheAvailability",
     "CacheBypass",
     "CacheControls",
     "CacheKeyResult",
+    "CacheUnavailable",
+    "ConfiguredCacheAvailability",
+    "GlobalRequestCacheStore",
+    "GlobalRequestCacheWrite",
     "RequestCacheStore",
     "RequestCacheWrite",
     "TortoiseRequestCacheStore",

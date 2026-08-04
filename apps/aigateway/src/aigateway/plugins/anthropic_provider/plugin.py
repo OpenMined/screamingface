@@ -7,6 +7,8 @@ from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
+    PROJECTION_BYPASS_REASON,
+    CacheBypass,
     CredentialStrategy,
     ModelEntry,
     OAuthCodeExchangeRequest,
@@ -18,7 +20,11 @@ from aigateway.core.standard_parameters import tool_parameter_observations
 from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
-from .chat_handler import chat_completion, chat_completion_stream
+from .chat_handler import (
+    chat_completion,
+    chat_completion_stream,
+    claude_code_attribution_revision,
+)
 from .discovery import STATIC_SOURCE, anthropic_static_param_observations
 from .parameters import anthropic_chat_parameter_rules, anthropic_chat_parameter_tools
 from .settings import AnthropicPluginSettings
@@ -35,6 +41,17 @@ if TYPE_CHECKING:
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
     from aigateway.core.profile_models import AuthMode
+
+
+# OME-305: this provider's contribution to a global cache key. The date names the
+# reviewed preparation behaviour; the suffix is COMPUTED from every constant that
+# shapes the Claude-Code attribution block, so bumping the Claude Code version
+# abandons entries filled under the old block without anyone remembering to.
+GLOBAL_CACHE_ADAPTER_REVISION = (
+    f"anthropic-global-cache-2026-08-{claude_code_attribution_revision()}"
+)
+
+_GATEWAY_MODEL_PREFIX = "anthropic/"
 
 
 def _api_key_headers(api_key: str) -> dict[str, str]:
@@ -160,6 +177,66 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         if out.get("reasoning_effort") == "none":
             out.pop("reasoning_effort", None)
         return out
+
+    def global_cache_projection(self, body: dict[str, Any]) -> dict[str, Any] | CacheBypass:
+        """OME-305: what Anthropic will send, as a pure function of the request body.
+
+        FEATURE: one global exact-request cache. Anthropic is the provider the
+        benchmark suites actually hammer, so it has to be cacheable for the ticket to
+        deliver anything — which means describing the two things this boundary does
+        without the caller asking: it drops ``reasoning_effort="none"``, and (on OAuth
+        traffic only) it prepends a Claude-Code attribution block.
+
+        INVARIANT: pure. No I/O, no clock, no randomness, no credential, no identity,
+        and no read of ``self.settings`` — the registered model list is per-deployment
+        configuration, and consulting it would make one host's key differ from
+        another's while each host's own determinism test still passed.
+
+        ACCEPTED CONSEQUENCE — the credential-gated attribution block. Whether the
+        block is prepended depends on the resolved ``api_key`` (``sk-ant-oat…`` means
+        an OAuth subscription), and a global key may never see a credential. So the
+        mode bit is NOT keyed, and an entry filled by an OAuth caller can be served to
+        an api-key caller whose own dispatch would carry no block, and vice versa.
+        This is deliberate and approved, and it rests on three things:
+          * the block is billing ATTRIBUTION, not an instruction — its variable part
+            is a three-hex-character digest of the caller's own first user text;
+          * that text is ``messages``, which is hashed VERBATIM, so the block is a
+            function of already-keyed material plus the mode bit alone;
+          * a MISS still dispatches under the caller's real mode, so an api-key
+            request never gets the spoofed block sent upstream on its behalf
+            (SF-244 audit F02) — the cache changes who may READ a stored answer, never
+            what goes on the wire.
+        The constants that shape the block are folded into
+        ``GLOBAL_CACHE_ADAPTER_REVISION`` unconditionally, so changing the scheme
+        abandons every entry rather than re-serving old ones under new attribution.
+
+        AIDEV-NOTE: ``prepared`` deliberately does NOT describe ``top_k``. It is this
+        provider's only ``provider_native`` rule and it is api-key-only, so the core's
+        mode-restriction guard can never key it — describing it here would suggest a
+        promotion that is not reachable.
+        """
+        model = body.get("model")
+        if not isinstance(model, str) or not model.startswith(_GATEWAY_MODEL_PREFIX):
+            return CacheBypass(reason=PROJECTION_BYPASS_REASON)
+        if not model[len(_GATEWAY_MODEL_PREFIX) :]:
+            # A bare prefix names no model. Bypass rather than key an id that cannot
+            # dispatch — a projection may never fail a request, only decline to key it.
+            return CacheBypass(reason=PROJECTION_BYPASS_REASON)
+        prepared: dict[str, Any] = {}
+        # WHY the EFFECTIVE value and not the caller's: ``prepare_chat_body`` removes
+        # ``reasoning_effort="none"``, and omission is what "none" already means. This
+        # records what will actually be sent. (The rule for this path still keys the
+        # caller's own spelling separately today, so "none" and omitted remain two
+        # entries for one upstream call — a duplicate entry, never a wrong hit.)
+        if "reasoning_effort" in body and body["reasoning_effort"] != "none":
+            prepared["reasoning_effort"] = body["reasoning_effort"]
+        return {
+            # INVARIANT: the gateway prefix is LiteLLM's own provider prefix and
+            # travels to the wire intact, so the resolved id IS the full model string.
+            "resolved_model": model,
+            "provider_adapter_revision": GLOBAL_CACHE_ADAPTER_REVISION,
+            "prepared": prepared,
+        }
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         return await chat_completion(body)
