@@ -1,0 +1,86 @@
+name: public-docs Tests
+
+# Until OME-738 this tree had NO lane at all — no workflow `paths:` filter matched
+# `public-docs/**`, so a PR here showed only unrelated checks and merged with nothing verifying
+# it. Two Dependabot security PRs (#460 brace-expansion, #432 postcss) landed in exactly that
+# state. This also has to exist before dependabot.yml gains a `/public-docs` entry (OME-737),
+# so the bumps that entry produces have something to run against.
+#
+# SECURITY: every `run:` below is a static command. No workflow input, ref name, PR title or
+# commit message is interpolated into a shell context, so there is no injection surface here.
+on:
+  push:
+    paths:
+      - "public-docs/**"
+      - ".github/workflows/public-docs-tests.yml"
+  pull_request:
+    paths:
+      - "public-docs/**"
+      - ".github/workflows/public-docs-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+# Rapid pushes to the same ref would otherwise run duplicate jobs to completion.
+concurrency:
+  group: public-docs-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One job rather than the sibling lanes' test+build split: this tree has NO test suite —
+  # `78331eb8` ("prune scaffolding, drop tests") removed it, and there is no `test` script, no
+  # test file and no runner dependency. So there is no dorny/test-reporter or orgoro/coverage
+  # step either; both would fail on a results.xml that is never produced. Lint + build is the
+  # honest maximum here, and it is what actually guards a dependency bump.
+  test:
+    name: Lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: public-docs
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: public-docs/.nvmrc
+          cache: npm
+          cache-dependency-path: public-docs/package-lock.json
+      # `npm ci` — never `npm install` — because it INSTALLS FROM THE LOCKFILE and fails outright
+      # when package.json and the lock disagree. `npm install` would silently rewrite the lock in
+      # CI, so a drifted lockfile would never be visible here.
+      - name: Install from the lockfile
+        run: npm ci
+
+      # INVARIANT: lint runs the binaries DIRECTLY, never `npm run lint`.
+      # The package scripts are `oxlint . --fix` and `eslint . --fix --cache`. Under `--fix` CI
+      # would MUTATE the checked-out tree and then pass on code that differs from what was
+      # pushed — a lint gate that cannot fail for anything auto-fixable. Keep these bare.
+      - name: Lint (oxlint)
+        run: npx oxlint .
+      - name: Lint (eslint)
+        run: npx eslint .
+
+      # `npm run build` is `run-p type-check "build-only {@}" --`, i.e. `vue-tsc --noEmit`
+      # alongside `vite build` — so this one step gates typecheck AND the production bundle. No
+      # separate typecheck step is needed.
+      - name: Type-check and build
+        run: npm run build
+
+  cost:
+    name: CI cost diff
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: HupBaHa/cost-diff@v0.1.2
+        with:
+          current-job-id: ${{ job.check_run_id }}
+          baseline-event: push
+          comment-mode: update
