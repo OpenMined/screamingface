@@ -6,7 +6,13 @@ started: 2026-08-04
 finished: 2026-08-04
 ---
 
-# OME-732 — SDK: synthesizer binding + members-aware fetch + minimal notebook 07
+# OME-732 — SDK: universal Candidate bindings + Benchmark Family selection + notebook 07
+
+> **Final contract update:** ADR 0003 replaced the per-shape `members=N` fetch described in the
+> original plan/outcome below. The SDK now fetches one
+> `screamingface.benchmark-family.v1` resource, selects the requested Variant locally, and links
+> `$candidate_members` plus `$candidate_synthesizer` as universal bindings. The earlier text is
+> retained as implementation history, not as current API guidance.
 
 ## Intent
 
