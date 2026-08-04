@@ -27,13 +27,13 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^9",
+    "eslint": "^10",
     "eslint-config-next": "16.2.12",
     "jsdom": "^30.0.1",
     "openapi-typescript": "^7.13.0",
     "stylelint": "^17.14.1",
     "stylelint-declaration-strict-value": "^1.10.6",
-    "typescript": "^5",
+    "typescript": "^7",
     "vitest": "^4.1.10"
   }
 }
