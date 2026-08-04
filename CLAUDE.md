@@ -35,13 +35,23 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
    `.docs/`). Implementation starts only on explicit approval in plain words.
 4. **Diagrams** → `docs/diagrams/` (SVG + PNG); propose the diagramming plugin
    (https://github.com/sergio-bershadsky/ai/tree/main/plugins/diagramming) if absent.
-5. **Branches/commits.** `OME-N-<desc>`; conventional commits; body `Refs: OME-N`;
+5. **Worktree per unit — never edit in the shared checkout.** Always:
+   ```sh
+   git fetch origin
+   git worktree add .claude/worktrees/OME-N-<desc> -b OME-N-<desc> origin/main
+   ```
+   Branch from **`origin/main`**, never from whatever happens to be checked out. Sessions
+   run concurrently against one clone, and a branch switch **silently relocates
+   uncommitted work** onto the new branch — this has already happened here (see
+   `docs/work/2026-08-04-OME-743-*`). Remove with `git worktree remove` once merged.
+6. **Branches/commits/PR.** `OME-N-<desc>`; conventional commits; body `Refs: OME-N`;
    never `Co-Authored-By`; never commit to `main` (`.githooks/pre-commit` + protection).
-6. **Asana is READ-ONLY** product/marketing input (`asana-product` skill). Technical work
+   Every change lands via **PR** — green CI first, then squash-merge; never `--admin`.
+7. **Asana is READ-ONLY** product/marketing input (`asana-product` skill). Technical work
    never goes to Asana.
-7. **Cross-cutting** (≥2 apps/packages) → epic + one sub-issue per affected app/package.
+8. **Cross-cutting** (≥2 apps/packages) → epic + one sub-issue per affected app/package.
    Never one mega-ticket.
-8. **Linear via MCP only** (`/mcp` to activate). API tokens / raw GraphQL are forbidden;
+9. **Linear via MCP only** (`/mcp` to activate). API tokens / raw GraphQL are forbidden;
    MCP-uncovered operations are owner actions in the Linear UI.
 
 ## Architecture — MANDATORY
