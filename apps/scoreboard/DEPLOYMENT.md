@@ -98,25 +98,20 @@ helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/s
 
 `values-prod.yaml` sets three app replicas, Traefik ingress, TLS annotations, production CORS for `https://screamingface.ai`, and NetworkPolicy enabled. The chart also sets `FORWARDED_ALLOW_IPS="*"` so uvicorn honors Traefik's forwarded HTTPS scheme for redirects. Adjust `ingress.className` if the production cluster uses a different ingress controller.
 
-Set `SCOREBOARD_SUBMISSION_API_KEY` to gate `POST /v1/scores` (OME-391 / C2) — a placeholder shared key until OME-326 (real identity) exists. Unset, the write path stays open, matching today's behavior. Once set, submitting clients (desktop app, SDK, CI) need `Authorization: Bearer <key>` — coordinate the key distribution before flipping this on in production, since it isn't per-user.
-
-The chart never takes the raw key value directly — put it in a Secret and point the chart at it, mirroring the `database.existingSecret` pattern:
+Set `config.authMode: cloudflare_headers` (default: `disabled`) to require the mesh-verified `X-User-Email` identity header on `POST /v1/scores` instead of trusting the client-supplied `submitted_by` free text (OME-404, following OME-326). This is sound ONLY while the service is reachable exclusively through the chain that injects that header — set `config.allowedNetworks` (comma-separated CIDRs) to the peers permitted to present it:
 
 ```bash
-kubectl -n scoreboard create secret generic scoreboard-submission-api-key \
-  --from-literal=SCOREBOARD_SUBMISSION_API_KEY='<the key value>'
-
 helm upgrade scoreboard oci://ghcr.io/openmined/screamingface/charts/scoreboard \
   --namespace scoreboard \
   --reuse-values \
-  --set submissionApiKey.existingSecret=scoreboard-submission-api-key \
-  --set submissionApiKey.existingSecretKey=SCOREBOARD_SUBMISSION_API_KEY \
+  --set config.authMode=cloudflare_headers \
+  --set config.allowedNetworks="10.0.0.0/8" \
   --wait
 ```
 
-`values-prod.yaml` already declares this exact Secret/key pair by default, so a production deploy that includes it doesn't need the `--set` flags above at all — they're shown here for the general/non-prod case.
+Leaving `config.authMode` at its default (`disabled`) keeps today's behavior — the write path stays open, `submitted_by` is whatever the client sends. This is the current setting for `values-prod.yaml`'s Traefik-fronted, directly internet-exposed deployment: that ingress path does not run behind the Cloudflare Access + Envoy mesh, so `cloudflare_headers` mode would make `X-User-Email` trivially forgeable there — only enable it for a deployment actually sitting behind that mesh.
 
-Leaving `submissionApiKey.existingSecret` unset (the default) renders no `SCOREBOARD_SUBMISSION_API_KEY` env var at all — the gate stays a no-op.
+**`FORWARDED_ALLOW_IPS="*"` and `cloudflare_headers` mode must never be combined.** `values.yaml`'s default `config.forwardedAllowIps: "*"` (see above, needed for Traefik's HTTPS-redirect scheme) tells uvicorn's `ProxyHeadersMiddleware` to trust a client-supplied `X-Forwarded-For` from *any* peer, overwriting `request.client.host` — the same value `peer_in_networks()` reads to decide whether to trust `X-User-Email`. Combined, an attacker who can merely reach the port (not necessarily through the real proxy) can forge `X-Forwarded-For` to satisfy `allowedNetworks` and ride straight through. `create_app` refuses to start with this combination (`SCOREBOARD_AUTH_MODE=cloudflare_headers` + `FORWARDED_ALLOW_IPS=*`) — set `config.forwardedAllowIps` to the actual reverse proxy's address(es), not `*`, on any deployment enabling this mode.
 
 ## Benchmark Seeding
 
@@ -154,7 +149,7 @@ curl -fsS http://scoreboard.40.76.107.241.nip.io/healthz
 curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/benchmarks
 ```
 
-Submit a smoke score with an idempotency key. If `SCOREBOARD_SUBMISSION_API_KEY` is set, add `-H "Authorization: Bearer <key>"` or this 401s:
+Submit a smoke score with an idempotency key. If `config.authMode=cloudflare_headers` is set, add `-H "X-User-Email: <email>"` (and submit from an allowed peer) or this 401s:
 
 ```bash
 curl -fsS -X POST http://scoreboard.40.76.107.241.nip.io/v1/scores \

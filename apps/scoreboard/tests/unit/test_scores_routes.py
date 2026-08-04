@@ -13,6 +13,7 @@ from tortoise.exceptions import OperationalError
 
 from scoreboard.config import Settings
 from scoreboard.main import create_app
+from scoreboard.routes.scores import MISSING_IDENTITY_DETAIL
 from scoreboard.scores.models import Benchmark, IdempotencyKey
 from scoreboard.scores.store import ScoreStore
 
@@ -60,11 +61,18 @@ async def score_client(app_with_benchmark: FastAPI) -> AsyncGenerator[AsyncClien
 
 
 @pytest_asyncio.fixture
-async def app_with_api_key(tortoise_db: None) -> FastAPI:
-    settings = Settings(
-        database_url="sqlite://:memory:",
-        cors_origins=[],
-        submission_api_key="test-key",
+async def app_with_cloudflare_auth(tortoise_db: None) -> FastAPI:
+    # model_validate, not the constructor: allowed_networks arrives as a comma-separated
+    # STRING (as the environment supplies it) and is parsed into networks by the
+    # mode="before" validator — the behavior under test, same idiom aigateway's own
+    # allowed_networks tests use.
+    settings = Settings.model_validate(
+        {
+            "database_url": "sqlite://:memory:",
+            "cors_origins": [],
+            "auth_mode": "cloudflare_headers",
+            "allowed_networks": "127.0.0.1/32",
+        }
     )
     app = create_app(settings)
     await Benchmark.create(
@@ -77,9 +85,26 @@ async def app_with_api_key(tortoise_db: None) -> FastAPI:
 
 
 @pytest_asyncio.fixture
-async def gated_score_client(app_with_api_key: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+async def cloudflare_score_client(
+    app_with_cloudflare_auth: FastAPI,
+) -> AsyncGenerator[AsyncClient, None]:
+    # WHY: httpx's ASGITransport reports a fixed peer, ("127.0.0.1", 123) by default —
+    # matches the fixture's allowed_networks above so the trusted-peer path is exercised.
     async with AsyncClient(
-        transport=ASGITransport(app=app_with_api_key),
+        transport=ASGITransport(app=app_with_cloudflare_auth),
+        base_url="http://test",
+    ) as client:
+        yield client
+
+
+@pytest_asyncio.fixture
+async def untrusted_peer_score_client(
+    app_with_cloudflare_auth: FastAPI,
+) -> AsyncGenerator[AsyncClient, None]:
+    # A peer address deliberately outside app_with_cloudflare_auth's allowed_networks
+    # (127.0.0.1/32), to exercise the 403 "untrusted peer" path.
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_cloudflare_auth, client=("203.0.113.5", 443)),
         base_url="http://test",
     ) as client:
         yield client
@@ -256,63 +281,126 @@ async def test_get_score_unknown_id_returns_404(score_client: AsyncClient) -> No
     assert response.json() == {"detail": "score not found"}
 
 
-async def test_post_score_without_configured_api_key_remains_public(
+async def test_post_score_default_auth_mode_disabled_trusts_free_text(
     score_client: AsyncClient,
 ) -> None:
-    # WHY: SCOREBOARD_SUBMISSION_API_KEY unset (local dev, and every fixture above)
-    # must be a true no-op — this is the pre-OME-326 default (OME-391 / C2).
-    response = await score_client.post("/v1/scores", json=_valid_payload())
+    # WHY: SCOREBOARD_AUTH_MODE unset (local dev, and every fixture above) must stay a
+    # true no-op — the client-supplied submitted_by is trusted unchanged (OME-404's
+    # documented default, so no existing deployment/test breaks from this change).
+    response = await score_client.post("/v1/scores", json=_valid_payload(submitted_by="tester"))
 
     assert response.status_code == 201
+    assert response.json()["submitted_by"] == "tester"
 
 
-async def test_post_score_with_correct_api_key_succeeds(
-    gated_score_client: AsyncClient,
+async def test_post_score_with_identity_header_stores_header_email(
+    cloudflare_score_client: AsyncClient,
 ) -> None:
-    response = await gated_score_client.post(
+    response = await cloudflare_score_client.post(
         "/v1/scores",
-        json=_valid_payload(),
-        headers={"Authorization": "Bearer test-key"},
+        json=_valid_payload(submitted_by="someone-else"),
+        headers={"X-User-Email": "researcher@example.test"},
     )
 
     assert response.status_code == 201
+    # WHY: the header always wins over whatever the request body claims — a caller
+    # cannot submit under another person's name.
+    assert response.json()["submitted_by"] == "researcher@example.test"
 
 
-async def test_post_score_missing_api_key_header_returns_401(
-    gated_score_client: AsyncClient,
+async def test_post_score_missing_identity_header_returns_401(
+    cloudflare_score_client: AsyncClient,
 ) -> None:
-    response = await gated_score_client.post("/v1/scores", json=_valid_payload())
+    response = await cloudflare_score_client.post("/v1/scores", json=_valid_payload())
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "missing or invalid API key"}
+    assert response.json() == {"detail": MISSING_IDENTITY_DETAIL}
 
 
-async def test_post_score_wrong_api_key_returns_401(
-    gated_score_client: AsyncClient,
+async def test_post_score_blank_identity_header_returns_401(
+    cloudflare_score_client: AsyncClient,
 ) -> None:
-    response = await gated_score_client.post(
+    response = await cloudflare_score_client.post(
         "/v1/scores",
         json=_valid_payload(),
-        headers={"Authorization": "Bearer wrong-key"},
+        headers={"X-User-Email": "   "},
     )
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "missing or invalid API key"}
+    assert response.json() == {"detail": MISSING_IDENTITY_DETAIL}
 
 
-async def test_get_score_remains_public_when_api_key_configured(
-    gated_score_client: AsyncClient,
+async def test_post_score_missing_identity_header_wins_over_bad_accuracy(
+    cloudflare_score_client: AsyncClient,
 ) -> None:
-    created = await gated_score_client.post(
+    # WHY: pins the exact regression round-1 self-review found and fixed — identity must be
+    # checked before business-rule validation, so an unauthenticated caller never learns
+    # anything about why its payload would otherwise be rejected. A future reorder that moves
+    # the accuracy check back above _resolve_submitter must fail this test (400, not 401).
+    response = await cloudflare_score_client.post(
         "/v1/scores",
-        json=_valid_payload(),
-        headers={"Authorization": "Bearer test-key"},
+        json=_valid_payload(accuracy=0.5, total_questions=100, correct_questions=10),
     )
 
-    response = await gated_score_client.get(f"/v1/scores/{created.json()['id']}")
+    assert response.status_code == 401
+    assert response.json() == {"detail": MISSING_IDENTITY_DETAIL}
+
+
+async def test_post_score_untrusted_peer_wins_over_unknown_benchmark(
+    untrusted_peer_score_client: AsyncClient,
+) -> None:
+    # WHY: same regression class as above, for the 403/peer-check path against the
+    # benchmark-existence check instead of the accuracy check.
+    response = await untrusted_peer_score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_id="missing"),
+        headers={"X-User-Email": "researcher@example.test"},
+    )
+
+    assert response.status_code == 403
+
+
+async def test_get_score_remains_public_when_cloudflare_headers_configured(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    # WHY: GET has no auth wiring at all — pinned so a future refactor that shares a
+    # dependency between routes can't silently make score reads non-public.
+    created = await cloudflare_score_client.post(
+        "/v1/scores",
+        json=_valid_payload(),
+        headers={"X-User-Email": "researcher@example.test"},
+    )
+
+    response = await cloudflare_score_client.get(f"/v1/scores/{created.json()['id']}")
 
     assert response.status_code == 200
     assert response.json()["id"] == created.json()["id"]
+
+
+async def test_post_score_untrusted_peer_returns_403_even_with_valid_header(
+    untrusted_peer_score_client: AsyncClient,
+) -> None:
+    response = await untrusted_peer_score_client.post(
+        "/v1/scores",
+        json=_valid_payload(),
+        headers={"X-User-Email": "researcher@example.test"},
+    )
+
+    assert response.status_code == 403
+
+
+async def test_post_score_forwarded_for_header_never_substitutes_for_real_peer(
+    untrusted_peer_score_client: AsyncClient,
+) -> None:
+    # WHY: X-Forwarded-For is exactly as forgeable as X-User-Email itself — trusting it
+    # to decide whether to trust the identity header would be circular.
+    response = await untrusted_peer_score_client.post(
+        "/v1/scores",
+        json=_valid_payload(),
+        headers={"X-User-Email": "researcher@example.test", "X-Forwarded-For": "127.0.0.1"},
+    )
+
+    assert response.status_code == 403
 
 
 async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) -> None:
@@ -336,6 +424,9 @@ async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) 
         "/FieldErrorResponse",
     )
     assert post_score["responses"]["401"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/MessageErrorResponse",
+    )
+    assert post_score["responses"]["403"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/MessageErrorResponse",
     )
     assert post_score["responses"]["404"]["content"]["application/json"]["schema"]["$ref"].endswith(
