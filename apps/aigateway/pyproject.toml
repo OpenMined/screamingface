@@ -15,7 +15,7 @@ dependencies = [
     "bcrypt==5.0.0",
     "asyncpg==0.31.0",
     "aiosqlite==0.22.1",
-    "cryptography==48.0.1",
+    "cryptography==50.0.0",
 ]
 
 [project.scripts]
