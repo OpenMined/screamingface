@@ -17,9 +17,13 @@ from url4_cloud.benchmarks.ifeval.definition import (
     CHECK_ROUTE as IFEVAL_CHECK_ROUTE,
 )
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    AGGREGATE_ROUTE as CORRECTIVE_AGGREGATE_ROUTE,
+    ENSEMBLE_AGGREGATE_ROUTE,
+    MEMBER_ANSWER_ROUTE,
+    MEMBER_RECORD_ROUTE,
+    SELECT_ROUTE,
+    SELF_AGGREGATE_ROUTE,
+    VALIDATE_MEMBERS_ROUTE,
 )
-from url4_cloud.benchmarks.ifeval.iterative_correction import SELECT_ROUTE
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
@@ -37,8 +41,12 @@ _BENCHMARK_ROUTES = {
     VERDICT_ROUTE,
     IFEVAL_AGGREGATE_ROUTE,
     IFEVAL_CHECK_ROUTE,
-    CORRECTIVE_AGGREGATE_ROUTE,
+    SELF_AGGREGATE_ROUTE,
+    ENSEMBLE_AGGREGATE_ROUTE,
     SELECT_ROUTE,
+    VALIDATE_MEMBERS_ROUTE,
+    MEMBER_RECORD_ROUTE,
+    MEMBER_ANSWER_ROUTE,
 }
 
 

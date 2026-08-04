@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded
 date: 2026-08-03
+superseded_by: 0003-benchmark-family-resource-and-universal-candidate-bindings.md
 ---
 
 # Model protocol alternatives as separate Engine-owned Benchmark Variants

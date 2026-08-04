@@ -111,8 +111,9 @@ in either mode.
 `/opt/benchmarks` is the benchmark image's container path; it normally does not exist when running
 directly from a host checkout. `URL4_BENCHMARK_ASSETS` must name a root containing one directory
 per Benchmark Family, such as `draco/cases.json` and `ifeval/cases.json`. Canonical `ifeval`,
-`ifeval-corrective`, and `ifeval-corrective-ensemble` share the latter assets and family runtime
-while publishing distinct URL4 protocols. If `/tmp` is cleared, run the preparation command
+`ifeval/self-corrective`, and `ifeval/verifying-ensemble` share the latter assets and family
+runtime while publishing distinct URL4 protocols in one family resource. If `/tmp` is cleared,
+run the preparation command
 again. Preparation is deliberately separate from startup so a run cannot silently download a
 different dataset revision.
 

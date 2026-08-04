@@ -38,36 +38,61 @@ class Benchmark:
     required_models: tuple[str, ...]
     build: Callable[[int], Node]
     install: Callable[[Url4Node, Path], None]
-    # WHY optional: most exams treat the Candidate as one opaque answerer. An exam whose
-    # protocol addresses direct Fusion members individually (ifeval-iterative-correction) supplies
-    # this second build; the fetch's member count selects it. Absent → member count is
-    # ignored and the whole-candidate build serves every shape.
-    member_build: Callable[[int, int], Node] | None = None
 
-    def resource(self, limit: int | None, members: int = 0) -> dict[str, object]:
-        """Build the exact JSON representation fetched by an SDK."""
+    def resource(self, limit: int | None) -> dict[str, object]:
+        """Build this Variant's exact executable representation."""
 
         selected = self.case_count if limit is None else min(limit, self.case_count)
         if selected < 1:
             raise ValueError("Benchmark case selection must not be empty")
-        if members and self.member_build is not None:
-            expression = self.member_build(selected, members)
-        else:
-            expression = self.build(selected)
+        expression = self.build(selected)
         if not isinstance(expression, Node):
             raise TypeError("Benchmark build must return a URL4 Node")
-        resource: dict[str, object] = {
-            "schema": "screamingface.benchmark.v1",
-            "id": self.id,
-            "family": self.family,
-            "variant": self.variant,
+        return {
             "revision": self.revision,
+            "title": self.title,
+            "description": self.description,
             "case_count": selected,
             "total_case_count": self.case_count,
             "required_models": list(self.required_models),
             "url4": render(expression),
         }
-        return resource
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkFamily:
+    """One discoverable family containing independently revisioned Benchmark Variants."""
+
+    id: str
+    title: str
+    description: str
+    default_variant: str
+    variants: tuple[Benchmark, ...]
+
+    def __post_init__(self) -> None:
+        if not self.variants:
+            raise ValueError("Benchmark Family must contain at least one Variant")
+        if any(variant.family != self.id for variant in self.variants):
+            raise ValueError("every Benchmark Variant must belong to its Family")
+        variant_ids = tuple(variant.variant for variant in self.variants)
+        if len(variant_ids) != len(set(variant_ids)):
+            raise ValueError("Benchmark Family contains duplicate Variant ids")
+        if self.default_variant not in variant_ids:
+            raise ValueError("Benchmark Family default_variant must name an installed Variant")
+        if len({variant.install for variant in self.variants}) != 1:
+            raise ValueError("Benchmark Family Variants must share one runtime installer")
+
+    def resource(self, limit: int | None) -> dict[str, object]:
+        """Build every Variant in the one cacheable family resource."""
+
+        return {
+            "schema": "screamingface.benchmark-family.v1",
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "default_variant": self.default_variant,
+            "variants": {variant.variant: variant.resource(limit) for variant in self.variants},
+        }
 
 
 def candidate(
@@ -87,8 +112,8 @@ def candidate(
 
     if not isinstance(input, str) or not input:
         raise ValueError("Candidate Invocation input must be non-empty URL4 context")
-    if not isinstance(binding, str) or not binding.startswith("$candidate"):
-        raise ValueError("Candidate binding must be a $candidate structural reference")
+    if not isinstance(binding, str) or not binding.startswith("$"):
+        raise ValueError("Candidate binding must be a URL4 structural reference")
     params = _candidate_params(web_search, web_search_exclude)
     call = RelExpr(
         path=CANDIDATE_ROUTE,
@@ -171,4 +196,4 @@ def _chat_json(messages: object) -> str:
     return json.dumps(selected, ensure_ascii=False, separators=(",", ":"))
 
 
-__all__ = ["Benchmark", "candidate", "chat_input"]
+__all__ = ["Benchmark", "BenchmarkFamily", "candidate", "chat_input"]

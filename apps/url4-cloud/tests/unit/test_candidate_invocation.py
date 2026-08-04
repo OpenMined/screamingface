@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -17,7 +18,10 @@ from url4.observe import NodeFinished, ObservationEvent, Usage
 from url4_cloud.benchmarks.definition import chat_input
 from url4_cloud.benchmarks.draco.definition import DRACO, EXCLUDED_DOMAINS, JUDGE_MODEL
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
-from url4_cloud.benchmarks.ifeval.iterative_correction import IFEVAL_ITERATIVE_CORRECTION
+from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    IFEVAL_SELF_CORRECTIVE,
+    IFEVAL_VERIFYING_ENSEMBLE,
+)
 from url4_cloud.runner.config import CommandSpec, DataSpec, ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
@@ -57,13 +61,25 @@ def _link_model_members(
 ) -> str:
     """The same generic structural bindings emitted by the SDK for a Fusion."""
 
+    payload = [
+        {
+            "key": chr(64 + index),
+            "name": f"member-{index}",
+            "kind": "model",
+            "expression": render(candidate),
+        }
+        for index, candidate in enumerate(candidates, 1)
+    ]
     bindings = [
         src(
-            text(render(candidate)),
-            name=f"candidate_model_member_{index}",
+            text(
+                base64.urlsafe_b64encode(
+                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+                ).decode()
+            ),
+            name="candidate_members",
             weight=0.0,
         )
-        for index, candidate in enumerate(candidates, 1)
     ]
     if synthesizer is not None:
         bindings.append(src(text(render(synthesizer)), name="candidate_synthesizer", weight=0.0))
@@ -301,7 +317,7 @@ async def test_ifeval_corrective_definition_retries_until_the_check_passes(
     calls: list[str] = []
     answers: list[str] = []
 
-    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1)
+    resource = IFEVAL_SELF_CORRECTIVE.resource(1)
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     candidate = RelExpr(
@@ -331,7 +347,7 @@ async def test_ifeval_corrective_definition_retries_until_the_check_passes(
 
     decoded = json.loads(result.text)
     assert decoded["schema"] == "screamingface.candidate-result.v1"
-    assert decoded["benchmark_id"] == "ifeval-iterative-correction"
+    assert decoded["benchmark_id"] == "ifeval/self-corrective"
     assert calls == ["provider/candidate"] * 5
     assert decoded["score"] == 1.0
     assert decoded["metrics"]["pass_at_1"] == 0.0
@@ -365,7 +381,7 @@ async def test_ifeval_corrective_accepts_a_fusion_candidate(tmp_path: Path) -> N
             },
         )
 
-    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1)
+    resource = IFEVAL_SELF_CORRECTIVE.resource(1)
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     candidate = build(
@@ -404,7 +420,7 @@ async def test_ifeval_corrective_accepts_a_fusion_candidate(tmp_path: Path) -> N
             await world.aclose()
 
     decoded = json.loads(result.text)
-    assert decoded["benchmark_id"] == "ifeval-iterative-correction"
+    assert decoded["benchmark_id"] == "ifeval/self-corrective"
     assert decoded["score"] == 1.0
     # Three answer attempts plus two self-feedback invocations, each running the
     # WHOLE Fusion (solo shape treats the Candidate as one opaque answerer).
@@ -454,7 +470,7 @@ async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
     calls: list[str] = []
     requests: list[dict[str, object]] = []
 
-    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1, members=3)
+    resource = IFEVAL_VERIFYING_ENSEMBLE.resource(1)
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     members = tuple(
@@ -496,7 +512,7 @@ async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
             await world.aclose()
 
     decoded = json.loads(result.text)
-    assert decoded["benchmark_id"] == "ifeval-iterative-correction"
+    assert decoded["benchmark_id"] == "ifeval/verifying-ensemble"
     assert decoded["score"] == 1.0
     assert decoded["failures"] == []
     assert decoded["metrics"]["pass_at_1"] == 0.0

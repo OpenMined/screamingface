@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-08-02
+amended_by: 0003-benchmark-family-resource-and-universal-candidate-bindings.md
 ---
 
 # Link Engine-owned Benchmark expressions with SDK-owned Candidate expressions
@@ -14,8 +15,8 @@ binding. The Candidate expression accepts `$input` and returns an answer. A gene
 URL4 is submitted through the ordinary execution GET and can be saved or shared independently of
 the SDK.
 
-The Benchmark resource keeps the existing `screamingface.benchmark.v1` schema name and carries its
-canonical expression in a `url4` field. “Benchmark program” and
+ADR 0003 later groups related expressions in `screamingface.benchmark-family.v1`; each selected
+Variant still carries one canonical expression in a `url4` field. “Benchmark program” and
 `screamingface.benchmark-program.v1` are deliberately avoided: URL4 already names its executable
 artifact an expression, while the response represents the whole Benchmark rather than only its
 executable field. “Manifest,” “plan,” “workflow,” “harness,” and “template” are also avoided for
@@ -140,6 +141,7 @@ Benchmark template or protocol branch.
 - The Candidate-specific planning endpoint and its SDK request/response types are superseded once
   the one-fetch Benchmark contract passes the vertical-slice gates. They have been removed from
   the implemented DRACO vertical slice.
-- Protocol alternatives are separate Engine-owned Benchmark identities rather than resource
-  methods or Candidate capabilities; see ADR 0002. One fetched resource therefore continues to
-  mean exactly one executable and comparable URL4 protocol.
+- Protocol alternatives remain separate Engine-owned Variant identities rather than resource
+  methods or Candidate capabilities. ADR 0003 supersedes ADR 0002's separate-resource decision:
+  one family fetch may contain several Variants, but the SDK selects exactly one executable and
+  comparable URL4 protocol for an Evaluation.

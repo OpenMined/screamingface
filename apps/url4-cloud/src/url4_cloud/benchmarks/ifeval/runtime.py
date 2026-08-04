@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 from typing import Any
@@ -17,14 +18,18 @@ from url4_cloud.benchmarks.ifeval.definition import (
     CHECK_ROUTE,
 )
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    AGGREGATE_ROUTE as CORRECTIVE_AGGREGATE_ROUTE,
-)
-from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    ENSEMBLE_AGGREGATE_ROUTE,
     MAX_ATTEMPTS,
     MAX_MEMBERS,
+    MEMBER_ANSWER_ROUTE,
     MEMBER_LETTERS,
+    MEMBER_RECORD_ROUTE,
     MIN_MEMBERS,
     SELECT_ROUTE,
+    SELF_AGGREGATE_ROUTE,
+    SELF_CORRECTIVE_ID,
+    VALIDATE_MEMBERS_ROUTE,
+    VERIFYING_ENSEMBLE_ID,
 )
 
 
@@ -34,8 +39,12 @@ def install(node: Url4Node, root: Path) -> None:
     node.data(CASES_ROUTE, _cases(root), media_type="application/json")
     node.endpoint(CHECK_ROUTE)(_check(root))
     node.endpoint(AGGREGATE_ROUTE)(_aggregate(root))
-    node.endpoint(CORRECTIVE_AGGREGATE_ROUTE)(_aggregate_corrective(root))
+    node.endpoint(SELF_AGGREGATE_ROUTE)(_aggregate_corrective(root, SELF_CORRECTIVE_ID))
+    node.endpoint(ENSEMBLE_AGGREGATE_ROUTE)(_aggregate_corrective(root, VERIFYING_ENSEMBLE_ID))
     node.endpoint(SELECT_ROUTE)(_select)
+    node.endpoint(VALIDATE_MEMBERS_ROUTE)(_validate_members)
+    node.endpoint(MEMBER_RECORD_ROUTE)(_member_record)
+    node.endpoint(MEMBER_ANSWER_ROUTE)(_member_answer)
 
 
 def _cases(root: Path):
@@ -132,7 +141,7 @@ def _aggregate(root: Path):
     return aggregate
 
 
-def _aggregate_corrective(root: Path):
+def _aggregate_corrective(root: Path, benchmark_id: str):
     def aggregate(request: Request) -> str:
         if request.intent != "aggregate":
             raise _unsupported("IFEval corrective aggregation", request.intent)
@@ -140,7 +149,7 @@ def _aggregate_corrective(root: Path):
             result = scoring.aggregate_corrective(
                 request.context,
                 scoring.load_specs(root / "instructions"),
-                "ifeval-iterative-correction",
+                benchmark_id,
                 max_attempts=MAX_ATTEMPTS,
             )
         except (OSError, ValueError) as exc:
@@ -153,8 +162,7 @@ def _aggregate_corrective(root: Path):
 def _select(request: Request) -> str:
     """Deterministically select one member answer, verbatim.
 
-    The payload carries each member's answer (keys a..d), each answer's checker verdict
-    (keys fa..fd, the literal PASSED or a failure text), and the judge's reply (pick).
+    The payload carries the runtime-sized member record array and the judge's reply.
 
     Selection rules, in order:
     1. Exactly one answer PASSED the checker -> that answer wins. The judge cannot
@@ -168,27 +176,115 @@ def _select(request: Request) -> str:
     choose but never rewrite, so it cannot break a requirement a member satisfied.
     """
 
-    if request.intent != "select":
-        raise _unsupported("IFEval corrective selection", request.intent)
-    payload = _json_payload(request.context, "selection")
-    answers = [
-        (letter, value)
-        for letter in MEMBER_LETTERS
-        if isinstance((value := payload.get(letter)), str)
-    ]
+    raw_members = _json_array(request.context, "selection members")
+    members = [_member(value, index) for index, value in enumerate(raw_members)]
+    answers = [(member["key"], member["answer"]) for member in members]
     if not MIN_MEMBERS <= len(answers) <= MAX_MEMBERS:
         raise _unavailable(
             f"selection input must carry {MIN_MEMBERS}..{MAX_MEMBERS} member answers"
         )
     selected = {letter.upper(): answer for letter, answer in answers}
-    passers = [
-        letter for letter, _ in answers if str(payload.get(f"f{letter}", "")).strip() == "PASSED"
-    ]
-    pick = _judge_letter(payload.get("pick"), selected)
+    passers = [member["key"].lower() for member in members if member["feedback"] == "PASSED"]
+    pick = _judge_letter(request.intent, selected)
     if passers:
         judged = pick if pick is not None and pick.lower() in passers else passers[0].upper()
         return selected[judged]
     return selected[pick] if pick is not None else answers[0][1]
+
+
+def _validate_members(request: Request) -> str:
+    """Validate the entire bound member interface before the first paid invocation."""
+
+    if not request.intent.startswith("validate-"):
+        raise _unsupported("IFEval member validation", request.intent)
+    value = _bound_members(request)
+    return _json(_validated_members(value))
+
+
+def _bound_members(request: Request) -> list[object]:
+    try:
+        decoded = json.loads(request.context or "")
+    except ValueError as exc:
+        raise _unavailable(f"Candidate members at {request.intent} must be JSON: {exc}") from exc
+    if isinstance(decoded, dict):
+        decoded = _decode_member_binding(decoded.get("encoded"), request.intent)
+    return _json_array(decoded, "Candidate members")
+
+
+def _decode_member_binding(value: object, intent: str) -> object:
+    if not isinstance(value, str) or not value:
+        raise _unavailable("Candidate member binding must carry encoded text")
+    try:
+        return json.loads(base64.b64decode(value, altchars=b"-_", validate=True))
+    except ValueError as exc:
+        raise _unavailable(f"Candidate member binding at {intent} is invalid: {exc}") from exc
+
+
+def _validated_members(value: list[object]) -> list[dict[str, str]]:
+    if not MIN_MEMBERS <= len(value) <= MAX_MEMBERS:
+        raise _unavailable(
+            f"verifying-ensemble requires {MIN_MEMBERS}..{MAX_MEMBERS} direct Model members"
+        )
+    members = [_member(item, index) for index, item in enumerate(value)]
+    expected = tuple(MEMBER_LETTERS[: len(members)].upper())
+    if tuple(member["key"] for member in members) != expected:
+        raise _unavailable("Candidate member keys must be the ordered letters A through D")
+    if any(member["kind"] != "model" for member in members):
+        raise _unavailable("verifying-ensemble requires every direct member to be a Model")
+    return members
+
+
+def _json_array(value: object, label: str) -> list[object]:
+    """Decode arrays carried as JSON text through URL4's scalar struct fields."""
+
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise _unavailable(f"{label} must be JSON: {exc}") from exc
+    if not isinstance(value, list):
+        raise _unavailable(f"{label} must be an array")
+    return value
+
+
+def _member_record(request: Request) -> str:
+    """Return one validated attempt record for the next URL4 round."""
+
+    if request.intent != "record":
+        raise _unsupported("IFEval member record", request.intent)
+    return _json(_member(_json_payload(request.context, "member record"), 0))
+
+
+def _member_answer(request: Request) -> str:
+    """Return one member's previous answer by its stable collection key."""
+
+    members = [
+        _member(value, index)
+        for index, value in enumerate(_json_array(request.context, "Candidate member round"))
+    ]
+    for member in members:
+        if member["key"] == request.intent:
+            return member.get("answer", "")
+    raise _unavailable(f"Candidate member round has no key {request.intent!r}")
+
+
+def _member(value: object, index: int) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise _unavailable(f"Candidate member {index + 1} must be an object")
+    required = ("key", "name", "kind", "expression")
+    selected: dict[str, str] = {}
+    for name in required:
+        field = value.get(name)
+        if not isinstance(field, str) or not field.strip():
+            raise _unavailable(f"Candidate member {index + 1} {name} must be non-blank text")
+        selected[name] = field.strip()
+    for name in ("answer", "feedback"):
+        field = value.get(name)
+        if field is not None:
+            if not isinstance(field, str):
+                raise _unavailable(f"Candidate member {index + 1} {name} must be text")
+            selected[name] = field
+    return selected
 
 
 def _judge_letter(reply: object, selected: dict[str, str]) -> str | None:
