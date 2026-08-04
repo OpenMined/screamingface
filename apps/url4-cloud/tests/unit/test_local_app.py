@@ -16,7 +16,13 @@ from url4_cloud import job_env
 from url4_cloud.adapters.inprocess import InProcessJobRunner
 from url4_cloud.adapters.memory import InMemoryEventStream
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
-from url4_cloud.local import LOCAL_HOST, _with_runner_config, create_local_app
+from url4_cloud.connections.aigateway import AigatewayConnections
+from url4_cloud.local import (
+    LOCAL_AIGATEWAY_BASE_URL,
+    LOCAL_HOST,
+    _with_runner_config,
+    create_local_app,
+)
 
 
 def _app(**kwargs: object) -> FastAPI:
@@ -28,6 +34,20 @@ def test_local_app_wires_the_in_memory_pair() -> None:
 
     assert isinstance(app.state.stream, InMemoryEventStream)
     assert isinstance(app.state.job_runner, InProcessJobRunner)
+
+
+def test_local_app_automatically_wires_the_loopback_aigateway() -> None:
+    app = _app()
+
+    assert isinstance(app.state.connections, AigatewayConnections)
+    assert str(app.state.connections._client.base_url) == LOCAL_AIGATEWAY_BASE_URL  # noqa: SLF001
+
+
+def test_local_app_preserves_an_explicit_aigateway_url() -> None:
+    app = _app(aigateway_base_url="http://gateway.test:9876")
+
+    assert isinstance(app.state.connections, AigatewayConnections)
+    assert str(app.state.connections._client.base_url) == "http://gateway.test:9876"  # noqa: SLF001
 
 
 def test_the_stream_is_ONE_object_shared_by_both_sides() -> None:

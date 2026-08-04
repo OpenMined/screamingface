@@ -18,10 +18,11 @@ from url4_cloud.catalog.port import (
 pytestmark = pytest.mark.asyncio
 
 IDENTITY = {"X-User-Email": "alice@example.com"}
+DEFAULT_SYNTHESIZER = "anthropic/claude-haiku-4-5"
 CATALOG = {
     "object": "list",
     "data": [
-        {"id": "claude-haiku-4-5", "object": "model", "owned_by": "anthropic"},
+        {"id": DEFAULT_SYNTHESIZER, "object": "model", "owned_by": "anthropic"},
         {"id": "openrouter/llama-3.3-70b", "object": "model", "owned_by": "openrouter"},
     ],
 }
@@ -37,7 +38,7 @@ def source_for(handler: object) -> tuple[AigatewayCatalogSource, list[httpx.Requ
     client = httpx.AsyncClient(
         base_url="http://aigateway.test", transport=httpx.MockTransport(capture)
     )
-    return AigatewayCatalogSource(client), seen
+    return AigatewayCatalogSource(client, default_synthesizer=DEFAULT_SYNTHESIZER), seen
 
 
 def ok(payload: object, status: int = 200) -> object:
@@ -49,24 +50,29 @@ async def test_adapter_satisfies_the_catalog_source_port() -> None:
     assert isinstance(adapter, CatalogSource)
 
 
-async def test_returns_the_upstream_body_verbatim_with_its_etag() -> None:
+async def test_returns_the_catalog_with_the_engine_synthesis_default_and_its_etag() -> None:
     adapter, _ = source_for(ok(CATALOG))
     catalog = await adapter.fetch(Credential.derive(None, IDENTITY))
-    assert catalog.body == CATALOG
-    assert catalog.etag == compute_etag(CATALOG)
+    expected = {**CATALOG, "default_synthesizer": DEFAULT_SYNTHESIZER}
+    assert catalog.body == expected
+    assert catalog.etag == compute_etag(expected)
 
 
 async def test_unknown_upstream_fields_are_preserved() -> None:
-    payload = {"object": "list", "data": [{"id": "m", "brand_new_field": 42}], "extra": True}
+    payload = {
+        "object": "list",
+        "data": [{"id": DEFAULT_SYNTHESIZER, "brand_new_field": 42}],
+        "extra": True,
+    }
     adapter, _ = source_for(ok(payload))
     catalog = await adapter.fetch(Credential.derive(None, IDENTITY))
-    assert catalog.body == payload
+    assert catalog.body == {**payload, "default_synthesizer": DEFAULT_SYNTHESIZER}
 
 
-async def test_an_empty_catalog_is_valid() -> None:
+async def test_a_catalog_without_the_configured_default_is_rejected() -> None:
     adapter, _ = source_for(ok({"object": "list", "data": []}))
-    catalog = await adapter.fetch(Credential.derive(None, IDENTITY))
-    assert catalog.body["data"] == []
+    with pytest.raises(CatalogBadResponse):
+        await adapter.fetch(Credential.derive(None, IDENTITY))
 
 
 async def test_the_identity_is_forwarded_and_no_bearer_token_is_invented() -> None:

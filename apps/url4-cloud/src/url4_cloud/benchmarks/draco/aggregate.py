@@ -4,32 +4,27 @@ FEATURE: one url4 expression per Candidate ends in a cross-row reduce that turns
 judge verdicts into one scored result.
 STORY: as a researcher, the number I publish is the DRACO paper's `normalized_score`.
 
-Invoked as a declared `[commands]` route in the reducer position::
+Installed directly into each Runner world in the reducer position::
 
-    (…iteration…)!/benchmark(aggregate)!'x'
+    (…iteration…)!/benchmarks/draco/<revision>/aggregate($rows)!'aggregate'
 
-    context ("aggregate")  →  `--operation {context}`, in argv
-    intent (row array)     →  STDIN, the JSON array of every row's judge output
-
-The payload arrives on the PIPE because a single argv token is capped by the kernel at
-`MAX_ARG_STRLEN` (131,072 bytes) — the route declares `stdin = "intent"` and the engine pipes it.
-Passing it as `--args {intent}` failed with `OSError [Errno 7]` at exec, in the single-digit
-case counts, long before a 100-case run.
+    context (row array)  →  the JSON array of every row's judge output
+    intent ("aggregate") →  the fixed reduction operation
 
 INVARIANT — the scoring formulas mirror `screamingface-benchmarks/benchmarking/graders/rubric.py`
 (arXiv:2602.11685 §4.2) EXACTLY. Do not "improve" them. A different formula is a different
 benchmark, and a leaderboard number computed here must mean what the paper says it means.
 
 The expression this reducer serves runs the paper's `official` grading mode: ONE judge call per
-CRITERION, `judge_runs` independent passes, and the judge blind to the weights and to the sibling
-criteria. The per-criterion fan-out is the middle iteration level over `/draco/criteria/$item.id`
-(see the `[commands]` section of `url4.toml`); it became expressible once an outer `$name` could
-reach into an iteration body.
+CRITERION, five independent passes, and the judge blind to the weights and to the sibling
+criteria. The Engine-owned Benchmark definition constructs that fan-out and this in-process
+handler reduces the complete row collection without crossing an operating-system argv boundary.
 
 AIDEV-NOTE — PROTOCOL CAVEATS, the two ways a run here still differs from the paper:
 
-* `judge_reasoning: "low"` (arXiv:2602.11685 §4.2) is NOT carried. `reasoning_effort` is absent
-  from the OpenRouter plugin's rule set, and the gateway fails closed on an unknown parameter, so
+* `judge_reasoning: "low"` (arXiv:2602.11685 §4.2) is NOT carried until the gateway supports it.
+  `reasoning_effort` is absent from the OpenRouter plugin's rule set, and the gateway fails
+  closed on an unknown parameter, so
   sending it would turn every judge call into a 400 rather than a deviation. `judge_temperature`
   and `max_tokens` DO reach the model.
 * Retrieval reaches EVERY answering route as of 2026-08-02, but by TWO different mechanisms
@@ -46,32 +41,25 @@ has to state both.
 
 from __future__ import annotations
 
-import argparse
 import json
-import os
 import re
-import sys
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-DEFAULT_RUBRICS_DIR = "/opt/benchmarks/draco/rubrics"
-"""Where a BENCHMARK IMAGE puts them (see Dockerfile.benchmark). Only a fallback.
+from url4_cloud.benchmarks.draco.definition import JUDGE_PASSES
+from url4_cloud.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
-INVARIANT: the path is OPERATOR-controlled — argv, then `URL4_BENCHMARK_RUBRICS`, then this.
-It is never taken from the expression: a caller-supplied path would let any run point the
-aggregator at any file on the Job's disk.
+_VERDICT_SPAN_RE = re.compile(r"\{[^{}]*screamingface\.criterion-verdict\.v1[^{}]*\}")
+"""A balanced, non-nested ``{...}`` span carrying the shared verdict schema.
+
+The Judge's prompt and raw reply cannot contain this Engine-owned schema marker. Deliberately
+non-recursive: a bound verdict is flat, so refusing nested braces keeps the scan from swallowing
+the surrounding URL4 prose scaffolding when a Judge emits something unexpected.
 """
 
-RUBRICS_DIR_ENV = "URL4_BENCHMARK_RUBRICS"
-
-_VERDICT_SPAN_RE = re.compile(r"\{[^{}]*criterion_status[^{}]*\}")
-"""A balanced, non-nested ``{...}`` span mentioning ``criterion_status``.
-
-Deliberately non-recursive: a verdict is a FLAT object, so refusing nested braces keeps the
-scan from swallowing the surrounding scaffolding when the judge emits something unexpected.
-"""
+COVERAGE_TARGET = 0.95
 
 
 class AggregateError(ValueError):
@@ -246,21 +234,20 @@ def _stdev(values: Sequence[float]) -> float:
 
 
 def harvest_verdicts(row: Any) -> list[dict[str, Any]]:
-    """Every judge verdict in one case's row, in order.
+    """Every Engine-bound verdict record in one Case's output, in order.
 
     The row is prose-wrapped once per nesting level (case → criteria → runs), and each level
     JSON-escapes the one below it, so the verdicts sit at varying escape depths inside one
     string.
 
-    INVARIANT: the scaffolding is NEVER parsed. Only balanced ``{...}`` spans carrying
-    ``criterion_status`` are read; everything between them is ignored. The prose framing is an
-    engine formatting detail that has already changed once during this design — a regex over it
-    would be a contract that breaks silently, whereas an absent verdict is loudly absent.
+    INVARIANT: the scaffolding is NEVER parsed. Only balanced ``{...}`` spans carrying the shared
+    schema are read; everything between them is ignored. Prompt examples and raw Judge JSON lack
+    that marker, so they cannot become verdicts even when they mention ``criterion_status``.
     """
     out: list[dict[str, Any]] = []
     for span in _VERDICT_SPAN_RE.finditer(_as_text_row(row)):
         verdict = _decode_escaped(span.group(0))
-        if isinstance(verdict, dict) and "criterion_status" in verdict:
+        if isinstance(verdict, dict) and verdict.get("schema") == VERDICT_SCHEMA:
             out.append(verdict)
     return out
 
@@ -308,6 +295,30 @@ def group_runs(verdicts: Sequence[Mapping[str, Any]]) -> list[dict[str, bool]]:
     return runs
 
 
+def valid_verdicts(
+    rubric: Mapping[str, Any], verdicts: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Keep only strict verdicts for criterion ids owned by this case's rubric.
+
+    Identifier binding already happened locally after the Judge call. Aggregation validates again
+    as defense in depth: only a valid shared record owned by this Case may affect its score.
+    """
+    expected = {str(criterion["id"]) for criterion in flatten_criteria(rubric)}
+    accepted: list[dict[str, Any]] = []
+    for verdict in verdicts:
+        criterion_id = verdict.get("criterion_id") or verdict.get("id")
+        status = str(verdict.get("criterion_status", "")).upper()
+        if (
+            verdict.get("schema") != VERDICT_SCHEMA
+            or verdict.get("valid") is not True
+            or str(criterion_id) not in expected
+            or status not in {"MET", "UNMET"}
+        ):
+            continue
+        accepted.append({**verdict, "criterion_id": str(criterion_id), "criterion_status": status})
+    return accepted
+
+
 def case_id_of(verdicts: Sequence[Mapping[str, Any]]) -> int | None:
     """The case id the judge echoed, if any — ``None`` falls back to row position."""
     for verdict in verdicts:
@@ -321,7 +332,10 @@ def case_id_of(verdicts: Sequence[Mapping[str, Any]]) -> int | None:
 
 
 def aggregate(
-    rows_json: str, rubrics: Mapping[int, Mapping[str, Any]], benchmark_id: str
+    rows_json: str,
+    rubrics: Mapping[int, Mapping[str, Any]],
+    benchmark_id: str,
+    judge_passes: int = JUDGE_PASSES,
 ) -> dict[str, Any]:
     """Reduce the row array into a `CandidateResult` — one row per case.
 
@@ -335,17 +349,49 @@ def aggregate(
         raise AggregateError(f"reducer payload is not JSON: {exc}") from None
     if not isinstance(rows, list):
         raise AggregateError(f"reducer payload must be a JSON array, got {type(rows).__name__}")
+    if isinstance(judge_passes, bool) or not isinstance(judge_passes, int) or judge_passes < 1:
+        raise AggregateError("judge_passes must be a positive integer")
 
     # Harvested ONCE, before scoring: the mapping guard below needs to know which rows carry an
     # echoed id, and re-scanning a multi-hundred-KB payload to find out would double the only
     # expensive step in this module.
-    harvested = [harvest_verdicts(raw) for raw in rows]
-    _require_verifiable_mapping(harvested, rubrics)
+    harvested_rows = [harvest_verdicts(raw) for raw in rows]
+    _require_verifiable_mapping(harvested_rows, rubrics)
 
+    case_results, failures = _aggregate_rows(harvested_rows, rubrics, judge_passes)
+
+    return {
+        "schema": "screamingface.candidate-result.v1",
+        "benchmark_id": benchmark_id,
+        "case_count": len(case_results),
+        "score": _mean(case_results, "normalized_score"),
+        "metrics": {
+            "normalized_score_sd": _mean(case_results, "normalized_score_sd"),
+            "pass_rate": _mean(case_results, "pass_rate"),
+            "coverage": _mean(case_results, "coverage"),
+            "coverage_target": COVERAGE_TARGET,
+            "n_runs": max((int(c["n_runs"]) for c in case_results), default=0),
+            "verdicts_expected": _sum(case_results, "verdicts_expected"),
+            "verdicts_accepted": _sum(case_results, "verdicts_accepted"),
+            "verdicts_rejected": _sum(case_results, "verdicts_rejected"),
+            "verdicts_invalid": _sum(case_results, "verdicts_invalid"),
+            "verdicts_missing": _sum(case_results, "verdicts_missing"),
+        },
+        "axis_scores": _mean_axes(case_results),
+        "case_results": case_results,
+        "failures": failures,
+    }
+
+
+def _aggregate_rows(
+    harvested_rows: Sequence[Sequence[Mapping[str, Any]]],
+    rubrics: Mapping[int, Mapping[str, Any]],
+    judge_passes: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     case_results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
-    for index, verdicts in enumerate(harvested):
-        if not verdicts:
+    for index, records in enumerate(harvested_rows):
+        if not records:
             failures.append({"index": index, "reason": "no judge verdicts in row"})
             continue
         # WHY position is a legitimate fallback HERE: `_require_verifiable_mapping` has already
@@ -353,29 +399,44 @@ def aggregate(
         # `iteration.on_error=collect` substitutes an error object in place rather than dropping a
         # row. The echoed id still wins when present, because it survives a change to row ordering
         # that position would not.
-        case_id = case_id_of(verdicts)
+        case_id = case_id_of(records)
         if case_id is None:
             case_id = index + 1
         rubric = rubrics.get(case_id)
         if rubric is None:
             failures.append({"index": index, "case_id": case_id, "reason": "unknown case_id"})
             continue
-        case_results.append({"case_id": case_id, **score_case(rubric, group_runs(verdicts))})
+        verdicts = valid_verdicts(rubric, records)
+        if not verdicts:
+            failures.append(
+                {
+                    "index": index,
+                    "case_id": case_id,
+                    "reason": "no valid judge verdicts in row",
+                }
+            )
+            continue
+        case_results.append(_case_result(case_id, rubric, records, verdicts, judge_passes))
+    return case_results, failures
 
+
+def _case_result(
+    case_id: int,
+    rubric: Mapping[str, Any],
+    records: Sequence[Mapping[str, Any]],
+    verdicts: Sequence[Mapping[str, Any]],
+    judge_passes: int,
+) -> dict[str, Any]:
+    expected = sum(1 for _ in flatten_criteria(rubric)) * judge_passes
+    accepted = len(verdicts)
     return {
-        "benchmark_id": benchmark_id,
-        "case_count": len(case_results),
-        "score": _mean(case_results, "normalized_score"),
-        "metrics": {
-            "normalized_score": _mean(case_results, "normalized_score"),
-            "normalized_score_sd": _mean(case_results, "normalized_score_sd"),
-            "pass_rate": _mean(case_results, "pass_rate"),
-            "coverage": _mean(case_results, "coverage"),
-            "n_runs": max((int(c["n_runs"]) for c in case_results), default=0),
-        },
-        "axis_scores": _mean_axes(case_results),
-        "case_results": case_results,
-        "failures": failures,
+        "case_id": case_id,
+        **score_case(rubric, group_runs(verdicts)),
+        "verdicts_expected": expected,
+        "verdicts_accepted": accepted,
+        "verdicts_rejected": max(expected - accepted, 0),
+        "verdicts_invalid": max(len(records) - accepted, 0),
+        "verdicts_missing": max(expected - len(records), 0),
     }
 
 
@@ -424,27 +485,16 @@ def _mean(case_results: Sequence[Mapping[str, Any]], key: str) -> float:
     return round(sum(float(c[key]) for c in case_results) / len(case_results), 4)
 
 
+def _sum(case_results: Sequence[Mapping[str, Any]], key: str) -> int:
+    return sum(int(case[key]) for case in case_results)
+
+
 def _mean_axes(case_results: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     totals: dict[str, list[float]] = defaultdict(list)
     for case in case_results:
         for axis, score in case["axis_scores"].items():
             totals[axis].append(float(score))
     return {axis: round(sum(v) / len(v), 4) for axis, v in totals.items()}
-
-
-# --- CLI --------------------------------------------------------------------------
-
-
-def rubrics_dir(explicit: Path | None) -> Path:
-    """Resolve where the rubrics live: argv, then the environment, then the image default.
-
-    The `[data]` routes get their absolute paths from `prepare --out`, so the rubrics path has to
-    come from the same deployment. Baking it into `url4.toml` made the two disagree the moment
-    the runner ran anywhere but the image.
-    """
-    if explicit is not None:
-        return explicit
-    return Path(os.environ.get(RUBRICS_DIR_ENV) or DEFAULT_RUBRICS_DIR)
 
 
 def load_rubrics(directory: Path) -> dict[int, dict[str, Any]]:
@@ -465,41 +515,6 @@ def load_rubrics(directory: Path) -> dict[int, dict[str, Any]]:
             rubrics[case_id] = json.loads(path.read_text(encoding="utf-8"))
     if not rubrics:
         raise AggregateError(
-            f"no rubrics under {str(directory)!r} — set {RUBRICS_DIR_ENV} (or pass --rubrics) to "
-            "the directory this benchmark's `prepare` wrote"
+            f"no rubrics under {str(directory)!r}; the installed DRACO assets are incomplete"
         )
     return rubrics
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="draco-aggregate", description=__doc__)
-    parser.add_argument("--operation", default="aggregate", help="the {context} token")
-    # INVARIANT: the row array arrives on STDIN, not in argv. A single argv token is capped by
-    # the kernel at MAX_ARG_STRLEN (131,072 bytes) regardless of ARG_MAX, and exec fails outright
-    # with OSError [Errno 7] rather than truncating — which a 100-case run crosses at roughly the
-    # fourth case. The route declares `stdin = "intent"` and the engine pipes it here.
-    #
-    # `--args` stays as an explicit OVERRIDE so the script remains hand-runnable and testable.
-    # It defaults to None rather than "[]" on purpose: an absent payload must be distinguishable
-    # from an empty one, or an unreadable pipe scores as a clean zero-case success.
-    parser.add_argument("--args", default=None, help="the row array; read from stdin when omitted")
-    parser.add_argument("--rubrics", type=Path, default=None)
-    parser.add_argument("--benchmark-id", default="draco")
-    args = parser.parse_args(argv)
-
-    if args.operation.strip() != "aggregate":
-        print(f"unsupported operation {args.operation!r}", file=sys.stderr)
-        return 2
-    payload = sys.stdin.read() if args.args is None else args.args
-    try:
-        result = aggregate(payload, load_rubrics(rubrics_dir(args.rubrics)), args.benchmark_id)
-    except AggregateError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    # stdout IS the route's result — nothing else may be printed here.
-    print(json.dumps(result))
-    return 0
-
-
-if __name__ == "__main__":  # pragma: no cover - process entrypoint
-    raise SystemExit(main())

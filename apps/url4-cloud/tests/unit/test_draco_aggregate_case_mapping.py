@@ -4,7 +4,7 @@ FEATURE: a DRACO run scores each case's answer against that case's rubric.
 STORY: as a researcher I need a published score to be the score of the cases I ran, not of
 whichever rubrics happened to sit at the same offsets.
 
-`aggregate` learns a row's case id one of two ways: the judge ECHOES it in the verdict, or it
+`aggregate` learns a row's case id one of two ways: the Engine binds it to the verdict, or it
 falls back to the row's POSITION. Position is only defensible when the rows ARE the whole
 declared case set — `iteration.on_error=collect` preserves row order and substitutes an error
 object in place, so index N is case N+1.
@@ -16,10 +16,10 @@ is the sanctioned way to size a run — `manifests.py` and `Dockerfile.benchmark
 the latter having REMOVED a build-time case cap in its favour — so this is reachable from the
 documented path, not from misuse.
 
-INVARIANT: when a row needs the positional fallback and the row count does not match the declared
-rubric set, the mapping is unverifiable and `aggregate` RAISES. It never scores against a mapping
-it cannot prove. The honest fix is for the judge to echo `case_id`, which `case_id_of` already
-prefers whenever it is present.
+INVARIANT: when a legacy row needs the positional fallback and the row count does not match the
+declared rubric set, the mapping is unverifiable and `aggregate` RAISES. It never scores against
+a mapping it cannot prove. Current Engine-owned benchmark expressions bind `case_id` after each
+Judge call; the model is never trusted to repeat orchestration identity.
 """
 
 from __future__ import annotations
@@ -44,7 +44,13 @@ _RUBRICS: dict[int, dict[str, object]] = {n: _rubric(f"c{n}") for n in (1, 2, 3,
 
 
 def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> str:
-    verdict: dict[str, object] = {"criterion_id": criterion, "criterion_status": status}
+    verdict: dict[str, object] = {
+        "schema": agg.VERDICT_SCHEMA,
+        "criterion_id": criterion,
+        "criterion_status": status,
+        "valid": True,
+        "explanation": "fixture verdict",
+    }
     if case is not None:
         verdict["case_id"] = case
     return f"case\n\ngraded: [{json.dumps(json.dumps(verdict))}]"
@@ -85,7 +91,7 @@ def test_a_mixed_row_set_raises_on_the_unverifiable_row() -> None:
 # --- what the guard must NOT catch ----------------------------------------------
 
 
-def test_a_short_row_set_WITH_echoed_case_ids_scores_normally() -> None:
+def test_a_short_row_set_with_bound_case_ids_scores_normally() -> None:
     """INVARIANT: the guard targets an unprovable MAPPING, not a small run.
 
     This is the shape a sliced run should take, and it must keep working — otherwise the fix
