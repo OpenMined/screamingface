@@ -819,3 +819,28 @@ that round. 32/32 tests, CI green, PR #383 awaiting re-review.
   (decorator-stacking), `OME-476` (shadowing/monkeypatching design fork),
   `OME-477` (CI enforcement of rule 5). Linear issue OME-369 updated with the
   full round summary; reviewer re-ping posted on PR #383.
+
+## Round 13 (2026-08-04) — rebase + empirical re-verification of HupBaHa's original review
+
+Rebased the branch onto current `origin/main` (111 commits behind; one real
+conflict in `run_gates.py` itself, since `main` never received any of this
+PR's rounds — resolved in favor of this branch's content, confirmed
+byte-identical to the pre-rebase tree modulo pre-commit-hook reformatting).
+32/32 tests still pass post-rebase.
+
+Separately: `gh pr view 383`'s `reviewDecision` still reads `CHANGES_REQUESTED`
+(GitHub doesn't auto-clear this without a new review event), which read at a
+glance like a fresh review had just landed. Checked directly — there has only
+ever been the one HupBaHa review, submitted **2026-07-17**, the same one that
+drove rounds 2-12. No new review exists.
+
+Rather than trust the ledger's own account, re-verified HupBaHa's four
+original inline comments **empirically**, against the current code, with a
+fresh temp-repo reproduction of each exact scenario he described (nested
+stack tamper; a bare `return` inserted as a new first line; shrinking a
+`@pytest.mark.parametrize` list; tampering a fixture a test depends on; a
+`---`-prefixed line removed from inside a multiline string). All four:
+**caught** (`append_only_check` returns `False` in every case) — already
+fixed by rounds 2, 3, 3, and 8 respectively. Nothing new to fix. The PR is
+genuinely just waiting on a re-review that hasn't happened in 3+ weeks, not
+on any further code change.
