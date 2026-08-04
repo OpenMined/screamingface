@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from url4 import build, render
-from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
+from url4_cloud.benchmarks import BENCHMARK_FAMILIES, BENCHMARKS, DEFAULT_BENCHMARK_ID
 from url4_cloud.benchmarks.draco.definition import REVISION, ROUTE_PREFIX
 from url4_cloud.benchmarks.ifeval.definition import (
     CASE_COUNT as IFEVAL_CASE_COUNT,
@@ -18,7 +18,7 @@ from url4_cloud.benchmarks.ifeval.definition import (
     ROUTE_PREFIX as IFEVAL_ROUTE_PREFIX,
 )
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    IFEVAL_ITERATIVE_CORRECTION,
+    IFEVAL_SELF_CORRECTIVE,
     MAX_ATTEMPTS,
 )
 from url4_cloud.rest.benchmarks import router
@@ -52,15 +52,23 @@ def test_listing_returns_stable_benchmark_links(client: TestClient) -> None:
     assert body["object"] == "list"
     assert body["default"] == DEFAULT_BENCHMARK_ID
     by_id = {entry["id"]: entry for entry in body["data"]}
-    assert set(by_id) == set(BENCHMARKS)
+    assert set(by_id) == set(BENCHMARK_FAMILIES)
     for key, entry in by_id.items():
+        family = BENCHMARK_FAMILIES[key]
         expected: dict[str, object] = {
-            "object": "benchmark",
+            "object": "benchmark_family",
             "id": key,
-            "family": BENCHMARKS[key].family,
-            "variant": BENCHMARKS[key].variant,
-            "title": BENCHMARKS[key].title,
-            "description": BENCHMARKS[key].description,
+            "title": family.title,
+            "description": family.description,
+            "default_variant": family.default_variant,
+            "variants": [
+                {
+                    "id": variant.variant,
+                    "title": variant.title,
+                    "description": variant.description,
+                }
+                for variant in family.variants
+            ],
             "href": f"/v1/benchmarks/{key}",
         }
         assert entry == expected
@@ -82,24 +90,26 @@ def test_draco_resource_contains_one_complete_candidate_independent_url4(
     assert response.headers["content-type"].startswith("application/json")
     body = response.json()
     assert body == {
-        "schema": "screamingface.benchmark.v1",
+        "schema": "screamingface.benchmark-family.v1",
         "id": "draco",
-        "family": "draco",
-        "variant": "canonical",
-        "revision": REVISION,
-        "case_count": 1,
-        "total_case_count": 100,
-        "required_models": ["openrouter/google/gemini-3.1-pro-preview"],
-        "url4": body["url4"],
+        "title": "DRACO",
+        "description": "The DRACO deep-research Benchmark Family.",
+        "default_variant": "canonical",
+        "variants": {"canonical": body["variants"]["canonical"]},
     }
-    assert render(build(body["url4"])) == body["url4"]
-    assert "/candidate" in body["url4"]
-    assert "$item.input" in body["url4"]
-    assert f"{ROUTE_PREFIX}/tasks" in body["url4"]
-    assert body["url4"].count(f"{ROUTE_PREFIX}/criterion-verdict") == 5
-    assert "/benchmark/tasks" not in body["url4"]
-    assert "/openrouter/google/gemini-3.1-pro-preview" in body["url4"]
-    assert "anthropic/claude-haiku" not in body["url4"]
+    variant = body["variants"]["canonical"]
+    assert variant["revision"] == REVISION
+    assert variant["case_count"] == 1
+    assert variant["total_case_count"] == 100
+    assert variant["required_models"] == ["openrouter/google/gemini-3.1-pro-preview"]
+    assert render(build(variant["url4"])) == variant["url4"]
+    assert "/candidate" in variant["url4"]
+    assert "$item.input" in variant["url4"]
+    assert f"{ROUTE_PREFIX}/tasks" in variant["url4"]
+    assert variant["url4"].count(f"{ROUTE_PREFIX}/criterion-verdict") == 5
+    assert "/benchmark/tasks" not in variant["url4"]
+    assert "/openrouter/google/gemini-3.1-pro-preview" in variant["url4"]
+    assert "anthropic/claude-haiku" not in variant["url4"]
     assert "protocol" not in body
     assert "plan" not in body
 
@@ -109,42 +119,63 @@ def test_ifeval_is_the_complete_canonical_judge_free_url4(client: TestClient) ->
 
     assert response.status_code == 200
     body = response.json()
-    assert body == {
-        "schema": "screamingface.benchmark.v1",
-        "id": "ifeval",
-        "family": "ifeval",
-        "variant": "canonical",
-        "revision": IFEVAL_REVISION,
-        "case_count": 1,
-        "total_case_count": IFEVAL_CASE_COUNT,
-        # INVARIANT: the judge-free exam declares NO model requirement — grading is code.
-        "required_models": [],
-        "url4": body["url4"],
-    }
-    assert render(build(body["url4"])) == body["url4"]
-    assert body["url4"].count("/candidate") == 1
-    assert "$item.input" in body["url4"]
-    assert f"{IFEVAL_ROUTE_PREFIX}/check" in body["url4"]
-    assert f"{IFEVAL_ROUTE_PREFIX}/aggregate" in body["url4"]
+    variant = body["variants"]["canonical"]
+    assert variant["revision"] == IFEVAL_REVISION
+    assert variant["case_count"] == 1
+    assert variant["total_case_count"] == IFEVAL_CASE_COUNT
+    # INVARIANT: the judge-free exam declares NO model requirement — grading is code.
+    assert variant["required_models"] == []
+    assert render(build(variant["url4"])) == variant["url4"]
+    assert variant["url4"].count("/candidate") == 1
+    assert "$item.input" in variant["url4"]
+    assert f"{IFEVAL_ROUTE_PREFIX}/check" in variant["url4"]
+    assert f"{IFEVAL_ROUTE_PREFIX}/aggregate" in variant["url4"]
     # No model node of any kind: the only routes are /candidate and the benchmark's own.
-    assert "openrouter/" not in body["url4"]
-    assert "judge" not in body["url4"]
+    assert "openrouter/" not in variant["url4"]
+    assert "judge" not in variant["url4"]
 
 
 def test_ifeval_total_case_count_is_the_full_dataset(client: TestClient) -> None:
     assert IFEVAL_CASE_COUNT == 541
 
 
-def test_ifeval_corrective_is_a_distinct_complete_protocol(client: TestClient) -> None:
-    response = client.get("/v1/benchmarks/ifeval-iterative-correction?limit=1")
+def test_ifeval_is_one_family_resource_with_three_explicit_variants(
+    client: TestClient,
+) -> None:
+    response = client.get("/v1/benchmarks/ifeval?limit=1")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["schema"] == "screamingface.benchmark.v1"
-    assert body["id"] == "ifeval-iterative-correction"
-    assert body["family"] == "ifeval"
-    assert body["variant"] == "iterative-correction"
-    assert body["revision"] == IFEVAL_ITERATIVE_CORRECTION.revision
+    assert body["schema"] == "screamingface.benchmark-family.v1"
+    assert body["id"] == "ifeval"
+    assert body["default_variant"] == "canonical"
+    assert set(body["variants"]) == {
+        "canonical",
+        "self-corrective",
+        "verifying-ensemble",
+    }
+    for variant_id, variant in body["variants"].items():
+        assert isinstance(variant["title"], str) and variant["title"]
+        assert isinstance(variant["description"], str) and variant["description"]
+        assert isinstance(variant["revision"], str) and variant["revision"]
+        assert variant["case_count"] == 1
+        assert variant["total_case_count"] == IFEVAL_CASE_COUNT
+        assert isinstance(variant["required_models"], list)
+        assert render(build(variant["url4"])) == variant["url4"]
+    assert body["variants"]["canonical"]["url4"].count("$candidate") > 0
+    assert body["variants"]["self-corrective"]["url4"].count("$candidate") > 0
+    memberwise = body["variants"]["verifying-ensemble"]["url4"]
+    assert "$candidate_members" in memberwise
+    assert "$candidate_synthesizer" in memberwise
+    assert "$candidate_model_member_" not in memberwise
+
+
+def test_ifeval_self_corrective_is_a_distinct_complete_variant(client: TestClient) -> None:
+    response = client.get("/v1/benchmarks/ifeval?limit=1")
+
+    assert response.status_code == 200
+    body = response.json()["variants"]["self-corrective"]
+    assert body["revision"] == IFEVAL_SELF_CORRECTIVE.revision
     assert body["required_models"] == []
     assert body["total_case_count"] == IFEVAL_CASE_COUNT
     assert render(build(body["url4"])) == body["url4"]
@@ -156,33 +187,16 @@ def test_ifeval_corrective_is_a_distinct_complete_protocol(client: TestClient) -
     assert "openrouter/" not in body["url4"]
 
 
-def test_member_count_selects_the_member_shaped_corrective_protocol(
-    client: TestClient,
-) -> None:
-    response = client.get("/v1/benchmarks/ifeval-iterative-correction?limit=1&members=2")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["revision"] == IFEVAL_ITERATIVE_CORRECTION.revision
-    assert body["url4"].count("$candidate_model_member_") == 2 * MAX_ATTEMPTS
-    assert "$candidate_synthesizer" in body["url4"]
-
-
-def test_an_unsupported_member_count_is_a_422_problem(client: TestClient) -> None:
-    response = client.get("/v1/benchmarks/ifeval-iterative-correction?limit=1&members=5")
-
-    assert response.status_code == 422
-    assert response.json()["code"] == "candidate_shape"
-
-
 def test_limit_selects_cases_before_the_expression_is_returned(client: TestClient) -> None:
     limited = client.get("/v1/benchmarks/draco?limit=2").json()
     complete = client.get("/v1/benchmarks/draco").json()
 
-    assert limited["case_count"] == 2
-    assert limited["total_case_count"] == 100
-    assert limited["url4"] != complete["url4"]
-    assert complete["case_count"] == 100
+    limited_variant = limited["variants"]["canonical"]
+    complete_variant = complete["variants"]["canonical"]
+    assert limited_variant["case_count"] == 2
+    assert limited_variant["total_case_count"] == 100
+    assert limited_variant["url4"] != complete_variant["url4"]
+    assert complete_variant["case_count"] == 100
 
 
 def test_default_alias_resolves_without_a_catalog_fetch(client: TestClient) -> None:

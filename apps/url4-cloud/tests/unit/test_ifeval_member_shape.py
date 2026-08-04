@@ -1,7 +1,7 @@
-"""The member-shaped corrective IFEval protocol: builds, bounds, and verdict-aware select.
+"""The dynamic-member IFEval Variant: one URL4, bounded members, verdict-aware select.
 
 FEATURE: the verifying ensemble of Skurikhin et al. (LANL,
-https://openreview.net/forum?id=XSIYfTm2h7) as the Fusion shape of `ifeval-iterative-correction`.
+https://openreview.net/forum?id=XSIYfTm2h7) as the `ifeval/verifying-ensemble` Variant.
 STORY: as a researcher, I hand the exam my (members + judge) system and it runs the
 paper's protocol — the judge tie-breaks passers and coaches failures, never answers.
 """
@@ -13,17 +13,18 @@ from pathlib import Path
 
 import pytest
 
-from url4 import RelExpr, Text, build, render, struct
+from url4 import RelExpr, Text, build, expr, render, src, text
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import install_benchmarks
 from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    IFEVAL_ITERATIVE_CORRECTION,
+    IFEVAL_VERIFYING_ENSEMBLE,
     MAX_ATTEMPTS,
     MAX_MEMBERS,
     MIN_MEMBERS,
     PROSE_CONSTANTS,
     SELECT_ROUTE,
+    VALIDATE_MEMBERS_ROUTE,
 )
 
 
@@ -45,19 +46,20 @@ def _assets(root: Path) -> None:
     )
 
 
-# --- the shape-adaptive builds ----------------------------------------------------
+# --- the member-count-independent build ------------------------------------------
 
 
-@pytest.mark.parametrize("members", [2, 3, 4])
-def test_member_build_binds_every_member_and_the_synthesizer(members: int) -> None:
-    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1, members=members)
+def test_one_url4_binds_a_runtime_member_collection_and_the_synthesizer() -> None:
+    resource = IFEVAL_VERIFYING_ENSEMBLE.resource(1)
     url4 = resource["url4"]
     assert isinstance(url4, str)
 
     assert render(build(url4)) == url4
-    # Every member answers on every attempt; the judge (synthesizer binding) picks
-    # once per attempt and authors feedback between attempts.
-    assert url4.count("$candidate_model_member_") == members * MAX_ATTEMPTS
+    assert "$candidate_members" in url4
+    assert "$candidate_model_member_" not in url4
+    assert VALIDATE_MEMBERS_ROUTE in url4
+    # The judge (synthesizer binding) picks once per attempt and authors feedback
+    # between attempts, preserving Khoa's existing unrolled behavior.
     assert url4.count("$candidate_synthesizer") == MAX_ATTEMPTS + (MAX_ATTEMPTS - 1)
     assert url4.count(SELECT_ROUTE) == MAX_ATTEMPTS
     # INVARIANT: no engine-pinned judge — the judge belongs to the system under test
@@ -66,49 +68,15 @@ def test_member_build_binds_every_member_and_the_synthesizer(members: int) -> No
     assert "openrouter/" not in url4
 
 
-def test_the_paper_winning_two_member_shape_is_expressible() -> None:
-    # [Ens-1] is TWO members with the judge doubling as a member — a hardcoded
-    # three-member protocol could never reproduce the paper's headline system.
-    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1, members=MIN_MEMBERS)
-    url4 = resource["url4"]
-    assert isinstance(url4, str)
-    assert url4.count("$candidate_model_member_") == MIN_MEMBERS * MAX_ATTEMPTS
-
-
-@pytest.mark.parametrize("members", [1, 5])
-def test_member_counts_outside_the_protocol_bounds_are_rejected(members: int) -> None:
-    with pytest.raises(ValueError, match="direct members"):
-        IFEVAL_ITERATIVE_CORRECTION.resource(1, members=members)
-
-
-def test_solo_and_member_shapes_share_one_identity() -> None:
-    solo = IFEVAL_ITERATIVE_CORRECTION.resource(1)
-    ensemble = IFEVAL_ITERATIVE_CORRECTION.resource(1, members=3)
-    # One exam: same id and revision — the shape is a candidate property, like it is
-    # on canonical ifeval. The url4 differs; the protocol definition does not.
-    assert solo["id"] == ensemble["id"] == "ifeval-iterative-correction"
-    assert solo["revision"] == ensemble["revision"]
-    assert solo["url4"] != ensemble["url4"]
-
-
 def test_member_rows_grade_from_attempt_tagged_selection_checks() -> None:
-    resource = IFEVAL_ITERATIVE_CORRECTION.resource(1, members=2)
+    resource = IFEVAL_VERIFYING_ENSEMBLE.resource(1)
     url4 = resource["url4"]
     assert isinstance(url4, str)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         assert f"$selection_check_{attempt}" in url4
     # Selections are re-checked with the attempt-tagged intent, so the shared
     # corrective aggregation scores both shapes identically (earliest strict pass).
-    assert url4.count(CHECK_ROUTE) == (2 * 2 + 1) * MAX_ATTEMPTS
-
-
-def test_benchmarks_without_a_member_build_ignore_the_member_count() -> None:
-    from url4_cloud.benchmarks.draco.definition import DRACO
-
-    assert DRACO.member_build is None
-    shaped = DRACO.resource(1, members=3)
-    plain = DRACO.resource(1)
-    assert shaped["url4"] == plain["url4"]
+    assert url4.count(CHECK_ROUTE) == 3 * MAX_ATTEMPTS
 
 
 # --- verdict-aware selection ------------------------------------------------------
@@ -119,9 +87,37 @@ async def _select(tmp_path: Path, payload: dict[str, object]) -> str:
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
     result = await node.evaluate(
-        render(RelExpr(path=SELECT_ROUTE, context=render(struct(payload)), intent=Text("select")))
+        render(
+            expr(
+                src(
+                    text(json.dumps(payload["members"], ensure_ascii=False, separators=(",", ":"))),
+                    name="members",
+                    weight=0.0,
+                ),
+                RelExpr(
+                    path=SELECT_ROUTE,
+                    context="$members",
+                    intent=Text(str(payload["pick"])),
+                ),
+                intent=Text(""),
+            )
+        )
     )
     return result.text
+
+
+def _members(*values: tuple[str, str]) -> list[dict[str, str]]:
+    return [
+        {
+            "key": chr(65 + index),
+            "name": f"member-{index + 1}",
+            "kind": "model",
+            "expression": f"/provider/member-{index + 1}",
+            "answer": answer,
+            "feedback": feedback,
+        }
+        for index, (answer, feedback) in enumerate(values)
+    ]
 
 
 @pytest.mark.asyncio
@@ -130,7 +126,7 @@ async def test_a_lone_passer_wins_even_against_the_judges_letter(tmp_path: Path)
     # answers — it can never discard the only passing draft.
     selected = await _select(
         tmp_path,
-        {"pick": "A", "a": "alpha", "b": "beta", "fa": "failed", "fb": "PASSED"},
+        {"pick": "A", "members": _members(("alpha", "failed"), ("beta", "PASSED"))},
     )
     assert selected == "beta"
 
@@ -141,12 +137,11 @@ async def test_the_judges_letter_decides_between_passers(tmp_path: Path) -> None
         tmp_path,
         {
             "pick": "C",
-            "a": "alpha",
-            "b": "beta",
-            "c": "gamma",
-            "fa": "PASSED",
-            "fb": "PASSED",
-            "fc": "PASSED",
+            "members": _members(
+                ("alpha", "PASSED"),
+                ("beta", "PASSED"),
+                ("gamma", "PASSED"),
+            ),
         },
     )
     assert selected == "gamma"
@@ -160,12 +155,11 @@ async def test_a_judge_pick_of_a_failing_answer_falls_back_to_a_passer(
         tmp_path,
         {
             "pick": "A",
-            "a": "alpha",
-            "b": "beta",
-            "c": "gamma",
-            "fa": "failed",
-            "fb": "PASSED",
-            "fc": "PASSED",
+            "members": _members(
+                ("alpha", "failed"),
+                ("beta", "PASSED"),
+                ("gamma", "PASSED"),
+            ),
         },
     )
     assert selected == "beta"
@@ -175,7 +169,7 @@ async def test_a_judge_pick_of_a_failing_answer_falls_back_to_a_passer(
 async def test_with_no_passers_the_judges_letter_stands(tmp_path: Path) -> None:
     selected = await _select(
         tmp_path,
-        {"pick": "B", "a": "alpha", "b": "beta", "fa": "failed", "fb": "failed"},
+        {"pick": "B", "members": _members(("alpha", "failed"), ("beta", "failed"))},
     )
     assert selected == "beta"
 
@@ -187,7 +181,7 @@ async def test_an_unparseable_judge_reply_falls_back_to_the_first_answer(
     # "zzz" contains no member letter at all — the true fallback branch.
     selected = await _select(
         tmp_path,
-        {"pick": "zzz", "a": "alpha", "b": "beta", "fa": "failed", "fb": "failed"},
+        {"pick": "zzz", "members": _members(("alpha", "failed"), ("beta", "failed"))},
     )
     assert selected == "alpha"
 
@@ -200,10 +194,7 @@ async def test_a_prose_judge_reply_gets_no_vote(tmp_path: Path) -> None:
         tmp_path,
         {
             "pick": "Based on the constraints I would choose b",
-            "a": "alpha",
-            "b": "beta",
-            "fa": "failed",
-            "fb": "failed",
+            "members": _members(("alpha", "failed"), ("beta", "failed")),
         },
     )
     assert selected == "alpha"
@@ -213,7 +204,7 @@ async def test_a_prose_judge_reply_gets_no_vote(tmp_path: Path) -> None:
 async def test_a_punctuated_single_letter_reply_still_counts(tmp_path: Path) -> None:
     selected = await _select(
         tmp_path,
-        {"pick": "(b)", "a": "alpha", "b": "beta", "fa": "failed", "fb": "failed"},
+        {"pick": "(b)", "members": _members(("alpha", "failed"), ("beta", "failed"))},
     )
     assert selected == "beta"
 
@@ -232,8 +223,14 @@ async def test_selection_rejects_member_counts_outside_bounds(tmp_path: Path) ->
     _assets(tmp_path / "ifeval")
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
-    payload = render(struct({"pick": "A", "a": "alpha"}))
+    payload = json.dumps(_members(("alpha", "failed")), ensure_ascii=False, separators=(",", ":"))
     with pytest.raises(Exception, match=f"{MIN_MEMBERS}..{MAX_MEMBERS} member answers"):
         await node.evaluate(
-            render(RelExpr(path=SELECT_ROUTE, context=payload, intent=Text("select")))
+            render(
+                expr(
+                    src(text(payload), name="members", weight=0.0),
+                    RelExpr(path=SELECT_ROUTE, context="$members", intent=Text("A")),
+                    intent=Text(""),
+                )
+            )
         )

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Header, Path, Query
 from fastapi.responses import JSONResponse, Response
 
 from url4_cloud.auth import PROBLEM_MEDIA_TYPE
-from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID, assets_root
+from url4_cloud.benchmarks import BENCHMARK_FAMILIES, DEFAULT_BENCHMARK_ID, assets_root
 from url4_cloud.rest.conditional import validator_matches
 
 router = APIRouter()
@@ -44,15 +44,22 @@ def _response(value: object, if_none_match: str | None) -> Response:
 
 def _catalog() -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
-    for benchmark in sorted(BENCHMARKS.values(), key=lambda value: value.id):
+    for family in sorted(BENCHMARK_FAMILIES.values(), key=lambda value: value.id):
         entry: dict[str, object] = {
-            "object": "benchmark",
-            "id": benchmark.id,
-            "family": benchmark.family,
-            "variant": benchmark.variant,
-            "title": benchmark.title,
-            "description": benchmark.description,
-            "href": f"/v1/benchmarks/{benchmark.id}",
+            "object": "benchmark_family",
+            "id": family.id,
+            "title": family.title,
+            "description": family.description,
+            "default_variant": family.default_variant,
+            "variants": [
+                {
+                    "id": variant.variant,
+                    "title": variant.title,
+                    "description": variant.description,
+                }
+                for variant in family.variants
+            ],
+            "href": f"/v1/benchmarks/{family.id}",
         }
         entries.append(entry)
     return entries
@@ -84,25 +91,17 @@ async def list_benchmarks(
 async def get_benchmark(
     benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
     limit: Annotated[int | None, Query(ge=1, description="Maximum selected cases.")] = None,
-    members: Annotated[
-        int | None,
-        Query(ge=1, description="Direct Model member count of the Candidate being linked."),
-    ] = None,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
     selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
-    benchmark = BENCHMARKS.get(selected_id)
-    if benchmark is None:
+    family = BENCHMARK_FAMILIES.get(selected_id)
+    if family is None:
         return _problem(
             404,
             "Unknown benchmark",
             f"no Benchmark is installed under {benchmark_id!r}",
         )
-    try:
-        resource = benchmark.resource(limit, members or 0)
-    except ValueError as exc:
-        return _problem(422, "Unsupported candidate shape", str(exc), code="candidate_shape")
-    return _response(resource, if_none_match)
+    return _response(family.resource(limit), if_none_match)
 
 
 class _CasesUnavailableError(Exception):
@@ -123,15 +122,15 @@ async def list_benchmark_cases(
     # FEATURE: benchmark researcher discovery (OME-723) — the SDK and the future web
     # frontend read real prompts through this one paginated contract before evaluating.
     selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
-    benchmark = BENCHMARKS.get(selected_id)
-    if benchmark is None:
+    family = BENCHMARK_FAMILIES.get(selected_id)
+    if family is None:
         return _problem(
             404,
             "Unknown benchmark",
             f"no Benchmark is installed under {benchmark_id!r}",
         )
     try:
-        rows = _case_rows(benchmark.family)
+        rows = _case_rows(family.id)
     except _CasesUnavailableError as exc:
         # WHY: a control plane deployed without the assets must fail loudly with the
         # node-route error code — an empty list would read as "benchmark has no cases".
@@ -145,7 +144,11 @@ async def list_benchmark_cases(
         {
             "object": "list",
             "benchmark": selected_id,
-            "revision": benchmark.revision,
+            "revision": next(
+                variant.revision
+                for variant in family.variants
+                if variant.variant == family.default_variant
+            ),
             "total": len(rows),
             "limit": limit,
             "offset": offset,

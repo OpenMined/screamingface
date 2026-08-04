@@ -1,12 +1,10 @@
-"""Shape-adaptive corrective IFEval: self-correction for solos, a verifying ensemble for Fusions.
+"""The two explicit corrective IFEval Variants.
 
-One Benchmark id, one revision, two candidate shapes:
-
-- solo (no member bindings): the Candidate answers, the deterministic checker reports
+- self-corrective: the Candidate answers, the deterministic checker reports
   violations, the Candidate AUTHORS ITS OWN feedback and retries — the {solo + loop}
   ablation that Skurikhin et al., "Beyond Leaderboards: Tokenomics of Agentic Small
   Language Model Ensembles" (LANL, https://openreview.net/forum?id=XSIYfTm2h7), never ran.
-- ensemble (2..4 direct Model members): Skurikhin et al.'s verifying ensemble. Every member
+- verifying-ensemble (2..4 direct Model members): Skurikhin et al.'s ensemble. Every member
   draft is checked individually; the Candidate's SYNTHESIZER acts as JUDGE — it authors
   the corrective feedback when nobody passes and tie-breaks among passers otherwise. The
   selection is a member's answer VERBATIM (deterministic select route), so the judge can
@@ -14,8 +12,9 @@ One Benchmark id, one revision, two candidate shapes:
   test, as in the source study — its [Ens-1] and [Ens-2] configurations share members
   and differ only in the judge model.
 
-Both shapes emit one attempt-tagged selection/check record per attempt, so one
-aggregation (earliest strict pass, pass@attempt) covers them.
+Both Variants emit one attempt-tagged selection/check record per attempt and share the
+same earliest-strict-pass Aggregation implementation. They remain separately identified
+because the LANL paper did not run the self-corrective ablation.
 """
 
 from __future__ import annotations
@@ -35,12 +34,14 @@ from url4_cloud.benchmarks.ifeval.definition import (
     REVISION as IFEVAL_REVISION,
 )
 
-BENCHMARK_ID = "ifeval-iterative-correction"
 MAX_ATTEMPTS = 3
 MIN_MEMBERS = 2
 MAX_MEMBERS = 4
 MEMBER_LETTERS = "abcd"
-PROTOCOL_REVISION = "shape-adaptive-iterative-correction-v1"
+SELF_CORRECTIVE_ID = "ifeval/self-corrective"
+VERIFYING_ENSEMBLE_ID = "ifeval/verifying-ensemble"
+SELF_PROTOCOL_REVISION = "self-corrective-three-attempt-v1"
+ENSEMBLE_PROTOCOL_REVISION = "lanl-verifying-ensemble-v1"
 
 RETRY_INSTRUCTION = (
     "Write a new answer to the original request. Correct every requirement named in the "
@@ -73,26 +74,41 @@ PROSE_CONSTANTS = (
     JUDGE_PICK_INSTRUCTION,
 )
 
-# WHY every prose constant and shape bound is a hash input: they define the protocol.
-# Changing any of them changes what a score means, so it must change the exam identity.
-REVISION = hashlib.sha256(
+# WHY every prose constant and shape bound is a hash input: they define a protocol.
+# Changing any of them changes what a score means, so it changes that Variant's identity.
+SELF_CORRECTIVE_REVISION = hashlib.sha256(
     "\n".join(
         (
             IFEVAL_REVISION,
-            PROTOCOL_REVISION,
+            SELF_PROTOCOL_REVISION,
+            str(MAX_ATTEMPTS),
+            RETRY_INSTRUCTION,
+            SELF_FEEDBACK_INSTRUCTION,
+        )
+    ).encode()
+).hexdigest()[:16]
+VERIFYING_ENSEMBLE_REVISION = hashlib.sha256(
+    "\n".join(
+        (
+            IFEVAL_REVISION,
+            ENSEMBLE_PROTOCOL_REVISION,
             str(MAX_ATTEMPTS),
             str(MIN_MEMBERS),
             str(MAX_MEMBERS),
             RETRY_INSTRUCTION,
-            SELF_FEEDBACK_INSTRUCTION,
             JUDGE_FEEDBACK_INSTRUCTION,
             JUDGE_PICK_INSTRUCTION,
         )
     ).encode()
 ).hexdigest()[:16]
-ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
-AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
-SELECT_ROUTE = f"{ROUTE_PREFIX}/select"
+SELF_ROUTE_PREFIX = f"/benchmarks/ifeval/self-corrective/{SELF_CORRECTIVE_REVISION}"
+ENSEMBLE_ROUTE_PREFIX = f"/benchmarks/ifeval/verifying-ensemble/{VERIFYING_ENSEMBLE_REVISION}"
+SELF_AGGREGATE_ROUTE = f"{SELF_ROUTE_PREFIX}/aggregate"
+ENSEMBLE_AGGREGATE_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/aggregate"
+SELECT_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/select"
+VALIDATE_MEMBERS_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/validate-members"
+MEMBER_RECORD_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/member-record"
+MEMBER_ANSWER_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/member-answer"
 SYNTHESIZER_BINDING = "$candidate_synthesizer"
 
 
@@ -161,121 +177,161 @@ def _build_solo(case_count: int) -> Node:
                     weight=0.0,
                 )
             )
-    return _rows(attempts, case_count)
+    return _rows(attempts, case_count, aggregate_route=SELF_AGGREGATE_ROUTE)
 
 
-def _member_binding(member: int) -> str:
-    return f"$candidate_model_member_{member}"
-
-
-def _member_attempt_input(member: int, attempt: int) -> str:
+def _member_attempt_input(attempt: int) -> str:
     if attempt == 1:
-        return "$item.input"
-    previous = attempt - 1
+        return "$question"
     return (
-        "$item.input"
-        f" | Your previous answer: $member_{member}_answer_{previous}"
-        f" | Judge feedback: $judge_feedback_{previous}"
+        "$question"
+        f" | Your previous answer: $previous_answer_{attempt}"
+        f" | Judge feedback: $judge_feedback_{attempt - 1}"
         f" | {RETRY_INSTRUCTION}"
     )
 
 
-def build_members(case_count: int, members: int) -> Node:
-    """Iterative-correction ensemble loop: members answer, each is checked, the synthesizer
-    judges — tie-breaking among passers (selected answer returned verbatim) or, when
-    nobody passes, turning the checker's violations into corrective feedback for the
-    next attempt. At most MAX_ATTEMPTS rounds; earliest strict pass scores.
+def _member_round(collection: Node, attempt: int) -> Node:
+    """Run one attempt over a runtime-sized collection of direct member expressions."""
 
-    Recreates Skurikhin et al., "Beyond Leaderboards: Tokenomics of Agentic Small
-    Language Model Ensembles" (https://openreview.net/forum?id=XSIYfTm2h7).
-    """
-
-    if not MIN_MEMBERS <= members <= MAX_MEMBERS:
-        raise ValueError(
-            f"ifeval-iterative-correction takes {MIN_MEMBERS}..{MAX_MEMBERS} direct members"
-            f" — got {members}"
-        )
-    letters = MEMBER_LETTERS[:members]
+    answer = f"member_answer_{attempt}"
+    check = f"member_check_{attempt}"
+    feedback = f"member_feedback_{attempt}"
+    record = f"member_record_{attempt}"
     sources = []
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        for member in range(1, members + 1):
-            answer = f"member_{member}_answer_{attempt}"
-            sources.extend(
-                (
-                    src(
-                        candidate(
-                            _member_attempt_input(member, attempt),
-                            binding=_member_binding(member),
-                            web_search=False,
-                        ),
-                        name=answer,
-                        weight=0.0,
-                    ),
-                    src(
-                        RelExpr(
-                            path=CHECK_ROUTE,
-                            context=f"${answer}",
-                            intent=Text(f"$item.id:{attempt}"),
-                        ),
-                        name=f"member_{member}_check_{attempt}",
-                        weight=0.0,
-                    ),
-                    src(
-                        RelExpr(
-                            path=CHECK_ROUTE,
-                            context=f"$member_{member}_check_{attempt}",
-                            intent=Text("feedback"),
-                        ),
-                        name=f"member_{member}_feedback_{attempt}",
-                        weight=0.0,
-                    ),
-                )
-            )
-
-        # the judge is part of the SYSTEM under test (Skurikhin et al. vary it per ensemble),
-        # so it comes from the Candidate — the exam pins only the prompts and rules.
-        sources.append(
-            src(
-                candidate(
-                    _judge_pick_input(letters, attempt),
-                    binding=SYNTHESIZER_BINDING,
-                    web_search=False,
-                ),
-                name=f"judge_pick_{attempt}",
-                weight=0.0,
-            )
-        )
+    if attempt > 1:
         sources.append(
             src(
                 RelExpr(
-                    path=SELECT_ROUTE,
-                    context=_select_payload(letters, attempt),
-                    intent=Text("select"),
+                    path=MEMBER_ANSWER_ROUTE,
+                    context=f"$member_round_{attempt - 1}",
+                    intent=Text("$item.key"),
                 ),
-                name=f"selection_{attempt}",
+                name=f"previous_answer_{attempt}",
                 weight=0.0,
             )
         )
-        sources.append(
+    sources.extend(
+        (
+            src(
+                candidate(
+                    _member_attempt_input(attempt),
+                    binding="$item.expression",
+                    web_search=False,
+                ),
+                name=answer,
+                weight=0.0,
+            ),
             src(
                 RelExpr(
                     path=CHECK_ROUTE,
-                    context=f"$selection_{attempt}",
-                    intent=Text(f"$item.id:{attempt}"),
+                    context=f"${answer}",
+                    intent=Text(f"$case_id:{attempt}"),
                 ),
-                name=f"selection_check_{attempt}",
+                name=check,
+                weight=0.0,
+            ),
+            src(
+                RelExpr(path=CHECK_ROUTE, context=f"${check}", intent=Text("feedback")),
+                name=feedback,
+                weight=0.0,
+            ),
+            src(
+                RelExpr(
+                    path=MEMBER_RECORD_ROUTE,
+                    context=_endpoint_payload(
+                        {
+                            "key": "$item.key",
+                            "name": "$item.name",
+                            "kind": "$item.kind",
+                            "expression": "$item.expression",
+                            "answer": f"${answer}",
+                            "feedback": f"${feedback}",
+                        }
+                    ),
+                    intent=Text("record"),
+                ),
+                name=record,
+                weight=0.0,
+            ),
+        )
+    )
+    return iterate(
+        collection,
+        body=tuple(sources),
+        intent=Text(f"${record}"),
+        concurrency=4,
+        on_error="fail",
+    )
+
+
+def _build_members(case_count: int) -> Node:
+    """Build one member-count-independent LANL verifying-ensemble expression."""
+
+    # FOLLOW-UP(khoa): This architecture refactor intentionally preserves the current
+    # three-round implementation. If we later align its control flow more closely with
+    # the published LANL protocol, keep that work inside this Benchmark Variant: a
+    # deterministic decision route can return [] to skip a URL4 branch or one payload to
+    # run it, allowing early acceptance, passer-only tie-breaking, and retries only when
+    # no member passes. Confirm the authors' prompts and all-fail behavior before calling
+    # that implementation an exact reproduction.
+
+    sources = [
+        src("$item.input", name="question", weight=0.0),
+        src("$item.id", name="case_id", weight=0.0),
+    ]
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        round_name = f"member_round_{attempt}"
+        sources.append(
+            src(
+                _member_round(
+                    RelExpr(
+                        path=VALIDATE_MEMBERS_ROUTE,
+                        context=_endpoint_payload({"encoded": "$candidate_members"}),
+                        intent=Text(f"validate-{attempt}"),
+                    ),
+                    attempt,
+                ),
+                name=round_name,
                 weight=0.0,
             )
         )
+        sources.extend(
+            (
+                src(
+                    candidate(
+                        _judge_pick_input(round_name),
+                        binding=SYNTHESIZER_BINDING,
+                        web_search=False,
+                    ),
+                    name=f"judge_pick_{attempt}",
+                    weight=0.0,
+                ),
+                src(
+                    RelExpr(
+                        path=SELECT_ROUTE,
+                        context=f"${round_name}",
+                        intent=Text(f"$judge_pick_{attempt}"),
+                    ),
+                    name=f"selection_{attempt}",
+                    weight=0.0,
+                ),
+                src(
+                    RelExpr(
+                        path=CHECK_ROUTE,
+                        context=f"$selection_{attempt}",
+                        intent=Text(f"$case_id:{attempt}"),
+                    ),
+                    name=f"selection_check_{attempt}",
+                    weight=0.0,
+                ),
+            )
+        )
         if attempt < MAX_ATTEMPTS:
-            # WHY judge-authored feedback: in the reproduced protocol the judge
-            # converts checker violations into natural-language coaching for the
-            # members. Inputs are the sanitized feedback texts only — instruction
-            # ids never reach any model.
             sources.append(
                 src(
                     candidate(
-                        _judge_feedback_input(letters, attempt),
+                        _judge_feedback_input(round_name),
                         binding=SYNTHESIZER_BINDING,
                         web_search=False,
                     ),
@@ -283,59 +339,45 @@ def build_members(case_count: int, members: int) -> Node:
                     weight=0.0,
                 )
             )
-    return _rows(sources, case_count, letters=letters)
+    return _rows(
+        sources,
+        case_count,
+        aggregate_route=ENSEMBLE_AGGREGATE_ROUTE,
+        selection_records=True,
+    )
 
 
-def _judge_pick_input(letters: str, attempt: int) -> str:
+def _judge_pick_input(round_name: str) -> str:
     return _structured_context(
         {
-            "request": "$item.input",
+            "request": "$question",
             "task": JUDGE_PICK_INSTRUCTION,
-            "candidates": {
-                letter: {
-                    "answer": f"$member_{index}_answer_{attempt}",
-                    "verdict": f"$member_{index}_feedback_{attempt}",
-                }
-                for index, letter in enumerate(letters, 1)
-            },
+            "candidates": f"${round_name}",
         }
     )
 
 
-def _judge_feedback_input(letters: str, attempt: int) -> str:
+def _judge_feedback_input(round_name: str) -> str:
     return _structured_context(
         {
-            "request": "$item.input",
+            "request": "$question",
             "task": JUDGE_FEEDBACK_INSTRUCTION,
-            "verdicts": {
-                letter: f"$member_{index}_feedback_{attempt}"
-                for index, letter in enumerate(letters, 1)
-            },
+            "verdicts": f"${round_name}",
         }
     )
 
 
-def _select_payload(letters: str, attempt: int) -> str:
-    return _endpoint_payload(
-        {
-            "pick": f"$judge_pick_{attempt}",
-            **{
-                letter: f"$member_{index}_answer_{attempt}"
-                for index, letter in enumerate(letters, 1)
-            },
-            **{
-                f"f{letter}": f"$member_{index}_feedback_{attempt}"
-                for index, letter in enumerate(letters, 1)
-            },
-        }
-    )
-
-
-def _rows(sources: list, case_count: int, *, letters: str | None = None) -> Node:
+def _rows(
+    sources: list,
+    case_count: int,
+    *,
+    aggregate_route: str,
+    selection_records: bool = False,
+) -> Node:
     # INVARIANT: both shapes emit exactly one attempt-tagged check record per attempt
     # (solo: the answer's check; ensemble: the selection's check), so ONE aggregation
     # scores both — earliest strict pass, pass@attempt telemetry preserved.
-    record = "check" if letters is None else "selection_check"
+    record = "selection_check" if selection_records else "check"
     checked = expr(
         *sources,
         intent=Text(" ".join(f"${record}_{attempt}" for attempt in range(1, MAX_ATTEMPTS + 1))),
@@ -351,7 +393,7 @@ def _rows(sources: list, case_count: int, *, letters: str | None = None) -> Node
     return expr(
         src(row_set, name="rows", weight=0.0),
         src(
-            RelExpr(path=AGGREGATE_ROUTE, context="$rows", intent=Text("aggregate")),
+            RelExpr(path=aggregate_route, context="$rows", intent=Text("aggregate")),
             name="result",
             weight=0.0,
         ),
@@ -367,31 +409,43 @@ def _endpoint_payload(value: dict[str, object]) -> str:
     return render(struct(value))
 
 
-IFEVAL_ITERATIVE_CORRECTION = Benchmark(
-    id=BENCHMARK_ID,
+IFEVAL_SELF_CORRECTIVE = Benchmark(
+    id=SELF_CORRECTIVE_ID,
     family=IFEVAL.family,
-    variant="iterative-correction",
-    title="IFEval Iterative Correction",
+    variant="self-corrective",
+    title="IFEval Self-corrective",
     description=(
-        "IFEval with a bounded three-attempt correction protocol that adapts to the "
-        "Candidate shape. A solo Model self-corrects: it reads the deterministic "
-        "checker's violations, authors its own feedback, and retries. A Fusion runs the "
-        "verifying ensemble of Skurikhin et al. (LANL): every member draft is checked "
-        "individually and the Fusion's synthesizer acts as JUDGE — it tie-breaks among "
-        "passing answers (returned verbatim, never rewritten) and authors corrective "
-        "feedback when nobody passes. The synthesizer BLENDS on 'ifeval' but JUDGES "
-        "here. Scores are not comparable to canonical single-pass IFEval numbers."
+        "IFEval with a bounded three-attempt self-correction ablation. The complete "
+        "Candidate reads deterministic verification feedback, authors its own coaching, "
+        "and retries. The LANL paper did not evaluate this additional protocol."
     ),
-    revision=REVISION,
+    revision=SELF_CORRECTIVE_REVISION,
     case_count=CASE_COUNT,
     required_models=(),
     build=_build_solo,
-    member_build=build_members,
+    install=install_family,
+)
+
+IFEVAL_VERIFYING_ENSEMBLE = Benchmark(
+    id=VERIFYING_ENSEMBLE_ID,
+    family=IFEVAL.family,
+    variant="verifying-ensemble",
+    title="IFEval Verifying Ensemble",
+    description=(
+        "The LANL iterative-correction protocol: every direct Fusion member is checked "
+        "and retried independently while the Fusion synthesizer tie-breaks compliant "
+        "answers and authors corrective feedback. Selected answers remain verbatim."
+    ),
+    revision=VERIFYING_ENSEMBLE_REVISION,
+    case_count=CASE_COUNT,
+    required_models=(),
+    build=_build_members,
     install=install_family,
 )
 
 __all__ = [
-    "IFEVAL_ITERATIVE_CORRECTION",
+    "IFEVAL_SELF_CORRECTIVE",
+    "IFEVAL_VERIFYING_ENSEMBLE",
     "MAX_ATTEMPTS",
     "MAX_MEMBERS",
     "MEMBER_LETTERS",
