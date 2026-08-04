@@ -1,8 +1,30 @@
-# Scope Dependabot to the maintained apps only, with grouped updates.
+# Dependabot scope and grouping for the maintained trees.
 #
-# Without this file Dependabot auto-discovers EVERY manifest in the repo.
-# Listing explicit directories means only these trees are scanned; `groups`
-# collapses each ecosystem's bumps into a single PR.
+# Without this file Dependabot auto-discovers EVERY manifest in the repo. Listing explicit
+# directories means only these trees get VERSION updates.
+#
+# IMPORTANT — what the `directory:` list does NOT do (OME-733):
+#   SECURITY updates ignore it. They are driven by the dependency graph and fire against any
+#   manifest GitHub has indexed, listed here or not. That is how #422 (next, in
+#   apps/screamingface-studio/frontend) existed while this file deliberately excluded that tree.
+#   Omitting a directory buys you no security-update silence — it only means that tree gets no
+#   routine version bumps, which is usually the opposite of what you want.
+#
+# IMPORTANT — why every group declares `applies-to` (OME-733):
+#   `groups` defaults to `applies-to: version-updates`. Before this was made explicit, every
+#   security fix arrived as its OWN ungrouped PR — nine of them at once (#437 #435 #433 #431 #430
+#   #455 #422 #460 #432). The `-security` group below is what collapses those into one.
+#
+# IMPORTANT — why majors are split from minor/patch (OME-733):
+#   With one group per ecosystem, a single breaking major holds every security patch behind it,
+#   AND a major can slip in under cover of them. Both happened in the same PR (OME-736): the
+#   react/react-dom 19.2.8 security bumps sat behind an ESLint 10 crash, while that same PR was
+#   quietly carrying a TypeScript 5 -> 7 compiler rewrite. Splitting them means a red `-major` PR
+#   can sit indefinitely while `-security` and `-minor` keep flowing.
+#
+# NOT fixable by any setting here (OME-740): Dependabot cannot keep the two `FROM` lines of
+# apps/url4-cloud/Dockerfile in step, because ghcr.io/astral-sh/uv and python are different
+# images. See the INVARIANT in that Dockerfile; base-image bumps there need a human.
 version: 2
 updates:
   - package-ecosystem: "uv"
@@ -11,8 +33,17 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      aigateway-python:
+      aigateway-python-security:
+        applies-to: security-updates
         patterns: ["*"]
+      aigateway-python-minor:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      aigateway-python-major:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
 
   - package-ecosystem: "uv"
     directory: "/apps/scoreboard"
@@ -20,8 +51,17 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      scoreboard-python:
+      scoreboard-python-security:
+        applies-to: security-updates
         patterns: ["*"]
+      scoreboard-python-minor:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      scoreboard-python-major:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
 
   - package-ecosystem: "uv"
     directory: "/packages/url4"
@@ -29,8 +69,17 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      url4-python:
+      url4-python-security:
+        applies-to: security-updates
         patterns: ["*"]
+      url4-python-minor:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      url4-python-major:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
 
   - package-ecosystem: "uv"
     directory: "/apps/url4-cloud"
@@ -38,34 +87,157 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      url4-cloud-python:
+      url4-cloud-python-security:
+        applies-to: security-updates
         patterns: ["*"]
+      url4-cloud-python-minor:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      url4-cloud-python-major:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
 
-  # The repo's only npm tree that is a deployable component. `apps/screamingface-studio/frontend`
-  # is deliberately NOT listed — it has no CI lane, so a dependency bump there would land with
-  # nothing to verify it.
   - package-ecosystem: "npm"
     directory: "/apps/aigateway-ui"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # Two majors are KNOWN-unmergeable and are held deliberately (OME-736). Without these ignores
+    # the `-major` group regenerates a permanently-red PR every week — #480 was exactly that,
+    # re-proposing both within minutes of the holds landing. The `-major` bucket is designed to let
+    # a red major sit harmlessly, but a major that can NEVER go green is noise, not a signal.
+    # Remove each entry when its blocking ticket resolves — that is the trigger to retry.
+    ignore:
+      # OME-742. TypeScript 7 is the Go-based compiler rewrite, and openapi-typescript@7.13.0
+      # (the latest release) caps at peer typescript@^5.x with no TS6/7 build. Nothing to pick
+      # around, so every TS>=6 proposal fails at `npm ci`.
+      - dependency-name: "typescript"
+        versions: [">=6"]
+      # ESLint 10 crashes eslint-plugin-react@7.37.5, bundled inside eslint-config-next, with
+      # "contextOrFilename.getFilename is not a function". eslint-config-next declares peer
+      # eslint ">=9.0.0" at both 16.2.12 and 16.3.0 — the range is wrong, so no version of the
+      # Next config works with ESLint 10 today. Retry when Next ships a compatible config.
+      - dependency-name: "eslint"
+        versions: [">=10"]
     groups:
-      aigateway-ui-npm:
+      aigateway-ui-npm-security:
+        applies-to: security-updates
         patterns: ["*"]
+      aigateway-ui-npm-minor:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      aigateway-ui-npm-major:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
 
-  # The runtime image's base layers drift silently otherwise — they are pinned by tag, and
-  # nothing else in CI notices a new patch release of the base.
+  # Added in OME-737, AFTER OME-738 (#484) gave public-docs a CI lane. That ordering was
+  # deliberate: before the lane existed, bumps here merged with nothing verifying them — which is
+  # how #460 and #432 landed. A directory should not be listed until something can gate it.
+  - package-ecosystem: "npm"
+    directory: "/public-docs"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      public-docs-npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      public-docs-npm-minor:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      public-docs-npm-major:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
+
+  # apps/screamingface-studio/frontend (npm) and apps/screamingface-studio/src-tauri (cargo) are
+  # deliberately still absent — pending OME-739, which asks whether that tree is alive at all. If
+  # it is dormant the answer is to delete it, which closes the repo's last open alert (glib,
+  # medium, in its Cargo.lock) and makes both entries moot. Note that omitting them does NOT stop
+  # security PRs against that tree; see the header.
+
+  # Container base layers drift silently otherwise: they are pinned by tag, and nothing in CI
+  # notices a new patch release of a base image. Coverage is now all four Dockerfiles (was one).
+  #
+  # Grouped per directory, which PARTLY mitigates the #439 failure (OME-740): a multi-stage
+  # Dockerfile's images at least arrive in ONE pull request instead of a one-sided bump that looks
+  # complete. It does NOT fix it — each image still resolves to its own latest tag, so grouping
+  # can surface a builder on 3.13 beside a runtime on 3.14. It makes the mismatch visible in the
+  # diff rather than invisible. The actual guard stays the INVARIANT in the Dockerfile plus CI's
+  # "Smoke both modes" step, which runs the entrypoint and catches the broken venv.
   - package-ecosystem: "docker"
     directory: "/apps/url4-cloud"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    groups:
+      url4-cloud-docker-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      url4-cloud-docker-version:
+        applies-to: version-updates
+        patterns: ["*"]
 
-  # Keep GitHub Actions pinned-version bumps current too (low volume).
+  - package-ecosystem: "docker"
+    directory: "/apps/aigateway"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      aigateway-docker-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      aigateway-docker-version:
+        applies-to: version-updates
+        patterns: ["*"]
+
+  - package-ecosystem: "docker"
+    directory: "/apps/aigateway-ui"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      aigateway-ui-docker-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      aigateway-ui-docker-version:
+        applies-to: version-updates
+        patterns: ["*"]
+
+  - package-ecosystem: "docker"
+    directory: "/apps/scoreboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      scoreboard-docker-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      scoreboard-docker-version:
+        applies-to: version-updates
+        patterns: ["*"]
+
+  # Low volume, but #453 showed how far behind these drift when nothing watches them: eighteen
+  # updates at once, including actions/checkout 4 -> 7 and the Node 20 deprecation warnings that
+  # had been appearing in every workflow log.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     groups:
-      github-actions:
+      github-actions-security:
+        applies-to: security-updates
         patterns: ["*"]
+      github-actions-minor:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      github-actions-major:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
