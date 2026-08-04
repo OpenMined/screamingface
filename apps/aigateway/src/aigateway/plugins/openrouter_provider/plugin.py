@@ -352,7 +352,24 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
     def global_cache_projection(self, body: dict[str, Any]) -> dict[str, Any] | CacheBypass:
         # OME-305: delegated to ``global_cache`` so the PURE projection lives in a
         # module that holds nothing impure. See that module for the invariants.
+        #
+        # AIDEV-NOTE: the `enabled` gate deliberately is NOT here. It lives in
+        # ``participates_in_global_cache`` below, because this method's port contract
+        # is that it reads the request body ALONE — and `test_no_projection_reads_
+        # operator_configuration` enforces that with a poison-settings twin. Gating
+        # here would also be the wrong shape: PARTICIPATION and KEY MATERIAL are
+        # separate decisions, and only the latter belongs to a pure projection.
         return project_global_cache_request(body)
+
+    def participates_in_global_cache(self) -> bool:
+        # D2, extended to the cache path. `register_models` and `api_key_strategy_for`
+        # already fail closed when disabled, but the global cache is a SECOND way to
+        # serve this provider's responses — a stored row needs no model entry and no
+        # credential to be replayed, and the cache stage runs AHEAD of both checks, so
+        # neither the 404 nor the 400 ever gets a chance to refuse the request.
+        # Without this gate a disabled OpenRouter keeps answering from rows an enabled
+        # deployment filled, indefinitely (v2 rows never expire).
+        return self.settings.enabled
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         import litellm

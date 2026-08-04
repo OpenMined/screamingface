@@ -17,6 +17,7 @@ from aigateway.core.chat_parameters import (
     ParameterSchema,
     ToolCapability,
 )
+from aigateway.core.parameter_projection import WRAPPER_KEY
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     LOGPROBS_SCHEMA,
@@ -60,6 +61,19 @@ _REVISION = "openrouter-2026-07"
 # OpenRouter binds its OWN minimum=0 schema. Do NOT widen the shared ``TOP_K_SCHEMA``
 # (minimum=1) — Anthropic and Gemini still bind it and their top-k lower bound is 1.
 OPENROUTER_TOP_K_SCHEMA = ParameterSchema(type="integer", minimum=0)
+
+# OME-305: the ONE spelling of where `top_k` lands upstream, shared with
+# ``global_cache`` so the rule's target and the cache projection cannot drift.
+#
+# WHY a shared constant rather than two literals: drift here does not fail loudly.
+# The key builder's presence check is ROOT-only — it asks whether `extra_body`
+# appears in the projected `prepared`, and trusts the provider for what is inside.
+# A projection emitting a different root would therefore turn every `top_k` request
+# into a silent `unprojected_parameter` bypass (correct, but permanently uncacheable
+# and invisible), and a projection emitting the root WITHOUT this leaf would be worse
+# still: `top_k=3` and `top_k=7` would share one key.
+EXTRA_BODY_OBJECT = "extra_body"
+TOP_K_LEAF = "top_k"
 
 # OME-583: OpenRouter is OpenAI-compatible; the INSTALLED litellm openrouter transform
 # forwards tools[] and tool_choice onto the wire (§9), so function calling is enabled
@@ -181,8 +195,8 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     # Re-enabling any of them needs an approved bounded schema per field — a permissive
     # object/array union added just to satisfy the conformance gate is NOT that.
     provider_native_rule(
-        "provider_params.top_k",
-        provider_target="extra_body.top_k",
+        f"{WRAPPER_KEY}.{TOP_K_LEAF}",
+        provider_target=f"{EXTRA_BODY_OBJECT}.{TOP_K_LEAF}",
         auth_modes=_AUTH,
         schema=OPENROUTER_TOP_K_SCHEMA,
         cache_behavior="keyed",

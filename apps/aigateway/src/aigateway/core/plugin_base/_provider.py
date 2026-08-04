@@ -234,8 +234,46 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         Default: ``CacheBypass`` — fail safe. A provider is cacheable only by
         deliberately implementing this hook, never by inheriting a guess about what
         ``prepare_chat_body`` does.
+
+        WHY an operator gate must NOT be expressed here: see
+        ``participates_in_global_cache``. Reading ``self.settings`` from this method
+        breaks the purity contract above, and the two decisions are genuinely
+        different — this one describes WHAT would be sent, that one whether this
+        provider may take part at all.
         """
         return CacheBypass(reason=PROJECTION_BYPASS_REASON)
+
+    def participates_in_global_cache(self) -> bool:
+        """Whether this provider may take part in the shared cache at all.
+
+        WHY this is separate from ``global_cache_projection`` rather than a branch
+        inside it: the two answer different questions, and only one of them may see
+        operator configuration.
+
+        - The PROJECTION decides KEY MATERIAL. It is contractually a pure function of
+          the request body, so that the same request keys identically in every
+          deployment. A per-deployment key would partition a shared cache, or worse
+          let two deployments agree on a key while disagreeing on what gets dispatched
+          (``test_no_projection_reads_operator_configuration`` is the tripwire).
+        - This hook decides PARTICIPATION. Returning False removes the provider from
+          the cache entirely — no read, no write — which is deployment-local by nature
+          and cannot affect any key. Flipping it must leave every stored row exactly as
+          it was, so that re-enabling the provider finds its cache intact.
+
+        INVARIANT: a False answer is FAIL-SAFE and lossless. It suppresses the lookup;
+        it never invalidates, rewrites or re-keys an entry.
+
+        AIDEV-NOTE: an operator kill switch has to be checked HERE and not left to the
+        dispatch-side guards, because the cache stage runs before model resolution and
+        before credentials are read. A provider that registers no models and yields no
+        credential strategy can still have its stored rows replayed — that was a real
+        defect in OpenRouter (observed: a 200 with ``X-AIGW-Cache: hit`` from a
+        switched-off provider), not a hypothetical.
+
+        Default: True — a provider that has implemented a projection participates.
+        Overriding is only for a provider that can be switched off.
+        """
+        return True
 
     def should_apply_profile_default(self, field: str) -> bool:
         """Return whether a profile default field should be merged into chat bodies."""

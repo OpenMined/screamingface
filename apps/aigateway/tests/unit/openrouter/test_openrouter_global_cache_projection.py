@@ -42,12 +42,17 @@ import pytest
 from fastapi import HTTPException
 
 from aigateway.core.cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
-from aigateway.core.parameter_projection import WRAPPER_KEY
+from aigateway.core.parameter_projection import (
+    WRAPPER_KEY,
+    classify_and_project_chat_parameters,
+)
+from aigateway.core.request_cache.global_controls import GlobalCacheControls
 from aigateway.core.request_cache.global_keys import (
     build_global_cache_key,
     build_global_cache_key_dto,
     canonical_key_material,
 )
+from aigateway.core.request_cache.global_plan import build_global_cache_plan
 from aigateway.plugins.openrouter_provider.plugin import (
     GLOBAL_CACHE_ADAPTER_REVISION,
     OFFICIAL_API_BASE,
@@ -57,6 +62,7 @@ from aigateway.plugins.openrouter_provider.routing_policy import (
     ROUTING_CONTROLS,
     STRICT_ROUTING_KEY,
 )
+from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
 _MODEL = "openrouter/anthropic/claude-fable-5"
 _UPSTREAM = "anthropic/claude-fable-5"
@@ -447,3 +453,129 @@ def test_the_callers_raw_spelling_never_appears_in_the_key_material() -> None:
     assert "1.000" not in material
     # ...while the canonical upstream form IS there.
     assert dto.prepared_request["provider"]["max_price"] == {"prompt": "1"}
+
+
+# --- the operator gate decides PARTICIPATION, not KEY MATERIAL (review MEDIUM-1) --
+
+
+def _disabled_plugin() -> OpenRouterProviderPlugin:
+    return OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=False))
+
+
+def _enabled_plugin() -> OpenRouterProviderPlugin:
+    # WHY spelled out here and NOT folded into `_plugin()`: `enabled` ships FALSE, so
+    # the two arrangements differ — but only for PARTICIPATION. Every projection
+    # assertion above deliberately keeps using the default-constructed plugin, because
+    # the projection is contractually blind to this setting and those tests are the
+    # place that stays true whichever way the switch is thrown.
+    return OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=True))
+
+
+def test_a_disabled_provider_declines_to_participate_in_the_shared_cache() -> None:
+    # INVARIANT: a provider kill switch must reach the CACHE path, not only the
+    # dispatch path. `register_models` returns nothing and `api_key_strategy_for`
+    # returns None when disabled — but a STORED ROW needs neither a model entry nor a
+    # credential to be replayed, and the cache stage runs ahead of both checks.
+    assert _disabled_plugin().participates_in_global_cache() is False
+    assert _enabled_plugin().participates_in_global_cache() is True
+
+
+def test_the_gate_changes_participation_without_touching_key_material() -> None:
+    # WHY both halves in one test: they are the two directions of the same ruling —
+    # settings may gate participation, never shape the key. If the gate also changed
+    # the key, flipping the switch would abandon every stored row: a silent cache
+    # flush dressed up as a bug fix.
+    #
+    # The projection is therefore asserted to be BLIND to the setting. That is also
+    # its port contract (it reads the body alone), enforced globally by
+    # `tests/unit/test_global_cache_projection_purity.py`; this is the
+    # OpenRouter-specific statement of the same property, at the value level.
+    expected = {
+        "resolved_model": _UPSTREAM,
+        "provider_adapter_revision": GLOBAL_CACHE_ADAPTER_REVISION,
+        "prepared": {"api_base": OFFICIAL_API_BASE, "provider": dict(_STRICT)},
+    }
+    assert _projected() == expected
+    assert _disabled_plugin().global_cache_projection(_body()) == expected
+
+
+def test_a_disabled_provider_yields_a_plan_that_does_not_participate() -> None:
+    # The layer that actually enforces the gate: participation is refused in the PLAN,
+    # which is where a settings read is legitimate. Asserted here rather than only at
+    # the route so the property is pinned without a database, a profile or a
+    # credential — and so a future refactor that drops the plan's call to the hook
+    # fails a unit test rather than only an end-to-end one.
+    def _plan(plugin: OpenRouterProviderPlugin):
+        return build_global_cache_plan(
+            body=_body(),
+            plugin=plugin,
+            controls=GlobalCacheControls(participate=True, bypass_reason=""),
+            cache_enabled=True,
+        )
+
+    refused = _plan(_disabled_plugin())
+    assert refused.participates is False
+    assert refused.key is None
+    assert refused.reason == PROJECTION_BYPASS_REASON
+    # Non-vacuous: the SAME request under an enabled provider does participate, so the
+    # refusal is owed to the gate and not to the request being unkeyable.
+    assert _plan(_enabled_plugin()).participates is True
+
+
+# --- the declared `top_k` leaf is really projected (OME-305 review, MEDIUM-2) ---
+
+
+def test_a_top_k_request_projects_the_exact_leaf_its_own_rule_targets() -> None:
+    # The rule publishes `provider_params.top_k -> extra_body.top_k` as `keyed`, and
+    # a native value participates in the key ONLY through `prepared`. So the leaf
+    # itself must be here: satisfying the key builder's ROOT check with an empty
+    # `extra_body` would pass that check while silently dropping the value from the
+    # hash, which is the one failure a globally shared cache may never have.
+    assert _projected(provider_params={"top_k": 3})["prepared"]["extra_body"] == {"top_k": 3}
+
+
+def test_a_request_without_top_k_projects_no_extra_body_root_at_all() -> None:
+    # BOUNDARY, and the reason the emission is conditional. The key builder's guard
+    # is root-only: once `extra_body` is present, every rule targeting that root is
+    # keyed on trust, and a leaf missing from it reads as a DELIBERATE omission
+    # rather than an error. Emitting the root unconditionally would therefore turn a
+    # future `extra_body.*` rule into a silent collision instead of a safe bypass.
+    assert "extra_body" not in _projected()["prepared"]
+    assert "extra_body" not in _projected(provider_params={"sort": "price"})["prepared"]
+
+
+def test_two_top_k_values_never_share_a_key() -> None:
+    plugin = _plugin()
+
+    def _key(**overrides: Any) -> Any:
+        return build_global_cache_key(
+            provider="openrouter",
+            body=_body(**overrides),
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=None),
+            projection=plugin.global_cache_projection,
+            provider_auth_modes=plugin.available_auth_modes(),
+        )
+
+    three, seven = _key(provider_params={"top_k": 3}), _key(provider_params={"top_k": 7})
+    # It must be keyed at all — the defect was a permanent `unprojected_parameter`.
+    assert not isinstance(three, CacheBypass), three
+    assert not isinstance(seven, CacheBypass), seven
+    assert three.key_hash != seven.key_hash
+    # ...and neither may collide with the bare request that asked for no top_k.
+    bare = _key()
+    assert not isinstance(bare, CacheBypass), bare
+    assert three.key_hash != bare.key_hash
+
+
+def test_the_projected_top_k_is_the_value_dispatch_will_actually_send() -> None:
+    # The agreement that makes keying it sound. If the projection and the dispatch
+    # path disagreed about the effective value, the key would describe a request the
+    # provider never receives.
+    plugin = _plugin()
+    dispatched = classify_and_project_chat_parameters(
+        _body(provider_params={"top_k": 3}),
+        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+        auth_mode="api_key",
+    )
+    projected = _projected(provider_params={"top_k": 3})["prepared"]
+    assert dispatched["extra_body"]["top_k"] == projected["extra_body"]["top_k"]

@@ -23,6 +23,7 @@ from aigateway.core.cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from aigateway.core.parameter_projection import WRAPPER_KEY
 
 from .dispatch_errors import _UnexpectedRoutingPolicyError
+from .parameters import EXTRA_BODY_OBJECT, TOP_K_LEAF
 from .routing_policy import PROVIDER_OBJECT, build_provider_policy, project_routing_controls
 from .settings import GATEWAY_MODEL_PREFIX, OFFICIAL_API_BASE, is_valid_upstream_model_id
 
@@ -80,12 +81,31 @@ def project_global_cache_request(body: dict[str, Any]) -> dict[str, Any] | Cache
     upstream = model[len(GATEWAY_MODEL_PREFIX) :]
     if not is_valid_upstream_model_id(upstream):
         return CacheBypass(reason=PROJECTION_BYPASS_REASON)
+    wrapper = body.get(WRAPPER_KEY)
     try:
-        policy = build_provider_policy(project_routing_controls(body.get(WRAPPER_KEY)))
+        policy = build_provider_policy(project_routing_controls(wrapper))
     except _UnexpectedRoutingPolicyError:
         return CacheBypass(reason=PROJECTION_BYPASS_REASON)
+    prepared: dict[str, Any] = {"api_base": OFFICIAL_API_BASE, PROVIDER_OBJECT: policy}
+    if isinstance(wrapper, dict) and TOP_K_LEAF in wrapper:
+        # OME-305: `provider_params.top_k` is declared ``cache_behavior="keyed"``, and
+        # a provider-native value participates in the key ONLY by appearing here — the
+        # rule contributes an empty entry precisely because `prepared` is hashed whole.
+        # So the declaration is only honoured if the leaf is really projected; without
+        # it every top_k request bypassed with `unprojected_parameter`.
+        #
+        # INVARIANT: emitted ONLY when the caller sent the leaf, never as an empty or
+        # defaulted root. The key builder's gate is root-only, so `extra_body` present
+        # means "every rule targeting this root is keyed, trust the provider" — an
+        # unconditional root would silently un-key a leaf instead of bypassing it.
+        #
+        # WHY the value is copied raw rather than coerced: eligibility validates it
+        # against ``OPENROUTER_TOP_K_SCHEMA`` and bypasses on failure BEFORE this
+        # projection is consulted, and dispatch forwards the same raw value, so
+        # normalizing here would key a request the provider never receives.
+        prepared[EXTRA_BODY_OBJECT] = {TOP_K_LEAF: wrapper[TOP_K_LEAF]}
     return {
         "resolved_model": upstream,
         "provider_adapter_revision": GLOBAL_CACHE_ADAPTER_REVISION,
-        "prepared": {"api_base": OFFICIAL_API_BASE, PROVIDER_OBJECT: policy},
+        "prepared": prepared,
     }

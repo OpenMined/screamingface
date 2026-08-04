@@ -418,3 +418,63 @@ def test_streaming_and_tool_bearing_requests_do_not_participate() -> None:
 def test_exactly_one_of_key_and_reason_is_populated(plan: GlobalCachePlan) -> None:
     assert (plan.key is None) is bool(plan.reason)
     assert plan.participates is (plan.key is not None)
+
+
+# --- the provider participation gate (OME-305 review, MEDIUM-1) ----------------
+
+
+class _SwitchedOff(_Plugin):
+    """A provider an operator has turned off. Everything else about it is unchanged."""
+
+    custom_llm_provider = "switched-off"
+
+    def participates_in_global_cache(self) -> bool:
+        return False
+
+
+class _BrokenGate(_Plugin):
+    """A provider whose participation hook raises — same hazard class as _BrokenRules."""
+
+    custom_llm_provider = "broken-gate"
+
+    def participates_in_global_cache(self) -> bool:
+        raise RuntimeError("boom")
+
+
+def test_a_provider_that_declines_to_participate_yields_no_key() -> None:
+    # WHY the plan is where this is enforced: the cache stage runs before model
+    # resolution and before credentials, so a provider's dispatch-side guards cannot
+    # stop a STORED row from being replayed. A row needs neither to be served.
+    plan = _plan(plugin=_SwitchedOff())
+    assert plan.participates is False
+    assert plan.key is None
+    # Non-vacuous: the identical request DOES participate for a provider that has not
+    # declined, so the refusal is owed to the gate and not to an unkeyable request.
+    assert _plan().participates is True
+
+
+def test_declining_to_participate_is_reported_as_a_provider_reason() -> None:
+    # NOT ``disabled``: that value is re-interpreted by
+    # ``chat_cache_stage._closed_gate_reason``, which maps it to ``cache_unavailable``
+    # whenever the cache's own switch is on — blaming a healthy store for a provider
+    # an operator turned off. Measured, not assumed; see the route-level test.
+    assert _plan(plugin=_SwitchedOff()).reason == PROJECTION_BYPASS_REASON
+    assert _plan(plugin=_SwitchedOff()).reason != BYPASS_DISABLED
+
+
+def test_a_participation_hook_that_raises_fails_to_bypass() -> None:
+    # INVARIANT (this module's TOTAL claim): a provider hook is third-party-shaped code
+    # on a path that must never fail a request. It costs a bypass, never a 500 — and it
+    # fails CLOSED, because a hook that cannot answer has not granted participation.
+    plan = _plan(plugin=_BrokenGate())
+    assert plan.participates is False
+    assert plan.key is None
+    assert plan.reason == PROJECTION_BYPASS_REASON
+
+
+def test_a_provider_participates_by_default() -> None:
+    # BOUNDARY on the port default. It must be True: the gate is opt-OUT, so a
+    # provider that never heard of it keeps caching. Flipping this default to False
+    # would silently un-cache every provider that has implemented a projection.
+    assert ProviderPluginBase.participates_in_global_cache(_Plugin()) is True
+    assert _Plugin().participates_in_global_cache() is True

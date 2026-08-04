@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
-from ..cache_ports import CacheBypass
+from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from ..plugin_base import ProviderPluginBase
 from .global_controls import GlobalCacheControls
 from .global_eligibility import BYPASS_RULE_SET, BYPASS_UNSUPPORTED_SHAPE, is_text
@@ -90,6 +90,41 @@ def build_global_cache_plan(
     """
     if not cache_enabled:
         return _refused(BYPASS_DISABLED)
+    try:
+        provider_participates = plugin.participates_in_global_cache()
+    except Exception:
+        # Same argument as the rule-table and projection calls below: a provider hook
+        # on this path costs a bypass, never the caller's request.
+        provider_participates = False
+    if not provider_participates:
+        # A provider that is switched off must not have its stored rows replayed, and
+        # the dispatch-side guards cannot deliver that: this stage runs before model
+        # resolution and before any credential is read, so neither the 404 nor the 400
+        # ever gets a chance to refuse the request.
+        #
+        # WHY it is checked BEFORE the caller's opt-out: an opt-out describes a
+        # decision about a cache this request was eligible for. When the provider is
+        # off there is nothing to opt out of, so reporting ``opted_out`` would
+        # attribute the outcome to the caller.
+        #
+        # WHY ``provider_projection`` and NOT ``disabled`` — this is load-bearing and
+        # was measured, not assumed. ``disabled`` is re-interpreted downstream:
+        # ``chat_cache_stage._closed_gate_reason`` maps a plan-level ``disabled`` to
+        # ``cache_unavailable`` whenever the cache's OWN switch is on, because at that
+        # layer ``disabled`` can only have meant "the store did not answer". Returning
+        # it here therefore published ``cache_unavailable`` for a switched-off
+        # provider — telling an operator their cache store is broken when it is
+        # healthy. ``provider_projection`` is the value the port already returns by
+        # default for a provider that offers no cacheable projection, it is not
+        # re-mapped, and it points at the provider rather than at the cache.
+        #
+        # AIDEV-NOTE: a dedicated ``provider_disabled`` would be more precise than
+        # either, and is the right answer if an operator ever needs to tell "provider
+        # off" from "provider cannot project". It is deliberately NOT taken here: the
+        # vocabulary is a caller-visible contract (URL4 reads these bytes, and
+        # ``test_global_cache_reason_vocabulary._WIRE_CONTRACT`` owns the spelling), so
+        # adding a value is an owner decision rather than an implementation detail.
+        return _refused(PROJECTION_BYPASS_REASON)
     if not controls.participate:
         return _refused(controls.bypass_reason)
     model = body.get("model")
