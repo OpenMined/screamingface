@@ -164,17 +164,29 @@ updates:
   # Container base layers drift silently otherwise: they are pinned by tag, and nothing in CI
   # notices a new patch release of a base image. Coverage is now all four Dockerfiles (was one).
   #
-  # Grouped per directory, which PARTLY mitigates the #439 failure (OME-740): a multi-stage
-  # Dockerfile's images at least arrive in ONE pull request instead of a one-sided bump that looks
-  # complete. It does NOT fix it — each image still resolves to its own latest tag, so grouping
-  # can surface a builder on 3.13 beside a runtime on 3.14. It makes the mismatch visible in the
-  # diff rather than invisible. The actual guard stays the INVARIANT in the Dockerfile plus CI's
-  # "Smoke both modes" step, which runs the entrypoint and catches the broken venv.
+  # CORRECTION (OME-747). An earlier version of this comment claimed grouping "partly mitigates"
+  # the #439 multi-stage failure by putting both images in one diff. It does NOT — not even
+  # partly. Dependabot does not recognise `ghcr.io/astral-sh/uv` as version-bearing at all, so the
+  # group has exactly ONE member and there is nothing to pair the runtime with. #491 proved it
+  # within minutes of this file merging: it moved `python:` alone and left the uv builder behind,
+  # exactly as #439 did. No setting in this file can fix that. The only real guards are the
+  # INVARIANT comment in each Dockerfile and a CI step that RUNS the built image (url4-cloud has
+  # one — "Smoke both modes"; aigateway and scoreboard do not).
+  #
+  # `ignore: python >=3.14` below is not about that fault — it is about test coverage. Every
+  # Python matrix in this repo runs 3.12/3.13 (aigateway-tests.yml, scoreboard-tests.yml,
+  # url4-cloud-tests.yml, url4-tests.yml), so a 3.14 base image would ship an interpreter no test
+  # here has ever exercised. LIFT THE IGNORE when those matrices gain 3.14 — that is the trigger,
+  # and removing the entry is how you retry.
   - package-ecosystem: "docker"
     directory: "/apps/url4-cloud"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # See the docker section note above: 3.14 is not covered by any CI matrix here.
+      - dependency-name: "python"
+        versions: [">=3.14"]
     groups:
       url4-cloud-docker-security:
         applies-to: security-updates
@@ -188,6 +200,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # See the docker section note above: 3.14 is not covered by any CI matrix here.
+      - dependency-name: "python"
+        versions: [">=3.14"]
     groups:
       aigateway-docker-security:
         applies-to: security-updates
@@ -214,6 +230,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # See the docker section note above: 3.14 is not covered by any CI matrix here.
+      - dependency-name: "python"
+        versions: [">=3.14"]
     groups:
       scoreboard-docker-security:
         applies-to: security-updates
