@@ -19,7 +19,14 @@
 # what K8sJobRunner._manifest hardens each Job Pod with: non-root uid/gid 1000 owning the venv,
 # `runAsNonRoot: true`-compatible, read-only rootfs, tini as PID 1 so activeDeadlineSeconds or a
 # stop tears a run down promptly with a clean SIGTERM.
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+# INVARIANT: the builder and runtime Python minor MUST match. The runtime copies the builder's
+# venv wholesale (see the COPY below), and a venv is version-keyed — site-packages lives under
+# lib/python<X.Y>/ and pyvenv.cfg names the interpreter that built it. A mismatch builds fine and
+# then dies at import with `ModuleNotFoundError: No module named 'url4_cloud'`.
+# AIDEV-NOTE: Dependabot CANNOT keep these two in step — they are different images
+# (ghcr.io/astral-sh/uv vs python), so no grouping setting pairs them, and it will happily bump
+# one alone. It did exactly that in #439. Base-image bumps on this file always need a human.
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never
@@ -37,7 +44,8 @@ COPY apps/url4-cloud/url4.toml ./url4.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-FROM python:3.12-slim-bookworm AS runtime
+# Must track the builder's Python minor exactly — see the INVARIANT above.
+FROM python:3.13-slim-bookworm AS runtime
 LABEL org.opencontainers.image.title="url4-cloud" \
       org.opencontainers.image.source="https://github.com/openmined/screamingface" \
       org.opencontainers.image.description="url4-cloud — REST + WebSocket control plane and url4 run mode"
