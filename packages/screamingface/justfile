@@ -1,0 +1,83 @@
+# ScreamingFace local dev stack — gateway (:9105) + engine (:9108) — plus notebook runs.
+# just stack-up | stack-down | stack-status | stack-logs | stack-prepare | notebook-ifeval
+
+assets := "/tmp/screamingface-benchmark-assets"  # datasets for url4-cloud benchmarks
+rundir := "/tmp/sf-stack"  # pid files and logs
+repo := justfile_directory() / "../.."
+
+default:
+    @just --list
+
+# Start AI Gateway (:9105) and url4-cloud engine (:9108) in the background
+stack-up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p {{rundir}}
+    if lsof -nP -iTCP:9105 -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "gateway   :9105 already running"
+    else
+        # AUTH DISABLED = anonymous loopback mode; no admin bootstrap, key stored under
+        # the anonymous account. Matches how the local stack has been run so far.
+        # BOOTSTRAP flag re-activates stored provider profiles (e.g. the OpenRouter key)
+        # at boot — without it a restarted gateway exposes no openrouter/* models.
+        # OPENROUTER_ENABLED is REQUIRED too: the provider plugin defaults to disabled,
+        # and a gateway without it poisons the engine's model catalog until BOTH are
+        # restarted (gateway first — the engine snapshots the catalog at boot).
+        (cd {{repo}}/apps/aigateway && AIGATEWAY_AUTH_ENABLED=false AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1 \
+            AIGW_OPENROUTER_ENABLED=true \
+            nohup uv run uvicorn aigateway.main:app --port 9105 \
+            >{{rundir}}/aigateway.log 2>&1 & echo $! >{{rundir}}/aigateway.pid)
+        echo "gateway   :9105 starting  (log: {{rundir}}/aigateway.log)"
+    fi
+    if lsof -nP -iTCP:9108 -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "engine    :9108 already running"
+    else
+        (cd {{repo}}/apps/url4-cloud && URL4_BENCHMARK_ASSETS={{assets}} nohup uv run url4-cloud serve --local \
+            >{{rundir}}/url4-cloud.log 2>&1 & echo $! >{{rundir}}/url4-cloud.pid)
+        echo "engine    :9108 starting  (log: {{rundir}}/url4-cloud.log, assets: {{assets}})"
+    fi
+    sleep 2 && just stack-status
+
+# Stop both services
+stack-down:
+    #!/usr/bin/env bash
+    for name in aigateway url4-cloud; do
+        pidfile={{rundir}}/$name.pid
+        if [ -f "$pidfile" ] && kill "$(cat "$pidfile")" 2>/dev/null; then
+            echo "$name stopped"
+        fi
+        rm -f "$pidfile"
+    done
+    # fallback: whatever still holds the ports
+    for port in 9105 9108; do
+        pid=$(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null || true)
+        [ -n "$pid" ] && kill "$pid" && echo "port $port freed (pid $pid)"
+    done
+    exit 0
+
+# Show what is listening
+stack-status:
+    #!/usr/bin/env bash
+    for entry in "gateway:9105" "engine:9108"; do
+        name=${entry%%:*}; port=${entry##*:}
+        if lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1; then
+            echo "$name   :$port UP"
+        else
+            echo "$name   :$port down"
+        fi
+    done
+
+# Tail both service logs
+stack-logs:
+    tail -n 40 -f {{rundir}}/aigateway.log {{rundir}}/url4-cloud.log
+
+# One-time: download pinned benchmark assets (draco + ifeval) into {{assets}}
+stack-prepare:
+    cd {{repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare --out {{assets}}/draco
+    cd {{repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare --out {{assets}}/ifeval
+
+# Execute the IFEval notebook headless against the running stack (output stays in /tmp)
+notebook-ifeval:
+    uv run --with jupyter,ipykernel jupyter nbconvert --to notebook --execute \
+        examples/07_ifeval_e2e.ipynb --output /tmp/07_ifeval_out.ipynb \
+        --ExecutePreprocessor.timeout=1800

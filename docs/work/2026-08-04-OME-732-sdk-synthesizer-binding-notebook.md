@@ -45,6 +45,10 @@ SDK suite + check_notebooks green; draco/canonical linking byte-identical.
   resource), _engine/benchmark.py (members query param), build_notebooks.py (minimal
   2x2 notebook, 16 cells), test_shape_adaptive_linking.py (new).
 - **Gates:** SDK suite 407 passed; ruff + format clean; pyright 0; check_notebooks green.
-- **Commits:** NONE yet — owner reviewing locally first. Nothing pushed.
+- **Commits:** 76571ef1 (SDK synthesizer binding + per-shape fetches), 5940219c
+  (2x2 notebook rebuild); pushed to upstream, draft PR #467 (base OME-718-ifeval).
+  Follow-up: packages/screamingface/justfile — stack-up/down/status/logs/prepare +
+  notebook-ifeval recipes so the notebook's three-terminal prerequisite is one command
+  (pattern ported from the OME-605 worktree's local justfile; paths repo-rooted).
 - **Deviations:** the old test_client_fetches_once... updated to assert the per-shape
   fetch contract (2 GETs for mixed shapes) — same owner-approved change set.
