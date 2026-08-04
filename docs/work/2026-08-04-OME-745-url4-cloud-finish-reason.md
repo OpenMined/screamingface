@@ -108,8 +108,10 @@ Failing tests first:
   - `SpanData.refusal` is deliberately **not** given a `gen_ai.*` alias — OTel has no semantic
     convention for it, and inventing one would misrepresent a local extension as a standard
     attribute. `finish_reasons` does get the real semconv name.
-  - Empty `finish_reasons` renders as `None`, not `[]`: "this node made no model call" and "its
-    calls reported nothing" are different facts to a consumer.
+  - Empty `finish_reasons` renders as `None`, not `[]`, so the attribute is simply **absent** —
+    matching how OTel treats `gen_ai.*` attributes. This collapses "made no model call" and "made
+    a call that reported no reason" into one wire shape. **Deliberate limit, not an oversight**
+    (see Deviations 5).
 
 - **Deviations:**
   1. **Tests in a new module, not appended.** Same append-only-gate limitation hit in `OME-746`:
@@ -129,3 +131,21 @@ Failing tests first:
   4. **Card gap, still open:** `.claude/sdlc.local.md` has no body section for `url4-cloud` (nor
      `url4`), so the skill's "read the card BODY for the active stack" step had nothing to bind.
      Gate coverage itself is complete. Raised in OME-744's close comment too.
+  5. **Review finding — a documented distinction the code never implemented.** Three comments
+     (`_SpanState`, `_finish`, `SpanData.finish_reasons`) claimed `None` meant "no model call"
+     while `[]` meant "called a model that reported nothing". Untrue: `_fold_response` skips a
+     `None` reason, so a call whose provider omitted `finish_reason` leaves the list empty and
+     `_finish` renders it `None` — byte-identical to a span that never called a model. The
+     `_finish` comment was self-contradictory ("must not look like"), and the only test covering
+     absence asserted on the **event stream**, not on `SpanData`, so the claim was unpinned at
+     the layer it was made about.
+
+     **Resolved by deleting the claim, not by building state to satisfy it.** A YAGNI grep found
+     **zero consumers** of `finish_reasons` anywhere — only this unit's own code and tests; the
+     SDK that would read it (`packages/screamingface`) is not on `main`. Adding a `model_calls`
+     counter to preserve a distinction nobody reads is speculative generality, and `[]` conveys
+     nothing to an OTel consumer that absence does not (the semconv treats `gen_ai.*` as
+     absent-or-populated). `_SpanState` is internal, so if a consumer ever needs the difference,
+     counting folded events then is additive. All three comments now state the collapse plainly
+     and carry an `AIDEV-NOTE:` on how to add the distinction if it is ever wanted, and a new
+     `SpanData`-level test pins the collapse as intended rather than accidental.

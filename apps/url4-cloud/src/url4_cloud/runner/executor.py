@@ -140,9 +140,12 @@ class _SpanState:
     parent_span_id: str | None
     usage: tuple[str, str, int, int] | None = field(default=None)
     # INVARIANT: a LIST, accumulated — one span can make several model calls (the web-tools loop
-    # is the normal case), and each round trip's reason is separately auditable. Left empty for a
-    # node that called no model, which `_finish` renders as None: "made no model call" is a
-    # different fact from "called one that reported nothing".
+    # is the normal case), and each round trip's reason is separately auditable.
+    #
+    # AIDEV-NOTE: empty here covers TWO cases that `_finish` deliberately collapses to one on the
+    # wire — a node that called no model, and a call whose provider omitted `finish_reason`. They
+    # are NOT distinguishable downstream. Nothing consumes the difference today; if something ever
+    # needs it, count the folded events here rather than inferring it from this list.
     finish_reasons: list[str] = field(default_factory=list)
     refusal: str | None = field(default=None)
 
@@ -262,8 +265,9 @@ class _RunState:
             response_model=usage[1] if usage else None,
             input_tokens=usage[2] if usage else None,
             output_tokens=usage[3] if usage else None,
-            # Empty -> None: a node that called no model must not look like one whose calls all
-            # reported nothing.
+            # Empty -> None so the attribute is simply ABSENT rather than an empty list, matching
+            # how OTel treats `gen_ai.*` attributes. This collapses "no model call" and "a call
+            # that reported no reason" into the same wire shape — intended, not an oversight.
             finish_reasons=span.finish_reasons or None,
             refusal=span.refusal,
             start=start,

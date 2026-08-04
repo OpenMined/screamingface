@@ -242,8 +242,8 @@ def test_run_state_carries_the_refusal_text_onto_the_span() -> None:
 
 
 def test_a_span_with_no_model_call_carries_no_reasons() -> None:
-    # Boundary: most nodes never call a model. They must not gain an empty list where None means
-    # "this node made no model call" — the two are different facts to a consumer.
+    # Boundary: most nodes never call a model, so the attribute is absent rather than an empty
+    # list — matching how OTel treats `gen_ai.*` attributes.
     state = _RunState()
     spans = _span_frames(
         state,
@@ -255,6 +255,27 @@ def test_a_span_with_no_model_call_carries_no_reasons() -> None:
 
     assert spans[0].finish_reasons is None
     assert spans[0].refusal is None
+
+
+def test_a_call_that_reported_no_reason_is_indistinguishable_from_no_call() -> None:
+    # Pins the COLLAPSE as intended rather than accidental: a provider that omits finish_reason
+    # leaves the span with nothing to report, and `_finish` renders that absent — byte-identical
+    # to `test_a_span_with_no_model_call_carries_no_reasons` above.
+    #
+    # AIDEV-NOTE: this is a deliberate limit, not an oversight. Nothing consumes the difference
+    # today. If something ever must tell "called a model that said nothing" from "made no call",
+    # count folded events on `_SpanState` — do not infer it from an empty list.
+    state = _RunState()
+    spans = _span_frames(
+        state,
+        [
+            NodeStarted("span1", None, "Node", "detail"),
+            ModelResponse("span1", None, None),
+            NodeFinished("span1", "ok", 1),
+        ],
+    )
+
+    assert spans[0].finish_reasons is None
 
 
 def test_a_reason_for_an_unknown_span_is_dropped_not_fabricated() -> None:
