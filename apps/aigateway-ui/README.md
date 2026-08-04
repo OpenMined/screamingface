@@ -54,10 +54,17 @@ curl -sf http://localhost:9107/healthz
 uv run .claude/scripts/run_gates.py aigateway-ui
 ```
 
-Runs `npm ci` → `npm run lint` → `npm run lint:css` → `npm run typecheck` → `npm run test:ci`,
-matching `.github/workflows/aigateway-ui-tests.yml` step for step. `npm ci` rather than
-`npm install` is deliberate: it installs from the lockfile and fails when `package.json`
-disagrees, so lockfile drift cannot pass unnoticed.
+Runs `npm ci` → `npm run lint` → `npm run lint:css` → `npm run typecheck` → `npm run build` →
+`npm run test:ci`, covering **both** jobs of `.github/workflows/aigateway-ui-tests.yml` — the
+`test` job and the separate `Build the app` job.
+
+`npm run build` earns its place: `tsc --noEmit` type-checks but never exercises Turbopack module
+resolution, static generation, or the `output: "standalone"` bundle the Dockerfile ships, so a
+build-only break passes every other gate and first appears in CI or on a release tag. It runs
+before `test:ci` because it is ~5s against ~60s and the runner stops at the first red gate.
+
+`npm ci` rather than `npm install` is deliberate: it installs from the lockfile and fails when
+`package.json` disagrees, so lockfile drift cannot pass unnoticed.
 
 ## Design system
 
