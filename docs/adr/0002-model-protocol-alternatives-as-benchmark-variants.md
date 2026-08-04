@@ -6,6 +6,12 @@ superseded_by: 0003-benchmark-family-resource-and-universal-candidate-bindings.m
 
 # Model protocol alternatives as separate Engine-owned Benchmark Variants
 
+> **Superseded contract:** ADR 0003 keeps the separate-Variant principle but replaces this
+> resource shape and naming. The current noncanonical identities are
+> `ifeval/self-corrective` and `ifeval/verifying-ensemble`, returned together in one
+> `screamingface.benchmark-family.v1` resource. The historical decision below is retained to
+> explain why protocol alternatives are separately named and revisioned.
+
 Each executable evaluation protocol is a separate Engine-owned Benchmark identity. Related
 protocols may share one Benchmark Family, assets, verifier implementation, and runtime installer,
 but every fetched `screamingface.benchmark.v1` resource contains exactly one canonical URL4 and

@@ -1,7 +1,7 @@
 # IFEval protocol-fidelity audit
 
-Date: 2026-08-04  
-Baseline audited: Khoa's PR head `2315751d4ed53f222fe37d7af130f248b91b8521`  
+Date: 2026-08-04
+Baseline audited: Khoa's PR head `2315751d4ed53f222fe37d7af130f248b91b8521`
 Scope: canonical IFEval, the proposed solo self-corrective Variant, and the LANL
 verifying-ensemble Variant.
 

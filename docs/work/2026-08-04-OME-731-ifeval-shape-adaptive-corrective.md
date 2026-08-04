@@ -8,6 +8,12 @@ finished: 2026-08-04
 
 # OME-731 — Shape-adaptive ifeval-iterative-correction: self-correction solo, verifying ensemble Fusion
 
+> **Final contract update:** ADR 0003 replaced the per-shape `?members=N` fetch and the single
+> shape-adaptive identity described below. The Engine now returns one Benchmark Family containing
+> `ifeval/self-corrective` and `ifeval/verifying-ensemble`; the SDK selects a Variant locally
+> and supplies members through the universal `$candidate_members` binding. Earlier plan/outcome
+> text is retained as decision history, not as the current API.
+
 ## Intent
 
 Implement the accepted two-benchmark design (`.dk/plans/2026-08-04-ifeval-two-benchmarks-proposal.md`,

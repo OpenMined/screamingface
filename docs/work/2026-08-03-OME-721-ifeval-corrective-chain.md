@@ -8,6 +8,12 @@ finished: 2026-08-03
 
 # OME-721 — Build R1 corrective-loop IFEval variant (single-candidate MVP)
 
+> **Historical implementation record:** this ticket delivered the first corrective rung under
+> the former `ifeval-corrective` identity. ADR 0003 and OME-731 supersede its public resource
+> contract. The current identity is `ifeval/self-corrective`, served as a Variant of the IFEval
+> Benchmark Family. The notes below describe the earlier rung and must not be copied as current
+> API documentation.
+
 ## Intent
 
 The LANL reproduction's first runnable rung: `benchmark="ifeval-corrective"` runs each
