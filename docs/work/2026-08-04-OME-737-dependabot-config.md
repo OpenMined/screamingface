@@ -155,3 +155,26 @@ anyway, unverified.
 both pending `OME-739`. If that tree is dormant, deleting it closes the repo's last open alert
 (`glib`, medium) and retires the question; adding entries first would build on an unmade decision.
 The config carries a comment saying so, so the gap reads as a decision rather than an oversight.
+
+### Late addition — `ignore` rules for the two known-unmergeable majors
+
+Prompted by the owner asking why #482 and #480 were still open. Investigating them separated two
+cases the `-major` bucket alone does not:
+
+- **#482** (`uvicorn[standard]>=0.52.0`, `testcontainers[postgres]==4.15.0`) is **legitimate**.
+  `OME-735`'s `uv lock --upgrade` moved the lockfile but never touched those two `pyproject.toml`
+  constraints, so this is new work rather than redundancy. CI green — merged, not closed.
+- **#480** re-proposes exactly `eslint ^9→^10` and `typescript ^5→^7`, the two majors held in
+  `OME-736`. It is **permanently unmergeable**, and it appeared within minutes of the holds
+  landing. CI confirms: `test` and `Build the app` both FAILURE.
+
+The `-major` group was designed so a red major can sit harmlessly rather than block security
+patches. That holds for a major which might *one day* go green. It does **not** hold for one that
+can never go green while its blocker exists — that regenerates weekly and is noise, and noise is
+what trains people to stop reading Dependabot PRs.
+
+So the `aigateway-ui` npm block gained `ignore` entries for `typescript >=6` and `eslint >=10`,
+each commented with its blocking ticket. Removing an entry is the trigger to retry the upgrade.
+
+This is a genuine gap in the original design of this unit, surfaced by the owner's question rather
+than by my own review.

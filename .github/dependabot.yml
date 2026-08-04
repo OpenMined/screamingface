@@ -104,6 +104,23 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # Two majors are KNOWN-unmergeable and are held deliberately (OME-736). Without these ignores
+    # the `-major` group regenerates a permanently-red PR every week — #480 was exactly that,
+    # re-proposing both within minutes of the holds landing. The `-major` bucket is designed to let
+    # a red major sit harmlessly, but a major that can NEVER go green is noise, not a signal.
+    # Remove each entry when its blocking ticket resolves — that is the trigger to retry.
+    ignore:
+      # OME-742. TypeScript 7 is the Go-based compiler rewrite, and openapi-typescript@7.13.0
+      # (the latest release) caps at peer typescript@^5.x with no TS6/7 build. Nothing to pick
+      # around, so every TS>=6 proposal fails at `npm ci`.
+      - dependency-name: "typescript"
+        versions: [">=6"]
+      # ESLint 10 crashes eslint-plugin-react@7.37.5, bundled inside eslint-config-next, with
+      # "contextOrFilename.getFilename is not a function". eslint-config-next declares peer
+      # eslint ">=9.0.0" at both 16.2.12 and 16.3.0 — the range is wrong, so no version of the
+      # Next config works with ESLint 10 today. Retry when Next ships a compatible config.
+      - dependency-name: "eslint"
+        versions: [">=10"]
     groups:
       aigateway-ui-npm-security:
         applies-to: security-updates
