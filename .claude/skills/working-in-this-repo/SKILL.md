@@ -7,23 +7,26 @@ user_invocable: true
 
 ScreamingFace is a **polyglot monorepo** worked on by multiple developers concurrently. This skill is the **routing map**: given a change, it tells you which component you're in, the toolchain, the CI that will gate it, who reviews, and the branch/PR/release lane.
 
-> **Re-foundation (July 2026).** The legacy `apps/desktop` and `apps/server` (plus `web/`, `infra/`, root `Makefile`, and the old `docs/` tree) were removed; the full pre-teardown state is preserved at tag **`legacy-monorepo-2026-07-08`**. New desktop/CLI packages and the `url4-python-sdk` arrive as separate components with their own CI/release lanes once package names are locked. Setup lives in **`CONTRIBUTING.md`**; per-app guardrails in each app's `CLAUDE.md`.
+> **Re-foundation (July 2026).** The legacy `apps/desktop` and `apps/server` (plus `web/`, `infra/`, root `Makefile`, and the old `docs/` tree) were removed; the full pre-teardown state is preserved at tag **`legacy-monorepo-2026-07-08`**. The URL4 protocol and ScreamingFace Client SDK now live as separately gated packages. Setup lives in **`CONTRIBUTING.md`**; per-app guardrails in each app's `CLAUDE.md`.
 
 ## 1. Component taxonomy
 
 - **`apps/<name>`** — an independently deployable service or app. Has its own toolchain, lockfile, CI workflow, and release lane.
-- **`packages/<name>`** — a shared library consumed by **≥2** components; **not** independently deployed. (None exist yet — `url4-python-sdk` lands here first. Put shared code here instead of importing one app's internals from another.)
+- **`packages/<name>`** — a shared library; **not** independently deployed. Put shared code here instead of importing one app's internals from another.
 - **`docs/`** — AI-agentic decision records (plans, specs). Not a deployable component.
 
 **Rule:** apps never import another app's internals. Cross-app sharing goes through `packages/` (or a stable HTTP contract). This keeps each app independently testable and releasable.
 
-## 2. Current apps — the routing table
+## 2. Current components — the routing table
 
 | Component | Landing label | Stack | Run / test / lint / typecheck | Gating CI | Release lane | Key guardrails |
 |---|---|---|---|---|---|---|
-| `apps/aigateway` | `app/aigateway` | Python · uv · FastAPI (LiteLLM) | `uv run uvicorn aigateway.main:app --port 9105` · `uv run pytest` (live tests opt-in) · `uv run ruff check` · `uv run pyright` | `aigateway-tests.yml` (matrix 3.12/3.13) | release-please → `aigateway-v*` → `release-aigateway.yml` (GHCR image + Helm chart) | **Never import `litellm-enterprise`** (guarded by `scripts/check_no_enterprise.py`). Credentials via ORMStore/Tortoise `credential_blobs`, **no OS keychain**; secrets AES-256-GCM; master key `AIGATEWAY_SECRET_KEY` never stored/logged. See `apps/aigateway/CLAUDE.md`. |
-| `apps/aigateway-ui` | `app/aigateway-ui` | **TypeScript · npm · Next.js** | `npm run dev` (port 9107) · `npm run test:ci` · `npm run lint` · `npm run typecheck` | `aigateway-ui-tests.yml` + `charts.yml` | release-please `node` → `aigateway-ui-v*` → `release-aigateway-ui.yml` (GHCR image + Helm chart; **no** `sf-installer` mirror — internal tooling, not a product install). Merges to `main` also build a dev image via `dev-build-aigateway-ui.yml` (GHCR + ACR, `main-<sha>`) | The repo's **only non-Python stack**. It is a **BFF**: every call to aigateway's `/v1/admin` surface happens server-side (`output: "standalone"`, never `"export"`), so the browser never holds the admin API's address. UI code holds **no** copy of the admin allowlist — aigateway is the sole authority. Brand law is the **OpenMined Design System** vendored at `src/brand/tokens/` (NOT the `screamingface-design` skill — this is internal operator tooling wearing the parent brand); raw colors fail CI via `npm run lint:css`. |
-| `apps/scoreboard` | `app/scoreboard` | Python · uv · FastAPI | `uv run scoreboard` · `uv run pytest` · `uv run ruff check` · `uv run pyright` | `scoreboard-tests.yml` | **Manual** tag `scoreboard-v*` → `release-scoreboard.yml` (GHCR image + Helm; **not** in release-please) | Portal assets and public eval artifacts are app-local (`portal/`, `artifacts/`) — they ship inside the image. |
+| `apps/aigateway` | `aigateway` | Python · uv · FastAPI (LiteLLM) | `uv run uvicorn aigateway.main:app --port 9105` · `uv run pytest` (live tests opt-in) · `uv run ruff check` · `uv run pyright` | `aigateway-tests.yml` (matrix 3.12/3.13) | release-please → `aigateway-v*` → `release-aigateway.yml` (GHCR image + Helm chart) | **Never import `litellm-enterprise`** (guarded by `scripts/check_no_enterprise.py`). Credentials via ORMStore/Tortoise `credential_blobs`, **no OS keychain**; secrets AES-256-GCM; master key `AIGATEWAY_SECRET_KEY` never stored/logged. See `apps/aigateway/CLAUDE.md`. |
+| `apps/aigateway-ui` | `aigateway` | **TypeScript · npm · Next.js** | `npm run dev` (port 9107) · `npm run test:ci` · `npm run lint` · `npm run typecheck` | `aigateway-ui-tests.yml` + `charts.yml` | release-please `node` → `aigateway-ui-v*` → `release-aigateway-ui.yml` (GHCR image + Helm chart; **no** `sf-installer` mirror — internal tooling, not a product install). Merges to `main` also build a dev image via `dev-build-aigateway-ui.yml` (GHCR + ACR, `main-<sha>`) | The repo's **only non-Python stack**. It is a **BFF**: every call to aigateway's `/v1/admin` surface happens server-side (`output: "standalone"`, never `"export"`), so the browser never holds the admin API's address. UI code holds **no** copy of the admin allowlist — aigateway is the sole authority. Brand law is the **OpenMined Design System** vendored at `src/brand/tokens/` (NOT the `screamingface-design` skill — this is internal operator tooling wearing the parent brand); raw colors fail CI via `npm run lint:css`. |
+| `apps/scoreboard` | `scoreboard` | Python · uv · FastAPI | `uv run scoreboard` · `uv run pytest` · `uv run ruff check` · `uv run pyright` | `scoreboard-tests.yml` | **Manual** tag `scoreboard-v*` → `release-scoreboard.yml` (GHCR image + Helm; **not** in release-please) | Portal assets and public eval artifacts are app-local (`portal/`, `artifacts/`) — they ship inside the image. |
+| `apps/url4-cloud` | `url4-cloud` | Python · uv · FastAPI | `uv run url4-cloud serve --local` · `uv run pytest` · `uv run ruff check` · `uv run pyright` | `url4-cloud-tests.yml` | release-please → `url4-cloud-v*` → `release-url4-cloud.yml` (runtime + benchmark images) | Owns deployed execution and Engine benchmark resources; cross-app integrations use stable HTTP/URL4 contracts. |
+| `packages/url4` | `url4-python-sdk` | Python · uv · library | `uv run pytest` · `uv run ruff check` · `uv run pyright` | `url4-tests.yml` | manual `url4-v*` → `release-url4.yml` (PyPI) | Protocol, parser, AST, and abstract streaming boundaries stay free of concrete app adapters. |
+| `packages/screamingface` | `py-screamingface` | Python · uv · Client SDK | `uv run pytest` · deterministic notebook check · `uv build` · distribution check | `screamingface-tests.yml` | release-please versioning; publish lane not yet registered | The Client links Candidates into Engine-owned Benchmark URL4; it does not implement benchmark protocols. Generated notebooks must remain output-free and deterministic. |
 
 **Owner / reviewer per path:** see `.github/CODEOWNERS`. This skill deliberately does not hardcode owners — read them from one place.
 
@@ -55,6 +58,9 @@ Bring whatever stack fits; satisfy this **invariant contract** so the coordinati
 
 - **`apps/aigateway`:** new providers/secrets backends implement the port and register in the factory — never edit ORMStore. See `apps/aigateway/CLAUDE.md`.
 - **`apps/scoreboard`:** portal/static changes live in `apps/scoreboard/portal/`; public artifact allowlists in `src/scoreboard/portal.py`.
+- **`apps/url4-cloud`:** deployed execution, benchmark resources, and Engine REST/WS contracts.
+- **`packages/url4`:** expression grammar, AST, interpreter, and abstract streaming protocol.
+- **`packages/screamingface`:** public Client SDK, report models, UI/progress adapters, and generated examples; benchmark protocol logic remains Engine-owned.
 - **Shared logic used by ≥2 apps:** it belongs in `packages/`, not copied.
 
 ## 6. Branch / commit / PR / merge
