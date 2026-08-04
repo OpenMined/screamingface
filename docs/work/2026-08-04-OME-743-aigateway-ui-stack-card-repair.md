@@ -95,9 +95,67 @@ No RED test: this unit adds no code. The gate set **is** the test, so verificati
 - no OMDS claim and no dead file reference remains in the card
 - `grep -c OMDS .claude/sdlc.local.md` returns only historical mentions, if any
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned — `.claude/sdlc.local.md` and `apps/aigateway-ui/README.md`. No
+  source file touched; no test touched (append-only gate clean).
+
+- **Gates:** green, with the new gate in position.
+
+  ```
+  ✓ append-only test check (vs HEAD)
+  ✓ npm ci
+  ✓ npm run lint
+  ✓ npm run lint:css
+  ✓ npm run typecheck
+  ✓ npm run build        ← this unit
+  ✓ npm run test:ci      13 files, 218 tests passed
+  ALL GATES GREEN
+  ```
+
+- **The negative test was run, and it is the real result of this unit.** A client component
+  importing the `server-only` BFF module (`src/lib/aigateway/client.ts`) — the exact violation
+  `apps/aigateway-ui/CLAUDE.md` says must "fail the build rather than ship the admin API's address
+  to the browser":
+
+  | gate | exit |
+  |---|---|
+  | `npm run lint` | 0 — does not catch it |
+  | `npm run lint:css` | 0 — does not catch it |
+  | `npm run typecheck` | 0 — does not catch it |
+  | `npm run test:ci` | 0 — does not catch it (all 218 pass) |
+  | **`npm run build`** | **1 — catches it** |
+
+  Turbopack: `Client Component Browser: ./src/lib/aigateway/client.ts ← ./src/app/probe/page.tsx`.
+
+  **So before this change the BFF invariant was enforced by CI but NOT by the local gate set.** The
+  documented guarantee held on the remote and was unverifiable on the machine writing the code.
+
+- **Acceptance:** all met. `grep` for `OMDS|OpenMined Design|brand-version.txt` in the card returns
+  only the two deliberate historical mentions ("this REPLACED the OpenMined Design System in
+  `OME-716`", "Do not reintroduce OMDS"); the dead `brand-version.txt` reference is gone.
+
+## Deviations
+
+1. **The first negative-test probe was silently inert.** It was placed at `src/app/_probe/`, and
+   Next treats a leading-underscore folder as a **private folder** excluded from routing — so it
+   was never compiled and the build passed. Only the missing `/_probe` entry in the printed route
+   table revealed it; re-run at `src/app/probe/` it failed immediately. A negative test that passes
+   for the wrong reason is worse than no negative test.
+
+2. **A stale `.next/types/validator.ts` then failed `typecheck`** after the probe was deleted — the
+   generated route validator still imported `../../src/app/probe/page.js`. `rm -rf .next` cleared
+   it. Worth knowing: **`npm run typecheck` reads build-generated types**, so it can fail on a route
+   that no longer exists. An ordering coupling between the `build` and `typecheck` gates, not a code
+   error.
+
+3. **No RED-first cycle**, by nature: the unit changes a gate list and prose, not code. The
+   behavioural verification above stands in for it.
+
+4. **Concurrent-session collision mid-unit.** The working tree was switched to another branch
+   (`OME-738-public-docs-ci-lane`) while these edits were uncommitted; git carried them across
+   because they did not conflict. Nothing was lost — the branch, the reconciliation commit and the
+   edits all survived — but the edits were briefly sitting on an unrelated unit's branch. Recovered
+   by checking out this branch again and committing immediately. **Lesson: commit early when more
+   than one session shares a checkout**; uncommitted work is the only thing a branch switch can
+   silently relocate.
