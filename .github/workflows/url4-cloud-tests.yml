@@ -34,8 +34,8 @@ jobs:
       run:
         working-directory: apps/url4-cloud
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -65,14 +65,14 @@ jobs:
             --cov-fail-under=80 \
             -v
       - name: Test report
-        uses: dorny/test-reporter@v2
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: url4-cloud Test Results (${{ matrix.python-version }})
           path: apps/url4-cloud/results.xml
           reporter: java-junit
       - name: Coverage report
-        uses: orgoro/coverage@v3.2
+        uses: orgoro/coverage@v3.3
         if: always() && github.event_name == 'pull_request'
         with:
           coverageFile: apps/url4-cloud/coverage.xml
@@ -96,8 +96,8 @@ jobs:
       run:
         working-directory: apps/url4-cloud
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.13"
           enable-cache: true
@@ -134,12 +134,12 @@ jobs:
     name: Build the image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # WHY build on PRs at all: `592e4a89` rewrote the Dockerfile substantially (repo-root
       # context, mirrored /app layout, editable path-dep resolution at runtime) and nothing built
       # it until a release tag — so a break surfaced at release time, on the release path.
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/url4-cloud/Dockerfile
@@ -159,8 +159,8 @@ jobs:
     name: Render the Helm chart
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       # `helm lint` alone reported "0 chart(s) failed" on a chart that cannot render at all —
       # every template aborts on the `natsUrl` `fail` when it is unset. Templating is the check
       # that actually exercises the templates; linting only reads them.

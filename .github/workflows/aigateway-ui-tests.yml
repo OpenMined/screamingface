@@ -27,8 +27,8 @@ jobs:
       run:
         working-directory: apps/aigateway-ui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: apps/aigateway-ui/.nvmrc
           cache: npm
@@ -51,14 +51,14 @@ jobs:
       - name: Run unit tests with coverage
         run: npm run test:ci
       - name: Test report
-        uses: dorny/test-reporter@v2
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: aigateway-ui Test Results
           path: apps/aigateway-ui/results.xml
           reporter: java-junit
       - name: Coverage report
-        uses: orgoro/coverage@v3.2
+        uses: orgoro/coverage@v3.3
         if: always() && github.event_name == 'pull_request'
         with:
           coverageFile: apps/aigateway-ui/coverage/cobertura-coverage.xml
@@ -76,8 +76,8 @@ jobs:
       run:
         working-directory: apps/aigateway-ui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: apps/aigateway-ui/.nvmrc
           cache: npm

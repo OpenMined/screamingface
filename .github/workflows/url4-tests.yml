@@ -35,11 +35,11 @@ jobs:
         working-directory: packages/url4
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -67,7 +67,7 @@ jobs:
             -v
 
       - name: Test report
-        uses: dorny/test-reporter@v2
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: url4 Test Results (${{ matrix.python-version }})
@@ -75,7 +75,7 @@ jobs:
           reporter: java-junit
 
       - name: Coverage report
-        uses: orgoro/coverage@v3.2
+        uses: orgoro/coverage@v3.3
         if: always() && github.event_name == 'pull_request' && matrix.python-version == '3.12'
         with:
           coverageFile: packages/url4/coverage.xml
@@ -96,11 +96,11 @@ jobs:
         working-directory: packages/url4
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -205,8 +205,8 @@ jobs:
       run:
         working-directory: packages/url4
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - name: Build sdist + wheel
         run: uv build --out-dir dist
       - name: Validate metadata (twine check)
