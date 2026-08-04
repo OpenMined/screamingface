@@ -25,6 +25,7 @@ from url4.io.layer import IOLayer
 from url4.io.static import StaticIOLayer
 from url4.observe import (
     Log,
+    ModelResponse,
     NodeFinished,
     NodeStarted,
     ObservationEvent,
@@ -138,6 +139,12 @@ class _SpanState:
     start: datetime
     parent_span_id: str | None
     usage: tuple[str, str, int, int] | None = field(default=None)
+    # INVARIANT: a LIST, accumulated — one span can make several model calls (the web-tools loop
+    # is the normal case), and each round trip's reason is separately auditable. Left empty for a
+    # node that called no model, which `_finish` renders as None: "made no model call" is a
+    # different fact from "called one that reported nothing".
+    finish_reasons: list[str] = field(default_factory=list)
+    refusal: str | None = field(default=None)
 
 
 class _RunState:
@@ -179,6 +186,8 @@ class _RunState:
             return [Traced(payload=_log_frame(event), span=self._span_ref(event.span_id))]
         elif isinstance(event, Usage):
             self._fold_usage(event)
+        elif isinstance(event, ModelResponse):
+            self._fold_response(event)
         elif isinstance(event, NodeFinished):
             return self._finish(event)
         return []
@@ -196,6 +205,22 @@ class _RunState:
         if span is None:
             return None
         return SpanRef(span_id, span.parent_span_id)
+
+    def _fold_response(self, event: ModelResponse) -> None:
+        """Accumulate one model round trip's outcome onto the span that made the call.
+
+        Mirrors `_fold_usage`'s guard and its accumulate-don't-assign rule: an event for a span
+        this run never opened is dropped rather than fabricating one, and several calls on the
+        same span each keep their own entry.
+        """
+        span = self.spans.get(event.span_id) if event.span_id is not None else None
+        if span is None:
+            return
+        if event.finish_reason is not None:
+            span.finish_reasons.append(event.finish_reason)
+        if event.refusal is not None:
+            # Last refusal wins: for a multi-call turn the final one is the turn's outcome.
+            span.refusal = event.refusal
 
     def _fold_usage(self, event: Usage) -> None:
         self._sum_input += event.input_tokens
@@ -237,6 +262,10 @@ class _RunState:
             response_model=usage[1] if usage else None,
             input_tokens=usage[2] if usage else None,
             output_tokens=usage[3] if usage else None,
+            # Empty -> None: a node that called no model must not look like one whose calls all
+            # reported nothing.
+            finish_reasons=span.finish_reasons or None,
+            refusal=span.refusal,
             start=start,
             end=datetime.now(UTC),
             status="ok" if event.status == "ok" else "error",

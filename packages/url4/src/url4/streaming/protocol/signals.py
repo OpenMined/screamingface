@@ -79,6 +79,19 @@ class SpanData(BaseModel):
         validation_alias="gen_ai.usage.output_tokens",
         serialization_alias="gen_ai.usage.output_tokens",
     )
+    finish_reasons: list[str] | None = Field(
+        default=None,
+        validation_alias="gen_ai.response.finish_reasons",
+        serialization_alias="gen_ai.response.finish_reasons",
+    )
+    """How each model call on this span ended (`stop` | `length` | `content_filter` |
+    `tool_calls`). A LIST because one span can make several calls — a tool-calling turn is
+    several round trips — and `None` rather than `[]` when the node made no model call at all,
+    which is a different fact from "called a model that reported nothing"."""
+    refusal: str | None = Field(default=None)
+    """The provider's refusal text, when it sends one. Deliberately NOT a `gen_ai.*` alias:
+    OTel has no semantic convention for this field, and inventing one would misrepresent a
+    local extension as a standard attribute."""
     start: datetime
     end: datetime | None = None
     status: Literal["ok", "error"] = "ok"

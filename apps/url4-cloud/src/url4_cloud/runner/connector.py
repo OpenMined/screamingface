@@ -15,7 +15,7 @@ import httpx
 
 from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
-from url4.observe import current_usage_sink
+from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError, routes_for
 
@@ -245,6 +245,18 @@ def _provider_of(model: str) -> str:
     return "anthropic"
 
 
+def _report_response(choice: _Choice) -> None:
+    """Report how one model round trip ended, onto the currently-resolving node's span.
+
+    Null-safe exactly like `_report_usage`: outside a run, or with no observer attached, the
+    sink is absent and this is a no-op.
+    """
+    sink = current_response_sink()
+    if sink is None:
+        return
+    sink(finish_reason=choice.finish_reason, refusal=choice.refusal)
+
+
 def _report_usage(model: str, usage: dict | None) -> None:
     if usage is None:
         return
@@ -259,26 +271,68 @@ def _report_usage(model: str, usage: dict | None) -> None:
     )
 
 
-def _parse_choice(data: dict) -> tuple[str | None, list[dict] | None]:
-    """Pull ``(content, tool_calls)`` out of a chat-completions response.
+@dataclass(frozen=True, slots=True)
+class _Choice:
+    """One chat-completions choice, reduced to what this connector consumes."""
+
+    content: str | None
+    tool_calls: list[dict] | None
+    finish_reason: str | None
+    refusal: str | None
+
+
+def _parse_choice(data: dict) -> _Choice:
+    """Pull the first choice out of a chat-completions response.
+
+    Extraction only — whether the choice is *usable* is `_raise_if_unusable`'s call. The split
+    is load-bearing: the caller reports the finish reason between the two, so a refused turn is
+    still observable even though it goes on to fail (dec: OME-745).
 
     Raises:
-        ResolutionError: the response shape is unparsable, or it has neither content nor a
-            tool call — either way there is nothing usable to return.
+        ResolutionError: the response shape is unparsable — there is nothing to report either.
     """
     try:
-        message = data["choices"][0]["message"]
+        choice = data["choices"][0]
+        message = choice["message"]
         content = message.get("content")
         tool_calls = message.get("tool_calls")
+        finish_reason = choice.get("finish_reason")
+        refusal = message.get("refusal")
     except (KeyError, IndexError, TypeError) as exc:
         raise ResolutionError(
             "malformed aigateway response", code="aigateway_bad_response", permanent=True
         ) from exc
-    if not tool_calls and content is None:
+    return _Choice(
+        content=content,
+        tool_calls=tool_calls,
+        finish_reason=finish_reason if isinstance(finish_reason, str) else None,
+        refusal=refusal if isinstance(refusal, str) and refusal.strip() else None,
+    )
+
+
+def _raise_if_unusable(choice: _Choice) -> None:
+    """Reject a choice that carries no answer, distinguishing a REFUSAL from a malformed reply.
+
+    WHY the distinction: these used to collapse into one `aigateway_bad_response`, so a model
+    that declined on safety grounds was indistinguishable from a broken payload — and downstream
+    a refusal was scored as if the model had answered badly (FEATURE: OME-679).
+
+    Raises:
+        ResolutionError: ``provider_refusal`` when the provider declined, else
+            ``aigateway_bad_response`` when there is neither content nor a tool call.
+    """
+    # INVARIANT: the refusal check precedes the emptiness check. A content_filter turn normally
+    # carries null content, so testing emptiness first would classify every refusal as malformed.
+    if choice.finish_reason == "content_filter" or choice.refusal is not None:
+        # `permanent=True`: a refusal is deterministic, so a retry spends budget to be refused
+        # again. This is the wire signal a client maps to a refusal-kind failure.
+        raise ResolutionError(
+            "provider refused the request", code="provider_refusal", permanent=True
+        )
+    if not choice.tool_calls and choice.content is None:
         raise ResolutionError(
             "malformed aigateway response", code="aigateway_bad_response", permanent=True
         )
-    return content, tool_calls
 
 
 def _build_tavily_client(
@@ -341,7 +395,12 @@ async def _chat_completion_loop(
         _raise_for_status(resp)
         data = _json_or_raise(resp)
         _report_usage(model, data.get("usage"))
-        content, tool_calls = _parse_choice(data)
+        choice = _parse_choice(data)
+        # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
+        # to audit, and raising first would lose exactly the event OME-679 exists to capture.
+        _report_response(choice)
+        _raise_if_unusable(choice)
+        content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
             return content or ""
         # Cap the fan-out BEFORE dispatching: the model decides how many calls a turn carries, and

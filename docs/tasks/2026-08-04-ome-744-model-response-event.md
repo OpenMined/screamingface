@@ -1,12 +1,12 @@
 ---
 id: OME-744
 linear_url: https://linear.app/openmined/issue/OME-744/add-a-modelresponse-observation-event-so-a-world-adapter-can-report
-status: in_progress
+status: done
 type:
 priority: P2
 labels: [url4-python-sdk, autonomous, agentic]
 created: 2026-08-04
-closed:
+closed: 2026-08-04
 ---
 
 # OME-744 — a ModelResponse observation event for finish_reason and refusal
