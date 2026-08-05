@@ -103,6 +103,19 @@ is `packages/url4/src/url4/streaming/protocol/`. Confirmed with the owner before
    the architecture rule: the protocol must not know an adapter's wire shape. The plan places the
    translation in `apps/url4-cloud` and flags the spec for an r3 amendment rather than diverging
    silently.
-5. **The plan is written against the spec's four OPEN recommendations**, with §9 stating what
+5. **r3/r2 — owner locked D1 to cache-ON-by-default**, accepted the ensemble-determinism
+   tradeoff (spec §8.2) on the record, and brought the **aigateway chart** into scope. That
+   reverses spec D8 ("no aigateway change") and makes the work **cross-app**, so per CLAUDE.md
+   rule 8 it is now an epic + 3 sub-issues (`pkg/url4`, `app/url4-cloud`, `app/aigateway`) rather
+   than one unit. Checked and recorded: `request_cache_enabled` defaults to `False`
+   (`config.py:127-129`) and the chart never sets it, so caching is off in the deployed gateway
+   today — Batch 0 exists to fix that.
+6. **Two errors of my own, corrected in place.** (i) The plan cited
+   `AIGATEWAY_REQUEST_CACHE_ENABLED`; the real alias is **`AIGW_`** — aigateway uses both
+   prefixes inconsistently and I guessed. (ii) Flipping D1 exposed a hole in the protocol type:
+   with `use_cache: bool = False`, a caller sending `cache: {}` would silently disable caching
+   while believing they had expressed no opinion. `use_cache` is now tri-state
+   (`bool | None = None`).
+7. **The plan was written against the spec's OPEN recommendations**, with §9 stating what
    changes under each alternative. Written this way so the owner reviews spec and plan together
    rather than serialising four decisions first; the plumbing is ~90% invariant across them.
