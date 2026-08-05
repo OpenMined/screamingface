@@ -9,15 +9,13 @@ The complete process of evaluating one or more Candidates against one Benchmark.
 _Avoid_: Run, execution
 
 **Benchmark**:
-An Engine-owned evaluation protocol comprising Cases, Candidate Invocations, Grading, and Aggregation.
-_Avoid_: Test, dataset
-
-**Benchmark Family**:
-A named group of Benchmark Variants that share research material or deterministic runtime assets; a Family is organizational and is not itself executable.
-_Avoid_: Benchmark directory, manifest
+One independently identified and revisioned Engine-owned evaluation protocol comprising Cases,
+Candidate Invocations, Grading, and Aggregation.
+_Avoid_: Test, dataset, family
 
 **Benchmark Variant**:
-One independently identified and revisioned Benchmark protocol within a Benchmark Family. The canonical protocol is also a Variant.
+An alternative Benchmark protocol related to a canonical default Benchmark. A Variant has its
+own identity and revision even when it shares Cases or Grading material with the default.
 _Avoid_: Method, mode, option
 
 **Candidate**:
@@ -50,6 +48,16 @@ _Avoid_: Judging
 **Judge**:
 A Model called within Grading to produce evidence or verdicts; it is not an Evaluation phase.
 _Avoid_: Judge stage
+
+**Benchmark-owned Model**:
+A Model fixed by the Benchmark protocol, such as DRACO's grading Judge. Changing it changes the
+Benchmark revision.
+_Avoid_: Candidate Model, user-selected Judge
+
+**Candidate-owned Model**:
+A Model submitted as part of a Candidate, including a Fusion member or synthesizer. Changing it
+changes the Candidate rather than the Benchmark.
+_Avoid_: Benchmark dependency, pinned Judge
 
 **Aggregation**:
 The phase that combines Case grades into a Candidate’s Benchmark metrics.

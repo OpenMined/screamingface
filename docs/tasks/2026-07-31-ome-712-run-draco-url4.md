@@ -28,3 +28,6 @@ Layer-specific artifacts:
 - `docs/spec/2026-08-04-OME-712-aigateway-benchmark-support.md`
 - `docs/plan/2026-08-04-OME-712-aigateway-benchmark-support.md`
 - `docs/work/2026-08-04-OME-712-aigateway-benchmark-support.md`
+- `docs/spec/2026-08-05-OME-712-screamingface-engine-benchmark-runtime.md`
+- `docs/plan/2026-08-05-OME-712-screamingface-engine-benchmark-runtime.md`
+- `docs/work/2026-08-05-OME-712-screamingface-engine-benchmark-runtime.md`
