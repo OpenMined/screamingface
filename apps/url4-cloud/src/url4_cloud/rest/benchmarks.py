@@ -12,7 +12,7 @@ from fastapi import APIRouter, Header, Path, Query
 from fastapi.responses import JSONResponse, Response
 
 from url4_cloud.auth import PROBLEM_MEDIA_TYPE
-from url4_cloud.benchmarks import BENCHMARK_FAMILIES, DEFAULT_BENCHMARK_ID, assets_root
+from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID, assets_root
 from url4_cloud.rest.conditional import validator_matches
 
 router = APIRouter()
@@ -44,22 +44,14 @@ def _response(value: object, if_none_match: str | None) -> Response:
 
 def _catalog() -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
-    for family in sorted(BENCHMARK_FAMILIES.values(), key=lambda value: value.id):
+    for benchmark in sorted(BENCHMARKS.values(), key=lambda value: value.id):
         entry: dict[str, object] = {
-            "object": "benchmark_family",
-            "id": family.id,
-            "title": family.title,
-            "description": family.description,
-            "default_variant": family.default_variant,
-            "variants": [
-                {
-                    "id": variant.variant,
-                    "title": variant.title,
-                    "description": variant.description,
-                }
-                for variant in family.variants
-            ],
-            "href": f"/v1/benchmarks/{family.id}",
+            "object": "benchmark",
+            "id": benchmark.id,
+            "variant": benchmark.variant,
+            "title": benchmark.title,
+            "description": benchmark.description,
+            "href": f"/v1/benchmarks/{benchmark.id}",
         }
         entries.append(entry)
     return entries
@@ -83,33 +75,12 @@ async def list_benchmarks(
     )
 
 
-@router.get(
-    "/v1/benchmarks/{benchmark_id}",
-    tags=["Catalog"],
-    summary="Fetch one Engine-owned Benchmark expression",
-)
-async def get_benchmark(
-    benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
-    limit: Annotated[int | None, Query(ge=1, description="Maximum selected cases.")] = None,
-    if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
-) -> Response:
-    selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
-    family = BENCHMARK_FAMILIES.get(selected_id)
-    if family is None:
-        return _problem(
-            404,
-            "Unknown benchmark",
-            f"no Benchmark is installed under {benchmark_id!r}",
-        )
-    return _response(family.resource(limit), if_none_match)
-
-
 class _CasesUnavailableError(Exception):
     """The prepared cases asset is missing or unusable on this control plane."""
 
 
 @router.get(
-    "/v1/benchmarks/{benchmark_id}/cases",
+    "/v1/benchmarks/{benchmark_id:path}/cases",
     tags=["Catalog"],
     summary="Read one page of a Benchmark's cases",
 )
@@ -122,15 +93,17 @@ async def list_benchmark_cases(
     # FEATURE: benchmark researcher discovery (OME-723) — the SDK and the future web
     # frontend read real prompts through this one paginated contract before evaluating.
     selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
-    family = BENCHMARK_FAMILIES.get(selected_id)
-    if family is None:
+    benchmark = BENCHMARKS.get(selected_id)
+    if benchmark is None:
         return _problem(
             404,
             "Unknown benchmark",
             f"no Benchmark is installed under {benchmark_id!r}",
         )
     try:
-        rows = _case_rows(family.id)
+        # Slash-qualified Variants share the canonical Benchmark's prepared Cases. The public id
+        # already carries that relationship, so no separate Family/group field is needed.
+        rows = _case_rows(benchmark.id.partition("/")[0])
     except _CasesUnavailableError as exc:
         # WHY: a control plane deployed without the assets must fail loudly with the
         # node-route error code — an empty list would read as "benchmark has no cases".
@@ -144,11 +117,7 @@ async def list_benchmark_cases(
         {
             "object": "list",
             "benchmark": selected_id,
-            "revision": next(
-                variant.revision
-                for variant in family.variants
-                if variant.variant == family.default_variant
-            ),
+            "revision": benchmark.revision,
             "total": len(rows),
             "limit": limit,
             "offset": offset,
@@ -156,6 +125,27 @@ async def list_benchmark_cases(
         },
         if_none_match,
     )
+
+
+@router.get(
+    "/v1/benchmarks/{benchmark_id:path}",
+    tags=["Catalog"],
+    summary="Fetch one Engine-owned Benchmark expression",
+)
+async def get_benchmark(
+    benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
+    limit: Annotated[int | None, Query(ge=1, description="Maximum selected cases.")] = None,
+    if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
+) -> Response:
+    selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
+    benchmark = BENCHMARKS.get(selected_id)
+    if benchmark is None:
+        return _problem(
+            404,
+            "Unknown benchmark",
+            f"no Benchmark is installed under {benchmark_id!r}",
+        )
+    return _response(benchmark.resource(limit), if_none_match)
 
 
 def _case_rows(benchmark_id: str) -> list[dict[str, object]]:

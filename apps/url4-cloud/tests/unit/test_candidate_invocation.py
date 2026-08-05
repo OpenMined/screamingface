@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -11,13 +10,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from url4 import Iteration, Node, RelExpr, build, expr, iterate, render, src, text
+from url4 import Iteration, Node, RelExpr, build, expr, iterate, render, src, struct, text
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import NodeFinished, ObservationEvent, Usage
 from url4_cloud.benchmarks.definition import chat_input
 from url4_cloud.benchmarks.draco.definition import DRACO, EXCLUDED_DOMAINS, JUDGE_MODEL
-from url4_cloud.benchmarks.ifeval.definition import IFEVAL
+from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE, IFEVAL
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_SELF_CORRECTIVE,
     IFEVAL_VERIFYING_ENSEMBLE,
@@ -61,29 +60,39 @@ def _link_model_members(
 ) -> str:
     """The same generic structural bindings emitted by the SDK for a Fusion."""
 
-    payload = [
-        {
-            "key": chr(64 + index),
-            "name": f"member-{index}",
-            "kind": "model",
-            "expression": render(candidate),
-        }
-        for index, candidate in enumerate(candidates, 1)
-    ]
     bindings = [
         src(
-            text(
-                base64.urlsafe_b64encode(
-                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-                ).decode()
+            text(render(candidate)),
+            name=f"candidate_member_{index}",
+            weight=0.0,
+        )
+        for index, candidate in enumerate(candidates, 1)
+    ]
+    bindings.append(
+        src(
+            struct(
+                {
+                    f"member_{index}": {
+                        "name": f"member-{index}",
+                        "url4": f"$candidate_member_{index}",
+                    }
+                    for index in range(1, len(candidates) + 1)
+                }
             ),
             name="candidate_members",
             weight=0.0,
         )
-    ]
+    )
     if synthesizer is not None:
         bindings.append(src(text(render(synthesizer)), name="candidate_synthesizer", weight=0.0))
     return render(expr(*bindings, benchmark, intent=text("")))
+
+
+def _assert_native_member_link(url4: str, member_count: int) -> None:
+    assert all(f"provider/member-{index}" in url4 for index in range(1, member_count + 1))
+    assert all(f"candidate_member_{index}:0.0:" in url4 for index in range(1, member_count + 1))
+    assert '"expression"' not in url4
+    assert render(build(url4)) == url4
 
 
 _ONE_CRITERION_RUBRIC = {
@@ -246,7 +255,6 @@ async def test_ifeval_definition_executes_candidate_check_and_aggregate(tmp_path
         intent=text("Answer the question."),
     )
     _ifeval_assets(tmp_path / "ifeval")
-
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(_ifeval_responder(calls, requests)),
         base_url="http://aigateway.test",
@@ -487,6 +495,8 @@ async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
         intent=text("Follow the task."),
     )
     _ifeval_assets(tmp_path / "ifeval")
+    linked_url4 = _link_model_members(members, build(benchmark_url4), synthesizer)
+    _assert_native_member_link(linked_url4, 3)
 
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(_ensemble_responder(calls, requests)),
@@ -505,16 +515,16 @@ async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
         )
 
         try:
-            result = await world.node.evaluate(
-                _link_model_members(members, build(benchmark_url4), synthesizer)
-            )
+            result = await world.node.evaluate(linked_url4)
         finally:
             await world.aclose()
 
     decoded = json.loads(result.text)
-    assert decoded["benchmark_id"] == "ifeval/verifying-ensemble"
-    assert decoded["score"] == 1.0
-    assert decoded["failures"] == []
+    assert (decoded["benchmark_id"], decoded["score"], decoded["failures"]) == (
+        "ifeval/verifying-ensemble",
+        1.0,
+        [],
+    )
     assert decoded["metrics"]["pass_at_1"] == 0.0
     assert decoded["metrics"]["pass_at_2"] == 1.0
     # 9 member answers + 3 judge picks + 2 judge feedback authorings, all unrolled.
@@ -528,6 +538,50 @@ async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
         )
         == 6
     )
+
+
+@pytest.mark.asyncio
+async def test_verifying_ensemble_requires_a_synthesizer_before_any_paid_call(
+    tmp_path: Path,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(500)
+
+    members = tuple(
+        RelExpr(
+            path=f"/provider/member-{index}",
+            context="$input",
+            intent=text("Answer the question."),
+        )
+        for index in range(1, 4)
+    )
+    _ifeval_assets(tmp_path / "ifeval")
+    benchmark_url4 = IFEVAL_VERIFYING_ENSEMBLE.resource(1)["url4"]
+    assert isinstance(benchmark_url4, str)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(
+                default_model="provider/member-1",
+                models=tuple(ModelSpec(id=f"provider/member-{index}") for index in range(1, 4)),
+            ),
+            client=client,
+            benchmark_assets=tmp_path,
+        )
+        try:
+            with pytest.raises(ResolutionError) as exc_info:
+                await world.node.evaluate(_link_model_members(members, build(benchmark_url4)))
+        finally:
+            await world.aclose()
+
+    assert requests == []
+    assert exc_info.value.code == "benchmark_candidate_invalid"
+    assert exc_info.value.permanent is True
 
 
 @pytest.mark.asyncio
@@ -572,6 +626,64 @@ async def test_candidate_expression_runs_with_the_invocation_input() -> None:
     assert result.text == "candidate answer"
     assert len(requests) == 1
     assert "What is 2 + 2?" in json.dumps(requests[0]["messages"])
+
+
+@pytest.mark.asyncio
+async def test_candidate_cannot_read_a_private_benchmark_route(tmp_path: Path) -> None:
+    model = "provider/model"
+    _ifeval_assets(tmp_path / "ifeval")
+    candidate = RelExpr(
+        path=CHECK_ROUTE,
+        context="An answer supplied by the Candidate.",
+        intent=text("1"),
+    )
+    benchmark = RelExpr(
+        path="/candidate",
+        context="Private grading material must stay private.",
+        intent=text("$candidate"),
+    )
+    world = await build_aigateway_world(
+        AigatewayConfig(default_model=model, models=(ModelSpec(id=model),)),
+        benchmark_assets=tmp_path,
+    )
+
+    try:
+        with pytest.raises(ResolutionError) as exc_info:
+            await world.node.evaluate(_link(candidate, benchmark))
+    finally:
+        await world.aclose()
+
+    assert exc_info.value.code == "endpoint_not_found"
+    assert CHECK_ROUTE in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_candidate_cannot_fetch_an_arbitrary_absolute_url() -> None:
+    model = "provider/model"
+    candidate = build("https://private.example/rubric!read")
+    benchmark = RelExpr(
+        path="/candidate",
+        context="Do not disclose private material.",
+        intent=text("$candidate"),
+    )
+    world = await build_aigateway_world(
+        AigatewayConfig(
+            default_model=model,
+            models=(ModelSpec(id=model),),
+            # Orchestration retains ordinary URL4 outbound behavior; Candidate isolation is
+            # unconditional rather than inherited from this operator setting.
+            allow_outbound=True,
+        )
+    )
+
+    try:
+        with pytest.raises(ResolutionError) as exc_info:
+            await world.node.evaluate(_link(candidate, benchmark))
+    finally:
+        await world.aclose()
+
+    assert exc_info.value.code == "resolution_failed"
+    assert "https://private.example/rubric" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -780,13 +892,8 @@ def test_chat_input_rejects_malformed_python_messages_while_authoring() -> None:
         chat_input([{"role": "user", "content": 42}])
 
 
-@pytest.mark.asyncio
-async def test_scicode_style_steps_carry_code_through_sandbox_grading() -> None:
-    generated = iter(("```python\nx = 1\n```", "```python\ny = x + 1\n```"))
-    candidate_inputs: list[str] = []
-    sandbox_inputs: list[str] = []
-    model = "provider/model"
-    candidate = RelExpr(path="/generate", context="$input", intent=text("generate"))
+def _scicode_graph(model: str) -> tuple[Node, Node]:
+    candidate = RelExpr(path=f"/{model}", context="$input", intent=text("generate"))
     first = RelExpr(path="/candidate", context="Implement step 1.", intent=text("$candidate"))
     first_code = RelExpr(path="/extract", context="$first", intent=text("extract"))
     first_grade = RelExpr(path="/sandbox", context="$code_1", intent=text("grade step 1"))
@@ -806,34 +913,53 @@ async def test_scicode_style_steps_carry_code_through_sandbox_grading() -> None:
         src(second_grade, name="grade_2", weight=0.0),
         intent=text("$grade_2"),
     )
-    world = await build_aigateway_world(
-        AigatewayConfig(default_model=model, models=(ModelSpec(id=model),))
-    )
+    return candidate, benchmark
 
-    @world.node.endpoint("/generate")
-    def generate(request) -> str:
-        candidate_inputs.append(request.context)
-        return next(generated)
 
-    @world.node.endpoint("/extract")
-    def extract(request) -> str:
-        return request.context.removeprefix("```python\n").removesuffix("\n```")
+@pytest.mark.asyncio
+async def test_scicode_style_steps_carry_code_through_sandbox_grading() -> None:
+    generated = iter(("```python\nx = 1\n```", "```python\ny = x + 1\n```"))
+    candidate_inputs: list[str] = []
+    sandbox_inputs: list[str] = []
+    model = "provider/model"
+    candidate, benchmark = _scicode_graph(model)
 
-    @world.node.endpoint("/sandbox")
-    def sandbox(request) -> str:
-        sandbox_inputs.append(request.context)
-        return "pass"
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        candidate_inputs.append(json.dumps(payload["messages"]))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": next(generated)}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
 
-    try:
-        result = await world.node.evaluate(_link(candidate, benchmark))
-    finally:
-        await world.aclose()
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(default_model=model, models=(ModelSpec(id=model),)),
+            client=client,
+        )
+
+        @world.node.endpoint("/extract")
+        def extract(request) -> str:
+            return request.context.removeprefix("```python\n").removesuffix("\n```")
+
+        @world.node.endpoint("/sandbox")
+        def sandbox(request) -> str:
+            sandbox_inputs.append(request.context)
+            return "pass"
+
+        try:
+            result = await world.node.evaluate(_link(candidate, benchmark))
+        finally:
+            await world.aclose()
 
     assert result.text == "pass"
-    assert candidate_inputs == [
-        "Implement step 1.",
-        "Implement step 2 using prior code: x = 1. Prior grade: pass.",
-    ]
+    assert "Implement step 1." in candidate_inputs[0]
+    assert "Implement step 2 using prior code: x = 1. Prior grade: pass." in candidate_inputs[1]
     assert sandbox_inputs == ["x = 1", "y = x + 1"]
 
 
@@ -994,51 +1120,50 @@ async def test_candidate_failure_keeps_its_typed_error_on_the_outer_span() -> No
 
 @pytest.mark.asyncio
 async def test_cancelling_the_outer_run_cancels_candidate_work() -> None:
-    started = asyncio.Event()
-    cancelled = asyncio.Event()
-    never = asyncio.Event()
+    started, cancelled, never = (asyncio.Event() for _ in range(3))
     model = "provider/model"
-    candidate = RelExpr(path="/gated", context="$input", intent=text("wait"))
+    candidate = RelExpr(path=f"/{model}", context="$input", intent=text("wait"))
     benchmark = RelExpr(
         path="/candidate",
         context="question",
         intent=text("$candidate"),
     )
 
-    world = await build_aigateway_world(
-        AigatewayConfig(default_model=model, models=(ModelSpec(id=model),))
-    )
-
-    @world.node.endpoint("/gated")
-    async def gated(_request) -> str:
+    async def respond(_request: httpx.Request) -> httpx.Response:
         started.set()
         try:
             await never.wait()
         finally:
             cancelled.set()
-        return "unreachable"
+        return httpx.Response(500)
 
-    task = asyncio.create_task(url4_run(_link(candidate, benchmark), world.node))
-    try:
-        await asyncio.wait_for(started.wait(), timeout=1.0)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        await asyncio.wait_for(cancelled.wait(), timeout=1.0)
-    finally:
-        if not task.done():
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(default_model=model, models=(ModelSpec(id=model),)),
+            client=client,
+        )
+        task = asyncio.create_task(url4_run(_link(candidate, benchmark), world.node))
+        try:
+            await asyncio.wait_for(started.wait(), timeout=1.0)
             task.cancel()
-        await world.aclose()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            await asyncio.wait_for(cancelled.wait(), timeout=1.0)
+        finally:
+            if not task.done():
+                task.cancel()
+            await world.aclose()
 
 
 @pytest.mark.asyncio
-async def test_candidate_expression_cannot_recursively_invoke_candidate() -> None:
+async def test_candidate_world_does_not_expose_candidate_invocation() -> None:
     model = "provider/model"
-    leaf = RelExpr(path="/leaf", context="$input", intent=text("answer"))
     candidate = RelExpr(
         path="/candidate",
         context="$input",
-        intent=text(render(leaf)),
+        intent=text("nested candidate"),
     )
     benchmark = RelExpr(
         path="/candidate",
@@ -1048,22 +1173,20 @@ async def test_candidate_expression_cannot_recursively_invoke_candidate() -> Non
     world = await build_aigateway_world(
         AigatewayConfig(default_model=model, models=(ModelSpec(id=model),))
     )
-    world.node.endpoint("/leaf")(lambda _request: "should not run")
-
     try:
         with pytest.raises(ResolutionError) as exc_info:
             await world.node.evaluate(_link(candidate, benchmark))
     finally:
         await world.aclose()
 
-    assert exc_info.value.code == "candidate_recursion"
+    assert exc_info.value.code == "endpoint_not_found"
     assert exc_info.value.permanent is True
 
 
 @pytest.mark.asyncio
 async def test_world_caps_total_candidate_invocations() -> None:
     model = "provider/model"
-    candidate = RelExpr(path="/leaf", context="$input", intent=text("answer"))
+    candidate = RelExpr(path=f"/{model}", context="$input", intent=text("answer"))
     first = RelExpr(path="/candidate", context="one", intent=text("$candidate"))
     second = RelExpr(path="/candidate", context="$first two", intent=text("$candidate"))
     third = RelExpr(path="/candidate", context="$second three", intent=text("$candidate"))
@@ -1073,29 +1196,45 @@ async def test_world_caps_total_candidate_invocations() -> None:
         src(third, name="third", weight=0.0),
         intent=text("$third"),
     )
-    world = await build_aigateway_world(
-        AigatewayConfig(
-            default_model=model,
-            models=(ModelSpec(id=model),),
-            candidate_max_invocations=2,
-        )
-    )
-    world.node.endpoint("/leaf")(lambda request: request.context)
+    requests: list[httpx.Request] = []
 
-    try:
-        with pytest.raises(ResolutionError) as exc_info:
-            await world.node.evaluate(_link(candidate, benchmark))
-    finally:
-        await world.aclose()
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "answer"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(
+                default_model=model,
+                models=(ModelSpec(id=model),),
+                candidate_max_invocations=2,
+            ),
+            client=client,
+        )
+
+        try:
+            with pytest.raises(ResolutionError) as exc_info:
+                await world.node.evaluate(_link(candidate, benchmark))
+        finally:
+            await world.aclose()
 
     assert exc_info.value.code == "candidate_invocation_limit"
     assert exc_info.value.permanent is True
+    assert len(requests) == 2
 
 
 @pytest.mark.asyncio
 async def test_top_level_benchmark_iteration_can_invoke_the_linked_candidate() -> None:
     model = "provider/model"
-    candidate = RelExpr(path="/leaf", context="$input", intent=text("answer"))
+    candidate = RelExpr(path=f"/{model}", context="$input", intent=text("answer"))
     benchmark = iterate(
         "/cases",
         body=(
@@ -1114,20 +1253,37 @@ async def test_top_level_benchmark_iteration_can_invoke_the_linked_candidate() -
         on_error="fail",
     )
     linked = _link(candidate, benchmark)
-    world = await build_aigateway_world(
-        AigatewayConfig(default_model=model, models=(ModelSpec(id=model),))
-    )
-    world.node.data(
-        "/cases",
-        json.dumps([{"question": "one"}, {"question": "two"}]),
-        media_type="application/json",
-    )
-    world.node.endpoint("/leaf")(lambda request: request.context)
 
-    try:
-        result = await world.node.evaluate(linked)
-    finally:
-        await world.aclose()
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        question = next(
+            message["content"] for message in payload["messages"] if message["role"] == "user"
+        )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": question}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(default_model=model, models=(ModelSpec(id=model),)),
+            client=client,
+        )
+        world.node.data(
+            "/cases",
+            json.dumps([{"question": "one"}, {"question": "two"}]),
+            media_type="application/json",
+        )
+
+        try:
+            result = await world.node.evaluate(linked)
+        finally:
+            await world.aclose()
 
     assert json.loads(result.text) == ["one", "two"]
 

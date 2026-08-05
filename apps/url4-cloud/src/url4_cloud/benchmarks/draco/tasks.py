@@ -77,11 +77,11 @@ def load_question(directory: Path, case_id: int) -> str:
 def positive_case_id(value: object) -> int:
     """Decode the case id carried in a Benchmark route intent."""
     label = "case_id"
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise TasksError(f"{label} must be a positive integer")
     try:
-        selected = int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+        selected = int(value)
+    except ValueError:
         raise TasksError(f"{label} must be a positive integer") from None
     if selected < 1:
         raise TasksError(f"{label} must be a positive integer")
@@ -89,9 +89,11 @@ def positive_case_id(value: object) -> int:
 
 
 def _case_id(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
     try:
-        return int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+        return int(value)
+    except ValueError:
         return None
 
 

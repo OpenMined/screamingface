@@ -64,8 +64,8 @@ def _record(strict: list[bool], violations: list[str]) -> str:
     )
 
 
-def test_variants_share_family_assets_but_not_protocol_identity() -> None:
-    assert IFEVAL_SELF_CORRECTIVE.family == IFEVAL.family == "ifeval"
+def test_variants_share_the_canonical_id_prefix_but_not_protocol_identity() -> None:
+    assert IFEVAL_SELF_CORRECTIVE.id.partition("/")[0] == IFEVAL.id
     assert IFEVAL_SELF_CORRECTIVE.id != IFEVAL.id
     assert IFEVAL_SELF_CORRECTIVE.revision != IFEVAL.revision
 

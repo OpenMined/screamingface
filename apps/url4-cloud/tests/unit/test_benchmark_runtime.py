@@ -48,7 +48,7 @@ async def test_registry_installs_all_versioned_draco_routes(tmp_path: Path) -> N
     assert {TASKS_ROUTE, VERDICT_ROUTE, AGGREGATE_ROUTE} <= set(node.processor_routes())
     assert json.loads(await node.fetch(CASES_ROUTE, relative=True))[0]["input"] == "Question"
     # WHY per-registry prefixes: the original draco-only assertion was structurally
-    # incompatible with a second installed family (surfaced + relaxed in OME-719).
+    # incompatible with a second installed runtime (surfaced + relaxed in OME-719).
     prefixes = tuple(f"/benchmarks/{benchmark_id}/" for benchmark_id in BENCHMARKS)
     assert all(route.startswith(prefixes) for route in node.processor_routes())
 
@@ -200,6 +200,7 @@ async def test_aggregate_accepts_payload_larger_than_process_argv(tmp_path: Path
     install_benchmarks(node, tmp_path)
     verdict = {
         "schema": "screamingface.criterion-verdict.v1",
+        "case_id": 1,
         "criterion_id": "c1",
         "valid": True,
         "explanation": "x" * 2_100_000,

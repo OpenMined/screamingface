@@ -23,8 +23,8 @@ from url4_cloud.benchmarks.ifeval.iterative_correction import (
     MAX_MEMBERS,
     MIN_MEMBERS,
     PROSE_CONSTANTS,
+    RESOLVE_CANDIDATE_ROUTE,
     SELECT_ROUTE,
-    VALIDATE_MEMBERS_ROUTE,
 )
 
 
@@ -57,14 +57,13 @@ def test_one_url4_binds_a_runtime_member_collection_and_the_synthesizer() -> Non
     assert render(build(url4)) == url4
     assert "$candidate_members" in url4
     assert "$candidate_model_member_" not in url4
-    assert VALIDATE_MEMBERS_ROUTE in url4
-    # The judge (synthesizer binding) picks once per attempt and authors feedback
-    # between attempts, preserving Khoa's existing unrolled behavior.
-    assert url4.count("$candidate_synthesizer") == MAX_ATTEMPTS + (MAX_ATTEMPTS - 1)
+    assert RESOLVE_CANDIDATE_ROUTE in url4
+    # The synthesizer binding is validated once before spend; the Judge then picks once per
+    # attempt and authors feedback between attempts, preserving the unrolled behavior.
+    assert url4.count("$candidate_synthesizer") == 1 + MAX_ATTEMPTS + (MAX_ATTEMPTS - 1)
     assert url4.count(SELECT_ROUTE) == MAX_ATTEMPTS
-    # INVARIANT: no engine-pinned judge — the judge belongs to the system under test
-    # (the paper's [Ens-1] vs [Ens-2] differ only in the judge).
-    assert resource["required_models"] == []
+    # INVARIANT: no Engine-pinned Judge — the Judge belongs to the system under test
+    # (the paper's [Ens-1] vs [Ens-2] differ only in the Judge).
     assert "openrouter/" not in url4
 
 

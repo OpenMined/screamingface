@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
+from url4_cloud.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
 
 SCHEMA = "screamingface.ifeval-check.v1"
 
@@ -44,31 +45,22 @@ def aggregate(
 
     rows = _rows(rows_json)
     case_results: list[dict[str, Any]] = []
-    recordless_case_ids: list[int] = []
-    for index, raw in enumerate(rows):
-        record = _first_valid_record(raw, specs)
+    recordless_cases: list[tuple[int, int]] = []
+    for index, (raw, case_id) in enumerate(zip(rows, _selected_case_ids(rows, specs), strict=True)):
+        spec = specs[case_id]
+        record = _first_valid_record(raw, case_id, spec)
         if record is None:
-            # WHY position is the failure identity: the Benchmark produced the Case list
-            # and `on_error=collect` preserves row order, so row N is case N even when the
-            # row itself is an error object.
-            case_id = index + 1
-            spec = specs.get(case_id)
-            if spec is None:
-                raise AggregateError(
-                    f"row {index} has no check record and no spec for case {case_id}; "
-                    "the installed IFEval assets are incomplete"
-                )
-            recordless_case_ids.append(case_id)
+            recordless_cases.append((index, case_id))
             continue
         case_results.append(
             _case_result(
-                int(record["case_id"]),
+                case_id,
                 [bool(value) for value in record["strict"]],
                 [bool(value) for value in record["loose"]],
             )
         )
-    if recordless_case_ids:
-        raise AggregateError(_recordless_message(rows, recordless_case_ids))
+    if recordless_cases:
+        raise AggregateError(_recordless_message(rows, recordless_cases))
 
     strict_all = [case["follow_all_strict"] for case in case_results]
     loose_all = [case["follow_all_loose"] for case in case_results]
@@ -77,6 +69,7 @@ def aggregate(
     return {
         "schema": CANDIDATE_RESULT_SCHEMA,
         "benchmark_id": benchmark_id,
+        "benchmark_revision": IFEVAL_REVISION,
         "case_count": len(case_results),
         "score": _accuracy(strict_all),
         "metrics": {
@@ -95,6 +88,7 @@ def aggregate_corrective(
     rows_json: str,
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
+    benchmark_revision: str,
     max_attempts: int = 3,
 ) -> dict[str, Any]:
     """Reduce corrective-chain rows — one scored entry per case, pass@attempt metrics.
@@ -106,7 +100,7 @@ def aggregate_corrective(
 
     rows = _rows(rows_json)
     case_results: list[dict[str, Any]] = []
-    recordless_case_ids: list[int] = []
+    recordless_cases: list[tuple[int, int]] = []
     for index, raw in enumerate(rows):
         case_id = index + 1
         spec = specs.get(case_id)
@@ -117,7 +111,7 @@ def aggregate_corrective(
             )
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
-            recordless_case_ids.append(case_id)
+            recordless_cases.append((index, case_id))
             continue
         earliest_pass = min(
             (attempt for attempt, record in records.items() if all(record["strict"])),
@@ -134,8 +128,8 @@ def aggregate_corrective(
                 [bool(value) for value in selected["loose"]],
             )
         )
-    if recordless_case_ids:
-        raise AggregateError(_recordless_message(rows, recordless_case_ids))
+    if recordless_cases:
+        raise AggregateError(_recordless_message(rows, recordless_cases))
 
     strict_all = [case["follow_all_strict"] for case in case_results]
     loose_all = [case["follow_all_loose"] for case in case_results]
@@ -159,8 +153,9 @@ def aggregate_corrective(
         for attempt in range(1, max_attempts + 1)
     }
     return {
-        "schema": "screamingface.candidate-result.v1",
+        "schema": CANDIDATE_RESULT_SCHEMA,
         "benchmark_id": benchmark_id,
+        "benchmark_revision": benchmark_revision,
         "case_count": total,
         "score": _accuracy(strict_all),
         "metrics": {
@@ -207,10 +202,8 @@ def _attempt_records(
             and attempt is not None
             and 1 <= attempt <= max_attempts
             and attempt not in records
-            and isinstance(strict, list)
-            and isinstance(loose, list)
-            and len(strict) == len(expected_ids)
-            and len(loose) == len(expected_ids)
+            and _is_bool_vector(strict, len(expected_ids))
+            and _is_bool_vector(loose, len(expected_ids))
         ):
             records[attempt] = record
     return records
@@ -263,20 +256,23 @@ def _rows(rows_json: str) -> list[Any]:
         raise AggregateError(f"reducer payload is not JSON: {exc}") from None
     if not isinstance(rows, list):
         raise AggregateError(f"reducer payload must be a JSON array, got {type(rows).__name__}")
+    if not rows:
+        raise AggregateError("no IFEval rows were produced; the Candidate cannot be scored")
     return rows
 
 
-def _recordless_message(rows: Sequence[Any], case_ids: Sequence[int]) -> str:
+def _recordless_message(rows: Sequence[Any], cases: Sequence[tuple[int, int]]) -> str:
     """Name Cases and sanitized errors that URL4 collected before IFEval could check."""
 
+    case_ids = [case_id for _, case_id in cases]
     shown = ", ".join(str(case_id) for case_id in case_ids[:10])
     if len(case_ids) > 10:
         shown = f"{shown}, … (+{len(case_ids) - 10} more)"
     label = "case" if len(case_ids) == 1 else "cases"
     base = f"{label} {shown} carried no valid IFEval check record; the Candidate cannot be scored"
     failures: list[str] = []
-    for case_id in case_ids:
-        row = rows[case_id - 1]
+    for row_index, case_id in cases:
+        row = rows[row_index]
         error = row.get("error") if isinstance(row, Mapping) else None
         if not isinstance(error, Mapping):
             continue
@@ -294,26 +290,51 @@ def _recordless_message(rows: Sequence[Any], case_ids: Sequence[int]) -> str:
     return f"{base}; collected row error: {'; '.join(failures)}"
 
 
-def _first_valid_record(row: Any, specs: Mapping[int, Mapping[str, Any]]) -> dict[str, Any] | None:
+def _selected_case_ids(rows: Sequence[Any], specs: Mapping[int, Mapping[str, Any]]) -> list[int]:
+    """The prefix of installed Cases selected by the Benchmark's `limit` slice."""
+
+    case_ids = sorted(specs)
+    if len(rows) > len(case_ids):
+        raise AggregateError(
+            f"reducer carried {len(rows)} rows but only {len(case_ids)} IFEval specs are installed"
+        )
+    return case_ids[: len(rows)]
+
+
+def _first_valid_record(
+    row: Any,
+    expected_case_id: int,
+    spec: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    expected_ids = list(_instruction_ids(spec))
     text = row if isinstance(row, str) else json.dumps(row)
     for span in _RECORD_SPAN_RE.finditer(text):
         record = _decode_escaped(span.group(0))
         if not isinstance(record, dict) or record.get("schema") != SCHEMA:
             continue
-        case_id = _as_int(record.get("case_id"))
         strict = record.get("strict")
         loose = record.get("loose")
         if (
             record.get("valid") is True
-            # A record for a case this run does not own cannot smuggle in a score.
-            and case_id in specs
-            and isinstance(strict, list)
-            and isinstance(loose, list)
-            and len(strict) == len(loose)
-            and strict
+            # INVARIANT: an authentic record for ANOTHER known Case is still not this row's
+            # grade. The private instruction vector binds the record to the same Case too.
+            and _as_int(record.get("case_id")) == expected_case_id
+            and record.get("instruction_id_list") == expected_ids
+            and _is_bool_vector(strict, len(expected_ids))
+            and _is_bool_vector(loose, len(expected_ids))
         ):
-            return {**record, "case_id": case_id}
+            return record
     return None
+
+
+def _is_bool_vector(value: object, expected_length: int) -> bool:
+    """True only for the exact vector type emitted by deterministic verification."""
+
+    return (
+        isinstance(value, list)
+        and len(value) == expected_length
+        and all(type(item) is bool for item in value)
+    )
 
 
 def _decode_escaped(span: str, max_depth: int = 4) -> Any:

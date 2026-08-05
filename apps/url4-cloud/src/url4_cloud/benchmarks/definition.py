@@ -15,6 +15,8 @@ from url4_cloud.benchmarks.contract import (
     CANDIDATE_ROUTE,
 )
 
+type BenchmarkInstaller = Callable[[Url4Node, Path, frozenset[str]], None]
+
 
 @dataclass(frozen=True, slots=True)
 class Benchmark:
@@ -25,22 +27,20 @@ class Benchmark:
     transport remain shared infrastructure.
 
     Each definition returns one complete evaluation protocol. Alternative protocols are
-    separate Benchmark definitions that may share family assets and runtime functions.
+    separate Benchmark definitions that may share one installer.
     """
 
     id: str
-    family: str
     variant: str
     title: str
     description: str
     revision: str
     case_count: int
-    required_models: tuple[str, ...]
     build: Callable[[int], Node]
-    install: Callable[[Url4Node, Path], None]
+    install: BenchmarkInstaller
 
     def resource(self, limit: int | None) -> dict[str, object]:
-        """Build this Variant's exact executable representation."""
+        """Build this Benchmark's flat executable public resource."""
 
         selected = self.case_count if limit is None else min(limit, self.case_count)
         if selected < 1:
@@ -49,49 +49,14 @@ class Benchmark:
         if not isinstance(expression, Node):
             raise TypeError("Benchmark build must return a URL4 Node")
         return {
-            "revision": self.revision,
-            "title": self.title,
-            "description": self.description,
-            "case_count": selected,
-            "total_case_count": self.case_count,
-            "required_models": list(self.required_models),
-            "url4": render(expression),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class BenchmarkFamily:
-    """One discoverable family containing independently revisioned Benchmark Variants."""
-
-    id: str
-    title: str
-    description: str
-    default_variant: str
-    variants: tuple[Benchmark, ...]
-
-    def __post_init__(self) -> None:
-        if not self.variants:
-            raise ValueError("Benchmark Family must contain at least one Variant")
-        if any(variant.family != self.id for variant in self.variants):
-            raise ValueError("every Benchmark Variant must belong to its Family")
-        variant_ids = tuple(variant.variant for variant in self.variants)
-        if len(variant_ids) != len(set(variant_ids)):
-            raise ValueError("Benchmark Family contains duplicate Variant ids")
-        if self.default_variant not in variant_ids:
-            raise ValueError("Benchmark Family default_variant must name an installed Variant")
-        if len({variant.install for variant in self.variants}) != 1:
-            raise ValueError("Benchmark Family Variants must share one runtime installer")
-
-    def resource(self, limit: int | None) -> dict[str, object]:
-        """Build every Variant in the one cacheable family resource."""
-
-        return {
-            "schema": "screamingface.benchmark-family.v1",
+            "schema": "screamingface.benchmark.v1",
             "id": self.id,
+            "variant": self.variant,
             "title": self.title,
             "description": self.description,
-            "default_variant": self.default_variant,
-            "variants": {variant.variant: variant.resource(limit) for variant in self.variants},
+            "revision": self.revision,
+            "case_count": self.case_count,
+            "url4": render(expression),
         }
 
 
@@ -196,4 +161,4 @@ def _chat_json(messages: object) -> str:
     return json.dumps(selected, ensure_ascii=False, separators=(",", ":"))
 
 
-__all__ = ["Benchmark", "BenchmarkFamily", "candidate", "chat_input"]
+__all__ = ["Benchmark", "BenchmarkInstaller", "candidate", "chat_input"]

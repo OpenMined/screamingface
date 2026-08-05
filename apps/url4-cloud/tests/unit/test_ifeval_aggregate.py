@@ -13,6 +13,7 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
     aggregate,
     load_specs,
 )
+from url4_cloud.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
 
 _SPECS = {
     1: {
@@ -63,6 +64,7 @@ def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
     # the leaderboard number must mean what arXiv:2311.07911 says it means.
     assert result["schema"] == "screamingface.candidate-result.v1"
     assert result["benchmark_id"] == "ifeval"
+    assert result["benchmark_revision"] == IFEVAL_REVISION
     assert result["score"] == 0.5
     assert result["metrics"]["inst_level_strict_accuracy"] == round(2 / 3, 4)
     assert result["metrics"]["prompt_level_loose_accuracy"] == 1.0

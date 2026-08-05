@@ -7,7 +7,6 @@ resolves and runs an expression against.
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -39,6 +38,11 @@ from url4_cloud.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_MESSAGE_ROLES,
     CANDIDATE_ROUTE,
+)
+from url4_cloud.runner.candidate import (
+    DEFAULT_CANDIDATE_MAX_INVOCATIONS,
+    current_candidate_model_params,
+    install_candidate_invocation,
 )
 from url4_cloud.runner.config import (
     DEFAULT_WEB_TOOL_MAX_ITERATIONS,
@@ -80,9 +84,6 @@ _WEB_TOOLS = [
         },
     },
 ]
-
-_DEFAULT_CANDIDATE_MAX_INVOCATIONS = 10_000
-
 
 WEB_SEARCH_PARAM = "web_search"
 """The expression-level retrieval toggle: ``…!'answer';web_search=false``.
@@ -147,18 +148,6 @@ _RUNNER_INTERPRETED_PARAMS = frozenset(
 )
 """Params the runner CONSUMES. Forwarded, each would be an unknown gateway field and fail closed
 on every call that carried it."""
-
-_candidate_model_params: contextvars.ContextVar[Mapping[str, str] | None] = contextvars.ContextVar(
-    "url4_cloud_candidate_model_params", default=None
-)
-"""Benchmark-owned model policy active only while one linked Candidate is evaluated.
-
-The Candidate expression remains ordinary URL4 and can be shared independently. The Benchmark's
-``/candidate`` call supplies the retrieval policy, and this task-local binding applies it to every
-model call inside that nested evaluation. A ContextVar is required because one Runner may execute
-different case calls concurrently; mutable world-level state would leak one Benchmark's policy
-into another Candidate.
-"""
 
 
 def _native_web_search(
@@ -236,7 +225,7 @@ class AigatewayConfig:
     # Per Runner job, not per nested Candidate evaluation. The Benchmark resource reports its
     # planned invocation count for inspection; this independent runtime bound remains authoritative
     # if a malformed or dynamically behaving expression exceeds that declaration.
-    candidate_max_invocations: int = _DEFAULT_CANDIDATE_MAX_INVOCATIONS
+    candidate_max_invocations: int = DEFAULT_CANDIDATE_MAX_INVOCATIONS
 
 
 @dataclass
@@ -315,7 +304,7 @@ class _ModelEndpoint:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
         spec = self._routes[request.path]
-        candidate_policy = _candidate_model_params.get()
+        candidate_policy = current_candidate_model_params()
         params = (
             request.params if candidate_policy is None else {**request.params, **candidate_policy}
         )
@@ -331,86 +320,6 @@ class _ModelEndpoint:
             identity_headers=self._identity_headers,
             policy=self._policy,
         )
-
-
-class _CandidateEndpoint:
-    """Evaluate one linked Candidate expression against this run's world.
-
-    The Benchmark owns the call site and supplies ``request.context``; the SDK-owned Candidate
-    expression arrives as the resolved intent. Evaluating it in-process keeps every declared
-    model, command, data route, credential, and cancellation boundary in the same Runner job.
-    Only ``$input`` crosses into the Candidate's lexical scope.
-    """
-
-    __slots__ = ("_active", "_calls", "_max_invocations", "_node")
-
-    def __init__(self, node: Url4Node, max_invocations: int) -> None:
-        if max_invocations < 1:
-            raise RunnerConfigError("candidate_max_invocations must be at least 1")
-        self._node = node
-        self._max_invocations = max_invocations
-        self._calls = 0
-        # Context-local rather than object-global: concurrent Benchmark call sites are valid,
-        # but a nested evaluation inherits this marker and cannot recursively re-enter the
-        # adapter. Each Runner world owns its own ContextVar instance.
-        self._active: contextvars.ContextVar[bool] = contextvars.ContextVar(
-            "url4_cloud_candidate_active", default=False
-        )
-
-    async def __call__(self, request: Request) -> str:
-        if self._active.get():
-            raise ResolutionError(
-                "a Candidate expression cannot invoke /candidate",
-                code="candidate_recursion",
-                permanent=True,
-            )
-        # There is deliberately no await between check and increment: Runner handlers share one
-        # event loop, so concurrent call sites cannot both claim the same remaining slot.
-        if self._calls >= self._max_invocations:
-            raise ResolutionError(
-                f"Candidate Invocation limit of {self._max_invocations} exceeded",
-                code="candidate_invocation_limit",
-                permanent=True,
-            )
-        self._calls += 1
-        token = self._active.set(True)
-        policy_token = _candidate_model_params.set(_candidate_policy(request.params))
-        try:
-            result = await self._node.evaluate(request.intent, env=_candidate_env(request.context))
-            return result.text
-        finally:
-            _candidate_model_params.reset(policy_token)
-            self._active.reset(token)
-
-
-def _candidate_env(context: str) -> dict[str, str]:
-    """Bind the sole Candidate input supplied by a Benchmark Invocation."""
-
-    return {"input": context or ""}
-
-
-def _register_candidate(node: Url4Node, max_invocations: int) -> None:
-    """Reserve and install the Engine-owned Candidate Invocation route."""
-
-    node.endpoint(CANDIDATE_ROUTE)(_CandidateEndpoint(node, max_invocations))
-
-
-def _candidate_policy(params: Mapping[str, str]) -> dict[str, str]:
-    """Validate the narrow policy surface a Benchmark may apply to its Candidate.
-
-    Generation settings remain Candidate-owned. Only Runner-interpreted retrieval controls cross
-    this boundary, and they are applied after the Candidate's own params so a Candidate cannot
-    disable a Benchmark's leak guard.
-    """
-
-    unknown = sorted(set(params) - _RUNNER_INTERPRETED_PARAMS)
-    if unknown:
-        raise ResolutionError(
-            f"unsupported Candidate policy parameter(s) {unknown}",
-            code="candidate_policy_invalid",
-            permanent=True,
-        )
-    return dict(params)
 
 
 def _reject_candidate_route_claims(
@@ -587,10 +496,20 @@ def build_local_world(
     the deny-by-default outbound posture, so the ONLY thing this world adds over
     `deny_by_default_world` is the declared routes.
     """
+    _reject_candidate_route_claims((), commands, data)
     node = Url4Node("local", outbound=StaticIOLayer())
+    candidate_node = Url4Node("candidate", outbound=StaticIOLayer())
+    install_candidate_invocation(
+        node,
+        candidate_node,
+        max_invocations=DEFAULT_CANDIDATE_MAX_INVOCATIONS,
+        allowed_policy_params=_RUNNER_INTERPRETED_PARAMS,
+    )
     install_benchmarks(node, benchmark_assets)
     register_commands(node, commands)
     register_data(node, data)
+    register_commands(candidate_node, commands)
+    register_data(candidate_node, data)
     return node
 
 
@@ -659,17 +578,30 @@ async def build_aigateway_world(
         default_processor="/" + cfg.default_model,
         outbound=None if cfg.allow_outbound else StaticIOLayer(),
     )
+    candidate_node = Url4Node(
+        "candidate",
+        default_processor="/" + cfg.default_model,
+        outbound=StaticIOLayer(),
+    )
     # Engine-owned protocol routes are reserved before operator-declared routes. A model,
     # command, or data route cannot silently shadow Candidate Invocation.
-    _register_candidate(node, cfg.candidate_max_invocations)
+    install_candidate_invocation(
+        node,
+        candidate_node,
+        max_invocations=cfg.candidate_max_invocations,
+        allowed_policy_params=_RUNNER_INTERPRETED_PARAMS,
+    )
     for path in routes:
         node.endpoint(path)(call_model)
-    install_benchmarks(node, benchmark_assets)
+        candidate_node.endpoint(path)(call_model)
+    install_benchmarks(node, benchmark_assets, model_routes=routes)
     # INVARIANT: commands are registered AFTER the model routes, so a path claimed by both is
     # rejected by the engine here rather than silently shadowing a model. `config` already
     # rejects that pair with a better message; this is the backstop for a world built directly.
     register_commands(node, commands)
     register_data(node, data)
+    register_commands(candidate_node, commands)
+    register_data(candidate_node, data)
     return AigatewayWorld(
         node=node,
         _client=http_client,
@@ -957,7 +889,7 @@ async def _retrieval_exclusions(
     return (*await policy.resolve(path), *ad_hoc)
 
 
-async def _chat_completion_loop(
+async def _chat_completion_loop(  # noqa: PLR0915 - one auditable provider turn state machine
     *,
     http_client: httpx.AsyncClient,
     cfg: AigatewayConfig,

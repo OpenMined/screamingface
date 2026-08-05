@@ -2,7 +2,7 @@
 
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from url4_cloud import job_env
@@ -82,14 +82,6 @@ class Settings(BaseSettings):
     # Helm value the variable directly instead of copying it through this field. `None` disables
     # the model-catalog endpoint (503 "not configured").
     aigateway_base_url: str | None = None
-    # Candidate compilation needs one deployment-owned synthesis default. The App publishes this
-    # concrete AI Gateway model id in `/v1/models`; the SDK embeds it in the final portable URL4.
-    # Benchmarks remain free to pin their own Judge routes independently.
-    default_synthesizer: str = Field(
-        default="anthropic/claude-haiku-4-5",
-        min_length=1,
-        pattern=r"^[^/\s]+/[^\s]+$",
-    )
     # WHY: deploy-time Runner env travels as k8s objects the Job references with `envFrom`, so the
     # App neither names nor reads those variables — Helm owns name AND value. These two settings
     # are the only thing it needs: what to reference.

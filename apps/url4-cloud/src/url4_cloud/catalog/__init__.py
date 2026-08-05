@@ -48,7 +48,7 @@ def build_catalog_service(
         return None
     client = client_factory(base_url)
     return CachedCatalog(
-        AigatewayCatalogSource(client, default_synthesizer=settings.default_synthesizer),
+        AigatewayCatalogSource(client),
         ttl_s=settings.models_cache_ttl_s,
         stale_max_s=settings.models_cache_stale_max_s,
         error_backoff_s=settings.models_cache_error_backoff_s,

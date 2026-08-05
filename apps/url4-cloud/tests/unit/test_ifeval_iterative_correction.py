@@ -27,6 +27,7 @@ from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_SELF_CORRECTIVE,
     MAX_ATTEMPTS,
     SELF_CORRECTIVE_ID,
+    SELF_CORRECTIVE_REVISION,
 )
 
 _SPECS = {
@@ -117,9 +118,9 @@ def test_corrective_is_a_distinct_variant_with_its_own_revision() -> None:
     assert IFEVAL.id == "ifeval"
     assert IFEVAL.variant == "canonical"
     assert IFEVAL_SELF_CORRECTIVE.id == "ifeval/self-corrective"
-    assert IFEVAL_SELF_CORRECTIVE.family == IFEVAL.family == "ifeval"
+    assert IFEVAL_SELF_CORRECTIVE.install is IFEVAL.install
+    assert not hasattr(IFEVAL, "family")
     assert IFEVAL_SELF_CORRECTIVE.variant == "self-corrective"
-    assert IFEVAL_SELF_CORRECTIVE.required_models == ()
     assert MAX_ATTEMPTS == 3
 
 
@@ -172,9 +173,10 @@ def test_selected_attempt_is_the_earliest_strict_pass() -> None:
         " ".join((_record(2, 1, [True]), _record(2, 2, [True]), _record(2, 3, [True]))),
     )
 
-    result = aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID)
+    result = aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
 
     assert result["schema"] == "screamingface.candidate-result.v1"
+    assert result["benchmark_revision"] == SELF_CORRECTIVE_REVISION
     assert result["score"] == 1.0
     assert result["case_results"][0]["selected_attempt"] == 2
     assert result["case_results"][1]["selected_attempt"] == 1
@@ -195,7 +197,9 @@ def test_a_never_passing_case_scores_its_last_attempt() -> None:
         )
     )
 
-    result = aggregate_corrective(payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID)
+    result = aggregate_corrective(
+        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION
+    )
 
     assert result["score"] == 0.0
     assert result["case_results"][0]["selected_attempt"] == 3
@@ -215,7 +219,7 @@ def test_a_partial_recordless_case_is_loud_and_retains_the_inner_error() -> None
     )
 
     with pytest.raises(AggregateError) as caught:
-        aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID)
+        aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
 
     message = str(caught.value)
     assert "case 2" in message
@@ -225,7 +229,12 @@ def test_a_partial_recordless_case_is_loud_and_retains_the_inner_error() -> None
 
 def test_every_row_recordless_raises() -> None:
     with pytest.raises(AggregateError) as caught:
-        aggregate_corrective(_rows("broken", "also broken"), _SPECS, SELF_CORRECTIVE_ID)
+        aggregate_corrective(
+            _rows("broken", "also broken"),
+            _SPECS,
+            SELF_CORRECTIVE_ID,
+            SELF_CORRECTIVE_REVISION,
+        )
 
     assert "cases 1, 2" in str(caught.value)
 
@@ -239,7 +248,12 @@ def test_all_crash_error_reports_the_collected_inner_failure() -> None:
     }
 
     with pytest.raises(AggregateError, match="malformed aigateway response"):
-        aggregate_corrective(_rows(failed), {1: _SPECS[1]}, SELF_CORRECTIVE_ID)
+        aggregate_corrective(
+            _rows(failed),
+            {1: _SPECS[1]},
+            SELF_CORRECTIVE_ID,
+            SELF_CORRECTIVE_REVISION,
+        )
 
 
 def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
@@ -263,7 +277,7 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
     payload = _rows(forged, _record(2, 1, [True]))
 
     with pytest.raises(AggregateError) as caught:
-        aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID)
+        aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
 
     assert "case 1" in str(caught.value)
 
@@ -271,7 +285,9 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
 def test_duplicate_attempt_records_keep_the_first() -> None:
     payload = _rows(" ".join((_record(1, 1, [False, False]), _record(1, 1, [True, True]))))
 
-    result = aggregate_corrective(payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID)
+    result = aggregate_corrective(
+        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION
+    )
 
     assert result["case_results"][0]["selected_attempt"] == 1
     assert result["score"] == 0.0
@@ -280,6 +296,8 @@ def test_duplicate_attempt_records_keep_the_first() -> None:
 def test_metrics_are_flat_numbers_only() -> None:
     payload = _rows(" ".join((_record(1, 1, [True, True]),)))
 
-    result = aggregate_corrective(payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID)
+    result = aggregate_corrective(
+        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION
+    )
 
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())

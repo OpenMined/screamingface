@@ -44,11 +44,13 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from url4_cloud.benchmarks.draco.definition import JUDGE_PASSES
+from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
+from url4_cloud.benchmarks.draco.definition import JUDGE_PASSES, REVISION
+from url4_cloud.benchmarks.draco.scoring import flatten_criteria, score_case
 from url4_cloud.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 _VERDICT_SPAN_RE = re.compile(r"\{[^{}]*screamingface\.criterion-verdict\.v1[^{}]*\}")
@@ -64,170 +66,6 @@ COVERAGE_TARGET = 0.95
 
 class AggregateError(ValueError):
     """The reducer's input is unusable — raised before any scoring."""
-
-
-# --- rubric walking -------------------------------------------------------------
-
-
-def flatten_criteria(rubric: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
-    """Walk ``{"sections": [{"criteria": [...]}]}`` into criteria with their axis attached.
-
-    The axis is the section's ``id``, falling back to its ``title`` — it is what
-    :func:`axis_scores` groups by, and what the paper calls a rubric section (Factual Accuracy,
-    Breadth & Depth, Presentation Quality, Citation Quality).
-    """
-    for section in rubric.get("sections", []):
-        axis = section.get("id") or section.get("title") or "unknown"
-        for criterion in section.get("criteria") or []:
-            row = dict(criterion)
-            row.setdefault("weight", 0)
-            row["axis"] = axis
-            yield row
-
-
-# --- the paper's three metrics --------------------------------------------------
-
-
-def normalized_score(rubric: Mapping[str, Any], verdicts: Mapping[str, bool]) -> float:
-    """Weight-aware score in [0, 1] — ``clamp(Σ MET·w / Σ w⁺)``.
-
-    A MET positive criterion rewards; a MET NEGATIVE criterion penalises (its weight is negative,
-    so it subtracts). The denominator is the positive weights ALONE — the maximum reachable
-    numerator, i.e. every positive MET and every negative UNMET.
-
-    An all-negative rubric is undefined in the paper; 0.0 is returned rather than interpolating a
-    harness-specific fallback that would drift from published numbers.
-    """
-    weighted_sum = 0.0
-    denom_pos = 0.0
-    for criterion in flatten_criteria(rubric):
-        weight = float(criterion.get("weight", 0))
-        met = bool(verdicts.get(criterion["id"], False))
-        if weight > 0:
-            denom_pos += weight
-            if met:
-                weighted_sum += weight
-        elif weight < 0 and met:
-            weighted_sum += weight  # negative: subtracts
-    if denom_pos <= 0:
-        return 0.0
-    return max(0.0, min(1.0, weighted_sum / denom_pos))
-
-
-def pass_rate(rubric: Mapping[str, Any], verdicts: Mapping[str, bool]) -> float:
-    """Unweighted fraction of criteria handled correctly.
-
-    Correct means MET for a positive criterion and UNMET for a negative one — an anti-pattern
-    successfully avoided counts exactly as much as a requirement met.
-    """
-    n_correct = 0
-    n_total = 0
-    for criterion in flatten_criteria(rubric):
-        weight = float(criterion.get("weight", 0))
-        met = bool(verdicts.get(criterion["id"], False))
-        if (weight >= 0 and met) or (weight < 0 and not met):
-            n_correct += 1
-        n_total += 1
-    return (n_correct / n_total) if n_total else 0.0
-
-
-def axis_scores(rubric: Mapping[str, Any], verdicts: Mapping[str, bool]) -> dict[str, float]:
-    """:func:`normalized_score` recomputed per rubric section."""
-    by_axis: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])  # [achieved, achievable]
-    for criterion in flatten_criteria(rubric):
-        weight = float(criterion.get("weight", 0))
-        met = bool(verdicts.get(criterion["id"], False))
-        achieved, achievable = by_axis[criterion["axis"]]
-        if weight >= 0:
-            achievable += weight
-            if met:
-                achieved += weight
-        elif met:
-            achieved += weight
-        by_axis[criterion["axis"]] = [achieved, achievable]
-    return {
-        axis: (max(0.0, min(1.0, achieved / achievable)) if achievable > 0 else 0.0)
-        for axis, (achieved, achievable) in by_axis.items()
-    }
-
-
-def _restrict(rubric: Mapping[str, Any], judged_ids: Sequence[str]) -> dict[str, Any]:
-    """The rubric minus criteria that produced no verdict.
-
-    INVARIANT: an unjudged criterion drops out of BOTH numerator and denominator. Scoring it as
-    UNMET instead would keep its weight in the denominator, so a judge parse or transport failure
-    would deflate the score in proportion to the failure rate — a benchmark that reports lower
-    numbers when the harness is flaky, which is worse than reporting fewer cases.
-    """
-    keep = set(judged_ids)
-    return {
-        "sections": [
-            {
-                **section,
-                "criteria": [c for c in (section.get("criteria") or []) if c.get("id") in keep],
-            }
-            for section in rubric.get("sections", [])
-        ]
-    }
-
-
-def score_case(rubric: Mapping[str, Any], runs: Sequence[Mapping[str, bool]]) -> dict[str, Any]:
-    """Score every judge PASS independently, then report the mean and the spread.
-
-    INVARIANT: the paper scores each pass and then means the passes (§4.2). Majority-voting the
-    verdicts first would collapse judge disagreement before it reaches the score, and the spread
-    is the judge-stability signal — a high sd means the passes disagreed, which a single averaged
-    number destroys.
-
-    The spread is the POPULATION standard deviation, matching the harness's ``np.std`` default.
-    """
-    total = sum(1 for _ in flatten_criteria(rubric))
-    scored = [_score_one_run(rubric, verdicts, total) for verdicts in runs]
-    if not scored:
-        return {
-            "normalized_score": 0.0,
-            "normalized_score_sd": 0.0,
-            "pass_rate": 0.0,
-            "axis_scores": {},
-            "coverage": 0.0,
-            "n_runs": 0,
-        }
-    axes: dict[str, list[float]] = defaultdict(list)
-    for run in scored:
-        for axis, value in run["axis_scores"].items():
-            axes[axis].append(value)
-    norms = [run["normalized_score"] for run in scored]
-    return {
-        "normalized_score": round(_avg(norms), 4),
-        "normalized_score_sd": round(_stdev(norms), 4),
-        "pass_rate": round(_avg([run["pass_rate"] for run in scored]), 4),
-        "axis_scores": {axis: round(_avg(v), 4) for axis, v in axes.items()},
-        "coverage": round(_avg([run["coverage"] for run in scored]), 4),
-        "n_runs": len(scored),
-    }
-
-
-def _score_one_run(
-    rubric: Mapping[str, Any], verdicts: Mapping[str, bool], total: int
-) -> dict[str, Any]:
-    restricted = _restrict(rubric, list(verdicts))
-    return {
-        "normalized_score": normalized_score(restricted, verdicts),
-        "pass_rate": pass_rate(restricted, verdicts),
-        "axis_scores": axis_scores(restricted, verdicts),
-        "coverage": (len(verdicts) / total) if total else 0.0,
-    }
-
-
-def _avg(values: Sequence[float]) -> float:
-    return sum(values) / len(values) if values else 0.0
-
-
-def _stdev(values: Sequence[float]) -> float:
-    if len(values) < 2:
-        return 0.0
-    mean = _avg(values)
-    return (sum((v - mean) ** 2 for v in values) / len(values)) ** 0.5
 
 
 # --- harvesting verdicts out of the nested payload -------------------------------
@@ -296,7 +134,7 @@ def group_runs(verdicts: Sequence[Mapping[str, Any]]) -> list[dict[str, bool]]:
 
 
 def valid_verdicts(
-    rubric: Mapping[str, Any], verdicts: Sequence[Mapping[str, Any]]
+    rubric: Mapping[str, Any], verdicts: Sequence[Mapping[str, Any]], case_id: int
 ) -> list[dict[str, Any]]:
     """Keep only strict verdicts for criterion ids owned by this case's rubric.
 
@@ -311,6 +149,7 @@ def valid_verdicts(
         if (
             verdict.get("schema") != VERDICT_SCHEMA
             or verdict.get("valid") is not True
+            or _as_int(verdict.get("case_id")) != case_id
             or str(criterion_id) not in expected
             or status not in {"MET", "UNMET"}
         ):
@@ -320,7 +159,7 @@ def valid_verdicts(
 
 
 def case_id_of(verdicts: Sequence[Mapping[str, Any]]) -> int | None:
-    """The case id the judge echoed, if any — ``None`` falls back to row position."""
+    """Return the Case identity bound onto the verdict by the Engine."""
     for verdict in verdicts:
         case_id = _as_int(verdict.get("case_id"))
         if case_id is not None:
@@ -359,15 +198,16 @@ def aggregate(
     # echoed id, and re-scanning a multi-hundred-KB payload to find out would double the only
     # expensive step in this module.
     harvested_rows = [harvest_verdicts(raw) for raw in rows]
-    _require_verifiable_mapping(harvested_rows, rubrics)
+    _require_verifiable_mapping(harvested_rows)
 
-    case_results, failures = _aggregate_rows(harvested_rows, rubrics, judge_passes)
+    case_results, failures = _aggregate_rows(rows, harvested_rows, rubrics, judge_passes)
     if not case_results:
         raise AggregateError(_no_scored_cases_message(rows, failures))
 
     return {
-        "schema": "screamingface.candidate-result.v1",
+        "schema": CANDIDATE_RESULT_SCHEMA,
         "benchmark_id": benchmark_id,
+        "benchmark_revision": REVISION,
         "case_count": len(case_results),
         "score": _mean(case_results, "normalized_score"),
         "metrics": {
@@ -389,6 +229,7 @@ def aggregate(
 
 
 def _aggregate_rows(
+    raw_rows: Sequence[Any],
     harvested_rows: Sequence[Sequence[Mapping[str, Any]]],
     rubrics: Mapping[int, Mapping[str, Any]],
     judge_passes: int,
@@ -397,21 +238,16 @@ def _aggregate_rows(
     failures: list[dict[str, Any]] = []
     for index, records in enumerate(harvested_rows):
         if not records:
-            failures.append({"index": index, "reason": "no judge verdicts in row"})
+            failures.append(_row_failure(raw_rows[index], index, raw_rows, rubrics))
             continue
-        # WHY position is a legitimate fallback HERE: `_require_verifiable_mapping` has already
-        # established that the rows ARE the whole declared case set, and row order is preserved —
-        # `iteration.on_error=collect` substitutes an error object in place rather than dropping a
-        # row. The echoed id still wins when present, because it survives a change to row ordering
-        # that position would not.
         case_id = case_id_of(records)
-        if case_id is None:
-            case_id = index + 1
+        if case_id is None:  # pragma: no cover - sealed by _require_verifiable_mapping
+            raise AssertionError("a scored DRACO row must carry its Engine-bound case_id")
         rubric = rubrics.get(case_id)
         if rubric is None:
             failures.append({"index": index, "case_id": case_id, "reason": "unknown case_id"})
             continue
-        verdicts = valid_verdicts(rubric, records)
+        verdicts = valid_verdicts(rubric, records, case_id)
         if not verdicts:
             failures.append(
                 {
@@ -423,6 +259,34 @@ def _aggregate_rows(
             continue
         case_results.append(_case_result(case_id, rubric, records, verdicts, judge_passes))
     return case_results, failures
+
+
+def _row_failure(
+    row: Any,
+    index: int,
+    rows: Sequence[Any],
+    rubrics: Mapping[int, Mapping[str, Any]],
+) -> dict[str, Any]:
+    failure: dict[str, Any] = {"index": index, "reason": "no judge verdicts in row"}
+    error = row.get("error") if isinstance(row, Mapping) else None
+    if not isinstance(error, Mapping):
+        return failure
+    failure["reason"] = "Candidate Case execution failed"
+    selected = _bounded_error(error)
+    if selected:
+        failure["error"] = selected
+    if len(rows) == len(rubrics):
+        failure["case_id"] = sorted(rubrics)[index]
+    return failure
+
+
+def _bounded_error(error: Mapping[str, Any]) -> dict[str, str]:
+    limits = {"kind": 80, "code": 80, "message": 200}
+    return {
+        field: " ".join(value.split())[:limit]
+        for field, limit in limits.items()
+        if isinstance((value := error.get(field)), str) and value.strip()
+    }
 
 
 def _no_scored_cases_message(rows: Sequence[Any], failures: Sequence[Mapping[str, Any]]) -> str:
@@ -472,34 +336,26 @@ def _case_result(
 
 def _require_verifiable_mapping(
     harvested: Sequence[Sequence[Mapping[str, Any]]],
-    rubrics: Mapping[int, Mapping[str, Any]],
 ) -> None:
-    """Refuse to score against a case -> rubric mapping that cannot be proven.
+    """Require one unique Engine-bound Case identity for every scoreable row."""
 
-    INVARIANT: row POSITION identifies a case only when the rows are the whole declared set.
-    `iteration.on_error=collect` preserves order and substitutes an error object in place, so
-    index N is case N+1 — but `;iteration.slice=10:20` hands us cases 11-20 at positions 1-10,
-    and `on_error=skip` drops rows outright. Either way every case would be scored against the
-    WRONG rubric, with no `failures` entry and a `terminated: succeeded` run carrying a plausible
-    number. That is reachable from the DOCUMENTED path: `Dockerfile.benchmark` removed its
-    build-time case cap specifically to make `;iteration.slice` the way to size a run.
-
-    The row count is the signal. It cannot tell us the slice OFFSET — nothing in the payload can —
-    so the only honest response is to stop rather than to guess, and to name the two ways out.
-
-    A row that produced no verdicts is exempt: it becomes a `failures` entry and never reaches a
-    rubric, so counting it here would turn a partial judge failure into a dead run.
-    """
-    positional = sum(1 for verdicts in harvested if verdicts and case_id_of(verdicts) is None)
-    if not positional or len(harvested) == len(rubrics):
-        return
-    raise AggregateError(
-        f"the case->rubric mapping is unverifiable: {positional} row(s) carry no echoed "
-        f"case_id, and the payload holds {len(harvested)} row(s) against {len(rubrics)} "
-        "declared rubric(s). Row position identifies a case only when the rows are the whole "
-        "declared set, and nothing in the payload records a slice offset. Either have the judge "
-        "echo case_id in each verdict (it is preferred whenever present), or score the full set."
-    )
+    claimed: dict[int, int] = {}
+    for index, verdicts in enumerate(harvested):
+        if not verdicts:
+            continue
+        ids = [_as_int(verdict.get("case_id")) for verdict in verdicts]
+        if any(case_id is None for case_id in ids):
+            raise AggregateError(f"row {index} has a verdict without an Engine-bound case_id")
+        unique = {case_id for case_id in ids if case_id is not None}
+        if len(unique) != 1:
+            raise AggregateError(f"row {index} carries multiple case_id values {sorted(unique)}")
+        case_id = unique.pop()
+        previous = claimed.get(case_id)
+        if previous is not None:
+            raise AggregateError(
+                f"duplicate case_id {case_id} appears in rows {previous} and {index}"
+            )
+        claimed[case_id] = index
 
 
 def _as_int(value: Any) -> int | None:

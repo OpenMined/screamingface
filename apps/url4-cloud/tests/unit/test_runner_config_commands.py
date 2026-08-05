@@ -89,6 +89,11 @@ def test_non_positive_timeout_is_a_config_error() -> None:
         _parse(_MINIMAL + '\n[commands]\n"/b" = { argv = ["x"], timeout_s = 0 }\n')
 
 
+def test_command_timeout_must_be_a_toml_number() -> None:
+    with pytest.raises(RunnerConfigError, match="timeout_s must be a number"):
+        _parse(_MINIMAL + '\n[commands]\n"/b" = { argv = ["x"], timeout_s = "30" }\n')
+
+
 def test_unknown_key_in_a_command_table_is_a_config_error() -> None:
     with pytest.raises(RunnerConfigError, match="unknown key"):
         _parse(_MINIMAL + '\n[commands]\n"/b" = { argv = ["x"], web_tools = true }\n')

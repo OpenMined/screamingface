@@ -18,6 +18,8 @@ import json
 import pytest
 
 from url4_cloud.benchmarks.draco import aggregate as agg
+from url4_cloud.benchmarks.draco import scoring
+from url4_cloud.benchmarks.draco.definition import REVISION as DRACO_REVISION
 
 # Two sections, one negative criterion. Positive weights sum to 4 (a1=2, a2=1, b1=1).
 _RUBRIC = {
@@ -46,33 +48,35 @@ def test_perfect_answer_scores_one() -> None:
     # a1+a2+b1 MET (2+1+1=4), a3 UNMET → 4/4
     v = _verdicts(a1=True, a2=True, a3=False, b1=True)
 
-    assert agg.normalized_score(_RUBRIC, v) == 1.0
+    assert scoring.normalized_score(_RUBRIC, v) == 1.0
 
 
 def test_a_met_negative_criterion_subtracts_from_the_numerator() -> None:
     # 2 + 0 + (-3) + 1 = 0 over denom 4 → 0.0
     v = _verdicts(a1=True, a2=False, a3=True, b1=True)
 
-    assert agg.normalized_score(_RUBRIC, v) == 0.0
+    assert scoring.normalized_score(_RUBRIC, v) == 0.0
 
 
 def test_the_score_is_clamped_at_zero_not_negative() -> None:
     # 0 + 0 + (-3) + 0 = -3 over 4 → clamped to 0.0, never -0.75
     v = _verdicts(a1=False, a2=False, a3=True, b1=False)
 
-    assert agg.normalized_score(_RUBRIC, v) == 0.0
+    assert scoring.normalized_score(_RUBRIC, v) == 0.0
 
 
 def test_partial_credit_is_weight_aware() -> None:
     # a1 only: 2/4
-    assert agg.normalized_score(_RUBRIC, _verdicts(a1=True, a2=False, a3=False, b1=False)) == 0.5
+    assert (
+        scoring.normalized_score(_RUBRIC, _verdicts(a1=True, a2=False, a3=False, b1=False)) == 0.5
+    )
 
 
 def test_all_negative_rubric_returns_zero_rather_than_dividing_by_zero() -> None:
     """The paper does not define this case; returning 0.0 beats inventing a formula."""
     rubric = {"sections": [{"id": "X", "criteria": [{"id": "n1", "weight": -1}]}]}
 
-    assert agg.normalized_score(rubric, {"n1": False}) == 0.0
+    assert scoring.normalized_score(rubric, {"n1": False}) == 0.0
 
 
 # --- pass_rate ------------------------------------------------------------------
@@ -80,12 +84,12 @@ def test_all_negative_rubric_returns_zero_rather_than_dividing_by_zero() -> None
 
 def test_pass_rate_counts_avoided_negatives_as_correct() -> None:
     # a1 MET ✓, a2 MET ✓, a3 UNMET ✓ (anti-pattern avoided), b1 MET ✓ → 4/4
-    assert agg.pass_rate(_RUBRIC, _verdicts(a1=True, a2=True, a3=False, b1=True)) == 1.0
+    assert scoring.pass_rate(_RUBRIC, _verdicts(a1=True, a2=True, a3=False, b1=True)) == 1.0
 
 
 def test_pass_rate_is_unweighted() -> None:
     # a1 ✓, a2 ✗, a3 MET ✗ (anti-pattern triggered), b1 ✓ → 2/4, ignoring the 2 and -3 weights
-    assert agg.pass_rate(_RUBRIC, _verdicts(a1=True, a2=False, a3=True, b1=True)) == 0.5
+    assert scoring.pass_rate(_RUBRIC, _verdicts(a1=True, a2=False, a3=True, b1=True)) == 0.5
 
 
 # --- axis_scores ----------------------------------------------------------------
@@ -94,7 +98,7 @@ def test_pass_rate_is_unweighted() -> None:
 def test_axis_scores_are_per_section() -> None:
     # Factual Accuracy: achievable 3 (2+1), achieved 2+0-3 = -1 → clamped 0.0
     # Presentation:     achievable 1, achieved 1                → 1.0
-    axes = agg.axis_scores(_RUBRIC, _verdicts(a1=True, a2=False, a3=True, b1=True))
+    axes = scoring.axis_scores(_RUBRIC, _verdicts(a1=True, a2=False, a3=True, b1=True))
 
     assert axes == {"Factual Accuracy": 0.0, "Presentation": 1.0}
 
@@ -113,13 +117,13 @@ def test_an_unjudged_criterion_drops_out_of_both_numerator_and_denominator() -> 
     """
     judged = {"a1": True, "a3": False, "b1": True}
 
-    assert agg.score_case(_RUBRIC, [judged])["normalized_score"] == 1.0
+    assert scoring.score_case(_RUBRIC, [judged])["normalized_score"] == 1.0
 
 
 def test_coverage_reports_the_judged_fraction() -> None:
     judged = {"a1": True, "a3": False, "b1": True}  # 3 of 4
 
-    assert agg.score_case(_RUBRIC, [judged])["coverage"] == 0.75
+    assert scoring.score_case(_RUBRIC, [judged])["coverage"] == 0.75
 
 
 # --- harvesting verdicts out of the nested payload -------------------------------
@@ -134,10 +138,10 @@ def test_coverage_reports_the_judged_fraction() -> None:
 
 
 def _verdict(cid: str, status: str, case: int = 1) -> str:
-    del case
     return json.dumps(
         {
             "schema": "screamingface.criterion-verdict.v1",
+            "case_id": case,
             "criterion_id": cid,
             "valid": True,
             "explanation": "evidence",
@@ -146,10 +150,11 @@ def _verdict(cid: str, status: str, case: int = 1) -> str:
     )
 
 
-def _invalid(cid: str, reason: str) -> str:
+def _invalid(cid: str, reason: str, case: int = 1) -> str:
     return json.dumps(
         {
             "schema": "screamingface.criterion-verdict.v1",
+            "case_id": case,
             "criterion_id": cid,
             "valid": False,
             "reason": reason,
@@ -296,7 +301,7 @@ def test_a_criterion_with_fewer_passes_drops_out_of_the_missing_run() -> None:
 def test_score_case_means_the_runs_and_reports_the_spread() -> None:
     # run 1: a1 MET, a2 MET   → 3/4 = 0.75   (a1=2, a2=1, b1=1 positive; a3=-3)
     # run 2: a1 MET, a2 UNMET → 2/3 … restricted to judged criteria per run
-    scored = agg.score_case(
+    scored = scoring.score_case(
         _RUBRIC,
         [
             {"a1": True, "a2": True, "a3": False, "b1": True},
@@ -310,7 +315,7 @@ def test_score_case_means_the_runs_and_reports_the_spread() -> None:
 
 
 def test_a_single_run_reports_zero_spread() -> None:
-    scored = agg.score_case(_RUBRIC, [{"a1": True, "a2": True, "a3": False, "b1": True}])
+    scored = scoring.score_case(_RUBRIC, [{"a1": True, "a2": True, "a3": False, "b1": True}])
 
     assert scored["normalized_score"] == 1.0
     assert scored["normalized_score_sd"] == 0.0
@@ -342,6 +347,7 @@ def test_aggregate_scores_the_official_nested_payload() -> None:
     result = agg.aggregate(rows, rubrics={1: _RUBRIC, 2: _RUBRIC}, benchmark_id="draco")
 
     assert result["case_count"] == 2
+    assert result["benchmark_revision"] == DRACO_REVISION
     assert result["score"] == 0.75  # case 1 → 1.0 · case 2 → 0.5
     assert "normalized_score" not in result["metrics"]
     assert [c["case_id"] for c in result["case_results"]] == [1, 2]
@@ -349,13 +355,14 @@ def test_aggregate_scores_the_official_nested_payload() -> None:
     assert result["failures"] == []
 
 
-def test_a_case_id_missing_from_the_verdicts_falls_back_to_row_position() -> None:
-    """Bound verdicts need no Case id; preserved Case order is Engine-owned knowledge."""
-    row = "runs: [{}]".format(_verdict("a1", "MET"))
+def test_a_case_id_missing_from_a_verdict_is_rejected() -> None:
+    """A scoreable verdict must carry the identity bound by the Engine after judging."""
+    verdict = json.loads(_verdict("a1", "MET"))
+    del verdict["case_id"]
+    row = f"runs: [{json.dumps(verdict)}]"
 
-    result = agg.aggregate(json.dumps([row]), rubrics={1: _RUBRIC}, benchmark_id="draco")
-
-    assert result["case_results"][0]["case_id"] == 1
+    with pytest.raises(agg.AggregateError, match="Engine-bound case_id"):
+        agg.aggregate(json.dumps([row]), rubrics={1: _RUBRIC}, benchmark_id="draco")
 
 
 def test_a_row_with_no_verdicts_is_a_failure_not_a_zero() -> None:

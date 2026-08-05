@@ -309,12 +309,9 @@ def _command_stdin(path: str, value: object) -> str:
 def _command_timeout(path: str, value: object) -> float:
     if value is None:
         return DEFAULT_COMMAND_TIMEOUT_S
-    try:
-        timeout_s = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        raise RunnerConfigError(
-            f"[commands] {path!r} timeout_s must be a number, got {value!r}"
-        ) from None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RunnerConfigError(f"[commands] {path!r} timeout_s must be a number, got {value!r}")
+    timeout_s = float(value)
     if timeout_s <= 0:
         raise RunnerConfigError(f"[commands] {path!r} timeout_s must be > 0, got {timeout_s!r}")
     return timeout_s

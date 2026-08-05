@@ -138,22 +138,20 @@ def _build(case_count: int) -> Node:
     return node
 
 
-def _install(node: Url4Node, assets: Path) -> None:
+def _install(node: Url4Node, assets: Path, _model_routes: frozenset[str]) -> None:
     # Lazy import keeps the resource-only control-plane path from loading filesystem runtime code.
     from url4_cloud.benchmarks.draco.runtime import install
 
-    install(node, assets)
+    install(node, assets / BENCHMARK_ID)
 
 
 DRACO = Benchmark(
     id=BENCHMARK_ID,
-    family=BENCHMARK_ID,
     variant="canonical",
     title="DRACO",
     description="The 100-task DRACO deep-research benchmark.",
     revision=REVISION,
     case_count=CASE_COUNT,
-    required_models=(JUDGE_MODEL,),
     build=_build,
     install=_install,
 )
