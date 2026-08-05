@@ -70,7 +70,6 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
           # Its OWN scope, not the aigateway one. The two images share no layers — uv/Python
           # against node/Next.js — so a shared scope would be pure eviction pressure with no hits.
           cache-from: type=gha,scope=dev-aigateway-ui
