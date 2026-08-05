@@ -25,6 +25,7 @@ import {
   useScriptStore,
 } from "@/lib/script-store";
 import { cn } from "@/lib/utils";
+import { createUuid } from "@/lib/uuid";
 
 const scriptKinds = [
   {
@@ -85,9 +86,9 @@ export default function ScriptsPage() {
   }
 
   function save() {
-    const defaultName = `${draftKind}-${window.crypto.randomUUID().slice(0, 6)}.py`;
+    const defaultName = `${draftKind}-${createUuid().slice(0, 6)}.py`;
     saveScript({
-      id: editing?.id ?? window.crypto.randomUUID(),
+      id: editing?.id ?? createUuid(),
       name: draftName.trim() || defaultName,
       kind: draftKind,
       code: draftCode,

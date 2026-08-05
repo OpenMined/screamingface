@@ -58,6 +58,7 @@ import {
 import { useOpenMinedStore } from "@/lib/openmined-store";
 import { useScriptStore } from "@/lib/script-store";
 import { cn } from "@/lib/utils";
+import { createUuid } from "@/lib/uuid";
 
 type ReduceStrategy =
   | "majority_vote"
@@ -425,7 +426,7 @@ function parseRecipe(raw: string) {
     .map((id) => ALL_MODELS.find((model) => model.id === id))
     .filter((model): model is Model => Boolean(model))
     .map((model) => ({
-      id: crypto.randomUUID(),
+      id: createUuid(),
       model,
       systemPrompt: "",
       weight: 0.5,
@@ -1192,7 +1193,7 @@ function RunsPanel({
         );
         const score = Math.min(95, baseline + 8 + slots.length * 3);
         const run: SavedRun = {
-          id: window.crypto.randomUUID(),
+          id: createUuid(),
           benchmarkId: benchmark.id,
           benchmarkName: benchmark.name,
           sampleSize: full ? benchmark.questions : sampleSize,
@@ -1221,7 +1222,7 @@ function RunsPanel({
         .split(/\r?\n/)
         .filter((row) => row.trim().length > 0);
       const custom = {
-        id: `custom-${window.crypto.randomUUID()}`,
+        id: `custom-${createUuid()}`,
         name: file.name,
         domain: "Custom",
         questions: Math.max(1, rows.length),
@@ -1629,7 +1630,7 @@ function EnsembleComposer() {
   const [newEnsembleId] = useState(() =>
     typeof window === "undefined"
       ? "new-ensemble"
-      : window.crypto.randomUUID(),
+      : createUuid(),
   );
   const ensembleId = requestedId ?? newEnsembleId;
   const storeHasHydrated = useEnsembleStore((state) => state.hasHydrated);
@@ -1678,7 +1679,7 @@ function EnsembleComposer() {
         const savedRunHistory = saved.runHistory ?? [];
         const nextSlots = saved.slots.map((slot) => ({
           ...slot,
-          id: slot.id ?? crypto.randomUUID(),
+          id: slot.id ?? createUuid(),
         }));
         const nextJudge =
           saved.judge ??
@@ -1690,7 +1691,7 @@ function EnsembleComposer() {
                   ALL_MODELS.find((item) => item.id === saved.judgeId);
                 return model
                   ? {
-                      id: crypto.randomUUID(),
+                      id: createUuid(),
                       model,
                       systemPrompt: "",
                       weight: 0,
@@ -1724,7 +1725,7 @@ function EnsembleComposer() {
       } else if (parsed) {
         const nextSlots = parsed.slots.map((slot) => ({
           ...slot,
-          id: slot.id ?? crypto.randomUUID(),
+          id: slot.id ?? createUuid(),
         }));
         const nextJudge = parsed.judgeId
           ? (() => {
@@ -1734,7 +1735,7 @@ function EnsembleComposer() {
                 ALL_MODELS.find((item) => item.id === parsed.judgeId);
               return model
                 ? {
-                    id: crypto.randomUUID(),
+                    id: createUuid(),
                     model,
                     systemPrompt: "",
                     weight: 0,
@@ -1921,7 +1922,7 @@ function EnsembleComposer() {
   function addMember(model: Model) {
     setSlots((current) => [
       ...current,
-      { id: crypto.randomUUID(), model, systemPrompt: "", weight: 0.5 },
+      { id: createUuid(), model, systemPrompt: "", weight: 0.5 },
     ]);
   }
 
@@ -1938,7 +1939,7 @@ function EnsembleComposer() {
   }
 
   function setJudgeModel(model: Model) {
-    setJudge({ id: crypto.randomUUID(), model, systemPrompt: "", weight: 0 });
+    setJudge({ id: createUuid(), model, systemPrompt: "", weight: 0 });
   }
 
   function removeJudge() {
@@ -2400,7 +2401,7 @@ function EnsembleComposer() {
                         : selectedStrategy.label}
                     </span>
                   </p>
-                  {judge && (
+                  {!customReduce && judge && (
                     <p className="flex items-center gap-1.5 pl-5 text-xs text-muted-foreground">
                       <ProviderDot provider={judge.model.providerId} />
                       <span className="min-w-0 truncate">
@@ -2461,7 +2462,7 @@ function EnsembleComposer() {
       >
         <RunsPanel
           slots={slots}
-          judge={judge}
+          judge={customReduce ? null : judge}
           runs={runHistory}
           ensembleName={name}
           onComplete={completeRun}
