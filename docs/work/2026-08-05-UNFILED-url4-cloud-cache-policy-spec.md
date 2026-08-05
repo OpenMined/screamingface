@@ -56,7 +56,10 @@ url4-cloud's public REST contract. **No code in this unit.**
 
 ## Planned changes
 
-- `docs/spec/2026-08-05-url4-cache-policy-spec.md` — the spec. Nothing else.
+- `docs/spec/2026-08-05-url4-cache-policy-spec.md` — the spec.
+- `docs/plan/2026-08-05-url4-cache-policy.md` — the implementation plan (rule 3: spec then plan).
+
+No code.
 
 **r2 relocation (owner, mid-unit).** r1 located the change in url4-cloud's REST layer. The owner
 directed that protocol changes belong in `packages/url4` (+ both HTTP header and protocol frame
@@ -82,7 +85,8 @@ is `packages/url4/src/url4/streaming/protocol/`. Confirmed with the owner before
 
 ## Outcome
 
-- **Actual files:** `docs/spec/2026-08-05-url4-cache-policy-spec.md` only. No code, per rule 3.
+- **Actual files:** `docs/spec/2026-08-05-url4-cache-policy-spec.md` and
+  `docs/plan/2026-08-05-url4-cache-policy.md`. No code, per rule 3.
 - **Owner decisions taken mid-unit:** protocol lands in `packages/url4` (D9); both carriers
   supported (D10). Four decisions remain OPEN in the spec for review: D1 default, D3 frame shape,
   D4 precedence, D6 header name.
@@ -94,3 +98,11 @@ is `packages/url4/src/url4/streaming/protocol/`. Confirmed with the owner before
 2. **Spec rewritten mid-unit** after the owner relocated the change (r1 → r2). Recorded in the
    spec's own revision table rather than hidden.
 3. **A named target path did not exist** — see above. Raised rather than silently substituted.
+4. **The plan corrects the spec (§0.1).** Spec §4.1 put `as_body_field()` — the mapping to
+   aigateway's request-body vocabulary — on the protocol type in `packages/url4`. That violates
+   the architecture rule: the protocol must not know an adapter's wire shape. The plan places the
+   translation in `apps/url4-cloud` and flags the spec for an r3 amendment rather than diverging
+   silently.
+5. **The plan is written against the spec's four OPEN recommendations**, with §9 stating what
+   changes under each alternative. Written this way so the owner reviews spec and plan together
+   rather than serialising four decisions first; the plumbing is ~90% invariant across them.
