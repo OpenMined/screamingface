@@ -46,13 +46,32 @@ def is_valid_upstream_model_id(value: object) -> bool:
 def _default_model_slugs() -> list[str]:
     """URL4 leaf seeds in gateway form — recommended bootstrap metadata (D8).
 
-    All three were present in the live OpenRouter catalog on 2026-07-15;
-    re-check at release. Never treat this list as an authorization boundary.
+    All were present in the live OpenRouter catalog on 2026-08-05; re-check at release. Never
+    treat this list as an authorization boundary.
+
+    Validation here is purely SYNTACTIC (`is_valid_upstream_model_id`, D8) — nothing checks a
+    slug against the live catalog, so a typo in one of these surfaces as a dispatch failure
+    inside a user's expression, not at boot. Re-checking at release is the only guard.
     """
     return [
         "openrouter/anthropic/claude-fable-5",
+        "openrouter/anthropic/claude-haiku-4.5",
         "openrouter/openai/gpt-5.5",
         "openrouter/anthropic/claude-opus-4.8",
+        # AIDEV-NOTE: the DRACO benchmark judge. arXiv:2602.11685 §4.2 PINS it, and the
+        # benchmarks repo warns that a different judge materially changes the scores — so it is
+        # seeded here rather than left to a deployment. `apps/url4-cloud/url4.toml` declares the
+        # matching route; `test_declared_models_match_aigateway.py` fails if the two drift.
+        "openrouter/google/gemini-3.1-pro-preview",
+        # The remaining DRACO candidate lineup, also used by the Fusion and
+        # CorrectiveEnsemble examples. These must be real gateway seeds: merely adding them to
+        # a dev environment makes catalog checks pass while execution still fails elsewhere.
+        # All were present in the live OpenRouter catalog on 2026-08-05; re-check at release.
+        "openrouter/google/gemini-3-flash-preview",
+        "openrouter/moonshotai/kimi-k2.6",
+        "openrouter/moonshotai/kimi-k3",
+        "openrouter/deepseek/deepseek-v4-pro",
+        "openrouter/qwen/qwen3.6-plus",
     ]
 
 
