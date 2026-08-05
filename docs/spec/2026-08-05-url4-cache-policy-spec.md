@@ -1,8 +1,8 @@
 ---
 title: url4 per-run cache policy — technical specification
-status: PROPOSED — awaiting owner decisions D3, D4, D6 (§3). No code written.
+status: PROPOSED — **all decisions LOCKED**. Awaiting approval to implement. No code written.
 created: 2026-08-05
-revised: 2026-08-05 (r6 — standards alignment: RFC 9211 Cache-Status + RFC 9111 Age; D11 reopened)
+revised: 2026-08-05 (r7 — D3/D4/D6/D11 all LOCKED by owner; D11's upstream blockers stated)
 author: Claude (Opus 5) + Sergey
 ticket: UNFILED — Linear MCP unauthenticated at authoring time (see the ledger)
 related:
@@ -21,6 +21,7 @@ related:
 |---|---|---|
 | r1 | 2026-08-05 | First draft — located the change in url4-cloud's REST layer. |
 | r2 | 2026-08-05 | **Superseded r1's location.** Owner: protocol belongs in `packages/url4`; both HTTP header *and* protocol frame are carriers. Adds §3 D3/D4 and §5.2. |
+| **r7** | 2026-08-05 | **Owner locked the last four**: D3 extend `AttachData` · D4 header wins · D6 standard `Cache-Control` · D11 **honour `max-age`**. D11 carries two upstream blockers — §3.5. Spec is decision-complete. |
 | **r6** | 2026-08-05 | **Standards alignment.** Read-back prefers **`Cache-Status`** (RFC 9211) over the ad hoc `X-AIGW-Cache*`; **`Age`** (RFC 9111 §5.1) makes `max-age` honourable, so **D11 is reopened** (§3.5). Adds §2.2 with the registry evidence. |
 | **r5** | 2026-08-05 | **Rebased on aigateway v2** (`OME-305`, PR #507 — WIP, assumed landing). v2 is a **global, never-expiring, ON-by-default cache with a CLOSED one-field grammar**. This **revokes r4** (v2 rows never expire, so TTL knobs are v1's), **deletes the aigateway sub-issue** (#507 does the chart itself), and **collapses the protocol to a single opt-out signal** — §1.0. Security section rewritten: the cache is now shared across accounts. |
 | r4 | 2026-08-05 | ~~TTL/size knobs pinned explicitly in the chart~~ — **REVOKED by r5.** |
@@ -191,13 +192,13 @@ choose. The OPEN items are the point of this review.
 |---|---|---|---|
 | **D1** | Default when nothing is declared | **ON** — caching active; only disabling is explicit (§3.1) | 🟢 **LOCKED** (owner, r3) |
 | D2 | HTTP carrier | header on `GET /`, mirroring `X-Profile` (`rest/routes.py:347`) | 🟢 LOCKED |
-| **D3** | Frame shape | extend `AttachData` vs new `ConfigureEvent` — §3.2 | 🔴 **OPEN** |
-| **D4** | Precedence when both carriers speak | §3.3 | 🔴 **OPEN** |
+| D3 | Frame shape | **extend `AttachData`** (§3.2) | 🟢 LOCKED (owner, r7) |
+| D4 | Precedence when both carriers speak | **header wins**, override logged (§3.3) | 🟢 LOCKED (owner, r7) |
 | D5 | Scope | whole run — every leaf, every fan-out branch | 🟢 LOCKED (§1.2) |
-| **D6** | Header name / intermediary participation | §3.4 | 🔴 **OPEN** |
+| D6 | Header name / intermediary participation | **standard `Cache-Control`**; intermediaries may participate (§3.4) | 🟢 LOCKED (owner, r7) |
 | D7 | Response headers read back and folded onto spans | mandatory, every variant | 🟢 LOCKED (§7) |
 | D8 | aigateway changes | **none — PR #507 does it all**, chart included. url4 depends on it landing (§1.0) | 🟢 LOCKED (r5 — reverts r3) |
-| **D11** | `Cache-Control: max-age=N` | **REOPENED (r6)** — honour it if aigateway emits `Age`, else opt-out (§3.5) | 🔴 **OPEN** |
+| D11 | `Cache-Control: max-age=N` | **honour it** — blocked upstream today; opt-out until then (§3.5) | 🟢 LOCKED (owner, r7) |
 | D9 | Protocol location | `packages/url4/.../streaming/protocol/` | 🟢 LOCKED (owner, r2) |
 | D10 | Both carriers supported | yes | 🟢 LOCKED (owner, r2) |
 
@@ -282,9 +283,34 @@ carries the same fact as the `ttl` parameter inside `Cache-Status`.
 | **(b) Treat as opt-out** *(r5's proposal)* | Conservative, works today, needs nothing from #507. Costs a hit the caller would have accepted. |
 | (c) Ignore the directive | The caller silently receives an arbitrarily old answer having explicitly asked not to. Rejected. |
 
-**Recommendation: (b) now, (a) when `Age` lands** — and raise `Age` on #507 while its header
-code is open. The two are compatible: url4 honours `max-age` if it can measure age, and falls back
-to opt-out if it cannot, which is the conservative direction.
+**LOCKED: (a) — honour `max-age`.** Two upstream blockers stand between that decision and a
+working implementation, both verified against #507's branch on 2026-08-05:
+
+| blocker | evidence |
+|---|---|
+| **url4 cannot ASK for a bound.** v2's grammar is closed to `use-cache`; `{"cache": {"max-age": 60}}` returns `_refuse(BYPASS_UNSUPPORTED_CONTROL)` | `global_controls.py:79-83` |
+| **aigateway does not REPORT age.** No `Age` header, no `Cache-Status; ttl=` | #507 adds `CACHE_HEADER`/`REASON_HEADER`/`WRITE_HEADER`/`KEY_HEADER` and no age field |
+
+So url4 can neither request a freshness bound nor measure one. **Until one of these changes,
+`max-age` degrades to opt-out** — the conservative direction, and observably so via
+`X-AIGW-Cache-Reason: opted_out`.
+
+**Two routes to honouring it, in preference order:**
+
+1. **Upstream — aigateway accepts a bound** (`{"cache": {"use-cache": true, "max-age": N}}`).
+   One decision, made where the cache lives, and the only version that avoids serving a response
+   the caller will discard. Requires v2 to widen its grammar by one field — deliberately, since
+   "closed" is currently an invariant. **Raised on #507.**
+2. **Client-side revalidation**, buildable by url4 alone the moment `Age` exists: participate,
+   read `Age`, and if the entry is older than `max-age`, re-issue the call with
+   `use-cache: false`. Costs one extra round trip on a too-old hit — cheap (a cache read, not a
+   provider dispatch) but it does transfer a body that is then thrown away, and it multiplies
+   across a fan-out.
+
+**Implementation posture:** Batch 3 **parses and preserves** `max-age` rather than collapsing it
+to opt-out at the edge, so the value survives to the point where it can be honoured. Batch 7
+applies it when an age is available and falls back to opt-out when it is not. That way the day
+either blocker lifts, the change is a branch, not a redesign.
 
 ## 4. Protocol definitions — `packages/url4`
 

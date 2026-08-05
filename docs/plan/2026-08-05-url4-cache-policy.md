@@ -1,8 +1,8 @@
 ---
 title: url4 per-run cache policy — implementation plan
-status: proposed — awaiting owner approval AND spec decisions D3, D4, D6, D11
+status: proposed — **all spec decisions locked**; awaiting approval to implement
 created: 2026-08-05
-revised: 2026-08-05 (r5 — Batch 7 prefers RFC 9211 Cache-Status; D11 reopened)
+revised: 2026-08-05 (r6 — D3/D4/D6/D11 locked; §9 removed, nothing left to flip)
 ticket: UNFILED — Linear MCP unauthenticated at authoring time
 spec: docs/spec/2026-08-05-url4-cache-policy-spec.md
 ledger: docs/work/2026-08-05-UNFILED-url4-cloud-cache-policy-spec.md
@@ -51,15 +51,14 @@ end to end — see Verification step 3.
 **Locked:** cache ON by default · protocol types in `packages/url4` · both carriers · per-run
 scope · response headers folded onto spans · no aigateway change.
 
-**Open — the plan assumes the spec's recommendation for each; §9 states what moves if you flip
-one.** The plumbing is ~90% invariant across all four.
+**All locked** (spec r7):
 
-| | decision | assumed |
+| | decision | value |
 |---|---|---|
-| **D3** | frame shape | extend `AttachData` |
-| **D4** | precedence when both carriers speak | header wins, override logged |
-| **D6** | header name | standard `Cache-Control` |
-| **D11** | `max-age` — **reopened** (spec §3.5) | opt-out now; honour it if aigateway emits `Age`/`ttl=` |
+| **D3** | frame shape | extend `AttachData` — no new inbound verb |
+| **D4** | precedence | **header wins**, override emits a `LogEvent` at `warn` |
+| **D6** | header name | standard **`Cache-Control`**; intermediaries may participate |
+| **D11** | `max-age` | **honour it** — blocked upstream today, so it degrades to opt-out (§6) |
 
 Implementation starts only on explicit approval in plain words (CLAUDE.md rule 3).
 
@@ -144,8 +143,12 @@ Every directive collapses to participate / opt-out **at this edge**; none is for
 |---|---|
 | absent | `None` — not stated |
 | `no-store`, `no-cache` | `participate=False` |
-| `max-age=<n>` | `participate=False` (D11) |
+| **`max-age=<n>`** | **`participate=True, max_age=n`** — parsed and **preserved**, not collapsed (D11, §6) |
 | `url4-use-cache` | `participate=True` |
+
+`CachePolicy` therefore carries a second field, `max_age: int | None`, which is **url4-internal
+and never sent to aigateway** — v2's closed grammar rejects it (`global_controls.py:79-83`).
+Batch 7 is where it is applied.
 
 **Tests**
 
@@ -236,6 +239,10 @@ that **hides savings**, so nobody reports it.
    member rather than the first — the test that stops an Envoy or CDN entry being misread as
    aigateway's answer.
 2b. A malformed `Cache-Status` falls back to the `X-AIGW-*` triple rather than losing the signal.
+2c. **`max_age` with no age reported → the run opts out** (`bypass`/`opted_out`), never a silent
+   stale serve. This is the D11-inert path and is the behaviour that actually ships.
+2d. **`max_age` with an age reported → honoured**: within bound is a legitimate `hit`; beyond
+   bound triggers the opt-out re-issue. Written now, dormant until aigateway reports age.
 3. **Missing headers degrade to `None`, never crash** — an older gateway, or a non-cache error
    path.
 4. `X-AIGW-Cache-Key` recorded only for hit/miss; never any prompt content.
@@ -252,6 +259,27 @@ that **hides savings**, so nobody reports it.
 - `apps/url4-cloud/README.md`; `packages/url4` docs as needed.
 
 ---
+
+## 6. D11 — honouring `max-age`, and why it is inert today
+
+The decision is to honour it. Two upstream blockers stand in the way, both verified on #507's
+branch:
+
+1. **url4 cannot ask for a bound.** `{"cache": {"max-age": 60}}` returns
+   `_refuse(BYPASS_UNSUPPORTED_CONTROL)` — v2's grammar is closed to `use-cache`.
+2. **aigateway does not report age.** No `Age`, no `Cache-Status; ttl=`.
+
+So url4 can neither request a freshness bound nor measure one, and `max-age` **degrades to
+opt-out** until one changes — observably, via `bypass` / `opted_out`.
+
+**This plan builds the degraded behaviour and keeps the value.** Batch 3 parses and preserves
+`max_age`; Batch 7 applies it when an age is available and opts out when it is not. The day
+either blocker lifts, the change is a branch in Batch 7 — not a redesign.
+
+Preferred fix is upstream (aigateway accepts a bound); raised on #507. The client-side
+alternative — participate, read `Age`, re-issue with `use-cache: false` if too old — is
+buildable by url4 alone once `Age` exists, at the cost of one extra round trip on a stale hit
+and a discarded body, multiplied across a fan-out.
 
 ## Verification
 
@@ -286,13 +314,3 @@ that **hides savings**, so nobody reports it.
 - A url4-native / Enclave GET cache.
 - Any `apps/aigateway` change — #507 owns it.
 - Extracting `url4_streaming_protocol` as its own package (spec open question 4).
-
-## 9. If a decision flips
-
-| flip | what moves |
-|---|---|
-| **D3** → `ConfigureEvent` | Batch 1 adds `ConfigureData` + a third `InboundFrame` member (`unions.py:81`); Batch 4 handles a new inbound verb and must define what a `Configure` *after* run start means (recommend: ignored + warn). Batches 2, 5-8 unchanged. |
-| **D4** → frame wins | One function in Batch 5, one matrix row. |
-| **D4** → fatal on conflict | Adds a 409 on the REST side and an `ErrorEvent` on the WS side — the only variant that grows the error surface. |
-| **D6** → `URL4-Cache` | Batch 3's constant and parser grammar; a private header can use a simple `key=value` form and needs no RFC 9111 extension token. Batches 1, 2, 4-8 unchanged. |
-| **D11** → honour `max-age` | Batch 3 keeps the parsed value instead of collapsing to opt-out, and Batch 7 reads `Age` / `Cache-Status; ttl=` to decide. Needs aigateway to emit one of them — raised on #507. |
