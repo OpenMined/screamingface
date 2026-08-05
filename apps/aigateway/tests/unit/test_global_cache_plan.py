@@ -37,9 +37,10 @@ from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.request_cache.global_controls import parse_global_cache_controls
 from aigateway.core.request_cache.global_eligibility import BYPASS_UNPROJECTED_NATIVE
+from aigateway.core.request_cache.global_keys import GlobalCacheKeyResult
 from aigateway.core.request_cache.global_plan import (
     BYPASS_DISABLED,
-    GlobalCachePlan,
+    GlobalCacheDecision,
     build_global_cache_plan,
 )
 from aigateway.core.standard_parameters import provider_native_rule
@@ -131,13 +132,23 @@ def _plan(
     plugin: ProviderPluginBase | None = None,
     controls: Any = None,
     cache_enabled: bool = True,
-) -> GlobalCachePlan:
+) -> GlobalCacheDecision:
     return build_global_cache_plan(
         body=_body() if body is None else body,
         plugin=_Plugin() if plugin is None else plugin,
         controls=parse_global_cache_controls({}) if controls is None else controls,
         cache_enabled=cache_enabled,
     )
+
+
+def _key(decision: GlobalCacheDecision) -> GlobalCacheKeyResult:
+    assert isinstance(decision, GlobalCacheKeyResult)
+    return decision
+
+
+def _bypass(decision: GlobalCacheDecision) -> CacheBypass:
+    assert isinstance(decision, CacheBypass)
+    return decision
 
 
 # --- the plan cannot see identity ---------------------------------------------
@@ -161,27 +172,22 @@ def test_the_planner_performs_no_io_and_needs_no_await() -> None:
 
 
 def test_the_same_request_plans_to_the_same_key_every_time() -> None:
-    first = _plan()
-    second = _plan()
-    assert first.participates and second.participates
-    assert first.key is not None and second.key is not None
-    assert first.key.key_hash == second.key.key_hash
+    first = _key(_plan())
+    second = _key(_plan())
+    assert first.key_hash == second.key_hash
 
 
 def test_a_participating_plan_carries_a_key_and_no_reason() -> None:
-    plan = _plan(_body(temperature=0.7))
-    assert plan.participates
-    assert plan.reason == ""
-    assert plan.key is not None
-    assert len(plan.key.key_hash) == 64
-    assert plan.key.provider == "planned"
-    assert plan.key.model == _MODEL
+    key = _key(_plan(_body(temperature=0.7)))
+    assert len(key.key_hash) == 64
+    assert key.provider == "planned"
+    assert key.model == _MODEL
+    assert not hasattr(key, "reason")
 
 
 def test_a_keyed_parameter_still_reaches_the_planned_key() -> None:
-    bare = _plan().key
-    warmer = _plan(_body(temperature=0.7)).key
-    assert bare is not None and warmer is not None
+    bare = _key(_plan())
+    warmer = _key(_plan(_body(temperature=0.7)))
     assert bare.key_hash != warmer.key_hash
 
 
@@ -189,10 +195,9 @@ def test_a_keyed_parameter_still_reaches_the_planned_key() -> None:
 
 
 def test_a_disabled_cache_does_not_participate() -> None:
-    plan = _plan(cache_enabled=False)
-    assert not plan.participates
-    assert plan.key is None
-    assert plan.reason == BYPASS_DISABLED
+    bypass = _bypass(_plan(cache_enabled=False))
+    assert bypass.reason == BYPASS_DISABLED
+    assert not hasattr(bypass, "key_hash")
 
 
 @pytest.mark.parametrize(
@@ -207,14 +212,16 @@ def test_the_operator_gate_outranks_every_caller_control(controls: dict[str, Any
     # WHY the gate is reported rather than the caller's control: when the cache is
     # off, no property of the request was ever consulted, and naming one would
     # describe a decision that was not reached.
-    plan = _plan(controls=parse_global_cache_controls(dict(controls)), cache_enabled=False)
-    assert plan.reason == BYPASS_DISABLED
+    bypass = _bypass(
+        _plan(controls=parse_global_cache_controls(dict(controls)), cache_enabled=False)
+    )
+    assert bypass.reason == BYPASS_DISABLED
 
 
 def test_a_disabled_cache_still_yields_a_plan_for_an_unkeyable_request() -> None:
     # Total: the gate is checked before eligibility, so a body that could not be
     # keyed anyway is still answered with a plan and not an exception.
-    assert _plan({"model": 7}, cache_enabled=False).reason == BYPASS_DISABLED
+    assert _bypass(_plan({"model": 7}, cache_enabled=False)).reason == BYPASS_DISABLED
 
 
 # --- caller controls ----------------------------------------------------------
@@ -233,35 +240,32 @@ def test_a_disabled_cache_still_yields_a_plan_for_an_unkeyable_request() -> None
 def test_a_caller_control_that_refuses_the_cache_is_reported_verbatim(
     control: dict[str, Any], reason: str
 ) -> None:
-    plan = _plan(controls=parse_global_cache_controls({"cache": control}))
-    assert plan.key is None
-    assert plan.reason == reason
+    bypass = _bypass(_plan(controls=parse_global_cache_controls({"cache": control})))
+    assert bypass.reason == reason
 
 
 @pytest.mark.parametrize("control", [None, {}, {"use-cache": True}])
 def test_participation_is_the_default_and_is_explicitly_requestable(control: Any) -> None:
     # v2 grammar: absent, empty and an explicit opt-IN all read+write.
     controls = parse_global_cache_controls({} if control is None else {"cache": control})
-    assert _plan(controls=controls).participates
+    _key(_plan(controls=controls))
 
 
 # --- provider failures cost a bypass, never the request -----------------------
 
 
 def test_a_provider_that_has_not_implemented_the_port_does_not_participate() -> None:
-    plan = _plan(plugin=_Undescribed())
-    assert plan.key is None
-    assert plan.reason == PROJECTION_BYPASS_REASON
+    bypass = _bypass(_plan(plugin=_Undescribed()))
+    assert bypass.reason == PROJECTION_BYPASS_REASON
 
 
 def test_a_provider_rule_table_that_raises_does_not_participate() -> None:
-    plan = _plan(plugin=_BrokenRules())
-    assert plan.key is None
-    assert plan.reason == "provider_rule_set"
+    bypass = _bypass(_plan(plugin=_BrokenRules()))
+    assert bypass.reason == "provider_rule_set"
 
 
 def test_an_unknown_caller_parameter_does_not_participate() -> None:
-    assert _plan(_body(nonesuch=1)).reason == "unknown_parameter"
+    assert _bypass(_plan(_body(nonesuch=1))).reason == "unknown_parameter"
 
 
 # --- a native value the projection does not describe (BYPASS_UNPROJECTED_NATIVE) --
@@ -308,9 +312,8 @@ def test_a_keyed_native_value_whose_root_the_projection_omits_makes_the_request_
     on the request path. Refusing to cache costs an entry; failing the request would
     cost the answer, and keying anyway would cost correctness.
     """
-    plan = _plan(_body(provider_params={"mode": "fast"}), plugin=_UnprojectedNative())
-    assert plan.key is None
-    assert plan.reason == BYPASS_UNPROJECTED_NATIVE
+    bypass = _bypass(_plan(_body(provider_params={"mode": "fast"}), plugin=_UnprojectedNative()))
+    assert bypass.reason == BYPASS_UNPROJECTED_NATIVE
 
 
 def test_that_same_provider_still_caches_a_request_that_omits_the_native_value() -> None:
@@ -318,7 +321,7 @@ def test_that_same_provider_still_caches_a_request_that_omits_the_native_value()
     # the root is only claimed when a rule actually ACCEPTS a value, so a provider with
     # an undescribed root still caches every request that does not use it. Without this
     # the test above would also pass if the guard disabled the provider wholesale.
-    assert _plan(plugin=_UnprojectedNative()).participates
+    _key(_plan(plugin=_UnprojectedNative()))
 
 
 def test_the_unprojected_guard_is_what_refuses_and_not_the_absence_of_a_schema() -> None:
@@ -335,10 +338,7 @@ def test_the_unprojected_guard_is_what_refuses_and_not_the_absence_of_a_schema()
                 "prepared": {"api_base": "https://example.invalid/v1", "routing": {"mode": "fast"}},
             }
 
-    plan = _plan(_body(provider_params={"mode": "fast"}), plugin=_Describes())
-    assert plan.participates
-    assert plan.reason == ""
-    assert plan.key is not None
+    _key(_plan(_body(provider_params={"mode": "fast"}), plugin=_Describes()))
 
 
 # --- a parameter that is not offered in every auth mode (ruling 33) -----------
@@ -352,16 +352,15 @@ def test_a_parameter_the_provider_offers_in_only_some_modes_does_not_participate
     #
     # WHY this is not the approved validation-skip trade-off: that one is about an
     # invalid VALUE. This is availability — the parameter is not on offer at all.
-    plan = _plan(_body(temperature=0.7), plugin=_ModeRestricted())
-    assert plan.key is None
-    assert plan.reason == "mode_restricted_parameter"
+    bypass = _bypass(_plan(_body(temperature=0.7), plugin=_ModeRestricted()))
+    assert bypass.reason == "mode_restricted_parameter"
 
 
 def test_the_same_provider_still_caches_requests_that_omit_that_parameter() -> None:
     # Granularity is PER PATH, not per provider: one mode-restricted parameter costs
     # this request its entry, not every request to the provider. Without this the
     # guard would silently disable caching for any provider having one such rule.
-    assert _plan(plugin=_ModeRestricted()).participates
+    _key(_plan(plugin=_ModeRestricted()))
 
 
 def test_the_provider_mode_set_is_not_derived_from_the_rules_themselves() -> None:
@@ -379,7 +378,7 @@ def test_the_provider_mode_set_is_not_derived_from_the_rules_themselves() -> Non
     assert rule_union == {"api_key"}
     # The provider genuinely offers more than its rules cover — the gap IS the hazard.
     assert set(restricted.available_auth_modes()) > rule_union
-    assert not _plan(_body(temperature=0.7), plugin=restricted).participates
+    _bypass(_plan(_body(temperature=0.7), plugin=restricted))
 
 
 @pytest.mark.parametrize(
@@ -394,19 +393,20 @@ def test_the_provider_mode_set_is_not_derived_from_the_rules_themselves() -> Non
 def test_a_body_without_a_usable_model_does_not_participate(body: dict[str, Any]) -> None:
     # The route rejects these before the stage runs; the planner must still be
     # total, because a bypass is the only answer it is allowed to give.
-    assert _plan(body).reason == "unsupported_shape"
+    assert _bypass(_plan(body)).reason == "unsupported_shape"
 
 
 def test_streaming_and_tool_bearing_requests_do_not_participate() -> None:
-    assert _plan(_body(stream=True)).reason == "stream"
-    assert _plan(_body(tools=[{"type": "function", "function": {"name": "f"}}])).reason == "tools"
+    assert _bypass(_plan(_body(stream=True))).reason == "stream"
+    tools = _plan(_body(tools=[{"type": "function", "function": {"name": "f"}}]))
+    assert _bypass(tools).reason == "tools"
 
 
 # --- the plan is unambiguous ---------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "plan",
+    "decision",
     [
         _plan(),
         _plan(cache_enabled=False),
@@ -415,9 +415,14 @@ def test_streaming_and_tool_bearing_requests_do_not_participate() -> None:
         _plan(_body(nonesuch=1)),
     ],
 )
-def test_exactly_one_of_key_and_reason_is_populated(plan: GlobalCachePlan) -> None:
-    assert (plan.key is None) is bool(plan.reason)
-    assert plan.participates is (plan.key is not None)
+def test_exactly_one_of_key_and_reason_is_populated(decision: GlobalCacheDecision) -> None:
+    if isinstance(decision, CacheBypass):
+        assert decision.reason
+        assert not hasattr(decision, "key_hash")
+    else:
+        assert isinstance(decision, GlobalCacheKeyResult)
+        assert decision.key_hash
+        assert not hasattr(decision, "reason")
 
 
 # --- the provider participation gate (OME-305 review, MEDIUM-1) ----------------
@@ -445,12 +450,10 @@ def test_a_provider_that_declines_to_participate_yields_no_key() -> None:
     # WHY the plan is where this is enforced: the cache stage runs before model
     # resolution and before credentials, so a provider's dispatch-side guards cannot
     # stop a STORED row from being replayed. A row needs neither to be served.
-    plan = _plan(plugin=_SwitchedOff())
-    assert plan.participates is False
-    assert plan.key is None
+    _bypass(_plan(plugin=_SwitchedOff()))
     # Non-vacuous: the identical request DOES participate for a provider that has not
     # declined, so the refusal is owed to the gate and not to an unkeyable request.
-    assert _plan().participates is True
+    _key(_plan())
 
 
 def test_declining_to_participate_is_reported_as_a_provider_reason() -> None:
@@ -458,18 +461,17 @@ def test_declining_to_participate_is_reported_as_a_provider_reason() -> None:
     # ``chat_cache_stage._closed_gate_reason``, which maps it to ``cache_unavailable``
     # whenever the cache's own switch is on — blaming a healthy store for a provider
     # an operator turned off. Measured, not assumed; see the route-level test.
-    assert _plan(plugin=_SwitchedOff()).reason == PROJECTION_BYPASS_REASON
-    assert _plan(plugin=_SwitchedOff()).reason != BYPASS_DISABLED
+    bypass = _bypass(_plan(plugin=_SwitchedOff()))
+    assert bypass.reason == PROJECTION_BYPASS_REASON
+    assert bypass.reason != BYPASS_DISABLED
 
 
 def test_a_participation_hook_that_raises_fails_to_bypass() -> None:
     # INVARIANT (this module's TOTAL claim): a provider hook is third-party-shaped code
     # on a path that must never fail a request. It costs a bypass, never a 500 — and it
     # fails CLOSED, because a hook that cannot answer has not granted participation.
-    plan = _plan(plugin=_BrokenGate())
-    assert plan.participates is False
-    assert plan.key is None
-    assert plan.reason == PROJECTION_BYPASS_REASON
+    bypass = _bypass(_plan(plugin=_BrokenGate()))
+    assert bypass.reason == PROJECTION_BYPASS_REASON
 
 
 def test_a_provider_participates_by_default() -> None:
@@ -478,3 +480,8 @@ def test_a_provider_participates_by_default() -> None:
     # would silently un-cache every provider that has implemented a projection.
     assert ProviderPluginBase.participates_in_global_cache(_Plugin()) is True
     assert _Plugin().participates_in_global_cache() is True
+
+
+def test_the_plan_result_is_exactly_a_key_or_a_bypass() -> None:
+    assert isinstance(_plan(), GlobalCacheKeyResult)
+    assert isinstance(_plan(cache_enabled=False), CacheBypass)

@@ -28,7 +28,6 @@ without a profile, a connection, a credential blob or a database.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Final
 
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
@@ -50,25 +49,7 @@ from .global_keys import GlobalCacheKeyResult, build_global_cache_key
 BYPASS_DISABLED: Final = "disabled"
 
 
-@dataclass(frozen=True)
-class GlobalCachePlan:
-    """Whether this request participates in the global cache, and why not if it does not.
-
-    INVARIANT: exactly one of the two states is populated — a key with no reason,
-    or a reason with no key. A plan can therefore never be read as "cacheable but
-    also bypassed", which is the ambiguity a bool-plus-optional-key would allow.
-    """
-
-    key: GlobalCacheKeyResult | None
-    reason: str
-
-    @property
-    def participates(self) -> bool:
-        return self.key is not None
-
-
-def _refused(reason: str) -> GlobalCachePlan:
-    return GlobalCachePlan(key=None, reason=reason)
+type GlobalCacheDecision = GlobalCacheKeyResult | CacheBypass
 
 
 def build_global_cache_plan(
@@ -77,7 +58,7 @@ def build_global_cache_plan(
     plugin: ProviderPluginBase,
     controls: GlobalCacheControls,
     cache_enabled: bool,
-) -> GlobalCachePlan:
+) -> GlobalCacheDecision:
     """The global cache plan for a hardened caller request.
 
     ``body`` is the request after JSON shape validation, dispatch-control stripping,
@@ -89,7 +70,7 @@ def build_global_cache_plan(
     eligibility detail instead would describe a decision that was never reached.
     """
     if not cache_enabled:
-        return _refused(BYPASS_DISABLED)
+        return CacheBypass(BYPASS_DISABLED)
     try:
         provider_participates = plugin.participates_in_global_cache()
     except Exception:
@@ -124,12 +105,12 @@ def build_global_cache_plan(
         # vocabulary is a caller-visible contract (URL4 reads these bytes, and
         # ``test_global_cache_reason_vocabulary._WIRE_CONTRACT`` owns the spelling), so
         # adding a value is an owner decision rather than an implementation detail.
-        return _refused(PROJECTION_BYPASS_REASON)
+        return CacheBypass(PROJECTION_BYPASS_REASON)
     if not controls.participate:
-        return _refused(controls.bypass_reason)
+        return CacheBypass(controls.bypass_reason)
     model = body.get("model")
     if not is_text(model):
-        return _refused(BYPASS_UNSUPPORTED_SHAPE)
+        return CacheBypass(BYPASS_UNSUPPORTED_SHAPE)
     try:
         # INVARIANT (decision 1): the AUTH-MODE-INDEPENDENT rule set. No auth mode
         # is resolved yet, and ``cache_behavior`` is one unconditional value per
@@ -139,7 +120,7 @@ def build_global_cache_plan(
         # WHY this catch is broad: a provider rule table is third-party-shaped code
         # on a path that must not fail. A bug there costs a bypass, never the
         # caller's request. Same argument as the projection call below.
-        return _refused(BYPASS_RULE_SET)
+        return CacheBypass(BYPASS_RULE_SET)
     try:
         # Provider METADATA (which modes this provider offers), not caller identity.
         # A rule the provider offers in only some of its modes cannot be keyed —
@@ -147,7 +128,7 @@ def build_global_cache_plan(
         # will resolve to.
         provider_modes = tuple(plugin.available_auth_modes())
     except Exception:
-        return _refused(BYPASS_RULE_SET)
+        return CacheBypass(BYPASS_RULE_SET)
     built = build_global_cache_key(
         provider=plugin.custom_llm_provider,
         body=body,
@@ -155,6 +136,4 @@ def build_global_cache_plan(
         projection=plugin.global_cache_projection,
         provider_auth_modes=provider_modes,
     )
-    if isinstance(built, CacheBypass):
-        return _refused(built.reason)
-    return GlobalCachePlan(key=built, reason="")
+    return built

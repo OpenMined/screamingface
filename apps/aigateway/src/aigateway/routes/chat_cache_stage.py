@@ -31,7 +31,7 @@ from typing import Any, Final, Literal
 
 from fastapi import Request, Response
 
-from ..core.cache_ports import CACHE_UNAVAILABLE_REASON, PUBLISHED_CACHE_REASONS
+from ..core.cache_ports import CACHE_UNAVAILABLE_REASON, PUBLISHED_CACHE_REASONS, CacheBypass
 from ..core.plugin_base import ProviderPluginBase
 from ..core.request_cache import CacheUnavailable, GlobalRequestCacheWrite
 from ..core.request_cache.global_controls import GlobalCacheControls
@@ -165,25 +165,26 @@ async def look_up_global_cache(
         logger.warning("cache availability check failed; treating the cache as unavailable")
         return GlobalCacheOutcome(status="bypass", reason=CACHE_UNAVAILABLE_REASON)
 
-    plan = build_global_cache_plan(
+    decision = build_global_cache_plan(
         body=body, plugin=plugin, controls=controls, cache_enabled=enabled
     )
-    if plan.key is None:
-        reason = _publishable(plan.reason)
+    if isinstance(decision, CacheBypass):
+        reason = _publishable(decision.reason)
         if reason == BYPASS_DISABLED:
             reason = _closed_gate_reason(request.app.state.settings)
         return GlobalCacheOutcome(status="bypass", reason=reason)
 
+    key = decision
     try:
-        cached = await store.get_global(plan.key.key_hash)
+        cached = await store.get_global(key.key_hash)
     except CacheUnavailable:
         # INVARIANT: a read failure is a BYPASS, never a miss. Reporting a miss would
         # send the route on to write into a store that has just failed to read.
         logger.warning(
             "global cache unavailable on read provider=%s model=%r key=%s…",
-            plan.key.provider,
-            plan.key.model,
-            plan.key.key_hash[:KEY_PREFIX_LENGTH],
+            key.provider,
+            key.model,
+            key.key_hash[:KEY_PREFIX_LENGTH],
         )
         return GlobalCacheOutcome(status="bypass", reason=CACHE_UNAVAILABLE_REASON)
     except Exception:
@@ -193,14 +194,14 @@ async def look_up_global_cache(
         return GlobalCacheOutcome(status="bypass", reason=CACHE_UNAVAILABLE_REASON)
 
     if cached is None:
-        return GlobalCacheOutcome(status="miss", reason="", key=plan.key)
+        return GlobalCacheOutcome(status="miss", reason="", key=key)
     logger.info(
         "global cache hit provider=%s model=%r key=%s…",
-        plan.key.provider,
-        plan.key.model,
-        plan.key.key_hash[:KEY_PREFIX_LENGTH],
+        key.provider,
+        key.model,
+        key.key_hash[:KEY_PREFIX_LENGTH],
     )
-    return GlobalCacheOutcome(status="hit", reason="", response=cached, key=plan.key)
+    return GlobalCacheOutcome(status="hit", reason="", response=cached, key=key)
 
 
 def _is_a_whole_answer(result: dict[str, Any]) -> bool:

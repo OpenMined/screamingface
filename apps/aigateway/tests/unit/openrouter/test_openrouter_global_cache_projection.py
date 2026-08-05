@@ -565,12 +565,11 @@ def test_a_disabled_provider_yields_a_plan_that_does_not_participate() -> None:
         )
 
     refused = _plan(_disabled_plugin())
-    assert refused.participates is False
-    assert refused.key is None
+    assert isinstance(refused, CacheBypass)
     assert refused.reason == PROJECTION_BYPASS_REASON
     # Non-vacuous: the SAME request under an enabled provider does participate, so the
     # refusal is owed to the gate and not to the request being unkeyable.
-    assert _plan(_enabled_plugin()).participates is True
+    assert not isinstance(_plan(_enabled_plugin()), CacheBypass)
 
 
 # --- the declared `top_k` leaf is really projected (OME-305 review, MEDIUM-2) ---
