@@ -148,23 +148,26 @@ def test_no_projection_reads_the_clock_randomness_the_filesystem_or_the_environm
         def get(self, key: str, default: Any = None) -> Any:
             raise AssertionError(f"global_cache_projection read os.environ.get({key!r})")
 
-    for module, attribute in (
-        (time, "time"),
-        (time, "monotonic"),
-        (time, "time_ns"),
-        (random, "random"),
-        (random, "randint"),
-        (random, "choice"),
-        (builtins, "open"),
-        (os, "environ"),
-    ):
-        if attribute == "environ":
-            monkeypatch.setattr(module, attribute, _PoisonedEnviron())
-        else:
-            monkeypatch.setattr(module, attribute, _refuse(f"{module.__name__}.{attribute}"))
+    # INVARIANT: pytest's reporters use these globals after the test body returns;
+    # only provider projections execute while the ambient sources are poisoned.
+    with monkeypatch.context() as poison:
+        for module, attribute in (
+            (time, "time"),
+            (time, "monotonic"),
+            (time, "time_ns"),
+            (random, "random"),
+            (random, "randint"),
+            (random, "choice"),
+            (builtins, "open"),
+            (os, "environ"),
+        ):
+            if attribute == "environ":
+                poison.setattr(module, attribute, _PoisonedEnviron())
+            else:
+                poison.setattr(module, attribute, _refuse(f"{module.__name__}.{attribute}"))
 
-    for plugin, model in MODELS:
-        plugin.global_cache_projection(body(model))
+        for plugin, model in MODELS:
+            plugin.global_cache_projection(body(model))
 
 
 class _PoisonedSettings:
