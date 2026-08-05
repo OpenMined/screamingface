@@ -1,7 +1,7 @@
 ---
 title: url4 per-run cache policy — implementation plan
 status: proposed — awaiting owner approval AND resolution of spec D3/D4/D6
-revised: 2026-08-05 (r2 — D1 LOCKED ON; aigateway chart batch added; AIGW_ prefix corrected)
+revised: 2026-08-05 (r3 — rebased on aigateway v2 / PR #507; Batch 0 DELETED; mapper collapses to one field)
 created: 2026-08-05
 ticket: UNFILED — Linear MCP unauthenticated at authoring time
 spec: docs/spec/2026-08-05-url4-cache-policy-spec.md
@@ -50,61 +50,16 @@ Both are Python → the `sdlc-python` loop: RED first, append-only tests, gates 
 
 ---
 
-## Batch 0 — enable the cache server-side (`apps/aigateway`, chart only)
+## Batch 0 — ~~enable the cache server-side~~ **DELETED (r3)**
 
-**Different app, different CODEOWNERS reviewer — its own sub-issue per CLAUDE.md rule 8.**
+**PR #507 does this itself.** It ships `config.requestCache.enabled` in `values.yaml` (false) and
+`values-prod.yaml` (**true**), with the data-sharing consequences documented at the decision
+point. There is no aigateway work for url4 to do, and the r2 chart batch — including r4's TTL
+pinning — is void: **v2 rows never expire**, so those knobs belong to the v1 lane.
 
-Without this, everything below is inert: `config.py:127-129` defaults `request_cache_enabled` to
-`False` and the chart never sets it, so every request answers `bypass / disabled`.
-
-The chart's pattern is `values.yaml → config.<camelCase>` rendered into `templates/configmap.yaml`
-as `AIGW_*` (e.g. `AIGW_ALLOWED_NETWORKS: {{ join "," .Values.config.allowedNetworks | quote }}`).
-Follow it — do **not** introduce a raw env passthrough.
-
-- `values.yaml`, new block under `config:`:
-
-  ```yaml
-  config:
-    # Response cache for deterministic chat completions. OFF in the app's own default
-    # (config.py:127) — url4 runs cache by default, so this must be on for that to mean
-    # anything. Values are pinned rather than inherited: an implicit default is a number
-    # that can move under you in a patch release.
-    requestCache:
-      enabled: true
-      ttlSeconds: 600         # per-entry freshness
-      maxTtlSeconds: 3600     # ceiling a caller's `ttl`/`s-maxage` may request
-      maxResponseBytes: 1000000
-  ```
-
-- `templates/configmap.yaml`, four new lines following the existing style:
-
-  ```yaml
-  AIGW_REQUEST_CACHE_ENABLED: {{ .Values.config.requestCache.enabled | quote }}
-  AIGW_REQUEST_CACHE_TTL_SECONDS: {{ .Values.config.requestCache.ttlSeconds | quote }}
-  AIGW_REQUEST_CACHE_MAX_TTL_SECONDS: {{ .Values.config.requestCache.maxTtlSeconds | quote }}
-  AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES: {{ .Values.config.requestCache.maxResponseBytes | quote }}
-  ```
-
-- `values-prod.yaml` — decide whether prod differs. Recommend it does **not** initially: one set
-  of numbers to reason about while hit rates are unknown.
-
-**The pinned values equal today's code defaults** (`config.py:130-138`). Pinning is not
-endorsement — it freezes behaviour so a future code-default change cannot move production
-silently, and it makes the numbers a visible dial to tune once §7 metrics show real hit rates.
-
-**Tests** — the chart gate (`charts.yml` → `verify_chart_wiring.py`) renders and asserts on parsed
-YAML:
-1. All four `AIGW_REQUEST_CACHE_*` keys are present in the rendered ConfigMap.
-2. `AIGW_REQUEST_CACHE_ENABLED` renders `"true"`.
-3. `ttlSeconds <= maxTtlSeconds` — the app has a matching validator
-   (`config.py:237-240`, `_validate_request_cache_ttls`) that **fails startup**, so a bad chart
-   value would take the gateway down rather than degrade. Catching it at render is the cheaper
-   failure.
-4. Values render **quoted** — the app reads env as strings; an unquoted `600` is a YAML int and
-   the ConfigMap would reject it.
-
-**Safe in isolation.** Turning the flag on changes nothing until a caller sends `use-cache`, which
-is Batch 6. That is what makes the ordering in Risks 1 a choice rather than a hazard.
+**What replaces it is a dependency, not a batch:** #507 must land before Batch 6 has any
+observable effect. Until then url4 sends the field and every request answers `bypass / disabled`,
+which is safe but proves nothing.
 
 ---
 
@@ -113,8 +68,9 @@ is Batch 6. That is what makes the ordering in Risks 1 a choice rather than a ha
 **RED first.** Schema tests only; nothing consumes these yet.
 
 - `protocol/signals.py`
-  - `class CachePolicy(BaseModel)` — **`use_cache: bool | None = None`** (tri-state, spec §4.1),
-    `no_cache`, `no_store`, `s_maxage: int|None (ge=1)`. **No `as_body_field()`** (see §0.1).
+  - `class CachePolicy(BaseModel)` — **exactly one field**, `participate: bool | None = None`
+    (tri-state, spec §4.1). **No `no_cache`, `no_store` or `s_maxage`** — v2 retired them and
+    *bypasses* on them (§1.0). **No `as_body_field()`** (see §0.1).
   - `AttachData` gains `cache: CachePolicy | None = None`.
   - `SpanData` gains `cache_status: Literal["hit","miss","bypass"] | None` and
     `cache_reason: str | None`.
@@ -130,7 +86,9 @@ is Batch 6. That is what makes the ordering in Risks 1 a choice rather than a ha
 2a. `CachePolicy()` (all-unstated) and `CachePolicy(use_cache=None)` are equivalent, and neither
    equals `CachePolicy(use_cache=False)`.
 3. Round-trip through `InboundFrameAdapter` preserves the policy.
-4. `s_maxage=0` and negative values are rejected (`ge=1`).
+4. **`CachePolicy` rejects unknown fields** (`model_config = ConfigDict(extra="forbid")`). A
+   caller who invents `no_store` must fail at the url4 edge with a clear error, rather than have
+   it forwarded and silently cost every cache hit downstream.
 5. `SpanData` without cache fields still validates.
 
 **Gate:** `run_gates.py url4` green at ≥95% coverage.
@@ -142,16 +100,16 @@ is Batch 6. That is what makes the ordering in Risks 1 a choice rather than a ha
 - `url4_cloud/runner/cache.py` (new) — `policy_to_body_field(policy: CachePolicy) -> dict`.
 
 **Takes a RESOLVED policy, never `None`.** The D1 default is applied once at convergence
-(Batch 5), so this function is a dumb translation and the policy decision lives in exactly one
-place.
+(Batch 5), so this stays a dumb translation and the policy decision lives in one place.
 
 **Tests**
-1. `CachePolicy(use_cache=True)` → `{"cache": {"use-cache": true}}` — **the D1=ON default shape**.
-2. `CachePolicy(no_store=True)` → `{"cache": {"no-store": true}}`.
-3. Each field maps to aigateway's spelling (`no_store` → `"no-store"`, `s_maxage` → `"s-maxage"`).
-4. Unstated fields are **omitted**, not sent as `false` — aigateway's `parse_cache_controls`
-   treats absent and `false` identically, but a minimal body keeps the wire honest and the
-   `unsupported_fields` surface small.
+1. `participate=True` → **`{}`** — the field is *omitted*, not sent as `{"use-cache": true}`.
+   v2 treats absent, `null` and `{}` identically as participate, and the smallest body is the
+   least likely to trip the closed-grammar bypass.
+2. `participate=False` → `{"cache": {"use-cache": false}}`.
+3. **The output `cache` object never has more than the one `use-cache` key.** Property-style:
+   whatever the input, `set(out.get("cache", {})) <= {"use-cache"}`. This is the guard that keeps
+   a future field addition from silently disabling caching for every run.
 
 **Gate:** `run_gates.py url4-cloud`, including `check_layering.py` — this module must not be
 imported by anything in `packages/url4`.
@@ -216,10 +174,9 @@ imported by anything in `packages/url4`.
 - `runner/connector.py:337` — `json={"model":…, "messages":…, **extra, **policy_to_body_field(policy)}`.
 
 **Tests**
-1. **(r2)** A run with no declared policy sends `cache: {"use-cache": true}` — the D1=ON default.
-   *(r1 asserted a byte-identical body here; that criterion died with D1. It now applies only to
-   the shape of an explicitly disabled run.)*
-2. A `no-store` run sends `cache: {"no-store": true}` and no `use-cache`.
+1. **(r3)** A run with no declared policy sends **no `cache` field** — body byte-identical to
+   today's, which under v2 *is* participation. The r1 criterion returns, for a different reason.
+2. An opted-out run sends `cache: {"use-cache": false}` and nothing else.
 3. Two concurrent runs with different policies do not contaminate each other — the regression
    `AigatewayConfig` placement would have caused.
 4. The tool-calling loop (`connector.py:325-360`) applies the policy on **every** round trip, not
@@ -266,7 +223,10 @@ imported by anything in `packages/url4`.
 
 ## Risks
 
-1. **RESOLVED — it *is* off.** `config.py:127-129` defaults `request_cache_enabled` to `False`,
+1. **RESOLVED, then superseded (r3).** #507 owns the operator gate and turns it on in
+   `values-prod.yaml`. The remaining risk is a **dependency**: this work is unobservable until
+   #507 lands, and #507 is WIP. Do not treat a green url4 test suite as evidence the cache works
+   end to end. *(Original note:* it *is* off today. `config.py:127-129` defaults `request_cache_enabled` to `False`,
    and the chart never sets it (16 env keys, none of them this). That is why Batch 0 exists. The
    risk is now one of **ordering**, not discovery: if Batch 0 lands before Batch 6, nothing
    changes; if Batch 6 lands first, nothing changes either. Both are safe — but shipping them in

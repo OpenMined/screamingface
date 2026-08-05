@@ -2,7 +2,7 @@
 title: url4 per-run cache policy — technical specification
 status: PROPOSED — awaiting owner decisions D3, D4, D6 (§3). No code written.
 created: 2026-08-05
-revised: 2026-08-05 (r4 — TTL/size knobs pinned explicitly in the chart)
+revised: 2026-08-05 (r5 — rebased on aigateway v2 global cache, PR #507; r4's TTL pinning REVOKED)
 author: Claude (Opus 5) + Sergey
 ticket: UNFILED — Linear MCP unauthenticated at authoring time (see the ledger)
 related:
@@ -21,11 +21,43 @@ related:
 |---|---|---|
 | r1 | 2026-08-05 | First draft — located the change in url4-cloud's REST layer. |
 | r2 | 2026-08-05 | **Superseded r1's location.** Owner: protocol belongs in `packages/url4`; both HTTP header *and* protocol frame are carriers. Adds §3 D3/D4 and §5.2. |
-| r4 | 2026-08-05 | Owner: **TTL/size knobs pinned explicitly** in the chart rather than inherited (§10). Closes the last non-D question. |
+| **r5** | 2026-08-05 | **Rebased on aigateway v2** (`OME-305`, PR #507 — WIP, assumed landing). v2 is a **global, never-expiring, ON-by-default cache with a CLOSED one-field grammar**. This **revokes r4** (v2 rows never expire, so TTL knobs are v1's), **deletes the aigateway sub-issue** (#507 does the chart itself), and **collapses the protocol to a single opt-out signal** — §1.0. Security section rewritten: the cache is now shared across accounts. |
+| r4 | 2026-08-05 | ~~TTL/size knobs pinned explicitly in the chart~~ — **REVOKED by r5.** |
 | r3 | 2026-08-05 | **D1 LOCKED: caching is ON by default; only disabling is explicit.** That makes the aigateway **chart** part of the deliverable (D8 reversed) and makes this cross-app — see §2.1. Ensemble-determinism tradeoff (§8.2) accepted by the owner on the record. |
 
 **Nothing here is implemented.** Per CLAUDE.md rule 3, implementation starts only on explicit
 approval in plain words.
+
+## 1.0 Upstream contract — aigateway v2 (PR #507), assumed
+
+This spec is written against **`OME-305` / PR #507 `feat(aigateway): add global exact-request
+cache`** — open, non-draft, +12152/-547 at time of writing. It is **assumed to land**; url4 must
+be ready for it. Everything below consumes that contract rather than the v1 one this spec
+originally targeted.
+
+**What v2 is**, from its own source:
+
+| property | v2 | consequence for url4 |
+|---|---|---|
+| **Scope** | **ONE global cache shared by every hosted caller.** "identity is structurally absent" — no account, profile, user, auth-mode or credential anywhere in the key (`global_keys.py`) | The per-account scoping this spec's §8.1 relied on is **gone** |
+| **Default** | **ON** — "an ordinary request participates; the control object exists only to OPT OUT" (`global_controls.py`) | D1 is now aigateway's own design, not a url4 choice |
+| **Expiry** | **Rows never expire** (`values-prod.yaml`: *"rows never expire"*) | The owner's no-expiry requirement is satisfied upstream. **r4's chart TTL pinning is void** — those knobs belong to the v1 lane |
+| **Grammar** | **CLOSED. Exactly one field: `use-cache`.** Any other key — including alongside a valid `use-cache: true` — makes the request **bypass** | url4 may send **only** `use-cache`. `no-store`/`no-cache`/`ttl`/`s-maxage` are **retired** and now *cause* a bypass |
+| **Key** | the complete effective output-affecting call — prompt + every `keyed` parameter + the provider's pure projection | a run's `temperature` etc. now participate; v1 bypassed on them |
+| **Operator gate** | `request_cache_enabled` still `False` in code; `values.yaml` `requestCache.enabled: false`, **`values-prod.yaml` `true`** | **#507 does the chart work.** The aigateway sub-issue this spec added in r3 is deleted |
+
+**The exact parse (`parse_global_cache_controls`):**
+
+| body | result |
+|---|---|
+| no `cache` key · `cache: null` · `cache: {}` | **participate** — "absent, null or an empty object all state nothing" |
+| `{"use-cache": true}` | participate |
+| `{"use-cache": false}` | bypass, reason `opted_out` |
+| `{"use-cache": "yes"}` (non-bool) | bypass, `malformed_controls` |
+| **any other key**, even with a valid `use-cache` | bypass, `unsupported_control` |
+
+**So the entire protocol surface url4 needs is one signal: participate, or opt out.** Anything
+richer is not merely unnecessary — it actively causes a bypass.
 
 ## 1. Purpose & scope
 
@@ -131,7 +163,8 @@ choose. The OPEN items are the point of this review.
 | D5 | Scope | whole run — every leaf, every fan-out branch | 🟢 LOCKED (§1.2) |
 | **D6** | Header name / intermediary participation | §3.4 | 🔴 **OPEN** |
 | D7 | Response headers read back and folded onto spans | mandatory, every variant | 🟢 LOCKED (§7) |
-| D8 | aigateway changes | **chart only** — set `AIGW_REQUEST_CACHE_ENABLED=true`; no code (§2.1) | 🟢 LOCKED (owner, r3 — reverses r2's "none") |
+| D8 | aigateway changes | **none — PR #507 does it all**, chart included. url4 depends on it landing (§1.0) | 🟢 LOCKED (r5 — reverts r3) |
+| **D11** | `Cache-Control: max-age=N` — v2 has no freshness concept | treat as **opt-out** (§3.5) | 🟡 **PROPOSED** |
 | D9 | Protocol location | `packages/url4/.../streaming/protocol/` | 🟢 LOCKED (owner, r2) |
 | D10 | Both carriers supported | yes | 🟢 LOCKED (owner, r2) |
 
@@ -144,8 +177,8 @@ choose. The OPEN items are the point of this review.
 | | |
 |---|---|
 | **Default** | `use_cache = True` when neither carrier declares a policy |
-| **To disable** | `Cache-Control: no-store` (HTTP) or `{"cache": {"no_store": true}}` (frame) |
-| **Prerequisite** | `AIGW_REQUEST_CACHE_ENABLED=true` in the aigateway chart — §2.1. Without it the default is inert and every run answers `bypass / disabled`. |
+| **To disable** | `Cache-Control: no-store` (HTTP) or `{"cache": {"participate": false}}` (frame) |
+| **Prerequisite** | The operator gate, which **PR #507 already sets** — `requestCache.enabled: true` in `values-prod.yaml`. url4 does nothing here (§1.0). |
 
 **What this buys:** a fan-out with repeated sub-prompts collapses to one provider call, and the
 owner's original ask (`no-store` for a specific execution) becomes meaningful rather than a
@@ -187,8 +220,10 @@ run-scoped statement wins and says so.
 
 **Proposed: the standard `Cache-Control` request header.** RFC 9111 already defines `no-store`,
 `no-cache`, `max-age`, `only-if-cached` as *request* directives, and aigateway's control names
-(`no-cache`, `no-store`, `s-maxage`, `ttl`) are deliberately HTTP-shaped — the vocabularies
-already align and nothing is invented. It composes with doctrine N1, which justifies GET *on the
+(`no-cache`, `no-store`, `s-maxage`, `ttl`) were deliberately HTTP-shaped, so the vocabularies
+aligned and nothing had to be invented. **(r5: v2 retired all four; only `use-cache` remains, so
+the alignment is now at the level of *meaning* rather than field names — url4 collapses every
+directive to participate/opt-out at its own edge, §5.1.)** It composes with doctrine N1, which justifies GET *on the
 grounds the call is cacheable*.
 
 **Consequence:** a genuine `Cache-Control` may be honoured by Envoy or a CDN. Usually desirable —
@@ -199,39 +234,47 @@ it is what the header means. If the directive must reach *only* aigateway, the h
 header *and* aigateway-only. A standard header intermediaries are asked to ignore is the worst of
 both.
 
+### 3.5 D11 — `max-age` under a cache that never expires
+
+v2 rows never expire, so a caller asking for `max-age=60` is asking for a guarantee the upstream
+cannot give.
+
+| option | trade |
+|---|---|
+| **(a) Treat as opt-out** *(proposed)* | Conservative and honest: they asked for bounded staleness, we cannot bound it, so we do not serve them a stored answer. Costs a cache hit they might have accepted. |
+| (b) Ignore the directive | They silently receive an arbitrarily old answer having explicitly asked not to. |
+| (c) Reject the request 4xx | Contradicts the "a cache directive must never fail a run" posture in §5.1. |
+
+**Proposed (a).** Revisit if v2 ever grows an entry-age concept.
+
 ## 4. Protocol definitions — `packages/url4`
 
 ### 4.1 `protocol/signals.py` — the policy type
 
 ```python
 class CachePolicy(BaseModel):
-    """Per-run cache intent. Declared once, applied to every aigateway call in the run.
+    """Per-run cache intent. ONE field, because aigateway v2's grammar is closed to one field.
 
-    Names mirror aigateway's request-body controls (`use-cache`, `no-cache`, `no-store`,
-    `s-maxage`) so the mapping is identity, not translation — there is no second vocabulary
-    to keep in step.
+    INVARIANT: url4 must never send a control key v2 does not understand. Under v2 an
+    unrecognised key does not degrade to "ignored" — it makes the whole request BYPASS
+    (`global_controls.py`), so a well-meant `no-store` would opt the caller out for the
+    WRONG reason and a well-meant `ttl` would silently lose caching altogether.
     """
-    use_cache: bool | None = None     # None = "not stated" — resolves to the D1 default (ON)
-    no_cache: bool = False
-    no_store: bool = False
-    s_maxage: int | None = Field(default=None, ge=1)
+    participate: bool | None = None   # None = "not stated" -> D1 default (participate)
 ```
 
-**`use_cache` is tri-state, and that is a direct consequence of D1=ON (r3).** With a plain
-`bool = False` there would be two different ways to say nothing — an absent `cache` field, and a
-present-but-empty `cache: {}` — and they would resolve differently: absent → ON via D1,
-`{}` → OFF via the field default. A caller sending `{"cache": {}}` would silently disable caching
-while believing they had expressed no opinion.
+**Deliberately absent: `no_cache`, `no_store`, `s_maxage`.** r2 had all three. v2 retires them
+(`LEGACY_CONTROL_FIELDS`) and bypasses on them, so carrying them in the url4 protocol would model
+a capability the upstream does not have.
 
 Resolution table:
 
-| declared | effective |
-|---|---|
-| no `cache` field at all | **ON** (D1) |
-| `cache: {}` | **ON** — every field "not stated" |
-| `cache: {"no_store": true}` | OFF, and nothing is written |
-| `cache: {"use_cache": false}` | OFF — the explicit form |
-| `cache: {"s_maxage": 60}` | ON, entry must be younger than 60s |
+| declared | effective | sent to aigateway |
+|---|---|---|
+| no `cache` field | **participate** (D1) | field omitted |
+| `cache: {}` | **participate** — every field unstated | field omitted |
+| `cache: {"participate": false}` | **opt out** | `{"cache": {"use-cache": false}}` |
+| `cache: {"participate": true}` | participate, explicitly | `{"cache": {"use-cache": true}}` |
 
 Under **D3 (recommended)**, `AttachData` gains one optional field:
 
@@ -272,16 +315,16 @@ X-Profile: prod
 Cache-Control: no-store
 ```
 
-| directive | → aigateway `cache` | meaning |
+| directive | effective | why |
 |---|---|---|
-| `no-store` | `no-store: true` | do not read, do not write |
-| `no-cache` | `no-cache: true` | do not read a stored entry; still store the result |
-| `max-age=<n>` | `s-maxage: <n>` | accept an entry only if younger than *n* seconds |
-| `url4-use-cache` | `use-cache: true` | **(r3)** re-enable after a disabling directive earlier in the same header; rarely needed now that ON is the default. RFC 9111 §5.2.3 extension token, ignored by intermediaries. |
-| absent | field omitted | D1 default |
+| *(absent)* | **participate** | D1 |
+| `no-store` | **opt out** → `{"cache": {"use-cache": false}}` | The caller means "do not use the cache". Mapped to v2's opt-out, **not** forwarded as `no-store` — that key is retired and would bypass with reason `unsupported_control` instead of the honest `opted_out`. |
+| `no-cache` | **opt out**, same mapping | v2 has no read-only/write-only lane; "don't serve me a stored answer" can only be honoured by not participating. |
+| `max-age=<n>` | **opt out** (D11, §3.5) | v2 rows never expire, so no freshness bound can be honoured. |
+| `url4-use-cache` | participate, explicitly | RFC 9111 §5.2.3 extension token. Rarely needed now ON is the default. |
 
-RFC 9111 has no "please cache" *request* directive, hence the extension token. If that is
-unpalatable it is a further argument for `URL4-Cache` under D6.
+**Only `use-cache` ever reaches aigateway.** Every directive above collapses to participate or
+opt out at the url4 edge; none is forwarded verbatim.
 
 **`only-if-cached` is rejected** — see §8.3.
 
@@ -291,7 +334,7 @@ docstring states malformed values parse as "not requested".
 ### 5.2 WS — attach frame
 
 ```json
-{"type": "ai.url4.attach", "data": {"from_sequence": 1, "cache": {"no_store": true}}}
+{"type": "ai.url4.attach", "data": {"from_sequence": 1, "cache": {"participate": false}}}
 ```
 
 **First attach wins.** A re-attach (reconnect, or `from_sequence` resume) carrying a different
@@ -337,9 +380,23 @@ credential.**
 
 ## 8. Security & correctness consequences
 
-1. **Key scope.** `{v, account_id, profile_name, provider, model, prompt_hash}`
-   (`aigateway/core/request_cache/keys.py:124-130`) — per account *and* profile. Two runs under
-   different profiles never share an entry. url4 adds no new sharing axis.
+1. **Key scope — GLOBAL under v2, and this is the headline change.** v1 keyed
+   `{v, account_id, profile_name, provider, model, prompt_hash}`, so two accounts never shared a
+   row. **v2 removes identity entirely** — `global_keys.py`'s stated invariant is *"identity is
+   structurally absent… That is what makes one row safe to share globally."* Its own story is a
+   benchmark operator re-running a suite **from a second account** and being served the first
+   run's responses, with the second account's credential never read.
+
+   Consequences url4 inherits rather than creates, and which the owner should see stated:
+   - **Any two callers sending the identical effective call get the identical stored response.**
+   - Rows are stored as **plaintext compact JSON** in `request_cache_entries.response_ciphertext`;
+     `values-prod.yaml` states database readers, replicas, snapshots and backups can read the
+     entire corpus. Provider credentials stay encrypted in `credential_blobs` — responses do not.
+   - **Rows never expire**, so the shared corpus only grows.
+
+   url4 adds **no new sharing axis** — but it does become a major *producer* into a shared,
+   permanent, plaintext corpus, which is a different posture from v1's per-account cache. Enabling
+   it is `values-prod.yaml`'s decision, deliberately taken there.
 2. **Ensemble determinism — ACCEPTED TRADEOFF (owner, r3).** Two nodes with identical prompts but
    distinct node identities miss the engine's `_memo` (keyed on node identity,
    `dag/executor.py:109`) and hit aigateway's cache (keyed on prompt hash,
@@ -352,9 +409,17 @@ credential.**
    expecting non-identical answers.
 
    **The owner has accepted this.** Recorded here rather than buried so a future reader finds a
-   decision, not a bug. If it later needs undoing, the cheapest carve-out is engine-level — never
-   cache within one run's own fan-out — which needs no protocol change, only a per-run nonce in
-   the prompt normalisation. Not built now.
+   decision, not a bug.
+
+   **v2 makes it strictly worse and the acceptance should be re-confirmed against the new facts:**
+   the repeat no longer has to come from the same account, or the same run, or the same day — the
+   corpus is global and permanent. A variance sample repeated a month later from another account
+   still collapses. Conversely v2 keys the *complete* effective call including `keyed` parameters,
+   so anything varying `temperature`, `seed` or a routing control keys differently and is
+   unaffected — the collapse needs a genuinely byte-identical call.
+
+   If it needs undoing, the carve-out is the same and still needs no protocol change: a per-run
+   nonce in the effective request. Not built now.
 3. **`only-if-cached` rejected.** RFC 9111 requires `504` when nothing is cached. A url4 run is a
    fan-out of many calls; one uncached leaf failing the whole run is a footgun with no present
    use case.
@@ -363,16 +428,18 @@ credential.**
 
 ## 9. Acceptance
 
-1. **(r3)** A run declaring nothing sends `cache: {"use-cache": true}` and reports `miss` on
-   first execution — **not** `bypass`. *(r2's "byte-identical body" criterion is void under
-   D1=ON: the default request now carries a cache field. It survives only for a `no-store` run,
-   item 2a.)*
-2. `Cache-Control: no-store` reaches aigateway as `cache: {"no-store": true}` and reports
-   `bypass`.
-2a. A `no-store` run leaves no entry behind: an immediately following default run on the same
-   prompt reports `miss`, not `hit`.
-2b. `cache: {}` on the frame behaves **identically to declaring nothing** (§4.1) — the
-   tri-state guard.
+1. **(r5)** A run declaring nothing sends **no `cache` field at all** and reports a v2
+   participate outcome (`miss` first, `hit` on repeat). Omitting is preferred over
+   `{"use-cache": true}`: v2 treats absent, `null` and `{}` identically, and the smallest body is
+   the least likely to trip the closed-grammar bypass.
+2. `Cache-Control: no-store` sends `{"cache": {"use-cache": false}}` and aigateway reports
+   `bypass` with reason **`opted_out`** — **not** `unsupported_control`. This is the test that
+   proves url4 collapses directives at its own edge instead of forwarding retired v1 keys.
+2a. `Cache-Control: max-age=60` behaves identically to `no-store` (D11).
+2b. `cache: {}` on the frame behaves identically to declaring nothing.
+2c. **url4 never sends a key other than `use-cache`.** Assert the egress body's `cache` object
+   has at most that one key — the single most important regression guard, since any extra key
+   silently costs every hit.
 3. The same policy delivered on the attach frame produces the identical egress body.
 4. Header and frame disagreeing → header applies, and a `LogEvent` records the override.
 5. A re-attach with a different policy does **not** change the run, and warns.
