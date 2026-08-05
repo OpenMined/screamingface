@@ -2,7 +2,7 @@
 title: url4 per-run cache policy — technical specification
 status: PROPOSED — awaiting owner decisions D3, D4, D6 (§3). No code written.
 created: 2026-08-05
-revised: 2026-08-05 (r5 — rebased on aigateway v2 global cache, PR #507; r4's TTL pinning REVOKED)
+revised: 2026-08-05 (r6 — standards alignment: RFC 9211 Cache-Status + RFC 9111 Age; D11 reopened)
 author: Claude (Opus 5) + Sergey
 ticket: UNFILED — Linear MCP unauthenticated at authoring time (see the ledger)
 related:
@@ -21,6 +21,7 @@ related:
 |---|---|---|
 | r1 | 2026-08-05 | First draft — located the change in url4-cloud's REST layer. |
 | r2 | 2026-08-05 | **Superseded r1's location.** Owner: protocol belongs in `packages/url4`; both HTTP header *and* protocol frame are carriers. Adds §3 D3/D4 and §5.2. |
+| **r6** | 2026-08-05 | **Standards alignment.** Read-back prefers **`Cache-Status`** (RFC 9211) over the ad hoc `X-AIGW-Cache*`; **`Age`** (RFC 9111 §5.1) makes `max-age` honourable, so **D11 is reopened** (§3.5). Adds §2.2 with the registry evidence. |
 | **r5** | 2026-08-05 | **Rebased on aigateway v2** (`OME-305`, PR #507 — WIP, assumed landing). v2 is a **global, never-expiring, ON-by-default cache with a CLOSED one-field grammar**. This **revokes r4** (v2 rows never expire, so TTL knobs are v1's), **deletes the aigateway sub-issue** (#507 does the chart itself), and **collapses the protocol to a single opt-out signal** — §1.0. Security section rewritten: the cache is now shared across accounts. |
 | r4 | 2026-08-05 | ~~TTL/size knobs pinned explicitly in the chart~~ — **REVOKED by r5.** |
 | r3 | 2026-08-05 | **D1 LOCKED: caching is ON by default; only disabling is explicit.** That makes the aigateway **chart** part of the deliverable (D8 reversed) and makes this cross-app — see §2.1. Ensemble-determinism tradeoff (§8.2) accepted by the owner on the record. |
@@ -149,6 +150,38 @@ one sub-issue per landing**, never one ticket:
 Sub-issue 3 has a different CODEOWNERS reviewer and can land **first and independently** — it is
 a no-op until sub-issue 2 sends `use-cache`.
 
+## 2.2 Standards alignment (r6)
+
+Every claim here was verified against the RFC text and the IANA registry, not recalled.
+
+**Where a standard exists and fits exactly — use it:**
+
+| need | standard | fit |
+|---|---|---|
+| "do not cache this run" (request) | **`Cache-Control`** — RFC 9111 §5.2.1 | Exact. `no-store` is *"A cache MUST NOT store any part of either this request or any response to it"* — both directions, which is precisely v2's all-or-nothing `participate`. |
+| "was this cached, and why not" (response) | **`Cache-Status`** — RFC 9211 §2, Standards Track | Exact, including `fwd=bypass` and `fwd=miss` as **defined tokens** (§2.2). Parameters: `hit` §2.1 · `fwd` §2.2 · `stored` §2.5 · `key` §2.7 · `detail` §2.8. |
+| "how old is this answer" | **`Age`** — RFC 9111 §5.1 | *"the sender's estimate of the time since the response was generated"* — see §3.5. |
+
+**Where no standard exists — verified against the IANA HTTP Field Name Registry:**
+
+| our header | registry |
+|---|---|
+| `X-Profile` (routing/tenant selection) | **no permanent registered field** for tenant, profile or routing selection |
+| `X-User-Email` (mesh-injected identity) | **no permanent registered field** for conveying end-user identity from a proxy/gateway |
+
+Legitimately custom. The only defect is the **`X-` prefix**: RFC 6648 / **BCP 178** (June 2012)
+says *"Creators of new parameters… SHOULD NOT prefix their parameter names with 'X-'"*. A rename,
+not a redesign — and out of scope here.
+
+**Where a standard exists and was deliberately rejected — correctly:** `URL4-Capability` could
+have been `Authorization: Bearer`. Commit `79f6e9dc` explains why not — *"so an API gateway /
+mesh / SDK that owns the primary identity slot cannot strip or overwrite it"*. Sound in a
+topology where Envoy and Cloudflare Access both touch `Authorization`. It also already complies
+with BCP 178. **Unchanged.**
+
+**Consequence for this spec:** url4 reads **`Cache-Status` first**, falling back to the
+`X-AIGW-Cache*` triple. Forward-compatible whether or not #507 adopts the suggestion (§7).
+
 ## 3. Design decisions
 
 **LOCKED** where the codebase or an owner ruling settles it; **OPEN** where the owner must
@@ -164,7 +197,7 @@ choose. The OPEN items are the point of this review.
 | **D6** | Header name / intermediary participation | §3.4 | 🔴 **OPEN** |
 | D7 | Response headers read back and folded onto spans | mandatory, every variant | 🟢 LOCKED (§7) |
 | D8 | aigateway changes | **none — PR #507 does it all**, chart included. url4 depends on it landing (§1.0) | 🟢 LOCKED (r5 — reverts r3) |
-| **D11** | `Cache-Control: max-age=N` — v2 has no freshness concept | treat as **opt-out** (§3.5) | 🟡 **PROPOSED** |
+| **D11** | `Cache-Control: max-age=N` | **REOPENED (r6)** — honour it if aigateway emits `Age`, else opt-out (§3.5) | 🔴 **OPEN** |
 | D9 | Protocol location | `packages/url4/.../streaming/protocol/` | 🟢 LOCKED (owner, r2) |
 | D10 | Both carriers supported | yes | 🟢 LOCKED (owner, r2) |
 
@@ -234,18 +267,24 @@ it is what the header means. If the directive must reach *only* aigateway, the h
 header *and* aigateway-only. A standard header intermediaries are asked to ignore is the worst of
 both.
 
-### 3.5 D11 — `max-age` under a cache that never expires
+### 3.5 D11 — `max-age`, reopened (r6)
 
-v2 rows never expire, so a caller asking for `max-age=60` is asking for a guarantee the upstream
-cannot give.
+r5 proposed treating `max-age=N` as opt-out on the grounds that "v2 rows never expire, so no
+freshness bound can be honoured." **That conflated *never expiring* with *unknown age*.**
+
+`RequestCacheEntry` already carries `created_at` (`auto_now_add=True`), so an entry's age is
+computable exactly. RFC 9111 §5.1 **`Age`** is the standard field for reporting it, and RFC 9211
+carries the same fact as the `ttl` parameter inside `Cache-Status`.
 
 | option | trade |
 |---|---|
-| **(a) Treat as opt-out** *(proposed)* | Conservative and honest: they asked for bounded staleness, we cannot bound it, so we do not serve them a stored answer. Costs a cache hit they might have accepted. |
-| (b) Ignore the directive | They silently receive an arbitrarily old answer having explicitly asked not to. |
-| (c) Reject the request 4xx | Contradicts the "a cache directive must never fail a run" posture in §5.1. |
+| **(a) Honour `max-age` when `Age` is available** | Serve the stored answer if younger than *N*, forward otherwise. Turns a permanent global corpus into something with a **caller-controlled staleness bound** — "reuse yesterday's answer, not last month's" — using only standard fields. **Depends on aigateway emitting `Age` or `Cache-Status; ttl=`**, which it does not today. |
+| **(b) Treat as opt-out** *(r5's proposal)* | Conservative, works today, needs nothing from #507. Costs a hit the caller would have accepted. |
+| (c) Ignore the directive | The caller silently receives an arbitrarily old answer having explicitly asked not to. Rejected. |
 
-**Proposed (a).** Revisit if v2 ever grows an entry-age concept.
+**Recommendation: (b) now, (a) when `Age` lands** — and raise `Age` on #507 while its header
+code is open. The two are compatible: url4 honours `max-age` if it can measure age, and falls back
+to opt-out if it cannot, which is the conservative direction.
 
 ## 4. Protocol definitions — `packages/url4`
 
@@ -364,10 +403,20 @@ byte-identical to today's** — which keeps aigateway's `unsupported_fields` byp
 ## 7. Observability (D7 — mandatory)
 
 The connector currently calls `_raise_for_status` → `_json_or_raise` → `_report_usage` →
-`_parse_choice`, all body-only. It must additionally read `X-AIGW-Cache`,
-`X-AIGW-Cache-Reason`, `X-AIGW-Cache-Key` (12 hex, hit/miss only, hash-derived — never prompt
-content) and fold them onto the owning span, the same seam `#506` used for
-`finish_reason`/`refusal`.
+`_parse_choice`, all body-only. It must additionally read the cache outcome and fold it onto the
+owning span, the same seam `#506` used for `finish_reason`/`refusal`.
+
+**Read `Cache-Status` first, fall back to the `X-AIGW-Cache*` triple (r6).**
+
+| source | precedence | mapping |
+|---|---|---|
+| **`Cache-Status`** (RFC 9211) | preferred | `hit` → `hit` · `fwd=<token>` → `miss`/`bypass` with the token as reason · `key=` → key · `detail=` → reason detail · `ttl=` → entry age, feeds D11 |
+| `X-AIGW-Cache` / `-Reason` / `-Key` | fallback | today's ad hoc triple, verbatim |
+
+Preferring the standard costs nothing and means url4 needs no change on the day aigateway adopts
+it. Parse `Cache-Status` as an RFC 8941 Structured Field **List** — it may legitimately carry one
+member per cache that handled the response (aigateway, Envoy, a CDN), ordered origin-closest
+first; take the aigateway member, not blindly the first.
 
 **Without this, enabling caching makes the cost taxonomy wrong.** A hit costs nothing upstream,
 but `_report_usage` would bill it as a fresh call — an error that *hides savings*, so nobody

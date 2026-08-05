@@ -2,7 +2,7 @@
 title: url4 per-run cache policy — implementation plan
 status: proposed — awaiting owner approval AND spec decisions D3, D4, D6, D11
 created: 2026-08-05
-revised: 2026-08-05 (r4 — rewritten clean against aigateway v2 / PR #507)
+revised: 2026-08-05 (r5 — Batch 7 prefers RFC 9211 Cache-Status; D11 reopened)
 ticket: UNFILED — Linear MCP unauthenticated at authoring time
 spec: docs/spec/2026-08-05-url4-cache-policy-spec.md
 ledger: docs/work/2026-08-05-UNFILED-url4-cloud-cache-policy-spec.md
@@ -59,7 +59,7 @@ one.** The plumbing is ~90% invariant across all four.
 | **D3** | frame shape | extend `AttachData` |
 | **D4** | precedence when both carriers speak | header wins, override logged |
 | **D6** | header name | standard `Cache-Control` |
-| **D11** | `max-age` under a never-expiring cache | treat as opt-out |
+| **D11** | `max-age` — **reopened** (spec §3.5) | opt-out now; honour it if aigateway emits `Age`/`ttl=` |
 
 Implementation starts only on explicit approval in plain words (CLAUDE.md rule 3).
 
@@ -211,18 +211,31 @@ Every directive collapses to participate / opt-out **at this edge**; none is for
 
 ## Batch 7 — reading the answer back
 
-- `runner/connector.py` — read `X-AIGW-Cache`, `X-AIGW-Cache-Reason`, `X-AIGW-Cache-Key`; fold
-  onto the owning span beside `_report_usage`, the seam `#506` used for `finish_reason` /
-  `refusal`.
+- `runner/connector.py` — read the cache outcome and fold it onto the owning span beside
+  `_report_usage`, the seam `#506` used for `finish_reason` / `refusal`.
+
+**Prefer the standard, fall back to the ad hoc (spec §2.2, §7):**
+
+1. **`Cache-Status`** (RFC 9211) if present — parse as an RFC 8941 Structured Field **List** and
+   select the **aigateway member**, not blindly the first: the list may carry one entry per cache
+   that touched the response (aigateway, Envoy, a CDN), ordered origin-closest first.
+   `hit` → `hit`; `fwd=<token>` → `miss`/`bypass` with the token as reason; `key=`; `detail=`.
+2. Else the `X-AIGW-Cache` / `-Reason` / `-Key` triple, verbatim.
+
+Costs nothing now and means url4 needs no change the day aigateway adopts the standard.
 
 Without this, a hit costs nothing upstream but `_report_usage` bills it as a fresh call — an error
 that **hides savings**, so nobody reports it.
 
 **Tests**
 
-1. `hit` / `miss` / `bypass` each reach `SpanData.cache_status`.
+1. `hit` / `miss` / `bypass` each reach `SpanData.cache_status`, from **either** source.
 2. Reason carried verbatim, including v2's vocabulary: `opted_out`, `malformed_controls`,
    `unsupported_control`, `disabled`.
+2a. **`Cache-Status` wins when both are present**, and a multi-member list selects the aigateway
+   member rather than the first — the test that stops an Envoy or CDN entry being misread as
+   aigateway's answer.
+2b. A malformed `Cache-Status` falls back to the `X-AIGW-*` triple rather than losing the signal.
 3. **Missing headers degrade to `None`, never crash** — an older gateway, or a non-cache error
    path.
 4. `X-AIGW-Cache-Key` recorded only for hit/miss; never any prompt content.
@@ -282,4 +295,4 @@ that **hides savings**, so nobody reports it.
 | **D4** → frame wins | One function in Batch 5, one matrix row. |
 | **D4** → fatal on conflict | Adds a 409 on the REST side and an `ErrorEvent` on the WS side — the only variant that grows the error surface. |
 | **D6** → `URL4-Cache` | Batch 3's constant and parser grammar; a private header can use a simple `key=value` form and needs no RFC 9111 extension token. Batches 1, 2, 4-8 unchanged. |
-| **D11** → ignore `max-age` | One row in Batch 3's table and its test. |
+| **D11** → honour `max-age` | Batch 3 keeps the parsed value instead of collapsing to opt-out, and Batch 7 reads `Age` / `Cache-Status; ttl=` to decide. Needs aigateway to emit one of them — raised on #507. |
