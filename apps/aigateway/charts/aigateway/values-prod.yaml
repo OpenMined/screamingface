@@ -22,11 +22,10 @@ config:
   # for a file that cannot know who the operators are — the console will report "admin API
   # disabled" rather than silently letting anyone in.
   adminEmails: []
-  # The global response cache is ON here and OFF in `values.yaml` — this file is where the decision
-  # to share responses between hosted users is actually taken (OME-305). Read the five consequences
-  # documented on `config.requestCache` in `values.yaml` before changing it; the load-bearing ones
-  # are that any two callers sending the identical request get the identical stored response, and
-  # that rows never expire.
+  # Re-state the chart's default-on global response cache explicitly for production. Read the five
+  # consequences documented on `config.requestCache` in `values.yaml`; the load-bearing ones are
+  # that any two callers sending the identical request get the identical stored response, and that
+  # rows never expire.
   # Cached provider responses are stored as plaintext compact JSON in
   # `request_cache_entries.response_json`. Database readers, replicas, snapshots and backups
   # can read the entire cache corpus. Provider API keys and OAuth tokens remain encrypted in

@@ -160,8 +160,9 @@ request cache; it stores no account/profile identity.
 ## The Global Response Cache
 
 `config.requestCache.enabled` (env `AIGW_REQUEST_CACHE_ENABLED`) turns on **one global cache shared
-by every caller of the gateway**. It ships off; `values-prod.yaml` turns it on. Enabling it is a
-decision about data sharing, not a performance setting.
+by every caller of the gateway**. The Helm chart enables it by default; set the value to `false` to
+opt out. The standalone app default remains off. Enabling it is a decision about data sharing, not
+a performance setting.
 
 **It is not gateway-wide.** Only **anthropic** and **openrouter** can be served from cache in this
 release. Requests to **antigravity**, **codex**, **gemini-cli**, **huggingface** and **ollama**
@@ -290,6 +291,6 @@ out of provider billing.
 - `publicUrl` sets `AIGATEWAY_PUBLIC_URL`, which is used for hosted OAuth callback URLs.
 - The migration Job uses the same image and database Secret as the app Deployment.
 - The demo DB PVC owns the database state; deleting it deletes the database.
-- The global response cache is off by default and on in `values-prod.yaml`; it stores plaintext
-  responses and has no expiry (see The Global Response Cache above).
+- The Helm chart enables the global response cache by default; it stores plaintext responses and
+  has no expiry. Set `config.requestCache.enabled=false` to opt out (see The Global Response Cache).
 - CNPG, backups, PodMonitor, and SigNoz/Prometheus integration are follow-up infrastructure work.

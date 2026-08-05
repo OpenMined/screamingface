@@ -58,8 +58,8 @@ from the rendered manifest.
 
 `config.requestCache.enabled` turns on a response cache that is **global**: one row per exact
 request, shared by every caller. Two callers who send the identical request get the identical stored
-response, and the second one's provider credential is never touched. It ships `false`;
-`values-prod.yaml` sets it `true`.
+response, and the second one's provider credential is never touched. The chart ships `true`; set
+`config.requestCache.enabled=false` to opt out.
 
 `true` makes the cache available immediately. Reading and writing the response row has no
 secret-provider, encryption-key or canary dependency. Effective-key construction may still read the

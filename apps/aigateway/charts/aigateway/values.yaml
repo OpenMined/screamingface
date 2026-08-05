@@ -80,7 +80,7 @@ config:
   # caller by case alone.
   adminEmails: []
   jwtTtlSeconds: 86400
-  # Provider plugins that ship disabled and need an operator to turn them on.
+  # Provider plugins whose deployment availability is declared by the chart.
   #
   # WHY this is here at all: the ConfigMap emits a FIXED key set and the Deployment has no
   # `extraEnv`, so before this block there was NO values path to enable OpenRouter — a deployer
@@ -92,13 +92,14 @@ config:
   # here would be one shared credential for every caller, which is the opposite of what the
   # per-principal credential model exists to do.
   openrouter:
-    enabled: false
+    enabled: true
   # The GLOBAL response cache (OME-305). One row per exact request fingerprint, shared by EVERY
   # caller of this gateway: the first successful answer to a given call is what the next caller
   # gets, whoever they are.
   #
-  # OFF BY DEFAULT, AND THAT DEFAULT IS THE POINT. Enabling it is a product decision about data
-  # sharing, not a performance knob, so read all five consequences before setting it:
+  # ON BY DEFAULT for chart deployments. This is a product decision about data sharing, not a
+  # performance knob, so read all five consequences before deploying it; set `enabled: false` to
+  # opt the deployment out:
   #
   #   1. CROSS-USER REPLAY. Two callers who send the identical request receive the identical stored
   #      response, and the second one's provider credential is never touched. Identical means
@@ -118,7 +119,7 @@ config:
   #
   # Callers can opt a single request out with the `use-cache=false` cache control.
   requestCache:
-    enabled: false
+    enabled: true
 
 # Only meaningful for the browser-facing OAuth flows, which are unreachable while the gateway is
 # internal-only (see `ingress` below). Kept so a deployment that re-exposes the gateway has it.
