@@ -24,15 +24,11 @@ spec:
       restartPolicy: OnFailure
       serviceAccountName: {{ .Values.migration.serviceAccountName | quote }}
       containers:
-        - name: tortoise-migrate
+        - name: aigateway-migrate
           image: {{ include "aigateway.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
-            - python
-            - -m
-            - tortoise
-            - -c
-            - aigateway.db.TORTOISE_CONFIG
+            - aigateway
             - migrate
           env:
             - name: AIGATEWAY_DATABASE_URL

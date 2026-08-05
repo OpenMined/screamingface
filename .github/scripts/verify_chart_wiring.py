@@ -109,6 +109,13 @@ gw_config = find(gw, "ConfigMap")
 gw_policy = find(gw, "NetworkPolicy")
 gw_service = find(gw, "Service")
 gw_deployment = find(gw, "Deployment")
+gw_migration = find(gw, "Job")
+
+check(
+    gw_migration["spec"]["template"]["spec"]["containers"][0]["command"]
+    == ["aigateway", "migrate"],
+    "the migration Job uses the public `aigateway migrate` entry point",
+)
 
 check(
     "aigateway-ui" in peer_names(gw_policy, "ingress"),
