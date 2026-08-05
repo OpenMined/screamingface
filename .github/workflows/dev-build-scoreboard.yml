@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "apps/scoreboard/**"
+      - ".github/workflows/dev-build-scoreboard.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -50,5 +51,9 @@ jobs:
           tags: |
             ghcr.io/openmined/screamingface-scoreboard:main-${{ steps.sha.outputs.short }}
             acropenmined.azurecr.io/screamingface-scoreboard:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-scoreboard:main-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=dev-scoreboard
           cache-to: type=gha,scope=dev-scoreboard,mode=max
