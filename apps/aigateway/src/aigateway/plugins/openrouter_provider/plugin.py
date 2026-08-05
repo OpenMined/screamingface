@@ -83,6 +83,11 @@ from .settings import (
     is_valid_upstream_model_id,
 )
 from .settings import OFFICIAL_API_BASE as OFFICIAL_API_BASE
+from .web_search import (
+    WEB_SEARCH_EXCLUDED_DOMAINS_PARAM,
+    WEB_SEARCH_PARAM,
+    apply_web_search,
+)
 
 if TYPE_CHECKING:
     from aigateway.core.chat_parameters import (
@@ -222,6 +227,11 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                 ("logprobs", "top_logprobs"),
                 reason="top_logprobs_requires_logprobs_true",
             )
+        if WEB_SEARCH_EXCLUDED_DOMAINS_PARAM in body and body.get(WEB_SEARCH_PARAM) is not True:
+            raise IncompatibleParametersError(
+                (WEB_SEARCH_PARAM, WEB_SEARCH_EXCLUDED_DOMAINS_PARAM),
+                reason="web_search_excluded_domains_requires_web_search_true",
+            )
 
     def chat_parameter_tools(
         self, *, model: str, auth_type: AuthMode | None = None
@@ -258,7 +268,15 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                 source=LOCAL_SOURCE,
             )
             + direct_parameter_observations(
-                ("response_format", "n", "logprobs", "top_logprobs"), source=LOCAL_SOURCE
+                (
+                    "response_format",
+                    "n",
+                    "logprobs",
+                    "top_logprobs",
+                    "web_search",
+                    "web_search_excluded_domains",
+                ),
+                source=LOCAL_SOURCE,
             )
         )
 
@@ -347,6 +365,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # discard an accepted price ceiling or data policy. A fresh dict per request
         # keeps one caller from mutating the policy the next one gets.
         out["provider"] = build_provider_policy(out.pop("provider", None))
+        apply_web_search(out, self.settings)
         return out
 
     def global_cache_projection(self, body: dict[str, Any]) -> dict[str, Any] | CacheBypass:

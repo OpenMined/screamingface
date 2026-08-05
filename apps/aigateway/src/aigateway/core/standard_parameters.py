@@ -69,6 +69,26 @@ LOGPROBS_SCHEMA = ParameterSchema(type="boolean")
 # its log probability. OpenAI's documented range is an integer 0..20 INCLUSIVE; a value
 # outside it, a boolean, or a non-integer fails closed at classification.
 TOP_LOGPROBS_SCHEMA = ParameterSchema(type="integer", minimum=0, maximum=20)
+# ``web_search``: ask the PROVIDER to retrieve before answering. A plain boolean on purpose.
+#
+# Providers spell server-side retrieval differently and each spelling is an extensibility
+# ENVELOPE — OpenRouter's is `plugins: [...]`, a list of arbitrary provider extensions. An
+# envelope cannot be meaningfully bounded, because carrying anything is the point of it, so a
+# rule enabling one authorizes a path and forwards nested JSON verbatim: exactly what OME-646
+# removed. A boolean is bounded COMPLETELY, and the provider translates it into its own
+# spelling in `prepare_chat_body`, where a gateway-owned value is assigned rather than merged.
+#
+# This is the shared vocabulary, so the word is provider-agnostic: any provider that can
+# retrieve enables the same field, and one that cannot simply does not — a caller asking then
+# gets a named 400 from the authority on capability, rather than silence.
+WEB_SEARCH_SCHEMA = ParameterSchema(type="boolean")
+# ``web_search_excluded_domains``: domains the caller asks the provider to exclude.
+#
+# INVARIANT: this can only ever ADD to the deployment's own requested exclusions — a provider
+# composes the two as a UNION (see the OpenRouter plugin). Whether the upstream engine enforces
+# exclusions is model-specific, so a protocol requiring a hard block must choose a compatible
+# Engine route rather than treating this wire field as universal enforcement.
+WEB_SEARCH_EXCLUDED_DOMAINS_SCHEMA = ParameterSchema(type="array", item_type="string")
 
 
 def direct_rule(
