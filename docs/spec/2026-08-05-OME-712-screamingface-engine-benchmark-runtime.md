@@ -34,6 +34,7 @@ Every independently executable protocol is returned as one flat
 `screamingface.benchmark.v1` resource. The initial ids are:
 
 - `draco`
+- `draco/lite`
 - `draco/smoke`
 - `ifeval`
 - `ifeval/self-corrective`
@@ -44,10 +45,14 @@ ids, revisions, URL4, costs, and scores. They may share assets and implementatio
 no public Benchmark Family resource and no compatibility response containing nested Variants.
 
 `draco` is the canonical 100-Case protocol: every selected Case, every criterion, and five
-independent Judge passes. `draco/smoke` is a non-comparable structural probe pinned to one Case,
-one criterion, and one Judge pass. Both definitions are built from the same DRACO protocol
-constructor so the smoke path cannot acquire a second Candidate, retrieval, verdict, or reducer
-implementation. Reducing multiplicity is its only behavioral difference.
+independent Judge passes. `draco/lite` is a non-comparable directional preview pinned to five
+Cases, every criterion, and one Judge pass. Its Cases are selected from the pinned dataset by one
+reviewable rule: take the five most represented domains, then choose the Case nearest the global
+median rubric size in each domain, breaking ties by Case id. `draco/smoke` is a non-comparable
+structural probe pinned to one Case, one criterion, and one Judge pass. All definitions are built
+from the same DRACO protocol constructor so reduced paths cannot acquire a second Candidate,
+retrieval, verdict, or reducer implementation. Multiplicity and pinned Case selection are their
+only behavioral differences.
 
 Each resource has this shape:
 
@@ -260,4 +265,6 @@ rules.
 - DRACO and IFEval empty/all-error paths fail loudly and preserve structured diagnostics.
 - `draco/smoke` exercises the canonical DRACO execution seams with one pinned Case, one criterion,
   and one Judge pass, and is never described as a canonical or publishable DRACO score.
+- `draco/lite` evaluates pinned Cases `2, 15, 40, 83, 34`, every criterion, and one Judge pass;
+  its selection rule and non-comparable status remain visible in repository documentation.
 - URL4 Cloud's complete gate and focused cross-package Evaluation tests pass.

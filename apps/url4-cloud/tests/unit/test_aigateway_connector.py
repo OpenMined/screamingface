@@ -11,6 +11,9 @@ from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
 from url4_cloud.benchmarks.draco.definition import (
     AGGREGATE_ROUTE,
+    LITE_AGGREGATE_ROUTE,
+    LITE_TASKS_ROUTE,
+    LITE_VERDICT_ROUTE,
     SMOKE_AGGREGATE_ROUTE,
     SMOKE_TASKS_ROUTE,
     SMOKE_VERDICT_ROUTE,
@@ -45,6 +48,9 @@ _BENCHMARK_ROUTES = {
     AGGREGATE_ROUTE,
     TASKS_ROUTE,
     VERDICT_ROUTE,
+    LITE_AGGREGATE_ROUTE,
+    LITE_TASKS_ROUTE,
+    LITE_VERDICT_ROUTE,
     SMOKE_AGGREGATE_ROUTE,
     SMOKE_TASKS_ROUTE,
     SMOKE_VERDICT_ROUTE,

@@ -95,6 +95,9 @@ Tests observe those interfaces rather than private helper call graphs.
       criterion count, and Judge-pass count.
 - [x] Give smoke its own flat id, revision, private routes, and Candidate result identity.
 - [x] Prove canonical DRACO remains 100 Cases, all criteria, and five Judge passes.
+- [x] Add `draco/lite` with five pinned typical-complexity Cases from the five most represented
+      domains, every criterion, and one Judge pass.
+- [x] Prove lite discovery and execution expose exactly the same ordered pinned Case ids.
 - [ ] Keep notebook execution disabled by default; the SDK chooses a Benchmark id and never
       rewrites DRACO protocol multiplicity itself.
 

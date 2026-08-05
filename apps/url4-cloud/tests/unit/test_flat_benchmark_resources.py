@@ -56,6 +56,7 @@ def test_catalog_lists_every_executable_benchmark_as_one_flat_entry(client: Test
     assert catalog["default"] == "draco"
     assert {entry["id"] for entry in catalog["data"]} == {
         "draco",
+        "draco/lite",
         "draco/smoke",
         "ifeval",
         "ifeval/self-corrective",

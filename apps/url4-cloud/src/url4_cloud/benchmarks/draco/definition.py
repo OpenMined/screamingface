@@ -13,16 +13,23 @@ from url4_cloud.benchmarks.draco.verdict import call as criterion_verdict
 
 BENCHMARK_ID = "draco"
 CASE_COUNT = 100
+LITE_BENCHMARK_ID = "draco/lite"
+# Five most represented pinned-data domains; within each, choose the Case nearest the global
+# median rubric size (38 criteria), breaking ties by Case id. Order follows domain prevalence.
+LITE_CASE_IDS = (2, 15, 40, 83, 34)
+LITE_CASE_COUNT = len(LITE_CASE_IDS)
 SMOKE_BENCHMARK_ID = "draco/smoke"
 SMOKE_CASE_COUNT = 1
 DATASET = "perplexity-ai/draco"
 DATASET_REVISION = "ce076749809027649ebd331bcb70f42bf720d387"
 PROTOCOL_REVISION = "official-five-pass-v1"
+LITE_PROTOCOL_REVISION = "directional-lite-v1"
 SMOKE_PROTOCOL_REVISION = "structural-smoke-v1"
 # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09. Google designated
 # Gemini-3.1-Pro Preview as its replacement; the retired API id now resolves to this newer model.
 JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
 JUDGE_PASSES = 5
+LITE_JUDGE_PASSES = 1
 SMOKE_JUDGE_PASSES = 1
 SMOKE_CRITERION_COUNT = 1
 RETRIEVAL_POLICY_ID = "draco/official"
@@ -57,6 +64,16 @@ REVISION = hashlib.sha256(
         )
     ).encode()
 ).hexdigest()[:16]
+LITE_REVISION = hashlib.sha256(
+    "\n".join(
+        (
+            REVISION,
+            LITE_PROTOCOL_REVISION,
+            repr(LITE_CASE_IDS),
+            str(LITE_JUDGE_PASSES),
+        )
+    ).encode()
+).hexdigest()[:16]
 SMOKE_REVISION = hashlib.sha256(
     "\n".join(
         (
@@ -73,6 +90,11 @@ CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 TASKS_ROUTE = f"{ROUTE_PREFIX}/tasks"
 VERDICT_ROUTE = f"{ROUTE_PREFIX}/criterion-verdict"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+LITE_ROUTE_PREFIX = f"/benchmarks/{LITE_BENCHMARK_ID}/{LITE_REVISION}"
+LITE_CASES_ROUTE = f"{LITE_ROUTE_PREFIX}/cases"
+LITE_TASKS_ROUTE = f"{LITE_ROUTE_PREFIX}/tasks"
+LITE_VERDICT_ROUTE = f"{LITE_ROUTE_PREFIX}/criterion-verdict"
+LITE_AGGREGATE_ROUTE = f"{LITE_ROUTE_PREFIX}/aggregate"
 SMOKE_ROUTE_PREFIX = f"/benchmarks/{SMOKE_BENCHMARK_ID}/{SMOKE_REVISION}"
 SMOKE_CASES_ROUTE = f"{SMOKE_ROUTE_PREFIX}/cases"
 SMOKE_TASKS_ROUTE = f"{SMOKE_ROUTE_PREFIX}/tasks"
@@ -88,6 +110,18 @@ def _build(case_count: int) -> Node:
         verdict_route=VERDICT_ROUTE,
         aggregate_route=AGGREGATE_ROUTE,
         judge_passes=JUDGE_PASSES,
+        criterion_count=None,
+    )
+
+
+def _build_lite(case_count: int) -> Node:
+    return _build_protocol(
+        case_count,
+        cases_route=LITE_CASES_ROUTE,
+        tasks_route=LITE_TASKS_ROUTE,
+        verdict_route=LITE_VERDICT_ROUTE,
+        aggregate_route=LITE_AGGREGATE_ROUTE,
+        judge_passes=LITE_JUDGE_PASSES,
         criterion_count=None,
     )
 
@@ -211,6 +245,21 @@ DRACO = Benchmark(
     install=_install,
 )
 
+DRACO_LITE = Benchmark(
+    id=LITE_BENCHMARK_ID,
+    variant="lite",
+    title="DRACO Lite",
+    description=(
+        "A five-Case directional preview using every criterion and one Judge pass. Its score "
+        "is not comparable to canonical DRACO."
+    ),
+    revision=LITE_REVISION,
+    case_count=LITE_CASE_COUNT,
+    build=_build_lite,
+    install=_install,
+    case_ids=LITE_CASE_IDS,
+)
+
 DRACO_SMOKE = Benchmark(
     id=SMOKE_BENCHMARK_ID,
     variant="smoke",
@@ -264,4 +313,4 @@ def _url4_text(value: str) -> str:
     return normalized.replace("$", "$$")
 
 
-__all__ = ["DRACO"]
+__all__ = ["DRACO", "DRACO_LITE", "DRACO_SMOKE"]

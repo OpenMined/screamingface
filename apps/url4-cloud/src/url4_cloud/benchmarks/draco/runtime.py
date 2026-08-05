@@ -14,6 +14,14 @@ from url4_cloud.benchmarks.draco.definition import (
     BENCHMARK_ID,
     CASES_ROUTE,
     JUDGE_PASSES,
+    LITE_AGGREGATE_ROUTE,
+    LITE_BENCHMARK_ID,
+    LITE_CASE_IDS,
+    LITE_CASES_ROUTE,
+    LITE_JUDGE_PASSES,
+    LITE_REVISION,
+    LITE_TASKS_ROUTE,
+    LITE_VERDICT_ROUTE,
     REVISION,
     SMOKE_AGGREGATE_ROUTE,
     SMOKE_BENCHMARK_ID,
@@ -46,6 +54,18 @@ def install(node: Url4Node, root: Path) -> None:
         benchmark_revision=REVISION,
         judge_passes=JUDGE_PASSES,
         case_ids=None,
+    )
+    _install_protocol(
+        node,
+        root,
+        cases_route=LITE_CASES_ROUTE,
+        tasks_route=LITE_TASKS_ROUTE,
+        verdict_route=LITE_VERDICT_ROUTE,
+        aggregate_route=LITE_AGGREGATE_ROUTE,
+        benchmark_id=LITE_BENCHMARK_ID,
+        benchmark_revision=LITE_REVISION,
+        judge_passes=LITE_JUDGE_PASSES,
+        case_ids=LITE_CASE_IDS,
     )
     _install_protocol(
         node,
