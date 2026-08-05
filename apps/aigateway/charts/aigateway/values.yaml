@@ -108,8 +108,7 @@ config:
   #   3. UNBOUNDED GROWTH. There is no TTL and no eviction. Monitor the size of
   #      `request_cache_entries` and prune deliberately.
   #   4. RESPONSES ARE PLAINTEXT IN THE DATABASE. The compact provider-response JSON is stored in
-  #      `request_cache_entries.response_ciphertext`; the column keeps its legacy name, but the
-  #      content is not encrypted. Database readers, replicas, snapshots and backups can read every
+  #      `request_cache_entries.response_json`. Database readers, replicas, snapshots and backups can read every
   #      cached response. Provider API keys and OAuth tokens remain encrypted separately.
   #   5. UNDER `config.authMode: disabled` THERE IS NO BOUNDARY AT ALL. Every peer who can reach the
   #      port is the same anonymous principal, so "shared between users" has nothing left to be

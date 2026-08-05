@@ -33,7 +33,7 @@ from fastapi import Request, Response
 
 from ..core.cache_ports import CACHE_UNAVAILABLE_REASON, PUBLISHED_CACHE_REASONS, CacheBypass
 from ..core.plugin_base import ProviderPluginBase
-from ..core.request_cache import CacheUnavailable, GlobalRequestCacheWrite
+from ..core.request_cache import CacheUnavailable, RequestCacheWrite
 from ..core.request_cache.global_controls import GlobalCacheControls
 from ..core.request_cache.global_keys import GlobalCacheKeyResult
 from ..core.request_cache.global_plan import BYPASS_DISABLED, build_global_cache_plan
@@ -135,7 +135,7 @@ def defaults_unreadable_bypass() -> GlobalCacheOutcome:
 
     INVARIANT: a bypass, never a miss. A miss would send the route on to WRITE a row
     under a key built from a body whose defaults are missing — turning a failed read
-    into a permanently poisoned entry, since v2 rows never expire.
+    into a permanently poisoned entry, since current rows never expire.
     """
     return GlobalCacheOutcome(status="bypass", reason=CACHE_UNAVAILABLE_REASON)
 
@@ -176,7 +176,7 @@ async def look_up_global_cache(
 
     key = decision
     try:
-        cached = await store.get_global(key.key_hash)
+        cached = await store.get(key.key_hash)
     except CacheUnavailable:
         # INVARIANT: a read failure is a BYPASS, never a miss. Reporting a miss would
         # send the route on to write into a store that has just failed to read.
@@ -207,11 +207,10 @@ async def look_up_global_cache(
 def _is_a_whole_answer(result: dict[str, Any]) -> bool:
     """Whether a provider response is complete enough to become the permanent answer.
 
-    INVARIANT (owner's ruling on plan U5's "partial responses"): a v2 row has
+    INVARIANT (owner's ruling on plan U5's "partial responses"): a cache row has
     ``expires_at = NULL``, so a truncated or half-built completion stored once is
-    served to every later caller of that body forever. Under v1 the same mistake
-    aged out within the hour; there is no such floor now, which is why this is a
-    guard and not a nicety.
+    served to every later caller of that body forever. This is why completeness is
+    a guard and not a nicety.
 
     The test is STRUCTURAL — the three shapes that say "this is not a finished
     completion" — and deliberately not semantic. Refusing on content would mean
@@ -301,10 +300,9 @@ async def store_global_response(
         logger.warning("provider response was not serializable; not stored")
         return "not_stored"
     # WHY the cap is enforced HERE and not left to the store (plan U5 — oversized
-    # responses stay ineligible): a v2 row has ``expires_at = NULL``, so an entry that
-    # is too large is not a bounded waste of space the way a v1 TTL'd row was — it is
-    # permanent. This is the only bound on how much one response can occupy, and it is
-    # a WRITE outcome rather than a bypass because the size is unknowable until after
+    # responses stay ineligible): rows currently have ``expires_at = NULL``, so an oversized entry
+    # is permanent. This is the only bound on how much one response can occupy, and it is a WRITE
+    # outcome rather than a bypass because the size is unknowable until after
     # the provider has already answered.
     max_bytes = request.app.state.settings.request_cache_max_response_bytes
     if size_bytes > max_bytes:
@@ -320,10 +318,9 @@ async def store_global_response(
         return "not_stored"
     try:
         written = await request.app.state.request_cache_store.set_if_absent(
-            GlobalRequestCacheWrite(
+            RequestCacheWrite(
                 key_hash=key.key_hash,
-                key_version=key.key_version,
-                # INVARIANT (ruling 35): the v2 ``prompt_hash`` IS the full-call key
+                # INVARIANT (ruling 35): ``prompt_hash`` IS the full-call key
                 # hash, never a prompt-only digest — see ``global_keys``.
                 prompt_hash=key.prompt_hash,
                 provider=key.provider,
@@ -366,7 +363,7 @@ def global_cache_headers(
     ``StreamingResponse``, and FastAPI does not merge the injected ``Response``
     object's headers into a response the handler returns itself. Building the set
     once here is what keeps the streaming bypass headers from drifting into a
-    second, hand-spelled vocabulary — which is exactly what v1 had.
+    second, hand-spelled vocabulary.
     """
     headers = {
         CACHE_HEADER: outcome.status,

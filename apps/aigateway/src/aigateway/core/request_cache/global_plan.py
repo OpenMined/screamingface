@@ -39,13 +39,11 @@ from .global_keys import GlobalCacheKeyResult, build_global_cache_key
 # The operator's kill switch. Published in ``X-AIGW-Cache-Reason`` like every other
 # reason, so an operator reading a response can tell "off" from "not cacheable".
 #
-# INVARIANT: this keeps v1's exact spelling (owner decision 53, "rename only what must
+# INVARIANT: this keeps the published wire spelling (owner decision 53, "rename only what must
 # change"). URL4 reads these bytes, so a rename is a caller-visible break and the owner
 # declined to spend one on readability. Do NOT re-propose ``cache_disabled``: the
 # argument for it — that a bare ``disabled`` reads as "something was disabled" beside
-# siblings like ``opted_out`` — was made and REJECTED. The one accepted break in this
-# vocabulary is a removal, not a rename: v1's ``not_requested`` is gone because v2 is
-# default-on, so the condition it named no longer exists.
+# siblings like ``opted_out`` — was made and REJECTED.
 BYPASS_DISABLED: Final = "disabled"
 
 

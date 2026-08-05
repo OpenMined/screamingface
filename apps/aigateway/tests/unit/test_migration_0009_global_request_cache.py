@@ -171,7 +171,7 @@ def test_0009_keeps_the_v1_row_byte_identical(
     """Plan §4.2 step 3 — ciphertext, metadata, timestamps and the existing expiry survive."""
     db, url, seeded = populated_0008
 
-    _migrate(url)
+    _migrate(url, "models", "0009_global_request_cache")
 
     after = _read_v1_row(db)
     for column, expected in seeded.items():
@@ -193,7 +193,7 @@ def test_0009_preserves_every_index_on_sqlite(
     before = _indexes(db)
     assert len(before) >= 7, f"0008 should already carry the cache indexes, found {sorted(before)}"
 
-    _migrate(url)
+    _migrate(url, "models", "0009_global_request_cache")
 
     assert _indexes(db) == before
 
@@ -204,7 +204,7 @@ def test_0009_makes_expires_at_nullable_and_accepts_a_v2_write(
     """Plan §4.2 step 4 — the column accepts NULL for v2, alongside the untouched v1 row."""
     db, url, _row = populated_0008
 
-    _migrate(url)
+    _migrate(url, "models", "0009_global_request_cache")
 
     assert _expires_at_column(db)["notnull"] == 0
     _insert_v2_row(db, "c" * 64)
@@ -220,8 +220,8 @@ def test_0009_is_idempotent(populated_0008: tuple[Path, str, dict[str, object]])
     """A re-run of the deployed migration Job must be a no-op, not a second table rebuild."""
     _db, url, _row = populated_0008
 
-    _migrate(url)
-    rerun = _migrate(url)
+    _migrate(url, "models", "0009_global_request_cache")
+    rerun = _migrate(url, "models", "0009_global_request_cache")
 
     assert "No migrations to apply" in rerun.stdout
 

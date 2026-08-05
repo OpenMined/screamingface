@@ -422,30 +422,14 @@ def test_two_requests_under_different_routing_policies_never_share_an_entry(
     ids=[*[c[0] for c in _CONTROLS], "zdr-false"],
 )
 def test_no_control_is_attributed_as_a_caller_visible_bypass_path(leaf, value) -> None:
-    # SUPERSEDED (OME-305, was `test_every_control_is_attributed_as_a_caller_visible_
-    # bypass_path`, which asserted `paths == ("provider_params.<leaf>",)`).
-    #
-    # The superseded version's own comment named the condition that has now been met:
-    # "if a later cache change (OME-702) makes the prepared body keyable, this path
-    # still forces the bypass". OME-702 was absorbed into OME-305 and the prepared body
-    # IS now keyable — OpenRouter projects its own `api_base` and reconstructed
-    # `provider` object, so the five controls are `keyed` and none of them is a bypass
-    # path any more. Continuing to demand a bypass here would demand the defect.
-    #
-    # RECONSTRUCTED rather than dropped: the original guarded "the caller-visible
-    # contract attributes this path correctly", and it still does — the correct
-    # attribution is now "no bypass". The second assertion is what keeps that from
-    # passing vacuously: an empty result must be owed to the path being KEYED, not to
-    # a rule having quietly disappeared from the table, which is exactly the failure
-    # the original was built to catch.
+    """Every reviewed routing control remains keyed in the compatibility policy view."""
     plugin = OpenRouterProviderPlugin()
     rules = tuple(plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"))
     paths = caller_cache_bypass_paths(
         {
             "model": _MODEL,
             "messages": list(_MESSAGES),
-            # The `zdr: False` row is here on purpose: it is the value the gateway
-            # OMITS upstream, and it must still resolve through a real rule.
+            # ``zdr: False`` is omitted upstream but must still resolve through a real rule.
             "provider_params": {leaf: value},
         },
         rules=rules,
@@ -467,7 +451,7 @@ def test_a_pre_existing_row_is_not_replayed_after_the_provider_is_disabled(
     WHY this is a route test and not only a projection test: the global cache is a
     SECOND path to this provider's responses, and it needs neither a registered model
     nor a credential to be walked — so the D2 guarantees on `register_models` and
-    `api_key_strategy_for` do not cover it. v2 rows never expire, so without the gate
+    `api_key_strategy_for` do not cover it. Cache rows never expire, so without the gate
     the replay window is unbounded.
 
     The row is filled FIRST, while enabled, because that is the only arrangement in

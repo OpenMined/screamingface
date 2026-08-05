@@ -392,24 +392,7 @@ def test_the_contract_declares_top_p_as_keyed() -> None:
 
 
 def test_the_caller_visible_policy_reports_top_p_as_a_keyed_path() -> None:
-    """SUPERSEDED (OME-305, owner decision B).
-
-    Was ``test_the_caller_visible_policy_reports_top_p_as_a_bypass_path``, asserting
-    verbatim: ``assert rule.cache_behavior == "bypass"`` and ``assert paths ==
-    ("top_p",)``.
-
-    The old docstring's premise is ALSO retired and must not be restored: it said
-    "EVERY OpenRouter request — even a bare prompt with no optional parameters — is
-    structurally cache-ineligible" because the pinned ``api_base`` and ``provider``
-    block were fields the key builder did not know. That was true of v1's inspected
-    preparation. v2 PROJECTS preparation instead, so those two additions are described
-    rather than unexplained and an OpenRouter request is cacheable.
-
-    WHY the anti-vacuity half is now carried by a different parameter: with ``top_p``
-    keyed, "no bypass paths" is the expected answer for it, and a function that always
-    returned ``()`` would satisfy that. ``tools`` still bypasses — structurally, ahead
-    of any rule — so it is what proves the function still discriminates.
-    """
+    """The restored policy view agrees with the real OpenRouter rule table."""
     from aigateway.core.parameter_projection import caller_cache_bypass_paths
 
     rule = next(r for r in _rules() if r.request_path == "top_p")
@@ -423,7 +406,7 @@ def test_the_caller_visible_policy_reports_top_p_as_a_keyed_path() -> None:
         )
         == ()
     )
-    # The discriminating case: a parameter that IS still a declared bypass.
+    # An actual declared-bypass rule proves the helper does not return ``()`` vacuously.
     assert caller_cache_bypass_paths(
         {"model": _MODEL, "messages": list(_MESSAGES), "tools": []},
         rules=_rules(),

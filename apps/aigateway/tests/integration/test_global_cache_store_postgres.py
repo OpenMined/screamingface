@@ -37,8 +37,7 @@ from tortoise.transactions import in_transaction
 
 from aigateway.core.request_cache.models import RequestCacheEntry
 from aigateway.core.request_cache.store import (
-    GLOBAL_SENTINEL,
-    GlobalRequestCacheWrite,
+    RequestCacheWrite,
     TortoiseRequestCacheStore,
 )
 from aigateway.core.secrets.local import LocalSecretStore
@@ -52,6 +51,28 @@ _KEY_VERSION_V2 = "aigw-global-chat-cache-v2"
 _TABLE = "request_cache_entries"
 _V1_KEY_HASH = "a" * 64
 _V1_RESPONSE = {"id": "cmpl-v1", "choices": [{"message": {"content": "V1-ANSWER"}}]}
+
+type _PostgresIndex = tuple[str, bool, bool, tuple[str, ...]]
+
+_HEAD_INDEXES: set[_PostgresIndex] = {
+    ("idx_request_cac_expires_fec131", False, False, ("expires_at",)),
+    ("idx_request_cac_key_has_b2926c", False, False, ("key_hash",)),
+    ("idx_request_cac_model_e0199d", False, False, ("model",)),
+    ("idx_request_cac_prompt__feba99", False, False, ("prompt_hash",)),
+    ("idx_request_cac_provide_662524", False, False, ("provider",)),
+    ("request_cache_entries_key_hash_key", True, False, ("key_hash",)),
+    ("request_cache_entries_pkey", True, True, ("id",)),
+}
+_LEGACY_INDEXES: set[_PostgresIndex] = _HEAD_INDEXES | {
+    ("idx_request_cac_account_8282e8", False, False, ("account_id",)),
+    (
+        "idx_request_cac_account_ea8c05",
+        False,
+        False,
+        ("account_id", "profile_name", "provider", "expires_at"),
+    ),
+    ("idx_request_cac_profile_38b028", False, False, ("profile_name",)),
+}
 
 
 def _database_url(postgres: PostgresContainer) -> str:
@@ -72,6 +93,50 @@ def _migrate(database_url: str, *target: str) -> subprocess.CompletedProcess[str
         capture_output=True,
         text=True,
     )
+
+
+def _downgrade(database_url: str, migration: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tortoise",
+            "-c",
+            "aigateway.db.TORTOISE_CONFIG",
+            "downgrade",
+            "models",
+            migration,
+        ],
+        cwd=_APP_DIR,
+        env={**os.environ, "AIGATEWAY_DATABASE_URL": database_url},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+async def _indexes(conn: asyncpg.Connection) -> set[_PostgresIndex]:
+    rows = await conn.fetch(
+        """
+        select idx.relname as name,
+               spec.indisunique as is_unique,
+               spec.indisprimary as is_primary,
+               array_agg(attr.attname order by key.ordinality) as columns
+          from pg_class as target
+          join pg_namespace as namespace on namespace.oid = target.relnamespace
+          join pg_index as spec on spec.indrelid = target.oid
+          join pg_class as idx on idx.oid = spec.indexrelid
+          join lateral unnest(spec.indkey) with ordinality as key(attnum, ordinality) on true
+          join pg_attribute as attr
+            on attr.attrelid = target.oid and attr.attnum = key.attnum
+         where namespace.nspname = current_schema() and target.relname = $1
+         group by idx.relname, spec.indisunique, spec.indisprimary
+        """,
+        _TABLE,
+    )
+    return {
+        (row["name"], row["is_unique"], row["is_primary"], tuple(row["columns"])) for row in rows
+    }
 
 
 @pytest.fixture(scope="module")
@@ -96,15 +161,14 @@ async def _store(database_url: str) -> AsyncIterator[TortoiseRequestCacheStore]:
     await init_db(database_url)
     try:
         await RequestCacheEntry.all().delete()
-        yield TortoiseRequestCacheStore(secret_store=LocalSecretStore(_TEST_KEY))
+        yield TortoiseRequestCacheStore()
     finally:
         await close_db()
 
 
-def _write(key_hash: str, response: dict) -> GlobalRequestCacheWrite:
-    return GlobalRequestCacheWrite(
+def _write(key_hash: str, response: dict) -> RequestCacheWrite:
+    return RequestCacheWrite(
         key_hash=key_hash,
-        key_version=_KEY_VERSION_V2,
         prompt_hash="p" * 64,
         provider="anthropic",
         model="anthropic/claude-haiku-4-5",
@@ -132,7 +196,7 @@ async def test_concurrent_fills_leave_exactly_one_row_and_one_winner(migrated_po
         assert sorted(results) == ["race_lost", "stored"]
         assert await RequestCacheEntry.filter(key_hash=key).count() == 1
         winner = first if results[0] == "stored" else second
-        assert await store.get_global(key) == winner
+        assert await store.get(key) == winner
 
 
 @pytest.mark.asyncio
@@ -153,7 +217,7 @@ async def test_a_lost_race_does_not_poison_the_callers_transaction(migrated_post
 
             # The caller's transaction is still usable — this is the whole point.
             assert await RequestCacheEntry.filter(key_hash=key).count() == 1
-            assert await store.get_global(key) == {"id": "winner"}
+            assert await store.get(key) == {"id": "winner"}
 
 
 @pytest.mark.asyncio
@@ -239,7 +303,7 @@ async def test_0009_drops_not_null_on_a_populated_database_without_touching_inde
         finally:
             await conn.close()
 
-        _migrate(database_url)
+        _migrate(database_url, "models", "0009_global_request_cache")
 
         conn = await asyncpg.connect(database_url)
         try:
@@ -271,7 +335,7 @@ async def test_0009_drops_not_null_on_a_populated_database_without_touching_inde
                 f"insert into {_TABLE} (id, key_hash, key_version, account_id, profile_name,"
                 " prompt_hash, provider, model, response_ciphertext, response_size_bytes,"
                 " created_at, updated_at, expires_at, hit_count)"
-                f" values ($1, $2, '{_KEY_VERSION_V2}', '{GLOBAL_SENTINEL}', '{GLOBAL_SENTINEL}',"
+                f" values ($1, $2, '{_KEY_VERSION_V2}', 'global', 'global',"
                 " $3, 'openrouter', 'openrouter/x', 'v1:x:y', 8, now(), now(), NULL, 0)",
                 uuid.uuid4(),
                 "d" * 64,
@@ -286,7 +350,82 @@ async def test_0009_drops_not_null_on_a_populated_database_without_touching_inde
         finally:
             await conn.close()
 
-        assert "No migrations to apply" in _migrate(database_url).stdout
+        assert (
+            "No migrations to apply"
+            in _migrate(database_url, "models", "0009_global_request_cache").stdout
+        )
+
+
+@pytest.mark.asyncio
+async def test_0010_replaces_the_preflight_schema_on_postgres() -> None:
+    if os.environ.get("AIGW_TEST_PG") != "1":
+        pytest.skip("AIGW_TEST_PG=1 not set")
+    with PostgresContainer("postgres:16-alpine", driver=None) as postgres:
+        database_url = _database_url(postgres)
+        _migrate(database_url, "models", "0009_global_request_cache")
+
+        conn = await asyncpg.connect(database_url)
+        try:
+            await conn.execute(
+                f"insert into {_TABLE} (id, key_hash, key_version, account_id, profile_name,"
+                " prompt_hash, provider, model, response_ciphertext, response_size_bytes,"
+                " created_at, updated_at, expires_at, hit_count)"
+                " values ($1, $2, 'aigw-chat-cache-v1', 'acct-1', 'default', $3, 'anthropic',"
+                " 'anthropic/claude-haiku-4-5', '{}', 2, now(), now(), now(), 0)",
+                uuid.uuid4(),
+                "f" * 64,
+                "p" * 64,
+            )
+        finally:
+            await conn.close()
+
+        _migrate(database_url)
+
+        conn = await asyncpg.connect(database_url)
+        try:
+            columns = {
+                row["column_name"]: row["is_nullable"]
+                for row in await conn.fetch(
+                    "select column_name, is_nullable from information_schema.columns"
+                    " where table_name = $1",
+                    _TABLE,
+                )
+            }
+            assert await conn.fetchval(f"select count(*) from {_TABLE}") == 0
+            assert {
+                "account_id",
+                "profile_name",
+                "key_version",
+                "response_ciphertext",
+            }.isdisjoint(columns)
+            assert {"response_json", "expires_at"} <= columns.keys()
+            assert columns["expires_at"] == "YES"
+            assert await _indexes(conn) == _HEAD_INDEXES
+        finally:
+            await conn.close()
+
+        conn = await asyncpg.connect(database_url)
+        try:
+            await conn.execute(
+                f"insert into {_TABLE} (id, key_hash, prompt_hash, provider, model, response_json,"
+                " response_size_bytes, created_at, updated_at, expires_at, hit_count)"
+                " values ($1, $2, $3, 'anthropic', 'anthropic/claude-haiku-4-5', '{}', 2,"
+                " now(), now(), NULL, 0)",
+                uuid.uuid4(),
+                "b" * 64,
+                "q" * 64,
+            )
+        finally:
+            await conn.close()
+
+        _downgrade(database_url, "0009_global_request_cache")
+
+        conn = await asyncpg.connect(database_url)
+        try:
+            assert await conn.fetchval(f"select count(*) from {_TABLE}") == 0
+            assert await _indexes(conn) == _LEGACY_INDEXES
+        finally:
+            await conn.close()
 
 
 # --- 3. atomic hit metadata under real concurrency ---------------------------------------------
@@ -305,7 +444,7 @@ async def test_every_concurrent_hit_is_counted(migrated_postgres) -> None:
     async with _store(migrated_postgres) as store:
         assert await store.set_if_absent(_write(key, {"id": "shared", "choices": []})) == "stored"
 
-        responses = await asyncio.gather(*(store.get_global(key) for _ in range(hits)))
+        responses = await asyncio.gather(*(store.get(key) for _ in range(hits)))
 
         assert all(response == {"id": "shared", "choices": []} for response in responses)
         row = await RequestCacheEntry.get(key_hash=key)

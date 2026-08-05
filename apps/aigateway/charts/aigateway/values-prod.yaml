@@ -28,14 +28,11 @@ config:
   # are that any two callers sending the identical request get the identical stored response, and
   # that rows never expire.
   # Cached provider responses are stored as plaintext compact JSON in
-  # `request_cache_entries.response_ciphertext`. Database readers, replicas, snapshots and backups
+  # `request_cache_entries.response_json`. Database readers, replicas, snapshots and backups
   # can read the entire cache corpus. Provider API keys and OAuth tokens remain encrypted in
   # `credential_blobs`; `auth.secretKeyKey` still governs those credentials, not response-cache rows.
   #
-  # THE BLAST RADIUS THIS CHANGES, before and after enabling the cache:
-  #   scope:     one account + one profile        ->  every hosted user's responses in one corpus
-  #   retention: TTL-bound (10 min default)       ->  indefinite; rows never expire
-  #   default:   off                              ->  on, here
+  # THE BLAST RADIUS: every hosted user's responses share one indefinitely retained corpus.
   requestCache:
     enabled: true
 

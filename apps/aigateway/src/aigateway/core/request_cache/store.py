@@ -5,32 +5,20 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 from tortoise.exceptions import BaseORMException, IntegrityError
 from tortoise.expressions import F
 from tortoise.transactions import in_transaction
 
-from ..secrets import get_active_secret_store
-from ..secrets.mixin import SecretStoreError, SecretStoreMixin
-from .global_keys import KEY_VERSION_V2
 from .models import RequestCacheEntry
 
 logger = logging.getLogger(__name__)
 
-# INVARIANT: every global v2 row is written with these in place of the origin caller's identity.
-# The row is shared, so recording who filled it would both leak an association and make the row
-# look scoped when it is not.
-GLOBAL_SENTINEL = "global"
-
 # Infrastructure failures that must degrade the cache rather than fail the request. OSError covers
 # the socket/file layer under the driver, which does not always arrive wrapped as an ORM error.
 _INFRASTRUCTURE_ERRORS = (BaseORMException, OSError)
-
-# A stored payload that will not turn back into a JSON object. ``JSONDecodeError``,
-# ``binascii.Error`` and ``UnicodeDecodeError`` are all ``ValueError`` subclasses.
-_UNDECODABLE_ERRORS = (SecretStoreError, ValueError, TypeError)
 
 
 class CacheUnavailable(RuntimeError):
@@ -61,28 +49,9 @@ _UNGATED = _AlwaysAvailable()
 
 @dataclass(frozen=True)
 class RequestCacheWrite:
-    key_hash: str
-    key_version: str
-    account_id: str
-    profile_name: str
-    prompt_hash: str
-    provider: str
-    model: str
-    response: dict[str, Any]
-    response_size_bytes: int
-    expires_at: datetime
-
-
-@dataclass(frozen=True)
-class GlobalRequestCacheWrite:
-    """A global v2 fill.
-
-    INVARIANT: closed on purpose. No ``expires_at`` (v2 always persists NULL), no account, profile
-    or credential identity, and no prompt text — what the DTO cannot express cannot be persisted.
-    """
+    """One plaintext JSON fill with no caller identity or prompt material."""
 
     key_hash: str
-    key_version: str
     prompt_hash: str
     provider: str
     model: str
@@ -91,145 +60,44 @@ class GlobalRequestCacheWrite:
 
 
 class RequestCacheStore(Protocol):
-    async def get(
-        self, key_hash: str, *, max_age_seconds: int | None = None
-    ) -> dict[str, Any] | None: ...
-
-    async def set(self, entry: RequestCacheWrite) -> None: ...
+    async def get(self, key_hash: str) -> dict[str, Any] | None: ...
 
     async def delete_expired(self) -> int: ...
 
-
-class GlobalRequestCacheStore(Protocol):
-    """The port the chat route consumes for the global lane (OME-305 frozen contract)."""
-
-    async def get_global(self, key_hash: str) -> dict[str, Any] | None: ...
-
     async def set_if_absent(
-        self, entry: GlobalRequestCacheWrite
+        self, entry: RequestCacheWrite
     ) -> Literal["stored", "race_lost", "not_stored"]: ...
 
     def cache_available(self) -> bool: ...
 
 
-async def record_global_hit_metadata(entry_id: uuid.UUID, when: datetime) -> None:
+async def record_hit_metadata(entry_id: uuid.UUID, when: datetime) -> None:
     await RequestCacheEntry.filter(id=entry_id).update(
         hit_count=F("hit_count") + 1, last_hit_at=when
     )
 
 
 class TortoiseRequestCacheStore:
-    """Tortoise-backed implementation of both cache ports (v1 and global v2)."""
+    """Tortoise-backed implementation of the shared exact-request cache."""
 
     def __init__(
         self,
-        secret_store: SecretStoreMixin | None = None,
         availability: CacheAvailability | None = None,
     ) -> None:
-        # Lazy by default: the process-wide active store is installed by the
-        # app lifespan. Tests may inject one directly.
-        self._secret_store = secret_store
         self._availability: CacheAvailability = (
             availability if availability is not None else _UNGATED
         )
 
-    def _secrets(self) -> SecretStoreMixin:
-        return self._secret_store if self._secret_store is not None else get_active_secret_store()
-
     def cache_available(self) -> bool:
         return self._availability.cache_available()
 
-    # --- v1 lane: account/profile scoped, TTL-bound, last-write-wins -----------------------------
-    # INVARIANT (OME-305): v1 behaviour is FROZEN. The availability gate and the global lane's
-    # never-delete policy apply to the v2 methods only. v1 rows are legacy — readable, unreachable
-    # from v2 (§8 #17) — and changing how they are purged or gated is out of this ticket's scope.
-    # OME-305 made two owner-approved v1 corrections: the NULL-safe expiry comparison and the
-    # narrowed corrupt-entry catch, so unrelated programming errors no longer delete a row.
-
-    async def get(
-        self, key_hash: str, *, max_age_seconds: int | None = None
-    ) -> dict[str, Any] | None:
-        row = await RequestCacheEntry.get_or_none(key_hash=key_hash)
-        if row is None:
-            return None
-
-        now = datetime.now(UTC)
-        # INVARIANT (OME-305): NULL expiry means "never expires". Comparing it would raise.
-        if row.expires_at is not None and row.expires_at <= now:
-            return None
-        if max_age_seconds is not None and row.created_at < now - timedelta(
-            seconds=max_age_seconds
-        ):
-            return None
-
-        try:
-            plaintext = await self._secrets().decrypt(row.response_ciphertext)
-            response = json.loads(plaintext)
-            if not isinstance(response, dict):
-                raise ValueError("cached payload is not a JSON object")
-        except _UNDECODABLE_ERRORS:
-            # Corrupt or undecryptable entry: drop it so it cannot keep
-            # short-circuiting dispatch. Log by hash prefix only.
-            # AIDEV-NOTE: v1 deletes unconditionally and that is correct HERE — a v1 row is scoped
-            # to one account/profile and bounded by a TTL, so dropping it costs one caller one miss.
-            logger.warning("request cache entry %s… is corrupt; deleting", key_hash[:12])
-            await row.delete()
-            return None
-
-        row.hit_count += 1
-        row.last_hit_at = now
-        await row.save(update_fields=["hit_count", "last_hit_at"])
-        return response
-
-    async def set(self, entry: RequestCacheWrite) -> None:
-        payload = json.dumps(entry.response, separators=(",", ":"), ensure_ascii=False)
-        ciphertext = await self._secrets().encrypt(payload)
-        values = {
-            "key_version": entry.key_version,
-            "account_id": entry.account_id,
-            "profile_name": entry.profile_name,
-            "prompt_hash": entry.prompt_hash,
-            "provider": entry.provider,
-            "model": entry.model,
-            "response_ciphertext": ciphertext,
-            "response_size_bytes": entry.response_size_bytes,
-            "expires_at": entry.expires_at,
-        }
-
-        row = await RequestCacheEntry.get_or_none(key_hash=entry.key_hash)
-        if row is None:
-            try:
-                await RequestCacheEntry.create(key_hash=entry.key_hash, **values)
-                # SF-335: per-write opportunistic purge is INTENTIONAL, not a
-                # correctness mechanism. get() refuses expired rows on read
-                # (store.py:67-69), so a stale row is never served even if this
-                # never runs; it only reclaims space, and the delete is
-                # index-assisted (expires_at indexed). If this write path is ever
-                # measured as hot, switch to probabilistic GC (SF-335 follow-up);
-                # do not add a background task.
-                await self.delete_expired()
-                return
-            except IntegrityError:
-                # Lost a concurrent-create race: fall through to update.
-                row = await RequestCacheEntry.get(key_hash=entry.key_hash)
-
-        for field, value in values.items():
-            setattr(row, field, value)
-        await row.save(update_fields=list(values.keys()))
-        await self.delete_expired()  # SF-335: intentional opportunistic purge (see note above)
-
     async def delete_expired(self) -> int:
-        # SF-335: index-assisted (expires_at index, request_cache_entry.py:27),
-        # NOT a full-table scan. Called opportunistically from set(); see the
-        # note there on why this per-write purge is intentional.
-        # INVARIANT (OME-305): global rows hold NULL, and `NULL <= now` is NULL in SQL, so this
-        # purge can never reach them. Indefinite means indefinite.
+        # INVARIANT: NULL means indefinite, so the indexed comparison reaches only rows whose
+        # future configurable TTL has actually elapsed.
         return await RequestCacheEntry.filter(expires_at__lte=datetime.now(UTC)).delete()
 
-    # --- global v2 lane --------------------------------------------------------------------------
-
-    async def get_global(self, key_hash: str) -> dict[str, Any] | None:
-        """Look up one global row. ``None`` means no currently serveable row; every failure raises.
+    async def get(self, key_hash: str) -> dict[str, Any] | None:
+        """Look up one row. ``None`` means no currently serveable row; every failure raises.
 
         INVARIANT: an absent or expired row is a miss; read and decode failures raise.
         """
@@ -239,24 +107,14 @@ class TortoiseRequestCacheStore:
             raise CacheUnavailable("this worker is not serving the global cache")
 
         try:
-            row = await RequestCacheEntry.filter(
-                key_hash=key_hash,
-                # INVARIANT (§8 #17): the version predicate makes v1-unreachability structural
-                # rather than a bet on SHA-256 disjointness. It is free — the unique `key_hash`
-                # index still drives the lookup. Never discriminate on `expires_at IS NULL`
-                # instead: that breaks the moment the deferred configurable-TTL feature lands.
-                key_version=KEY_VERSION_V2,
-                account_id=GLOBAL_SENTINEL,
-                profile_name=GLOBAL_SENTINEL,
-            ).first()
+            row = await RequestCacheEntry.get_or_none(key_hash=key_hash)
         except _INFRASTRUCTURE_ERRORS as exc:
             logger.warning("global cache read failed (%s); bypassing", type(exc).__name__)
             raise CacheUnavailable("global cache read failed") from exc
 
         if row is None:
             return None
-        # A global row is written with NULL. A non-NULL expiry here is not ours: refuse to serve it
-        # once it is past, but never rewrite or delete another writer's row on a read.
+        # Nullable expiry is part of this one lane: NULL is indefinite, a past timestamp is a miss.
         if row.expires_at is not None and row.expires_at <= datetime.now(UTC):
             return None
 
@@ -271,7 +129,7 @@ class TortoiseRequestCacheStore:
 
         try:
             response = json.loads(
-                row.response_ciphertext,
+                row.response_json,
                 parse_constant=reject_non_finite,
                 parse_float=parse_finite_float,
             )
@@ -279,7 +137,7 @@ class TortoiseRequestCacheStore:
                 raise ValueError("cached payload is not a JSON object")
         except (ValueError, TypeError) as exc:
             logger.warning(
-                "global cache entry %s… could not be decoded (%s); refusing to serve it and "
+                "request cache entry %s… could not be decoded (%s); refusing to serve it and "
                 "leaving the row untouched",
                 key_hash[:12],
                 type(exc).__name__,
@@ -287,7 +145,7 @@ class TortoiseRequestCacheStore:
             raise CacheUnavailable("global cache entry could not be decoded") from exc
 
         try:
-            await record_global_hit_metadata(row.id, datetime.now(UTC))
+            await record_hit_metadata(row.id, datetime.now(UTC))
         except Exception as exc:
             # WHY broad only here: the response is already decoded and validated. Metadata is
             # best-effort, so no ordinary update failure may discard a hit already in hand.
@@ -298,12 +156,12 @@ class TortoiseRequestCacheStore:
         return response
 
     async def set_if_absent(
-        self, entry: GlobalRequestCacheWrite
+        self, entry: RequestCacheWrite
     ) -> Literal["stored", "race_lost", "not_stored"]:
         """Create-only fill: ``stored`` won, ``race_lost`` someone else won, ``not_stored`` failed.
 
-        INVARIANT (plan §5.3): first successful insert wins, permanently. Unlike the v1 ``set``, a
-        conflict is NEVER resolved by overwriting — the stored winner is what every later caller has
+        INVARIANT (plan §5.3): first successful insert wins. A conflict is NEVER resolved by
+        overwriting — the stored winner is what every later caller has
         already been served, and replacing it would make an identical request answer differently.
         """
         if not self._availability.cache_available():
@@ -337,21 +195,18 @@ class TortoiseRequestCacheStore:
             async with in_transaction():
                 await RequestCacheEntry.create(
                     key_hash=entry.key_hash,
-                    key_version=entry.key_version,
-                    account_id=GLOBAL_SENTINEL,
-                    profile_name=GLOBAL_SENTINEL,
                     prompt_hash=entry.prompt_hash,
                     provider=entry.provider,
                     model=entry.model,
-                    response_ciphertext=payload,
+                    response_json=payload,
                     response_size_bytes=entry.response_size_bytes,
                     expires_at=None,
                 )
         except IntegrityError:
             # INVARIANT: `race_lost` means the winner's row is in the table. `IntegrityError` also
-            # covers NOT NULL, so the conflict must be CONFIRMED before it is reported as a lost
-            # race — a deployment that never applied migration 0009 still has `expires_at NOT NULL`
-            # and would otherwise report a lost race, forever, against an empty table.
+            # covers other constraints, so the conflict must be CONFIRMED before it is reported as
+            # a lost race. A stale schema can otherwise report a race forever against an empty
+            # table.
             #
             # WHY the read is out here and not inside the `async with`: the failed INSERT already
             # aborted that transaction on Postgres, so any statement inside it would raise
@@ -370,16 +225,11 @@ class TortoiseRequestCacheStore:
         return "stored"
 
     async def _classify_fill_conflict(
-        self, entry: GlobalRequestCacheWrite
+        self, entry: RequestCacheWrite
     ) -> Literal["race_lost", "not_stored"]:
         """Did a rival fill win this key, or did the row violate some other constraint?"""
         try:
-            winner_exists = await RequestCacheEntry.filter(
-                key_hash=entry.key_hash,
-                key_version=entry.key_version,
-                account_id=GLOBAL_SENTINEL,
-                profile_name=GLOBAL_SENTINEL,
-            ).exists()
+            winner_exists = await RequestCacheEntry.filter(key_hash=entry.key_hash).exists()
         except _INFRASTRUCTURE_ERRORS as exc:
             logger.warning(
                 "global cache fill conflict for %s… could not be classified (%s); not stored",
@@ -392,7 +242,7 @@ class TortoiseRequestCacheStore:
             # Loud on purpose: nothing is in the table, so no amount of traffic will fill it.
             logger.warning(
                 "global cache fill %s… was rejected by a constraint other than the entry key and "
-                "no row is stored; is the database schema up to date (migration 0009)?",
+                "no row is stored; is the database schema up to date?",
                 entry.key_hash[:12],
             )
             return "not_stored"

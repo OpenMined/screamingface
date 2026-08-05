@@ -19,10 +19,8 @@ AIDEV-NOTE (OME-653 pattern): split out of ``.global_keys`` purely to keep each
 file within the repository's 450-line limit. ``.global_keys`` is the public
 surface and re-exports every name below; import from there.
 
-AIDEV-NOTE: this enumeration is deliberately NOT a copy of
-``parameter_projection._addressed_request_paths``. That one answers "which paths
-does the auth-specific classifier adjudicate" and may legitimately skip a key it
-rejects elsewhere. This one must ACCOUNT FOR every key.
+AIDEV-NOTE: this enumeration is independent of the auth-specific dispatch classifier,
+which may legitimately reject a key elsewhere. This module must ACCOUNT FOR every key.
 """
 
 from __future__ import annotations
@@ -45,7 +43,7 @@ from ..parameter_projection import WRAPPER_KEY
 # ever carry a caller value, a prompt fragment, a provider message or identity.
 BYPASS_UNSUPPORTED_SHAPE: Final = "unsupported_shape"
 BYPASS_UNKNOWN_PARAMETER: Final = "unknown_parameter"
-# INVARIANT: v1's exact spelling, kept deliberately (owner decision 53). The rename to
+# INVARIANT: the published spelling is kept deliberately (owner decision 53). The rename to
 # ``bypassing_parameter`` was landed and then reverted — URL4 reads these bytes, so the
 # owner ruled "rename only what must change". Do not restore it.
 BYPASS_DECLARED: Final = "unsupported_fields"
@@ -60,7 +58,7 @@ BYPASS_MODE_RESTRICTED: Final = "mode_restricted_parameter"
 # --- the reviewed disposition of every non-parameter request field ------------
 
 # Prompt material: hashed verbatim, never normalized. ``system`` is here rather
-# than in the rule space to mirror v1's prompt projection.
+# than in the rule space because prompt material is hashed verbatim.
 PROMPT_FIELDS: Final[frozenset[str]] = frozenset({"model", "messages", "system"})
 
 # Excluded from the key because they provably do not affect provider output.
@@ -99,7 +97,7 @@ TRUTHY_BYPASS_REASONS: Final[Mapping[str, str]] = {"stream": BYPASS_STREAM}
 #
 # INVARIANT: a DENYLIST, deliberately. An allowlist of keyable paths would need
 # editing on every promotion of a rule from ``bypass`` to ``keyed``, which is
-# precisely how v1's ``PROMPT_KEY_FIELDS`` rotted into a guard that forbade the
+# precisely how the old prompt-only allowlist became a guard that forbade the
 # promotions this ticket exists to make.
 STRUCTURALLY_EXCLUDED_FIELDS: Final[frozenset[str]] = (
     PROMPT_FIELDS

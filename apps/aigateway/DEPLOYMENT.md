@@ -138,21 +138,24 @@ python -m tortoise -c aigateway.db.TORTOISE_CONFIG migrate
 
 This runs in a Helm hook Job before app Deployment rollout. Do not run `Tortoise.generate_schemas()` in production and do not run migrations in app startup.
 
-### `0009_global_request_cache` is a one-way door once the cache has been used
+### Rolling back the request-cache schema resets the cache
 
-`0009` makes `request_cache_entries.expires_at` nullable, because every global row is written with
-`expires_at = NULL`. Its downgrade re-applies `SET NOT NULL`, which **fails as soon as a single global
-row exists** — by design: there is no honest expiry to invent for a row written as "never expires",
-and stamping one would make rows silently vanish later.
+`0010_simplify_request_cache` removes the unused account/profile-scoped preflight schema. Its upgrade
+clears the cache before dropping those columns and renaming the plaintext response field to
+`response_json`. Cache rows are disposable, so no mixed encrypted/preflight payload is retained.
 
-Rolling a release back past `0009` therefore requires resetting the global cache first:
+Before rolling back past `0010`, disable the cache and quiesce every app replica so no writer can
+refill the table during the downgrade. Clear the cache, then downgrade. Migration `0010` also clears
+rows automatically at the beginning of its reverse path as a final safety net. The empty table can
+then regain the removed non-null columns, and the following `0009` downgrade can restore
+`expires_at NOT NULL`:
 
 ```sql
-DELETE FROM request_cache_entries WHERE account_id = 'global';
+DELETE FROM request_cache_entries;
 ```
 
-That is a deliberate cache reset, not a schema rollback. Rows scoped to a real account (the older
-per-account TTL cache) are untouched by both the migration and this delete.
+That is a deliberate cache reset, not application-data loss. The table contains only the global
+request cache; it stores no account/profile identity.
 
 ## The Global Response Cache
 
@@ -221,8 +224,8 @@ nothing at all. It matters most in `cloudflare_headers` mode, where an unrecogni
 
 ### Response-cache reads do not use the master key
 
-The cached response is plaintext compact JSON in the legacy `response_ciphertext` column. Reading it
-does not resolve a secret provider, validate an encryption canary or decrypt the response body.
+The cached response is plaintext compact JSON in `response_json`. Reading it does not resolve a
+secret provider, validate an encryption canary or decrypt the response body.
 
 The caller's profile index is still a credential blob (`aigateway:index`) and remains encrypted under
 the credential master key. A hit reads that index to merge profile defaults before key construction,
@@ -262,7 +265,7 @@ requests the gateway has ever answered, and each row holds a full plaintext prov
 ```sql
 SELECT count(*) AS rows,
        pg_size_pretty(pg_total_relation_size('request_cache_entries')) AS size
-FROM request_cache_entries WHERE account_id = 'global';
+FROM request_cache_entries;
 ```
 
 Watch this table's size like any other unbounded table and prune deliberately (for example by
@@ -271,9 +274,8 @@ a deleted row is a cache miss, and the next caller re-fills it.
 
 ### Plaintext storage boundary
 
-Global response rows are readable to anyone with database, replica, snapshot or backup access. The
-legacy `response_ciphertext` name does not imply encryption. If a class of response must not be stored
-or replayed across users, send `use-cache=false`.
+Global response rows are readable to anyone with database, replica, snapshot or backup access. If a
+class of response must not be stored or replayed across users, send `use-cache=false`.
 
 ### Accounting boundary
 

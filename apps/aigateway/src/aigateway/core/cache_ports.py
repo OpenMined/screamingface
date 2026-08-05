@@ -11,12 +11,8 @@ INVARIANT (SOLID/hexagonal): this is a LEAF. It imports nothing from
 without a cycle — and without the port layer having to import the cache
 persistence package (Tortoise models, secret store) merely to describe itself.
 
-AIDEV-NOTE: the v1 prompt cache has its own, separate
-``core.request_cache.keys.CacheBypass``. The two are deliberately NOT unified:
-v1 is frozen legacy (its rows stay readable but unreachable, plan §8 #17) and
-must not gain a dependency on the v2 vocabulary. Never mix the two types in one
-code path — the v2 path imports the bypass sentinel from
-``core.request_cache.global_keys``, which re-exports THIS one.
+AIDEV-NOTE: ``core.request_cache.global_keys`` re-exports this type so providers,
+the key builder and the route all use the same closed bypass vocabulary.
 """
 
 from __future__ import annotations

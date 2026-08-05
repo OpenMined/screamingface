@@ -368,7 +368,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # credential to be replayed, and the cache stage runs AHEAD of both checks, so
         # neither the 404 nor the 400 ever gets a chance to refuse the request.
         # Without this gate a disabled OpenRouter keeps answering from rows an enabled
-        # deployment filled, indefinitely (v2 rows never expire).
+        # deployment filled, indefinitely (current rows never expire).
         return self.settings.enabled
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:

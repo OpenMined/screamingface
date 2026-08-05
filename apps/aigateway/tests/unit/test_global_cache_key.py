@@ -41,14 +41,12 @@ from aigateway.core.profile_models import AuthMode
 from aigateway.core.request_cache.global_keys import (
     BYPASS_DECLARED,
     EXCLUDED_TRANSPORT_FIELDS,
-    KEY_VERSION_V2,
-    OPERATION,
     PRESENCE_BYPASS_REASONS,
     PROMPT_FIELDS,
     TRUTHY_BYPASS_REASONS,
     CacheBypass,
     GlobalCacheKeyResult,
-    GlobalChatCacheKeyV2,
+    GlobalChatCacheKey,
     build_global_cache_key,
     build_global_cache_key_dto,
     canonical_key_material,
@@ -243,7 +241,7 @@ def test_the_canonical_dto_has_exactly_the_closed_member_set() -> None:
         provider_auth_modes=_AUTH,
         parameter_contract_revision=_CONTRACT_REVISION,
     )
-    assert isinstance(dto, GlobalChatCacheKeyV2), dto
+    assert isinstance(dto, GlobalChatCacheKey), dto
     assert set(json.loads(canonical_key_material(dto))) == {
         "schema",
         "operation",
@@ -269,10 +267,10 @@ def test_the_mvp_has_no_variant_dimension() -> None:
         provider_auth_modes=_AUTH,
         parameter_contract_revision=_CONTRACT_REVISION,
     )
-    assert isinstance(dto, GlobalChatCacheKeyV2)
+    assert isinstance(dto, GlobalChatCacheKey)
     assert "variant" not in canonical_key_material(dto)
     with pytest.raises(TypeError):
-        GlobalChatCacheKeyV2(**{**dto.__dict__, "variant": "sample-0"})  # type: ignore[arg-type]
+        GlobalChatCacheKey(**{**dto.__dict__, "variant": "sample-0"})  # type: ignore[arg-type]
 
 
 def test_no_secret_identity_or_transport_material_reaches_canonical_key_material() -> None:
@@ -291,7 +289,7 @@ def test_no_secret_identity_or_transport_material_reaches_canonical_key_material
         provider_auth_modes=_AUTH,
         parameter_contract_revision=_CONTRACT_REVISION,
     )
-    assert isinstance(dto, GlobalChatCacheKeyV2), dto
+    assert isinstance(dto, GlobalChatCacheKey), dto
     material = canonical_key_material(dto)
     for forbidden in (
         "sk-live-DEADBEEF",
@@ -313,7 +311,7 @@ def test_the_result_carries_only_hashes_and_non_sensitive_provenance() -> None:
     built = _build(_body(messages=[{"role": "user", "content": "SECRET-PROMPT"}]))
     assert isinstance(built, GlobalCacheKeyResult), built
     assert "SECRET-PROMPT" not in repr(built)
-    assert built.key_version == KEY_VERSION_V2
+    assert not hasattr(built, "key_version")
     assert built.provider == _PROVIDER
     assert built.model == _MODEL
     assert len(built.key_hash) == 64
@@ -353,7 +351,7 @@ def test_non_ascii_prompt_text_is_not_escaped_in_canonical_material() -> None:
         provider_auth_modes=_AUTH,
         parameter_contract_revision=_CONTRACT_REVISION,
     )
-    assert isinstance(dto, GlobalChatCacheKeyV2), dto
+    assert isinstance(dto, GlobalChatCacheKey), dto
     assert "héllo" in canonical_key_material(dto)
 
 
@@ -386,7 +384,7 @@ def test_a_wrapped_native_parameter_is_keyed_through_the_prepared_projection() -
         provider_auth_modes=_AUTH,
         parameter_contract_revision=_CONTRACT_REVISION,
     )
-    assert isinstance(dto, GlobalChatCacheKeyV2), dto
+    assert isinstance(dto, GlobalChatCacheKey), dto
     assert set(dto.keyed_parameters) == {"temperature"}
     assert dto.prepared_request["extra_body"] == {"top_k": 3}
     assert WRAPPER_KEY not in canonical_key_material(dto)
@@ -667,7 +665,7 @@ def test_canonical_material_is_sorted_compact_and_utf8() -> None:
         provider_auth_modes=_AUTH,
         parameter_contract_revision=_CONTRACT_REVISION,
     )
-    assert isinstance(dto, GlobalChatCacheKeyV2), dto
+    assert isinstance(dto, GlobalChatCacheKey), dto
     assert canonical_key_material(dto) == (
         '{"keyed_parameters":{},'
         '"messages":[{"content":"hi","role":"user"}],'
@@ -678,7 +676,7 @@ def test_canonical_material_is_sorted_compact_and_utf8() -> None:
         '"provider_adapter_revision":"pa-1",'
         '"requested_model":"fake/m",'
         '"resolved_model":"m",'
-        '"schema":"aigw-global-chat-cache-v2",'
+        '"schema":"aigw-global-chat-cache-2026-08",'
         '"system":{"present":false}}'
     )
 
@@ -692,7 +690,7 @@ def test_the_key_hash_is_sha256_of_the_canonical_bytes() -> None:
         provider_auth_modes=_AUTH,
         parameter_contract_revision=_CONTRACT_REVISION,
     )
-    assert isinstance(dto, GlobalChatCacheKeyV2), dto
+    assert isinstance(dto, GlobalChatCacheKey), dto
     expected = hashlib.sha256(canonical_key_material(dto).encode("utf-8")).hexdigest()
     assert _hash() == expected
 
@@ -766,27 +764,3 @@ def test_the_wrapper_is_not_dispositioned_as_an_ordinary_field() -> None:
     # would hide every provider-native parameter from the key.
     for name, fields in _DISPOSITION_GROUPS:
         assert WRAPPER_KEY not in fields, name
-
-
-# --- v1 / v2 separation -------------------------------------------------------
-
-
-def test_a_v2_key_can_never_collide_with_a_v1_key_for_the_same_request() -> None:
-    # Plan §8 #17: v1 rows stay unchanged and unreachable by v2 lookup. The schema
-    # member is inside the hashed material, so the two namespaces are disjoint by
-    # construction rather than by a lookup filter.
-    # WHY the v1 RESULT type rather than "not the v2 bypass": v1 has its own
-    # ``CacheBypass`` class and the two are deliberately not unified, so narrowing
-    # against the v2 one would prove nothing about a v1 return.
-    from aigateway.core.request_cache.keys import KEY_VERSION, CacheKeyResult, build_cache_key
-
-    v1 = build_cache_key(
-        account_id="acct-1",
-        profile_name="default",
-        provider=_PROVIDER,
-        normalized_body=_body(),
-    )
-    assert isinstance(v1, CacheKeyResult), v1
-    assert v1.key_hash != _hash()
-    assert KEY_VERSION != KEY_VERSION_V2
-    assert OPERATION == "chat.completions"

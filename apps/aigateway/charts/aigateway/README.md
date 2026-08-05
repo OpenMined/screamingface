@@ -70,14 +70,14 @@ Three more things to know before enabling it anywhere else:
 - **`config.authMode: disabled` removes the boundary entirely.** Every peer who can reach the port is
   the same anonymous principal, so the corpus is common to everyone with network access. The gateway
   does **not** refuse the cache for this — understand it before enabling the cache with auth off.
-- **Responses are plaintext in the database.** The compact provider-response JSON is stored in the
-  legacy `response_ciphertext` column. Database readers, replicas, snapshots and backups can read the
-  entire response corpus. Provider credentials remain encrypted separately.
+- **Responses are plaintext in the database.** The compact provider-response JSON is stored in
+  `response_json`. Database readers, replicas, snapshots and backups can read the entire response
+  corpus. Provider credentials remain encrypted separately.
 - **Rows never expire.** There is no TTL and no eviction, so `request_cache_entries` grows with the
   number of distinct requests ever answered. Monitor it and prune deliberately.
 
-Callers opt a single request out with `{"cache": {"use-cache": false}}`. Full runbook — the one-way
-schema migration and pruning queries:
+Callers opt a single request out with `{"cache": {"use-cache": false}}`. Full runbook — including
+destructive rollback and pruning queries:
 `apps/aigateway/DEPLOYMENT.md`.
 
 ## Who may connect

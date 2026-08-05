@@ -23,7 +23,7 @@ from aigateway.core.request_cache.global_controls import (
     BYPASS_OPTED_OUT,
     BYPASS_UNSUPPORTED_CONTROL,
     CONTROL_FIELD,
-    LEGACY_CONTROL_FIELDS,
+    UNSUPPORTED_CONTROL_FIELDS,
     parse_global_cache_controls,
 )
 
@@ -83,8 +83,8 @@ def test_a_control_object_that_is_not_an_object_bypasses(stated: Any) -> None:
 # --- retired and unknown controls --------------------------------------------
 
 
-@pytest.mark.parametrize("field", sorted(LEGACY_CONTROL_FIELDS))
-def test_every_retired_v1_control_bypasses_as_unsupported(field: str) -> None:
+@pytest.mark.parametrize("field", sorted(UNSUPPORTED_CONTROL_FIELDS))
+def test_every_unsupported_control_bypasses(field: str) -> None:
     # Plan §8 #14. A v2 entry never expires and is shared by every caller, so a
     # per-request TTL or a write suppression cannot be honored — and must not be
     # silently ignored either.
@@ -93,14 +93,8 @@ def test_every_retired_v1_control_bypasses_as_unsupported(field: str) -> None:
     assert controls.bypass_reason == BYPASS_UNSUPPORTED_CONTROL
 
 
-def test_the_retired_control_set_is_exactly_what_v1_accepted() -> None:
-    # Locks this module against the v1 parser: a v1 control that is NOT listed here
-    # would be treated as an unknown field, which is the same outcome, but the
-    # acceptance test above would stop covering it by name.
-    from aigateway.core.request_cache.keys import CacheControls
-
-    v1_fields = {name.replace("_", "-") for name in CacheControls.__dataclass_fields__}
-    assert LEGACY_CONTROL_FIELDS == v1_fields - {"use-cache"}
+def test_the_retired_control_set_is_explicit_and_closed() -> None:
+    assert UNSUPPORTED_CONTROL_FIELDS == {"ttl", "s-maxage", "no-cache", "no-store"}
 
 
 def test_an_unknown_control_field_bypasses() -> None:

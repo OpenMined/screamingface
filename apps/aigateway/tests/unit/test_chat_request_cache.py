@@ -44,7 +44,7 @@ from aigateway.core.request_cache.global_controls import (
     BYPASS_MALFORMED_CONTROLS,
     BYPASS_OPTED_OUT,
     BYPASS_UNSUPPORTED_CONTROL,
-    LEGACY_CONTROL_FIELDS,
+    UNSUPPORTED_CONTROL_FIELDS,
 )
 from aigateway.core.request_cache.global_eligibility import (
     BYPASS_STREAM,
@@ -428,7 +428,7 @@ def test_a_retired_v1_control_bypasses_instead_of_being_silently_ignored(
     only truthful answer, and the v1 property that survives is preserved exactly:
     nothing is read and nothing is stored.
     """
-    assert field in LEGACY_CONTROL_FIELDS
+    assert field in UNSUPPORTED_CONTROL_FIELDS
     _arrange_account(cache_client, credential_blobs)
     counter = _DispatchCounter()
     body = _chat_body(cache={"use-cache": True, field: value})
@@ -451,7 +451,7 @@ def test_every_retired_v1_control_is_covered_by_the_bypass_table(request) -> Non
 
     AIDEV-NOTE: the parametrize table above is the only place the retired names are
     asserted at the ROUTE level. Without this, adding a name to
-    ``LEGACY_CONTROL_FIELDS`` would leave it unproven end-to-end.
+    ``UNSUPPORTED_CONTROL_FIELDS`` would leave it unproven end-to-end.
     """
     covered = {
         case.callspec.params["field"]
@@ -459,7 +459,7 @@ def test_every_retired_v1_control_is_covered_by_the_bypass_table(request) -> Non
         if case.originalname
         == "test_a_retired_v1_control_bypasses_instead_of_being_silently_ignored"
     }
-    assert covered == set(LEGACY_CONTROL_FIELDS)
+    assert covered == set(UNSUPPORTED_CONTROL_FIELDS)
 
 
 def test_an_unknown_control_field_bypasses(credential_blobs, cache_client) -> None:

@@ -2,8 +2,8 @@
 
 Helper seams live in sibling modules (OME-428 Phase 1 split):
 ``chat_credentials`` (profile/connection resolution, defaults, credential
-injection), ``chat_dispatch`` (backpressure, error mapping, request cache,
-streaming), ``chat_cache_stage`` (the global cache's route-facing stage) and
+injection), ``chat_dispatch`` (backpressure, error mapping, streaming),
+``chat_cache_stage`` (the global cache's route-facing stage) and
 ``chat_profile_defaults`` (the pre-credential defaults read, and rejection
 attribution). This module keeps only the router and the request orchestration.
 """
@@ -77,9 +77,8 @@ async def chat_completions(request: Request, response: Response, current: Curren
         raise HTTPException(status_code=400, detail=shape_error)
 
     # Popped immediately so the control object can never reach providers.
-    # OME-305: the v2 grammar replaces v1's. ``{"cache": {"use-cache": false}}`` opts
-    # out; absent, empty and an explicit opt-in all participate; v1's `ttl`,
-    # `s-maxage`, `no-cache` and `no-store` are retired and now bypass as
+    # ``{"cache": {"use-cache": false}}`` opts out; absent, empty and an explicit
+    # opt-in all participate. `ttl`, `s-maxage`, `no-cache` and `no-store` bypass as
     # `unsupported_control` rather than being silently honoured.
     cache_controls = parse_global_cache_controls(body)
     # The gateway owns upstream routing and credentials. Caller-supplied
@@ -202,10 +201,6 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # wrong-auth, malformed and duplicate-channel parameters fail closed with
     # HTTP-safe paths before any credential is read or any provider is dispatched.
     rules = tuple(plugin.chat_parameter_rules(model=model, auth_type=auth_mode))
-    # OME-305: the caller-visible parameter view was snapshotted HERE, because v1 took
-    # its cache decision after projection had already replaced ``body``. Stage 1 now
-    # runs before ANY of these passes, so the snapshot has no remaining reader — the
-    # view it preserved is simply the effective body Stage 1 saw.
     try:
         body = classify_and_project_chat_parameters(
             body,
@@ -262,20 +257,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
             },
         ) from None
 
-    # OME-305: the v1 per-account cache stage stood HERE — key built after
-    # preparation, scoped to (account, profile), controls read from the same `cache`
-    # field the v2 grammar now owns. It is retired, not relocated:
-    #   * a v1 key needs `profile_name`, so it could only ever run AFTER profile
-    #     resolution — which contradicts the inversion Stage 1 exists to perform;
-    #   * v2 keys are global and identity does not partition them, so the
-    #     account-partitioned behaviour v1 provided is the opposite of the contract;
-    #   * with v2 owning the `cache` field, v1's `no-cache`/`s-maxage` were
-    #     unreachable, leaving a dead branch guarding a live read.
-    # The v1 PERSISTENCE api (`RequestCacheStore.get`/`set`/`delete_expired`) is
-    # deliberately preserved and still tested — existing rows stay readable and
-    # unreachable by v2 lookup (plan §8 #17). Only the route path is gone.
-    #
-    # INVARIANT preserved from the retired stage (was stated at this line): provider
+    # INVARIANT: provider
     # reconstruction failures precede ALL cache planning. Stage 1 runs BEFORE
     # `prepare_chat_body`, so that ordering is now upheld inside the projection
     # instead: OpenRouter's `global_cache_projection` calls the same
@@ -312,7 +294,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # is a structural bypass in the eligibility layer — so the outcome is always a
         # bypass and no write can follow. The headers therefore come from the SAME
         # outcome the non-streaming path publishes rather than being hand-spelled;
-        # v1 hardcoded ``bypass`` here with an ``or "stream"`` fallback, which could
+        # The old dispatch-side cache hardcoded ``bypass`` here with an ``or "stream"`` fallback,
         # not distinguish "streaming" from "the operator disabled the cache".
         return StreamingResponse(
             _stream(plugin, body),

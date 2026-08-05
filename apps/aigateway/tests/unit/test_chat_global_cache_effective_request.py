@@ -47,7 +47,7 @@ from aigateway.core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
-from aigateway.core.request_cache import GlobalRequestCacheWrite
+from aigateway.core.request_cache import RequestCacheWrite
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 _CHAT_PATH = "/v1/chat/completions"
@@ -158,10 +158,10 @@ class _Store:
     def cache_available(self) -> bool:
         return True
 
-    async def get_global(self, key_hash: str) -> dict[str, Any] | None:
+    async def get(self, key_hash: str) -> dict[str, Any] | None:
         return self.rows.get(key_hash)
 
-    async def set_if_absent(self, entry: GlobalRequestCacheWrite) -> _WriteStatus:
+    async def set_if_absent(self, entry: RequestCacheWrite) -> _WriteStatus:
         if entry.key_hash in self.rows:
             return "race_lost"
         self.rows[entry.key_hash] = entry.response

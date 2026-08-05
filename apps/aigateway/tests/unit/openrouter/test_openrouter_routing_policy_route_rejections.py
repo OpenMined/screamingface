@@ -236,7 +236,7 @@ class _FillTripwire:
         self.probes += 1
         return True
 
-    async def get_global(self, key_hash: str):
+    async def get(self, key_hash: str):
         self.reads.append(key_hash)
         return None
 
@@ -249,9 +249,8 @@ def test_a_reconstruction_mismatch_refuses_without_credentials_dispatch_or_a_cac
 ) -> None:
     """SUPERSEDED (OME-305), was ``..._precedes_cache_credentials_dispatch_and_logs``.
 
-    The v1 ordering was ``prepare_chat_body`` THEN cache planning, so a reconstruction
-    503 provably meant planning never ran — which is what the two removed tripwires
-    (``caller_cache_bypass_paths``, ``_resolve_cache_plan``) asserted. OME-305 inverts
+    The old ordering was ``prepare_chat_body`` THEN cache planning, so a reconstruction
+    503 provably meant planning never ran. OME-305 inverts
     that ordering deliberately: the cache is consulted BEFORE preparation, because a
     hit must not require a credential. So "the 503 precedes cache planning" is not
     merely untrue now, it is the opposite of the deliverable.

@@ -5,11 +5,9 @@ overload retry, LiteLLM-exception → HTTP mapping, dispatch-failure credential
 marking, and SSE streaming. Split out of routes/chat.py (OME-428 Phase 1) behind
 characterization tests; behavior is unchanged.
 
-OME-305: request-cache planning and persistence NO LONGER live here. The v1 stage
-belonged on the dispatch side because its key was account- and profile-scoped, so it
-could only be built after credentials were resolved. The v2 cache is global and must
-be consulted BEFORE any identity exists, so the whole stage moved to
-``chat_cache_stage`` — which the route calls ahead of this module, not after it.
+OME-305: request-cache planning and persistence live in ``chat_cache_stage``. The
+global cache is consulted before provider credentials are resolved, so dispatch-side
+helpers cannot participate in its key or storage lifecycle.
 """
 
 from __future__ import annotations

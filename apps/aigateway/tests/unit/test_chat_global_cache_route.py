@@ -13,10 +13,9 @@ from fastapi.testclient import TestClient
 
 from aigateway.core.cache_ports import CACHE_UNAVAILABLE_REASON, PUBLISHED_CACHE_REASONS
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
-from aigateway.core.request_cache import CacheUnavailable, GlobalRequestCacheWrite
-from aigateway.core.request_cache.global_keys import BYPASS_CANONICALIZATION, KEY_VERSION_V2
+from aigateway.core.request_cache import CacheUnavailable, RequestCacheWrite
+from aigateway.core.request_cache.global_keys import BYPASS_CANONICALIZATION
 from aigateway.core.request_cache.models.request_cache_entry import RequestCacheEntry
-from aigateway.core.request_cache.store import GLOBAL_SENTINEL
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.chat_handler import prepare_claude_code_body
 
@@ -132,7 +131,7 @@ def cache_client(_cache_env, client: TestClient) -> TestClient:
 class _ContractStore:
     """An in-memory store that behaves exactly as the frozen contract specifies.
 
-    INVARIANT modelled: ``get_global`` returns ``None`` ONLY for a genuine miss and
+    INVARIANT modelled: ``get`` returns ``None`` ONLY for a genuine miss and
     raises ``CacheUnavailable`` for every failure mode; ``set_if_absent`` NEVER raises
     and reports one of three outcomes; first successful insert wins.
     """
@@ -153,14 +152,14 @@ class _ContractStore:
         self._availability_raises = availability_raises
         self.rows: dict[str, dict[str, Any]] = {}
         self.get_calls: list[str] = []
-        self.set_calls: list[GlobalRequestCacheWrite] = []
+        self.set_calls: list[RequestCacheWrite] = []
 
     def cache_available(self) -> bool:
         if self._availability_raises:
             raise RuntimeError("the availability probe itself failed")
         return self._available
 
-    async def get_global(self, key_hash: str) -> dict[str, Any] | None:
+    async def get(self, key_hash: str) -> dict[str, Any] | None:
         self.get_calls.append(key_hash)
         if not self._available:
             # Modelled from the real store: a closed gate RAISES rather than reporting
@@ -170,7 +169,7 @@ class _ContractStore:
             raise self._get_raises
         return self.rows.get(key_hash)
 
-    async def set_if_absent(self, entry: GlobalRequestCacheWrite) -> _WriteStatus:
+    async def set_if_absent(self, entry: RequestCacheWrite) -> _WriteStatus:
         self.set_calls.append(entry)
         if self._set_raises is not None:
             # The contract says this never raises; the route must survive it anyway.
@@ -616,16 +615,14 @@ def test_the_persisted_row_carries_no_prompt_but_stores_response_plaintext(
             "prompt_hash": row.prompt_hash,
             "provider": row.provider,
             "model": row.model,
-            "ciphertext": row.response_ciphertext,
-            "account_id": row.account_id,
-            "profile_name": row.profile_name,
+            "response_json": row.response_json,
         }
     )
     assert "UNIQUE-PROMPT-MARKER" not in blob
-    assert json.loads(row.response_ciphertext)["choices"][0]["message"]["content"] == (
+    assert json.loads(row.response_json)["choices"][0]["message"]["content"] == (
         "PLAINTEXT-ANSWER-42"
     )
-    assert row.response_ciphertext.lstrip().startswith("{")
+    assert row.response_json.lstrip().startswith("{")
     assert row.response_size_bytes > 0
 
 
@@ -644,21 +641,6 @@ def test_the_persisted_row_never_expires(credential_blobs, cache_client) -> None
         cache_client.post(_CHAT_PATH, json=_chat_body())
     (row,) = cache_client.portal.call(_all_rows)
     assert row.expires_at is None
-    assert row.key_version == KEY_VERSION_V2
-
-
-def test_the_persisted_row_carries_no_identity(credential_blobs, cache_client) -> None:
-    # INVARIANT: the account and profile columns are pinned to one sentinel, so the
-    # row cannot record WHO filled it. A global corpus that remembered its filler
-    # would leak which account ran which benchmark.
-    account_id = _arrange_account(cache_client, credential_blobs)
-    counter = _DispatchCounter()
-    with patch(_PATCH_TARGET, counter):
-        cache_client.post(_CHAT_PATH, json=_chat_body())
-    (row,) = cache_client.portal.call(_all_rows)
-    assert row.account_id == GLOBAL_SENTINEL
-    assert row.profile_name == GLOBAL_SENTINEL
-    assert account_id not in (row.account_id, row.profile_name)
 
 
 def test_a_bypassed_request_persists_nothing_at_all(credential_blobs, cache_client) -> None:

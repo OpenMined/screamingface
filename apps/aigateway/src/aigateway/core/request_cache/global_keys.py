@@ -1,10 +1,7 @@
-"""OME-305 global exact-request fingerprint (v2).
+"""OME-305 global exact-request fingerprint.
 
-FEATURE: one global exact-request cache shared by every hosted user. The v1 key
-(``.keys``) hashed only the prompt and scoped every row to one account and
-profile, so a real benchmark call carrying ``temperature`` or a routing control
-bypassed, and two accounts asking the identical question never shared an answer.
-This builder keys the COMPLETE effective output-affecting model call — prompt,
+FEATURE: one global exact-request cache shared by every hosted user. This builder
+keys the COMPLETE effective output-affecting model call — prompt,
 every parameter a provider rule declares ``keyed``, and the provider's own pure
 projection of what it will actually send — and nothing else.
 
@@ -28,11 +25,6 @@ projection that is absent, malformed or raising — returns a ``CacheBypass`` wi
 a reason from the closed ``BYPASS_*`` vocabulary. The cache is an optimization
 and must never become an availability dependency, so nothing here raises into the
 request path and nothing here performs I/O.
-
-AIDEV-NOTE: ``.keys`` (v1) is frozen legacy. Its rows stay readable but are
-unreachable by v2 lookup because ``schema`` is inside the hashed material, so the
-two key spaces are disjoint by construction rather than by a query filter. Do not
-merge the two modules and do not mix their ``CacheBypass`` types.
 
 AIDEV-NOTE: THIS module is the public surface. Which request facts participate
 lives in ``.global_eligibility`` and the caller's opt-out grammar lives in
@@ -86,7 +78,7 @@ __all__ = [
     "BYPASS_UNPROJECTED_NATIVE",
     "BYPASS_UNSUPPORTED_SHAPE",
     "EXCLUDED_TRANSPORT_FIELDS",
-    "KEY_VERSION_V2",
+    "KEY_REVISION",
     "OPERATION",
     "PARAMETER_CONTRACT_REVISION",
     "PRESENCE_BYPASS_REASONS",
@@ -98,16 +90,15 @@ __all__ = [
     "CanonicalizationError",
     "GlobalCacheKeyResult",
     "GlobalCacheProjection",
-    "GlobalChatCacheKeyV2",
+    "GlobalChatCacheKey",
     "build_global_cache_key",
     "build_global_cache_key_dto",
     "canonical_key_material",
 ]
 
-# INVARIANT: the schema string is INSIDE the hashed material, so a v2 key can
-# never collide with a v1 key and a future v3 needs no data migration — it simply
-# addresses a different key space.
-KEY_VERSION_V2: Final = "aigw-global-chat-cache-v2"
+# INVARIANT: the revision is INSIDE the hashed material. Changing fingerprint semantics abandons
+# old entries without coupling cache invalidation to a persisted database lane discriminator.
+KEY_REVISION: Final = "aigw-global-chat-cache-2026-08"
 OPERATION: Final = "chat.completions"
 # WHY a gateway-wide revision on top of each rule's own ``projection_revision``:
 # some output-affecting behaviour lives in the PIPELINE rather than in any single
@@ -129,7 +120,7 @@ class CanonicalizationError(ValueError):
 
 
 @dataclass(frozen=True)
-class GlobalChatCacheKeyV2:
+class GlobalChatCacheKey:
     """The closed set of facts a global key is computed from.
 
     INVARIANT: closed. Construction rejects an unknown member (there is no
@@ -166,7 +157,6 @@ class GlobalCacheKeyResult:
     """
 
     key_hash: str
-    key_version: str
     prompt_hash: str
     provider: str
     model: str
@@ -196,11 +186,11 @@ def _system_member(system: Any) -> dict[str, Any]:
     return {"present": True, "value": system}
 
 
-def _canonical_mapping(dto: GlobalChatCacheKeyV2) -> dict[str, Any]:
+def _canonical_mapping(dto: GlobalChatCacheKey) -> dict[str, Any]:
     # ``schema`` and ``operation`` are derived rather than stored so they cannot
     # drift from the constants this module publishes.
     return {
-        "schema": KEY_VERSION_V2,
+        "schema": KEY_REVISION,
         "operation": OPERATION,
         "provider": dto.provider,
         "requested_model": dto.requested_model,
@@ -244,7 +234,7 @@ def _require_json_safe(value: Any, *, depth: int) -> None:
     raise CanonicalizationError(f"key material holds an unsupported type: {type(value).__name__}")
 
 
-def canonical_key_material(dto: GlobalChatCacheKeyV2) -> str:
+def canonical_key_material(dto: GlobalChatCacheKey) -> str:
     """The exact byte string that is hashed.
 
     INVARIANT: in-memory only. Never logged, never persisted, never returned to a
@@ -255,15 +245,15 @@ def canonical_key_material(dto: GlobalChatCacheKeyV2) -> str:
     return _canonical_json(mapping)
 
 
-# WHY v2 writes the FULL-CALL digest into ``prompt_hash`` instead of a prompt-only
-# one: the column has no v2 read path at all, and a prompt-only unsalted SHA-256
+# WHY the cache writes the FULL-CALL digest into ``prompt_hash`` instead of a prompt-only
+# one: the column has no read path at all, and a prompt-only unsalted SHA-256
 # would be a confirmation ORACLE over the public benchmark prompt set — anyone with
 # database read access but no encryption key could hash a candidate prompt and learn
 # whether it had been asked, without decrypting a single response. Writing the
 # whole-call digest removes that at zero cost and keeps the column non-null, so no
 # schema change is needed.
 #
-# INVARIANT: this is the v2 ``key_hash`` value, not a second digest to keep in sync.
+# INVARIANT: this is the ``key_hash`` value, not a second digest to keep in sync.
 
 
 def build_global_cache_key_dto(
@@ -274,7 +264,7 @@ def build_global_cache_key_dto(
     projection: GlobalCacheProjection,
     provider_auth_modes: Iterable[str],
     parameter_contract_revision: str = PARAMETER_CONTRACT_REVISION,
-) -> GlobalChatCacheKeyV2 | CacheBypass:
+) -> GlobalChatCacheKey | CacheBypass:
     """Assemble the closed key DTO for a hardened caller request, or bypass.
 
     ``provider_auth_modes`` is provider metadata, never caller identity — see
@@ -292,7 +282,7 @@ def build_global_cache_key_dto(
     )
     if isinstance(facts, CacheBypass):
         return facts
-    return GlobalChatCacheKeyV2(
+    return GlobalChatCacheKey(
         provider=provider,
         requested_model=facts.requested_model,
         resolved_model=facts.resolved_model,
@@ -338,7 +328,6 @@ def build_global_cache_key(
         return CacheBypass(BYPASS_CANONICALIZATION)
     return GlobalCacheKeyResult(
         key_hash=key_hash,
-        key_version=KEY_VERSION_V2,
         prompt_hash=key_hash,
         provider=dto.provider,
         model=dto.requested_model,
