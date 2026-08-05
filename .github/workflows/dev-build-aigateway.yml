@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "apps/aigateway/**"
+      - ".github/workflows/dev-build-aigateway.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -50,5 +51,10 @@ jobs:
           tags: |
             ghcr.io/openmined/screamingface-aigateway:main-${{ steps.sha.outputs.short }}
             acropenmined.azurecr.io/screamingface-aigateway:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-aigateway:main-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=dev-aigateway
           cache-to: type=gha,scope=dev-aigateway,mode=max

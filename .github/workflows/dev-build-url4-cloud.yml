@@ -9,6 +9,7 @@ on:
     paths:
       - "apps/url4-cloud/**"
       - "packages/url4/**"
+      - ".github/workflows/dev-build-url4-cloud.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -51,5 +52,10 @@ jobs:
           tags: |
             ghcr.io/openmined/screamingface-url4-cloud:main-${{ steps.sha.outputs.short }}
             acropenmined.azurecr.io/screamingface-url4-cloud:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-url4-cloud:main-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=dev-url4-cloud
           cache-to: type=gha,scope=dev-url4-cloud,mode=max
