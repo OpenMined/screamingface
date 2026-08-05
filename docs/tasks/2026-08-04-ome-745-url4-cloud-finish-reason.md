@@ -1,12 +1,12 @@
 ---
 id: OME-745
 linear_url: https://linear.app/openmined/issue/OME-745/capture-finish-reason-and-the-provider-refusal-field-and-classify-a
-status: in_progress
+status: done
 type:
 priority: P2
 labels: [url4-cloud, autonomous, agentic]
 created: 2026-08-04
-closed:
+closed: 2026-08-05
 ---
 
 # OME-745 — capture finish_reason / refusal and classify a refused turn
