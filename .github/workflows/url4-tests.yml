@@ -43,6 +43,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
+      # longer matches pyproject.toml is invisible to every later step. Until this guard
+      # existed, url4's own drift only ever surfaced in the url4-cloud lane, which locks the
+      # same package — that is how the 1.0.0 and 1.1.0 release bumps each shipped a stale
+      # lock (f2b46c06, 9061f40f).
+      - name: Check the lockfile is current
+        run: uv lock --check
+
       - name: Install dependencies
         run: uv sync
 

@@ -35,6 +35,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
+      # longer matches pyproject.toml is invisible to every later step — including the
+      # version bump a release PR makes and never locks.
+      - name: Check the lockfile is current
+        run: uv lock --check
+
       - name: Install dependencies
         run: uv sync
 
