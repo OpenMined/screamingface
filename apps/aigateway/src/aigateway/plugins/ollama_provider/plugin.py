@@ -24,6 +24,7 @@ _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"
 
 class OllamaProviderPlugin(ProviderPluginBase):
     custom_llm_provider = "ollama"
+    provider_display_name = "Ollama"
 
     def register_models(self) -> list[ModelEntry]:
         host = resolve_ollama_host()

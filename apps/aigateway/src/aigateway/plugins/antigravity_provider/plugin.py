@@ -77,6 +77,7 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
 
 class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
     custom_llm_provider = "antigravity"
+    provider_display_name = "Antigravity"
     settings_cls = AntigravityPluginSettings
 
     def credential_service_provider(self) -> str:

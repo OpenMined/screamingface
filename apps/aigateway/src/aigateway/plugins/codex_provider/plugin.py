@@ -49,6 +49,7 @@ class CodexProviderPlugin(ProviderPluginBase):
     # api_key_not_supported for codex. Routing API-key profiles to the OpenAI
     # platform API instead is a possible follow-up.
     custom_llm_provider = "codex"
+    provider_display_name = "Codex"
 
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
