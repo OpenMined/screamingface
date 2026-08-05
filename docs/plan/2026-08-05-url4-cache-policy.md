@@ -57,15 +57,51 @@ Both are Python → the `sdlc-python` loop: RED first, append-only tests, gates 
 Without this, everything below is inert: `config.py:127-129` defaults `request_cache_enabled` to
 `False` and the chart never sets it, so every request answers `bypass / disabled`.
 
-- `apps/aigateway/charts/aigateway/values.yaml` — add `AIGW_REQUEST_CACHE_ENABLED=true` to the
-  env block, beside the existing `AIGW_ALLOWED_NETWORKS` / `AIGW_AUTH_MODE` / `AIGW_OPENROUTER_ENABLED`.
-- **Set the TTL/size knobs explicitly too** (spec open question 5) rather than inheriting code
-  defaults — `AIGW_REQUEST_CACHE_TTL_SECONDS`, `…_MAX_TTL_SECONDS`, `…_MAX_RESPONSE_BYTES`.
-  Implicit defaults mean a future code change silently moves production behaviour.
-- `values-prod.yaml` — decide whether prod differs from the default values file.
+The chart's pattern is `values.yaml → config.<camelCase>` rendered into `templates/configmap.yaml`
+as `AIGW_*` (e.g. `AIGW_ALLOWED_NETWORKS: {{ join "," .Values.config.allowedNetworks | quote }}`).
+Follow it — do **not** introduce a raw env passthrough.
 
-**Tests:** the chart gate (`charts.yml` → `verify_chart_wiring.py`) renders and asserts on parsed
-YAML. Add an assertion that the env key is present and `"true"`.
+- `values.yaml`, new block under `config:`:
+
+  ```yaml
+  config:
+    # Response cache for deterministic chat completions. OFF in the app's own default
+    # (config.py:127) — url4 runs cache by default, so this must be on for that to mean
+    # anything. Values are pinned rather than inherited: an implicit default is a number
+    # that can move under you in a patch release.
+    requestCache:
+      enabled: true
+      ttlSeconds: 600         # per-entry freshness
+      maxTtlSeconds: 3600     # ceiling a caller's `ttl`/`s-maxage` may request
+      maxResponseBytes: 1000000
+  ```
+
+- `templates/configmap.yaml`, four new lines following the existing style:
+
+  ```yaml
+  AIGW_REQUEST_CACHE_ENABLED: {{ .Values.config.requestCache.enabled | quote }}
+  AIGW_REQUEST_CACHE_TTL_SECONDS: {{ .Values.config.requestCache.ttlSeconds | quote }}
+  AIGW_REQUEST_CACHE_MAX_TTL_SECONDS: {{ .Values.config.requestCache.maxTtlSeconds | quote }}
+  AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES: {{ .Values.config.requestCache.maxResponseBytes | quote }}
+  ```
+
+- `values-prod.yaml` — decide whether prod differs. Recommend it does **not** initially: one set
+  of numbers to reason about while hit rates are unknown.
+
+**The pinned values equal today's code defaults** (`config.py:130-138`). Pinning is not
+endorsement — it freezes behaviour so a future code-default change cannot move production
+silently, and it makes the numbers a visible dial to tune once §7 metrics show real hit rates.
+
+**Tests** — the chart gate (`charts.yml` → `verify_chart_wiring.py`) renders and asserts on parsed
+YAML:
+1. All four `AIGW_REQUEST_CACHE_*` keys are present in the rendered ConfigMap.
+2. `AIGW_REQUEST_CACHE_ENABLED` renders `"true"`.
+3. `ttlSeconds <= maxTtlSeconds` — the app has a matching validator
+   (`config.py:237-240`, `_validate_request_cache_ttls`) that **fails startup**, so a bad chart
+   value would take the gateway down rather than degrade. Catching it at render is the cheaper
+   failure.
+4. Values render **quoted** — the app reads env as strings; an unquoted `600` is a YAML int and
+   the ConfigMap would reject it.
 
 **Safe in isolation.** Turning the flag on changes nothing until a caller sends `use-cache`, which
 is Batch 6. That is what makes the ordering in Risks 1 a choice rather than a hazard.

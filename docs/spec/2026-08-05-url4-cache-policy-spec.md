@@ -2,7 +2,7 @@
 title: url4 per-run cache policy — technical specification
 status: PROPOSED — awaiting owner decisions D3, D4, D6 (§3). No code written.
 created: 2026-08-05
-revised: 2026-08-05 (r3 — D1 LOCKED to cache-ON-by-default; aigateway chart now in scope)
+revised: 2026-08-05 (r4 — TTL/size knobs pinned explicitly in the chart)
 author: Claude (Opus 5) + Sergey
 ticket: UNFILED — Linear MCP unauthenticated at authoring time (see the ledger)
 related:
@@ -21,6 +21,7 @@ related:
 |---|---|---|
 | r1 | 2026-08-05 | First draft — located the change in url4-cloud's REST layer. |
 | r2 | 2026-08-05 | **Superseded r1's location.** Owner: protocol belongs in `packages/url4`; both HTTP header *and* protocol frame are carriers. Adds §3 D3/D4 and §5.2. |
+| r4 | 2026-08-05 | Owner: **TTL/size knobs pinned explicitly** in the chart rather than inherited (§10). Closes the last non-D question. |
 | r3 | 2026-08-05 | **D1 LOCKED: caching is ON by default; only disabling is explicit.** That makes the aigateway **chart** part of the deliverable (D8 reversed) and makes this cross-app — see §2.1. Ensemble-determinism tradeoff (§8.2) accepted by the owner on the record. |
 
 **Nothing here is implemented.** Per CLAUDE.md rule 3, implementation starts only on explicit
@@ -111,7 +112,7 @@ one sub-issue per landing**, never one ticket:
 |---|---|---|
 | 1 | `pkg` → url4 | protocol types (§4) |
 | 2 | `app` → url4-cloud | both carriers, threading, egress, read-back (§5-§7) |
-| 3 | `app` → aigateway | chart sets `AIGW_REQUEST_CACHE_ENABLED`; TTL/size knobs reviewed |
+| 3 | `app` → aigateway | chart sets `AIGW_REQUEST_CACHE_ENABLED` **plus the three TTL/size knobs, pinned** (r4) |
 
 Sub-issue 3 has a different CODEOWNERS reviewer and can land **first and independently** — it is
 a no-op until sub-issue 2 sends `use-cache`.
@@ -388,11 +389,10 @@ credential.**
 3. **D6** — standard `Cache-Control` with intermediary participation, or private `URL4-Cache`?
 4. Are the three empty `apps/url4-cloud/src/url4_*` directories a stale artifact to delete, or an
    intended package split to file as its own epic?
-5. **TTL and size defaults**, now that the chart is in scope: the code defaults are
-   `AIGW_REQUEST_CACHE_TTL_SECONDS=600`, `…_MAX_TTL_SECONDS=3600`,
-   `…_MAX_RESPONSE_BYTES=1_000_000` (`config.py:130-138`). Accept, or set explicitly in the chart
-   alongside the enable flag? Leaving them implicit means a future code-default change silently
-   moves production behaviour.
-
 **Resolved in r3:** D1 (ON) · D8 (chart in scope) · §8.2 tradeoff (accepted) · the
-`request_cache_enabled` question (it is **off**, and turning it on is now sub-issue 3).
+`request_cache_enabled` question (it is **off**, and turning it on is now sub-issue 3) ·
+**TTL/size knobs pinned explicitly in the chart** (owner) — `ttlSeconds: 600`,
+`maxTtlSeconds: 3600`, `maxResponseBytes: 1000000`, equal to today's code defaults
+(`config.py:130-138`) but frozen so a patch release cannot move production behaviour. Rendered
+via `config.requestCache.*` following the chart's existing `values → configmap` pattern; see
+plan Batch 0.
