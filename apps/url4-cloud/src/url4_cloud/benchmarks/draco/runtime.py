@@ -13,6 +13,15 @@ from url4_cloud.benchmarks.draco.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
     CASES_ROUTE,
+    JUDGE_PASSES,
+    REVISION,
+    SMOKE_AGGREGATE_ROUTE,
+    SMOKE_BENCHMARK_ID,
+    SMOKE_CASES_ROUTE,
+    SMOKE_JUDGE_PASSES,
+    SMOKE_REVISION,
+    SMOKE_TASKS_ROUTE,
+    SMOKE_VERDICT_ROUTE,
     TASKS_ROUTE,
     VERDICT_ROUTE,
 )
@@ -26,15 +35,65 @@ def install(node: Url4Node, root: Path) -> None:
     requiring DRACO's private image assets until an expression actually selects DRACO.
     """
 
-    node.data(CASES_ROUTE, _cases(root), media_type="application/json")
-    node.endpoint(TASKS_ROUTE)(_task_rows(root))
-    node.endpoint(VERDICT_ROUTE)(_criterion_verdict)
-    node.endpoint(AGGREGATE_ROUTE)(_aggregate(root))
+    _install_protocol(
+        node,
+        root,
+        cases_route=CASES_ROUTE,
+        tasks_route=TASKS_ROUTE,
+        verdict_route=VERDICT_ROUTE,
+        aggregate_route=AGGREGATE_ROUTE,
+        benchmark_id=BENCHMARK_ID,
+        benchmark_revision=REVISION,
+        judge_passes=JUDGE_PASSES,
+        case_ids=None,
+    )
+    _install_protocol(
+        node,
+        root,
+        cases_route=SMOKE_CASES_ROUTE,
+        tasks_route=SMOKE_TASKS_ROUTE,
+        verdict_route=SMOKE_VERDICT_ROUTE,
+        aggregate_route=SMOKE_AGGREGATE_ROUTE,
+        benchmark_id=SMOKE_BENCHMARK_ID,
+        benchmark_revision=SMOKE_REVISION,
+        judge_passes=SMOKE_JUDGE_PASSES,
+        case_ids=(1,),
+    )
 
 
-def _cases(root: Path):
+def _install_protocol(
+    node: Url4Node,
+    root: Path,
+    *,
+    cases_route: str,
+    tasks_route: str,
+    verdict_route: str,
+    aggregate_route: str,
+    benchmark_id: str,
+    benchmark_revision: str,
+    judge_passes: int,
+    case_ids: tuple[int, ...] | None,
+) -> None:
+    """Register one DRACO multiplicity profile over the shared pinned assets."""
+
+    node.data(cases_route, _cases(root, case_ids), media_type="application/json")
+    node.endpoint(tasks_route)(_task_rows(root))
+    node.endpoint(verdict_route)(_criterion_verdict)
+    node.endpoint(aggregate_route)(_aggregate(root, benchmark_id, benchmark_revision, judge_passes))
+
+
+def _cases(root: Path, case_ids: tuple[int, ...] | None):
     def cases() -> str:
-        return _read(root / "cases.json", "DRACO cases")
+        raw = _read(root / "cases.json", "DRACO cases")
+        if case_ids is None:
+            return raw
+        try:
+            rows = json.loads(raw)
+            by_id = {row["id"]: row for row in rows}
+            selected = [by_id[case_id] for case_id in case_ids]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise _unavailable(f"could not select DRACO cases {case_ids}: {exc}") from exc
+        return json.dumps(selected, ensure_ascii=False, separators=(",", ":"))
 
     return cases
 
@@ -65,7 +124,7 @@ def _criterion_verdict(request: Request) -> str:
     return json.dumps(record, ensure_ascii=False, separators=(",", ":"))
 
 
-def _aggregate(root: Path):
+def _aggregate(root: Path, benchmark_id: str, benchmark_revision: str, judge_passes: int):
     def aggregate(request: Request) -> str:
         if request.intent != "aggregate":
             raise ResolutionError(
@@ -77,7 +136,9 @@ def _aggregate(root: Path):
             result = scoring.aggregate(
                 request.context,
                 scoring.load_rubrics(root / "rubrics"),
-                BENCHMARK_ID,
+                benchmark_id,
+                judge_passes=judge_passes,
+                benchmark_revision=benchmark_revision,
             )
         except (OSError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc

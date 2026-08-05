@@ -175,6 +175,7 @@ def aggregate(
     rubrics: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
     judge_passes: int = JUDGE_PASSES,
+    benchmark_revision: str = REVISION,
 ) -> dict[str, Any]:
     """Reduce the row array into a `CandidateResult` — one row per case.
 
@@ -207,7 +208,7 @@ def aggregate(
     return {
         "schema": CANDIDATE_RESULT_SCHEMA,
         "benchmark_id": benchmark_id,
-        "benchmark_revision": REVISION,
+        "benchmark_revision": benchmark_revision,
         "case_count": len(case_results),
         "score": _mean(case_results, "normalized_score"),
         "metrics": {

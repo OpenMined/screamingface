@@ -104,6 +104,7 @@ async def list_benchmark_cases(
         # Slash-qualified Variants share the canonical Benchmark's prepared Cases. The public id
         # already carries that relationship, so no separate Family/group field is needed.
         rows = _case_rows(benchmark.id.partition("/")[0])
+        rows = _select_case_rows(rows, benchmark.case_ids, benchmark.id)
     except _CasesUnavailableError as exc:
         # WHY: a control plane deployed without the assets must fail loudly with the
         # node-route error code — an empty list would read as "benchmark has no cases".
@@ -177,6 +178,22 @@ def _case_rows(benchmark_id: str) -> list[dict[str, object]]:
             )
         rows.append({"id": row["id"], "input": row["input"]})
     return rows
+
+
+def _select_case_rows(
+    rows: list[dict[str, object]],
+    case_ids: tuple[int, ...] | None,
+    benchmark_id: str,
+) -> list[dict[str, object]]:
+    if case_ids is None:
+        return rows
+    by_id = {row["id"]: row for row in rows}
+    try:
+        return [by_id[case_id] for case_id in case_ids]
+    except KeyError as exc:
+        raise _CasesUnavailableError(
+            f"prepared cases for {benchmark_id!r} lack pinned case {exc.args[0]!r}"
+        ) from exc
 
 
 def _problem(status: int, title: str, detail: str, *, code: str | None = None) -> JSONResponse:

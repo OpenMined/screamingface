@@ -23,12 +23,18 @@ The Engine is currently hosted and deployed from `apps/url4-cloud`; that package
 not make Candidate Invocation generic URL4 Cloud infrastructure. `packages/url4` remains unaware
 of ScreamingFace, Benchmarks, Candidates, Models, Fusions, and Judges.
 
+The Engine also owns deliberately reduced smoke protocols. A smoke protocol exercises the same
+Candidate Invocation, retrieval, Grading, Aggregation, failure, and result seams as its canonical
+counterpart while reducing multiplicity. Its distinct id, revision, title, and description must
+make clear that its score is diagnostic and never comparable to the canonical Benchmark.
+
 ## Public Benchmark resource
 
 Every independently executable protocol is returned as one flat
 `screamingface.benchmark.v1` resource. The initial ids are:
 
 - `draco`
+- `draco/smoke`
 - `ifeval`
 - `ifeval/self-corrective`
 - `ifeval/verifying-ensemble`
@@ -36,6 +42,12 @@ Every independently executable protocol is returned as one flat
 The bare `ifeval` id is the canonical default protocol. Alternative protocols have their own
 ids, revisions, URL4, costs, and scores. They may share assets and implementation, but there is
 no public Benchmark Family resource and no compatibility response containing nested Variants.
+
+`draco` is the canonical 100-Case protocol: every selected Case, every criterion, and five
+independent Judge passes. `draco/smoke` is a non-comparable structural probe pinned to one Case,
+one criterion, and one Judge pass. Both definitions are built from the same DRACO protocol
+constructor so the smoke path cannot acquire a second Candidate, retrieval, verdict, or reducer
+implementation. Reducing multiplicity is its only behavioral difference.
 
 Each resource has this shape:
 
@@ -246,4 +258,6 @@ rules.
 - Variant-specific shape validation occurs exactly once and before Case evaluation or a paid
   Model call; every later member invocation uses the validated array.
 - DRACO and IFEval empty/all-error paths fail loudly and preserve structured diagnostics.
+- `draco/smoke` exercises the canonical DRACO execution seams with one pinned Case, one criterion,
+  and one Judge pass, and is never described as a canonical or publishable DRACO score.
 - URL4 Cloud's complete gate and focused cross-package Evaluation tests pass.

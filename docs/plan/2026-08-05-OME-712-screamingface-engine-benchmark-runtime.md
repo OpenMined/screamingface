@@ -88,6 +88,16 @@ Tests observe those interfaces rather than private helper call graphs.
 - [x] Run focused tests after each vertical slice, then the complete URL4 Cloud gate.
 - [ ] Prepare reviewer packets and proposed Linear/PR/group-chat notes without publishing them.
 
+## Phase 6 — Safe DRACO notebook protocol
+
+- [x] Add a new contract test for `draco/smoke` before production code.
+- [x] Build canonical and smoke DRACO from one constructor; smoke reduces only Case count,
+      criterion count, and Judge-pass count.
+- [x] Give smoke its own flat id, revision, private routes, and Candidate result identity.
+- [x] Prove canonical DRACO remains 100 Cases, all criteria, and five Judge passes.
+- [ ] Keep notebook execution disabled by default; the SDK chooses a Benchmark id and never
+      rewrites DRACO protocol multiplicity itself.
+
 ## Explicit process deviations
 
 - OME-712 remains one cross-cutting issue by owner direction; cleanup sub-issues are not created.

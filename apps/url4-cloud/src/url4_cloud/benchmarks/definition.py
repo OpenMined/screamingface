@@ -38,6 +38,17 @@ class Benchmark:
     case_count: int
     build: Callable[[int], Node]
     install: BenchmarkInstaller
+    case_ids: tuple[int, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.case_ids is None:
+            return
+        if len(self.case_ids) != self.case_count:
+            raise ValueError("Benchmark case_ids must match case_count")
+        if any(isinstance(case_id, bool) or case_id < 1 for case_id in self.case_ids):
+            raise ValueError("Benchmark case_ids must be positive integers")
+        if len(set(self.case_ids)) != len(self.case_ids):
+            raise ValueError("Benchmark case_ids must be unique")
 
     def resource(self, limit: int | None) -> dict[str, object]:
         """Build this Benchmark's flat executable public resource."""
