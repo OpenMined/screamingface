@@ -311,6 +311,34 @@ check(
     "the dev lane publishes only immutable main-<sha> tags — never :latest",
 )
 
+# url4-cloud derives its Runner image repository as `<app repository>-benchmark`. The dev
+# control-plane image is published to ACR for the cluster, so the paired Benchmark image must be
+# published there under both immutable tags too; a GHCR-only Runner leaves the derived ACR image
+# permanently ImagePullBackOff even though the App deploys successfully.
+url4_dev_lane = yaml.safe_load(
+    (REPO / ".github/workflows/dev-build-url4-cloud.yml").read_text()
+)
+benchmark_steps = url4_dev_lane["jobs"]["benchmark-image"]["steps"]
+benchmark_tags = {
+    tag.strip()
+    for tag in benchmark_steps[-1]["with"]["tags"].split("\n")
+    if tag.strip()
+}
+acr_benchmark = "acropenmined.azurecr.io/screamingface-url4-cloud-benchmark"
+check(
+    {
+        f"{acr_benchmark}:main-${{{{ needs.image.outputs.short }}}}",
+        f"{acr_benchmark}:main-${{{{ github.sha }}}}",
+    }
+    <= benchmark_tags,
+    "the url4-cloud dev lane publishes the derived Benchmark image to ACR under both immutable tags",
+)
+check(
+    any(str(step.get("uses", "")).startswith("azure/login@") for step in benchmark_steps)
+    and any("az acr login --name acropenmined" in str(step.get("run", "")) for step in benchmark_steps),
+    "the url4-cloud Benchmark job authenticates to the ACR receiving its image",
+)
+
 # A shared GHA cache scope between images with disjoint layer sets (uv/Python vs node/Next.js) is
 # not incorrect, but it is pure eviction pressure with no hits. Cheap to assert, easy to get wrong
 # by copying a sibling lane.
