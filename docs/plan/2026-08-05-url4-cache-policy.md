@@ -1,8 +1,8 @@
 ---
 title: url4 per-run cache policy — implementation plan
-status: proposed — awaiting owner approval AND resolution of spec D3/D4/D6
-revised: 2026-08-05 (r3 — rebased on aigateway v2 / PR #507; Batch 0 DELETED; mapper collapses to one field)
+status: proposed — awaiting owner approval AND spec decisions D3, D4, D6, D11
 created: 2026-08-05
+revised: 2026-08-05 (r4 — rewritten clean against aigateway v2 / PR #507)
 ticket: UNFILED — Linear MCP unauthenticated at authoring time
 spec: docs/spec/2026-08-05-url4-cache-policy-spec.md
 ledger: docs/work/2026-08-05-UNFILED-url4-cloud-cache-policy-spec.md
@@ -10,124 +10,149 @@ ledger: docs/work/2026-08-05-UNFILED-url4-cloud-cache-policy-spec.md
 
 # Implementation plan — url4 per-run cache policy
 
-## 0. What this plan assumes
+> **r4 is a clean rewrite.** r1–r3 accumulated patches as the design moved (url4-cloud REST →
+> `packages/url4` protocol; cache OFF → ON; aigateway chart in scope → deleted). Those turns live
+> in the spec's revision table and the ledger; this document describes only the work as it now
+> stands.
 
-The spec leaves **three decisions open** (D1 is now locked). This plan is written against the spec's
-recommendations so it is reviewable as a whole; §9 states exactly what changes if you flip
-each one. **The plumbing is ~90% identical under every combination** — only the marked steps move.
+## 1. What this builds
 
-| decision | assumed here | if flipped |
+A caller can declare that one url4 run must **not** participate in aigateway's global response
+cache. Caching is otherwise **on**, because aigateway v2 makes it on.
+
+Two carriers, one meaning:
+
+```
+Cache-Control: no-store              (HTTP, on GET /)
+{"cache": {"participate": false}}    (WS attach frame)
+```
+
+## 2. The upstream this depends on
+
+**aigateway PR #507 (`OME-305`) — WIP, assumed landing.** It replaces the v1 per-account cache
+with one **global, never-expiring, ON-by-default** cache whose control grammar is **closed to a
+single field, `use-cache`**.
+
+Three consequences that shape every batch below:
+
+1. **url4 may send only `use-cache`.** Under v2 an unrecognised control key does not degrade to
+   "ignored" — it makes the request **bypass** (`global_controls.py`), even alongside a valid
+   `use-cache: true`. A well-meant `no-store` or `ttl` would silently cost every cache hit.
+2. **Absent, `null` and `{}` all mean participate.** So the default run sends **no `cache` field
+   at all** — the smallest body, and the least exposed to the closed-grammar bypass.
+3. **No aigateway work.** #507 ships its own chart (`requestCache.enabled` — `false` in
+   `values.yaml`, `true` in `values-prod.yaml`). url4 depends on it landing; it does not touch it.
+
+**This work is unobservable until #507 lands.** A green url4 suite is not evidence the cache works
+end to end — see Verification step 3.
+
+## 3. Decisions
+
+**Locked:** cache ON by default · protocol types in `packages/url4` · both carriers · per-run
+scope · response headers folded onto spans · no aigateway change.
+
+**Open — the plan assumes the spec's recommendation for each; §9 states what moves if you flip
+one.** The plumbing is ~90% invariant across all four.
+
+| | decision | assumed |
 |---|---|---|
-| ~~**D1** default~~ | **LOCKED ON** (owner) — caching active, only disabling explicit | n/a — decided |
-| **D3** frame shape | **extend `AttachData`** | §9.2 — Batch 1 and 4 grow a union member |
-| **D4** precedence | **header wins, override logged** | §9.3 — one function in Batch 5 |
-| **D6** header name | **`Cache-Control`** | §9.4 — one constant + parser |
+| **D3** | frame shape | extend `AttachData` |
+| **D4** | precedence when both carriers speak | header wins, override logged |
+| **D6** | header name | standard `Cache-Control` |
+| **D11** | `max-age` under a never-expiring cache | treat as opt-out |
 
 Implementation starts only on explicit approval in plain words (CLAUDE.md rule 3).
 
-## 0.1 Correction to spec §4.1 — surfaced while planning
+## 4. One architectural note
 
-The spec put `as_body_field()` — the `{"cache": {...}}` mapping to aigateway's vocabulary — on the
-protocol `CachePolicy` in `packages/url4`.
+The spec's protocol type carries **intent only** — `participate: bool | None`. The translation to
+aigateway's wire vocabulary (`{"cache": {"use-cache": false}}`) lives in `apps/url4-cloud`.
 
-**That is wrong and this plan does not do it.** `packages/url4` is the protocol and engine; it must
-not know aigateway's request-body shape. CLAUDE.md's architecture rule is explicit — core defines
-ports, adapters implement them, core never imports the adapter's concerns. `apps/url4-cloud` owns
-the aigateway client (`runner/connector.py`) and is where the translation belongs.
+`packages/url4` is the protocol and engine and must not know an adapter's request-body shape;
+CLAUDE.md's architecture rule is explicit. The two vocabularies are nearly identical, which is
+convenient and must not become a coupling — a change to aigateway's body shape must never edit a
+file that ships to SDK users.
 
-So: **the protocol carries *intent*; url4-cloud translates intent → aigateway's body vocabulary.**
-The two happen to use near-identical field names, which is convenient but must not become a
-coupling. **Landed in spec r3** — §4.1 now defines intent only.
+## 5. Stacks & gates
 
-## Stacks & gates
-
-| stack | root | gate command | note |
+| stack | root | gate | note |
 |---|---|---|---|
-| `url4` | `packages/url4` | `uv run .claude/scripts/run_gates.py url4` | **`--cov-fail-under=95`** — new code needs near-total coverage |
-| `url4-cloud` | `apps/url4-cloud` | `uv run .claude/scripts/run_gates.py url4-cloud` | includes `check_layering.py` |
+| `url4` | `packages/url4` | `run_gates.py url4` | **`--cov-fail-under=95`** |
+| `url4-cloud` | `apps/url4-cloud` | `run_gates.py url4-cloud` | includes `check_layering.py` |
 
-Both are Python → the `sdlc-python` loop: RED first, append-only tests, gates before commit.
-
----
-
-## Batch 0 — ~~enable the cache server-side~~ **DELETED (r3)**
-
-**PR #507 does this itself.** It ships `config.requestCache.enabled` in `values.yaml` (false) and
-`values-prod.yaml` (**true**), with the data-sharing consequences documented at the decision
-point. There is no aigateway work for url4 to do, and the r2 chart batch — including r4's TTL
-pinning — is void: **v2 rows never expire**, so those knobs belong to the v1 lane.
-
-**What replaces it is a dependency, not a batch:** #507 must land before Batch 6 has any
-observable effect. Until then url4 sends the field and every request answers `bypass / disabled`,
-which is safe but proves nothing.
+Both Python → the `sdlc-python` loop: RED first, append-only tests, gates before commit.
 
 ---
 
-## Batch 1 — protocol types (`packages/url4`, no behaviour)
+## Batch 1 — protocol types (`packages/url4`)
 
-**RED first.** Schema tests only; nothing consumes these yet.
+No behaviour; schema only.
 
 - `protocol/signals.py`
-  - `class CachePolicy(BaseModel)` — **exactly one field**, `participate: bool | None = None`
-    (tri-state, spec §4.1). **No `no_cache`, `no_store` or `s_maxage`** — v2 retired them and
-    *bypasses* on them (§1.0). **No `as_body_field()`** (see §0.1).
+  - `class CachePolicy(BaseModel)` — **exactly one field**, `participate: bool | None = None`,
+    with `model_config = ConfigDict(extra="forbid")`.
   - `AttachData` gains `cache: CachePolicy | None = None`.
   - `SpanData` gains `cache_status: Literal["hit","miss","bypass"] | None` and
     `cache_reason: str | None`.
-- `protocol/__init__.py` — export `CachePolicy`; extend `__all__`.
+- `protocol/__init__.py` — export `CachePolicy`, extend `__all__`.
 
 **Tests**
-1. An attach frame **without** `cache` still validates — backward compatibility is the whole
-   risk of touching a wire type.
-2. `cache: null` and an absent key both parse to `None`, and `None` is distinguishable from
-   `CachePolicy()`. **Load-bearing twice over:** for D4 precedence ("did not declare" ≠ "declared
-   off"), and for D1=ON — with a plain `bool = False`, `cache: {}` would silently disable caching
-   for a caller who meant to express no opinion (spec §4.1).
-2a. `CachePolicy()` (all-unstated) and `CachePolicy(use_cache=None)` are equivalent, and neither
-   equals `CachePolicy(use_cache=False)`.
+
+1. An attach frame **without** `cache` still validates — backward compatibility is the whole risk
+   of touching a live wire type. Treat a failure here as stop-the-line.
+2. Absent, `null` and `{}` all parse such that "not stated" is distinguishable from an explicit
+   `participate=False`. Collapsing them makes opt-out unexpressible and breaks D4.
 3. Round-trip through `InboundFrameAdapter` preserves the policy.
-4. **`CachePolicy` rejects unknown fields** (`model_config = ConfigDict(extra="forbid")`). A
-   caller who invents `no_store` must fail at the url4 edge with a clear error, rather than have
-   it forwarded and silently cost every cache hit downstream.
+4. **Unknown fields are rejected** (`extra="forbid"`). A caller inventing `no_store` fails loudly
+   at the url4 edge instead of having it forwarded to a grammar that bypasses on it.
 5. `SpanData` without cache fields still validates.
 
 **Gate:** `run_gates.py url4` green at ≥95% coverage.
 
 ---
 
-## Batch 2 — the aigateway mapping (`apps/url4-cloud`, pure function)
+## Batch 2 — the aigateway mapping (`apps/url4-cloud`)
 
 - `url4_cloud/runner/cache.py` (new) — `policy_to_body_field(policy: CachePolicy) -> dict`.
 
-**Takes a RESOLVED policy, never `None`.** The D1 default is applied once at convergence
-(Batch 5), so this stays a dumb translation and the policy decision lives in one place.
+Takes a **resolved** policy, never `None`: the default is applied once at convergence (Batch 5),
+so this stays a dumb translation and the policy decision lives in exactly one place.
 
 **Tests**
-1. `participate=True` → **`{}`** — the field is *omitted*, not sent as `{"use-cache": true}`.
-   v2 treats absent, `null` and `{}` identically as participate, and the smallest body is the
-   least likely to trip the closed-grammar bypass.
+
+1. `participate=True` → **`{}`**. The field is *omitted*, not sent as `{"use-cache": true}`.
 2. `participate=False` → `{"cache": {"use-cache": false}}`.
-3. **The output `cache` object never has more than the one `use-cache` key.** Property-style:
-   whatever the input, `set(out.get("cache", {})) <= {"use-cache"}`. This is the guard that keeps
-   a future field addition from silently disabling caching for every run.
+3. **Property: `set(out.get("cache", {})) <= {"use-cache"}` for every input.** The single most
+   important guard in this plan — any extra key silently costs every cache hit, with no error
+   anywhere.
 
 **Gate:** `run_gates.py url4-cloud`, including `check_layering.py` — this module must not be
-imported by anything in `packages/url4`.
+importable from `packages/url4`.
 
 ---
 
 ## Batch 3 — HTTP ingress (`apps/url4-cloud`)
 
-- `url4_cloud/rest/cache_header.py` (new) — `parse_cache_control(raw: str|None) -> CachePolicy|None`.
-- `rest/routes.py:337` — new `Annotated[str|None, Header(alias="Cache-Control")]` param on
+- `url4_cloud/rest/cache_header.py` (new) —
+  `parse_cache_control(raw: str | None) -> CachePolicy | None`.
+- `rest/routes.py:337` — new `Annotated[str | None, Header(alias="Cache-Control")]` on
   `start_run`, mirroring `x_profile` at `:347`.
 
+Every directive collapses to participate / opt-out **at this edge**; none is forwarded verbatim.
+
+| directive | → |
+|---|---|
+| absent | `None` — not stated |
+| `no-store`, `no-cache` | `participate=False` |
+| `max-age=<n>` | `participate=False` (D11) |
+| `url4-use-cache` | `participate=True` |
+
 **Tests**
-1. `no-store` / `no-cache` / `max-age=60` / `url4-use-cache` each parse correctly.
-2. Multiple directives in one header combine.
-3. Absent header → `None` (not a default-constructed policy).
-4. **Garbage is ignored, never 4xx** — matches `parse_cache_controls`' documented posture that
-   malformed values parse as "not requested". A cache directive must never fail a run.
+
+1. Each row above.
+2. Multiple directives in one header combine; conflicting ones resolve to opt-out (the safe side).
+3. Absent header → `None`, not a default-constructed policy.
+4. **Garbage is ignored, never 4xx.** A cache directive must never fail a run.
 5. Unknown directives are dropped without affecting known ones.
 
 ---
@@ -135,30 +160,28 @@ imported by anything in `packages/url4`.
 ## Batch 4 — WS ingress (`apps/url4-cloud`)
 
 - `ws/bridge.py` — carry `AttachData.cache` into per-topic session state on attach.
-- **First attach wins.** A re-attach with a *different* policy does not restate it; emits a
+- **First attach wins.** A re-attach with a different policy does not restate it; emits a
   `LogEvent` at `warn`.
 
 **Tests**
+
 1. Attach carrying a policy records it for the topic.
 2. Attach without a policy records `None`.
-3. Re-attach with a different policy leaves the recorded policy unchanged **and** logs.
-4. Re-attach with an identical policy logs nothing (no warning noise on ordinary reconnect).
-5. A run started before any attach is impossible — assert `_require_subscriber`
-   (`rest/routes.py:363`) still guards it, so the ordering the design relies on is tested, not
-   assumed.
+3. Re-attach with a *different* policy leaves the recorded policy unchanged **and** logs.
+4. Re-attach with an *identical* policy logs nothing — no warning noise on ordinary reconnect.
+5. `_require_subscriber` (`rest/routes.py:363`) still guards run start, so the attach-before-run
+   ordering this design relies on is tested rather than assumed.
 
 ---
 
-## Batch 5 — convergence & precedence (D4)
+## Batch 5 — convergence & precedence
 
 - `rest/routes.py` — resolve `(header_policy, frame_policy)` → effective policy; pass to
-  `_schedule` as one new kwarg beside `profile`/`identity`.
-
-**Tests** — the full matrix:
+  `_schedule` as one new kwarg beside `profile` / `identity`.
 
 | header | frame | effective | log |
 |---|---|---|---|
-| absent | absent | **`CachePolicy(use_cache=True)`** — the D1=ON default, applied here and nowhere else | — |
+| absent | absent | `participate=True` — the default, applied **here and nowhere else** | — |
 | set | absent | header | — |
 | absent | set | frame | — |
 | set | set, same | header | — |
@@ -168,102 +191,95 @@ imported by anything in `packages/url4`.
 
 ## Batch 6 — threading & egress
 
-- `job_env` / runner — thread as a **per-run** value, exactly as `profile` travels.
-  **Not** on `AigatewayConfig`: that is world config shared by every run, and a per-run value
-  placed there would leak across runs.
-- `runner/connector.py:337` — `json={"model":…, "messages":…, **extra, **policy_to_body_field(policy)}`.
+- `job_env` / runner — thread as a **per-run** value, exactly as `profile` travels. **Not** on
+  `AigatewayConfig`: that is world config shared by every run, and a per-run value there leaks
+  across runs.
+- `runner/connector.py:337` —
+  `json={"model": …, "messages": …, **extra, **policy_to_body_field(policy)}`.
 
 **Tests**
-1. **(r3)** A run with no declared policy sends **no `cache` field** — body byte-identical to
-   today's, which under v2 *is* participation. The r1 criterion returns, for a different reason.
+
+1. A default run's body is **byte-identical to today's** — no `cache` field, which under v2 *is*
+   participation.
 2. An opted-out run sends `cache: {"use-cache": false}` and nothing else.
-3. Two concurrent runs with different policies do not contaminate each other — the regression
-   `AigatewayConfig` placement would have caused.
-4. The tool-calling loop (`connector.py:325-360`) applies the policy on **every** round trip, not
-   just the first — a turn is several calls.
+3. Two concurrent runs with different policies do not contaminate each other — the regression an
+   `AigatewayConfig` placement would cause.
+4. The tool-calling loop (`connector.py:325-360`) applies the policy on **every** round trip. One
+   turn is several calls, and a policy that lapsed after the first would be worse than none.
 
 ---
 
-## Batch 7 — reading the answer back (D7, mandatory)
+## Batch 7 — reading the answer back
 
 - `runner/connector.py` — read `X-AIGW-Cache`, `X-AIGW-Cache-Reason`, `X-AIGW-Cache-Key`; fold
-  onto the owning span beside `_report_usage`, the seam `#506` used for `finish_reason`/`refusal`.
+  onto the owning span beside `_report_usage`, the seam `#506` used for `finish_reason` /
+  `refusal`.
+
+Without this, a hit costs nothing upstream but `_report_usage` bills it as a fresh call — an error
+that **hides savings**, so nobody reports it.
 
 **Tests**
+
 1. `hit` / `miss` / `bypass` each reach `SpanData.cache_status`.
-2. The reason string is carried verbatim (`not_requested`, `disabled`, `stream`,
-   `unsupported_fields`).
-3. **Missing headers do not crash** — an older aigateway, or a non-cache error path, must degrade
-   to `None`.
-4. `X-AIGW-Cache-Key` is recorded only for hit/miss, and never any prompt content.
+2. Reason carried verbatim, including v2's vocabulary: `opted_out`, `malformed_controls`,
+   `unsupported_control`, `disabled`.
+3. **Missing headers degrade to `None`, never crash** — an older gateway, or a non-cache error
+   path.
+4. `X-AIGW-Cache-Key` recorded only for hit/miss; never any prompt content.
 
 ---
 
 ## Batch 8 — observability & docs
 
-- Run-level counters: hits, misses, **bypasses by reason** (the load-bearing one — it makes
-  "I asked for caching and got none" answerable). **No label may carry cache key, prompt or
-  credential**, per the catalog spec's rule.
+- Run-level counters: hits, misses, **bypasses by reason** — the load-bearing one, since it turns
+  "I asked for no caching and something still cached" into an answerable question.
+- **No metric labelled by cache key, prompt or credential.**
 - `schemas/openapi.py` — document the request header.
 - `schemas/asyncapi.py` — document the attach-frame field.
-- `apps/url4-cloud/README.md` + `packages/url4` docs as needed.
+- `apps/url4-cloud/README.md`; `packages/url4` docs as needed.
 
 ---
 
 ## Verification
 
 1. `run_gates.py url4` and `run_gates.py url4-cloud` both green.
-2. **End-to-end against a local aigateway with `AIGW_REQUEST_CACHE_ENABLED=1`** (see Risk 1):
-   - run with no policy → `bypass` / `not_requested`
-   - opt-in run → `miss`, then an identical immediate repeat → `hit`
-   - `no-store` run after a hit → `bypass`, and the stored entry is untouched
-   - same policy via header and via frame → identical egress body
-3. A streaming turn reports `bypass` / `stream` regardless of policy.
-4. Spec §9 acceptance items 1-10 each map to a test above.
+2. Batch 2's property test passes — `cache` never carries a key other than `use-cache`.
+3. **End-to-end against a local aigateway built from #507**, with `requestCache.enabled: true`:
+   - default run → participates; `miss`, then `hit` on an identical repeat
+   - `Cache-Control: no-store` → `bypass` with reason **`opted_out`** (not `unsupported_control`
+     — that distinction is the whole point of collapsing at the url4 edge)
+   - `max-age=60` behaves as `no-store` (D11)
+   - the same policy via header and via frame produces an identical egress body
+4. A streaming turn reports `bypass` regardless of policy.
+5. Spec §9 acceptance items each map to a test above.
 
 ## Risks
 
-1. **RESOLVED, then superseded (r3).** #507 owns the operator gate and turns it on in
-   `values-prod.yaml`. The remaining risk is a **dependency**: this work is unobservable until
-   #507 lands, and #507 is WIP. Do not treat a green url4 test suite as evidence the cache works
-   end to end. *(Original note:* it *is* off today. `config.py:127-129` defaults `request_cache_enabled` to `False`,
-   and the chart never sets it (16 env keys, none of them this). That is why Batch 0 exists. The
-   risk is now one of **ordering**, not discovery: if Batch 0 lands before Batch 6, nothing
-   changes; if Batch 6 lands first, nothing changes either. Both are safe — but shipping them in
-   the same window flips production cache behaviour at an unpredictable moment. Sequence
-   deliberately.
-2. **Touching a wire type.** `AttachData` is live protocol. Batch 1 test 1 (old frame still
-   validates) is the guard; treat a failure there as a stop-the-line.
-3. **`packages/url4` coverage gate is 95%.** Small additions with error branches can dip it;
-   budget for exhaustive schema tests.
-4. **Ensemble determinism** (spec §8.2) — **accepted by the owner**, and with D1=ON it is the
-   default path rather than an edge case: two nodes sampling one model for variance receive one
-   answer twice and score it as agreement. Not a plumbing risk; a thesis-level one. If it needs
-   undoing later, the cheapest carve-out is a per-run nonce in prompt normalisation — no protocol
-   change.
-5. **Two ingress paths, one policy.** Batch 5's matrix is the whole defence; do not ship Batch 3
-   or 4 without it.
+1. **#507 is WIP.** Its control grammar could still change; this plan is written against the
+   branch as read on 2026-08-05. Re-read `global_controls.py` before Batch 2 — that file alone
+   determines the mapping.
+2. **Touching a live wire type.** `AttachData` is protocol. Batch 1 test 1 is the guard.
+3. **`packages/url4` coverage gate is 95%**; small additions with error branches can dip it.
+4. **The closed grammar is a silent failure mode.** An extra control key costs every hit and
+   raises nothing. Batch 2 test 3 exists solely for this, and it should be treated as a
+   correctness test, not a style one.
+5. **Ensemble determinism** — accepted by the owner, but v2 widens it: the collapsing repeat need
+   not share an account, a run or a day. Flagged in spec §8.2 for re-confirmation. Not a plumbing
+   risk; a thesis-level one.
 
 ## Out of scope
 
 - Per-node cache intent — needs url4 grammar, reopens doctrine fork **F4**.
 - A url4-native / Enclave GET cache.
-- Any `apps/aigateway` change.
-- Extracting `url4_streaming_protocol` as its own package (spec open question 6).
+- Any `apps/aigateway` change — #507 owns it.
+- Extracting `url4_streaming_protocol` as its own package (spec open question 4).
 
-## 9. What changes if a decision flips
+## 9. If a decision flips
 
-### 9.2 D3 → `ConfigureEvent` instead of `AttachData.cache`
-Batch 1 adds a new `ConfigureData` + `ConfigureEvent` and a third member to `InboundFrame`
-(`unions.py:81`); Batch 4 handles a new inbound verb and must define what a `Configure` arriving
-*after* run start means (recommend: ignored + warn, consistent with first-attach-wins). Batches
-2, 5, 6, 7 unchanged.
-
-### 9.3 D4 → frame wins, or fatal on conflict
-One function in Batch 5 and its matrix row. If **fatal**, add a 409 path on the REST side and an
-`ErrorEvent` on the WS side — the only variant that grows the error surface.
-
-### 9.4 D6 → `URL4-Cache` instead of `Cache-Control`
-Batch 3's header constant and parser grammar (a private header can use a simple JSON or
-key=value form rather than RFC 9111 directives, and needs no `url4-use-cache` extension token).
-Batches 1, 2, 4-8 unchanged.
+| flip | what moves |
+|---|---|
+| **D3** → `ConfigureEvent` | Batch 1 adds `ConfigureData` + a third `InboundFrame` member (`unions.py:81`); Batch 4 handles a new inbound verb and must define what a `Configure` *after* run start means (recommend: ignored + warn). Batches 2, 5-8 unchanged. |
+| **D4** → frame wins | One function in Batch 5, one matrix row. |
+| **D4** → fatal on conflict | Adds a 409 on the REST side and an `ErrorEvent` on the WS side — the only variant that grows the error surface. |
+| **D6** → `URL4-Cache` | Batch 3's constant and parser grammar; a private header can use a simple `key=value` form and needs no RFC 9111 extension token. Batches 1, 2, 4-8 unchanged. |
+| **D11** → ignore `max-age` | One row in Batch 3's table and its test. |
