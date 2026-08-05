@@ -152,6 +152,7 @@ _STRIPPED_CALLER_HEADERS = frozenset(
 
 class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
     custom_llm_provider = "openrouter"
+    provider_display_name = "OpenRouter"
     settings_cls = OpenRouterPluginSettings
 
     def register_models(self) -> list[ModelEntry]:

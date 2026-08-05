@@ -46,6 +46,7 @@ def _api_key_headers(api_key: str) -> dict[str, str]:
 
 class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
     custom_llm_provider = "anthropic"
+    provider_display_name = "Anthropic"
     settings_cls = AnthropicPluginSettings
 
     def register_models(self) -> list[ModelEntry]:

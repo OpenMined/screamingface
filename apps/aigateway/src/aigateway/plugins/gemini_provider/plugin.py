@@ -98,6 +98,7 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
 
 class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
     custom_llm_provider = "gemini-cli"
+    provider_display_name = "Gemini CLI"
     settings_cls = GeminiPluginSettings
 
     def credential_service_provider(self) -> str:
