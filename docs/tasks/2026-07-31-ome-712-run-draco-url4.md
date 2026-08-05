@@ -25,4 +25,6 @@ Layer-specific artifacts:
 - `docs/spec/2026-08-04-OME-712-url4-runtime-foundations.md`
 - `docs/plan/2026-08-04-OME-712-url4-runtime-foundations.md`
 - `docs/work/2026-08-04-OME-712-url4-runtime-foundations.md`
-
+- `docs/spec/2026-08-04-OME-712-aigateway-benchmark-support.md`
+- `docs/plan/2026-08-04-OME-712-aigateway-benchmark-support.md`
+- `docs/work/2026-08-04-OME-712-aigateway-benchmark-support.md`
