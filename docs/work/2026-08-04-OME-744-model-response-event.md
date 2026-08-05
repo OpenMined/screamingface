@@ -1,9 +1,9 @@
 ---
 ticket: OME-744
 stack: url4
-status: in_progress
+status: done
 started: 2026-08-04
-finished:
+finished: 2026-08-04
 ---
 
 # OME-744 — a ModelResponse observation event for finish_reason and refusal
