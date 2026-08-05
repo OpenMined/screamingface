@@ -10,13 +10,18 @@ export type SavedModel = {
   providerName: string;
 };
 
+export type ModelParam = { key: string; value: string };
+
 export type SavedSlot = {
+  id: string;
   model: SavedModel;
   systemPrompt: string;
   weight: number;
+  params?: ModelParam[];
 };
 
 export type SavedRunModelResult = {
+  slotId?: string;
   modelId: string;
   modelName: string;
   score: number;
@@ -46,6 +51,7 @@ export type SavedEnsemble = {
   reduceScriptId?: string | null;
   loopMode: "parallel" | "custom";
   loopScriptId?: string | null;
+  judge: SavedSlot | null;
   judgeId: string | null;
   runs: number;
   runHistory?: SavedRun[];

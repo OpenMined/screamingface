@@ -43,7 +43,7 @@ import {
 import { useScriptStore } from "@/lib/script-store";
 
 const navigation = [
-  { label: "Ensembles", href: "/ensembles/", Icon: Boxes },
+  { label: "Fusions", href: "/ensembles/", Icon: Boxes },
   { label: "Models", href: "/models/", Icon: Layers },
   { label: "Leaderboard", href: "/leaderboard/", Icon: Trophy },
   { label: "Scripts", href: "/scripts/", Icon: FileCode },
@@ -118,7 +118,7 @@ export function AppSidebar() {
             <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary/15 text-base shadow-sm ring-1 ring-primary/10 transition-transform group-hover/brand:rotate-[8deg]" aria-hidden="true">😱</span>
             <span className="min-w-0 group-data-[state=collapsed]/sidebar:hidden">
               <span className="block truncate text-sm font-semibold">ScreamingFace</span>
-              <span className="block truncate font-mono text-[10px] text-muted-foreground">the loudest ensemble hub</span>
+              <span className="block truncate font-mono text-[10px] text-muted-foreground">the loudest fusion hub</span>
             </span>
           </Link>
         </div>
@@ -165,11 +165,11 @@ export function AppSidebar() {
 
         {ensembles.length > 0 && (
           <nav
-            aria-label="My ensembles"
+            aria-label="My fusions"
             className="mt-5 flex min-h-0 flex-1 flex-col group-data-[state=collapsed]/sidebar:hidden"
           >
             <p className="mb-2 shrink-0 px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              My Ensembles
+              My Fusions
             </p>
             <SidebarMenu className="min-h-0 overflow-y-auto">
               {ensembles.map((ensemble) => (

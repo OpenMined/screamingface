@@ -25,6 +25,7 @@ import {
   useScriptStore,
 } from "@/lib/script-store";
 import { cn } from "@/lib/utils";
+import { createUuid } from "@/lib/uuid";
 
 const scriptKinds = [
   {
@@ -85,9 +86,9 @@ export default function ScriptsPage() {
   }
 
   function save() {
-    const defaultName = `${draftKind}-${window.crypto.randomUUID().slice(0, 6)}.py`;
+    const defaultName = `${draftKind}-${createUuid().slice(0, 6)}.py`;
     saveScript({
-      id: editing?.id ?? window.crypto.randomUUID(),
+      id: editing?.id ?? createUuid(),
       name: draftName.trim() || defaultName,
       kind: draftKind,
       code: draftCode,
@@ -118,7 +119,7 @@ export default function ScriptsPage() {
           <h1 className="text-base font-semibold">Scripts</h1>
           <p className="mt-1 text-xs text-muted-foreground">
             Python reduce scripts and response loops you can reference from any
-            ensemble.
+            fusion.
           </p>
         </div>
         {!editorOpen && (

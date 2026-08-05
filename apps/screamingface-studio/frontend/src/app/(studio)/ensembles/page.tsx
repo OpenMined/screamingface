@@ -4,7 +4,6 @@ import {
   Boxes,
   ChevronRight,
   GitFork,
-  Layers,
   Plug,
   Plus,
   X,
@@ -23,7 +22,9 @@ export default function EnsemblesPage() {
   const [importing, setImporting] = useState(false);
   const [importValue, setImportValue] = useState("");
   const [importError, setImportError] = useState("");
-  const hasModels = useModelStore((state) => state.library.length > 0);
+  const hasProviderConnected = useModelStore((state) =>
+    state.providers.some((provider) => provider.connected),
+  );
   const ensembles = useEnsembleStore((state) => state.ensembles);
 
   function importRecipe() {
@@ -68,7 +69,7 @@ export default function EnsemblesPage() {
           data-tauri-drag-region
           className="min-w-0 flex-1"
         >
-          <h1 className="text-base font-semibold">Ensembles</h1>
+          <h1 className="text-base font-semibold">Fusions</h1>
           <p className="mt-1 text-xs text-muted-foreground">
             Your recipes. Open one to compose, run evals, and analyze results.
           </p>
@@ -87,19 +88,12 @@ export default function EnsemblesPage() {
             <GitFork className="size-3.5" />
             Import url4
           </Button>
-          {hasModels ? (
-            <Button size="sm" className="rounded-lg shadow-sm" asChild>
-              <Link href="/ensembles/new/" prefetch={false}>
-                <Plus className="size-4" />
-                New Ensemble
-              </Link>
-            </Button>
-          ) : (
-            <Button size="sm" className="rounded-lg shadow-sm" disabled>
+          <Button size="sm" className="rounded-lg shadow-sm" asChild>
+            <Link href="/ensembles/new/" prefetch={false}>
               <Plus className="size-4" />
-              New Ensemble
-            </Button>
-          )}
+              New Fusion
+            </Link>
+          </Button>
         </div>
       </header>
 
@@ -108,7 +102,7 @@ export default function EnsemblesPage() {
           <div className="w-full">
             <div className="mb-2 flex items-start justify-between gap-4">
               <p className="text-xs text-muted-foreground">
-                Paste a url4 recipe to create an ensemble from it
+                Paste a url4 recipe to create a fusion from it
               </p>
               <Button
                 variant="ghost"
@@ -153,34 +147,34 @@ export default function EnsemblesPage() {
       )}
 
       <main className="min-h-0 flex-1 overflow-y-auto px-5 py-8 sm:px-8">
-        {!hasModels ? (
-          <section className="flex flex-col items-center justify-center gap-4 py-24 text-center">
-            <Layers className="size-7 text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">
-              Connect some models first to start building ensembles.
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-lg"
-              asChild
-            >
-              <Link href="/models/" prefetch={false}>
-                <Plug className="size-3.5" />
-                Connect Models
-              </Link>
-            </Button>
-          </section>
-        ) : ensembles.length === 0 ? (
-          <section className="flex flex-col items-center justify-center gap-4 py-24 text-center">
-            <Boxes className="size-7 text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">No ensembles yet.</p>
-            <Button size="sm" className="rounded-lg" asChild>
-              <Link href="/ensembles/new/" prefetch={false}>
-                <Plus className="size-3.5" />
-                New Ensemble
-              </Link>
-            </Button>
+        {ensembles.length === 0 ? (
+          <section className="flex justify-center py-16">
+            <div className="flex w-full max-w-md flex-col items-center gap-5 rounded-xl border bg-card p-8 text-center">
+              <Boxes className="size-7 text-muted-foreground/30" />
+              <div className="space-y-2">
+                <h2 className="text-sm font-semibold">No fusions yet</h2>
+                <p className="text-xs text-muted-foreground">
+                  A fusion runs several models on the same question and
+                  combines their answers into one.
+                </p>
+              </div>
+              <Button size="sm" className="rounded-lg shadow-sm" asChild>
+                <Link href="/ensembles/new/" prefetch={false}>
+                  <Plus className="size-4" />
+                  New Fusion
+                </Link>
+              </Button>
+              {!hasProviderConnected && (
+                <Link
+                  href="/models/"
+                  prefetch={false}
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  <Plug className="size-3.5" />
+                  First, connect a model on the Models page &rarr;
+                </Link>
+              )}
+            </div>
           </section>
         ) : (
           <section className="grid max-w-4xl gap-4 md:grid-cols-2">
@@ -212,9 +206,9 @@ export default function EnsemblesPage() {
                 </div>
                 <div className="flex min-h-4 items-center gap-1.5">
                   {ensemble.slots.length > 0 ? (
-                    ensemble.slots.slice(0, 6).map((slot) => (
+                    ensemble.slots.slice(0, 6).map((slot, index) => (
                       <span
-                        key={slot.model.id}
+                        key={slot.id ?? `${slot.model.id}-${index}`}
                         className="size-2 rounded-full"
                         style={{
                           background:
