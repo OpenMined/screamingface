@@ -194,7 +194,11 @@ def test_a_row_claiming_another_selected_case_is_retained_as_unscored() -> None:
 def test_one_row_cannot_mix_verdicts_from_different_cases() -> None:
     row = _scored_row(1)
     foreign = _scored_row(2)
-    row["evidence"].append(foreign["evidence"][0])
+    evidence = row["evidence"]
+    foreign_evidence = foreign["evidence"]
+    assert isinstance(evidence, list)
+    assert isinstance(foreign_evidence, list)
+    evidence.append(foreign_evidence[0])
     rows = json.dumps([row])
 
     result = agg.aggregate(

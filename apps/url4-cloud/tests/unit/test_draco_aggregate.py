@@ -388,7 +388,11 @@ def test_a_case_id_missing_from_evidence_makes_the_case_unscored() -> None:
         ("a3", ["UNMET"] * 5),
         ("b1", ["MET"] * 5),
     )
-    del row["evidence"][0]["case_id"]
+    evidence = row["evidence"]
+    assert isinstance(evidence, list)
+    first_verdict = evidence[0]
+    assert isinstance(first_verdict, dict)
+    del first_verdict["case_id"]
 
     result = agg.aggregate(
         json.dumps([row]),

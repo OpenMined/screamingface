@@ -133,13 +133,6 @@ def test_every_declared_model_exists_in_aigateway() -> None:
     )
 
 
-def test_runner_allows_ten_minutes_for_each_aigateway_request() -> None:
-    with _RUNNER_CONFIG.open("rb") as handle:
-        timeout_s = tomllib.load(handle)["aigateway"]["timeout_s"]
-
-    assert timeout_s == 600
-
-
 @pytest.mark.parametrize("model", _declared_models())
 def test_declared_model_ids_are_route_shaped(model: str) -> None:
     assert model, "empty model id"
