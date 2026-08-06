@@ -174,6 +174,30 @@ def test_header_mode_refuses_to_start_when_one_entry_in_a_mixed_forwarded_allow_
         create_app(_settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8"))
 
 
+def test_header_mode_refuses_to_start_with_pure_ipv6_forwarded_allow_ips_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A same-version IPv6-vs-IPv6 overlap must be caught too — the IPv4/IPv6 cross-version
+    tests above only prove the guard doesn't false-positive across versions; this proves it
+    doesn't false-negative within a single version either."""
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "fd00::/16")
+
+    with pytest.raises(ValueError, match="overlaps"):
+        create_app(_settings(auth_mode="cloudflare_headers", allowed_networks="fd00::/8"))
+
+
+def test_header_mode_refuses_to_start_with_ipv4_mapped_ipv6_forwarded_allow_ips_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator naming the same real peer in IPv4-mapped-IPv6 form (how a dual-stack
+    cluster's own tooling may report it) must overlap allowed_networks the same way the plain
+    IPv4 form would — found in follow-up review of this guard."""
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "::ffff:10.0.0.5")
+
+    with pytest.raises(ValueError, match="overlaps"):
+        create_app(_settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8"))
+
+
 def test_disabled_mode_starts_with_wildcard_forwarded_allow_ips(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

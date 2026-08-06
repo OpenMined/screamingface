@@ -41,6 +41,14 @@ def _classify_forwarded_allow_ips(
     predicts uvicorn's actual forgiving runtime behavior, it does not add new strictness
     (unlike config.py's deliberately strict `_parse_allowed_networks`).
 
+    A bare-address entry written in IPv4-mapped-IPv6 form (e.g. "::ffff:10.0.0.5") is
+    normalized to its plain IPv4 form, mirroring `peer_in_networks`'s own unwrapping — an
+    operator naming the SAME real peer in the form a dual-stack cluster happens to report it
+    must overlap `allowed_networks` the same way the plain form would (found in follow-up
+    review of this guard). Only bare addresses are normalized, not CIDR entries — this exactly
+    matches `peer_in_networks`'s own scope, which normalizes a single connecting peer, never a
+    declared network.
+
     Pinned against the installed uvicorn version by
     test_uvicorn_parses_a_cidr_forwarded_allow_ips_entry_into_trusted_networks and
     test_uvicorn_parses_a_bare_ip_forwarded_allow_ips_entry_into_trusted_hosts.
@@ -57,9 +65,12 @@ def _classify_forwarded_allow_ips(
                 pass
             continue
         try:
-            hosts.add(ip_address(entry))
+            host = ip_address(entry)
         except ValueError:
-            pass
+            continue
+        if isinstance(host, IPv6Address) and host.ipv4_mapped is not None:
+            host = host.ipv4_mapped
+        hosts.add(host)
     return networks, hosts
 
 

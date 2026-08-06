@@ -271,3 +271,41 @@ either side; narrower than a blanket `# type: ignore`, each with a `WHY:` commen
 **Owner-verify:** none beyond OME-404's original owner-verify note (the network-trust boundary
 still can't be verified from unit tests alone) — this round doesn't change what needs verifying in
 the real dev-cloud deployment, only closes a gap in how the guard enforces it locally.
+
+## External review round 2 (2026-08-06) — self-analysis of round 1's own fix
+
+Analyzed the fix from the round above for gaps it might have opened, rather than waiting for
+another external pass. Found two real, worth-fixing issues (both fixed here) and confirmed two
+others don't apply:
+
+- **Fixed — IPv4-mapped-IPv6 asymmetry.** `_find_forwarded_allow_ips_overlap` didn't normalize a
+  `FORWARDED_ALLOW_IPS` entry written in IPv4-mapped-IPv6 form (e.g. `::ffff:10.0.0.5`), so it
+  missed an overlap with a plain IPv4 `allowed_networks` entry for what is the same real address
+  — the same dual-stack representation `peer_in_networks()` already normalizes for the connecting
+  peer. Verified empirically this wasn't currently exploitable (uvicorn's own `_TrustedHosts` has
+  the identical non-normalizing limitation, so a single mismatched-form entry can't be trusted by
+  uvicorn either), but fixed anyway for defense-in-depth and consistency with `peer_in_networks`'s
+  own scope. `_classify_forwarded_allow_ips` now unwraps a bare IPv4-mapped-IPv6 address to its
+  IPv4 form before adding it to the trusted-hosts set — only bare addresses, not CIDR entries,
+  mirroring `peer_in_networks`'s exact scope.
+- **Fixed — missing IPv6-vs-IPv6 overlap test.** The existing IPv6 test only proved the guard
+  doesn't false-positive across IPv4/IPv6 versions; nothing asserted a same-version IPv6 overlap
+  is actually caught. Verified the logic already worked correctly; added the test for coverage.
+- **Confirmed not applicable — production write-gate (values-prod.yaml).** Same finding as the
+  original P1 from the first external review, re-raised. Owner call: accept as the existing
+  documented tradeoff (ledger Deviation #2, DEPLOYMENT.md), no code change — the real fix is a
+  platform-level mesh migration for prod, out of scope here.
+- **Deferred, not implemented — `cloudflare_identity.py` duplication.** Extracting the shared
+  peer-trust/header logic into `packages/` (flagged since round 1) is a genuine cross-cutting unit
+  spanning ≥2 apps/packages (own toolchain, lockfile, CI lane, CODEOWNERS, dependabot ecosystem per
+  this repo's own component checklist) — not a quick fix. Filed as a separate tracked Linear
+  follow-up rather than folded into this PR.
+- **No action — aigateway's identical structural gap.** Confirmed still inert (aigateway's chart
+  never sets `FORWARDED_ALLOW_IPS`), so left as the documented cross-app observation only.
+
+**Gates:** `uv run .claude/scripts/run_gates.py scoreboard --base origin/main --skip-append-only`
+→ ruff check ✓, ruff format ✓, pyright (0 errors) ✓, pytest 167 passed / 2 skipped. Re-run
+identically under `--python 3.13` (fresh venv) → same result.
+
+**Deviations:** none beyond the same already-documented `--skip-append-only` reason as the prior
+two rounds.
