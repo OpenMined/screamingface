@@ -1,4 +1,5 @@
 export { default as NbCell } from './NbCell.vue'
+export { default as NbTextOut } from './NbTextOut.vue'
 export { default as NbPanel } from './NbPanel.vue'
 export { default as NbStateCarousel } from './NbStateCarousel.vue'
 export { default as NbRowList } from './NbRowList.vue'

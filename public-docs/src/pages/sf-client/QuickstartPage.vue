@@ -10,7 +10,10 @@ import type { Provider } from '@/components/nb/ProviderConnections.vue'
 import EvaluationReport from '@/components/nb/EvaluationReport.vue'
 import CandidateScores from '@/components/nb/CandidateScores.vue'
 import type { NbCheckItem, NbRowForm, NbStat } from '@/components/nb/types'
-import { sfClientNavigation as navigation } from '@/navigation/sf-client'
+import {
+  sfClientNavigation as navigation,
+  sfClientVersion as version,
+} from '@/navigation/sf-client'
 
 // Every provider the development engine advertises, read from its registry.
 const providers: Provider[] = [
@@ -269,6 +272,7 @@ const evaluate = `report = draco.evaluate(candidates)`
     title="Quickstart"
     description="Run DRACO-Lite end to end and compare seven solo models against nine ensembles built from them."
     :navigation="navigation"
+    :version="version"
   >
     <p>
       By the end you will have a scored comparison of <strong>16 candidates</strong> — seven single
