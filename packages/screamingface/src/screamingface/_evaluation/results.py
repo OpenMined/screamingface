@@ -119,9 +119,11 @@ def _mapping(value: object, label: str) -> Mapping[str, object]:
     return value
 
 
-def _metrics(value: object) -> dict[str, float]:
+def _metrics(value: object) -> dict[str, object]:
     raw = _mapping(value, "Candidate metrics")
-    return {str(name): _number(metric, f"metric {name!r}") for name, metric in raw.items()}
+    if any(not isinstance(name, str) for name in raw):
+        raise ExecutionError("Candidate metric names must be strings")
+    return dict(raw)
 
 
 def _cases(value: object) -> tuple[CaseResult, ...]:
@@ -327,13 +329,13 @@ def _number(value: object, label: str) -> float:
     return float(value)
 
 
-def _warn_on_coverage(candidate_name: str, metrics: Mapping[str, float]) -> None:
-    coverage = metrics.get("coverage")
-    target = metrics.get("coverage_target")
+def _warn_on_coverage(candidate_name: str, metrics: Mapping[str, object]) -> None:
+    coverage = _optional_metric(metrics, "coverage")
+    target = _optional_metric(metrics, "coverage_target")
     if coverage is None or target is None or coverage >= target:
         return
-    accepted = metrics.get("verdicts_accepted")
-    expected = metrics.get("verdicts_expected")
+    accepted = _optional_metric(metrics, "verdicts_accepted")
+    expected = _optional_metric(metrics, "verdicts_expected")
     counts = ""
     if accepted is not None and expected is not None:
         counts = f"{int(accepted)}/{int(expected)} verdicts accepted; "
@@ -343,6 +345,11 @@ def _warn_on_coverage(candidate_name: str, metrics: Mapping[str, float]) -> None
         CoverageWarning,
         stacklevel=3,
     )
+
+
+def _optional_metric(metrics: Mapping[str, object], name: str) -> float | None:
+    value = metrics.get(name)
+    return None if value is None else _number(value, f"metric {name!r}")
 
 
 __all__: list[str] = []

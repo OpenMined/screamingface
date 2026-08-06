@@ -98,24 +98,28 @@ def test_report_values_cover_members_and_collections() -> None:
         _ = value.candidates["missing"]
 
 
-def test_candidate_metrics_reject_null_values_explicitly() -> None:
-    with pytest.raises(TypeError, match="finite number"):
-        sf.CandidateResult(
-            run_id="run-candidate",
-            started_at=NOW,
-            completed_at=NOW + timedelta(milliseconds=20),
-            name="candidate",
-            kind="fusion",
-            url4="(@)!'candidate'",
-            models=("provider/model",),
-            operations=FUSION_OPERATIONS,
-            score=0.5,
-            metrics=cast(Any, {"score": None}),
-            cases=case_results(),
-            members=(member("first"), member("second")),
-            failures=(),
-            usage=sf.Usage(input_tokens=1),
-        )
+def test_candidate_metrics_preserve_json_compatible_values() -> None:
+    result = sf.CandidateResult(
+        run_id="run-candidate",
+        started_at=NOW,
+        completed_at=NOW + timedelta(milliseconds=20),
+        name="candidate",
+        kind="fusion",
+        url4="(@)!'candidate'",
+        models=("provider/model",),
+        operations=FUSION_OPERATIONS,
+        score=0.5,
+        metrics={"score": None, "axis_scores": {"correctness": 0.5}},
+        cases=case_results(),
+        members=(member("first"), member("second")),
+        failures=(),
+        usage=sf.Usage(input_tokens=1),
+    )
+
+    assert result.to_dict()["metrics"] == {
+        "score": None,
+        "axis_scores": {"correctness": 0.5},
+    }
 
 
 @pytest.mark.parametrize(

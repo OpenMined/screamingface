@@ -372,6 +372,42 @@ def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     assert transport.closed is True
 
 
+def test_client_preserves_nested_candidate_metrics() -> None:
+    payload: dict[str, object] = {
+        "schema": "screamingface.candidate-result.v1",
+        "benchmark_id": "draco",
+        "benchmark_revision": "fixture-revision",
+        "case_count": 1,
+        "score": 0.7,
+        "metrics": {
+            "coverage": 1.0,
+            "axis_scores": {"factual-accuracy": 0.7},
+            "axis_pass_rates": {"factual-accuracy": 0.8},
+        },
+        "cases": [_case_payload(score=0.7)],
+        "failures": [],
+    }
+    client, _ = _client(payload)
+
+    with client:
+        report = client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+        )
+
+    assert report.candidates.only.metrics == {
+        "coverage": 1.0,
+        "axis_scores": {"factual-accuracy": 0.7},
+        "axis_pass_rates": {"factual-accuracy": 0.8},
+    }
+    assert json.loads(report.to_json())["candidates"][0]["metrics"] == {
+        "coverage": 1.0,
+        "axis_scores": {"factual-accuracy": 0.7},
+        "axis_pass_rates": {"factual-accuracy": 0.8},
+    }
+
+
 def test_client_retains_an_unscored_case_with_its_invalid_judge_evidence() -> None:
     payload: dict[str, object] = {
         "schema": "screamingface.candidate-result.v1",

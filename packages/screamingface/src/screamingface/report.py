@@ -12,6 +12,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from screamingface._evaluation.model import _canonical_url4
+from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._named_values import _NamedValues
 from screamingface._operation_projection import _operation_dict, _require_operation_references
 from screamingface._report_primitives import (
@@ -103,7 +104,7 @@ class CandidateResult:
     members: tuple[MemberResult, ...]
     failures: tuple[Failure, ...]
     usage: Usage
-    _metric_items: tuple[tuple[str, float], ...] = field(repr=False)
+    _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
 
     def __init__(
         self,
@@ -117,7 +118,7 @@ class CandidateResult:
         models: Sequence[str],
         operations: Sequence[OperationInfo],
         score: float | None,
-        metrics: Mapping[str, float],
+        metrics: Mapping[str, object],
         cases: Sequence[CaseResult],
         members: Sequence[MemberResult],
         failures: Sequence[Failure],
@@ -166,7 +167,7 @@ class CandidateResult:
             object.__setattr__(self, attribute, value)
 
     @property
-    def metrics(self) -> Mapping[str, float]:
+    def metrics(self) -> Mapping[str, object]:
         return MappingProxyType(dict(self._metric_items))
 
     @property
@@ -184,7 +185,7 @@ class CandidateResult:
             "models": list(self.models),
             "operations": [_operation_dict(operation) for operation in self.operations],
             "score": self.score,
-            "metrics": dict(self._metric_items),
+            "metrics": thaw_mapping(dict(self._metric_items)),
             "cases": [case.to_dict() for case in self.cases],
             "members": [member.to_dict() for member in self.members],
             "failures": [failure.to_dict() for failure in self.failures],
@@ -416,16 +417,17 @@ def _optional_number(value: object, label: str) -> float | None:
     return selected
 
 
-def _metrics(values: Mapping[str, float]) -> tuple[tuple[str, float], ...]:
+def _metrics(values: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
     if not isinstance(values, Mapping):
         raise TypeError("Candidate metrics must be a mapping")
-    selected: list[tuple[str, float]] = []
+    selected: dict[str, object] = {}
     for name, value in values.items():
-        normalized = _optional_number(value, f"Candidate metric {name!r}")
-        if normalized is None:
-            raise TypeError(f"Candidate metric {name!r} must be a finite number")
-        selected.append((_nonblank(name, "Candidate metric name"), normalized))
-    return tuple(selected)
+        normalized_name = _nonblank(name, "Candidate metric name")
+        if normalized_name in selected:
+            raise ValueError(f"Candidate metric name {normalized_name!r} is duplicated")
+        selected[normalized_name] = value
+    frozen = freeze_mapping(selected, "Candidate metrics")
+    return tuple(frozen.items())
 
 
 def _timestamp(value: object, label: str) -> datetime:
