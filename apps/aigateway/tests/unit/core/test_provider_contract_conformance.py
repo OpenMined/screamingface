@@ -35,7 +35,7 @@ from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS, wrapper_pa
 from aigateway.core.plugin_base import PluginSettings
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.registry import ProviderRegistry
-from aigateway.core.request_cache.keys import PROMPT_KEY_FIELDS
+from aigateway.core.request_cache.global_keys import STRUCTURALLY_EXCLUDED_FIELDS
 
 
 def _operator_gate_overrides(settings_cls: type[PluginSettings]) -> dict[str, bool]:
@@ -356,11 +356,19 @@ def test_every_provider_publishes_a_stream_capability_matching_its_dispatch_gate
 def test_every_enabled_rule_declares_a_cache_behavior_the_pipeline_can_honor() -> None:
     # INVARIANT (OME-479 §4.6, closure Unit 1): the published `cache_behavior` is a
     # PROMISE about the real pipeline, and the pipeline has exactly two outcomes for a
-    # request path — it participates in the cache key, or its presence bypasses.
-    # `build_cache_key` keys ONLY the prompt fields, so any other request path can be
-    # honoured solely as `bypass`. A rule declaring `keyed` or `transport_only` for a
-    # path the key builder does not read would publish a promise the runtime breaks
-    # (the request would bypass while the contract says otherwise).
+    # request path — it participates in the cache key, or its presence bypasses. A rule
+    # declaring `keyed` or `transport_only` for a path the key builder does not read
+    # would publish a promise the runtime breaks (the request would bypass while the
+    # contract says otherwise).
+    #
+    # REPOINTED (OME-305): the deliverable set was v1's three `PROMPT_KEY_FIELDS`,
+    # which made `keyed` unreachable for every provider — `model`/`messages` are
+    # gateway-owned so no rule may name them, and no provider rules `system`. The v2
+    # builder keys every request path EXCEPT a published exclusion set, so the promise
+    # the pipeline can keep is now a DENYLIST. Same property, and the source of truth
+    # is the builder that actually decides it rather than a hand-maintained list — an
+    # allowlist would need editing on every promotion, which is how the v1 version
+    # rotted into a guard forbidding the promotions it was meant to police.
     #
     # WHY here rather than in a provider suite: this is the cross-provider half of the
     # composition guard. The route-level test proves the CURRENT pipeline honours a
@@ -373,7 +381,7 @@ def test_every_enabled_rule_declares_a_cache_behavior_the_pipeline_can_honor() -
                     continue
                 if rule.cache_behavior == "bypass":
                     continue
-                assert rule.request_path in PROMPT_KEY_FIELDS, (
+                assert rule.request_path.split(".", 1)[0] not in STRUCTURALLY_EXCLUDED_FIELDS, (
                     canonical,
                     mode,
                     rule.request_path,

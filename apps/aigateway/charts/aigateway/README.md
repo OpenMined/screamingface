@@ -54,6 +54,32 @@ Matching is case-insensitive. The list is *not* stored in a Secret — these are
 credentials, and they appear in the ConfigMap by design so that who may administer is auditable
 from the rendered manifest.
 
+## The global response cache
+
+`config.requestCache.enabled` turns on a response cache that is **global**: one row per exact
+request, shared by every caller. Two callers who send the identical request get the identical stored
+response, and the second one's provider credential is never touched. The chart ships `true`; set
+`config.requestCache.enabled=false` to opt out.
+
+`true` makes the cache available immediately. Reading and writing the response row has no
+secret-provider, encryption-key or canary dependency. Effective-key construction may still read the
+caller's encrypted profile-default index; it never resolves the selected provider credential on a hit.
+
+Three more things to know before enabling it anywhere else:
+
+- **`config.authMode: disabled` removes the boundary entirely.** Every peer who can reach the port is
+  the same anonymous principal, so the corpus is common to everyone with network access. The gateway
+  does **not** refuse the cache for this — understand it before enabling the cache with auth off.
+- **Responses are plaintext in the database.** The compact provider-response JSON is stored in
+  `response_json`. Database readers, replicas, snapshots and backups can read the entire response
+  corpus. Provider credentials remain encrypted separately.
+- **Rows never expire.** There is no TTL and no eviction, so `request_cache_entries` grows with the
+  number of distinct requests ever answered. Monitor it and prune deliberately.
+
+Callers opt a single request out with `{"cache": {"use-cache": false}}`. Full runbook — including
+destructive rollback and pruning queries:
+`apps/aigateway/DEPLOYMENT.md`.
+
 ## Who may connect
 
 `networkPolicy.clientPodNames` defaults to `url4-cloud`, `url4-runner` and `aigateway-ui`. In

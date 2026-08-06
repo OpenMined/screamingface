@@ -137,25 +137,22 @@ def _project(body: dict[str, Any], dotted_target: str, value: Any) -> None:
 
 
 def _addressed_request_paths(body: Mapping[str, Any]) -> Iterable[str]:
-    """Every optional-parameter request path this body ADDRESSES.
+    """Every optional-parameter request path this body addresses.
 
-    The caller-visible addressing forms, and only those: a bare top-level field,
-    or a key nested under the one ``provider_params`` wrapper. Gateway-owned
-    fields are authorized structurally and are never a request path.
+    The caller-visible addressing forms are a bare top-level field or a key nested under the
+    ``provider_params`` wrapper. Gateway-owned fields are authorized structurally and are never
+    request paths.
 
-    AIDEV-NOTE: this is the same enumeration ``classify_and_project_chat_parameters``
-    performs inline (it needs the values, the gateway-owned passthrough and the
-    per-path rejection reasons interleaved, so it cannot simply call this). The two
-    are locked together by ``test_caller_cache_policy`` — if one learns a new
-    addressing form and the other does not, that test fails.
+    AIDEV-NOTE: this mirrors the enumeration in ``classify_and_project_chat_parameters``. The
+    caller-cache policy tests lock them together so a new addressing form cannot drift between
+    the dispatch contract and this compatibility view.
     """
     for key in body:
         if key == WRAPPER_KEY or key in GATEWAY_OWNED_FIELDS:
             continue
         if key.startswith(_WRAPPER_PREFIX):
-            # Not an addressing form (OME-704) — classification rejects it, so it
-            # can never reach cache planning. Mirrored here to keep this
-            # enumeration and the classifier's inline one a true pair.
+            # OME-704: dotted top-level keys are not an addressing form; classification rejects
+            # them.
             continue
         yield key
     wrapper = body.get(WRAPPER_KEY)
@@ -170,28 +167,12 @@ def caller_cache_bypass_paths(
     rules: Iterable[ParameterProjectionRule],
     auth_mode: AuthMode,
 ) -> tuple[str, ...]:
-    """Request paths present in ``body`` whose enabled rule declares ``bypass``.
+    """Return addressed paths whose enabled rule declares a cache bypass.
 
-    FEATURE: an honest ``cache_behavior``. Plan §4.6 defines ``bypass`` as "any
-    presence of the field bypasses prompt caching", and the detailed contract
-    publishes ONE unconditional value per request path. This derives the runtime
-    decision from the SAME rule set the contract is derived from, so the two
-    cannot disagree.
-
-    INVARIANT: computed from the CALLER-VISIBLE body preserved before projection to
-    provider targets. The route invokes this only after ``plugin.prepare_chat_body``
-    has accepted the projected state, but it passes that preserved view rather than
-    the prepared body. A provider hook may remove, rename, flatten or nest an accepted
-    field on its way to the wire (Anthropic drops ``reasoning_effort == "none"``, which
-    means exactly what omission means); none of that may turn a declared-bypass
-    request into a cacheable one.
-
-    INVARIANT: reads ``rule.cache_behavior`` rather than assuming it. A ``keyed``
-    or ``transport_only`` rule is not a bypass path — the registry conformance
-    sweep separately proves such a rule can only name a field the cache key
-    builder actually reads.
-
-    Provider-agnostic and pure: no provider name, no I/O, no mutation.
+    This pure function is a caller-visible compatibility view, not the runtime global-cache
+    authority. Actual eligibility lives in ``request_cache.global_eligibility``. Keeping the view
+    prevents the single-lane refactor from deleting a non-v1 API while its tests ensure it continues
+    to describe the same provider rule contract.
     """
     enabled = {
         rule.request_path: rule

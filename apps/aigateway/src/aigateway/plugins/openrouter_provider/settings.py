@@ -22,6 +22,11 @@ from aigateway.core.plugin_base import PluginSettings
 
 GATEWAY_MODEL_PREFIX = "openrouter/"
 
+# D7: the gateway owns routing — every dispatch goes to the official API base.
+# Homed here rather than in ``plugin.py`` so that both the dispatch path and the
+# pure global-cache projection can reach it without importing the plugin.
+OFFICIAL_API_BASE = "https://openrouter.ai/api/v1"
+
 # D8: ASCII upstream ID `<author>/<model>[:variant]` with exactly two non-empty
 # segments; the author may carry a single leading `~` alias marker. The
 # character classes reject every forbidden shape by construction: Unicode,

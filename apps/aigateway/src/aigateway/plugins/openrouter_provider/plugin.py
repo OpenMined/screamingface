@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.cache_ports import CacheBypass
 from aigateway.core.parameter_discovery import DiscoverySourceRef
 from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
@@ -51,6 +52,14 @@ from .dispatch_errors import (
     _invalid_model_error,
     _unsafe_litellm_state_error,
 )
+
+# AIDEV-NOTE: ``X as X`` is an explicit RE-EXPORT, not a redundant alias. OME-305
+# moved ``GLOBAL_CACHE_ADAPTER_REVISION`` and ``OFFICIAL_API_BASE`` out of this module
+# to keep it under the size limit and to home the pure projection away from the impure
+# wiring; several test modules and the dispatch path still import them from here, so
+# the names must stay reachable. Removing the alias form makes ruff delete them.
+from .global_cache import GLOBAL_CACHE_ADAPTER_REVISION as GLOBAL_CACHE_ADAPTER_REVISION
+from .global_cache import project_global_cache_request
 from .litellm_controls import (
     _has_unsafe_litellm_global_state,
     _strip_openrouter_litellm_controls,
@@ -73,6 +82,7 @@ from .settings import (
     OpenRouterPluginSettings,
     is_valid_upstream_model_id,
 )
+from .settings import OFFICIAL_API_BASE as OFFICIAL_API_BASE
 
 if TYPE_CHECKING:
     from aigateway.core.chat_parameters import (
@@ -105,9 +115,6 @@ def _upstream_model_for_discovery(model: str) -> str | None:
     upstream = model[len(GATEWAY_MODEL_PREFIX) :]
     return upstream if is_valid_upstream_model_id(upstream) else None
 
-
-# D7: the gateway owns routing — every dispatch goes to the official API base.
-OFFICIAL_API_BASE = "https://openrouter.ai/api/v1"
 
 # D7: trusted attribution, injected AFTER caller-header sanitization so the
 # gateway owns these keys end-to-end. LiteLLM 1.87.0 lets caller headers
@@ -342,6 +349,28 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         out["provider"] = build_provider_policy(out.pop("provider", None))
         return out
 
+    def global_cache_projection(self, body: dict[str, Any]) -> dict[str, Any] | CacheBypass:
+        # OME-305: delegated to ``global_cache`` so the PURE projection lives in a
+        # module that holds nothing impure. See that module for the invariants.
+        #
+        # AIDEV-NOTE: the `enabled` gate deliberately is NOT here. It lives in
+        # ``participates_in_global_cache`` below, because this method's port contract
+        # is that it reads the request body ALONE — and `test_no_projection_reads_
+        # operator_configuration` enforces that with a poison-settings twin. Gating
+        # here would also be the wrong shape: PARTICIPATION and KEY MATERIAL are
+        # separate decisions, and only the latter belongs to a pure projection.
+        return project_global_cache_request(body)
+
+    def participates_in_global_cache(self) -> bool:
+        # D2, extended to the cache path. `register_models` and `api_key_strategy_for`
+        # already fail closed when disabled, but the global cache is a SECOND way to
+        # serve this provider's responses — a stored row needs no model entry and no
+        # credential to be replayed, and the cache stage runs AHEAD of both checks, so
+        # neither the 404 nor the 400 ever gets a chance to refuse the request.
+        # Without this gate a disabled OpenRouter keeps answering from rows an enabled
+        # deployment filled, indefinitely (current rows never expire).
+        return self.settings.enabled
+
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         import litellm
 
@@ -351,9 +380,6 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             raise _unsafe_litellm_state_error()
 
         dispatch_body = dict(body)
-        # WHY: these gateway-owned values override ambient SSL_VERIFY and
-        # process-global LiteLLM cache state. AIGateway's own encrypted,
-        # account-scoped request cache is handled before this provider call.
         dispatch_body["ssl_verify"] = True
         dispatch_body["caching"] = False
         dispatch_body["cache"] = {"no-cache": True, "no-store": True}

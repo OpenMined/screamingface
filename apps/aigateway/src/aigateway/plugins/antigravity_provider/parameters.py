@@ -51,6 +51,26 @@ CODE_ASSIST_SOURCE = "antigravity:code-assist"
 
 _AUTH: tuple[AuthMode, ...] = ("oauth",)
 # Bump when a projection's semantics change; folds into the contract digests.
+
+# AIDEV-NOTE (OME-305, owner decision B — READ BEFORE CHANGING A ``cache_behavior``).
+# Every rule below states ``cache_behavior="bypass"`` EXPLICITLY. That is a disposition,
+# not an oversight, and it is not a judgement about the parameter: each of these values
+# is output-affecting and WOULD have to be keyed for a cached answer to be correct.
+#
+# The reason they are not keyed is that THIS PROVIDER DOES NOT IMPLEMENT
+# ``global_cache_projection`` — it inherits the ``CacheBypass`` default from
+# ``ProviderPluginBase``. While that is true, every request to this provider bypasses
+# the cache at the projection step regardless of any rule, so declaring ``keyed`` here
+# would change no behaviour while advertising a cacheable parameter to callers that can
+# never be cached. ``test_a_provider_that_declares_a_keyed_rule_backs_it_with_a_real_projection``
+# in ``tests/unit/test_global_cache_registry_conformance.py`` is what enforces that.
+#
+# TO PROMOTE THESE: implement ``global_cache_projection`` for this provider FIRST, then
+# flip these to ``keyed`` in the same change. The order matters — the conformance sweep
+# will refuse the flip on its own, which is the intended guard rail rather than an
+# obstacle. Anthropic and OpenRouter are the two providers that have the projection and
+# therefore carry keyed rules today.
+
 _REVISION = "antigravity-2026-07"
 
 # build_generate_content_body converts tools[] → functionDeclarations, so `function`
@@ -71,20 +91,41 @@ _SAMPLING_PATHS: tuple[str, ...] = (
 
 _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
-        "temperature", auth_modes=_AUTH, schema=TEMPERATURE_SCHEMA, projection_revision=_REVISION
+        "temperature",
+        auth_modes=_AUTH,
+        schema=TEMPERATURE_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
     ),
-    direct_rule("top_p", auth_modes=_AUTH, schema=TOP_P_SCHEMA, projection_revision=_REVISION),
     direct_rule(
-        "max_tokens", auth_modes=_AUTH, schema=MAX_TOKENS_SCHEMA, projection_revision=_REVISION
+        "top_p",
+        auth_modes=_AUTH,
+        schema=TOP_P_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
+    ),
+    direct_rule(
+        "max_tokens",
+        auth_modes=_AUTH,
+        schema=MAX_TOKENS_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
     ),
     # The builder renames `stop` to stopSequences, coercing the scalar arm of the
     # OpenAI union into a one-element list — both arms have a proven wire home.
-    direct_rule("stop", auth_modes=_AUTH, schema=STOP_SCHEMA, projection_revision=_REVISION),
+    direct_rule(
+        "stop",
+        auth_modes=_AUTH,
+        schema=STOP_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
+    ),
     provider_native_rule(
         "provider_params.top_k",
         provider_target="top_k",
         auth_modes=_AUTH,
         schema=TOP_K_SCHEMA,
+        cache_behavior="bypass",
         projection_revision=_REVISION,
     ),
     *function_calling_rules(

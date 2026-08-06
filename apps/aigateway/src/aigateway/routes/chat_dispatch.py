@@ -2,9 +2,12 @@
 
 Everything after the body is credential-sealed lives here: backpressure +
 overload retry, LiteLLM-exception → HTTP mapping, dispatch-failure credential
-marking, request-cache planning/persistence, and SSE streaming. Split out of
-routes/chat.py (OME-428 Phase 1) behind characterization tests; behavior is
-unchanged.
+marking, and SSE streaming. Split out of routes/chat.py (OME-428 Phase 1) behind
+characterization tests; behavior is unchanged.
+
+OME-305: request-cache planning and persistence live in ``chat_cache_stage``. The
+global cache is consulted before provider credentials are resolved, so dispatch-side
+helpers cannot participate in its key or storage lifecycle.
 """
 
 from __future__ import annotations
@@ -12,24 +15,15 @@ from __future__ import annotations
 import json
 import logging
 import math
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import HTTPException, Request, Response
+from fastapi import HTTPException, Request
 
 from ..core.concurrency import effective_provider_limit, provider_slot
 from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.http_status import valid_http_error_status
 from ..core.oauth.models import OAuthConnection
 from ..core.profile_models import AuthType, Profile
-from ..core.request_cache.keys import (
-    KEY_VERSION,
-    CacheBypass,
-    CacheControls,
-    CacheKeyResult,
-    build_cache_key,
-)
-from ..core.request_cache.store import RequestCacheStore, RequestCacheWrite
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
 from .chat_credentials import (
     _invalidate_profile_session,
@@ -163,108 +157,6 @@ async def _dispatch_with_backpressure(
             lambda: plugin.chat_completion(body),
             policy=RetryPolicy.from_settings(settings),
         )
-
-
-def _resolve_cache_plan(
-    request: Request,
-    *,
-    account_id: str,
-    profile_name: str,
-    provider: str,
-    body: dict[str, Any],
-    controls: CacheControls,
-    bypass_paths: tuple[str, ...] = (),
-) -> tuple[CacheKeyResult | None, str, str]:
-    """Decide cache participation for this request.
-
-    Returns ``(key, status, reason)`` where ``key`` is None whenever the
-    request bypasses the cache. Status/reason feed the X-AIGW-Cache headers.
-
-    ``bypass_paths`` are the accepted CALLER-VISIBLE request paths whose rule
-    declares ``cache_behavior="bypass"`` (see
-    ``core.parameter_projection.caller_cache_bypass_paths``). They are the
-    contract's own promise, carried past provider preparation.
-    """
-    settings = request.app.state.settings
-    if not settings.request_cache_enabled:
-        return None, "bypass", "disabled"
-    if not controls.use_cache:
-        return None, "bypass", "not_requested"
-    built = build_cache_key(
-        account_id=account_id,
-        profile_name=profile_name,
-        provider=provider,
-        normalized_body=body,
-    )
-    if isinstance(built, CacheBypass):
-        return None, "bypass", built.reason
-    if bypass_paths:
-        # WHY (OME-479 §4.6, closure Unit 1): ``build_cache_key`` judges the body
-        # AFTER ``plugin.prepare_chat_body``, so a hook that REMOVES an accepted
-        # output-affecting field hands it a body indistinguishable from a bare
-        # prompt — and the request silently borrowed the bare request's entry
-        # while the published contract said ``bypass``. The caller-visible
-        # contract decides; the key builder stays the second line of defence for
-        # anything preparation ADDS.
-        # INVARIANT: this branch can only ever ADD a bypass. Every request that
-        # bypassed before still bypasses, with its original reason intact.
-        # The reason code is the existing "the cache cannot key this request"
-        # vocabulary — the same one an unremoved ``temperature`` already reports —
-        # so the caller-facing header does not gain a second word for one fact.
-        return None, "bypass", "unsupported_fields"
-    return built, "miss", ""
-
-
-def _set_cache_headers(
-    response: Response, status: str, reason: str, key: CacheKeyResult | None
-) -> None:
-    response.headers["X-AIGW-Cache"] = status
-    if reason:
-        response.headers["X-AIGW-Cache-Reason"] = reason
-    # Hash-derived prefix only — never prompt or response content.
-    if key is not None and status in {"hit", "miss"}:
-        response.headers["X-AIGW-Cache-Key"] = key.key_hash[:12]
-
-
-async def _store_cached_response(
-    request: Request,
-    *,
-    key: CacheKeyResult,
-    account_id: str,
-    result: Any,
-    controls: CacheControls,
-) -> str:
-    """Persist a fresh response when allowed; returns the cache reason."""
-    if controls.no_store:
-        return "no_store"
-    if not isinstance(result, dict):
-        return "unsupported_fields"
-    settings = request.app.state.settings
-    payload_size = len(
-        json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    )
-    if payload_size > settings.request_cache_max_response_bytes:
-        return "too_large"
-    ttl = min(
-        controls.ttl or settings.request_cache_default_ttl_seconds,
-        settings.request_cache_max_ttl_seconds,
-    )
-    store: RequestCacheStore = request.app.state.request_cache_store
-    await store.set(
-        RequestCacheWrite(
-            key_hash=key.key_hash,
-            key_version=KEY_VERSION,
-            account_id=account_id,
-            profile_name=key.profile_name,
-            prompt_hash=key.prompt_hash,
-            provider=key.provider,
-            model=key.model,
-            response=result,
-            response_size_bytes=payload_size,
-            expires_at=datetime.now(UTC) + timedelta(seconds=ttl),
-        )
-    )
-    return "stored"
 
 
 # WHY (FINDING B): the client-facing message is gateway-authored per machine

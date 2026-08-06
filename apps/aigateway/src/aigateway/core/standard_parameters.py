@@ -76,12 +76,27 @@ def direct_rule(
     *,
     auth_modes: tuple[AuthMode, ...],
     projection_revision: str,
+    cache_behavior: CacheBehavior,
     schema: ParameterSchema | None = None,
     provider_target: str | None = None,
-    cache_behavior: CacheBehavior = "bypass",
     output_affecting: bool = True,
 ) -> ParameterProjectionRule:
-    """A standard field kept on the request under ``request_path`` (or a target)."""
+    """A standard field kept on the request under ``request_path`` (or a target).
+
+    # WHY ``cache_behavior`` is REQUIRED and has no default (OME-305, owner decision
+    # 52): it used to default to ``"bypass"``, which made silence indistinguishable
+    # from a judgment. Every parameter that reached this factory without the argument
+    # was recorded as a deliberate bypass by a caller who had never considered the
+    # question, and the audit could not tell the two apart. A required argument forces
+    # a NEW parameter's author to answer "must two callers sending this same value get
+    # the same upstream request?" at the moment they add the rule, which is the only
+    # time the answer is cheap to establish.
+    # INVARIANT: a rule may only be keyed on a provider that implements
+    # ``global_cache_projection``. Keying a parameter on a provider without one is
+    # unobservable — the missing projection bypasses the request regardless of its
+    # rules' dispositions — and it is refused by
+    # ``test_a_provider_that_declares_a_keyed_rule_backs_it_with_a_real_projection``.
+    """
     return ParameterProjectionRule(
         request_path=request_path,
         applicable_auth_modes=auth_modes,
@@ -100,11 +115,19 @@ def provider_native_rule(
     provider_target: str,
     auth_modes: tuple[AuthMode, ...],
     projection_revision: str,
+    cache_behavior: CacheBehavior,
     schema: ParameterSchema | None = None,
-    cache_behavior: CacheBehavior = "bypass",
     output_affecting: bool = True,
 ) -> ParameterProjectionRule:
-    """A ``provider_params.*`` field projected to a provider-native ``target``."""
+    """A ``provider_params.*`` field projected to a provider-native ``target``.
+
+    # WHY ``cache_behavior`` is required here too — see ``direct_rule`` above for the
+    # full rationale (owner decision 52). This factory carries an extra hazard worth
+    # naming: a ``provider_params.*`` rule restricted to SOME of the provider's auth
+    # modes can never actually be keyed, because the key is built before any credential
+    # exists. Owner decision 59 therefore requires such a rule to declare ``bypass``;
+    # the mode-restriction check in ``global_eligibility`` remains defence in depth.
+    """
     return ParameterProjectionRule(
         request_path=request_path,
         applicable_auth_modes=auth_modes,
@@ -178,6 +201,7 @@ def function_calling_rules(
             "tools",
             auth_modes=auth_modes,
             schema=tools_schema(tool_types),
+            cache_behavior="bypass",
             projection_revision=projection_revision,
         )
     ]
@@ -187,6 +211,7 @@ def function_calling_rules(
                 "tool_choice",
                 auth_modes=auth_modes,
                 schema=tool_choice_schema(tool_types),
+                cache_behavior="bypass",
                 projection_revision=projection_revision,
             )
         )

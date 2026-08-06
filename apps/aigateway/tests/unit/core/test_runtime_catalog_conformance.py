@@ -5,7 +5,7 @@ from __future__ import annotations
 from aigateway.core.chat_parameters import normalize_rules
 from aigateway.core.model_capabilities import canonical_model_id
 from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS, wrapper_path_conflicts
-from aigateway.core.request_cache.keys import PROMPT_KEY_FIELDS
+from aigateway.core.request_cache.global_keys import STRUCTURALLY_EXCLUDED_FIELDS
 from tests.unit.core.test_provider_contract_conformance import _REGISTRY
 from tests.unit.core.test_provider_contract_conformance_hardening import _served_document
 
@@ -47,7 +47,16 @@ def test_every_registered_provider_supplies_conformance_models_and_rules() -> No
                     assert rule.parameter_schema is not None, rule_where
                     assert rule.target.split(".", 1)[0] not in GATEWAY_OWNED_FIELDS, rule_where
                     if rule.cache_behavior != "bypass":
-                        assert rule.request_path in PROMPT_KEY_FIELDS, rule_where
+                        # OME-479: a rule may not publish a cache promise the pipeline
+                        # cannot keep. REPOINTED from v1's ``PROMPT_KEY_FIELDS`` to the
+                        # v2 key builder's own exclusion set (OME-305): the v2 builder
+                        # keys every request path EXCEPT the structurally excluded ones,
+                        # so the deliverable set is a denylist and no longer just the
+                        # three prompt fields. The property is unchanged — only its
+                        # source of truth moved to the builder that now decides it.
+                        assert (
+                            rule.request_path.split(".", 1)[0] not in STRUCTURALLY_EXCLUDED_FIELDS
+                        ), rule_where
                     entry_dict = document["parameters"][rule.request_path]
                     assert entry_dict["schema"] is not None, rule_where
                     assert entry_dict["gateway"].get("projection"), rule_where

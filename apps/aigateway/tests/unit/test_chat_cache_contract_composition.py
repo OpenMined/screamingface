@@ -7,14 +7,28 @@ This suite proves that promise against the REAL route, not against
 ``build_cache_key()`` in isolation.
 
 WHY a separate module from ``test_chat_request_cache.py``: that suite proves the
-cache's own semantics (isolation, TTL, controls, storage). This one proves a
-COMPOSITION property of the dispatch pipeline — the cache decision cannot be
-undone by a provider preparation hook that runs before cache planning.
+cache's own semantics (isolation, controls, storage). This one proves a COMPOSITION
+property of the dispatch pipeline — the cache decision cannot be undone by what a
+provider does to the body on its way to the wire.
 
 INVARIANT: the cache plan is derived from the ACCEPTED CALLER-VISIBLE parameter
 contract. A provider hook may remove, rename, flatten or nest a field on its way
 to the wire; none of that can turn a declared-``bypass`` request into a cacheable
 one.
+
+AIDEV-NOTE (OME-305): the MECHANISM behind that invariant inverted, while every
+assertion below still holds. Under v1 ``prepare_chat_body`` ran BEFORE cache
+planning, so a hook that stripped a field genuinely could hand the planner a body
+indistinguishable from a bare one — the bug closure item 2 reproduced. Under v2 the
+cache stage runs FIRST and never sees a prepared body at all, so that particular
+failure is now structurally impossible rather than merely tested against.
+
+The composition risk did not disappear, it MOVED: the key is now built from what
+``global_cache_projection`` returns, so a projection that dropped an
+output-affecting value would reintroduce exactly this class of bug one layer over.
+Every test here is therefore retained deliberately — they pin the property from the
+CALLER's side, which is the side that does not change when the internals do, and
+they are the regression net for whichever layer next decides what the key contains.
 """
 
 from __future__ import annotations
@@ -79,12 +93,16 @@ class _DispatchCounter:
         return SimpleNamespace(
             model_dump=lambda: {
                 "id": f"resp-{len(self.calls)}",
-                "choices": [{"message": {"content": "ANSWER"}}],
+                "choices": [{"message": {"content": "ANSWER"}, "finish_reason": "stop"}],
             }
         )
 
 
 def _chat_body(**overrides) -> dict:
+    # OME-305: the explicit ``use-cache`` opt-in is now REDUNDANT — participation is
+    # the default — and it is retained on purpose. It keeps this suite proving the
+    # composition property for a request that asks for caching in so many words, and
+    # ``test_chat_request_cache.py`` covers the say-nothing default separately.
     body = {
         "model": _MODEL,
         "messages": [{"role": "user", "content": "hi"}],
@@ -121,7 +139,14 @@ def test_bare_cache_enabled_request_misses_dispatches_and_stores(
     assert first.status_code == 200
     assert len(counter.calls) == 1
     assert first.headers["X-AIGW-Cache"] == "miss"
-    assert first.headers["X-AIGW-Cache-Reason"] == "stored"
+    # SUPERSEDED (OME-305): v1 reported the fill through X-AIGW-Cache-Reason, which
+    # conflated "why this request was not served from cache" with "what happened when
+    # we tried to store it". v2 splits them — Reason explains a bypass and is
+    # present-but-empty when there is nothing to explain, and the fill outcome has its
+    # own header with a three-value vocabulary. Both halves are asserted so the split
+    # itself is pinned, not just the new name.
+    assert first.headers["X-AIGW-Cache-Reason"] == ""
+    assert first.headers["X-AIGW-Cache-Write"] == "stored"
 
 
 def test_repeated_bare_request_still_hits(credential_blobs, cache_client) -> None:
@@ -137,15 +162,36 @@ def test_repeated_bare_request_still_hits(credential_blobs, cache_client) -> Non
     assert second.json() == first.json()
 
 
-def test_reasoning_effort_none_bypasses_and_never_consumes_the_bare_entry(
+def test_reasoning_effort_none_is_keyed_and_never_consumes_the_bare_entry(
     credential_blobs, cache_client
 ) -> None:
-    """Closure item 2 — the reproduced public-contract violation.
+    """SUPERSEDED (OME-305, owner decision B) — the INVARIANT is preserved, the
+    MECHANISM changed.
 
-    ``prepare_chat_body`` drops ``reasoning_effort == "none"`` (it means "no
-    thinking", which is what omission already means for Anthropic), so the body
-    reaching cache planning was byte-identical to a bare request and hit its
-    stored entry — while the contract published ``cache_behavior: bypass``.
+    Was ``test_reasoning_effort_none_bypasses_and_never_consumes_the_bare_entry``,
+    asserting verbatim: ``assert response.headers["X-AIGW-Cache"] == "bypass"``,
+    ``assert "X-AIGW-Cache-Key" not in response.headers`` and ``assert
+    len(counter.calls) == 2, "a declared-bypass request must reach the provider"``.
+
+    The BUG this test reproduces is unchanged and still closed: ``prepare_chat_body``
+    drops ``reasoning_effort == "none"``, so the PREPARED body is byte-identical to a
+    bare request. Under v1 the cache stage ran after preparation and therefore served
+    the bare entry — a wrong hit. Two different things now prevent it, and only the
+    second is new: the stage runs BEFORE preparation, so it sees the field at all; and
+    ``reasoning_effort`` is now KEYED, so the field lands in the fingerprint instead of
+    forcing a bypass.
+
+    WHY the surviving assertion is the important one: "does not consume the bare entry"
+    is the property that was ever at stake. Whether it is delivered by refusing to look
+    or by looking under a different key is an implementation choice; being served
+    another request's answer is the harm.
+
+    AIDEV-NOTE: this is the CONSERVATIVE direction of keying, and the cost is real —
+    a bare request and ``reasoning_effort="none"`` dispatch IDENTICAL wire bodies yet
+    occupy two entries. That wastes one dispatch and one row. It is the right trade:
+    the cache keys what the CALLER sent, because deciding equivalence from what
+    preparation happens to strip is exactly the coupling that produced the original
+    bug.
     """
     _arrange_account(cache_client, credential_blobs)
     counter = _DispatchCounter()
@@ -156,33 +202,48 @@ def test_reasoning_effort_none_bypasses_and_never_consumes_the_bare_entry(
         response = cache_client.post(_CHAT_PATH, json=_chat_body(reasoning_effort="none"))
 
     assert response.status_code == 200, response.text
-    assert response.headers["X-AIGW-Cache"] == "bypass"
-    assert "X-AIGW-Cache-Key" not in response.headers
-    assert len(counter.calls) == 2, "a declared-bypass request must reach the provider"
-    # The value is still ACCEPTED and still normalizes to omission on the wire.
+    assert response.headers["X-AIGW-Cache"] == "miss", "must not be served the bare entry"
+    assert response.headers["X-AIGW-Cache-Key"] != bare.headers["X-AIGW-Cache-Key"]
+    assert len(counter.calls) == 2, "the request must reach the provider, not the bare entry"
+    # The value is still ACCEPTED and still normalizes to omission on the wire — which
+    # is precisely why the two keys must differ despite identical dispatch bodies.
     assert "reasoning_effort" not in counter.calls[-1]
 
 
-def test_reasoning_effort_high_bypasses_and_dispatches(credential_blobs, cache_client) -> None:
-    # Closure item 3 — the surviving-value positive control. `high` is not removed
-    # by prepare_chat_body, so it bypassed before the fix and must still bypass.
+def test_reasoning_effort_high_is_cached_under_its_value(credential_blobs, cache_client) -> None:
+    """SUPERSEDED (OME-305, owner decision B).
+
+    Was ``test_reasoning_effort_high_bypasses_and_dispatches``, asserting verbatim:
+    ``assert first.headers["X-AIGW-Cache"] == "bypass"``, ``assert
+    second.headers["X-AIGW-Cache"] == "bypass"`` and ``assert len(counter.calls) == 2``.
+
+    ``high`` is the surviving-value control: ``prepare_chat_body`` does not remove it,
+    so it reaches the wire. Keyed, the repeat is served from the entry — and the
+    differing-value case below is what proves the VALUE is in the fingerprint rather
+    than merely the field's presence.
+    """
     _arrange_account(cache_client, credential_blobs)
     counter = _DispatchCounter()
     with patch(_PATCH_TARGET, counter):
         first = cache_client.post(
             _CHAT_PATH, json=_chat_body(reasoning_effort="high", max_tokens=32000)
         )
-        second = cache_client.post(
+        repeat = cache_client.post(
             _CHAT_PATH, json=_chat_body(reasoning_effort="high", max_tokens=32000)
         )
+        other = cache_client.post(
+            _CHAT_PATH, json=_chat_body(reasoning_effort="low", max_tokens=32000)
+        )
     assert first.status_code == 200, first.text
-    assert first.headers["X-AIGW-Cache"] == "bypass"
-    assert second.headers["X-AIGW-Cache"] == "bypass"
+    assert first.headers["X-AIGW-Cache"] == "miss"
+    assert repeat.headers["X-AIGW-Cache"] == "hit"
+    assert other.headers["X-AIGW-Cache"] == "miss", "a different effort must not hit"
     assert len(counter.calls) == 2
-    assert counter.calls[-1]["reasoning_effort"] == "high"
+    assert counter.calls[0]["reasoning_effort"] == "high"
+    assert counter.calls[-1]["reasoning_effort"] == "low"
 
 
-def test_detailed_contract_publishes_bypass_for_reasoning_effort(
+def test_detailed_contract_publishes_keyed_for_reasoning_effort(
     credential_blobs, cache_client
 ) -> None:
     # Closure item 5 — the published value the runtime must now honour. This is
@@ -193,24 +254,39 @@ def test_detailed_contract_publishes_bypass_for_reasoning_effort(
     assert document.status_code == 200, document.text
     entry = document.json()["parameters"]["reasoning_effort"]
     assert entry["gateway"]["status"] == "enabled"
-    assert entry["gateway"]["cache_behavior"] == "bypass"
+    # SUPERSEDED (OME-305, owner decision B), was:
+    #     assert entry["gateway"]["cache_behavior"] == "bypass"
+    # The agreement this test protects is UNCHANGED — the published contract and the
+    # runtime must say the same thing. Only the shared value moved.
+    assert entry["gateway"]["cache_behavior"] == "keyed"
     assert "none" in entry["schema"]["enum"]
 
 
-def test_a_preparation_hook_that_strips_an_accepted_field_cannot_make_it_cacheable(
+def test_a_preparation_hook_that_strips_a_keyed_field_cannot_make_it_borrow_the_bare_entry(
     credential_blobs, cache_client
 ) -> None:
-    """Closure item 6 — the GENERAL provider-pipeline guard.
+    """SUPERSEDED (OME-305, owner decision B) — same invariant, stated positively.
 
-    INVARIANT: cache eligibility is decided from the accepted caller-visible
-    contract, so it is independent of what a provider's ``prepare_chat_body``
-    does to the body afterwards. This drives the property with a hook that
-    removes a DIFFERENT output-affecting parameter (``temperature``) than the one
-    the shipped Anthropic hook touches — the same composition failure any future
-    provider hook could reintroduce.
+    Was ``test_a_preparation_hook_that_strips_an_accepted_field_cannot_make_it_cacheable``,
+    asserting verbatim: ``assert first.headers["X-AIGW-Cache"] == "bypass"``, ``assert
+    second.headers["X-AIGW-Cache"] == "bypass"`` and ``assert len(counter.calls) == 3,
+    "a stripped bypass field must not borrow the bare entry"``.
 
-    A component-level ``build_cache_key()`` call cannot express this: the
-    stripped body it would receive is, by construction, a cacheable one.
+    INVARIANT (unchanged, and the reason this test exists): cache identity is decided
+    from the ACCEPTED CALLER-VISIBLE CONTRACT, so it is independent of what a provider's
+    ``prepare_chat_body`` does to the body afterwards. The old name framed that as
+    "cannot become cacheable"; with ``temperature`` keyed the request IS cacheable, and
+    the property is the sharper one it always stood for: it cannot borrow a DIFFERENT
+    request's entry.
+
+    The hook here strips a different parameter (``temperature``) than the shipped
+    Anthropic hook touches, so it stands in for the composition failure any future
+    provider hook could reintroduce. The three requests dispatch only TWO distinct wire
+    bodies — bare, and temperature-stripped-to-bare — and still occupy two separate
+    keys, which is the whole point.
+
+    A component-level ``build_cache_key()`` call cannot express this: the stripped body
+    it would receive is, by construction, already a bare one.
     """
     _arrange_account(cache_client, credential_blobs)
 
@@ -228,23 +304,39 @@ def test_a_preparation_hook_that_strips_an_accepted_field_cannot_make_it_cacheab
         second = cache_client.post(_CHAT_PATH, json=_chat_body(temperature=0.7))
 
     assert first.status_code == second.status_code == 200
-    assert first.headers["X-AIGW-Cache"] == "bypass"
-    assert second.headers["X-AIGW-Cache"] == "bypass"
-    assert len(counter.calls) == 3, "a stripped bypass field must not borrow the bare entry"
-    # And the stripped request never wrote an entry under the bare key either.
+    assert first.headers["X-AIGW-Cache"] == "miss", "must not borrow the bare entry"
+    assert first.headers["X-AIGW-Cache-Key"] != bare.headers["X-AIGW-Cache-Key"]
+    assert second.headers["X-AIGW-Cache"] == "hit", "its own entry must be reusable"
+    # Two dispatches, not three: bare, then the first temperature request. The stripped
+    # body was identical to bare both times and STILL did not resolve to bare's entry.
+    assert len(counter.calls) == 2, "a stripped keyed field must not borrow the bare entry"
     assert all("temperature" not in call for call in counter.calls)
 
 
 def test_a_bypassing_request_does_not_write_the_cache(credential_blobs, cache_client) -> None:
-    # The bypass promise is symmetric: a declared-bypass request must neither READ
-    # nor WRITE the cache. Without this, the FIRST reasoning_effort="none" request
-    # would still store a response under the bare-request key and the NEXT bare
-    # request would serve a reasoning-effort-shaped answer.
+    # The bypass promise is symmetric: a bypassing request must neither READ nor
+    # WRITE the cache. Without this, the FIRST bypassing request would still store a
+    # response under the bare-request key and the NEXT bare request would serve an
+    # answer shaped by a parameter it never sent.
+    #
+    # AIDEV-NOTE (OME-305, owner decision B): the ASSERTIONS here are untouched and this
+    # is deliberately NOT a supersession — the invariant did not change, only the
+    # VEHICLE. ``reasoning_effort="none"`` used to be a declared bypass and is now
+    # keyed, so it can no longer demonstrate the property. ``metadata`` replaces it and
+    # is a better vehicle besides: its presence bypasses STRUCTURALLY, ahead of any
+    # rule, so no future promotion can silently make this test vacuous the way decision
+    # B just did. The empty dict also pins decision 6 — metadata bypasses on PRESENCE,
+    # even when it carries nothing.
     _arrange_account(cache_client, credential_blobs)
     counter = _DispatchCounter()
     with patch(_PATCH_TARGET, counter):
-        first = cache_client.post(_CHAT_PATH, json=_chat_body(reasoning_effort="none"))
+        first = cache_client.post(_CHAT_PATH, json=_chat_body(metadata={}))
         bare = cache_client.post(_CHAT_PATH, json=_chat_body())
     assert first.headers["X-AIGW-Cache"] == "bypass"
+    # OME-305: the write header exists only on a miss, so its ABSENCE is the direct
+    # statement that no fill was even attempted — the bare request below then proves
+    # the consequence (nothing was there to be served).
+    assert "X-AIGW-Cache-Write" not in first.headers
     assert bare.headers["X-AIGW-Cache"] == "miss", "the bypassed request must not have stored"
+    assert bare.headers["X-AIGW-Cache-Write"] == "stored"
     assert len(counter.calls) == 2

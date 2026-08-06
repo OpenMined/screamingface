@@ -122,8 +122,13 @@ class Settings(BaseSettings):
         validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES",
     )
 
-    # Opt-in persistent response cache for deterministic chat completions
-    # (SF-265). Disabled by default; behavior with the flag off is unchanged.
+    # Persistent response cache for deterministic chat completions (SF-265, global as of OME-305).
+    #
+    # WHY the default stays False while the per-call default became opt-OUT: with the flag on, this
+    # is one GLOBAL cache shared by every caller of the gateway — a data-sharing posture, not a
+    # performance knob. It is turned on deliberately in hosted config
+    # (`config.requestCache.enabled` in the chart, on in `values-prod.yaml`), so the decision is
+    # visible in the rendered manifest rather than inherited from a code default.
     request_cache_enabled: bool = Field(
         default=False, validation_alias="AIGW_REQUEST_CACHE_ENABLED"
     )
@@ -280,3 +285,17 @@ class Settings(BaseSettings):
         if normalized not in {"local", "kms"}:
             raise ValueError("AIGATEWAY_SECRET_PROVIDER must be 'local' or 'kms'")
         return normalized
+
+    @field_validator("secret_key", mode="before")
+    @classmethod
+    def _empty_secret_key_is_unset(cls, value: object) -> object:
+        """Exactly ``""`` means "no key", because that is what an empty env var means.
+
+        INVARIANT: only the empty string. A blank-but-nonempty value like ``" "`` is a WRONG key,
+        not an absent one, and must keep reaching ``secrets.master_key._decode_key`` and crashing
+        there at startup. Hence no ``.strip()`` — stripping would silently downgrade a misconfigured
+        deployment into the auto-generated-key posture while looking helpful — and no rejecting
+        validator, because a raise here would let Pydantic capture the value in
+        ``ValidationError(input_value=…)`` and leak it into startup logs (SF-221 review #5).
+        """
+        return None if value == "" else value

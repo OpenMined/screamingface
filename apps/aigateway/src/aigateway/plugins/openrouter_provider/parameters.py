@@ -17,6 +17,7 @@ from aigateway.core.chat_parameters import (
     ParameterSchema,
     ToolCapability,
 )
+from aigateway.core.parameter_projection import WRAPPER_KEY
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     LOGPROBS_SCHEMA,
@@ -39,6 +40,19 @@ from .routing_policy import routing_policy_rules
 # OpenRouter is API-key only (no OAuth); its auth-mode intersection is a single
 # mode, so every proven rule is enabled under it.
 _AUTH: tuple[AuthMode, ...] = ("api_key",)
+# AIDEV-NOTE (OME-305, owner decision B — READ BEFORE CHANGING A ``cache_behavior``).
+# The output-affecting rules below state ``cache_behavior="keyed"`` EXPLICITLY: their
+# values change the response, so they must be in the global fingerprint or two callers
+# who sent different values would share one entry. This provider is one of only two
+# that carry keyed rules, and the reason is a PRECONDITION rather than a preference —
+# it implements ``global_cache_projection``. A provider without that port bypasses at
+# the projection step no matter what its rules say, so ``keyed`` there would advertise
+# a cacheable parameter that can never be cached (see the sibling note in the
+# non-projecting providers' rule files).
+#
+# ``tools`` and ``tool_choice`` are NOT keyed anywhere and must stay that way: their
+# presence bypasses structurally, ahead of any rule, via ``PRESENCE_BYPASS_REASONS``.
+
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "openrouter-2026-07"
 
@@ -47,6 +61,19 @@ _REVISION = "openrouter-2026-07"
 # OpenRouter binds its OWN minimum=0 schema. Do NOT widen the shared ``TOP_K_SCHEMA``
 # (minimum=1) — Anthropic and Gemini still bind it and their top-k lower bound is 1.
 OPENROUTER_TOP_K_SCHEMA = ParameterSchema(type="integer", minimum=0)
+
+# OME-305: the ONE spelling of where `top_k` lands upstream, shared with
+# ``global_cache`` so the rule's target and the cache projection cannot drift.
+#
+# WHY a shared constant rather than two literals: drift here does not fail loudly.
+# The key builder's presence check is ROOT-only — it asks whether `extra_body`
+# appears in the projected `prepared`, and trusts the provider for what is inside.
+# A projection emitting a different root would therefore turn every `top_k` request
+# into a silent `unprojected_parameter` bypass (correct, but permanently uncacheable
+# and invisible), and a projection emitting the root WITHOUT this leaf would be worse
+# still: `top_k=3` and `top_k=7` would share one key.
+EXTRA_BODY_OBJECT = "extra_body"
+TOP_K_LEAF = "top_k"
 
 # OME-583: OpenRouter is OpenAI-compatible; the INSTALLED litellm openrouter transform
 # forwards tools[] and tool_choice onto the wire (§9), so function calling is enabled
@@ -57,7 +84,11 @@ _TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
 
 _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
-        "temperature", auth_modes=_AUTH, schema=TEMPERATURE_SCHEMA, projection_revision=_REVISION
+        "temperature",
+        auth_modes=_AUTH,
+        schema=TEMPERATURE_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
     ),
     # OME-479 (closure Unit 2): the P0 promotion of a genuinely observed-but-unruled
     # field. `top_p` was reported by this provider's own evidence (openrouter:static,
@@ -69,13 +100,29 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     # range IS the standard OpenAI [0, 1], so the SHARED schema binds unchanged.
     # Contrast OPENROUTER_TOP_K_SCHEMA below, which exists only because OpenRouter's
     # top_k floor genuinely differs from the shared one.
-    direct_rule("top_p", auth_modes=_AUTH, schema=TOP_P_SCHEMA, projection_revision=_REVISION),
     direct_rule(
-        "max_tokens", auth_modes=_AUTH, schema=MAX_TOKENS_SCHEMA, projection_revision=_REVISION
+        "top_p",
+        auth_modes=_AUTH,
+        schema=TOP_P_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
+    ),
+    direct_rule(
+        "max_tokens",
+        auth_modes=_AUTH,
+        schema=MAX_TOKENS_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
     ),
     # direct: standard stop (string | array[string]); the installed litellm OpenRouter
     # path forwards it as the OpenAI-native `stop` (proven in test_openrouter_dispatch).
-    direct_rule("stop", auth_modes=_AUTH, schema=STOP_SCHEMA, projection_revision=_REVISION),
+    direct_rule(
+        "stop",
+        auth_modes=_AUTH,
+        schema=STOP_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
+    ),
     # OME-584: structured output. The installed litellm OpenRouter transform forwards
     # response_format VERBATIM (§9 probe: both json_object and json_schema reach the wire
     # unchanged), so it is a direct passthrough gated by the shared response-format schema.
@@ -83,30 +130,59 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         "response_format",
         auth_modes=_AUTH,
         schema=RESPONSE_FORMAT_SCHEMA,
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     # OME-585: seed + n sampling controls. The installed litellm OpenRouter transform
     # forwards both VERBATIM (§9 probe), so each is a direct passthrough gated by its
     # bounded integer schema (seed: any int; n: >= 1).
-    direct_rule("seed", auth_modes=_AUTH, schema=SEED_SCHEMA, projection_revision=_REVISION),
-    direct_rule("n", auth_modes=_AUTH, schema=N_SCHEMA, projection_revision=_REVISION),
+    direct_rule(
+        "seed",
+        auth_modes=_AUTH,
+        schema=SEED_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
+    ),
+    direct_rule(
+        "n",
+        auth_modes=_AUTH,
+        schema=N_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
+    ),
     # OME-586: frequency_penalty + presence_penalty repetition controls. The installed
     # litellm OpenRouter transform forwards both VERBATIM (§9 probe), so each is a direct
     # passthrough gated by the shared [-2, 2] penalty schema.
     direct_rule(
-        "frequency_penalty", auth_modes=_AUTH, schema=PENALTY_SCHEMA, projection_revision=_REVISION
+        "frequency_penalty",
+        auth_modes=_AUTH,
+        schema=PENALTY_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
     ),
     direct_rule(
-        "presence_penalty", auth_modes=_AUTH, schema=PENALTY_SCHEMA, projection_revision=_REVISION
+        "presence_penalty",
+        auth_modes=_AUTH,
+        schema=PENALTY_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
     ),
     # OME-595: logprobs + top_logprobs output-introspection controls. The installed litellm
     # OpenRouter transform forwards both VERBATIM (§9 probe), so each is a direct passthrough:
     # logprobs gated as a boolean, top_logprobs as a bounded integer (0..20).
     direct_rule(
-        "logprobs", auth_modes=_AUTH, schema=LOGPROBS_SCHEMA, projection_revision=_REVISION
+        "logprobs",
+        auth_modes=_AUTH,
+        schema=LOGPROBS_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
     ),
     direct_rule(
-        "top_logprobs", auth_modes=_AUTH, schema=TOP_LOGPROBS_SCHEMA, projection_revision=_REVISION
+        "top_logprobs",
+        auth_modes=_AUTH,
+        schema=TOP_LOGPROBS_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
     ),
     # AIDEV-NOTE (OME-646): `provider`, `plugins`, `route` and `models` were enabled here
     # by schema-less rules. `_accept` validates only when `rule.parameter_schema is not
@@ -119,10 +195,11 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     # Re-enabling any of them needs an approved bounded schema per field — a permissive
     # object/array union added just to satisfy the conformance gate is NOT that.
     provider_native_rule(
-        "provider_params.top_k",
-        provider_target="extra_body.top_k",
+        f"{WRAPPER_KEY}.{TOP_K_LEAF}",
+        provider_target=f"{EXTRA_BODY_OBJECT}.{TOP_K_LEAF}",
         auth_modes=_AUTH,
         schema=OPENROUTER_TOP_K_SCHEMA,
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     # OME-704: the reviewed price + privacy routing controls. Note what this is NOT:
