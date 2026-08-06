@@ -1,9 +1,9 @@
 ---
 ticket: OME-667
 stack: repo
-status: in_progress
+status: done
 started: 2026-07-30
-finished:
+finished: 2026-08-05
 ---
 
 # OME-667 — Update layout on the website + overview + quickstart
@@ -118,7 +118,7 @@ None of this was in the AC. Recorded here rather than silently absorbed.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** 22 changed, +2325 / −23. Far more than planned, because of the scope expansion
+- **Actual files:** 22 changed, +2387 / −23. Far more than planned, because of the scope expansion
   above.
   - `public-docs/src/components/nb/` — 15 files: the nine-component kit plus `NbCell`,
     `NbStateCarousel`, `tokens.css`, `types.ts`, `index.ts`
@@ -135,10 +135,19 @@ None of this was in the AC. Recorded here rather than silently absorbed.
   - `3fc45f8f` — fix(public-docs): honour .not-prose across the doc layout prose styles
   - `87d1862f` — feat(public-docs): notebook cells, real run output and fuller Quickstart prose
   - `6ac85da8` — docs(public-docs): sharpen the Quickstart connection and report prose
-- **Gates:** `type-check` clean · `lint` clean on every file this unit touches · `format` clean ·
-  `build` succeeds. `lint` still reports 3 pre-existing `vue/multi-word-component-names` errors
-  (`Collapsible.vue`, `sdk/Index.vue`, `sf-client/Index.vue`) — verified identical on a clean tree
-  via `git stash`, so they are not introduced here and renaming components is out of scope.
+  - `9a07bce5` — docs(work): bring the OME-667 ledger up to date
+- **Merged:** [#459](https://github.com/OpenMined/screamingface/pull/459) into the epic branch
+  `callis/ome-666-documentation-for-screamingface-client-v1` on 2026-08-05, not to `main` — the
+  epic lands when `OME-666`'s remaining sub-issues are done. The shas above are the pre-rebase
+  ones: the epic was later rebased onto `origin/main`, which replayed all eight with new shas and
+  dropped the merge commit. `#459` is the stable pointer.
+- **Gates:** `type-check` clean · `lint` clean · `format` clean on every file this unit touches ·
+  `build` succeeds. During the ticket `lint` also reported 3 pre-existing
+  `vue/multi-word-component-names` errors (`Collapsible.vue`, `sdk/Index.vue`,
+  `sf-client/Index.vue`) — verified identical on a clean tree via `git stash`, so not introduced
+  here, and renaming components was out of scope. They are gone as of the 2026-08-05 rebase onto
+  `origin/main`: re-run on the rebased base with the bare commands CI uses (no `--fix`),
+  `npx oxlint .` and `npx eslint .` both exit 0.
 - **Deviations:**
   - **Route left unchanged.** Planned to rename `/sf-client/quickstartPage` →
     `/sf-client/quickstart`; owner chose to keep the existing path to keep the diff small. The
@@ -181,3 +190,17 @@ None of this was in the AC. Recorded here rather than silently absorbed.
     order and only the maximum is marked) and that `report.url4` reproduces a run "exactly" (it pins
     the run's definition; model outputs vary, as the page's own variance note says). Both are
     corrected in `6ac85da8`.
+
+## Follow-ups
+
+- **Quickstart framing is still undecided.** `OME-666` promises the ensemble beats the best single
+  model. The DRACO-Lite run this page walks through does not show that — a solo won both runs and
+  five candidates hit the 100% ceiling on a 1-case study — so the page leads with the runnable
+  walkthrough and carries the published `draco@1` result on the Overview instead. Whether the
+  Quickstart should instead open with the published figure is an owner/Irina call, not a code
+  change. Raised, not resolved, before merge.
+- **The supplied design PDF still has no home** — see Blockers above. It stayed untracked through
+  the merge.
+- **`OME-668` onward now have a real base.** The epic carries the layout, the `nb/` kit and the
+  `.not-prose` fix, and was rebased onto `origin/main` on 2026-08-05, so it also carries the
+  `public-docs` major dependency bump and the new CI lane. Sibling sub-issues branch from the epic.

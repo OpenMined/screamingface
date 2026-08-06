@@ -2,12 +2,12 @@
 id: OME-667
 linear_url: https://linear.app/openmined/issue/OME-667
 parent: OME-666
-status: In Progress
+status: Done
 type: Task
 priority: P2
 labels: [repo, autonomous, agentic, task]
 created: 2026-07-30
-closed:
+closed: 2026-08-05
 ---
 
 # Update layout on the website + overview + quickstart
@@ -26,11 +26,15 @@ Installation. Quickstart routes at `/sf-client/quickstart`.
 `StudyReport`. Source: `packages/screamingface/examples/05_draco_quickstart.ipynb`. Receipts:
 1 case · 10 criteria · 1 judge pass · 7 solo + 9 Fusion candidates.
 
-Result figures ship as marked placeholders (owner-approved) — no notebook in the repo has committed
-outputs, so no verified DRACO-Lite score exists to quote.
+No placeholder survived: the owner ran DRACO-Lite during the ticket, so the Quickstart cells show
+real output, and the Overview's headline figure is the published `draco@1` result with its source
+cited.
 
 Branch `callis/ome-667-update-layout-on-the-website-overview-quickstart` is cut from the epic branch
 `callis/ome-666-documentation-for-screamingface-client-v1`; its PR targets that branch, not `main`.
+
+Closed by [#459](https://github.com/OpenMined/screamingface/pull/459), merged into the epic branch
+on 2026-08-05.
 
 Milestone: Week 3.
 
