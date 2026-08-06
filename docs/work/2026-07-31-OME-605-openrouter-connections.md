@@ -6,13 +6,13 @@ started: 2026-07-31
 finished: 2026-07-31
 ---
 
-# OME-605 — Connect OpenRouter from the Python Client
+# OME-605 — Connect providers from the Python Client
 
 ## Intent
 
-Restore the approved provider-connection notebook experience through the current
-Client → SF Engine → AI Gateway architecture so a fresh researcher can supply a
-validated OpenRouter key before running a benchmark.
+Restore the provider-connection notebook experience through the current Client → SF
+Engine → AI Gateway architecture so a researcher can authorize any enabled provider
+before running a benchmark.
 
 ## Planned changes
 
@@ -28,14 +28,15 @@ validated OpenRouter key before running a benchmark.
   delete, identity forwarding, malformed upstream responses, timeouts, and secret-safe
   errors.
 - RED Client tests for sync/async operations, strict response decoding, public lazy
-  helpers, the one-row OpenRouter widget, password clearing, and static display.
+  helpers, capability-driven provider rows, password clearing, and static display.
 - Run focused tests followed by each available lint, typecheck, test, and coverage gate.
 
 ## Acceptance
 
-- `sf.connect()` displays the full previous connection widget with one automatic
-  OpenRouter row.
-- A submitted key is validated and encrypted by AI Gateway through the SF Engine.
+- `sf.connect()` displays the full connection widget with the providers and methods
+  currently advertised by AI Gateway.
+- A submitted key or OAuth authorization is validated and stored by AI Gateway through
+  the SF Engine.
 - `sf.connections.list/get`, explicit sync/async Clients, and disconnect work.
 - No provider secret or AI Gateway-private credential data crosses back to the Client.
 - Existing Evaluation behavior remains green.

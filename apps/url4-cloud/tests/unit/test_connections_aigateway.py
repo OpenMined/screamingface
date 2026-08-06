@@ -103,6 +103,21 @@ async def test_adapter_satisfies_the_connection_port_and_advertises_openrouter()
     assert await adapter.list(Caller(IDENTITY)) == (_disconnected(),)
 
 
+@pytest.mark.parametrize("provider", ["../../token", "openrouter/keys", "OpenRouter"])
+async def test_provider_catalog_rejects_ids_that_are_not_one_path_segment(
+    provider: str,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/providers":
+            return httpx.Response(200, json=_providers(_provider(provider)))
+        raise AssertionError("invalid provider catalogue reached the connection store")
+
+    adapter, _ = _adapter(handler)
+
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.list(Caller())
+
+
 async def test_connected_state_is_sanitized_and_identity_is_forwarded() -> None:
     adapter, seen = _adapter(lambda request: _get(request, _row()))
 
@@ -172,6 +187,30 @@ async def test_start_oauth_creates_a_sanitized_authorization() -> None:
         expires_in=600,
     )
     assert "must-not-leak" not in repr(authorization)
+
+
+async def test_start_oauth_rejects_an_unbounded_authorization_lifetime() -> None:
+    provider = _provider("anthropic", "Anthropic", ("oauth",))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/providers":
+            return httpx.Response(200, json=_providers(provider))
+        if request.method == "GET":
+            return httpx.Response(200, json=_list())
+        return httpx.Response(
+            201,
+            json={
+                "connection_id": "00000000-0000-0000-0000-000000000001",
+                "authorize_url": "https://claude.example/authorize",
+                "state": "private",
+                "expires_in": 1801,
+            },
+        )
+
+    adapter, _ = _adapter(handler)
+
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.start_oauth(Caller(), "anthropic")
 
 
 async def test_start_oauth_replaces_an_existing_managed_connection() -> None:

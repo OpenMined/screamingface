@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -33,6 +34,8 @@ _PROVIDERS_PATH = "/v1/providers"
 _CONNECTIONS_PATH = "/v1/oauth/connections"
 _API_KEY_PATH = f"{_CONNECTIONS_PATH}/api-key"
 _MANAGED_LABEL = "screamingface"
+_MAX_OAUTH_EXPIRES_IN_SECONDS = 30 * 60
+_PROVIDER_ID = re.compile(r"[a-z0-9][a-z0-9_-]*\Z", re.ASCII)
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +233,7 @@ def _validate_provider(value: object) -> _Provider:
     if (
         value.get("object") != "provider"
         or not isinstance(value.get("id"), str)
-        or not value["id"].strip()
+        or _PROVIDER_ID.fullmatch(value["id"]) is None
         or not isinstance(value.get("display_name"), str)
         or not value["display_name"].strip()
         or not isinstance(methods, list)
@@ -274,7 +277,7 @@ def _decode_oauth_authorization(
         or not _is_https_url(authorize_url)
         or isinstance(expires_in, bool)
         or not isinstance(expires_in, int)
-        or expires_in < 1
+        or not 1 <= expires_in <= _MAX_OAUTH_EXPIRES_IN_SECONDS
     ):
         raise ConnectionBadResponse()
     return OAuthAuthorization(provider, authorize_url, expires_in)
