@@ -48,6 +48,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "05_draco_lite_e2e.ipynb": _draco_lite_e2e(),
         "06_draco_full_e2e.ipynb": _draco_full_e2e(),
         "07_ifeval_e2e.ipynb": _ifeval_e2e(),
+        "08_healthbench_worst30.ipynb": _healthbench_worst30_e2e(),
     }
 
 
@@ -620,6 +621,135 @@ The Report presents Candidate scores, failures, operation graphs, timing, and us
         "name": "screamingface-sdk",
     }
     return notebook
+
+
+_HEALTH_SYNTHESIS_PROMPT_PARTS = (
+    "You are synthesising the single best response to a health-related ",
+    "conversation by combining independent responses from a panel of models. ",
+    "A physician-authored rubric will grade your output per criterion — ",
+    "accuracy, completeness, safety, and appropriate hedging all matter; so ",
+    "does avoiding harmful or false content.\n\n",
+    "Procedure:\n",
+    "1. Read every panel response carefully.\n",
+    "2. Identify what each contributes that the others miss (facts, safety ",
+    "caveats, follow-up questions, care-seeking guidance).\n",
+    "3. Produce ONE unified response to the final user turn that:\n",
+    "   - Keeps every clinically correct, relevant point\n",
+    "   - Drops anything inaccurate, unsafe, or speculative\n",
+    "   - Resolves disagreements by favouring the safer, better-supported claim\n",
+    "   - Stays concise — verbosity is not rewarded\n",
+    "4. Do not introduce claims no panel member made.\n\n",
+    "Output: the unified response only, no preamble, no JSON wrapper.",
+)
+
+
+def _healthbench_worst30_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell(
+            """# HealthBench worst-30% — the entry challenge
+
+Can an open-weights Fusion beat our best open Fusion on the **157 hardest HealthBench
+Professional conversations**? This notebook runs the challenge exam end to end: the Engine owns
+the Cases, the pinned GPT-5.4 judge (house-paid), the per-rubric-item grading, and the
+aggregation; you own the Candidate.
+
+> **This is a challenge metric, NOT an official HealthBench score.** The exam scores the
+> team-picked worst-30% subset with an UNCLIPPED mean (official HealthBench clips `max(0, mean)`
+> over the full 5,000-row set). On these rows serious baselines score **negative** — that is
+> normal, and exactly why the clip is removed: `-0.35 < -0.21 < -0.15` must rank.
+>
+> Protocol caveats vs the paper: one answer sample (the paper averages 8), no length-adjusted
+> score, judge reasoning-effort not yet forwarded, floating `openai/gpt-5.4` slug. The published
+> target comes from our own baselines rerun through THIS engine, so comparisons stay fair.
+
+> **Spend warning:** the challenge run is disabled by default. `healthbench/smoke` below is the
+> only cell that spends without a switch — one Candidate answer plus one judge call."""
+        ),
+        _local_stack_cell(),
+        nbformat.v4.new_code_cell("import screamingface as sf"),
+        nbformat.v4.new_markdown_cell("## 1. Connect OpenRouter"),
+        nbformat.v4.new_code_cell("sf.connect()"),
+        nbformat.v4.new_markdown_cell(
+            """## 2. Structural smoke — pennies, not comparable
+
+`healthbench/smoke` runs ONE pinned Case (a terse physician research query) through the full
+grading chain: Candidate answer → pre-rendered official grader prompt → GPT-5.4 verdict →
+unclipped aggregate. Two paid calls; its score is diagnostic only."""
+        ),
+        nbformat.v4.new_code_cell(
+            """# Structural check of the ENTIRE grading chain on one Case (~2 paid calls):
+#   - engine serves the case + baked rubric assets (preflight passes)
+#   - your Candidate answers through the gateway
+#   - the official grader prompt renders and the GPT-5.4 judge returns a
+#     parseable verdict
+#   - the aggregate scores it: expect `verdict_coverage: 1.0` and a non-null
+#     `score` — a null score means a link in the chain failed (see `cases[*]`
+#     for the per-Case failure reason)
+# The score itself is diagnostic only — NOT comparable to any HealthBench number.
+smoke_candidate = sf.Model("openrouter/deepseek/deepseek-v4-pro")
+report = sf.evaluate(smoke_candidate, benchmark="healthbench/smoke")
+report.to_json()"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 3. The challenge Candidate — an open trio
+
+The engine's declared open-weights trio (DeepSeek-V4-Pro, Kimi-K2.6, Qwen3.6-plus — Qwen stands
+in for July's GLM-5.2, which has no declared Engine route) with DeepSeek synthesising. Health
+answers are graded on accuracy AND safety, so the synthesis policy favours the safer,
+better-supported claim and stays concise.
+
+The synthesis prompt below is **yours to change** — it is the baseline's recipe, not part of
+the exam protocol. Rewriting it (and swapping panel members or the synthesizer) is the main
+experiment surface of this challenge. Members and solo Candidates can carry their own answer
+policy too — `sf.Model(..., prompt="...")` — the baseline leaves its members bare only because
+the published target was measured that way."""
+        ),
+        nbformat.v4.new_code_cell(
+            _string_assignment("HEALTH_SYNTHESIS_PROMPT", _HEALTH_SYNTHESIS_PROMPT_PARTS)
+        ),
+        nbformat.v4.new_code_cell(
+            """# Members are BARE (no prompt) to match how the published target was measured.
+# To experiment with a per-member answer policy, give any member its own prompt:
+#   deepseek = sf.Model(
+#       "openrouter/deepseek/deepseek-v4-pro",
+#       prompt="You are a careful clinician. Answer accurately, flag uncertainty, "
+#              "always include red-flag symptoms that warrant urgent care.",
+#   )
+deepseek = sf.Model("openrouter/deepseek/deepseek-v4-pro")
+kimi = sf.Model("openrouter/moonshotai/kimi-k2.6")
+qwen = sf.Model("openrouter/qwen/qwen3.6-plus")
+
+open_trio = sf.Fusion(
+    [deepseek, kimi, qwen],
+    name="open_trio",
+    synthesizer="openrouter/deepseek/deepseek-v4-pro",
+    prompt=HEALTH_SYNTHESIS_PROMPT,
+)"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 4. Arm the challenge run explicitly
+
+157 Cases × (3 members + 1 synthesis) answer calls plus ~350 house-paid judge calls per attempt.
+Leaving `RUN_EVALUATION = False` keeps **Run All** free of model spend."""
+        ),
+        nbformat.v4.new_code_cell("RUN_EVALUATION = False"),
+        nbformat.v4.new_code_cell(
+            """if RUN_EVALUATION:
+    report = sf.evaluate(open_trio, benchmark="healthbench/worst30")
+    print(report.to_json())"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 5. Reading the Report
+
+- `score` — the challenge metric: UNCLIPPED mean over all 157 Case scores. Negative is normal
+  here; the number to beat is the published engine-rerun baseline.
+- `metrics.verdict_coverage` — must be **1.0** for a valid attempt; any unjudged rubric item
+  fails its Case loudly (`score` becomes `null`) rather than silently inflating the mean.
+- `metrics.score_sd`, `metrics.judge_invalid_replies` — stability and judge health.
+- `cases[*]` — per-Case rubric evidence: every judge verdict with its raw reply, the Candidate's
+  exact answer, and the `[points] criterion` lines it was graded against."""
+        ),
+    )
 
 
 def main() -> None:
