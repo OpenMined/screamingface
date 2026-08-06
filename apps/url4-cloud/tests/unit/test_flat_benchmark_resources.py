@@ -58,6 +58,8 @@ def test_catalog_lists_every_executable_benchmark_as_one_flat_entry(client: Test
         "draco",
         "draco/lite",
         "draco/smoke",
+        "healthbench/smoke",
+        "healthbench/worst30",
         "ifeval",
         "ifeval/self-corrective",
         "ifeval/verifying-ensemble",

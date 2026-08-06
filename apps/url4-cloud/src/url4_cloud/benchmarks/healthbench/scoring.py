@@ -1,0 +1,105 @@
+"""Pure HealthBench scoring primitives — the challenge metric's math.
+
+Mirrors the reference ``calculate_score`` (simple-evals ``healthbench_eval.py``): a Case
+score is achieved points over the sum of POSITIVE points, negatives subtract, and the
+per-Case value is UNCLAMPED. The exam-level aggregate deliberately DIVERGES from the
+official ``max(0, mean)`` clip: on the worst-30% subset every serious baseline mean is
+negative, so the official clip would flatten the whole leaderboard to 0.00 — the
+challenge reports the raw mean. Never present this as an official HealthBench score.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+
+
+def case_score(
+    points: Sequence[int],
+    verdicts: Mapping[int, bool],
+) -> float | None:
+    """Score one Case: points earned / best possible points. Penalties only subtract.
+
+    A rubric is a graded checklist. Each item is worth points: positive = "a good
+    answer does this" (e.g. +5 "recommends seeing a doctor"), negative = "a good
+    answer never does this" (e.g. -3 "invents a dosage"). The judge already decided
+    which items the answer hit: ``verdicts[i]`` is True/False for item ``i``
+    (1-based position in ``points``).
+
+    Worked example — ``points = [+5, +3, -3]``, judge says item 1 hit, item 2
+    missed, item 3 (the penalty) hit::
+
+        best possible = 5 + 3      = 8    # only POSITIVE items count as "possible":
+                                          # a perfect answer earns every plus and
+                                          # triggers no penalty — penalties are not
+                                          # points you can win, only lose
+        earned        = 5 + (-3)   = 2    # hit items only: pluses add, penalty bites
+        score         = 2 / 8      = 0.25
+
+    Hit enough penalties and ``earned`` goes negative → the score goes below 0.
+    That's intended: no clamp here (module docstring explains why).
+
+    The ``None`` case: if no positive item got judged, "best possible" is 0 —
+    there is nothing to divide by. We return ``None``, NOT 0.0, because "we
+    couldn't score this" and "the answer scored zero" are different facts.
+
+    Same math as the reference ``calculate_score``
+    (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py);
+    the steps below map 1:1 onto the example.
+
+    INVARIANT: only fully-judged Cases may be scored (the aggregate enforces it) —
+    negative-points items never enter the denominator, so scoring a partial verdict set
+    could only inflate the Case: a judge failure on a penalty item would erase the
+    penalty.
+    """
+
+    # Which items actually got a verdict (ignore ids outside this Case's rubric).
+    judged = {rubric_id for rubric_id in verdicts if 1 <= rubric_id <= len(points)}
+    # "Best possible" — sum of positive points only.
+    denominator = sum(
+        value for index, value in enumerate(points, start=1) if index in judged and value > 0
+    )
+    # Nothing positive judged → unscorable, not zero.
+    if denominator <= 0:
+        return None
+    # "Earned" — hit items only: pluses add, the penalty bites.
+    achieved = sum(
+        value
+        for index, value in enumerate(points, start=1)
+        if index in judged and verdicts.get(index, False)
+    )
+    return achieved / denominator
+
+
+def unclipped_mean(values: Sequence[float]) -> float | None:
+    """The challenge aggregate — the raw mean, NO ``max(0, …)`` clip (see module WHY)."""
+
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def sample_stdev(values: Sequence[float]) -> float:
+    """Sample standard deviation (n−1) over Case scores — a reporting-only metric.
+
+    WHY n−1: population stdev (÷n) understates spread ~10% at small n — the defect
+    review S-DR1 flagged in DRACO's scoring. This matches the July port's
+    ``statistics.stdev``; the simple-evals reference reports a BOOTSTRAP std of
+    clipped means instead (healthbench_eval.py:231-236) — a named reporting
+    deviation, with zero effect on the score itself.
+    """
+
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    return (sum((value - mean) ** 2 for value in values) / (len(values) - 1)) ** 0.5
+
+
+def verdict_coverage(judged: int, total: int) -> float:
+    """Fraction of rubric items with a valid verdict; 1.0 is required for a valid attempt."""
+
+    if total <= 0:
+        return 0.0
+    return judged / total
+
+
+__all__ = ["case_score", "sample_stdev", "unclipped_mean", "verdict_coverage"]

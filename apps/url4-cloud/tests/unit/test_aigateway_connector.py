@@ -26,6 +26,7 @@ from url4_cloud.benchmarks.draco.definition import (
     TASKS_ROUTE,
     VERDICT_ROUTE,
 )
+from url4_cloud.benchmarks.healthbench import definition as healthbench_definition
 from url4_cloud.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE as IFEVAL_AGGREGATE_ROUTE,
 )
@@ -78,6 +79,17 @@ _BENCHMARK_ROUTES = {
     RESOLVE_CANDIDATE_ROUTE,
     MEMBER_RECORD_ROUTE,
     MEMBER_ANSWER_ROUTE,
+} | {
+    healthbench_definition.AGGREGATE_ROUTE,
+    healthbench_definition.CASE_EVALUATION_ROUTE,
+    healthbench_definition.RUBRIC_EVALUATION_ROUTE,
+    healthbench_definition.TASKS_ROUTE,
+    healthbench_definition.VERDICT_ROUTE,
+    healthbench_definition.SMOKE_AGGREGATE_ROUTE,
+    healthbench_definition.SMOKE_CASE_EVALUATION_ROUTE,
+    healthbench_definition.SMOKE_RUBRIC_EVALUATION_ROUTE,
+    healthbench_definition.SMOKE_TASKS_ROUTE,
+    healthbench_definition.SMOKE_VERDICT_ROUTE,
 }
 
 

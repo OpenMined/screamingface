@@ -6,6 +6,10 @@ from pathlib import Path
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.definition import Benchmark, BenchmarkInstaller
 from url4_cloud.benchmarks.draco.definition import DRACO, DRACO_LITE, DRACO_SMOKE
+from url4_cloud.benchmarks.healthbench.definition import (
+    HEALTHBENCH_SMOKE,
+    HEALTHBENCH_WORST30,
+)
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_SELF_CORRECTIVE,
@@ -16,6 +20,8 @@ BENCHMARKS: dict[str, Benchmark] = {
     DRACO.id: DRACO,
     DRACO_LITE.id: DRACO_LITE,
     DRACO_SMOKE.id: DRACO_SMOKE,
+    HEALTHBENCH_WORST30.id: HEALTHBENCH_WORST30,
+    HEALTHBENCH_SMOKE.id: HEALTHBENCH_SMOKE,
     IFEVAL.id: IFEVAL,
     IFEVAL_SELF_CORRECTIVE.id: IFEVAL_SELF_CORRECTIVE,
     IFEVAL_VERIFYING_ENSEMBLE.id: IFEVAL_VERIFYING_ENSEMBLE,
