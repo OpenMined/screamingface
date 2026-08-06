@@ -623,7 +623,7 @@ def test_browser_url_is_printed_and_notebook_does_not_open_browser(
 
     monkeypatch.setattr("builtins.get_ipython", lambda: NotebookShell(), raising=False)
     monkeypatch.setattr(
-        "screamingface._engine.auth.webbrowser.open",
+        "screamingface._engine.access_contract.webbrowser.open",
         lambda *args, **kwargs: pytest.fail("notebooks should use the displayed URL"),
     )
     _present_access_authorization("https://access.example/login")
@@ -638,7 +638,7 @@ def test_desktop_browser_failure_keeps_the_printed_url(
     def fail(*args: object, **kwargs: object) -> None:
         raise OSError("no browser")
 
-    monkeypatch.setattr("screamingface._engine.auth.webbrowser.open", fail)
+    monkeypatch.setattr("screamingface._engine.access_contract.webbrowser.open", fail)
     _present_access_authorization("https://access.example/login")
     assert "https://access.example/login" in capsys.readouterr().out
 
@@ -652,7 +652,7 @@ def test_logout_opens_the_access_endpoint_even_from_a_notebook(
     opened: list[str] = []
     monkeypatch.setattr("builtins.get_ipython", lambda: NotebookShell(), raising=False)
     monkeypatch.setattr(
-        "screamingface._engine.auth.webbrowser.open",
+        "screamingface._engine.access_contract.webbrowser.open",
         lambda url, *, new: opened.append(url),
     )
 

@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 from typing import Protocol
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
-from uuid import uuid4
 
 import httpx
 from websockets.asyncio import client as async_ws
@@ -23,7 +21,7 @@ from websockets.typing import Subprotocol
 
 from screamingface._core.ports import _RunOutcome
 from screamingface._engine.auth import _default_caller_auth, _TransportAuth
-from screamingface._engine.contract import _RunState
+from screamingface._engine.run_lifecycle import _Lifecycle
 from screamingface._evaluation.model import Candidate
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
 from screamingface.events import Event
@@ -49,37 +47,6 @@ class _ObserverRaised(Exception):
         self.original = original
 
 
-@dataclass(frozen=True, slots=True)
-class _LifecycleStep:
-    command: str | None = None
-    event: Event | None = None
-    outcome: _RunOutcome | None = None
-
-
-class _Lifecycle:
-    """Shared protocol decisions; adapters provide only synchronous/asynchronous I/O."""
-
-    def __init__(self, candidate: Candidate) -> None:
-        self._state = _RunState(candidate.url4)
-
-    @staticmethod
-    def initial_attach() -> str:
-        return _attach(None)
-
-    @staticmethod
-    def stop() -> str:
-        return _stop("client stopped consuming events")
-
-    def accept(self, frame: str | bytes) -> _LifecycleStep:
-        accepted = self._state.accept(frame)
-        command = None if accepted.replay_from is None else _attach(accepted.replay_from)
-        return _LifecycleStep(
-            command=command,
-            event=accepted.event,
-            outcome=accepted.outcome,
-        )
-
-
 class Url4CloudTransport:
     """Synchronous adapter for the confirmed url4-cloud lifecycle."""
 
@@ -88,6 +55,8 @@ class Url4CloudTransport:
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
         self._http = httpx.Client(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
+        self._active_lock = Lock()
+        self._active_tokens: set[str] = set()
 
     def run(
         self,
@@ -95,6 +64,8 @@ class Url4CloudTransport:
         on_event: SyncEventCallback | None,
     ) -> _RunOutcome:
         token = _mint_sync(self._http)
+        with self._active_lock:
+            self._active_tokens.add(token)
         lifecycle = _Lifecycle(candidate)
         try:
             for attempt in range(2):
@@ -123,6 +94,29 @@ class Url4CloudTransport:
             raise exc.original
         except (WebSocketException, OSError, TimeoutError) as exc:
             raise _disconnected() from exc
+        finally:
+            with self._active_lock:
+                self._active_tokens.discard(token)
+
+    def cancel_active(self) -> None:
+        """Stop every run currently owned by this synchronous Client."""
+
+        with self._active_lock:
+            tokens = tuple(self._active_tokens)
+        if not tokens:
+            return
+        with ThreadPoolExecutor(
+            max_workers=len(tokens),
+            thread_name_prefix="screamingface-stop",
+        ) as executor:
+            futures = tuple(executor.submit(_stop_sync, self._http, token) for token in tokens)
+        errors: list[Exception] = []
+        for future in futures:
+            error = future.exception()
+            if isinstance(error, Exception):
+                errors.append(error)
+        if errors:
+            raise ExceptionGroup("Could not stop every active SF Engine Run", errors)
 
     def _run_connected(
         self,
@@ -313,6 +307,20 @@ def _start_sync(http: httpx.Client, token: str, url4: str) -> None:
     _accepted(response)
 
 
+def _stop_sync(http: httpx.Client, token: str) -> None:
+    try:
+        response = http.delete(
+            "/",
+            headers={"URL4-Capability": token},
+        )
+    except httpx.HTTPError as exc:
+        raise EngineUnavailableError(
+            "Could not stop the SF Engine Run",
+            engine_url=_http_origin(http),
+        ) from exc
+    _require_success(response, "stop the Run")
+
+
 async def _start_async(http: httpx.AsyncClient, token: str, url4: str) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
@@ -415,29 +423,6 @@ def _is_access_websocket_rejection(error: InvalidStatus) -> bool:
 def _require_subprotocol(selected: str | None) -> None:
     if selected != _SUBPROTOCOL:
         raise ExecutionError("SF Engine WebSocket did not negotiate cloudevents.json")
-
-
-def _attach(from_sequence: int | None) -> str:
-    return _command("ai.url4.attach", {"from_sequence": from_sequence})
-
-
-def _stop(reason: str) -> str:
-    return _command("ai.url4.stop", {"reason": reason})
-
-
-def _command(kind: str, data: dict[str, object]) -> str:
-    return json.dumps(
-        {
-            "specversion": "1.0",
-            "id": uuid4().hex,
-            "source": "/screamingface/client",
-            "time": datetime.now(UTC).isoformat(),
-            "type": kind,
-            "datacontenttype": "application/json",
-            "data": data,
-        },
-        separators=(",", ":"),
-    )
 
 
 def _try_send_sync(websocket: _SyncSender, command: str) -> Exception | None:

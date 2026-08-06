@@ -5,10 +5,11 @@ import json
 import threading
 from copy import deepcopy
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
+from _model_parameter_fixtures import details as _model_details
 from url4 import RelExpr, Text, expr, iterate, render, src
 
 import screamingface as sf
@@ -101,12 +102,53 @@ def _draco_url4() -> str:
 BENCHMARK: dict[str, object] = {
     "schema": "screamingface.benchmark.v1",
     "id": "draco",
+    "variant": "canonical",
+    "title": "DRACO",
+    "description": "Fixture DRACO Benchmark.",
     "revision": "fixture-revision",
     "case_count": 1,
-    "total_case_count": 1,
-    "required_models": ["provider/judge"],
     "url4": _draco_url4(),
 }
+
+
+def _case_payload(*, score: float = 1.0) -> dict[str, object]:
+    raw = '{"explanation":"The response satisfies the criterion.","criterion_status":"MET"}'
+    return {
+        "case_id": 1,
+        "input": "Fixture question",
+        "output": "Fixture answer",
+        "finish_reason": "stop",
+        "grade": {
+            "method": "rubric",
+            "score": score,
+            "metrics": {"coverage": 1.0},
+            "checks": [
+                {
+                    "type": "criterion",
+                    "id": "c1",
+                    "label": "Satisfies the fixture criterion",
+                    "evidence": [
+                        {
+                            "sequence": 1,
+                            "producer": {"type": "model", "id": "provider/judge"},
+                            "valid": True,
+                            "outcome": "MET",
+                            "explanation": "The response satisfies the criterion.",
+                            "raw_output": raw,
+                            "metadata": {},
+                        }
+                    ],
+                    "metadata": {
+                        "criterion_type": "positive",
+                        "weight": 1,
+                        "axis": "correctness",
+                    },
+                }
+            ],
+        },
+        "failures": [],
+        "metadata": {"domain": "fixture"},
+    }
 
 
 class _FakeTransport:
@@ -125,11 +167,13 @@ class _FakeTransport:
                 {
                     "schema": "screamingface.candidate-result.v1",
                     "benchmark_id": "draco",
+                    "benchmark_revision": "fixture-revision",
                     "case_count": 1,
                     "score": 0.7,
                     "metrics": {
                         "coverage": 1.0,
                     },
+                    "cases": [_case_payload(score=0.7)],
                     "failures": [],
                 }
             ),
@@ -140,6 +184,9 @@ class _FakeTransport:
                 cost_usd="0.04",
             ),
         )
+
+    def cancel_active(self) -> None:
+        pass
 
     def close(self) -> None:
         self.closed = True
@@ -206,20 +253,31 @@ def _engine(request: httpx.Request) -> httpx.Response:
             "provider/synthesizer",
             "provider/judge",
         )
-        return httpx.Response(
+        response = httpx.Response(
             200,
             json={
                 "object": "list",
-                "default_synthesizer": "anthropic/claude-haiku-4-5",
                 "data": [
-                    {"id": model, "object": "model", "owned_by": model.split("/", 1)[0]}
+                    {
+                        "id": model,
+                        "object": "model",
+                        "owned_by": model.split("/", 1)[0],
+                        "supported_parameters": [],
+                        "supported_tools": [],
+                        "unsupported_parameter_behavior": "reject",
+                        "parameter_contract_url": f"/v1/model-parameters?model={model}",
+                    }
                     for model in models
                 ],
             },
         )
-    if request.url.path == "/v1/benchmarks/draco":
-        return httpx.Response(200, json=BENCHMARK)
-    return httpx.Response(404)
+    elif request.url.path == "/v1/benchmarks/draco":
+        response = httpx.Response(200, json=BENCHMARK)
+    elif request.url.path == "/v1/model-parameters":
+        response = httpx.Response(200, json=_model_details(request.url.params["model"]))
+    else:
+        response = httpx.Response(404)
+    return response
 
 
 def _client() -> tuple[sf.Client, _FakeTransport]:
@@ -230,6 +288,22 @@ def _client() -> tuple[sf.Client, _FakeTransport]:
         run_transport=transport,
     )
     return client, transport
+
+
+def _assert_case_artifact(result: sf.CandidateResult) -> None:
+    case = result.cases[0]
+    assert case.case_id == 1
+    assert case.input == "Fixture question"
+    assert case.output == "Fixture answer"
+    assert case.grade is not None
+    assert case.grade.method == "rubric"
+    check = case.grade.checks[0]
+    assert check.label == "Satisfies the fixture criterion"
+    assert check.evidence[0].raw_output == (
+        '{"explanation":"The response satisfies the criterion.","criterion_status":"MET"}'
+    )
+    assert check.evidence[0].producer.id == "provider/judge"
+    assert result.to_dict()["cases"] == [_case_payload(score=0.7)]
 
 
 def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
@@ -261,6 +335,7 @@ def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     assert result.name == "haiku"
     assert result.score == 0.7
     assert result.metrics == {"coverage": 1.0}
+    _assert_case_artifact(result)
     assert result.usage.input_tokens == 120
     assert result.duration_ms == 2000
     assert transport.closed is True
@@ -340,6 +415,7 @@ def test_client_compiles_and_evaluates_a_fusion_as_one_candidate_url4() -> None:
             sf.Model("provider/second", name="second"),
         ],
         name="research-pair",
+        synthesizer="anthropic/claude-haiku-4-5",
     )
 
     with client:
@@ -372,40 +448,45 @@ def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
             sf.Model("provider/second", name="claude-opus-4.8"),
         ],
         name="named-pair",
+        synthesizer="anthropic/claude-haiku-4-5",
     )
 
     with client:
         report = client.evaluate(fusion, benchmark="draco", limit=1)
 
     result = report.candidates.only
-    candidate_url4 = compile_candidate(
-        fusion,
-        default_synthesizer="anthropic/claude-haiku-4-5",
-    ).url4
+    candidate_url4 = compile_candidate(fusion).url4
+    assert candidate_url4 is not None
     assert tuple(member.name for member in result.members) == (
         "gemini-pro",
         "claude-opus-4.8",
     )
     assert "gemini-pro:" not in candidate_url4
     assert "claude-opus-4.8:" not in candidate_url4
-    assert "member_1: {name: 'gemini-pro', answer: '$model_1'}" in candidate_url4
-    assert "member_2: {name: 'claude-opus-4.8', answer: '$model_2'}" in candidate_url4
+    assert "synthesis_1_member_1_name='gemini-pro'" in candidate_url4
+    assert "synthesis_1_member_2_name='claude-opus-4.8'" in candidate_url4
 
 
 def test_compiler_deduplicates_equivalent_model_values_by_content() -> None:
     left = sf.Fusion(
         [sf.Model("provider/first"), sf.Model("provider/second")],
         name="left",
+        synthesizer="anthropic/claude-haiku-4-5",
     )
     right = sf.Fusion(
         [sf.Model("provider/first"), sf.Model("provider/judge")],
         name="right",
+        synthesizer="anthropic/claude-haiku-4-5",
     )
     client, _transport = _client()
 
     with client:
         report = client.evaluate(
-            sf.Fusion([left, right], name="outer"),
+            sf.Fusion(
+                [left, right],
+                name="outer",
+                synthesizer="anthropic/claude-haiku-4-5",
+            ),
             benchmark="draco",
             limit=1,
         )
@@ -422,6 +503,7 @@ def test_explicit_sample_names_prevent_model_content_deduplication() -> None:
             sf.Model("provider/second"),
         ],
         name="left",
+        synthesizer="anthropic/claude-haiku-4-5",
     )
     right = sf.Fusion(
         [
@@ -429,12 +511,17 @@ def test_explicit_sample_names_prevent_model_content_deduplication() -> None:
             sf.Model("provider/judge"),
         ],
         name="right",
+        synthesizer="anthropic/claude-haiku-4-5",
     )
     client, _transport = _client()
 
     with client:
         report = client.evaluate(
-            sf.Fusion([left, right], name="outer"),
+            sf.Fusion(
+                [left, right],
+                name="outer",
+                synthesizer="anthropic/claude-haiku-4-5",
+            ),
             benchmark="draco",
             limit=1,
         )
@@ -468,15 +555,15 @@ def test_benchmark_decoder_rejects_required_field_boundaries() -> None:
     bad_revision["revision"] = ""
     bad_count = deepcopy(BENCHMARK)
     bad_count["case_count"] = 0
-    bad_required_models = deepcopy(BENCHMARK)
-    bad_required_models["required_models"] = "provider/judge"
+    bad_variant = deepcopy(BENCHMARK)
+    bad_variant["variant"] = ""
 
     invalid_values: tuple[object, ...] = (
         [],
         {},
         bad_revision,
         bad_count,
-        bad_required_models,
+        bad_variant,
     )
     for value in invalid_values:
         with pytest.raises(sf.PlanningError):
@@ -511,15 +598,16 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
         (sf.Model("anthropic/claude-haiku-4-5"),),
         resource,
         1,
-        default_synthesizer="anthropic/claude-haiku-4-5",
     )
     candidate = evaluation.candidates.only
     valid: dict[str, Any] = {
         "schema": "screamingface.candidate-result.v1",
         "benchmark_id": "draco",
+        "benchmark_revision": "fixture-revision",
         "case_count": 1,
         "score": 0.7,
         "metrics": {"coverage": 1.0},
+        "cases": [_case_payload(score=0.7)],
         "failures": [],
     }
 
@@ -528,11 +616,34 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
         [],
         {**valid, "schema": "wrong"},
         {**valid, "benchmark_id": "wrong"},
+        {**valid, "benchmark_revision": "wrong"},
         {**valid, "case_count": 2},
         {**valid, "score": "high"},
         {**valid, "metrics": []},
         {**valid, "metrics": {"coverage": True}},
         {**valid, "failures": [{"code": "failed"}]},
+        {key: value for key, value in valid.items() if key != "cases"},
+        {**valid, "cases": []},
+        {
+            **valid,
+            "cases": [
+                {key: value for key, value in _case_payload().items() if key != "finish_reason"}
+            ],
+        },
+        {**valid, "cases": [{**_case_payload(), "unexpected": True}]},
+        {
+            **valid,
+            "cases": [
+                {
+                    **_case_payload(),
+                    "grade": {
+                        **cast(dict[str, object], _case_payload()["grade"]),
+                        "checks": "not-an-array",
+                    },
+                }
+            ],
+        },
+        {**valid, "unexpected": True},
     )
     for payload in invalid_payloads:
         body = payload if isinstance(payload, str) else json.dumps(payload)
@@ -558,7 +669,6 @@ def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None
         (sf.Model("anthropic/claude-haiku-4-5"),),
         resource,
         1,
-        default_synthesizer="anthropic/claude-haiku-4-5",
     )
     candidate = evaluation.candidates.only
     outcome = _RunOutcome(
@@ -569,6 +679,7 @@ def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None
             {
                 "schema": "screamingface.candidate-result.v1",
                 "benchmark_id": "draco",
+                "benchmark_revision": "fixture-revision",
                 "case_count": 1,
                 "score": 0.65,
                 "metrics": {
@@ -577,6 +688,7 @@ def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None
                     "verdicts_expected": 159,
                     "verdicts_accepted": 121,
                 },
+                "cases": [_case_payload(score=0.65)],
                 "failures": [],
             }
         ),

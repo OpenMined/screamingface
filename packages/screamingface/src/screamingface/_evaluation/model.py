@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal, NoReturn
 
 from url4 import Url4Error, build, render
 
+from screamingface._candidate_policy import GenerationParams
 from screamingface._named_values import _NamedValues
 from screamingface.discovery import BenchmarkInfo
 from screamingface.fusion import Fusion
@@ -28,6 +30,15 @@ class _MemberProjection:
     models: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _ModelParameterAssignment:
+    """Explicit parameters attached to one compiled model-call operation."""
+
+    operation_id: str
+    model: str
+    params: GenerationParams
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Candidate:
     """One internally compiled, independently runnable Candidate."""
@@ -38,6 +49,7 @@ class Candidate:
     url4: str
     operations: tuple[OperationInfo, ...]
     members: tuple[_MemberProjection, ...]
+    parameter_assignments: tuple[_ModelParameterAssignment, ...]
 
     def __init__(self) -> NoReturn:
         raise TypeError("Candidate values are derived internally; they are not constructed")
@@ -103,6 +115,8 @@ def _compiled_candidate(
     url4: str,
     operations: Sequence[OperationInfo],
     members: Sequence[_MemberProjection] = (),
+    parameter_assignments: Sequence[_ModelParameterAssignment] = (),
+    known_operation_ids: Sequence[str] | None = None,
 ) -> Candidate:
     """Build one validated Candidate from its locally linked compilation."""
 
@@ -124,14 +138,54 @@ def _compiled_candidate(
     if selected_kind == "fusion" and len(selected_members) < 2:
         raise ValueError("a planned Fusion Candidate requires at least two direct members")
     operation_ids = {operation.id for operation in candidate.operations}
+    known_ids = (
+        operation_ids
+        if known_operation_ids is None
+        else set(_unique_texts(known_operation_ids, "Candidate known_operation_ids"))
+    )
+    if unknown := operation_ids - known_ids:
+        raise ValueError(f"Candidate has unknown selected Operation ID {min(unknown)!r}")
     if unknown := {
-        member.operation_id
-        for member in selected_members
-        if member.operation_id not in operation_ids
+        member.operation_id for member in selected_members if member.operation_id not in known_ids
     }:
         raise ValueError(f"Candidate member has unknown Operation ID {min(unknown)!r}")
     object.__setattr__(candidate, "members", selected_members)
+    object.__setattr__(
+        candidate,
+        "parameter_assignments",
+        _candidate_parameter_assignments(parameter_assignments, operation_ids),
+    )
     return candidate
+
+
+def _candidate_parameter_assignments(
+    values: Sequence[_ModelParameterAssignment],
+    operation_ids: set[str],
+) -> tuple[_ModelParameterAssignment, ...]:
+    assignments = tuple(values)
+    if any(not isinstance(value, _ModelParameterAssignment) for value in assignments):
+        raise TypeError("Candidate parameter_assignments must contain compiled assignments")
+    if unknown := {value.operation_id for value in assignments} - operation_ids:
+        raise ValueError(
+            f"Candidate parameter assignment has unknown Operation ID {min(unknown)!r}"
+        )
+    return assignments
+
+
+def _model_parameter_assignment(
+    *,
+    operation_id: str,
+    model: str,
+    params: Mapping[str, str | int | float | bool],
+) -> _ModelParameterAssignment:
+    selected = MappingProxyType(dict(params))
+    if not selected:
+        raise ValueError("Model parameter assignment must not be empty")
+    return _ModelParameterAssignment(
+        operation_id=_nonblank(operation_id, "Parameter assignment operation_id"),
+        model=_nonblank(model, "Parameter assignment model"),
+        params=selected,
+    )
 
 
 def _member_projection(

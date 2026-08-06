@@ -24,10 +24,29 @@ def _models(_: httpx.Request) -> httpx.Response:
         200,
         json={
             "object": "list",
-            "default_synthesizer": "anthropic/claude-opus-4.8",
             "data": [
-                {"id": "anthropic/claude-opus-4.8", "owned_by": "anthropic"},
-                {"id": "openrouter/openai/gpt-5.5", "owned_by": "openrouter"},
+                {
+                    "id": "anthropic/claude-opus-4.8",
+                    "object": "model",
+                    "owned_by": "anthropic",
+                    "supported_parameters": [],
+                    "supported_tools": [],
+                    "unsupported_parameter_behavior": "reject",
+                    "parameter_contract_url": (
+                        "/v1/model-parameters?model=anthropic/claude-opus-4.8"
+                    ),
+                },
+                {
+                    "id": "openrouter/openai/gpt-5.5",
+                    "object": "model",
+                    "owned_by": "openrouter",
+                    "supported_parameters": [],
+                    "supported_tools": [],
+                    "unsupported_parameter_behavior": "reject",
+                    "parameter_contract_url": (
+                        "/v1/model-parameters?model=openrouter/openai/gpt-5.5"
+                    ),
+                },
             ],
         },
     )
@@ -43,6 +62,7 @@ def _benchmarks(_: httpx.Request) -> httpx.Response:
                 {
                     "id": "draco-<lite>",
                     "object": "benchmark",
+                    "variant": "lite",
                     "title": "DRACO <lite>",
                     "description": "A tiny probe tier.",
                 }
@@ -57,10 +77,11 @@ def _lite_summary(_: httpx.Request) -> httpx.Response:
         json={
             "schema": "screamingface.benchmark.v1",
             "id": "draco-<lite>",
+            "variant": "lite",
+            "title": "DRACO <lite>",
+            "description": "A tiny probe tier.",
             "revision": "rev0000000000000",
-            "case_count": 1,
-            "total_case_count": 30,
-            "required_models": [],
+            "case_count": 30,
             "url4": "(ignored)",
         },
     )

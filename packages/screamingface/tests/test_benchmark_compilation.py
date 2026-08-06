@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
+from _model_parameter_fixtures import details as _model_details
 from url4 import RelExpr, build, expr, iterate, render, src, text
 
 import screamingface as sf
@@ -48,10 +49,11 @@ def _resource(*, url4: str | None = None) -> dict[str, object]:
     return {
         "schema": "screamingface.benchmark.v1",
         "id": "bench@1",
+        "variant": "canonical",
+        "title": "Fixture Benchmark",
+        "description": "A deterministic fixture.",
         "revision": "fixture-revision",
-        "case_count": 1,
-        "total_case_count": 3,
-        "required_models": ["provider/judge"],
+        "case_count": 3,
         "url4": _benchmark_url4() if url4 is None else url4,
     }
 
@@ -66,7 +68,6 @@ def test_benchmark_resource_is_data_plus_one_ordinary_url4_expression() -> None:
     assert benchmark.info.id == "bench@1"
     assert benchmark.info.case_count == 3
     assert benchmark.case_count == 1
-    assert benchmark.required_models == ("provider/judge",)
     assert benchmark.info.revision == "fixture-revision"
     assert render(build(benchmark.url4)) == benchmark.url4
     assert not hasattr(benchmark, "protocol")
@@ -132,13 +133,11 @@ def test_benchmark_resource_http_failures_are_typed(
 
 
 def test_model_compilation_uses_candidate_owned_defaults_and_input_binding() -> None:
-    compiled = compile_candidate(
-        sf.Model("provider/model"),
-        default_synthesizer="provider/default",
-    )
+    compiled = compile_candidate(sf.Model("provider/model"))
 
     assert compiled.kind == "model"
     assert compiled.models == ("provider/model",)
+    assert compiled.url4 is not None
     assert "$input" in compiled.url4
     assert "Answer the request accurately and completely." in compiled.url4
     assert "Follow every instruction and formatting constraint" in compiled.url4
@@ -147,7 +146,7 @@ def test_model_compilation_uses_candidate_owned_defaults_and_input_binding() -> 
     assert [operation.kind for operation in compiled.operations] == ["model"]
 
 
-def test_fusion_compilation_is_benchmark_agnostic_and_uses_sdk_defaults() -> None:
+def test_fusion_compilation_is_benchmark_agnostic_and_uses_explicit_policy() -> None:
     compiled = compile_candidate(
         sf.Fusion(
             [
@@ -155,19 +154,20 @@ def test_fusion_compilation_is_benchmark_agnostic_and_uses_sdk_defaults() -> Non
                 sf.Model("provider/b"),
             ],
             name="pair",
+            synthesizer="provider/synth",
         ),
-        default_synthesizer="provider/default",
     )
 
     assert compiled.kind == "fusion"
     assert compiled.models == (
         "provider/a",
         "provider/b",
-        "provider/default",
+        "provider/synth",
     )
+    assert compiled.url4 is not None
     assert "/provider/a" in compiled.url4
     assert "/provider/b" in compiled.url4
-    assert "/provider/default" in compiled.url4
+    assert "/provider/synth" in compiled.url4
     assert "Answer from A." in compiled.url4
     assert "Synthesize the strongest supported answer" in compiled.url4
     assert "follow every instruction and formatting constraint" in compiled.url4
@@ -180,10 +180,7 @@ def test_fusion_compilation_is_benchmark_agnostic_and_uses_sdk_defaults() -> Non
 
 
 def test_linker_preserves_a_top_level_benchmark_iteration_without_templates() -> None:
-    candidate = compile_candidate(
-        sf.Model("provider/model"),
-        default_synthesizer="provider/default",
-    )
+    candidate = compile_candidate(sf.Model("provider/model"))
     benchmark = render(
         iterate(
             ("one", "two"),
@@ -220,6 +217,7 @@ def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -
         sf.Fusion(
             [sf.Model("provider/a"), sf.Model("provider/b")],
             name="pair",
+            synthesizer="provider/synth",
         ),
     )
 
@@ -227,14 +225,12 @@ def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -
         recipes,
         benchmark,
         1,
-        default_synthesizer="provider/default",
     )
 
     assert evaluation.required_models == (
         "provider/a",
         "provider/b",
-        "provider/default",
-        "provider/judge",
+        "provider/synth",
     )
     assert [operation.kind for operation in evaluation.candidates[0].operations] == ["model"]
     assert [operation.kind for operation in evaluation.candidates[1].operations] == [
@@ -252,7 +248,7 @@ def _three_member_benchmark_url4() -> str:
                     RelExpr(
                         path="/candidate",
                         context="question",
-                        intent=text(f"$candidate_model_member_{index}"),
+                        intent=text(f"$candidate_member_{index}"),
                     ),
                     name=f"answer_{index}",
                     weight=0.0,
@@ -279,7 +275,6 @@ def test_structural_member_bindings_keep_benchmark_logic_out_of_the_sdk() -> Non
         (fusion,),
         benchmark,
         1,
-        default_synthesizer="provider/default",
     )
     candidate = evaluation.candidates[0]
 
@@ -288,12 +283,64 @@ def test_structural_member_bindings_keep_benchmark_logic_out_of_the_sdk() -> Non
         "provider/a",
         "provider/b",
         "provider/c",
-        "provider/judge",
     )
     assert [operation.kind for operation in candidate.operations] == ["model", "model", "model"]
     for index in range(1, 4):
-        assert candidate.url4.count(f"candidate_model_member_{index}") == 2
+        assert candidate.url4.count(f"candidate_member_{index}") == 2
     assert "openrouter/anthropic/claude-haiku-4.5" not in candidate.url4
+
+
+def test_dynamic_members_retain_the_candidate_synthesizer_in_preflight_and_operations() -> None:
+    benchmark = _decode_benchmark_resource(
+        _resource(
+            url4=("(members:0.0:/validate($candidate_members)!'$candidate_synthesizer')!'$members'")
+        ),
+        requested_id="bench@1",
+        requested_limit=1,
+    )
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        name="pair",
+        synthesizer="provider/synth",
+    )
+
+    evaluation = compile_evaluation(
+        (fusion,),
+        benchmark,
+        1,
+    )
+    candidate = evaluation.candidates[0]
+
+    assert candidate.models == ("provider/a", "provider/b", "provider/synth")
+    assert evaluation.required_models == candidate.models
+    assert [operation.kind for operation in candidate.operations] == [
+        "model",
+        "model",
+        "synthesis",
+    ]
+
+
+def test_dynamic_judge_requires_an_explicit_fusion_synthesizer() -> None:
+    benchmark = _decode_benchmark_resource(
+        _resource(
+            url4=("(members:0.0:/validate($candidate_members)!'$candidate_synthesizer')!'$members'")
+        ),
+        requested_id="bench@1",
+        requested_limit=1,
+    )
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        name="pair",
+    )
+
+    with pytest.raises(sf.PlanningError, match="synthesizer=") as error:
+        compile_evaluation(
+            (fusion,),
+            benchmark,
+            1,
+        )
+
+    assert error.value.code == "candidate_shape_mismatch"
 
 
 @pytest.mark.parametrize(
@@ -322,7 +369,6 @@ def test_structural_model_member_requirements_fail_during_planning(candidate) ->
             (candidate,),
             benchmark,
             1,
-            default_synthesizer="provider/default",
         )
 
     assert error.value.code == "candidate_shape_mismatch"
@@ -342,15 +388,35 @@ class _Transport:
                 {
                     "schema": "screamingface.candidate-result.v1",
                     "benchmark_id": "bench@1",
+                    "benchmark_revision": "fixture-revision",
                     "case_count": 1,
                     "score": 0.8,
                     "metrics": {"coverage": 1.0},
+                    "cases": [
+                        {
+                            "case_id": 1,
+                            "input": "Question",
+                            "output": "Answer",
+                            "finish_reason": "stop",
+                            "grade": {
+                                "method": "fixture",
+                                "score": 0.8,
+                                "metrics": {},
+                                "checks": [],
+                            },
+                            "failures": [],
+                            "metadata": {},
+                        }
+                    ],
                     "failures": [],
                 }
             ),
             media_type="application/json",
             root_usage=None,
         )
+
+    def cancel_active(self) -> None:
+        pass
 
     def close(self) -> None:
         pass
@@ -367,20 +433,29 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
             models = (
                 "provider/a",
                 "provider/b",
-                "provider/default",
+                "provider/synth",
                 "provider/judge",
             )
             return httpx.Response(
                 200,
                 json={
                     "object": "list",
-                    "default_synthesizer": "provider/default",
                     "data": [
-                        {"id": model, "object": "model", "owned_by": model.split("/", 1)[0]}
+                        {
+                            "id": model,
+                            "object": "model",
+                            "owned_by": model.split("/", 1)[0],
+                            "supported_parameters": [],
+                            "supported_tools": [],
+                            "unsupported_parameter_behavior": "reject",
+                            "parameter_contract_url": f"/v1/model-parameters?model={model}",
+                        }
                         for model in models
                     ],
                 },
             )
+        if request.method == "GET" and request.url.path == "/v1/model-parameters":
+            return httpx.Response(200, json=_model_details(request.url.params["model"]))
         raise AssertionError(f"unexpected Engine request: {request.method} {request.url}")
 
     candidates = [
@@ -388,6 +463,7 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
         sf.Fusion(
             [sf.Model("provider/a"), sf.Model("provider/b")],
             name="pair",
+            synthesizer="provider/synth",
         ),
     ]
     transport = _Transport()
@@ -399,7 +475,7 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
         report = client.evaluate(candidates, benchmark="bench@1", limit=1)
 
     assert [candidate.name for candidate in report.candidates] == ["a", "pair"]
-    # One candidate-independent family fetch is shared by every Candidate.
+    # One Candidate-independent Benchmark fetch is shared by every Candidate.
     assert len(benchmark_requests) == 1
     assert "members" not in str(benchmark_requests[0].url)
     assert dict(benchmark_requests[0].url.params) == {"limit": "1"}

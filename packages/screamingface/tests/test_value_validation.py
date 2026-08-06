@@ -27,6 +27,20 @@ MODEL_OPERATIONS = operations("op_model")
 FUSION_OPERATIONS = operations("op_first", "op_second")
 
 
+def case_results() -> tuple[sf.CaseResult, ...]:
+    return (
+        sf.CaseResult(
+            case_id=1,
+            input="Question",
+            output="Answer",
+            finish_reason="stop",
+            grade=sf.CaseGrade(method="fixture", score=1.0, metrics={}, checks=()),
+            failures=(),
+            metadata={},
+        ),
+    )
+
+
 def member(name: str = "member") -> sf.MemberResult:
     return sf.MemberResult(
         operation_id=f"op_{name}",
@@ -55,6 +69,7 @@ def candidate(
         operations=FUSION_OPERATIONS,
         score=score,
         metrics={} if score is None else {"score": score},
+        cases=case_results(),
         members=(member("first"), member("second")),
         failures=(),
         usage=sf.Usage(input_tokens=1),
@@ -96,6 +111,7 @@ def test_candidate_metrics_reject_null_values_explicitly() -> None:
             operations=FUSION_OPERATIONS,
             score=0.5,
             metrics=cast(Any, {"score": None}),
+            cases=case_results(),
             members=(member("first"), member("second")),
             failures=(),
             usage=sf.Usage(input_tokens=1),
@@ -157,6 +173,7 @@ def test_candidate_metrics_reject_null_values_explicitly() -> None:
                 operations=MODEL_OPERATIONS,
                 score=None,
                 metrics={"score": 0.0},
+                cases=case_results(),
                 members=(),
                 failures=(),
                 usage=sf.Usage(),
@@ -175,6 +192,7 @@ def test_candidate_metrics_reject_null_values_explicitly() -> None:
                 operations=MODEL_OPERATIONS,
                 score=0.5,
                 metrics={"score": 0.5},
+                cases=case_results(),
                 members=(),
                 failures=(),
                 usage=sf.Usage(),
@@ -193,6 +211,7 @@ def test_candidate_metrics_reject_null_values_explicitly() -> None:
                 operations=MODEL_OPERATIONS,
                 score=0.5,
                 metrics={"score": 0.5},
+                cases=case_results(),
                 members=(member(),),
                 failures=(),
                 usage=sf.Usage(),
@@ -211,6 +230,7 @@ def test_candidate_metrics_reject_null_values_explicitly() -> None:
                 operations=MODEL_OPERATIONS,
                 score=0.5,
                 metrics={"score": 0.5},
+                cases=case_results(),
                 members=(member(),),
                 failures=(),
                 usage=sf.Usage(),
@@ -229,6 +249,7 @@ def test_candidate_metrics_reject_null_values_explicitly() -> None:
                 operations=MODEL_OPERATIONS,
                 score=0.5,
                 metrics={"score": 0.5},
+                cases=case_results(),
                 members=(),
                 failures=(
                     sf.Failure(
@@ -341,6 +362,7 @@ def test_candidate_rejects_invalid_timestamps() -> None:
             operations=MODEL_OPERATIONS,
             score=0.5,
             metrics={"score": 0.5},
+            cases=case_results(),
             members=(),
             failures=(),
             usage=sf.Usage(),
@@ -357,6 +379,7 @@ def test_candidate_rejects_invalid_timestamps() -> None:
             operations=MODEL_OPERATIONS,
             score=0.5,
             metrics={"score": 0.5},
+            cases=case_results(),
             members=(),
             failures=(),
             usage=sf.Usage(),
@@ -387,6 +410,7 @@ def test_fusion_member_operation_ids_must_be_unique() -> None:
             operations=FUSION_OPERATIONS,
             score=0.5,
             metrics={"score": 0.5},
+            cases=case_results(),
             members=(first, second),
             failures=(),
             usage=sf.Usage(),
@@ -413,6 +437,7 @@ def test_candidate_result_rejects_unknown_operation_references() -> None:
             operations=MODEL_OPERATIONS,
             score=None,
             metrics={},
+            cases=case_results(),
             members=(),
             failures=(unknown_failure,),
             usage=sf.Usage(),
@@ -430,6 +455,7 @@ def test_candidate_result_rejects_unknown_operation_references() -> None:
             operations=FUSION_OPERATIONS,
             score=0.5,
             metrics={"score": 0.5},
+            cases=case_results(),
             members=(member("first"), member("missing")),
             failures=(),
             usage=sf.Usage(),

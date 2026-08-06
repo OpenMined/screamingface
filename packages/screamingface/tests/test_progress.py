@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
@@ -33,6 +34,12 @@ def test_progress_can_be_disabled_or_forced() -> None:
     assert stream.getvalue() == "ScreamingFace · Run started\n"
 
 
+def test_progress_defaults_on_inside_a_notebook(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "ipykernel", object())
+
+    assert _progress_observer(None, stream=StringIO()) is not None
+
+
 def test_progress_messages_cover_meaningful_lifecycle_events() -> None:
     log = sf.events.Log(
         **envelope(),
@@ -52,6 +59,34 @@ def test_progress_messages_cover_meaningful_lifecycle_events() -> None:
     assert _message(log) == "Grading case 1"
     assert _message(terminated) == "Run timed out"
     assert _message(usage) is None
+
+
+def test_progress_hides_structural_spans_and_summarizes_model_completions() -> None:
+    started = datetime(2026, 7, 25, 16, 0, tzinfo=UTC)
+    structural = sf.events.Span(
+        **envelope(),
+        name="TextNode",
+        operation="TextNode",
+        start=started,
+        end=started,
+    )
+    model = sf.events.Span(
+        **envelope(),
+        name="RelUrlNode",
+        operation="RelUrlNode",
+        start=started,
+        end=datetime(2026, 7, 25, 16, 0, 4, 800000, tzinfo=UTC),
+        provider="openrouter",
+        request_model="openrouter/anthropic/claude-haiku-4.5",
+        input_tokens=103,
+        output_tokens=374,
+        finish_reasons=("stop",),
+    )
+
+    assert _message(structural) is None
+    assert _message(model) == (
+        "Model completed · openrouter/anthropic/claude-haiku-4.5 · 4.8s · 103 in / 374 out · stop"
+    )
 
 
 def test_sync_evaluate_combines_builtin_and_caller_observers(

@@ -65,6 +65,39 @@ def test_state_decodes_public_events_and_root_lifecycle() -> None:
     assert terminated.outcome.started_at.isoformat() == "2026-07-25T16:00:00+00:00"
 
 
+def test_unpriced_usage_does_not_fabricate_zero_accounting() -> None:
+    accepted = _RunState(URL4).accept(
+        frame(
+            "ai.url4.cost.usage",
+            {
+                "scope": "subtree",
+                "gen_ai.provider.name": "openrouter",
+                "gen_ai.response.model": "openrouter/openai/gpt-5.5",
+                "pricing_version": "unpriced",
+                "usage": {
+                    "gen_ai.usage.input_tokens": 100,
+                    "gen_ai.usage.output_tokens": 20,
+                    "gen_ai.usage.cache_read_tokens": 0,
+                    "gen_ai.usage.cache_creation_tokens": 0,
+                    "gen_ai.usage.reasoning_tokens": 0,
+                },
+                "cost": {
+                    "input_usd": "0",
+                    "output_usd": "0",
+                    "cache_read_usd": "0",
+                    "cache_creation_usd": "0",
+                    "reasoning_usd": "0",
+                    "total_usd": "0",
+                },
+            },
+            sequence=1,
+        )
+    )
+
+    assert isinstance(accepted.event, sf.events.Usage)
+    assert accepted.event.usage == sf.Usage(input_tokens=100, output_tokens=20)
+
+
 def test_heartbeat_is_internal_and_does_not_participate_in_stream_sequence() -> None:
     state = _RunState(URL4)
 
@@ -252,6 +285,8 @@ def test_state_decodes_log_span_and_non_root_lifecycle() -> None:
                 "gen_ai.response.model": "actual",
                 "gen_ai.usage.input_tokens": 10,
                 "gen_ai.usage.output_tokens": 2,
+                "gen_ai.response.finish_reasons": ["tool_calls", "stop"],
+                "refusal": "policy refusal",
                 "start": "2026-07-25T16:00:00Z",
                 "end": "2026-07-25T16:00:01Z",
                 "status": "ok",
@@ -278,6 +313,8 @@ def test_state_decodes_log_span_and_non_root_lifecycle() -> None:
 
     assert isinstance(log.event, sf.events.Log)
     assert isinstance(span.event, sf.events.Span)
+    assert span.event.finish_reasons == ("tool_calls", "stop")
+    assert span.event.refusal == "policy refusal"
     assert ignored_result.outcome is None
     assert isinstance(child_terminal.event, sf.events.Terminated)
 

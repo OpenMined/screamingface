@@ -40,10 +40,14 @@ def test_log_and_span_values_preserve_typed_payloads() -> None:
         span_kind="client",
         input_tokens=10,
         output_tokens=2,
+        finish_reasons=("tool_calls", "stop"),
+        refusal="policy refusal",
     )
 
     assert log.attributes == {"attempt": 1}
     assert span.kind == "span"
+    assert span.finish_reasons == ("tool_calls", "stop")
+    assert span.refusal == "policy refusal"
 
 
 def test_log_body_preserves_the_protocols_valid_empty_string() -> None:
@@ -125,6 +129,16 @@ def test_log_body_preserves_the_protocols_valid_empty_string() -> None:
                 provider=" ",
             ),
             "provider",
+        ),
+        (
+            lambda: sf.events.Span(
+                **event_envelope(),
+                name="span",
+                operation="op",
+                start=NOW,
+                finish_reasons=(" ",),
+            ),
+            "finish reason",
         ),
         (
             lambda: sf.events.Usage(

@@ -1,9 +1,11 @@
-# ScreamingFace local dev stack — gateway (:9105) + engine (:9108) — plus notebook runs.
-# just stack-up | stack-down | stack-status | stack-logs | stack-prepare | notebook-ifeval
+# ScreamingFace local dev stack — gateway (:9105) + engine (:9108) — plus notebooks.
+# just stack-up | stack-down | stack-status | stack-logs | stack-prepare | jupyter
 
 assets := "/tmp/screamingface-benchmark-assets"  # datasets for url4-cloud benchmarks
 rundir := "/tmp/sf-stack"  # pid files and logs
 repo := justfile_directory() / "../.."
+# During stacked development the SDK and Engine may be separate worktrees.
+engine_repo := env_var_or_default("SCREAMINGFACE_ENGINE_REPO", repo)
 
 default:
     @just --list
@@ -18,6 +20,14 @@ stack-up:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p {{rundir}}
+    test -x {{repo}}/apps/aigateway/.venv/bin/uvicorn || {
+        echo "AI Gateway environment missing; run: cd {{repo}}/apps/aigateway && uv sync"
+        exit 1
+    }
+    test -x {{engine_repo}}/apps/url4-cloud/.venv/bin/url4-cloud || {
+        echo "URL4 Cloud environment missing; run: cd {{engine_repo}}/apps/url4-cloud && uv sync"
+        exit 1
+    }
     if lsof -nP -iTCP:9105 -sTCP:LISTEN >/dev/null 2>&1; then
         echo "gateway   :9105 already running"
     else
@@ -26,22 +36,32 @@ stack-up:
         # BOOTSTRAP flag re-activates stored provider profiles (e.g. the OpenRouter key)
         # at boot — without it a restarted gateway exposes no openrouter/* models.
         # OPENROUTER_ENABLED is REQUIRED too: the provider plugin defaults to disabled,
-        # and a gateway without it poisons the engine's model catalog until BOTH are
-        # restarted (gateway first — the engine snapshots the catalog at boot).
+        # Without it the Gateway catalog contains no openrouter/* models. The Engine projects
+        # that caller-visible catalog onto its declared routes; it does not fabricate providers.
         (cd {{repo}}/apps/aigateway && AIGATEWAY_AUTH_ENABLED=false AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1 \
             AIGW_OPENROUTER_ENABLED=true \
-            nohup uv run uvicorn aigateway.main:app --port 9105 \
+            nohup .venv/bin/uvicorn aigateway.main:app --port 9105 \
             >{{rundir}}/aigateway.log 2>&1 & echo $! >{{rundir}}/aigateway.pid)
         echo "gateway   :9105 starting  (log: {{rundir}}/aigateway.log)"
     fi
     if lsof -nP -iTCP:9108 -sTCP:LISTEN >/dev/null 2>&1; then
         echo "engine    :9108 already running"
     else
-        (cd {{repo}}/apps/url4-cloud && URL4_BENCHMARK_ASSETS={{assets}} nohup uv run url4-cloud serve --local \
+        (cd {{engine_repo}}/apps/url4-cloud && URL4_BENCHMARK_ASSETS={{assets}} nohup .venv/bin/url4-cloud serve --local \
             >{{rundir}}/url4-cloud.log 2>&1 & echo $! >{{rundir}}/url4-cloud.pid)
         echo "engine    :9108 starting  (log: {{rundir}}/url4-cloud.log, assets: {{assets}})"
     fi
-    sleep 2 && just stack-status
+    for attempt in {1..20}; do
+        if lsof -nP -iTCP:9105 -sTCP:LISTEN >/dev/null 2>&1 && \
+           lsof -nP -iTCP:9108 -sTCP:LISTEN >/dev/null 2>&1; then
+            just stack-status
+            exit 0
+        fi
+        sleep 1
+    done
+    just stack-status
+    echo "Local stack failed to become ready; inspect: just stack-logs"
+    exit 1
 
 # Stop both services
 stack-down:
@@ -78,5 +98,5 @@ stack-logs:
 
 # One-time: download pinned benchmark assets (draco + ifeval) into {{assets}}
 stack-prepare:
-    cd {{repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare --out {{assets}}/draco
-    cd {{repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare --out {{assets}}/ifeval
+    cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare --out {{assets}}/draco
+    cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare --out {{assets}}/ifeval

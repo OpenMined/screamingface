@@ -2,17 +2,50 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import nbformat
 from _ifeval_notebook import kimi_appendix
 from nbformat import NotebookNode
 
+_DRACO_ANSWER_PROMPT_PARTS = (
+    "You are answering a research-quality prompt. Provide a thorough, ",
+    "well-reasoned answer in prose. Address every aspect the prompt raises. ",
+    "Use clear structure (headings, bullet lists where appropriate) and cite ",
+    "specific facts, methodologies, or sources where relevant.\n\n",
+    "Do not refuse, abstain, or claim uncertainty unless the question is ",
+    "genuinely ambiguous — the goal is to demonstrate depth of understanding. ",
+    "Length: aim for the level of detail the question warrants; brevity that ",
+    "skips key points will be penalised by the rubric.",
+)
+_DRACO_ANSWER_PROMPT = "".join(_DRACO_ANSWER_PROMPT_PARTS)
+
+_DRACO_SYNTHESIS_PROMPT_PARTS = (
+    "You are synthesising a single, comprehensive answer to a research-quality ",
+    "prompt by combining N independent answers from a panel of models. The ",
+    "downstream grader will score your output against a STRUCTURED RUBRIC of ",
+    "weighted criteria — your goal is to maximise rubric coverage.\n\n",
+    "Procedure:\n",
+    "1. Read every panel answer carefully.\n",
+    "2. Identify which claims, facts, citations, or arguments each panel member ",
+    "contributes that the others miss.\n",
+    "3. Produce ONE unified prose response that:\n",
+    "   - Combines the strongest reasoning from every panel member\n",
+    "   - Preserves specific named entities, dates, methodologies, and citations\n",
+    "   - Resolves disagreements by favouring the more specific / better-cited claim\n",
+    "   - Uses clear structure (headings, lists) where it aids the reader\n",
+    "4. Do not introduce new facts that no panel member provided.\n",
+    "5. Do not hedge or refuse — the panel collectively has enough material.\n\n",
+    "Output: the unified prose answer, no preamble, no JSON wrapper.",
+)
+_DRACO_SYNTHESIS_PROMPT = "".join(_DRACO_SYNTHESIS_PROMPT_PARTS)
+
 
 def notebooks() -> dict[str, NotebookNode]:
     return {
         "00_quickstart.ipynb": _quickstart(),
-        "05_draco_e2e.ipynb": _draco_e2e(),
+        "05_draco_lite_e2e.ipynb": _draco_lite_e2e(),
         "06_draco_full_e2e.ipynb": _draco_full_e2e(),
         "07_ifeval_e2e.ipynb": _ifeval_e2e(),
     }
@@ -34,13 +67,47 @@ def _notebook(*cells: NotebookNode) -> NotebookNode:
     )
 
 
+def _local_stack_cell() -> NotebookNode:
+    return nbformat.v4.new_markdown_cell(
+        """## Before running
+
+From a terminal in `packages/screamingface/`:
+
+```bash
+just stack-prepare  # first run only: download pinned Benchmark assets
+just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-status
+```
+
+Use `just stack-logs` to inspect startup failures and `just stack-down` when finished. Stack
+management stays outside the notebook so **Run All** never starts or stops local services."""
+    )
+
+
+def _draco_candidate_policy_cell(*, synthesis: bool = False) -> NotebookNode:
+    source = _string_assignment("DRACO_ANSWER_PROMPT", _DRACO_ANSWER_PROMPT_PARTS)
+    if synthesis:
+        source += "\n\n" + _string_assignment(
+            "DRACO_SYNTHESIS_PROMPT",
+            _DRACO_SYNTHESIS_PROMPT_PARTS,
+        )
+    return nbformat.v4.new_code_cell(source)
+
+
+def _string_assignment(name: str, parts: tuple[str, ...]) -> str:
+    literals = "\n".join(f"    {json.dumps(part, ensure_ascii=False)}" for part in parts)
+    return f"{name} = (\n{literals}\n)"
+
+
 def _quickstart() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell(
             """# ScreamingFace quickstart
 
-Connect the configured SF Engine, define Candidates, and evaluate them."""
+Connect the configured SF Engine, define one Candidate, and run DRACO's bounded structural smoke
+Benchmark. The Engine owns the Case, retrieval policy, Judge, Grading, and Aggregation."""
         ),
+        _local_stack_cell(),
         nbformat.v4.new_markdown_cell(
             """## Connect OpenRouter
 
@@ -49,85 +116,91 @@ Engine for AI Gateway validation and encrypted storage; the notebook does not re
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
         nbformat.v4.new_code_cell("sf.connect()"),
-        nbformat.v4.new_markdown_cell("## Define Candidates"),
+        nbformat.v4.new_markdown_cell("## Define a Candidate"),
         nbformat.v4.new_code_cell(
-            """opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
-gpt = sf.Model("openrouter/openai/gpt-5.5")
-
-frontier = sf.Fusion([opus, gpt])"""
+            'candidate = sf.Model("openrouter/google/gemini-3-flash-preview")'
         ),
         nbformat.v4.new_markdown_cell(
             """## Evaluate
 
-Select DRACO explicitly. `limit=1` selects one of its 100 cases, but still evaluates every
-criterion in that case with the paper-aligned five Judge passes. The Benchmark owns Judge and
-aggregation policy."""
+`draco/smoke` preserves the canonical DRACO execution structure while reducing multiplicity to one
+pinned Case, one criterion, and one Judge pass. It makes two paid calls—one Candidate answer and one
+Judge grade—so its score is diagnostic and **not comparable** to canonical DRACO."""
         ),
         nbformat.v4.new_code_cell(
-            """report = sf.evaluate(
-    [opus, gpt, frontier],
-    benchmark="draco",
-    limit=1,
-    on_event=print,
-    progress=False,
-)
-report"""
+            """report = sf.evaluate(candidate, benchmark="draco/smoke")
+report.to_json()"""
         ),
     )
 
 
-def _draco_e2e() -> NotebookNode:
+def _draco_lite_e2e() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell(
-            """# DRACO smoke run: Client → URL4 Engine → AI Gateway
+            """# DRACO Lite: a small retrieval-aware comparison
 
-This notebook exercises the complete pipeline through the public ScreamingFace SDK. The Engine
-owns the dataset, judge, grading, and aggregation; the SDK Candidate owns answer policy.
+This notebook exercises both retrieval routes through the public ScreamingFace SDK. The Engine
+owns the Case, retrieval policy, Judge, Grading, and Aggregation; each SDK Candidate owns only its
+answer policy.
 
-> **Cost warning:** the evaluation cell performs one Candidate call plus five Judge calls for
-> every criterion in the selected case. Discovery makes no model calls."""
+`draco/lite` uses two pinned representative Cases, ten criteria per Case, and one Judge pass per
+criterion. It is useful for directional development checks, but its score is **not comparable**
+to canonical DRACO.
+
+> **Spend warning:** execution is disabled by default. Review the discovered Benchmark and set
+> `RUN_EVALUATION = True` deliberately; **Run All** otherwise makes no model calls."""
         ),
+        _local_stack_cell(),
         nbformat.v4.new_markdown_cell(
-            """## Before running
-
-The local AI Gateway must be running on `127.0.0.1:9105`, and the isolated Engine demo must be
-running on `127.0.0.1:9108`. The connection panel sends the OpenRouter key through the Engine to
-AI Gateway; the Client never calls AI Gateway directly.
-
-For a host-local Engine, prepare DRACO's pinned Cases and pass their root explicitly:
-
-```bash
-uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare \\
-  --out /tmp/screamingface-benchmark-assets/draco
-URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \\
-  uv run url4-cloud serve --local
-```
-
-`/opt/benchmarks` is the container image default and normally does not exist on the host."""
+            """Export `TAVILY_API_KEY` before `just stack-up`. A missing key fails the Tavily
+Candidate before its first paid model request instead of silently running without retrieval. The
+connection panel sends the OpenRouter key through the Engine to AI Gateway; the Client never calls
+AI Gateway directly."""
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
         nbformat.v4.new_markdown_cell("## Connect OpenRouter"),
         nbformat.v4.new_code_cell("sf.connect()"),
-        nbformat.v4.new_markdown_cell("## Define a Candidate"),
-        nbformat.v4.new_code_cell('haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")'),
-        nbformat.v4.new_markdown_cell(
-            """## Evaluate the benchmark
+        nbformat.v4.new_markdown_cell("## Define one Candidate per retrieval route"),
+        _draco_candidate_policy_cell(),
+        nbformat.v4.new_code_cell(
+            """DRACO_PARAMS = {"max_tokens": 8192, "temperature": 0.0}
+DRACO_PARAMS_NO_TEMPERATURE = {"max_tokens": 8192}
 
-Running the next cell evaluates one Candidate answer against every rubric criterion, with five
-independent Judge calls per criterion."""
+native_search = sf.Model(
+    "openrouter/openai/gpt-5.5",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS_NO_TEMPERATURE,
+)
+tavily_search = sf.Model(
+    "openrouter/google/gemini-3-flash-preview",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS,
+)"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## Evaluate DRACO Lite
+
+The same Engine-owned lite protocol invokes both Candidates. The current reference deployment
+routes GPT through provider-native search and Gemini Flash through the guarded Tavily tool loop.
+Success proves both configured routes were available; a model may legitimately answer without
+calling an offered function. The repository's forced-tool tests certify actual Tavily
+`/search` and `/extract` dispatch deterministically."""
         ),
         nbformat.v4.new_code_cell(
-            """report = sf.evaluate(
-    haiku,
-    benchmark="draco",
-    limit=1,
+            """RUN_EVALUATION = False
+
+candidates = [native_search, tavily_search]
+report = sf.evaluate(candidates, benchmark="draco/lite") if RUN_EVALUATION else None
+report_output = (
+    report.to_json()
+    if report is not None
+    else \"Evaluation disabled — set RUN_EVALUATION = True to spend.\"
 )
-report"""
+report_output"""
         ),
         nbformat.v4.new_markdown_cell("## Inspect the Report"),
-        nbformat.v4.new_code_cell("report.candidates"),
-        nbformat.v4.new_code_cell("report.usage"),
-        nbformat.v4.new_code_cell("report.to_json()"),
+        nbformat.v4.new_code_cell("report.candidates if report is not None else None"),
+        nbformat.v4.new_code_cell("report.usage if report is not None else None"),
     )
 
 
@@ -140,11 +213,12 @@ IFEval (arXiv:2311.07911) is 541 prompts with machine-checkable constraints — 
 counts, forbidden punctuation, required sections. The Engine grades every response with
 a deterministic verifier: **no judge model in the grading path, zero grading cost**.
 
-There is one IFEval family with three explicit Variants:
+The Engine publishes three independently revisioned IFEval Benchmarks that share Cases and verifier
+assets:
 
 - `ifeval` — one shot. A solo Model answers once; a Fusion's members answer and its
   synthesizer **blends** them into one new answer. The blend is checked.
-- `ifeval/self-corrective` — up to three attempts. The whole Candidate reads the
+- `ifeval/self-corrective` — three fixed attempts. The whole Candidate reads the
   checker's violations, **writes its own feedback, and retries**.
 - `ifeval/verifying-ensemble` — the current verifying ensemble implementation based on
   Skurikhin et al. (https://openreview.net/forum?id=XSIYfTm2h7): every direct Fusion
@@ -160,31 +234,10 @@ validation. Khoa's Kimi K3 configuration remains in the optional appendix becaus
 reasoning model can consume its completion budget before emitting answer text, and an
 upstream provider can fail even when Gateway discovery succeeds."""
         ),
+        _local_stack_cell(),
         nbformat.v4.new_markdown_cell(
-            """## Before running
-
-AI Gateway on `127.0.0.1:9105`, Engine on `127.0.0.1:9108`. From `packages/screamingface/`:
-
-```bash
-just stack-prepare   # once — downloads the pinned benchmark cases
-just stack-up        # gateway :9105 + engine :9108 (logs: just stack-logs)
-```
-
-If `just` is not installed, use two terminals after preparing the assets:
-
-```bash
-# Terminal 1
-cd ../../apps/aigateway
-./run-dev-gateway.sh
-
-# Terminal 2 — start only after Gateway is healthy
-cd ../../apps/url4-cloud
-URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \
-  uv run url4-cloud serve --local
-```
-
-After pulling or merging SDK code, **restart this notebook's kernel before Run All**.
-Python keeps already-imported SDK modules in memory; a stale kernel can ask the new Engine
+            """After pulling or merging SDK code, **restart this notebook's kernel before Run
+All**. Python keeps already-imported SDK modules in memory; a stale kernel can ask the new Engine
 for a pre-merge Benchmark id and receive `unknown_benchmark`."""
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
@@ -333,8 +386,18 @@ It preserves the published Candidate surface—**7 solo Models and 9 Fusions**�
 SDK. The Engine owns DRACO's dataset, judge, grading, and aggregation. Each SDK Candidate owns its
 answer and synthesis policy.
 
-> **Spend warning:** the evaluation cell is paid. It uses one case per Candidate; remove `limit=1`
-> only when you intend to run the complete dataset."""
+This notebook always selects canonical `draco`: all 100 Cases, every criterion, and five Judge
+passes per criterion. It has no smoke or lite switch, so a completed Report is unambiguously a
+full-protocol result.
+
+> **Spend warning:** execution is disabled by default. Set `RUN_EVALUATION = True` only after
+> reviewing the full experiment's estimated scope."""
+        ),
+        _local_stack_cell(),
+        nbformat.v4.new_markdown_cell(
+            """Export `TAVILY_API_KEY` before `just stack-up`: the Gemini, Kimi, DeepSeek, and
+Qwen answer routes use its guarded tool loop, and the Engine fails before model spend when that
+required retrieval mechanism is unavailable."""
         ),
         nbformat.v4.new_code_cell("import screamingface as sf"),
         nbformat.v4.new_markdown_cell("## 1. Connect OpenRouter"),
@@ -343,81 +406,196 @@ answer and synthesis policy.
             """## 2. Define the full solo lineup
 
 These are the seven solo Candidates from the original full-pipelines notebook. Qwen is also
-defined because it participates in the open-source Fusion."""
+defined because it participates in the open-source Fusion. The reference configuration requires
+at least 8,192 output tokens for answer and tool paths, so this notebook pins that Candidate policy
+instead of inheriting the SDK's smaller general default.
+
+The Gateway's live model contract currently marks `temperature` unsupported for Fable 5 and
+GPT-5.5. Their requests therefore omit it; every model that supports it retains the reference
+temperature of zero."""
         ),
+        _draco_candidate_policy_cell(synthesis=True),
         nbformat.v4.new_code_cell(
-            """fable = sf.Model("openrouter/anthropic/claude-fable-5")
-opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
-gpt = sf.Model("openrouter/openai/gpt-5.5")
-gemini_pro = sf.Model("openrouter/google/gemini-3.1-pro-preview")
-gemini_flash = sf.Model("openrouter/google/gemini-3-flash-preview")
-kimi = sf.Model("openrouter/moonshotai/kimi-k2.6")
-deepseek = sf.Model("openrouter/deepseek/deepseek-v4-pro")
-qwen = sf.Model("openrouter/qwen/qwen3.6-plus")"""
+            """DRACO_PARAMS = {"max_tokens": 8192, "temperature": 0.0}
+DRACO_PARAMS_NO_TEMPERATURE = {"max_tokens": 8192}
+
+fable = sf.Model(
+    "openrouter/anthropic/claude-fable-5",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS_NO_TEMPERATURE,
+)
+opus = sf.Model(
+    "openrouter/anthropic/claude-opus-4.8",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS,
+)
+gpt = sf.Model(
+    "openrouter/openai/gpt-5.5",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS_NO_TEMPERATURE,
+)
+gemini_pro = sf.Model(
+    "openrouter/google/gemini-3.1-pro-preview",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS,
+)
+gemini_flash = sf.Model(
+    "openrouter/google/gemini-3-flash-preview",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS,
+)
+kimi = sf.Model(
+    "openrouter/moonshotai/kimi-k2.6",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS,
+)
+deepseek = sf.Model(
+    "openrouter/deepseek/deepseek-v4-pro",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS,
+)
+qwen = sf.Model(
+    "openrouter/qwen/qwen3.6-plus",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=DRACO_PARAMS,
+)"""
         ),
         nbformat.v4.new_markdown_cell(
             """## 3. Define the nine Fusion Candidates
 
-The Benchmark supplies the synthesizer automatically. Equivalent Models deduplicate across the
-graph. The self-Fusion uses explicit sample identities so its two Opus calls remain independent."""
+Each Fusion names the synthesizer from the reproduced configuration explicitly. Equivalent Models
+deduplicate inside one Candidate graph. The self-Fusion uses explicit sample identities and
+temperature so its two Opus calls remain independent. DRACO gives guarded retrieval to
+answer-producing members; whole-Fusion synthesis and the Benchmark-owned Judge remain
+retrieval-free.
+
+The reference harness can reuse solo answers across overlapping Fusion panels. Until the Engine's
+cross-Candidate cache lands, this SDK run evaluates each Candidate independently and may repeat
+those member calls. That does not change a Candidate's DRACO protocol or score, but it can make the
+full experiment materially more expensive."""
         ),
         nbformat.v4.new_code_cell(
-            """fable_plus_gpt = sf.Fusion([fable, gpt])
-frontier = sf.Fusion([opus, gpt, gemini_pro])
-opus_plus_gpt = sf.Fusion([opus, gpt])
+            """fable_plus_gpt = sf.Fusion(
+    [fable, gpt],
+    name="fable_plus_gpt",
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)
+frontier_trio = sf.Fusion(
+    [opus, gpt, gemini_pro],
+    name="frontier_trio",
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)
+opus_plus_gpt = sf.Fusion(
+    [opus, gpt],
+    name="opus_plus_gpt",
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)
 opus_self_fusion = sf.Fusion(
     [
-        sf.Model("openrouter/anthropic/claude-opus-4.8", name="opus-sample-1"),
-        sf.Model("openrouter/anthropic/claude-opus-4.8", name="opus-sample-2"),
-    ]
-)
-budget = sf.Fusion([gemini_flash, kimi, deepseek])
-beat_runner_up = sf.Fusion([opus, gpt, deepseek])
-pareto = sf.Fusion([deepseek, kimi, gpt])
-pareto_lean = sf.Fusion([deepseek, kimi])
-best_open_source = sf.Fusion([deepseek, kimi, qwen])"""
+        sf.Model(
+            "openrouter/anthropic/claude-opus-4.8",
+            name="opus-sample-1",
+            prompt=DRACO_ANSWER_PROMPT,
+            params={"max_tokens": 8192, "temperature": 0.7},
         ),
+        sf.Model(
+            "openrouter/anthropic/claude-opus-4.8",
+            name="opus-sample-2",
+            prompt=DRACO_ANSWER_PROMPT,
+            params={"max_tokens": 8192, "temperature": 0.7},
+        ),
+    ],
+    name="opus_self_fusion",
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)
+budget_trio = sf.Fusion(
+    [gemini_flash, kimi, deepseek],
+    name="budget_trio",
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)
+beat_runner_up = sf.Fusion(
+    [opus, gpt, deepseek],
+    name="beat_runner_up",
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)
+pareto_cross = sf.Fusion(
+    [deepseek, kimi, gpt],
+    name="pareto_cross",
+    synthesizer="openrouter/deepseek/deepseek-v4-pro",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)
+pareto_lean = sf.Fusion(
+    [deepseek, kimi],
+    name="pareto_lean",
+    synthesizer="openrouter/deepseek/deepseek-v4-pro",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)
+best_open_source = sf.Fusion(
+    [deepseek, kimi, qwen],
+    name="best_open_source",
+    synthesizer="openrouter/deepseek/deepseek-v4-pro",
+    prompt=DRACO_SYNTHESIS_PROMPT,
+    params=DRACO_PARAMS,
+)"""
+        ),
+        nbformat.v4.new_markdown_cell("## 4. Arm the canonical run explicitly"),
+        nbformat.v4.new_code_cell("RUN_EVALUATION = False"),
         nbformat.v4.new_markdown_cell(
-            """## 4. Evaluate every Candidate
+            """## 5. Evaluate every Candidate
 
-One evaluation call runs the complete Candidate lineup against DRACO. Candidates run
-concurrently under the Client's internal scheduler; the Benchmark supplies all other execution
-policy."""
+One Evaluation runs the complete Candidate lineup concurrently. Leaving
+`RUN_EVALUATION = False` makes **Run All** safe and performs no model calls."""
         ),
         nbformat.v4.new_code_cell(
-            """report = sf.evaluate(
-    [
-        fable,
-        opus,
-        gpt,
-        gemini_pro,
-        gemini_flash,
-        kimi,
-        deepseek,
-        fable_plus_gpt,
-        frontier,
-        opus_plus_gpt,
-        opus_self_fusion,
-        budget,
-        beat_runner_up,
-        pareto,
-        pareto_lean,
-        best_open_source,
-    ],
-    benchmark="draco",
-    limit=1,
+            """candidates = [
+    fable,
+    opus,
+    gpt,
+    gemini_pro,
+    gemini_flash,
+    kimi,
+    deepseek,
+    fable_plus_gpt,
+    frontier_trio,
+    opus_plus_gpt,
+    opus_self_fusion,
+    budget_trio,
+    beat_runner_up,
+    pareto_cross,
+    pareto_lean,
+    best_open_source,
+]
+
+report = sf.evaluate(candidates, benchmark="draco") if RUN_EVALUATION else None
+report_output = (
+    report.to_json()
+    if report is not None
+    else \"Evaluation disabled — set RUN_EVALUATION = True to spend.\"
 )
-report"""
+report_output"""
         ),
         nbformat.v4.new_markdown_cell(
-            """## 5. Inspect the Report
+            """## 6. Inspect the Report
 
 The Report presents Candidate scores, failures, operation graphs, timing, and usage."""
         ),
-        nbformat.v4.new_code_cell("report.candidates"),
-        nbformat.v4.new_code_cell("report.usage"),
-        nbformat.v4.new_code_cell("report.failures"),
-        nbformat.v4.new_code_cell("report.to_json()"),
+        nbformat.v4.new_code_cell("report.candidates if report is not None else None"),
+        nbformat.v4.new_code_cell("report.usage if report is not None else None"),
+        nbformat.v4.new_code_cell("report.failures if report is not None else None"),
     )
     notebook.metadata["kernelspec"] = {
         "display_name": "screamingface (SDK)",

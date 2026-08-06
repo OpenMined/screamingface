@@ -4,10 +4,9 @@ Evaluate Models and Fusions against URL4-native research Benchmarks.
 
 > **Development status:** immutable Model/Fusion authoring, Engine-backed discovery, the direct
 > evaluation API, Model/Fusion authoring, and the confirmed `url4-cloud` lifecycle are
-> implemented. The current Engine publishes the `draco` and `ifeval` Benchmark Families. Each
-> family resource contains its Engine-owned protocol Variants and their complete URL4
-> expressions. There is no fixture, embedded
-> benchmark runtime, or Client-side execution fallback.
+> implemented. The current Engine publishes `draco`, `ifeval`, `ifeval/self-corrective`, and
+> `ifeval/verifying-ensemble` as independently revisioned Benchmark resources with complete URL4
+> expressions. There is no fixture, embedded benchmark runtime, or Client-side execution fallback.
 
 ## Target v1 workflow
 
@@ -24,6 +23,7 @@ gpt = sf.Model("openrouter/openai/gpt-5.5")
 frontier_pair = sf.Fusion(
     [opus, gpt],
     name="frontier-pair",
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
 )
 
 report = sf.evaluate(
@@ -51,12 +51,12 @@ Candidate once and grades it with deterministic code. `ifeval/self-corrective` u
 Cases and verifier but executes a fixed three-attempt whole-Candidate correction protocol:
 
 ```python
-canonical = sf.evaluate(fusion, benchmark="ifeval", limit=3)
-self_corrective = sf.evaluate(fusion, benchmark="ifeval/self-corrective", limit=3)
+canonical = sf.evaluate(frontier_pair, benchmark="ifeval", limit=3)
+self_corrective = sf.evaluate(frontier_pair, benchmark="ifeval/self-corrective", limit=3)
 ```
 
-The two Variants share the `ifeval` Benchmark Family and Engine assets, but have different ids,
-revisions, URL4 expressions, costs, and score comparability. `limit` only selects fewer Cases; it
+The two Benchmarks share IFEval Cases and Engine assets, but have different ids, revisions, URL4
+expressions, costs, and score comparability. `limit` only selects fewer Cases; it
 does not create a `smoke` or `lite` Benchmark. The current self-corrective implementation
 intentionally runs all three attempts and then scores the earliest strict pass, or the final
 attempt when none passes.
@@ -66,7 +66,11 @@ It accepts two to four direct Model members, checks and retries each independent
 attempts, and uses the Fusion's synthesizer as its selection Judge before canonical scoring:
 
 ```python
-panel = sf.Fusion([kimi, deepseek, qwen])
+panel = sf.Fusion(
+    [opus, gpt],
+    name="verifying-pair",
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+)
 ensemble = sf.evaluate(panel, benchmark="ifeval/verifying-ensemble", limit=3)
 ```
 
@@ -74,16 +78,19 @@ Here the Benchmark deliberately invokes the Fusion's structural member bindings 
 ordinary final synthesizer. The SDK exposes those bindings generically; retry, verification,
 selection, finalization, and scoring remain entirely Engine-owned.
 
-### Candidate policy defaults
+### Candidate policy
 
-Models and Fusions work without prompt configuration. The SDK supplies general answer and
-constraint-aware synthesis prompts. The Engine's model catalogue supplies the concrete default
-synthesizer—currently `anthropic/claude-haiku-4-5` in the reference deployment—so the SDK does not
-hardcode a provider. Candidate compilation embeds that resolved route in the final URL4:
+Models work without prompt configuration. For a Fusion that produces a final answer, name its
+synthesizer explicitly; neither the Engine catalogue nor a Benchmark silently chooses one. The SDK
+supplies general answer and constraint-aware synthesis prompts, then embeds the explicit Model
+routes and resolved prompt defaults in the final URL4:
 
 ```python
 plain = sf.Model("openrouter/openai/gpt-5.5")
-pair = sf.Fusion([opus, gpt])
+pair = sf.Fusion(
+    [opus, gpt],
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+)
 ```
 
 Researchers can override only Candidate-owned policy when an experiment needs it:
@@ -92,27 +99,36 @@ Researchers can override only Candidate-owned policy when an experiment needs it
 careful = sf.Model(
     "openrouter/openai/gpt-5.5",
     prompt="Answer from primary evidence and follow every requested output constraint.",
-    params={"reasoning": "high"},
+    params={"reasoning_effort": "high"},
 )
 
 constraint_aware = sf.Fusion(
     [opus, gpt],
     synthesizer="openrouter/openai/gpt-5.5",
     prompt="Produce one final answer that preserves every constraint in the original request.",
-    params={"reasoning": "high"},
+    params={"reasoning_effort": "high"},
 )
 ```
 
-These overrides never alter Benchmark-owned Cases, fixed judge models or prompts, Grading, or
-Aggregation. Resolved defaults and overrides are embedded in each final URL4.
+These overrides never alter Benchmark-owned Cases, fixed Judge models or prompts, Grading, or
+Aggregation. Prompt defaults and explicit overrides are embedded in each final URL4. A Fusion may
+be authored without `synthesizer=`, but planning rejects it before spend whenever the selected
+Benchmark invokes the whole Fusion or its synthesizer. When a Benchmark binds the synthesizer as a
+separate structural component, the model route and `params` remain Candidate-owned while the
+Benchmark owns that role's instructions; an ordinary whole-Fusion blending prompt is not reused as
+a Judge prompt. The Benchmark sets the retrieval ceiling on `/candidate`; ordinary Model and
+Fusion-member calls inherit it, while the SDK compiler always pins whole-Fusion synthesis to
+`web_search=false`. Users cannot override retrieval through Candidate `params`. DRACO can therefore
+offer guarded web access to answer producers without silently giving synthesis a stronger
+experiment than the published protocol.
 
-The Benchmark Family resource uses `screamingface.benchmark-family.v1`. Every Variant carries one
-canonical `url4` plus an opaque immutable `revision`. The SDK selects the requested Variant from
-that one fetch, compiles a Model or Fusion into an expression accepting `$input`, binds it once as
-`$candidate`, and links it to the Engine expression using URL4's AST. A Benchmark invokes it with
-`/candidate(input)!$candidate`; that route evaluates it inside the same Engine job, not through an
-additional Client or control-plane request. Unsupported Candidates fail with typed errors instead
-of falling back to Client-side execution.
+Each flat Benchmark resource uses `screamingface.benchmark.v1` and carries one canonical `url4`
+plus an opaque immutable `revision`. The SDK fetches the requested id, compiles a Model or Fusion
+into an expression accepting `$input`, and links only the universal bindings referenced by that
+Benchmark (`$candidate`, direct members, or an explicit synthesizer). A Benchmark invokes a bound
+expression through `/candidate`; that route evaluates it inside the same Engine job, not through
+an additional Client or control-plane request. Unsupported Candidate shapes fail with typed errors
+instead of falling back to Client-side execution.
 
 The Candidate input is normally plain text. Engine-owned Benchmarks that require native chat
 history wrap structured turns in the versioned Candidate-input envelope; the Runner preserves
@@ -337,12 +353,22 @@ An Engine implementing the provisional catalogue contract exposes typed discover
 
 ```python
 models = sf.models.list()
+gpt_details = sf.models.get("openrouter/openai/gpt-5.5")
 benchmarks = sf.benchmarks.list()
 ```
 
 Explicit Clients provide the same interface through `client.models.list()` and
-`client.benchmarks.list()`; asynchronous Clients use the same names with `await`. These catalogue
-schemas remain provisional until the production SF Engine contracts are finalized.
+`client.models.get(model_id)` alongside `client.benchmarks.list()`; asynchronous Clients use the
+same names with `await`. `ModelInfo` rows are lightweight summaries containing the supported
+parameter and tool names. `ModelDetails` is the profile-specific contract for one Model, including
+typed parameter schemas, gateway policy, provider evidence, tools, transport, and freshness.
+
+Explicit Candidate parameters are preflighted against those details before execution. The SDK
+fetches one detail document per distinct Model with explicit overrides on an operation the selected
+Benchmark actually invokes; parameter-free Candidates and unused structural components perform no
+detail lookup. Missing, disabled, wrong-type, or out-of-range values fail before any paid Run
+begins. Model capability data always comes from the Engine/AI Gateway contract—there is no GPT- or
+provider-specific parameter table in the SDK.
 
 The returned catalogues are immutable ordered sequences: iteration, indexing, slicing, and
 `len()` work normally in scripts and sidecars. Evaluating one in Jupyter automatically renders a
@@ -352,12 +378,12 @@ or introduce a separate discovery operation.
 
 ## Examples
 
-- [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb): runnable Model/Fusion authoring
-  plus the canonical direct evaluation flow.
-- [`examples/05_draco_e2e.ipynb`](examples/05_draco_e2e.ipynb): one-case local
-  DRACO smoke run (the filename is retained for compatibility).
+- [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb): one Candidate through the
+  bounded, diagnostic `draco/smoke` protocol.
+- [`examples/05_draco_lite_e2e.ipynb`](examples/05_draco_lite_e2e.ipynb): an opt-in,
+  retrieval-aware comparison over the small, non-comparable `draco/lite` protocol.
 - [`examples/06_draco_full_e2e.ipynb`](examples/06_draco_full_e2e.ipynb): the complete seven-solo,
-  nine-Fusion DRACO experiment ported from `screamingface-benchmarks` to the Client SDK.
+  nine-Fusion canonical DRACO experiment, with execution disabled by default.
 
 The notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 

@@ -24,10 +24,10 @@ class BenchmarkResources:
         benchmark: str,
         limit: int | None,
     ) -> _BenchmarkResource:
-        family = _family_id(benchmark)
+        benchmark_id = _benchmark_id(benchmark)
         try:
             response = self._http.get(
-                f"/v1/benchmarks/{quote(family, safe='')}",
+                f"/v1/benchmarks/{quote(benchmark_id, safe='')}",
                 params=_query(limit),
             )
         except httpx.HTTPError as exc:
@@ -54,10 +54,10 @@ class AsyncBenchmarkResources:
         benchmark: str,
         limit: int | None,
     ) -> _BenchmarkResource:
-        family = _family_id(benchmark)
+        benchmark_id = _benchmark_id(benchmark)
         try:
             response = await self._http.get(
-                f"/v1/benchmarks/{quote(family, safe='')}",
+                f"/v1/benchmarks/{quote(benchmark_id, safe='')}",
                 params=_query(limit),
             )
         except httpx.HTTPError as exc:
@@ -80,15 +80,14 @@ def _query(limit: int | None) -> dict[str, int]:
     return params
 
 
-def _family_id(selection: str) -> str:
-    family, separator, variant = selection.partition("/")
-    if not family.strip() or (separator and not variant.strip()) or "/" in variant:
+def _benchmark_id(value: str) -> str:
+    if not isinstance(value, str) or any(not part.strip() for part in value.split("/")):
         raise PlanningError(
-            "Benchmark must be selected as 'family' or 'family/variant'",
+            "Benchmark id must contain non-empty slash-separated names",
             code="invalid_benchmark_selection",
             permanent=True,
         )
-    return family
+    return value
 
 
 def _json(response: httpx.Response) -> object:

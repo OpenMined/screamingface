@@ -3,56 +3,33 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
 from typing import NoReturn
 from urllib.parse import quote
 
 import httpx
 
-from screamingface._core.wire import mapping as _wire_mapping
-from screamingface._core.wire import text as _wire_text
-from screamingface._ui.catalog import _BenchmarkCatalog, _CaseCatalog, _ModelCatalog
-from screamingface.discovery import Benchmark, CaseInfo, ModelInfo
-from screamingface.errors import AuthenticationError, EngineUnavailableError, PlanningError
+from screamingface._engine.catalog_contract import (
+    _BenchmarkCatalogData,
+    _BenchmarkEntry,
+    _decode_benchmark_summary,
+    _decode_benchmarks,
+    _decode_case_page,
+    _decode_model_catalog,
+    _ModelCatalogData,
+)
+from screamingface._engine.model_parameters import _decode_model_details
+from screamingface._ui.catalog import _BenchmarkCatalog, _CaseCatalog
+from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
+from screamingface.errors import (
+    AuthenticationError,
+    EngineUnavailableError,
+    PlanningError,
+    ProviderConnectionError,
+)
 
 _MODELS_PATH = "/v1/models"
+_MODEL_PARAMETERS_PATH = "/v1/model-parameters"
 _BENCHMARKS_PATH = "/v1/benchmarks"
-
-
-@dataclass(frozen=True, slots=True)
-class _BenchmarkEntry:
-    id: str
-    family: str
-    variant: str
-    title: str
-    description: str
-    resource_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class _BenchmarkCatalogData:
-    entries: tuple[_BenchmarkEntry, ...]
-    default: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class _ModelCatalogData:
-    models: Sequence[ModelInfo]
-    default_synthesizer: str
-
-
-@dataclass(frozen=True, slots=True)
-class _BenchmarkSummary:
-    revision: str
-    case_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class _CasePage:
-    total: int
-    limit: int
-    offset: int
-    rows: tuple[CaseInfo, ...]
 
 
 class Models:
@@ -64,6 +41,20 @@ class Models:
 
     def list(self) -> Sequence[ModelInfo]:
         return self._load().models
+
+    def get(self, model_id: str) -> ModelDetails:
+        """Fetch profile-specific details for one canonical Model id."""
+
+        selected = _model_id(model_id)
+        return _decode_model_details(
+            _sync_json(
+                self._get,
+                self._engine_url,
+                _model_parameters_path(selected),
+                "Model details",
+            ),
+            selected,
+        )
 
     def _load(self) -> _ModelCatalogData:
         return _decode_model_catalog(
@@ -82,17 +73,15 @@ class Benchmarks:
         catalog = _decode_benchmarks(
             _sync_json(self._get, self._engine_url, _BENCHMARKS_PATH, "Benchmark catalogue")
         )
-        resources: dict[str, object] = {}
         values = []
         for entry in catalog.entries:
-            if entry.resource_id not in resources:
-                resources[entry.resource_id] = _sync_json(
-                    self._get,
-                    self._engine_url,
-                    _summary_path(entry.resource_id),
-                    "Benchmark resource",
-                )
-            values.append(self._benchmark(entry, resources[entry.resource_id]))
+            resource = _sync_json(
+                self._get,
+                self._engine_url,
+                _summary_path(entry.id),
+                "Benchmark resource",
+            )
+            values.append(self._benchmark(entry, resource))
         return _BenchmarkCatalog(tuple(values))
 
     def get(self, benchmark_id: str) -> Benchmark:
@@ -103,7 +92,7 @@ class Benchmarks:
         resource = _sync_json(
             self._get,
             self._engine_url,
-            _summary_path(entry.resource_id),
+            _summary_path(entry.id),
             "Benchmark resource",
         )
         return self._benchmark(entry, resource)
@@ -117,7 +106,7 @@ class Benchmarks:
             _sync_json(
                 self._get,
                 self._engine_url,
-                _cases_path(entry.resource_id, limit, offset),
+                _cases_path(entry.id, limit, offset),
                 "Benchmark cases",
             )
         )
@@ -128,12 +117,12 @@ class Benchmarks:
 
         # WHY: the value carries a bound page-fetcher instead of a client so it stays a
         # frozen comparable; `benchmark.cases(...)` is this adapter's `cases` in disguise.
-        def fetch(limit: int, offset: int, resource_id: str = entry.resource_id) -> _CaseCatalog:
+        def fetch(limit: int, offset: int, benchmark_id: str = entry.id) -> _CaseCatalog:
             page = _decode_case_page(
                 _sync_json(
                     self._get,
                     self._engine_url,
-                    _cases_path(resource_id, limit, offset),
+                    _cases_path(benchmark_id, limit, offset),
                     "Benchmark cases",
                 )
             )
@@ -141,7 +130,6 @@ class Benchmarks:
 
         return Benchmark(
             id=entry.id,
-            family=entry.family,
             variant=entry.variant,
             title=entry.title,
             description=entry.description,
@@ -164,6 +152,20 @@ class AsyncModels:
 
     async def list(self) -> Sequence[ModelInfo]:
         return (await self._load()).models
+
+    async def get(self, model_id: str) -> ModelDetails:
+        """Fetch profile-specific details for one canonical Model id."""
+
+        selected = _model_id(model_id)
+        return _decode_model_details(
+            await _async_json(
+                self._get,
+                self._engine_url,
+                _model_parameters_path(selected),
+                "Model details",
+            ),
+            selected,
+        )
 
     async def _load(self) -> _ModelCatalogData:
         return _decode_model_catalog(
@@ -191,17 +193,15 @@ class AsyncBenchmarks:
                 "Benchmark catalogue",
             )
         )
-        resources: dict[str, object] = {}
         values = []
         for entry in catalog.entries:
-            if entry.resource_id not in resources:
-                resources[entry.resource_id] = await _async_json(
-                    self._get,
-                    self._engine_url,
-                    _summary_path(entry.resource_id),
-                    "Benchmark resource",
-                )
-            values.append(self._benchmark(entry, resources[entry.resource_id]))
+            resource = await _async_json(
+                self._get,
+                self._engine_url,
+                _summary_path(entry.id),
+                "Benchmark resource",
+            )
+            values.append(self._benchmark(entry, resource))
         return _BenchmarkCatalog(tuple(values))
 
     async def get(self, benchmark_id: str) -> Benchmark:
@@ -217,7 +217,7 @@ class AsyncBenchmarks:
         resource = await _async_json(
             self._get,
             self._engine_url,
-            _summary_path(entry.resource_id),
+            _summary_path(entry.id),
             "Benchmark resource",
         )
         return self._benchmark(entry, resource)
@@ -236,7 +236,7 @@ class AsyncBenchmarks:
             await _async_json(
                 self._get,
                 self._engine_url,
-                _cases_path(entry.resource_id, limit, offset),
+                _cases_path(entry.id, limit, offset),
                 "Benchmark cases",
             )
         )
@@ -246,7 +246,6 @@ class AsyncBenchmarks:
         summary = _decode_benchmark_summary(resource, entry)
         return Benchmark(
             id=entry.id,
-            family=entry.family,
             variant=entry.variant,
             title=entry.title,
             description=entry.description,
@@ -271,9 +270,22 @@ def _async_cases_redirect(benchmark_id: str) -> Callable[[int, int], _CaseCatalo
 
 
 def _summary_path(benchmark_id: str) -> str:
-    # WHY limit=1: discovery needs only revision + total_case_count; the unbounded
+    # WHY limit=1: discovery needs only revision + installed case_count; the unbounded
     # resource would make the Engine render the full url4 expression per catalog row.
     return f"{_BENCHMARKS_PATH}/{quote(benchmark_id, safe='')}?limit=1"
+
+
+def _model_parameters_path(model_id: str) -> str:
+    return f"{_MODEL_PARAMETERS_PATH}?model={quote(model_id, safe='')}"
+
+
+def _model_id(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("model_id must be a string")
+    selected = value.removeprefix("/").strip()
+    if not selected:
+        raise ValueError("model_id must be a non-empty string")
+    return selected
 
 
 def _cases_path(benchmark_id: str, limit: int, offset: int) -> str:
@@ -318,6 +330,8 @@ async def _async_json(
 
 
 def _response_json(response: httpx.Response, label: str) -> object:
+    if label == "Model details" and not response.is_success:
+        _raise_model_details_error(response)
     if response.status_code in {401, 403}:
         raise AuthenticationError(
             f"SF Engine authentication is required for {label}",
@@ -342,202 +356,53 @@ def _response_json(response: httpx.Response, label: str) -> object:
         ) from exc
 
 
-def _decode_model_catalog(payload: object) -> _ModelCatalogData:
-    root = _wire_mapping(payload, "model catalogue", _invalid)
-    if root.get("object") != "list":
-        _invalid("model catalogue object must be 'list'")
-    rows = root.get("data")
-    if not isinstance(rows, list):
-        _invalid("model catalogue must contain a data array")
-    values = []
-    for row in rows:
-        item = _wire_mapping(row, "model catalogue entry", _invalid)
-        try:
-            values.append(
-                ModelInfo(
-                    id=_wire_text(item.get("id"), "Model id", _invalid),
-                    provider=_wire_text(item.get("owned_by"), "Model provider", _invalid),
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            _invalid(str(exc))
-    models = _ModelCatalog(values)
-    default_synthesizer = _wire_text(
-        root.get("default_synthesizer"),
-        "Model catalogue default_synthesizer",
-        _invalid,
-    )
-    if default_synthesizer not in {model.id for model in models}:
-        _invalid(f"Model catalogue default synthesizer {default_synthesizer!r} is not installed")
-    return _ModelCatalogData(models=models, default_synthesizer=default_synthesizer)
+def _raise_model_details_error(response: httpx.Response) -> None:
+    """Preserve AI Gateway's profile/model diagnostic relayed by the Engine."""
 
-
-def _decode_benchmarks(payload: object) -> _BenchmarkCatalogData:
     try:
-        return _decode_benchmark_catalog(payload)
-    except ValueError as exc:
-        _invalid(str(exc))
-
-
-def _decode_benchmark_catalog(payload: object) -> _BenchmarkCatalogData:
-    root = _wire_mapping(payload, "Benchmark catalog", _catalog_invalid)
-    if root.get("object") != "list":
-        _catalog_invalid("Benchmark catalog object must be 'list'")
-    if "default" not in root:
-        _catalog_invalid("Benchmark catalog must declare default")
-    rows = root.get("data")
-    if not isinstance(rows, list):
-        _catalog_invalid("Benchmark catalog must contain a data array")
-    entries = _benchmark_entries(rows)
-    ids = tuple(entry.id for entry in entries)
-    return _BenchmarkCatalogData(
-        entries=entries,
-        default=_benchmark_default(root["default"], ids),
-    )
-
-
-def _benchmark_entries(rows: list[object]) -> tuple[_BenchmarkEntry, ...]:
-    values: list[_BenchmarkEntry] = []
-    seen: set[str] = set()
-    for row in rows:
-        item = _wire_mapping(row, "Benchmark catalog entry", _catalog_invalid)
-        object_type = item.get("object")
-        if object_type == "benchmark":
-            entries = (_legacy_benchmark_entry(item),)
-        elif object_type == "benchmark_family":
-            entries = _family_benchmark_entries(item)
-        else:
-            _catalog_invalid(
-                "Benchmark catalog entry object must be 'benchmark' or 'benchmark_family'"
-            )
-        for entry in entries:
-            if entry.id in seen:
-                _catalog_invalid(f"Benchmark catalog contains duplicate id {entry.id!r}")
-            seen.add(entry.id)
-            values.append(entry)
-    return tuple(values)
-
-
-def _legacy_benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
-    benchmark_id = _wire_text(item.get("id"), "Benchmark id", _catalog_invalid)
-    return _BenchmarkEntry(
-        id=benchmark_id,
-        # Additive compatibility: an older Engine exposed only standalone entries.
-        family=_wire_text(item.get("family", benchmark_id), "Benchmark family", _catalog_invalid),
-        variant=_wire_text(item.get("variant", "canonical"), "Benchmark variant", _catalog_invalid),
-        title=_wire_text(item.get("title"), "Benchmark title", _catalog_invalid),
-        description=_wire_text(item.get("description"), "Benchmark description", _catalog_invalid),
-        resource_id=benchmark_id,
-    )
-
-
-def _family_benchmark_entries(item: Mapping[str, object]) -> tuple[_BenchmarkEntry, ...]:
-    family_id = _wire_text(item.get("id"), "Benchmark Family id", _catalog_invalid)
-    default_variant = _wire_text(
-        item.get("default_variant"), "Benchmark Family default Variant", _catalog_invalid
-    )
-    variants = item.get("variants")
-    if not isinstance(variants, list) or not variants:
-        _catalog_invalid("Benchmark Family variants must be a non-empty array")
-    selected: list[_BenchmarkEntry] = []
-    seen: set[str] = set()
-    for raw_variant in variants:
-        variant = _wire_mapping(raw_variant, "Benchmark Variant", _catalog_invalid)
-        variant_id = _wire_text(variant.get("id"), "Benchmark Variant id", _catalog_invalid)
-        if variant_id in seen:
-            _catalog_invalid(
-                f"Benchmark Family {family_id!r} contains duplicate Variant {variant_id!r}"
-            )
-        seen.add(variant_id)
-        selected.append(
-            _BenchmarkEntry(
-                id=family_id if variant_id == default_variant else f"{family_id}/{variant_id}",
-                family=family_id,
-                variant=variant_id,
-                title=_wire_text(variant.get("title"), "Benchmark Variant title", _catalog_invalid),
-                description=_wire_text(
-                    variant.get("description"),
-                    "Benchmark Variant description",
-                    _catalog_invalid,
-                ),
-                resource_id=family_id,
-            )
+        root = response.json()
+    except ValueError:
+        return
+    if not isinstance(root, Mapping) or not isinstance(root.get("detail"), Mapping):
+        return
+    detail = root["detail"]
+    code = detail.get("code")
+    provider = detail.get("provider")
+    profile = detail.get("name")
+    if (
+        code in {"profile_not_found", "profile_pending_auth", "auth_required"}
+        and isinstance(provider, str)
+        and isinstance(profile, str)
+    ):
+        display = provider.replace("-", " ").title()
+        messages = {
+            "profile_not_found": f"{display} profile {profile!r} is not connected",
+            "profile_pending_auth": f"{display} profile {profile!r} is still connecting",
+            "auth_required": f"{display} profile {profile!r} must be reconnected",
+        }
+        actions = {
+            "profile_not_found": "connect",
+            "profile_pending_auth": "finish connecting",
+            "auth_required": "reconnect",
+        }
+        raise ProviderConnectionError(
+            messages[code],
+            provider=provider,
+            code=code,
+            status=response.status_code,
+            permanent=code != "profile_pending_auth",
+            details=dict(detail),
+            hint=f"Open `sf.connect()` and {actions[code]} {display}, then retry.",
         )
-    if default_variant not in seen:
-        _catalog_invalid(f"Benchmark Family default Variant {default_variant!r} is not installed")
-    return tuple(selected)
-
-
-def _benchmark_default(value: object, ids: tuple[str, ...]) -> str | None:
-    if not ids:
-        if value is not None:
-            _catalog_invalid("Empty Benchmark catalog default must be null")
-        return None
-    selected = _wire_text(value, "Benchmark catalog default", _catalog_invalid)
-    if selected not in ids:
-        _catalog_invalid(f"Benchmark catalog default {selected!r} is not installed")
-    return selected
-
-
-def _decode_benchmark_summary(payload: object, entry: _BenchmarkEntry) -> _BenchmarkSummary:
-    root = _wire_mapping(payload, "Benchmark resource", _invalid)
-    if root.get("schema") == "screamingface.benchmark-family.v1":
-        family_id = _wire_text(root.get("id"), "Benchmark Family id", _invalid)
-        if family_id != entry.family:
-            _invalid("Benchmark resource has the wrong Benchmark Family id")
-        variants = _wire_mapping(root.get("variants"), "Benchmark Variants", _invalid)
-        if entry.variant not in variants:
-            _invalid(f"Benchmark Variant {entry.variant!r} is not installed in {entry.family!r}")
-        selected = _wire_mapping(
-            variants[entry.variant], f"Benchmark Variant {entry.variant!r}", _invalid
+    if code == "model_not_found" and isinstance(detail.get("model"), str):
+        model = detail["model"]
+        raise PlanningError(
+            f"Model {model!r} is not available from the selected provider profile",
+            code="model_not_found",
+            status=response.status_code,
+            permanent=True,
+            details=dict(detail),
         )
-    else:
-        selected = root
-    revision = _wire_text(selected.get("revision"), "Benchmark revision", _invalid)
-    total = selected.get("total_case_count")
-    if isinstance(total, bool) or not isinstance(total, int) or total < 1:
-        _invalid("Benchmark total_case_count must be a positive integer")
-    return _BenchmarkSummary(revision=revision, case_count=total)
-
-
-def _decode_case_page(payload: object) -> _CasePage:
-    root = _wire_mapping(payload, "Benchmark cases page", _invalid)
-    if root.get("object") != "list":
-        _invalid("Benchmark cases page object must be 'list'")
-    counters: dict[str, int] = {}
-    for name, minimum in (("total", 0), ("limit", 1), ("offset", 0)):
-        value = root.get(name)
-        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-            _invalid(f"Benchmark cases page {name} must be an integer >= {minimum}")
-        counters[name] = value
-    rows = root.get("data")
-    if not isinstance(rows, list):
-        _invalid("Benchmark cases page must contain a data array")
-    cases: list[CaseInfo] = []
-    for row in rows:
-        item = _wire_mapping(row, "Benchmark case", _invalid)
-        case_id = item.get("id")
-        if isinstance(case_id, bool) or not isinstance(case_id, int):
-            _invalid("Benchmark case id must be an integer")
-        try:
-            cases.append(
-                CaseInfo(
-                    id=case_id,
-                    input=_wire_text(item.get("input"), "Benchmark case input", _invalid),
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            _invalid(str(exc))
-    return _CasePage(
-        total=counters["total"],
-        limit=counters["limit"],
-        offset=counters["offset"],
-        rows=tuple(cases),
-    )
-
-
-def _catalog_invalid(message: str) -> NoReturn:
-    raise ValueError(message)
 
 
 def _unreachable(engine_url: str, label: str, cause: Exception) -> NoReturn:
@@ -545,14 +410,6 @@ def _unreachable(engine_url: str, label: str, cause: Exception) -> NoReturn:
         f"Could not reach the SF Engine {label}",
         engine_url=engine_url,
     ) from cause
-
-
-def _invalid(message: str) -> NoReturn:
-    raise PlanningError(
-        message,
-        code="invalid_catalogue",
-        permanent=True,
-    )
 
 
 __all__ = ["AsyncBenchmarks", "AsyncModels", "Benchmarks", "Models"]

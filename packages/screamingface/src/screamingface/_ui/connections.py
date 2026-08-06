@@ -6,11 +6,13 @@ import asyncio
 import threading
 import weakref
 from collections.abc import Callable
-from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
-from urllib.parse import urlsplit
 
-from screamingface._ui.connection_state import _ConnectionPanelState
+from screamingface._ui.connection_state import (
+    _ConnectionPanelState,
+    _is_hosted_engine,
+    _user_message,
+)
 from screamingface._ui.connection_view import (
     _NotebookConnectionView,
     static_panel_html,
@@ -439,22 +441,6 @@ class ConnectionPanel:
         task = self._tasks.pop(provider, None)
         if task is not None:
             task.cancel()
-
-
-def _is_hosted_engine(engine_url: str) -> bool:
-    hostname = urlsplit(engine_url).hostname
-    if hostname == "localhost":
-        return False
-    try:
-        address = ip_address(hostname or "")
-    except ValueError:
-        return True
-    return not (address.is_loopback or address.is_unspecified)
-
-
-def _user_message(error: Exception) -> str:
-    message = getattr(error, "user_message", None)
-    return message if isinstance(message, str) else str(error)
 
 
 __all__ = ["ConnectionPanel"]

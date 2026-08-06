@@ -10,12 +10,28 @@ import screamingface as sf
 from screamingface._evaluation.model import _compiled_operation
 
 
+def case_results() -> tuple[sf.CaseResult, ...]:
+    return tuple(
+        sf.CaseResult(
+            case_id=case_id,
+            input=f"Question {case_id}",
+            output=f"Answer {case_id}",
+            finish_reason="stop",
+            grade=sf.CaseGrade(method="fixture", score=1.0, metrics={}, checks=()),
+            failures=(),
+            metadata={},
+        )
+        for case_id in (1, 2)
+    )
+
+
 def candidate(
     name: str,
     *,
     url4: str | None = None,
     score: float | None = 0.5,
     failures: tuple[sf.Failure, ...] = (),
+    usage: sf.Usage | None = None,
 ) -> sf.CandidateResult:
     metrics = {} if score is None else {"coverage": 1.0}
     return sf.CandidateResult(
@@ -42,9 +58,10 @@ def candidate(
         ),
         score=score,
         metrics=metrics,
+        cases=case_results(),
         members=(),
         failures=failures,
-        usage=sf.Usage(input_tokens=100, output_tokens=20, cost_usd="0.12"),
+        usage=usage or sf.Usage(input_tokens=100, output_tokens=20, cost_usd="0.12"),
     )
 
 
@@ -153,6 +170,7 @@ def test_report_derives_study_timing_and_complete_usage_from_candidate_runs() ->
         ),
         score=0.5,
         metrics={"coverage": 1.0},
+        cases=case_results(),
         members=(),
         failures=(),
         usage=sf.Usage(input_tokens=50, output_tokens=None, cost_usd="0.03"),
@@ -257,6 +275,7 @@ def test_scored_fusion_preserves_partial_member_failure_evidence() -> None:
         ),
         score=0.6,
         metrics={"coverage": 1.0},
+        cases=case_results(),
         members=(
             sf.MemberResult(
                 operation_id="op_opus",
@@ -312,6 +331,21 @@ def test_report_json_is_complete_portable_json_with_decimal_money_as_text() -> N
     assert "ok" not in payload
 
 
+def test_report_json_marks_unavailable_usage_fields_as_null() -> None:
+    value = report(candidate("opus", usage=sf.Usage(input_tokens=100, output_tokens=20)))
+
+    payload = json.loads(value.to_json())
+
+    assert payload["usage"] == {
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "cache_read_tokens": None,
+        "cache_creation_tokens": None,
+        "reasoning_tokens": None,
+        "cost_usd": None,
+    }
+
+
 def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:
     value = candidate("opus")
     inconsistent = sf.CandidateResult(
@@ -325,6 +359,7 @@ def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:
         operations=value.operations,
         score=0.7,
         metrics={"coverage": 0.6},
+        cases=value.cases,
         members=(),
         failures=(),
         usage=sf.Usage(),

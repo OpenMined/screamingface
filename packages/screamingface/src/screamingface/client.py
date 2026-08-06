@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import threading
 from collections.abc import Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, overload
-from urllib.parse import urlsplit, urlunsplit
+
+from screamingface._client_connections import (
+    _AuthListeners,
+    _connect_async,
+    _connect_sync,
+    _engine_origin,
+    _require_secure_connection_origin,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -24,28 +30,6 @@ if TYPE_CHECKING:
     from screamingface.report import Report
 
 DEFAULT_ENGINE_URL = "http://127.0.0.1:9108"
-
-
-class _AuthListeners:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._callbacks: set[Callable[[], None]] = set()
-
-    def subscribe(self, callback: Callable[[], None]) -> Callable[[], None]:
-        with self._lock:
-            self._callbacks.add(callback)
-
-        def unsubscribe() -> None:
-            with self._lock:
-                self._callbacks.discard(callback)
-
-        return unsubscribe
-
-    def notify(self) -> None:
-        with self._lock:
-            callbacks = tuple(self._callbacks)
-        for callback in callbacks:
-            callback()
 
 
 class Client:
@@ -165,6 +149,7 @@ class Client:
             self._benchmark_resources.load,
             self._transport,
             self.models._load,
+            self.models.get,
             candidates,
             benchmark,
             limit,
@@ -372,6 +357,7 @@ class AsyncClient:
             self._benchmark_resources.load,
             self._transport,
             self.models._load,
+            self.models.get,
             candidates,
             benchmark,
             limit,
@@ -445,86 +431,6 @@ class AsyncClient:
     ) -> httpx.Response:
         self._require_open()
         return await self._http.request(method, path, json=json)
-
-
-def _engine_origin(value: Any) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("engine_url must be an HTTP(S) origin")
-    parts = urlsplit(value.strip())
-    if (
-        parts.scheme not in {"http", "https"}
-        or not parts.netloc
-        or parts.path not in {"", "/"}
-        or parts.query
-        or parts.fragment
-        or parts.username is not None
-        or parts.password is not None
-    ):
-        raise ValueError("engine_url must be an HTTP(S) origin without credentials or a path")
-    return urlunsplit((parts.scheme, parts.netloc, "", "", ""))
-
-
-def _require_secure_connection_origin(engine_url: str) -> None:
-    from screamingface.errors import ProviderConnectionError
-
-    parts = urlsplit(engine_url)
-    if parts.scheme == "https" or (
-        parts.scheme == "http" and parts.hostname in {"localhost", "127.0.0.1", "::1"}
-    ):
-        return
-    raise ProviderConnectionError(
-        "Provider connection operations require HTTPS outside a loopback SF Engine",
-        code="secure_transport_required",
-        permanent=True,
-    )
-
-
-def _connect_sync(
-    connections: Connections,
-    provider: str,
-    api_key: str | None,
-    method: Literal["api_key", "oauth"] | None,
-) -> Connection | OAuthFlow:
-    _validate_auth_method(method)
-    if api_key is not None:
-        _require_api_key_action(method)
-        result = connections.connect(provider, api_key)
-    elif method == "api_key":
-        raise ValueError("api_key is required for API-key authentication")
-    elif method == "oauth":
-        result = connections.start_oauth(provider)
-    else:
-        raise ValueError("api_key is required unless method='oauth' is selected")
-    return result
-
-
-async def _connect_async(
-    connections: AsyncConnections,
-    provider: str,
-    api_key: str | None,
-    method: Literal["api_key", "oauth"] | None,
-) -> Connection | AsyncOAuthFlow:
-    _validate_auth_method(method)
-    if api_key is not None:
-        _require_api_key_action(method)
-        result = await connections.connect(provider, api_key)
-    elif method == "api_key":
-        raise ValueError("api_key is required for API-key authentication")
-    elif method == "oauth":
-        result = await connections.start_oauth(provider)
-    else:
-        raise ValueError("api_key is required unless method='oauth' is selected")
-    return result
-
-
-def _validate_auth_method(method: object) -> None:
-    if method not in {None, "api_key", "oauth"}:
-        raise ValueError("method must be 'api_key', 'oauth', or None")
-
-
-def _require_api_key_action(method: object) -> None:
-    if method == "oauth":
-        raise ValueError("api_key cannot be combined with OAuth")
 
 
 __all__ = ["AsyncClient", "Client", "DEFAULT_ENGINE_URL"]

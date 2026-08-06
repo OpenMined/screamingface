@@ -125,6 +125,8 @@ class Span(Event):
     response_model: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    finish_reasons: tuple[str, ...] = ()
+    refusal: str | None = None
     kind: ClassVar[str] = "span"
 
     def __post_init__(self) -> None:
@@ -133,7 +135,7 @@ class Span(Event):
         object.__setattr__(self, "operation", _nonblank(self.operation, "Span operation"))
         _validate_span_times(self.start, self.end)
         _validate_span_classification(self.status, self.span_kind)
-        for name in ("provider", "request_model", "response_model"):
+        for name in ("provider", "request_model", "response_model", "refusal"):
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(
@@ -143,6 +145,13 @@ class Span(Event):
                 )
         for name in ("input_tokens", "output_tokens"):
             _optional_count(getattr(self, name), f"Span {name}")
+        if not isinstance(self.finish_reasons, tuple):
+            raise TypeError("Span finish_reasons must be a tuple")
+        object.__setattr__(
+            self,
+            "finish_reasons",
+            tuple(_nonblank(reason, "Span finish reason") for reason in self.finish_reasons),
+        )
 
 
 @dataclass(frozen=True, slots=True)

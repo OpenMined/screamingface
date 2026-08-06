@@ -8,11 +8,8 @@ interpreting the protocol.
 
 from __future__ import annotations
 
-import base64
-import json
-import re
-
 import pytest
+from url4 import Expression, Source, StructObject, Text, build, render
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -20,20 +17,20 @@ from screamingface._evaluation.linking import link_candidate
 from screamingface.errors import PlanningError
 
 _JUDGE_SHAPED_BENCHMARK = (
-    "(answer_1:0.0:/candidate?q=($item.input)!'$candidate_model_member_1', "
-    "answer_2:0.0:/candidate?q=($item.input)!'$candidate_model_member_2', "
+    "(answer_1:0.0:/candidate?q=($item.input)!'$candidate_member_1', "
+    "answer_2:0.0:/candidate?q=($item.input)!'$candidate_member_2', "
     "pick:0.0:/candidate?q=(verdicts)!'$candidate_synthesizer')!'$pick'"
 )
 _WHOLE_CANDIDATE_BENCHMARK = "(answer:0.0:/candidate?q=($item.input)!'$candidate')!'$answer'"
 _MEMBER_COLLECTION_BENCHMARK = (
-    "(validated:0.0:/bench/validate('$candidate_members')!'validate', "
-    "answers:0.0:$validated*(answer:0.0:/candidate?q=(question)!'$item.expression')!"
+    "(members:0.0:/bench/validate($candidate_members)!'$candidate_synthesizer', "
+    "answers:0.0:$members*(answer:0.0:/candidate?q=(question)!'$item.expression')!"
     "'$answer', pick:0.0:/candidate?q=($answers)!'$candidate_synthesizer')!'$pick'"
 )
 
 
 def _compiled(recipe):
-    return compile_candidate(recipe, default_synthesizer="provider/default")
+    return compile_candidate(recipe)
 
 
 def test_a_fusion_links_its_synthesizer_into_a_judge_shaped_benchmark() -> None:
@@ -43,37 +40,76 @@ def test_a_fusion_links_its_synthesizer_into_a_judge_shaped_benchmark() -> None:
         synthesizer="provider/judge",
     )
     value = _compiled(fusion)
-    assert value.synthesizer_expression is not None
-    assert "provider/judge" in value.synthesizer_expression
+    assert value.synthesizer is not None
+    assert "provider/judge" in value.synthesizer.url4
 
     linked = link_candidate(
         value.url4,
         _JUDGE_SHAPED_BENCHMARK,
         value.member_expressions,
-        value.synthesizer_expression,
+        value.synthesizer.url4,
     )
     assert "candidate_synthesizer" in linked.url4
+    assert linked.uses_synthesizer
     assert linked.member_indices == (1, 2)
 
 
-def test_a_fusion_without_an_explicit_synthesizer_binds_the_default() -> None:
+def test_structural_synthesizer_keeps_generation_params_but_not_the_blending_prompt() -> None:
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        synthesizer="provider/judge",
+        prompt="Blend the member answers into one final answer.",
+        params={"max_tokens": 16384, "temperature": 0.2},
+    )
+
+    value = _compiled(fusion)
+
+    assert value.url4 is not None
+    assert "Blend the member answers" in value.url4
+    assert value.synthesizer is not None
+    assert "max_tokens=16384" in value.synthesizer.url4
+    assert "temperature=0.2" in value.synthesizer.url4
+    # INVARIANT: this binding contributes model policy; the Benchmark owns its Judge
+    # instructions, so ordinary whole-Fusion blending prose cannot leak into that protocol.
+    assert "Blend the member answers" not in value.synthesizer.url4
+
+
+def test_a_fusion_without_a_synthesizer_remains_structurally_available() -> None:
     fusion = sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")], name="pair")
     value = _compiled(fusion)
-    assert value.synthesizer_expression is not None
-    assert "provider/default" in value.synthesizer_expression
+    assert value.url4 is None
+    assert value.synthesizer is None
+    assert [member.name for member in value.member_expressions] == ["a", "b"]
+
+
+def test_a_judge_shaped_benchmark_requires_a_synthesizer() -> None:
+    fusion = sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")], name="pair")
+    value = _compiled(fusion)
+    assert value.synthesizer is None
+
+    with pytest.raises(PlanningError) as caught:
+        link_candidate(
+            value.url4,
+            _JUDGE_SHAPED_BENCHMARK,
+            value.member_expressions,
+            None,
+        )
+
+    assert caught.value.code == "candidate_shape_mismatch"
+    assert "synthesizer=" in str(caught.value)
 
 
 def test_a_solo_model_against_a_judge_shaped_benchmark_fails_loudly() -> None:
     # INVARIANT: shape mismatches are planning-time errors that name the fix — the
     # protocol needs a judge, so the Candidate must be a Fusion.
     value = _compiled(sf.Model("provider/solo"))
-    assert value.synthesizer_expression is None
+    assert value.synthesizer is None
     with pytest.raises(PlanningError) as caught:
         link_candidate(
             value.url4,
             _JUDGE_SHAPED_BENCHMARK,
             value.member_expressions,
-            value.synthesizer_expression,
+            None,
         )
     assert caught.value.code == "candidate_shape_mismatch"
     assert "synthesizer" in str(caught.value)
@@ -92,32 +128,36 @@ def test_plumbing_names_starting_with_candidate_are_not_a_whole_candidate_refere
     value = _compiled(fusion)
     benchmark = (
         "(answer_1:0.0:(candidate_result:0.0:/candidate?web_search=false"
-        "&q=($item.input)!'$candidate_model_member_1')!'$candidate_result', "
+        "&q=($item.input)!'$candidate_member_1')!'$candidate_result', "
         "answer_2:0.0:(candidate_result:0.0:/candidate?web_search=false"
-        "&q=($item.input)!'$candidate_model_member_2')!'$candidate_result', "
+        "&q=($item.input)!'$candidate_member_2')!'$candidate_result', "
         "pick:0.0:/candidate?q=(verdicts)!'$candidate_synthesizer')!'$pick'"
     )
     linked = link_candidate(
-        value.url4, benchmark, value.member_expressions, value.synthesizer_expression
+        value.url4,
+        benchmark,
+        value.member_expressions,
+        value.synthesizer.url4 if value.synthesizer is not None else None,
     )
     assert not linked.uses_whole_candidate
     assert "(candidate:0.0:" not in linked.url4
 
 
-def test_a_model_has_no_synthesizer_expression_and_whole_binding_still_works() -> None:
+def test_a_model_has_no_synthesizer_component_and_whole_binding_still_works() -> None:
     value = _compiled(sf.Model("provider/solo"))
     linked = link_candidate(
         value.url4,
         _WHOLE_CANDIDATE_BENCHMARK,
         value.member_expressions,
-        value.synthesizer_expression,
+        None,
     )
     assert linked.uses_whole_candidate
+    assert not linked.uses_synthesizer
     assert "candidate_synthesizer" not in linked.url4
 
 
 @pytest.mark.parametrize("member_count", [2, 3, 4])
-def test_one_member_collection_binding_handles_every_supported_fusion_size(
+def test_one_native_member_collection_binding_handles_every_supported_fusion_size(
     member_count: int,
 ) -> None:
     fusion = sf.Fusion(
@@ -126,22 +166,38 @@ def test_one_member_collection_binding_handles_every_supported_fusion_size(
         synthesizer="provider/judge",
     )
     value = _compiled(fusion)
+    assert value.synthesizer is not None
 
     linked = link_candidate(
         value.url4,
         _MEMBER_COLLECTION_BENCHMARK,
         value.member_expressions,
-        value.synthesizer_expression,
+        value.synthesizer.url4,
     )
 
     assert linked.member_indices == tuple(range(1, member_count + 1))
     assert "$candidate_members" in linked.url4
     assert "$candidate_synthesizer" in linked.url4
     assert "$candidate_model_member_" not in linked.url4
-    match = re.search(r"candidate_members:0\.0:'([^']+)'", linked.url4)
-    assert match is not None
-    payload = json.loads(base64.urlsafe_b64decode(match.group(1)))
+    assert '"expression"' not in linked.url4
+    parsed = build(linked.url4)
+    assert isinstance(parsed, Expression)
+    collection = next(
+        source
+        for source in parsed.sources
+        if isinstance(source, Source) and source.name == "candidate_members"
+    )
+    assert isinstance(collection.value, StructObject)
     for index in range(1, member_count + 1):
-        assert f"provider/member-{index}" in payload[index - 1]["expression"]
-        assert payload[index - 1]["key"] == chr(64 + index)
-    assert json.loads(json.dumps(linked.url4)) == linked.url4
+        binding = next(
+            source
+            for source in parsed.sources
+            if isinstance(source, Source) and source.name == f"candidate_member_{index}"
+        )
+        assert isinstance(binding.value, Text)
+        assert f"provider/member-{index}" in binding.value.value
+        assert f"member_{index}: {{name: 'member-{index}', " in collection.value.raw
+        assert f"url4: '$candidate_member_{index}'" in collection.value.raw
+        # Each executable member appears exactly once; the collection carries only a URL4 ref.
+        assert linked.url4.count(f"provider/member-{index}") == 1
+    assert render(build(linked.url4)) == linked.url4

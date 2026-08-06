@@ -29,17 +29,28 @@ def _models(_: httpx.Request) -> httpx.Response:
         200,
         json={
             "object": "list",
-            "default_synthesizer": "anthropic/claude-haiku-4-5",
             "data": [
                 {
                     "id": "anthropic/claude-haiku-4-5",
                     "object": "model",
                     "owned_by": "anthropic",
+                    "supported_parameters": ["max_tokens", "temperature"],
+                    "supported_tools": ["function"],
+                    "unsupported_parameter_behavior": "reject",
+                    "parameter_contract_url": (
+                        "/v1/model-parameters?model=anthropic%2Fclaude-haiku-4-5"
+                    ),
                 },
                 {
                     "id": "openrouter/openai/gpt-5.5",
                     "object": "model",
                     "owned_by": "openrouter",
+                    "supported_parameters": ["reasoning_effort"],
+                    "supported_tools": [],
+                    "unsupported_parameter_behavior": "reject",
+                    "parameter_contract_url": (
+                        "/v1/model-parameters?model=openrouter%2Fopenai%2Fgpt-5.5"
+                    ),
                 },
             ],
         },
@@ -56,6 +67,7 @@ def _benchmarks(_: httpx.Request) -> httpx.Response:
                 {
                     "id": "draco",
                     "object": "benchmark",
+                    "variant": "canonical",
                     "title": "DRACO",
                     "description": "The 100-task deep-research benchmark.",
                 }
@@ -70,10 +82,11 @@ def _draco_summary(_: httpx.Request) -> httpx.Response:
         json={
             "schema": "screamingface.benchmark.v1",
             "id": "draco",
+            "variant": "canonical",
+            "title": "DRACO",
+            "description": "The 100-task deep-research benchmark.",
             "revision": "rev0000000000000",
-            "case_count": 1,
-            "total_case_count": 100,
-            "required_models": [],
+            "case_count": 100,
             "url4": "(ignored)",
         },
     )
@@ -94,8 +107,18 @@ def test_explicit_client_lists_typed_models_and_benchmarks() -> None:
         benchmarks = client.benchmarks.list()
 
     assert models == (
-        sf.ModelInfo(id="anthropic/claude-haiku-4-5", provider="anthropic"),
-        sf.ModelInfo(id="openrouter/openai/gpt-5.5", provider="openrouter"),
+        sf.ModelInfo(
+            id="anthropic/claude-haiku-4-5",
+            provider="anthropic",
+            supported_parameters=("max_tokens", "temperature"),
+            supported_tools=("function",),
+        ),
+        sf.ModelInfo(
+            id="openrouter/openai/gpt-5.5",
+            provider="openrouter",
+            supported_parameters=("reasoning_effort",),
+            supported_tools=(),
+        ),
     )
     assert [benchmark.id for benchmark in benchmarks] == ["draco"]
     assert benchmarks[0].title == "DRACO"
@@ -144,16 +167,6 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
         ("/v1/models", {"object": "wrong", "data": []}, "model catalogue"),
         ("/v1/models", {"object": "list", "data": "wrong"}, "data array"),
         ("/v1/models", {"object": "list", "data": [None]}, "entry must be an object"),
-        (
-            "/v1/models",
-            {"object": "list", "data": []},
-            "default_synthesizer",
-        ),
-        (
-            "/v1/models",
-            {"object": "list", "default_synthesizer": "provider/missing", "data": []},
-            "default synthesizer 'provider/missing' is not installed",
-        ),
         ("/v1/benchmarks", [], "must be an object"),
         ("/v1/benchmarks", {"object": "wrong", "data": []}, "object must be 'list'"),
         (
@@ -181,8 +194,20 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
                 "object": "list",
                 "default": "draco",
                 "data": [
-                    {"id": "draco", "object": "benchmark", "title": "D", "description": "d"},
-                    {"id": "draco", "object": "benchmark", "title": "D", "description": "d"},
+                    {
+                        "id": "draco",
+                        "object": "benchmark",
+                        "variant": "canonical",
+                        "title": "D",
+                        "description": "d",
+                    },
+                    {
+                        "id": "draco",
+                        "object": "benchmark",
+                        "variant": "canonical",
+                        "title": "D",
+                        "description": "d",
+                    },
                 ],
             },
             "duplicate id",
@@ -192,7 +217,15 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
             {
                 "object": "list",
                 "default": "missing",
-                "data": [{"id": "draco", "object": "benchmark", "title": "D", "description": "d"}],
+                "data": [
+                    {
+                        "id": "draco",
+                        "object": "benchmark",
+                        "variant": "canonical",
+                        "title": "D",
+                        "description": "d",
+                    }
+                ],
             },
             "default 'missing' is not installed",
         ),

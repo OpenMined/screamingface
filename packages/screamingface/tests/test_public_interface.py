@@ -13,9 +13,16 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "AuthenticationError",
         "Benchmark",
         "BenchmarkInfo",
+        "CaseGrade",
         "CaseInfo",
+        "CaseResult",
+        "ModelCapability",
+        "ModelDetails",
         "ModelInfo",
+        "ModelParameter",
+        "ModelParameterSchema",
         "CandidateResult",
+        "Check",
         "Client",
         "Connection",
         "ConnectionPanel",
@@ -27,6 +34,8 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "connect",
         "connections",
         "disconnect",
+        "Evidence",
+        "EvidenceProducer",
         "Event",
         "ExecutionError",
         "EngineUnavailableError",
@@ -69,7 +78,7 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "reducers",
     ):
         assert not hasattr(sf, removed)
-    assert sf.models.__all__ == ["list"]
+    assert sf.models.__all__ == ["get", "list"]
     assert sf.benchmarks.__all__ == ["get", "list"]
     assert sf.connections.__all__ == [
         "AsyncOAuthFlow",
@@ -80,7 +89,12 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "list",
     ]
     assert report.__all__ == [
+        "CaseGrade",
+        "CaseResult",
         "CandidateResult",
+        "Check",
+        "Evidence",
+        "EvidenceProducer",
         "Failure",
         "MemberResult",
         "OperationInfo",

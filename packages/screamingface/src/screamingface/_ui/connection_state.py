@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from screamingface.connections import Connection
@@ -34,6 +36,22 @@ class _ConnectionPanelState:
         else:
             status = "login_required"
         return status
+
+
+def _is_hosted_engine(engine_url: str) -> bool:
+    hostname = urlsplit(engine_url).hostname
+    if hostname == "localhost":
+        return False
+    try:
+        address = ip_address(hostname or "")
+    except ValueError:
+        return True
+    return not (address.is_loopback or address.is_unspecified)
+
+
+def _user_message(error: Exception) -> str:
+    message = getattr(error, "user_message", None)
+    return message if isinstance(message, str) else str(error)
 
 
 __all__: list[str] = []

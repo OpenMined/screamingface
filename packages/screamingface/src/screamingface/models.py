@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 from screamingface._default_client import default_client
-from screamingface.discovery import ModelInfo
+from screamingface.discovery import ModelDetails, ModelInfo
 
 
 def list() -> Sequence[ModelInfo]:
@@ -12,4 +12,10 @@ def list() -> Sequence[ModelInfo]:
     return default_client().models.list()
 
 
-__all__ = ["list"]
+def get(model_id: str) -> ModelDetails:
+    """Get profile-specific parameters and capabilities for one Model."""
+
+    return default_client().models.get(model_id)
+
+
+__all__ = ["get", "list"]

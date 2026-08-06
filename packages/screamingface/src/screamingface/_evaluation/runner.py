@@ -17,7 +17,8 @@ from screamingface._evaluation.model import (
     _Evaluation,
     _validate_limit,
 )
-from screamingface.discovery import ModelInfo
+from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
+from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
 from screamingface.report import Report
@@ -27,12 +28,11 @@ class _ModelCatalog(Protocol):
     @property
     def models(self) -> Sequence[ModelInfo]: ...
 
-    @property
-    def default_synthesizer(self) -> str: ...
-
 
 type _SyncModelLoading = Callable[[], _ModelCatalog]
 type _AsyncModelLoading = Callable[[], Awaitable[_ModelCatalog]]
+type _SyncModelDetailsLoading = Callable[[str], ModelDetails]
+type _AsyncModelDetailsLoading = Callable[[str], Awaitable[ModelDetails]]
 type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
 type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
 
@@ -43,6 +43,7 @@ def evaluate_sync(
     load_benchmark: _SyncBenchmarkLoading,
     transport: SyncRunTransport,
     load_models: _SyncModelLoading,
+    load_model_details: _SyncModelDetailsLoading,
     candidates: Recipe | Sequence[Recipe],
     benchmark: str,
     limit: int | None,
@@ -58,13 +59,9 @@ def evaluate_sync(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = load_benchmark(benchmark, limit)
     catalog = load_models()
-    evaluation = compile_evaluation(
-        values,
-        resource,
-        limit,
-        default_synthesizer=catalog.default_synthesizer,
-    )
+    evaluation = compile_evaluation(values, resource, limit)
     _validate_required_models(evaluation, catalog.models)
+    preflight_sync(tuple(evaluation.candidates), load_model_details)
     observer = _sync_event_observer(on_event, progress)
     outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
     return report_from_outcomes(evaluation, outcomes)
@@ -74,6 +71,7 @@ async def evaluate_async(
     load_benchmark: _AsyncBenchmarkLoading,
     transport: AsyncRunTransport,
     load_models: _AsyncModelLoading,
+    load_model_details: _AsyncModelDetailsLoading,
     candidates: Recipe | Sequence[Recipe],
     benchmark: str,
     limit: int | None,
@@ -89,13 +87,9 @@ async def evaluate_async(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = await load_benchmark(benchmark, limit)
     catalog = await load_models()
-    evaluation = compile_evaluation(
-        values,
-        resource,
-        limit,
-        default_synthesizer=catalog.default_synthesizer,
-    )
+    evaluation = compile_evaluation(values, resource, limit)
     _validate_required_models(evaluation, catalog.models)
+    await preflight_async(tuple(evaluation.candidates), load_model_details)
     observer = _async_event_observer(on_event, progress)
     outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
     return report_from_outcomes(evaluation, outcomes)
@@ -165,15 +159,20 @@ def _run_candidates_sync(
         max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
         thread_name_prefix="screamingface-candidate",
     ) as executor:
-        futures = tuple(
-            executor.submit(transport.run, candidate, observer) for candidate in candidates
-        )
+        futures = ()
         try:
+            futures = tuple(
+                executor.submit(transport.run, candidate, observer) for candidate in candidates
+            )
             return tuple(
                 (candidate, future.result())
                 for candidate, future in zip(candidates, futures, strict=True)
             )
-        except BaseException:
+        except BaseException as exc:
+            try:
+                transport.cancel_active()
+            except Exception as cancel_error:  # noqa: BLE001 - preserve the original interruption
+                exc.add_note(f"Stopping active SF Engine runs also failed: {cancel_error}")
             for future in futures:
                 future.cancel()
             raise

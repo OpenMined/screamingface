@@ -40,10 +40,42 @@ def _message(event: Event) -> str | None:
     elif isinstance(event, Log):
         message = event.body or None
     elif isinstance(event, Span):
-        message = f"{event.operation}: {event.name}"
+        message = _model_message(event)
     elif isinstance(event, Terminated):
         message = f"Run {event.status.replace('_', ' ')}"
     return message
+
+
+def _model_message(event: Span) -> str | None:
+    """Render paid model work while hiding URL4's structural execution spans."""
+
+    if event.request_model is None:
+        return None
+    outcome = (
+        "refused"
+        if event.refusal is not None
+        else "failed"
+        if event.status == "error"
+        else "completed"
+    )
+    parts = [f"Model {outcome}", event.request_model]
+    if event.start is not None and event.end is not None:
+        parts.append(_duration((event.end - event.start).total_seconds()))
+    if event.input_tokens is not None or event.output_tokens is not None:
+        input_tokens = "?" if event.input_tokens is None else f"{event.input_tokens:,}"
+        output_tokens = "?" if event.output_tokens is None else f"{event.output_tokens:,}"
+        parts.append(f"{input_tokens} in / {output_tokens} out")
+    if event.finish_reasons:
+        parts.append(" → ".join(event.finish_reasons))
+    return " · ".join(parts)
+
+
+def _duration(seconds: float) -> str:
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    return f"{seconds:.0f}s"
 
 
 def _in_notebook() -> bool:

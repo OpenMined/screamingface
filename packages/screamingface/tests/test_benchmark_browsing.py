@@ -25,6 +25,7 @@ _CATALOG = {
         {
             "object": "benchmark",
             "id": "draco",
+            "variant": "canonical",
             "title": "DRACO",
             "description": "The 100-task DRACO deep-research benchmark.",
             "href": "/v1/benchmarks/draco",
@@ -32,6 +33,7 @@ _CATALOG = {
         {
             "object": "benchmark",
             "id": "ifeval",
+            "variant": "canonical",
             "title": "IFEval",
             "description": "541 instruction-following prompts graded by code.",
             "href": "/v1/benchmarks/ifeval",
@@ -43,19 +45,21 @@ _SUMMARIES = {
     "draco": {
         "schema": "screamingface.benchmark.v1",
         "id": "draco",
+        "variant": "canonical",
+        "title": "DRACO",
+        "description": "The 100-task DRACO deep-research benchmark.",
         "revision": "dracorev00000000",
-        "case_count": 1,
-        "total_case_count": 100,
-        "required_models": ["openrouter/google/gemini-3.1-pro-preview"],
+        "case_count": 100,
         "url4": "(ignored-by-discovery)",
     },
     "ifeval": {
         "schema": "screamingface.benchmark.v1",
         "id": "ifeval",
+        "variant": "canonical",
+        "title": "IFEval",
+        "description": "541 instruction-following prompts graded by code.",
         "revision": "ifevalrev0000000",
-        "case_count": 1,
-        "total_case_count": 541,
-        "required_models": [],
+        "case_count": 541,
         "url4": "(ignored-by-discovery)",
     },
 }
@@ -332,7 +336,6 @@ def test_benchmark_value_rejects_a_non_positive_case_count() -> None:
     with pytest.raises(ValueError, match="case_count"):
         sf.Benchmark(
             id="x",
-            family="x",
             variant="canonical",
             title="X",
             description="d",
@@ -345,7 +348,9 @@ def test_benchmark_value_rejects_a_non_positive_case_count() -> None:
 def test_summary_without_a_valid_total_is_rejected() -> None:
     def broken_summary(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/benchmarks/ifeval":
-            return httpx.Response(200, json={"revision": "r", "total_case_count": "many"})
+            body = dict(_SUMMARIES["ifeval"])
+            body["case_count"] = "many"
+            return httpx.Response(200, json=body)
         return _engine_handler(request)
 
     with _sync_client(broken_summary) as client, pytest.raises(sf.PlanningError) as exc_info:

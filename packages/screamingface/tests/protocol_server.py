@@ -26,13 +26,20 @@ class ProtocolState:
 
     attached: threading.Event = field(default_factory=threading.Event)
     started: threading.Event = field(default_factory=threading.Event)
+    two_started: threading.Event = field(default_factory=threading.Event)
+    lock: threading.Lock = field(default_factory=threading.Lock)
     inbound_events: list[dict[str, Any]] = field(default_factory=list)
+    minted_tokens: list[str] = field(default_factory=list)
+    started_tokens: list[str] = field(default_factory=list)
+    deleted_tokens: list[str] = field(default_factory=list)
+    stop_events: dict[str, threading.Event] = field(default_factory=dict)
     http_auth_schemes: list[str | None] = field(default_factory=list)
     websocket_auth_scheme: str | None = None
     start_attempts: int = 0
     mode: Literal[
         "success",
         "heartbeat",
+        "http_stop",
         "delayed_attach",
         "stop",
         "gap",
@@ -44,6 +51,31 @@ class ProtocolState:
         "start_error",
         "start_auth_error",
     ] = "success"
+
+    def mint_token(self) -> str:
+        with self.lock:
+            token = f"test-capability-{len(self.minted_tokens) + 1}"
+            self.minted_tokens.append(token)
+            self.stop_events[token] = threading.Event()
+            return token
+
+    def mark_started(self, token: str) -> None:
+        with self.lock:
+            self.started_tokens.append(token)
+            if len(self.started_tokens) >= 2:
+                self.two_started.set()
+
+    def mark_deleted(self, token: str) -> None:
+        with self.lock:
+            self.deleted_tokens.append(token)
+            stopped = self.stop_events.get(token)
+        if stopped is not None:
+            stopped.set()
+
+    def wait_until_deleted(self, token: str, timeout: float) -> bool:
+        with self.lock:
+            stopped = self.stop_events.get(token)
+        return stopped.wait(timeout) if stopped is not None else False
 
 
 @dataclass(frozen=True)
@@ -75,7 +107,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.server.state.mode == "token_malformed":
             self._json(HTTPStatus.OK, {"ticket": "not-a-token"})
             return
-        self._json(HTTPStatus.OK, {"token": "test-capability"})
+        self._json(HTTPStatus.OK, {"token": self.server.state.mint_token()})
 
     def do_GET(self) -> None:  # noqa: N802 — stdlib handler API
         if self.headers.get("Upgrade", "").casefold() == "websocket":
@@ -111,6 +143,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
         self.server.state.started.set()
+        token = self.headers.get("URL4-Capability")
+        if token is not None:
+            self.server.state.mark_started(token)
 
     def _reject_start(self) -> bool:
         if self.server.state.mode == "start_error":
@@ -140,6 +175,9 @@ class _Handler(BaseHTTPRequestHandler):
         return False
 
     def do_DELETE(self) -> None:  # noqa: N802 — stdlib handler API
+        token = self.headers.get("URL4-Capability")
+        if token is not None:
+            self.server.state.mark_deleted(token)
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -181,7 +219,9 @@ class _Handler(BaseHTTPRequestHandler):
             time.sleep(0.05)
         self.server.state.attached.set()
         if self.server.state.started.wait(timeout=2):
-            self._stream_run()
+            query = parse_qs(urlsplit(self.path).query)
+            token = query.get("ticket", [""])[0]
+            self._stream_run(token)
 
     def _accept_websocket(self) -> bool:
         self.server.state.websocket_auth_scheme = _authorization_scheme(self.headers)
@@ -208,27 +248,41 @@ class _Handler(BaseHTTPRequestHandler):
             return None
         return value if isinstance(value, dict) else None
 
-    def _stream_run(self) -> None:
+    def _stream_run(self, token: str) -> None:
         mode = self.server.state.mode
         if mode == "stop":
             self._stream_stop()
-            return
-        if mode == "disconnect":
+        elif mode == "http_stop":
+            self._stream_http_stop(token)
+        elif mode == "disconnect":
             _send_server_text_frame(self.wfile, json.dumps(_run_frames()[0]))
-            return
-        if mode == "gap":
+        elif mode == "gap":
             self._stream_gap()
-            return
-        if mode == "heartbeat":
-            _send_server_text_frame(self.wfile, json.dumps(_heartbeat()))
-        for frame in _run_frames():
-            _send_server_text_frame(self.wfile, json.dumps(frame))
+        else:
+            if mode == "heartbeat":
+                _send_server_text_frame(self.wfile, json.dumps(_heartbeat()))
+            for frame in _run_frames():
+                _send_server_text_frame(self.wfile, json.dumps(frame))
 
     def _stream_stop(self) -> None:
         _send_server_text_frame(self.wfile, json.dumps(_run_frames()[0]))
         event = self._receive_event()
         if event is not None:
             self.server.state.inbound_events.append(event)
+
+    def _stream_http_stop(self, token: str) -> None:
+        _send_server_text_frame(self.wfile, json.dumps(_run_frames()[0]))
+        self.server.state.wait_until_deleted(token, timeout=0.5)
+        _send_server_text_frame(
+            self.wfile,
+            json.dumps(
+                _frame(
+                    "ai.url4.terminated",
+                    {"status": "stopped", "error": None},
+                    2,
+                )
+            ),
+        )
 
     def _stream_gap(self) -> None:
         frames = _gap_frames()
@@ -373,6 +427,7 @@ def protocol_server(
     mode: Literal[
         "success",
         "heartbeat",
+        "http_stop",
         "delayed_attach",
         "stop",
         "gap",

@@ -1,0 +1,224 @@
+"""Decode Engine model, Benchmark, and Case discovery wire values."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import NoReturn
+
+from screamingface._core.wire import mapping as _wire_mapping
+from screamingface._core.wire import text as _wire_text
+from screamingface._ui.catalog import _ModelCatalog
+from screamingface.discovery import CaseInfo, ModelInfo
+from screamingface.errors import PlanningError
+
+
+@dataclass(frozen=True, slots=True)
+class _BenchmarkEntry:
+    id: str
+    variant: str
+    title: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
+class _BenchmarkCatalogData:
+    entries: tuple[_BenchmarkEntry, ...]
+    default: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ModelCatalogData:
+    models: Sequence[ModelInfo]
+
+
+@dataclass(frozen=True, slots=True)
+class _BenchmarkSummary:
+    revision: str
+    case_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _CasePage:
+    total: int
+    limit: int
+    offset: int
+    rows: tuple[CaseInfo, ...]
+
+
+def _decode_model_catalog(payload: object) -> _ModelCatalogData:
+    root = _wire_mapping(payload, "model catalogue", _invalid)
+    if root.get("object") != "list":
+        _invalid("model catalogue object must be 'list'")
+    rows = root.get("data")
+    if not isinstance(rows, list):
+        _invalid("model catalogue must contain a data array")
+    values = []
+    seen: set[str] = set()
+    for row in rows:
+        item = _wire_mapping(row, "model catalogue entry", _invalid)
+        try:
+            model = ModelInfo(
+                id=_wire_text(item.get("id"), "Model id", _invalid),
+                provider=_wire_text(item.get("owned_by"), "Model provider", _invalid),
+                supported_parameters=_string_tuple(
+                    item.get("supported_parameters"),
+                    "Model supported_parameters",
+                ),
+                supported_tools=_string_tuple(
+                    item.get("supported_tools"),
+                    "Model supported_tools",
+                ),
+            )
+        except (TypeError, ValueError) as exc:
+            _invalid(str(exc))
+        if item.get("object") != "model":
+            _invalid("model catalogue entry object must be 'model'")
+        if item.get("unsupported_parameter_behavior") != "reject":
+            _invalid("Model unsupported_parameter_behavior must be 'reject'")
+        _wire_text(
+            item.get("parameter_contract_url"),
+            "Model parameter_contract_url",
+            _invalid,
+        )
+        if model.id in seen:
+            _invalid(f"model catalogue contains duplicate id {model.id!r}")
+        seen.add(model.id)
+        values.append(model)
+    return _ModelCatalogData(models=_ModelCatalog(values))
+
+
+def _string_tuple(value: object, label: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        _invalid(f"{label} must be an array")
+    selected = tuple(_wire_text(item, label, _invalid) for item in value)
+    if len(set(selected)) != len(selected):
+        _invalid(f"{label} must not contain duplicates")
+    return selected
+
+
+def _decode_benchmarks(payload: object) -> _BenchmarkCatalogData:
+    try:
+        return _decode_benchmark_catalog(payload)
+    except ValueError as exc:
+        _invalid(str(exc))
+
+
+def _decode_benchmark_catalog(payload: object) -> _BenchmarkCatalogData:
+    root = _wire_mapping(payload, "Benchmark catalog", _catalog_invalid)
+    if root.get("object") != "list":
+        _catalog_invalid("Benchmark catalog object must be 'list'")
+    if "default" not in root:
+        _catalog_invalid("Benchmark catalog must declare default")
+    rows = root.get("data")
+    if not isinstance(rows, list):
+        _catalog_invalid("Benchmark catalog must contain a data array")
+    entries = _benchmark_entries(rows)
+    ids = tuple(entry.id for entry in entries)
+    return _BenchmarkCatalogData(
+        entries=entries,
+        default=_benchmark_default(root["default"], ids),
+    )
+
+
+def _benchmark_entries(rows: list[object]) -> tuple[_BenchmarkEntry, ...]:
+    values: list[_BenchmarkEntry] = []
+    seen: set[str] = set()
+    for row in rows:
+        item = _wire_mapping(row, "Benchmark catalog entry", _catalog_invalid)
+        if item.get("object") != "benchmark":
+            _catalog_invalid("Benchmark catalog entry object must be 'benchmark'")
+        entry = _benchmark_entry(item)
+        if entry.id in seen:
+            _catalog_invalid(f"Benchmark catalog contains duplicate id {entry.id!r}")
+        seen.add(entry.id)
+        values.append(entry)
+    return tuple(values)
+
+
+def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
+    return _BenchmarkEntry(
+        id=_wire_text(item.get("id"), "Benchmark id", _catalog_invalid),
+        variant=_wire_text(item.get("variant"), "Benchmark variant", _catalog_invalid),
+        title=_wire_text(item.get("title"), "Benchmark title", _catalog_invalid),
+        description=_wire_text(item.get("description"), "Benchmark description", _catalog_invalid),
+    )
+
+
+def _benchmark_default(value: object, ids: tuple[str, ...]) -> str | None:
+    if not ids:
+        if value is not None:
+            _catalog_invalid("Empty Benchmark catalog default must be null")
+        return None
+    selected = _wire_text(value, "Benchmark catalog default", _catalog_invalid)
+    if selected not in ids:
+        _catalog_invalid(f"Benchmark catalog default {selected!r} is not installed")
+    return selected
+
+
+def _decode_benchmark_summary(payload: object, entry: _BenchmarkEntry) -> _BenchmarkSummary:
+    root = _wire_mapping(payload, "Benchmark resource", _invalid)
+    if root.get("schema") != "screamingface.benchmark.v1":
+        _invalid("Benchmark resource schema must be 'screamingface.benchmark.v1'")
+    if _wire_text(root.get("id"), "Benchmark id", _invalid) != entry.id:
+        _invalid("Benchmark resource has the wrong Benchmark id")
+    if _wire_text(root.get("variant"), "Benchmark variant", _invalid) != entry.variant:
+        _invalid("Benchmark resource has the wrong Benchmark variant")
+    case_count = root.get("case_count")
+    if isinstance(case_count, bool) or not isinstance(case_count, int) or case_count < 1:
+        _invalid("Benchmark case_count must be a positive integer")
+    return _BenchmarkSummary(
+        revision=_wire_text(root.get("revision"), "Benchmark revision", _invalid),
+        case_count=case_count,
+    )
+
+
+def _decode_case_page(payload: object) -> _CasePage:
+    root = _wire_mapping(payload, "Benchmark cases page", _invalid)
+    if root.get("object") != "list":
+        _invalid("Benchmark cases page object must be 'list'")
+    counters: dict[str, int] = {}
+    for name, minimum in (("total", 0), ("limit", 1), ("offset", 0)):
+        value = root.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            _invalid(f"Benchmark cases page {name} must be an integer >= {minimum}")
+        counters[name] = value
+    rows = root.get("data")
+    if not isinstance(rows, list):
+        _invalid("Benchmark cases page must contain a data array")
+    cases: list[CaseInfo] = []
+    for row in rows:
+        item = _wire_mapping(row, "Benchmark case", _invalid)
+        case_id = item.get("id")
+        if isinstance(case_id, bool) or not isinstance(case_id, int):
+            _invalid("Benchmark case id must be an integer")
+        try:
+            cases.append(
+                CaseInfo(
+                    id=case_id,
+                    input=_wire_text(item.get("input"), "Benchmark case input", _invalid),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            _invalid(str(exc))
+    return _CasePage(
+        total=counters["total"],
+        limit=counters["limit"],
+        offset=counters["offset"],
+        rows=tuple(cases),
+    )
+
+
+def _catalog_invalid(message: str) -> NoReturn:
+    raise ValueError(message)
+
+
+def _invalid(message: str) -> NoReturn:
+    raise PlanningError(
+        message,
+        code="invalid_catalogue",
+        permanent=True,
+    )
+
+
+__all__: list[str] = []

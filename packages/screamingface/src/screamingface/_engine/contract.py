@@ -252,12 +252,18 @@ def _span(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Span:
             data.get("gen_ai.usage.output_tokens"),
             "span output tokens",
         ),
+        finish_reasons=_optional_text_tuple(
+            data.get("gen_ai.response.finish_reasons"),
+            "span finish reasons",
+        ),
+        refusal=_optional_text(data.get("refusal"), "span refusal"),
     )
 
 
 def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage:
     usage = _object(data.get("usage"), "cost usage tokens")
     cost = _object(data.get("cost"), "cost usage cost")
+    pricing_version = _text(data, "pricing_version")
     total = _decimal(cost.get("total_usd"), "cost total_usd")
     parts = sum(
         (
@@ -274,29 +280,42 @@ def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage
     )
     if total != parts:
         raise ExecutionError("SF Engine cost total_usd does not equal its parts")
+    unpriced = pricing_version == "unpriced"
     accounting = AccountingUsage(
         input_tokens=_integer(usage.get("gen_ai.usage.input_tokens", 0), "input tokens"),
         output_tokens=_integer(usage.get("gen_ai.usage.output_tokens", 0), "output tokens"),
-        cache_read_tokens=_integer(
-            usage.get("gen_ai.usage.cache_read_tokens", 0),
-            "cache read tokens",
+        cache_read_tokens=(
+            None
+            if unpriced
+            else _integer(
+                usage.get("gen_ai.usage.cache_read_tokens", 0),
+                "cache read tokens",
+            )
         ),
-        cache_creation_tokens=_integer(
-            usage.get("gen_ai.usage.cache_creation_tokens", 0),
-            "cache creation tokens",
+        cache_creation_tokens=(
+            None
+            if unpriced
+            else _integer(
+                usage.get("gen_ai.usage.cache_creation_tokens", 0),
+                "cache creation tokens",
+            )
         ),
-        reasoning_tokens=_integer(
-            usage.get("gen_ai.usage.reasoning_tokens", 0),
-            "reasoning tokens",
+        reasoning_tokens=(
+            None
+            if unpriced
+            else _integer(
+                usage.get("gen_ai.usage.reasoning_tokens", 0),
+                "reasoning tokens",
+            )
         ),
-        cost_usd=total,
+        cost_usd=None if unpriced else total,
     )
     return events.Usage(
         **envelope,
         scope=_usage_scope(_text(data, "scope")),
         provider=_text(data, "gen_ai.provider.name"),
         model=_text(data, "gen_ai.response.model"),
-        pricing_version=_text(data, "pricing_version"),
+        pricing_version=pricing_version,
         usage=accounting,
     )
 
@@ -392,6 +411,14 @@ def _optional_text(value: object, label: str) -> str | None:
     if value is None:
         return None
     return _required_text(value, label)
+
+
+def _optional_text_tuple(value: object, label: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ExecutionError(f"SF Engine {label} must be an array of non-empty strings")
+    return tuple(_required_text(item, label) for item in value)
 
 
 def _integer(value: object, label: str) -> int:

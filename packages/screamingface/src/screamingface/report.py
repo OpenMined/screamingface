@@ -21,6 +21,7 @@ from screamingface._report_primitives import (
     _nonblank,
     _usage,
 )
+from screamingface.case_result import CaseGrade, CaseResult, Check, Evidence, EvidenceProducer
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 
@@ -29,15 +30,20 @@ type RecipeKind = Literal["model", "fusion"]
 
 @dataclass(frozen=True, slots=True, init=False)
 class MemberResult:
-    """Compact outcome for one direct Fusion member."""
+    """Compact outcome for one direct Fusion member.
+
+    Runtime fields are ``None`` until the Engine attributes spans to this member's stable
+    operation ID. An empty Usage or Failure collection means attribution was available and
+    observed no activity or failures; it must not stand in for unavailable attribution.
+    """
 
     operation_id: str
     name: str
     kind: RecipeKind
     models: tuple[str, ...]
-    failures: tuple[Failure, ...]
+    failures: tuple[Failure, ...] | None
     duration_ms: int | None
-    usage: Usage
+    usage: Usage | None
 
     def __init__(
         self,
@@ -46,9 +52,9 @@ class MemberResult:
         name: str,
         kind: RecipeKind,
         models: Sequence[str],
-        failures: Sequence[Failure],
+        failures: Sequence[Failure] | None,
         duration_ms: int | None,
-        usage: Usage,
+        usage: Usage | None,
     ) -> None:
         object.__setattr__(
             self,
@@ -58,9 +64,13 @@ class MemberResult:
         object.__setattr__(self, "name", _nonblank(name, "Member name"))
         object.__setattr__(self, "kind", _kind(kind, "Member"))
         object.__setattr__(self, "models", _models(models, "Member"))
-        object.__setattr__(self, "failures", _failures(failures, "Member"))
+        object.__setattr__(
+            self,
+            "failures",
+            None if failures is None else _failures(failures, "Member"),
+        )
         object.__setattr__(self, "duration_ms", _duration(duration_ms, "Member"))
-        object.__setattr__(self, "usage", _usage(usage, "Member"))
+        object.__setattr__(self, "usage", None if usage is None else _usage(usage, "Member"))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -68,9 +78,11 @@ class MemberResult:
             "name": self.name,
             "kind": self.kind,
             "models": list(self.models),
-            "failures": [failure.to_dict() for failure in self.failures],
+            "failures": (
+                None if self.failures is None else [failure.to_dict() for failure in self.failures]
+            ),
             "duration_ms": self.duration_ms,
-            "usage": self.usage.to_dict(),
+            "usage": None if self.usage is None else self.usage.to_dict(),
         }
 
 
@@ -87,6 +99,7 @@ class CandidateResult:
     models: tuple[str, ...]
     operations: tuple[OperationInfo, ...]
     score: float | None
+    cases: tuple[CaseResult, ...]
     members: tuple[MemberResult, ...]
     failures: tuple[Failure, ...]
     usage: Usage
@@ -105,6 +118,7 @@ class CandidateResult:
         operations: Sequence[OperationInfo],
         score: float | None,
         metrics: Mapping[str, float],
+        cases: Sequence[CaseResult],
         members: Sequence[MemberResult],
         failures: Sequence[Failure],
         usage: Usage,
@@ -121,6 +135,7 @@ class CandidateResult:
             scored=selected_score is not None,
         )
         selected_operations = _operation_dag(operations)
+        selected_cases = _case_results(cases)
         _require_operation_references(
             selected_operations,
             selected_members,
@@ -141,6 +156,7 @@ class CandidateResult:
             "models": selected_models,
             "operations": selected_operations,
             "score": selected_score,
+            "cases": selected_cases,
             "members": selected_members,
             "failures": selected_failures,
             "usage": _usage(usage, "Candidate"),
@@ -169,6 +185,7 @@ class CandidateResult:
             "operations": [_operation_dict(operation) for operation in self.operations],
             "score": self.score,
             "metrics": dict(self._metric_items),
+            "cases": [case.to_dict() for case in self.cases],
             "members": [member.to_dict() for member in self.members],
             "failures": [failure.to_dict() for failure in self.failures],
             "duration_ms": self.duration_ms,
@@ -208,6 +225,11 @@ class Report:
             raise TypeError("Report benchmark must be an sf.BenchmarkInfo")
         benchmark._result_dict(case_count)
         selected_candidates = _CandidateResults(candidates)
+        for candidate in selected_candidates:
+            if len(candidate.cases) != case_count:
+                raise ValueError(
+                    "every Candidate Result must contain the Report's selected Case count"
+                )
         values = {
             "benchmark": benchmark,
             "case_count": case_count,
@@ -238,7 +260,10 @@ class Report:
         for candidate in self.candidates:
             flattened.extend(candidate.failures)
             for member in candidate.members:
-                flattened.extend(member.failures)
+                if member.failures is not None:
+                    flattened.extend(member.failures)
+            for case in candidate.cases:
+                flattened.extend(case.failures)
         return tuple(flattened)
 
     @property
@@ -299,6 +324,20 @@ def _members(values: Sequence[MemberResult]) -> tuple[MemberResult, ...]:
     operation_ids = [value.operation_id for value in selected]
     if len(operation_ids) != len(set(operation_ids)):
         raise ValueError("Candidate member operation IDs must be unique")
+    return selected
+
+
+def _case_results(values: Sequence[CaseResult]) -> tuple[CaseResult, ...]:
+    if isinstance(values, str | bytes) or not isinstance(values, Sequence):
+        raise TypeError("Candidate cases must be an ordered sequence")
+    selected = tuple(values)
+    if any(not isinstance(value, CaseResult) for value in selected):
+        raise TypeError("Candidate cases must contain sf.CaseResult values")
+    if not selected:
+        raise ValueError("a Candidate Result requires at least one Case Result")
+    ids = [value.case_id for value in selected]
+    if len(ids) != len(set(ids)):
+        raise ValueError("Candidate Case Result ids must be unique")
     return selected
 
 
@@ -399,7 +438,12 @@ def _timestamp_text(value: datetime) -> str:
 
 
 __all__ = [
+    "CaseGrade",
+    "CaseResult",
     "CandidateResult",
+    "Check",
+    "Evidence",
+    "EvidenceProducer",
     "Failure",
     "MemberResult",
     "OperationInfo",

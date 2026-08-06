@@ -5,7 +5,16 @@ from screamingface._default_client import close, configure, connect, disconnect,
 from screamingface._ui.connections import ConnectionPanel
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
-from screamingface.discovery import Benchmark, BenchmarkInfo, CaseInfo, ModelInfo
+from screamingface.discovery import (
+    Benchmark,
+    BenchmarkInfo,
+    CaseInfo,
+    ModelCapability,
+    ModelDetails,
+    ModelInfo,
+    ModelParameter,
+    ModelParameterSchema,
+)
 from screamingface.errors import (
     AuthenticationError,
     EngineUnavailableError,
@@ -19,7 +28,18 @@ from screamingface.fusion import Fusion
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.recipe import Recipe
-from screamingface.report import CandidateResult, Failure, MemberResult, Report, Usage
+from screamingface.report import (
+    CandidateResult,
+    CaseGrade,
+    CaseResult,
+    Check,
+    Evidence,
+    EvidenceProducer,
+    Failure,
+    MemberResult,
+    Report,
+    Usage,
+)
 from screamingface.warnings import CoverageWarning, EvaluationWarning
 
 __all__ = [
@@ -27,8 +47,11 @@ __all__ = [
     "AuthenticationError",
     "Benchmark",
     "BenchmarkInfo",
+    "CaseGrade",
     "CaseInfo",
+    "CaseResult",
     "CandidateResult",
+    "Check",
     "Client",
     "Connection",
     "ConnectionPanel",
@@ -39,6 +62,8 @@ __all__ = [
     "connect",
     "connections",
     "disconnect",
+    "Evidence",
+    "EvidenceProducer",
     "Event",
     "EngineUnavailableError",
     "ExecutionError",
@@ -48,7 +73,11 @@ __all__ = [
     "Fusion",
     "MemberResult",
     "Model",
+    "ModelCapability",
+    "ModelDetails",
     "ModelInfo",
+    "ModelParameter",
+    "ModelParameterSchema",
     "OperationInfo",
     "OAuthFlow",
     "PlanningError",
