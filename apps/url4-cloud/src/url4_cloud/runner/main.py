@@ -10,12 +10,15 @@ import asyncio
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 
 from url4.streaming.lifecycle import run
 from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
+from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
+from url4_cloud.benchmarks.candidate import install_candidate_invocation
 from url4_cloud.runner.config import RunnerConfig, RunnerConfigError, load_config
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world
@@ -73,6 +76,8 @@ def build_executor(
     *,
     client: httpx.AsyncClient | None = None,
     tavily_client: httpx.AsyncClient | None = None,
+    benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
+    benchmark_assets_root: Path | None = None,
 ) -> Url4Executor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -95,6 +100,10 @@ def build_executor(
         resolved = config if config is not None else load_config(env)
         section = resolved.aigateway
         if section is None:
+            if len(benchmarks):
+                raise RunnerConfigError(
+                    "installed Benchmarks require a declared aigateway model world"
+                )
             # WHY: a world with no [aigateway] table is a legitimate empty world; the node itself
             # denies everything undeclared.
             return deny_by_default_world(), None
@@ -117,6 +126,20 @@ def build_executor(
             tavily_api_key=env.get(job_env.TAVILY_API_KEY),
             tavily_client=tavily_client,
         )
+        if len(benchmarks):
+            try:
+                install_candidate_invocation(world.node)
+                benchmarks.install(
+                    world.node,
+                    assets_root=(
+                        benchmark_assets_root
+                        if benchmark_assets_root is not None
+                        else assets_root(env)
+                    ),
+                )
+            except Exception:
+                await world.aclose()
+                raise
         return world.node, world.aclose
 
     return Url4Executor(world_factory=_world)
