@@ -450,13 +450,21 @@ class RetrievalPolicyResolver:
             task = asyncio.ensure_future(self._load(spec))
             self._inflight[path] = task
         try:
-            return await task
+            # Each caller owns only its WAIT, not the shared load. Without shield, cancelling
+            # one Case propagates into the cached Task and cancels every concurrent Case waiting
+            # for the same immutable policy.
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                self._inflight.pop(path, None)
+            raise
         except BaseException:
             # WHY the failed task is DISCARDED: a settled failure would otherwise be the answer
             # for the world's lifetime, turning one transient read error into a permanently
             # unguarded-or-broken policy. A deterministic failure simply fails again on the
             # retry, which is the behaviour the value-only cache had.
-            self._inflight.pop(path, None)
+            if self._inflight.get(path) is task:
+                self._inflight.pop(path, None)
             raise
 
     async def _load(self, spec: DataSpec) -> tuple[str, ...]:
@@ -1097,10 +1105,11 @@ def _is_blocked(url: str, exclusions: Sequence[str]) -> bool:
     # using it inherits that trap.
     """
     parsed = urlsplit(url if "//" in url else f"//{url}")
-    host = parsed.netloc.lower().split("@")[-1].split(":")[0]
+    host = parsed.netloc.lower().split("@")[-1].split(":")[0].rstrip(".")
     path = parsed.path.lower()
     for entry in exclusions:
         entry_host, _, entry_path = entry.strip().lower().lstrip("*.").partition("/")
+        entry_host = entry_host.rstrip(".")
         if not entry_host:
             continue
         if host != entry_host and not host.endswith(f".{entry_host}"):
@@ -1190,7 +1199,11 @@ async def _tavily_search(
     )
     resp.raise_for_status()
     data = _tavily_json(resp)
-    results = _tavily_items(data, "results")
+    results = [
+        result
+        for result in _tavily_items(data, "results")
+        if _search_result_allowed(result, exclusions)
+    ]
     if not results:
         return "no results"
     return "\n\n".join(
@@ -1198,6 +1211,20 @@ async def _tavily_search(
         for r in results
         if isinstance(r, dict)
     )
+
+
+def _search_result_allowed(result: Mapping[str, object], exclusions: Sequence[str]) -> bool:
+    """Apply the run's guard to returned search rows as well as the provider request.
+
+    Tavily receives ``exclude_domains`` as a useful first filter, but policy enforcement cannot
+    depend on a third party applying it perfectly. When a guard exists, an un-attributable row
+    with no textual URL is also dropped because its host cannot be proven allowed.
+    """
+
+    if not exclusions:
+        return True
+    url = result.get("url")
+    return isinstance(url, str) and not _is_blocked(url, exclusions)
 
 
 async def _tavily_extract(
@@ -1423,8 +1450,12 @@ def _raise_for_status(resp: httpx.Response) -> None:
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, dict):
-            code = detail.get("code", code)
-            message = detail.get("message", message)
+            upstream_code = detail.get("code")
+            upstream_message = detail.get("message")
+            if isinstance(upstream_code, str) and upstream_code:
+                code = upstream_code
+            if isinstance(upstream_message, str) and upstream_message:
+                message = upstream_message
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
     raise ResolutionError(message, code=code, permanent=permanent)
 

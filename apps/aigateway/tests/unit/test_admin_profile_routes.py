@@ -62,7 +62,7 @@ def _admin(client) -> TestClient:
             stage=ApiKeyValidationStage.READINESS,
         )
     )
-    return TestClient(client.app, client=("10.1.2.3", 50000))
+    return client
 
 
 def _headers() -> dict[str, str]:

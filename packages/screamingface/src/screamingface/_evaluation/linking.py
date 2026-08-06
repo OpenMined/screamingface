@@ -197,18 +197,9 @@ def _text_references(value: object) -> set[str]:
 
     references: set[str] = set()
     if isinstance(value, Text):
-        references.add(value.value)
+        references.update(_candidate_references(value.value))
     elif isinstance(value, str):
-        # INVARIANT: the trailing lookahead keeps unrelated names that merely start with
-        # "$candidate" (e.g. the "$candidate_result" plumbing binding) from matching as a
-        # bare whole-Candidate reference — that false positive made the linker bind the
-        # full Candidate expression as dead text on exams that never invoke it.
-        references.update(
-            re.findall(
-                r"\$candidate(?:_member_[1-9][0-9]*|_members|_synthesizer)?(?![A-Za-z0-9_])",
-                value,
-            )
-        )
+        references.update(_candidate_references(value))
     elif isinstance(value, tuple | list):
         for item in value:
             references.update(_text_references(item))
@@ -216,6 +207,19 @@ def _text_references(value: object) -> set[str]:
         for field in fields(value):
             references.update(_text_references(getattr(value, field.name)))
     return references
+
+
+def _candidate_references(value: str) -> set[str]:
+    # INVARIANT: the trailing lookahead keeps unrelated names that merely start with
+    # "$candidate" (e.g. the "$candidate_result" plumbing binding) from matching as a
+    # bare whole-Candidate reference — that false positive made the linker bind the
+    # full Candidate expression as dead text on exams that never invoke it.
+    return set(
+        re.findall(
+            r"\$candidate(?:_member_[1-9][0-9]*|_members|_synthesizer)?(?![A-Za-z0-9_])",
+            value,
+        )
+    )
 
 
 __all__: list[str] = []

@@ -20,11 +20,14 @@ Gateway's pinned LiteLLM/provider path; it is not a compatibility fallback for t
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
 from aigateway.core.parameter_projection import IncompatibleParametersError
+from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.parameters import (
     openrouter_chat_parameter_rules,
     openrouter_chat_parameter_tools,
@@ -37,6 +40,57 @@ from aigateway.plugins.openrouter_provider.web_search import (
 )
 
 _MODEL = "openrouter/google/gemini-3-flash-preview"
+_KEY = "sk-or-v1-test"
+
+
+@pytest.fixture(autouse=True)
+def _api_key_validation_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    from aigateway.core.api_key_validation import (
+        ApiKeyValidationResult,
+        ApiKeyValidationStage,
+        ApiKeyValidationState,
+    )
+    from aigateway.core.api_key_validation_service import ApiKeyValidationService
+
+    async def _valid(_self, _plugin, _provider, _api_key) -> ApiKeyValidationResult:
+        return ApiKeyValidationResult(
+            state=ApiKeyValidationState.VALID,
+            stage=ApiKeyValidationStage.READINESS,
+        )
+
+    monkeypatch.setattr(ApiKeyValidationService, "validate", _valid)
+
+
+@pytest.fixture()
+def enabled_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        openrouter_plugin_module.PLUGIN,
+        "settings",
+        OpenRouterPluginSettings(enabled=True),
+    )
+
+
+def _create_connection(client) -> None:
+    response = client.post(
+        "/v1/oauth/connections/api-key",
+        json={"provider": "openrouter", "label": "work-openrouter", "api_key": _KEY},
+    )
+    assert response.status_code == 201, response.text
+
+
+def _fake_acompletion(captured: dict):
+    async def fake_acompletion(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "or-1", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    return fake_acompletion
+
+
+def _post_chat(client, body: dict):
+    payload = {"model": _MODEL, "messages": [{"role": "user", "content": "hi"}], **body}
+    return client.post("/v1/chat/completions", json=payload)
 
 
 class _Settings:
@@ -119,9 +173,56 @@ def test_the_caller_facing_keys_never_reach_the_wire() -> None:
     assert "web_search_excluded_domains" not in out
 
 
+def test_web_search_reaches_dispatch_through_the_real_route_pipeline(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    """Classifier, projection, provider preparation and dispatch preserve one guarded intent."""
+
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        response = _post_chat(
+            authenticated_client,
+            {
+                "web_search": True,
+                "web_search_excluded_domains": ["rubric.test"],
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert "web_search" not in captured
+    assert "web_search_excluded_domains" not in captured
+    assert captured["plugins"] == [
+        {"id": "web", "engine": "native", "exclude_domains": ["rubric.test"]}
+    ]
+
+
 def test_false_and_absent_both_send_no_plugin() -> None:
     assert "plugins" not in _prepared({"web_search": False})
     assert "plugins" not in _prepared({})
+
+
+def test_online_model_suffix_is_normalized_into_the_guarded_plugin_path() -> None:
+    out = _prepared(
+        {"model": "openrouter/google/gemini-3-flash-preview:online"},
+        _Settings(["rubric.test"]),
+    )
+
+    assert out["model"] == "openrouter/google/gemini-3-flash-preview"
+    assert out["plugins"] == [{"id": "web", "engine": "native", "exclude_domains": ["rubric.test"]}]
+
+
+def test_explicit_false_disables_an_online_model_suffix() -> None:
+    out = _prepared(
+        {
+            "model": "openrouter/google/gemini-3-flash-preview:online",
+            "web_search": False,
+        },
+        _Settings(["rubric.test"]),
+    )
+
+    assert out["model"] == "openrouter/google/gemini-3-flash-preview"
+    assert "plugins" not in out
 
 
 def test_exclusions_without_web_search_fail_instead_of_becoming_a_silent_noop() -> None:

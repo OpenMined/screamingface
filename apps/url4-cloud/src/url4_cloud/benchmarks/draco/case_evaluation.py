@@ -76,28 +76,23 @@ def bind_case_evaluation(
     return _case_envelope(cases[0], checks, evidence)
 
 
-def decode_case_evaluation(value: Any, expected_case_id: int) -> dict[str, Any] | None:
+def decode_case_evaluation(value: Any, expected_case_id: int) -> dict[str, Any]:
     """Decode one exact Case Evaluation without searching nested text or values."""
 
     decoded = _root_object(value)
-    result: dict[str, Any] | None
-    try:
-        _require(
-            decoded is not None
-            and set(decoded) == _CASE_FIELDS
-            and decoded.get("schema") == CASE_EVALUATION_SCHEMA,
-            "invalid DRACO Case Evaluation envelope",
-        )
-        assert decoded is not None
-        case = _mapping(decoded.get("case"), "DRACO Case record")
-        _require(_valid_case(case, expected_case_id), "invalid DRACO Case record")
-        checks = _mapping_sequence(decoded.get("checks"), "DRACO Checks")
-        evidence = _mapping_sequence(decoded.get("evidence"), "DRACO Judge Evidence")
-        _validate_final_records(expected_case_id, checks, evidence)
-        result = _case_envelope(case, checks, evidence)
-    except (TypeError, ValueError):
-        result = None
-    return result
+    _require(
+        decoded is not None
+        and set(decoded) == _CASE_FIELDS
+        and decoded.get("schema") == CASE_EVALUATION_SCHEMA,
+        "invalid DRACO Case Evaluation envelope",
+    )
+    assert decoded is not None
+    case = _mapping(decoded.get("case"), "DRACO Case record")
+    _require(_valid_case(case, expected_case_id), "invalid DRACO Case record")
+    checks = _mapping_sequence(decoded.get("checks"), "DRACO Checks")
+    evidence = _mapping_sequence(decoded.get("evidence"), "DRACO Judge Evidence")
+    _validate_final_records(expected_case_id, checks, evidence)
+    return _case_envelope(case, checks, evidence)
 
 
 def _criterion_parts(

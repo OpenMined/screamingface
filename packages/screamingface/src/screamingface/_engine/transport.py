@@ -30,6 +30,7 @@ type SyncEventCallback = Callable[[Event], None]
 type AsyncEventCallback = Callable[[Event], None | Awaitable[None]]
 _SUBPROTOCOL = Subprotocol("cloudevents.json")
 _ATTACH_RETRY_DELAYS = (0.0, 0.01, 0.02, 0.04, 0.08, 0.16, 0.32)
+_EVENT_RECEIVE_TIMEOUT_SECONDS = 120.0
 
 
 class _SyncSender(Protocol):
@@ -131,7 +132,11 @@ class Url4CloudTransport:
         try:
             _start_sync(self._http, token, candidate.url4)
             while True:
-                step = lifecycle.accept(websocket.recv())
+                try:
+                    frame = websocket.recv(timeout=_EVENT_RECEIVE_TIMEOUT_SECONDS)
+                except TimeoutError as exc:
+                    raise _event_stream_timeout() from exc
+                step = lifecycle.accept(frame)
                 if step.command is not None:
                     websocket.send(step.command)
                     continue
@@ -209,7 +214,14 @@ class AsyncUrl4CloudTransport:
         try:
             await _start_async(self._http, token, candidate.url4)
             while True:
-                step = lifecycle.accept(await websocket.recv())
+                try:
+                    frame = await asyncio.wait_for(
+                        websocket.recv(),
+                        timeout=_EVENT_RECEIVE_TIMEOUT_SECONDS,
+                    )
+                except TimeoutError as exc:
+                    raise _event_stream_timeout() from exc
+                step = lifecycle.accept(frame)
                 if step.command is not None:
                     await websocket.send(step.command)
                     continue
@@ -247,6 +259,14 @@ async def _observe_async(callback: AsyncEventCallback, event: Event) -> None:
     # WHY: preserve arbitrary application callback errors and cancellation without translation.
     except BaseException as exc:
         raise _ObserverRaised(exc) from exc
+
+
+def _event_stream_timeout() -> ExecutionError:
+    return ExecutionError(
+        "SF Engine Run event stream stopped responding",
+        code="event_stream_timeout",
+        permanent=False,
+    )
 
 
 def _mint_sync(http: httpx.Client) -> str:

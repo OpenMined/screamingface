@@ -12,8 +12,8 @@ MAX_MEMBERS = 4
 MEMBER_LETTERS = "abcd"
 SELF_CORRECTIVE_ID = "ifeval/self-corrective"
 VERIFYING_ENSEMBLE_ID = "ifeval/verifying-ensemble"
-SELF_PROTOCOL_REVISION = "self-corrective-three-attempt-v1"
-ENSEMBLE_PROTOCOL_REVISION = "lanl-verifying-ensemble-v3-explicit-judge-resolution"
+SELF_PROTOCOL_REVISION = "self-corrective-v1"
+ENSEMBLE_PROTOCOL_REVISION = "verifying-ensemble-v1"
 
 RETRY_INSTRUCTION = (
     "Write a new answer to the original request. Correct every requirement named in the "

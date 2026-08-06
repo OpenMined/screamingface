@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from decimal import Decimal
 from typing import Any, cast
@@ -98,6 +99,37 @@ def test_unpriced_usage_does_not_fabricate_zero_accounting() -> None:
     assert accepted.event.usage == sf.Usage(input_tokens=100, output_tokens=20)
 
 
+def test_priced_usage_keeps_the_engine_total_when_parts_differ(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="screamingface._engine.contract"):
+        accepted = _RunState(URL4).accept(
+            frame(
+                "ai.url4.cost.usage",
+                {
+                    "scope": "subtree",
+                    "gen_ai.provider.name": "openrouter",
+                    "gen_ai.response.model": "openrouter/openai/gpt-5.5",
+                    "pricing_version": "2026-08-06",
+                    "usage": {
+                        "gen_ai.usage.input_tokens": 100,
+                        "gen_ai.usage.output_tokens": 20,
+                    },
+                    "cost": {
+                        "input_usd": "0.01",
+                        "output_usd": "0.02",
+                        "total_usd": "0.030001",
+                    },
+                },
+                sequence=1,
+            )
+        )
+
+    assert isinstance(accepted.event, sf.events.Usage)
+    assert accepted.event.usage.cost_usd == Decimal("0.030001")
+    assert "does not equal its parts" in caplog.text
+
+
 def test_heartbeat_is_internal_and_does_not_participate_in_stream_sequence() -> None:
     state = _RunState(URL4)
 
@@ -144,6 +176,29 @@ def test_duplicate_frames_are_ignored_and_gaps_request_replay() -> None:
         ).replay_from
         == 2
     )
+
+
+def test_repeated_sequence_gaps_stop_after_a_bounded_replay_budget() -> None:
+    state = _RunState(URL4)
+    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+    skipped = frame(
+        "ai.url4.log",
+        {
+            "severity_number": 9,
+            "severity_text": "INFO",
+            "body": "still missing sequence two",
+            "attributes": {},
+        },
+        sequence=3,
+    )
+
+    for _ in range(3):
+        assert state.accept(skipped).replay_from == 2
+    with pytest.raises(sf.ExecutionError) as caught:
+        state.accept(skipped)
+
+    assert caught.value.code == "event_stream_replay_exhausted"
+    assert caught.value.permanent is False
 
 
 def test_reused_event_id_at_a_new_sequence_is_rejected() -> None:
@@ -319,7 +374,7 @@ def test_state_decodes_log_span_and_non_root_lifecycle() -> None:
     assert isinstance(child_terminal.event, sf.events.Terminated)
 
 
-def test_state_rejects_duplicate_root_events_and_protocol_nacks() -> None:
+def test_state_rejects_duplicate_root_events_and_consumes_protocol_nacks() -> None:
     state = _RunState(URL4)
     state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
     with pytest.raises(sf.ExecutionError, match="duplicate root started"):
@@ -344,14 +399,17 @@ def test_state_rejects_duplicate_root_events_and_protocol_nacks() -> None:
         )
 
     state = _RunState(URL4)
-    with pytest.raises(sf.ExecutionError, match="bad attach"):
-        state.accept(
-            frame(
-                "ai.url4.error",
-                {"code": "invalid_attach", "message": "bad attach", "ref_id": None},
-                sequence=1,
-            )
+    advisory = state.accept(
+        frame(
+            "ai.url4.error",
+            {"code": "invalid_attach", "message": "bad attach", "ref_id": None},
+            sequence=None,
         )
+    )
+    started = state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+
+    assert advisory == _engine_contract._Accepted()
+    assert isinstance(started.event, sf.events.Started)
 
 
 def test_equal_looking_child_started_event_does_not_replace_root_identity() -> None:

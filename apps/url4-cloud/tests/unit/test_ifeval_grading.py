@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import pytest
 
-from url4_cloud.benchmarks.ifeval.grading import check_case
+from url4_cloud.benchmarks.ifeval.grading import (
+    check_case,
+    failed_descriptions,
+    verify_case,
+)
 
 
 def test_no_comma_passes_a_comma_free_response() -> None:
@@ -139,3 +143,27 @@ def test_an_empty_response_fails_every_instruction() -> None:
 
     assert result["strict"] == [False]
     assert result["loose"] == [False]
+
+
+def test_failed_description_is_the_exact_randomized_constraint_that_was_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from url4_cloud.benchmarks.ifeval.vendor import instructions
+
+    draws = iter((3, 7))
+    monkeypatch.setattr(instructions.random, "randint", lambda _low, _high: next(draws))
+
+    verification = verify_case(
+        instruction_id_list=["detectable_content:number_placeholders"],
+        kwargs_list=[{}],
+        prompt="Use placeholders.",
+        response="Only [one] placeholder.",
+    )
+
+    assert verification.strict == (False,)
+    assert verification.loose == (False,)
+    assert verification.descriptions == (
+        "The response must contain at least 3 placeholders represented by square brackets, "
+        "such as [address].",
+    )
+    assert failed_descriptions(verification) == list(verification.descriptions)

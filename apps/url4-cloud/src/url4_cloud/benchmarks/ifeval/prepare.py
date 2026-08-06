@@ -33,7 +33,22 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from url4_cloud.benchmarks.ifeval.definition import CASE_COUNT, DATASET, DATASET_REVISION
+from url4_cloud.benchmarks.ifeval.definition import (
+    CASE_COUNT,
+    DATASET,
+    DATASET_REVISION,
+    INSTRUCTION_COUNT,
+)
+
+_HF_KEY_2785_PROMPT = (
+    "What is inside Shinto shrines? Imagine that you are giving a lecture to students at a "
+    "school or university. Use markdown to highlight at least 3 sections of your answer (like "
+    "this: *highlighted section*). Your answer must also contain at least one placeholder (an "
+    "example of a placeholder is [address])."
+)
+_OFFICIAL_KEY_2785_PROMPT = _HF_KEY_2785_PROMPT.replace(
+    "at least one placeholder", "at least 3 placeholders"
+)
 
 
 class PrepareError(RuntimeError):
@@ -83,6 +98,7 @@ def build(
     out: Path,
     *,
     expected_count: int | None = None,
+    expected_instruction_count: int | None = None,
 ) -> dict[str, Any]:
     """Write the public cases and private instruction specs read by IFEval's runtime."""
 
@@ -94,30 +110,64 @@ def build(
     instructions_dir.mkdir(parents=True, exist_ok=True)
 
     cases: list[dict[str, Any]] = []
-    for index, row in enumerate(rows):
-        case_id = index + 1  # 1-based and stable for a given dataset order
-        prompt = row.get("prompt")
-        if not prompt:
-            raise PrepareError(f"case {case_id}: empty 'prompt' column")
-        instruction_ids = row.get("instruction_id_list")
-        kwargs_list = row.get("kwargs")
-        if not isinstance(instruction_ids, list) or not instruction_ids:
-            raise PrepareError(f"case {case_id}: empty instruction_id_list")
-        if not isinstance(kwargs_list, list) or len(kwargs_list) != len(instruction_ids):
-            raise PrepareError(
-                f"case {case_id}: kwargs must be positionally parallel to instruction_id_list"
-            )
-        spec = {
-            "key": row.get("key"),
-            "prompt": prompt,
-            "instruction_id_list": instruction_ids,
-            "kwargs": strip_nulls(kwargs_list),
-        }
+    seen_case_ids: set[int] = set()
+    instruction_count = 0
+    for row in rows:
+        case_id, spec = _prepared_case(row)
+        if case_id in seen_case_ids:
+            raise PrepareError(f"duplicate official IFEval key {case_id}")
+        seen_case_ids.add(case_id)
+        instruction_count += len(spec["instruction_id_list"])
         (instructions_dir / f"{case_id}.json").write_text(json.dumps(spec), encoding="utf-8")
-        cases.append({"id": case_id, "input": prompt})
+        cases.append({"id": case_id, "input": spec["prompt"]})
+
+    if expected_instruction_count is not None and instruction_count != expected_instruction_count:
+        raise PrepareError(
+            f"expected {expected_instruction_count} IFEval instructions, but the pinned dataset "
+            f"produced {instruction_count}"
+        )
 
     (out / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
-    return {"cases": len(cases), "out": str(out)}
+    return {"cases": len(cases), "instructions": instruction_count, "out": str(out)}
+
+
+def _case_id(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise PrepareError("every IFEval row must carry its positive official integer key")
+    return value
+
+
+def _prepared_case(row: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+    case_id = _case_id(row.get("key"))
+    prompt = _official_prompt(case_id, row.get("prompt"))
+    if not prompt:
+        raise PrepareError(f"case {case_id}: empty 'prompt' column")
+    instruction_ids = row.get("instruction_id_list")
+    kwargs_list = row.get("kwargs")
+    if not isinstance(instruction_ids, list) or not instruction_ids:
+        raise PrepareError(f"case {case_id}: empty instruction_id_list")
+    if not isinstance(kwargs_list, list) or len(kwargs_list) != len(instruction_ids):
+        raise PrepareError(
+            f"case {case_id}: kwargs must be positionally parallel to instruction_id_list"
+        )
+    return case_id, {
+        "key": case_id,
+        "prompt": prompt,
+        "instruction_id_list": instruction_ids,
+        "kwargs": strip_nulls(kwargs_list),
+    }
+
+
+def _official_prompt(case_id: int, value: object) -> str:
+    if not isinstance(value, str):
+        raise PrepareError(f"case {case_id}: empty 'prompt' column")
+    if case_id != 2785:
+        return value
+    if value == _OFFICIAL_KEY_2785_PROMPT:
+        return value
+    if value != _HF_KEY_2785_PROMPT:
+        raise PrepareError("case 2785 no longer matches either pinned source wording")
+    return _OFFICIAL_KEY_2785_PROMPT
 
 
 def prepare_nltk(out: Path) -> dict[str, Any]:
@@ -150,13 +200,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        rows = load_rows(args.limit)
         summary = build(
-            load_rows(args.limit),
+            rows,
             args.out,
             expected_count=CASE_COUNT if args.limit is None else args.limit,
+            expected_instruction_count=INSTRUCTION_COUNT if args.limit is None else None,
         )
         summary |= prepare_nltk(args.out)
-    except PrepareError as exc:
+        from url4_cloud.benchmarks.ifeval.parity import verify_prepared_assets
+
+        summary |= verify_prepared_assets(args.out)
+    except (PrepareError, ValueError) as exc:
         print(f"prepare failed: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(summary))

@@ -128,7 +128,7 @@ class _CloudflareAccessAuth(_TransportAuth):
     def access_required(self) -> bool:
         with self._lock:
             self._require_open()
-        return _access_audience(self._discovery_response()) is not None
+            return _access_audience(self._discovery_response()) is not None
 
     def reauthenticate(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None:
         with self._lock:
@@ -318,12 +318,14 @@ class _CloudflareAccessAuth(_TransportAuth):
         worker = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
         try:
             await asyncio.shield(worker)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as cancellation:
             self.cancel_login()
             try:
                 await asyncio.shield(worker)
-            except BaseException:
-                pass
+            except BaseException as cleanup_error:
+                cancellation.add_note(
+                    f"Background authentication cleanup raised {type(cleanup_error).__name__}"
+                )
             raise
 
     def _discovery_response(self) -> httpx.Response:

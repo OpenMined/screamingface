@@ -21,6 +21,7 @@ and therefore invisible to the Runner too.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -28,7 +29,11 @@ import pytest
 
 from url4.core.errors import ResolutionError
 from url4_cloud.runner.config import DataSpec, ModelSpec
-from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.runner.connector import (
+    AigatewayConfig,
+    RetrievalPolicyResolver,
+    build_aigateway_world,
+)
 
 _NATIVE = "openrouter/anthropic/claude-opus-4.8"
 _TAVILY = "claude-opus-4-8"
@@ -328,3 +333,36 @@ async def test_the_policy_is_read_once_per_world(tmp_path) -> None:
             await world.aclose()
 
     assert [body["web_search_excluded_domains"] for body in captured] == [_DOMAINS, _DOMAINS]
+
+
+@pytest.mark.asyncio
+async def test_cancelling_one_policy_waiter_does_not_cancel_its_neighbors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    loads = 0
+
+    async def load(
+        _self: RetrievalPolicyResolver,
+        _spec: DataSpec,
+    ) -> tuple[str, ...]:
+        nonlocal loads
+        loads += 1
+        started.set()
+        await release.wait()
+        return tuple(_DOMAINS)
+
+    monkeypatch.setattr(RetrievalPolicyResolver, "_load", load)
+    resolver = RetrievalPolicyResolver((_policy_route(),))
+    cancelled = asyncio.create_task(resolver.resolve(_POLICY_PATH))
+    surviving = asyncio.create_task(resolver.resolve(_POLICY_PATH))
+
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    release.set()
+
+    assert await asyncio.wait_for(surviving, timeout=1.0) == tuple(_DOMAINS)
+    assert loads == 1

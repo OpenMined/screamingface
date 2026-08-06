@@ -125,11 +125,21 @@ Engine for AI Gateway validation and encrypted storage; the notebook does not re
 
 `draco/smoke` preserves the canonical DRACO execution structure while reducing multiplicity to one
 pinned Case, one criterion, and one Judge pass. It makes two paid calls—one Candidate answer and one
-Judge grade—so its score is diagnostic and **not comparable** to canonical DRACO."""
+Judge grade—so its score is diagnostic and **not comparable** to canonical DRACO.
+
+Execution is disabled by default. Set `RUN_EVALUATION = True` deliberately after reviewing the
+Candidate and Benchmark; **Run All** otherwise makes no model calls."""
         ),
         nbformat.v4.new_code_cell(
-            """report = sf.evaluate(candidate, benchmark="draco/smoke")
-report.to_json()"""
+            """RUN_EVALUATION = False
+
+report = sf.evaluate(candidate, benchmark="draco/smoke") if RUN_EVALUATION else None
+report_output = (
+    report.to_json()
+    if report is not None
+    else "Evaluation disabled — set RUN_EVALUATION = True to spend."
+)
+report_output"""
         ),
     )
 
@@ -247,10 +257,14 @@ for a pre-merge Benchmark id and receive `unknown_benchmark`."""
 
 These four cells are a **paid one-Case validation**, not a scientific result. Haiku is the
 solo Candidate. The Fusion pairs Haiku with Gemini Flash and uses Flash as its synthesizer,
-so the synthesizer is also a direct member — the shape used by Skurikhin et al. ([Ens-1]).
+so the synthesizer is also a direct member. This is a cheap product smoke configuration,
+not one of Skurikhin et al.'s published model lineups.
 
 `progress=True` shows the live Engine stream. Raw URL4 node names are expected until
-semantic Case/attempt events land."""
+semantic Case/attempt events land.
+
+Execution is disabled by default. Set `RUN_EVALUATION = True` deliberately; **Run All** otherwise
+makes no model calls."""
         ),
         nbformat.v4.new_code_cell(
             """smoke_model = sf.Model(
@@ -270,20 +284,25 @@ smoke_fusion = sf.Fusion(
 )
 smoke_fusion"""
         ),
+        nbformat.v4.new_code_cell("RUN_EVALUATION = False"),
         nbformat.v4.new_markdown_cell(
             """## ① Baseline — one model, one shot
 
-This validates the canonical paper-comparable protocol. One Case is only a plumbing check;
-increase `limit` deliberately for a reported score."""
+This validates the canonical one-answer plus deterministic-check execution shape. One Case
+is only a plumbing check; run all 541 official Case keys for a benchmark score."""
         ),
         nbformat.v4.new_code_cell(
-            """canonical_smoke_model = sf.evaluate(
-    smoke_model,
-    benchmark="ifeval",
-    limit=1,
-    progress=True,
+            '''canonical_smoke_model = (
+    sf.evaluate(
+        smoke_model,
+        benchmark="ifeval",
+        limit=1,
+        progress=True,
+    )
+    if RUN_EVALUATION
+    else None
 )
-canonical_smoke_model"""
+canonical_smoke_model or "Evaluation disabled — set RUN_EVALUATION = True to spend."'''
         ),
         nbformat.v4.new_markdown_cell(
             """## ② Does blending preserve instructions?
@@ -293,53 +312,69 @@ never saw. A blend can break a constraint every member satisfied (add a comma, d
 section). This cell measures that risk."""
         ),
         nbformat.v4.new_code_cell(
-            """canonical_smoke_fusion = sf.evaluate(
-    smoke_fusion,
-    benchmark="ifeval",
-    limit=1,
-    progress=True,
+            '''canonical_smoke_fusion = (
+    sf.evaluate(
+        smoke_fusion,
+        benchmark="ifeval",
+        limit=1,
+        progress=True,
+    )
+    if RUN_EVALUATION
+    else None
 )
-canonical_smoke_fusion"""
+canonical_smoke_fusion or "Evaluation disabled — set RUN_EVALUATION = True to spend."'''
         ),
         nbformat.v4.new_markdown_cell(
             """## ③ Can a model correct itself?
 
 The ablation the paper never ran: {solo + feedback loop}. The model answers, the
-checker reports violations, the model writes its own feedback and retries — up to
-three attempts, earliest pass wins.
+checker reports violations, the model writes its own feedback and retries. The current
+Variant always executes exactly three attempts; the earliest pass wins.
 
 Cost: five model calls per case (three answers + two self-feedback authorings), all
 unrolled."""
         ),
         nbformat.v4.new_code_cell(
-            """corrective_smoke_model = sf.evaluate(
-    smoke_model,
-    benchmark="ifeval/self-corrective",
-    limit=1,
-    progress=True,
+            '''corrective_smoke_model = (
+    sf.evaluate(
+        smoke_model,
+        benchmark="ifeval/self-corrective",
+        limit=1,
+        progress=True,
+    )
+    if RUN_EVALUATION
+    else None
 )
-corrective_smoke_model"""
+corrective_smoke_model or "Evaluation disabled — set RUN_EVALUATION = True to spend."'''
         ),
         nbformat.v4.new_markdown_cell(
-            """## ④ The verifying ensemble (the paper's protocol)
+            """## ④ ScreamingFace verifying-ensemble variant
 
 Members answer, the checker checks **each draft individually**, and the synthesizer —
 acting as judge here — picks a passing answer verbatim, or coaches everyone and retries
 when nobody passed. A judge cannot break a constraint a member satisfied, because it
 never rewrites the winning text.
 
+This Variant is inspired by Skurikhin et al., but it is not their exact protocol: it
+executes all three rounds and Judge steps unconditionally, supports two to four members,
+and uses locally defined Judge/retry prompts.
+
 Choose a synthesizer that reliably answers tersely: a judge reply that is not a bare
 letter gets no vote (the deterministic passers-first rule decides instead), and the
 synthesizer inherits provider-default params on this exam."""
         ),
         nbformat.v4.new_code_cell(
-            """corrective_smoke_fusion = sf.evaluate(
-    smoke_fusion,
-    benchmark="ifeval/verifying-ensemble",
-    limit=1,
-    progress=True,
+            '''corrective_smoke_fusion = (
+    sf.evaluate(
+        smoke_fusion,
+        benchmark="ifeval/verifying-ensemble",
+        limit=1,
+        progress=True,
+    )
+    if RUN_EVALUATION
+    else None
 )
-corrective_smoke_fusion"""
+corrective_smoke_fusion or "Evaluation disabled — set RUN_EVALUATION = True to spend."'''
         ),
         nbformat.v4.new_markdown_cell(
             """## Read the smoke results
@@ -369,6 +404,7 @@ benchmark results."""
         "③ self-corrective · haiku": corrective_smoke_model,
         "④ verifying-ensemble · haiku-flash": corrective_smoke_fusion,
     }.items()
+    if report is not None
 }"""
         ),
         *kimi_appendix(),

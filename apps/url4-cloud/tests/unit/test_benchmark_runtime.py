@@ -206,6 +206,20 @@ async def test_missing_assets_fail_as_unavailable_not_missing_route(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_cases_route_rejects_partial_rubrics_before_evaluation(tmp_path: Path) -> None:
+    _assets(tmp_path / "draco")
+    (tmp_path / "draco/rubrics/1.json").unlink()
+    node = Url4Node("test")
+    install_benchmarks(node, tmp_path)
+
+    with pytest.raises(ResolutionError) as caught:
+        await node.fetch(CASES_ROUTE, relative=True)
+
+    assert caught.value.code == "benchmark_unavailable"
+    assert "no rubrics" in str(caught.value)
+
+
+@pytest.mark.asyncio
 async def test_aggregate_accepts_payload_larger_than_process_argv(tmp_path: Path) -> None:
     """The row collection stays in-process even when it exceeds common ARG_MAX limits."""
 
@@ -227,19 +241,22 @@ async def test_aggregate_accepts_payload_larger_than_process_argv(tmp_path: Path
         "criterion_type": "positive",
         "requirement": "Correct",
     }
-    evidence = {
-        "schema": "screamingface.criterion-verdict.v1",
-        "case_id": 1,
-        "criterion_id": "c1",
-        "sequence": 1,
-        "producer_type": "model",
-        "producer_id": "fixture-judge",
-        "valid": True,
-        "explanation": "x" * 2_100_000,
-        "criterion_status": "MET",
-        "raw_output": '{"criterion_status":"MET"}',
-    }
-    criterion = bind_criterion_evaluation(1, case, check, [evidence])
+    evidence = [
+        {
+            "schema": "screamingface.criterion-verdict.v1",
+            "case_id": 1,
+            "criterion_id": "c1",
+            "sequence": sequence,
+            "producer_type": "model",
+            "producer_id": "fixture-judge",
+            "valid": True,
+            "explanation": "x" * 2_100_000 if sequence == 1 else "evidence",
+            "criterion_status": "MET",
+            "raw_output": '{"criterion_status":"MET"}',
+        }
+        for sequence in range(1, 6)
+    ]
+    criterion = bind_criterion_evaluation(1, case, check, evidence)
     row = json.dumps(
         bind_case_evaluation(1, [criterion]),
         ensure_ascii=False,

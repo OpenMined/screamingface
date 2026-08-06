@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import unicodedata
 from collections.abc import Callable
 from typing import TextIO
 
@@ -29,7 +30,7 @@ class _ProgressObserver:
     def __call__(self, event: Event) -> None:
         message = _message(event)
         if message is not None:
-            self._stream.write(f"ScreamingFace · {message}\n")
+            self._stream.write(f"ScreamingFace · {_terminal_text(message)}\n")
             self._stream.flush()
 
 
@@ -76,6 +77,15 @@ def _duration(seconds: float) -> str:
     if seconds < 10:
         return f"{seconds:.1f}s"
     return f"{seconds:.0f}s"
+
+
+def _terminal_text(value: str) -> str:
+    """Keep untrusted Engine log text on one inert terminal line."""
+
+    inert = "".join(
+        " " if unicodedata.category(character).startswith("C") else character for character in value
+    )
+    return " ".join(inert.split())
 
 
 def _in_notebook() -> bool:

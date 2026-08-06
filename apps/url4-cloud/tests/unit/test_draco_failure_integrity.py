@@ -78,6 +78,7 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
         {1: _RUBRIC, 2: _RUBRIC},
         "draco",
         selected_cases=_selected(1, 2),
+        judge_passes=1,
     )
 
     assert result["case_count"] == 2
@@ -106,6 +107,39 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
     }
 
 
+def test_missing_selected_case_rubric_retains_the_case_and_invalidates_the_score() -> None:
+    result = agg.aggregate(
+        json.dumps([_scored_row(1), _scored_row(2)]),
+        {1: _RUBRIC},
+        "draco",
+        selected_cases=_selected(1, 2),
+        judge_passes=1,
+    )
+
+    assert result["case_count"] == 2
+    assert result["score"] is None
+    assert result["metrics"] == {}
+    assert result["cases"][0]["grade"]["score"] == 1.0
+    assert result["cases"][1] == {
+        "case_id": 2,
+        "input": "Question 2",
+        "output": "Answer 2",
+        "finish_reason": "stop",
+        "grade": None,
+        "failures": [
+            {
+                "stage": "grading",
+                "code": "missing_case_rubric",
+                "message": "the selected Case has no installed DRACO rubric",
+                "retryable": None,
+                "case_id": 2,
+                "metadata": {"row_index": 1},
+            }
+        ],
+        "metadata": {},
+    }
+
+
 def test_nested_draco_records_are_not_discovered_as_a_case_evaluation() -> None:
     rows = json.dumps([{"nested": {"records": _scored_row(1)}}])
 
@@ -118,7 +152,9 @@ def test_nested_draco_records_are_not_discovered_as_a_case_evaluation() -> None:
 
     assert result["score"] is None
     assert result["cases"][0]["grade"] is None
-    assert result["cases"][0]["failures"][0]["code"] == "invalid_case_evaluation"
+    failure = result["cases"][0]["failures"][0]
+    assert failure["code"] == "invalid_case_evaluation"
+    assert failure["metadata"]["reason"] == "invalid DRACO Case Evaluation envelope"
 
 
 def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
@@ -184,6 +220,7 @@ def test_a_row_claiming_another_selected_case_is_retained_as_unscored() -> None:
         {1: _RUBRIC, 2: _RUBRIC},
         "draco",
         selected_cases=_selected(1, 2),
+        judge_passes=1,
     )
 
     assert result["score"] is None

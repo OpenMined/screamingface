@@ -143,6 +143,34 @@ def test_plumbing_names_starting_with_candidate_are_not_a_whole_candidate_refere
     assert "(candidate:0.0:" not in linked.url4
 
 
+def test_references_embedded_inside_url4_text_are_linked_structurally() -> None:
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        name="pair",
+        synthesizer="provider/judge",
+    )
+    value = _compiled(fusion)
+    assert value.synthesizer is not None
+    benchmark = (
+        "(answer:0.0:/candidate?q=(question)!"
+        "'Compare $candidate_member_1 and $candidate_member_2 using "
+        "$candidate_synthesizer')!'$answer'"
+    )
+
+    linked = link_candidate(
+        value.url4,
+        benchmark,
+        value.member_expressions,
+        value.synthesizer.url4,
+    )
+
+    assert linked.member_indices == (1, 2)
+    assert linked.uses_synthesizer is True
+    assert "provider/a" in linked.url4
+    assert "provider/b" in linked.url4
+    assert "provider/judge" in linked.url4
+
+
 def test_a_model_has_no_synthesizer_component_and_whole_binding_still_works() -> None:
     value = _compiled(sf.Model("provider/solo"))
     linked = link_candidate(

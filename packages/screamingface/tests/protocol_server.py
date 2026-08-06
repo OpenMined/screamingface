@@ -8,7 +8,7 @@ import json
 import struct
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -38,6 +38,7 @@ class ProtocolState:
     start_attempts: int = 0
     mode: Literal[
         "success",
+        "advisory_error",
         "heartbeat",
         "http_stop",
         "delayed_attach",
@@ -250,19 +251,28 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _stream_run(self, token: str) -> None:
         mode = self.server.state.mode
-        if mode == "stop":
-            self._stream_stop()
-        elif mode == "http_stop":
-            self._stream_http_stop(token)
-        elif mode == "disconnect":
-            _send_server_text_frame(self.wfile, json.dumps(_run_frames()[0]))
-        elif mode == "gap":
-            self._stream_gap()
+        handlers: dict[str, Callable[[], None]] = {
+            "stop": self._stream_stop,
+            "http_stop": lambda: self._stream_http_stop(token),
+            "disconnect": self._stream_disconnect,
+            "gap": self._stream_gap,
+        }
+        handler = handlers.get(mode)
+        if handler is not None:
+            handler()
         else:
-            if mode == "heartbeat":
-                _send_server_text_frame(self.wfile, json.dumps(_heartbeat()))
-            for frame in _run_frames():
-                _send_server_text_frame(self.wfile, json.dumps(frame))
+            self._stream_events(mode)
+
+    def _stream_disconnect(self) -> None:
+        _send_server_text_frame(self.wfile, json.dumps(_run_frames()[0]))
+
+    def _stream_events(self, mode: str) -> None:
+        if mode == "heartbeat":
+            _send_server_text_frame(self.wfile, json.dumps(_heartbeat()))
+        elif mode == "advisory_error":
+            _send_server_text_frame(self.wfile, json.dumps(_advisory_error()))
+        for frame in _run_frames():
+            _send_server_text_frame(self.wfile, json.dumps(frame))
 
     def _stream_stop(self) -> None:
         _send_server_text_frame(self.wfile, json.dumps(_run_frames()[0]))
@@ -414,6 +424,23 @@ def _heartbeat() -> dict[str, object]:
     }
 
 
+def _advisory_error() -> dict[str, object]:
+    return {
+        "specversion": "1.0",
+        "id": "advisory_error",
+        "source": "/trace/run_1",
+        "subject": "run_1",
+        "time": datetime.now(UTC).isoformat(),
+        "type": "ai.url4.error",
+        "datacontenttype": "application/json",
+        "data": {
+            "code": "invalid_frame",
+            "message": "ignored malformed client frame",
+            "ref_id": None,
+        },
+    }
+
+
 def _authorization_scheme(headers: Any) -> str | None:
     value = headers.get("Authorization")
     if value:
@@ -426,6 +453,7 @@ def protocol_server(
     *,
     mode: Literal[
         "success",
+        "advisory_error",
         "heartbeat",
         "http_stop",
         "delayed_attach",

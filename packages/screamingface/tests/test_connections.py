@@ -101,6 +101,37 @@ def test_explicit_client_lists_gets_connects_and_disconnects() -> None:
     assert all(SECRET not in str(request.url) for request in calls)
 
 
+@pytest.mark.parametrize("provider", ["../../token", "openrouter/keys", "openrouter?admin=1"])
+def test_provider_name_cannot_steer_a_connection_request(provider: str) -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        raise AssertionError(f"invalid provider reached {request.url}")
+
+    with _sync_client(handler) as client, pytest.raises(ValueError, match="provider"):
+        client.connect(provider, api_key=SECRET)
+
+    assert called is False
+
+
+def test_engine_cannot_advertise_a_provider_that_is_not_one_path_segment() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_list({**_row(), "provider": "../../token"}))
+
+    with (
+        _sync_client(handler) as client,
+        pytest.raises(
+            sf.ProviderConnectionError,
+            match="provider",
+        ) as caught,
+    ):
+        client.connections.list()
+
+    assert caught.value.code == "invalid_connection_response"
+
+
 def test_sync_oauth_flow_starts_waits_and_cancels_through_the_engine() -> None:
     polls = 0
     calls: list[httpx.Request] = []
@@ -147,6 +178,41 @@ def test_sync_oauth_flow_starts_waits_and_cancels_through_the_engine() -> None:
         flow.cancel()
 
     assert [request.method for request in calls] == ["POST", "GET", "GET", "DELETE"]
+
+
+def test_oauth_flow_wait_has_a_caller_controlled_deadline() -> None:
+    pending = sf.Connection(
+        provider="anthropic",
+        display_name="Anthropic",
+        auth_methods=("oauth",),
+        status="pending",
+        auth_method="oauth",
+        account_label=None,
+    )
+    flow = sf.OAuthFlow(
+        provider="anthropic",
+        authorize_url="https://provider.example/authorize",
+        expires_in=600,
+        _get=lambda: pending,
+        _expires_at=10**12,
+    )
+
+    with pytest.raises(sf.ProviderConnectionError) as caught:
+        flow.wait(timeout=0.01, poll_interval=0.001)
+
+    assert caught.value.code == "oauth_authorization_timeout"
+    assert caught.value.permanent is False
+
+
+def test_engine_cannot_advertise_an_unbounded_oauth_lifetime() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={**_oauth(), "expires_in": 1801})
+
+    with _sync_client(handler) as client, pytest.raises(sf.ProviderConnectionError) as caught:
+        client.connect("anthropic", method="oauth")
+
+    assert caught.value.code == "invalid_connection_response"
+    assert "between 1 and 1800" in str(caught.value)
 
 
 @pytest.mark.asyncio

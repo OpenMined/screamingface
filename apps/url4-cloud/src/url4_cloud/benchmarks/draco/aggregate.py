@@ -151,10 +151,7 @@ def aggregate(
         raise AggregateError("no DRACO rows were collected; the Candidate cannot be scored")
     expected_cases = _validate_selected_cases(selected_cases, len(rows))
 
-    evaluations = [
-        decode_case_evaluation(raw, int(expected_case["id"]))
-        for raw, expected_case in zip(rows, expected_cases, strict=True)
-    ]
+    evaluations, decode_errors = _decode_evaluations(rows, expected_cases)
     case_rows = [
         [evaluation["case"]] if evaluation is not None else [] for evaluation in evaluations
     ]
@@ -166,8 +163,9 @@ def aggregate(
     ]
     _require_verifiable_mapping(case_rows, check_rows, evidence_rows, expected_cases)
 
-    case_results, _failures = _aggregate_rows(
+    case_results = _aggregate_rows(
         rows,
+        decode_errors,
         case_rows,
         check_rows,
         evidence_rows,
@@ -204,7 +202,13 @@ def aggregate(
         "metrics": {
             "normalized_score_sd": _mean_grade_metrics(scored, "normalized_score_sd"),
             "pass_rate": _mean_grade_metrics(scored, "pass_rate"),
+            "pass_rate_sd": _mean_grade_metrics(scored, "pass_rate_sd"),
+            "accuracy": _mean_grade_metrics(scored, "accuracy"),
+            "accuracy_pass_rate": _mean_grade_metrics(scored, "accuracy_pass_rate"),
+            "axis_scores": _mean_grade_metric_maps(scored, "axis_scores"),
+            "axis_pass_rates": _mean_grade_metric_maps(scored, "axis_pass_rates"),
             "coverage": _mean_grade_metrics(scored, "coverage"),
+            "coverage_sd": _mean_grade_metrics(scored, "coverage_sd"),
             "coverage_target": COVERAGE_TARGET,
             "n_runs": max((_grade_metric(case, "n_runs") for case in scored), default=0),
             "verdicts_expected": _sum_grade_metrics(scored, "verdicts_expected"),
@@ -220,8 +224,27 @@ def aggregate(
     }
 
 
+def _decode_evaluations(
+    rows: Sequence[Any],
+    expected_cases: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any] | None], list[str | None]]:
+    evaluations: list[dict[str, Any] | None] = []
+    errors: list[str | None] = []
+    for raw, expected_case in zip(rows, expected_cases, strict=True):
+        try:
+            evaluation = decode_case_evaluation(raw, int(expected_case["id"]))
+        except (TypeError, ValueError) as exc:
+            evaluation = None
+            errors.append(str(exc))
+        else:
+            errors.append(None)
+        evaluations.append(evaluation)
+    return evaluations, errors
+
+
 def _aggregate_rows(
     raw_rows: Sequence[Any],
+    decode_errors: Sequence[str | None],
     case_rows: Sequence[Sequence[Mapping[str, Any]]],
     check_rows: Sequence[Sequence[Mapping[str, Any]]],
     evidence_rows: Sequence[Sequence[Mapping[str, Any]]],
@@ -229,16 +252,19 @@ def _aggregate_rows(
     rubrics: Mapping[int, Mapping[str, Any]],
     judge_passes: int,
     criterion_count: int | None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> list[dict[str, Any]]:
     case_results: list[dict[str, Any]] = []
-    failures: list[dict[str, Any]] = []
     for index, records in enumerate(evidence_rows):
         expected_case = expected_cases[index]
         case_records = case_rows[index]
         checks = check_rows[index]
         if not case_records:
-            failure = _row_failure(raw_rows[index], index, expected_case)
-            failures.append(failure)
+            failure = _row_failure(
+                raw_rows[index],
+                index,
+                expected_case,
+                decode_errors[index],
+            )
             case_results.append(_failed_selected_case_result(expected_case, failure))
             continue
         case_record = case_records[0]
@@ -247,7 +273,15 @@ def _aggregate_rows(
             raise AssertionError("a scored DRACO row must carry its Engine-bound case_id")
         rubric = rubrics.get(case_id)
         if rubric is None:
-            failures.append({"index": index, "case_id": case_id, "reason": "unknown case_id"})
+            failure = {
+                "stage": "grading",
+                "code": "missing_case_rubric",
+                "message": "the selected Case has no installed DRACO rubric",
+                "retryable": None,
+                "case_id": case_id,
+                "metadata": {"row_index": index},
+            }
+            case_results.append(_ungraded_case_result(case_record, failure))
             continue
         verdicts = valid_verdicts(rubric, records, case_id)
         if not verdicts:
@@ -259,7 +293,6 @@ def _aggregate_rows(
                 "case_id": case_id,
                 "metadata": {"row_index": index},
             }
-            failures.append(failure)
             case_results.append(
                 _incomplete_case_result(
                     case_record,
@@ -283,25 +316,32 @@ def _aggregate_rows(
                 criterion_count,
             )
         )
-    return case_results, failures
+    return case_results
 
 
 def _row_failure(
     row: Any,
     index: int,
     expected_case: Mapping[str, Any],
+    decode_error: str | None,
 ) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "row_index": index,
+        **({"reason": " ".join(decode_error.split())[:200]} if decode_error else {}),
+    }
     failure: dict[str, Any] = {
         "stage": "grading",
         "code": "invalid_case_evaluation",
         "message": "the Case produced no valid DRACO Case Evaluation",
         "retryable": None,
         "case_id": int(expected_case["id"]),
-        "metadata": {"row_index": index},
+        "metadata": metadata,
     }
     error = row.get("error") if isinstance(row, Mapping) else None
     if not isinstance(error, Mapping):
         return failure
+    metadata.clear()
+    metadata["row_index"] = index
     selected = _bounded_error(error)
     failure.update(
         {
@@ -312,7 +352,7 @@ def _row_failure(
         }
     )
     if kind := selected.get("kind"):
-        failure["metadata"] = {"row_index": index, "error_kind": kind}
+        metadata["error_kind"] = kind
     return failure
 
 
@@ -352,11 +392,17 @@ def _case_result(
     expected = criteria_expected * judge_passes
     accepted = len(verdicts)
     scored = score_case(rubric, group_runs(verdicts), criteria_expected=criteria_expected)
+    coverage = (accepted / expected) if expected else 0.0
     metrics = {
         "normalized_score_sd": scored["normalized_score_sd"],
         "pass_rate": scored["pass_rate"],
+        "pass_rate_sd": scored["pass_rate_sd"],
+        "accuracy": scored["accuracy"],
+        "accuracy_pass_rate": scored["accuracy_pass_rate"],
         "axis_scores": scored["axis_scores"],
-        "coverage": scored["coverage"],
+        "axis_pass_rates": scored["axis_pass_rates"],
+        "coverage": round(coverage, 4),
+        "coverage_sd": scored["coverage_sd"],
         "n_runs": scored["n_runs"],
         "verdicts_expected": expected,
         "verdicts_accepted": accepted,
@@ -364,6 +410,25 @@ def _case_result(
         "verdicts_invalid": max(len(records) - accepted, 0),
         "verdicts_missing": max(expected - len(records), 0),
     }
+    failures: list[dict[str, Any]] = []
+    score: float | None = scored["normalized_score"]
+    if coverage < COVERAGE_TARGET:
+        score = None
+        failures.append(
+            {
+                "stage": "grading",
+                "code": "insufficient_judge_coverage",
+                "message": (
+                    f"Judge coverage {coverage:.1%} is below the required {COVERAGE_TARGET:.0%}"
+                ),
+                "retryable": None,
+                "case_id": case_id,
+                "metadata": {
+                    "coverage": round(coverage, 4),
+                    "coverage_target": COVERAGE_TARGET,
+                },
+            }
+        )
     return {
         "case_id": case_id,
         "input": case_record["input"],
@@ -371,7 +436,7 @@ def _case_result(
         "finish_reason": case_record["finish_reason"],
         "grade": {
             "method": "rubric",
-            "score": scored["normalized_score"],
+            "score": score,
             "metrics": metrics,
             "checks": _checks(
                 case_id,
@@ -381,7 +446,7 @@ def _case_result(
                 criteria_expected,
             ),
         },
-        "failures": [],
+        "failures": failures,
         "metadata": case_record.get("metadata", {}),
     }
 
@@ -414,7 +479,15 @@ def _incomplete_case_result(
             "method": "rubric",
             "score": None,
             "metrics": {
+                "normalized_score_sd": 0.0,
+                "pass_rate": 0.0,
+                "pass_rate_sd": 0.0,
+                "accuracy": 0.0,
+                "accuracy_pass_rate": 0.0,
+                "axis_scores": {},
+                "axis_pass_rates": {},
                 "coverage": 0.0,
+                "coverage_sd": 0.0,
                 "n_runs": 0,
                 "verdicts_expected": verdicts_expected,
                 "verdicts_accepted": 0,
@@ -451,6 +524,22 @@ def _failed_selected_case_result(
     }
 
 
+def _ungraded_case_result(
+    case_record: Mapping[str, Any], failure: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Retain an observed Candidate answer when private grading material is unavailable."""
+
+    return {
+        "case_id": int(case_record["case_id"]),
+        "input": case_record["input"],
+        "output": case_record["output"],
+        "finish_reason": case_record["finish_reason"],
+        "grade": None,
+        "failures": [dict(failure)],
+        "metadata": case_record.get("metadata", {}),
+    }
+
+
 def _checks(
     case_id: int,
     rubric: Mapping[str, Any],
@@ -458,7 +547,18 @@ def _checks(
     evidence: Sequence[Mapping[str, Any]],
     criteria_expected: int,
 ) -> list[dict[str, Any]]:
-    selected = list(flatten_criteria(rubric))[:criteria_expected]
+    rubric_by_id = {str(criterion["id"]): criterion for criterion in flatten_criteria(rubric)}
+    selected_ids = [str(record.get("criterion_id")) for record in records]
+    if len(selected_ids) != criteria_expected or len(set(selected_ids)) != criteria_expected:
+        raise AggregateError(
+            f"Case {case_id} must carry exactly {criteria_expected} unique Engine-bound Checks"
+        )
+    try:
+        selected = [rubric_by_id[criterion_id] for criterion_id in selected_ids]
+    except KeyError as exc:
+        raise AggregateError(
+            f"Case {case_id} has an Engine-bound Check for unknown criterion {exc.args[0]!r}"
+        ) from None
     by_id = {str(record.get("criterion_id")): record for record in records}
     checks: list[dict[str, Any]] = []
     for criterion in selected:
@@ -600,6 +700,17 @@ def _mean_grade_metrics(cases: Sequence[Mapping[str, Any]], key: str) -> float:
 
 def _sum_grade_metrics(cases: Sequence[Mapping[str, Any]], key: str) -> int:
     return sum(int(_grade_metric(case, key)) for case in cases)
+
+
+def _mean_grade_metric_maps(cases: Sequence[Mapping[str, Any]], key: str) -> dict[str, float]:
+    values: dict[str, list[float]] = {}
+    for case in cases:
+        metric = _grade_metric(case, key)
+        if not isinstance(metric, Mapping):  # pragma: no cover - constructed locally
+            raise AssertionError(f"Case Grade metric {key!r} must be an object")
+        for name, value in metric.items():
+            values.setdefault(str(name), []).append(float(value))
+    return {name: round(sum(items) / len(items), 4) for name, items in sorted(values.items())}
 
 
 def load_rubrics(directory: Path) -> dict[int, dict[str, Any]]:

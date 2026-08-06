@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -1159,6 +1160,69 @@ async def test_cancelling_the_outer_run_cancels_candidate_work() -> None:
             if not task.done():
                 task.cancel()
             await world.aclose()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_candidate_invocations_keep_retrieval_policy_task_local() -> None:
+    requests: list[dict[str, Any]] = []
+    both_started = asyncio.Event()
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        if len(requests) == 2:
+            both_started.set()
+        await asyncio.wait_for(both_started.wait(), timeout=1.0)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "answer"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    model = "provider/model"
+    candidate = RelExpr(path=f"/{model}", context="$input", intent=text("answer"))
+    searching = RelExpr(
+        path="/candidate",
+        context="searching question",
+        intent=text("$candidate"),
+        params=(("web_search", "true"), ("web_search_exclude", "rubric.test")),
+    )
+    offline = RelExpr(
+        path="/candidate",
+        context="offline question",
+        intent=text("$candidate"),
+        params=(("web_search", "false"),),
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(
+                default_model=model,
+                models=(ModelSpec(id=model, native_web_search=True),),
+            ),
+            client=client,
+        )
+        try:
+            await asyncio.gather(
+                world.node.evaluate(_link(candidate, searching)),
+                world.node.evaluate(_link(candidate, offline)),
+            )
+        finally:
+            await world.aclose()
+
+    by_prompt = {
+        next(
+            message["content"] for message in request["messages"] if message["role"] == "user"
+        ): request
+        for request in requests
+    }
+    assert by_prompt["searching question"]["web_search"] is True
+    assert by_prompt["searching question"]["web_search_excluded_domains"] == ["rubric.test"]
+    assert "web_search" not in by_prompt["offline question"]
+    assert "web_search_excluded_domains" not in by_prompt["offline question"]
 
 
 @pytest.mark.asyncio

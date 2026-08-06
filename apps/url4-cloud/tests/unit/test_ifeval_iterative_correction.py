@@ -13,7 +13,9 @@ import json
 from url4 import build, render
 from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
-    aggregate_corrective,
+)
+from url4_cloud.benchmarks.ifeval.aggregate import (
+    aggregate_corrective as _aggregate_corrective,
 )
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
@@ -23,7 +25,7 @@ from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE, IFEVAL
 from url4_cloud.benchmarks.ifeval.definition import (
     REVISION as SINGLE_PASS_REVISION,
 )
-from url4_cloud.benchmarks.ifeval.grading import describe_failures
+from url4_cloud.benchmarks.ifeval.grading import CaseVerification, failed_descriptions
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_SELF_CORRECTIVE,
     MAX_ATTEMPTS,
@@ -48,6 +50,22 @@ _SPECS = {
         "kwargs": [{}],
     },
 }
+
+
+def aggregate_corrective(
+    payload: str,
+    specs: dict[int, dict[str, object]],
+    benchmark_id: str,
+    benchmark_revision: str,
+):
+    selected_cases = [{"id": case_id, "input": spec["prompt"]} for case_id, spec in specs.items()]
+    return _aggregate_corrective(
+        payload,
+        specs,
+        benchmark_id,
+        benchmark_revision,
+        selected_cases=selected_cases,
+    )
 
 
 def _record(case_id: int, attempt: int, strict: list[bool]) -> dict[str, object]:
@@ -80,45 +98,35 @@ def _evaluation(case_id: int, *attempts: list[bool]) -> dict[str, object]:
     )
 
 
-# --- grading.describe_failures ---------------------------------------------------
+# --- grading.failed_descriptions ------------------------------------------------
 
 
 def test_describe_failures_returns_official_description_text_for_failed_only() -> None:
-    descriptions = describe_failures(
-        instruction_id_list=_SPECS[1]["instruction_id_list"],
-        kwargs_list=_SPECS[1]["kwargs"],
-        prompt=_SPECS[1]["prompt"],
-        strict=[True, False],
+    descriptions = failed_descriptions(
+        CaseVerification(
+            strict=(True, False),
+            loose=(True, False),
+            descriptions=("Instruction 1", "Answer with at least 5 words."),
+        )
     )
 
     assert len(descriptions) == 1
     # WHY the verifier's own wording: the feedback the retry sees must describe the
     # exam's constraint exactly as the checker enforces it — no paraphrase drift.
-    assert "5" in descriptions[0] or "five" in descriptions[0].lower()
+    assert descriptions == ["Answer with at least 5 words."]
 
 
 def test_describe_failures_is_empty_when_everything_passed() -> None:
     assert (
-        describe_failures(
-            instruction_id_list=_SPECS[2]["instruction_id_list"],
-            kwargs_list=_SPECS[2]["kwargs"],
-            prompt=_SPECS[2]["prompt"],
-            strict=[True],
+        failed_descriptions(
+            CaseVerification(
+                strict=(True,),
+                loose=(True,),
+                descriptions=("Wrap the answer in quotes.",),
+            )
         )
         == []
     )
-
-
-def test_describe_failures_does_not_leak_instruction_id_when_description_crashes() -> None:
-    descriptions = describe_failures(
-        instruction_id_list=["bogus:not_an_instruction"],
-        kwargs_list=[{}],
-        prompt="anything",
-        strict=[False],
-    )
-
-    assert descriptions == ["One instruction requirement was not satisfied."]
-    assert "bogus:not_an_instruction" not in descriptions[0]
 
 
 # --- the distinct protocol definition --------------------------------------------

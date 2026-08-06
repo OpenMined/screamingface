@@ -18,6 +18,7 @@ from screamingface.connections import (
     Connection,
     ConnectionStatus,
     OAuthFlow,
+    _provider_id,
 )
 from screamingface.errors import EngineUnavailableError, ProviderConnectionError
 
@@ -61,6 +62,7 @@ _FIELDS = frozenset(
     }
 )
 _OAUTH_FIELDS = frozenset({"object", "provider", "authorize_url", "expires_in"})
+_MAX_OAUTH_EXPIRES_IN_SECONDS = 30 * 60
 
 
 class Connections:
@@ -318,8 +320,12 @@ def _decode_oauth(payload: object, provider: str) -> tuple[str, int]:
     ):
         _invalid("OAuth authorization URL must be an absolute HTTPS URL")
     expires_in = row.get("expires_in")
-    if isinstance(expires_in, bool) or not isinstance(expires_in, int) or expires_in < 1:
-        _invalid("OAuth authorization expires_in must be a positive integer")
+    if (
+        isinstance(expires_in, bool)
+        or not isinstance(expires_in, int)
+        or not 1 <= expires_in <= _MAX_OAUTH_EXPIRES_IN_SECONDS
+    ):
+        _invalid("OAuth authorization expires_in must be between 1 and 1800 seconds")
     return authorize_url, expires_in
 
 
@@ -361,9 +367,7 @@ def _find(values: tuple[Connection, ...], provider: str) -> Connection:
 
 
 def _provider(value: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("provider must be a non-empty string")
-    return value.strip()
+    return _provider_id(value)
 
 
 def _api_key(value: str) -> str:

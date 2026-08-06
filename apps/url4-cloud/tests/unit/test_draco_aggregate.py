@@ -112,6 +112,51 @@ def test_axis_scores_are_per_section() -> None:
     assert axes == {"Factual Accuracy": 0.0, "Presentation": 1.0}
 
 
+def test_axis_pass_rates_are_unweighted_per_section() -> None:
+    rates = scoring.axis_pass_rates(
+        _RUBRIC,
+        _verdicts(a1=True, a2=False, a3=False, b1=True),
+    )
+
+    assert rates == {"Factual Accuracy": 2 / 3, "Presentation": 1.0}
+
+
+def test_axis_balanced_selection_round_robins_across_rubric_sections() -> None:
+    rubric = {
+        "sections": [
+            {
+                "id": axis,
+                "criteria": [
+                    {"id": f"{axis}{index}", "weight": 1, "requirement": "x"}
+                    for index in range(1, 5)
+                ],
+            }
+            for axis in ("a", "b", "c", "d")
+        ]
+    }
+
+    selected = scoring.select_criteria(rubric, 10, "axis-balanced")
+
+    assert [criterion["id"] for criterion in selected] == [
+        "a1",
+        "b1",
+        "c1",
+        "d1",
+        "a2",
+        "b2",
+        "c2",
+        "d2",
+        "a3",
+        "b3",
+    ]
+    assert {axis: sum(criterion["axis"] == axis for criterion in selected) for axis in "abcd"} == {
+        "a": 3,
+        "b": 3,
+        "c": 2,
+        "d": 2,
+    }
+
+
 # --- unjudged criteria ----------------------------------------------------------
 
 
@@ -263,11 +308,15 @@ def test_coverage_diagnostics_distinguish_invalid_and_missing_verdicts() -> None
         selected_cases=_selected_cases(1),
     )
 
+    case = result["cases"][0]
+
+    assert result["score"] is None
+    assert case["grade"]["score"] is None
+    assert case["failures"][0]["code"] == "insufficient_judge_coverage"
     assert {
-        name: result["metrics"][name]
+        name: case["grade"]["metrics"][name]
         for name in (
             "coverage",
-            "coverage_target",
             "verdicts_expected",
             "verdicts_accepted",
             "verdicts_rejected",
@@ -276,7 +325,6 @@ def test_coverage_diagnostics_distinguish_invalid_and_missing_verdicts() -> None
         )
     } == {
         "coverage": 0.9,
-        "coverage_target": 0.95,
         "verdicts_expected": 20,
         "verdicts_accepted": 18,
         "verdicts_rejected": 2,
@@ -329,7 +377,16 @@ def test_score_case_means_the_runs_and_reports_the_spread() -> None:
     )
 
     assert scored["normalized_score"] == 0.875  # (1.0 + 0.75) / 2
-    assert scored["normalized_score_sd"] == 0.125
+    assert scored["normalized_score_sd"] == 0.1768
+    assert scored["pass_rate"] == 0.875
+    assert scored["pass_rate_sd"] == 0.1768
+    assert scored["accuracy"] == 0.8333
+    assert scored["accuracy_pass_rate"] == 0.8333
+    assert scored["axis_scores"] == {"Factual Accuracy": 0.8333, "Presentation": 1.0}
+    assert scored["axis_pass_rates"] == {
+        "Factual Accuracy": 0.8333,
+        "Presentation": 1.0,
+    }
     assert scored["n_runs"] == 2
 
 

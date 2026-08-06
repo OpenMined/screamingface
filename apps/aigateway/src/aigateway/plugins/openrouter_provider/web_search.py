@@ -16,6 +16,7 @@ EXCLUDE_DOMAINS_KEY = "exclude_domains"
 """OpenRouter web-plugin spelling; its server-tool surface uses a different field name."""
 
 _WEB_SEARCH_POLICY: dict[str, object] = {"id": "web", "engine": "native"}
+_ONLINE_MODEL_SUFFIX = ":online"
 
 
 class WebSearchSettings(Protocol):
@@ -33,7 +34,8 @@ def apply_web_search(body: dict[str, Any], settings: WebSearchSettings) -> None:
     """
     wanted = body.pop(WEB_SEARCH_PARAM, None)
     caller_excluded = body.pop(WEB_SEARCH_EXCLUDED_DOMAINS_PARAM, None) or []
-    if wanted is not True:
+    suffix_enabled = _consume_online_model_suffix(body)
+    if wanted is not True and (wanted is not None or not suffix_enabled):
         return
 
     excluded = sorted({*settings.web_search_excluded_domains, *caller_excluded})
@@ -43,6 +45,23 @@ def apply_web_search(body: dict[str, Any], settings: WebSearchSettings) -> None:
 
     # Assignment, never merge: caller-supplied plugin envelopes are refused by classification.
     body["plugins"] = [plugin]
+
+
+def _consume_online_model_suffix(body: dict[str, Any]) -> bool:
+    """Normalize OpenRouter's implicit-search model suffix into the guarded plugin path.
+
+    ``:online`` enables retrieval upstream even when the caller never supplied
+    :data:`WEB_SEARCH_PARAM`. Leaving the suffix intact would therefore bypass both deployment
+    and caller exclusions. Removing it and emitting the same gateway-owned plugin used by the
+    explicit flag gives both spellings one policy-enforced wire representation. An explicit
+    ``web_search=false`` still wins: the suffix is removed and no plugin is emitted.
+    """
+
+    model = body.get("model")
+    if not isinstance(model, str) or not model.endswith(_ONLINE_MODEL_SUFFIX):
+        return False
+    body["model"] = model.removesuffix(_ONLINE_MODEL_SUFFIX)
+    return True
 
 
 __all__ = [

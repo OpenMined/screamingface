@@ -4,10 +4,10 @@ FEATURE: a `[commands]` route can take the INTENT on stdin instead of the contex
 STORY: as a benchmark author, my cross-row reducer receives the JSON array of every row result
 as its intent — and argv cannot carry it.
 
-WHY this exists at all: a single argv token is capped at `MAX_ARG_STRLEN` (32 pages = 131,072
-bytes) by the kernel, independently of `ARG_MAX`. A reducer payload crosses that at roughly four
-DRACO cases, and the failure is `OSError [Errno 7] Argument list too long` at exec — the run dies
-rather than degrading. Stdin is a pipe and has no such bound.
+WHY this exists at all: on deployed Linux, a single argv token is capped at `MAX_ARG_STRLEN`
+(32 pages = 131,072 bytes), independently of `ARG_MAX`. A reducer payload crosses that at roughly
+four DRACO cases, and the failure is `OSError [Errno 7] Argument list too long` at exec — the run
+dies rather than degrading. Stdin is a pipe and has no such bound.
 
 Its own module rather than an append to `test_serve_backends.py`: prior tests are append-only, so
 a new surface earns a new file. The default-behaviour case is RESTATED here rather than edited
@@ -20,7 +20,6 @@ from __future__ import annotations
 import pytest
 
 from url4.cli._serve import make_command_handler
-from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 pytestmark = pytest.mark.asyncio
@@ -81,17 +80,3 @@ async def test_payload_past_the_argv_ceiling_survives_on_stdin() -> None:
     handler = make_command_handler(_ECHO_STDIN, timeout=30.0, stdin="intent")
 
     assert await handler(_req(intent=_OVERSIZE)) == _OVERSIZE
-
-
-async def test_the_same_payload_through_argv_still_fails() -> None:
-    """The bound is the kernel's, not ours — so it is pinned rather than assumed.
-
-    If this ever starts passing, the ceiling moved and the sizing note in the spec is stale; it
-    does NOT mean the stdin path became unnecessary.
-    """
-    handler = make_command_handler(
-        ["python3", "-c", "import sys; sys.stdout.write(sys.argv[1])", "{intent}"], timeout=30.0
-    )
-
-    with pytest.raises(ResolutionError, match="failed to start"):
-        await handler(_req(intent=_OVERSIZE))

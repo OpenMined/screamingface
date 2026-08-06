@@ -286,6 +286,13 @@ async def test_malformed_upstream_response_is_typed() -> None:
         await adapter.list(Caller())
 
 
+async def test_non_uuid_connection_id_is_rejected_before_it_can_enter_a_request_path() -> None:
+    adapter, _ = _adapter(lambda request: _get(request, _row(connection_id="../token")))
+
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.disconnect(Caller(), "openrouter")
+
+
 async def test_timeout_is_typed_and_secret_safe() -> None:
     def timeout(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout(SECRET, request=request)

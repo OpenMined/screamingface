@@ -70,6 +70,8 @@ def test_canonical_draco_contract_is_unchanged() -> None:
 
 def _two_case_assets(root: Path) -> None:
     root.mkdir(parents=True)
+    (root / "criteria").mkdir()
+    (root / "rubrics").mkdir()
     (root / "cases.json").write_text(
         json.dumps(
             [
@@ -79,6 +81,15 @@ def _two_case_assets(root: Path) -> None:
         ),
         encoding="utf-8",
     )
+    for case_id in (1, 2):
+        (root / "criteria" / f"{case_id}.json").write_text(
+            '[{"id":"c1","requirement":"Correct","criterion_type":"positive"}]',
+            encoding="utf-8",
+        )
+        (root / "rubrics" / f"{case_id}.json").write_text(
+            '{"sections":[{"id":"correctness","criteria":[{"id":"c1","weight":1}]}]}',
+            encoding="utf-8",
+        )
 
 
 def test_smoke_public_cases_expose_only_the_pinned_case(

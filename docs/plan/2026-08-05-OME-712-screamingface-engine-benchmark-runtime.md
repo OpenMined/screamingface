@@ -1,6 +1,6 @@
 # OME-712 ScreamingFace Engine benchmark runtime — hardening plan
 
-**Ticket:** OME-712  
+**Ticket:** OME-712
 **Spec:** `docs/spec/2026-08-05-OME-712-screamingface-engine-benchmark-runtime.md`
 
 ## Goal

@@ -62,8 +62,15 @@ class _Rig:
     misspelled `excluded_domains` key made expensive.
     """
 
-    def __init__(self, turns: list[list[dict]] | None = None) -> None:
+    def __init__(
+        self,
+        turns: list[list[dict]] | None = None,
+        search_results: list[dict] | None = None,
+    ) -> None:
         self.turns = list(turns or [])
+        self.search_results = search_results or [
+            {"title": "t", "url": "https://ok.test/a", "content": "c"}
+        ]
         self.searches: list[dict] = []
         self.extracts: list[dict] = []
         self.tool_messages: list[dict] = []
@@ -74,9 +81,7 @@ class _Rig:
             return self._gateway(body)
         if request.url.path.endswith("/search"):
             self.searches.append(body)
-            return httpx.Response(
-                200, json={"results": [{"title": "t", "url": "https://ok.test/a", "content": "c"}]}
-            )
+            return httpx.Response(200, json={"results": self.search_results})
         self.extracts.append(body)
         return httpx.Response(200, json={"results": [{"raw_content": "PAGE"}]})
 
@@ -100,8 +105,9 @@ async def _run(
     turns: list[list[dict]] | None = None,
     data: tuple[DataSpec, ...] = (),
     route: str = _TAVILY,
+    search_results: list[dict] | None = None,
 ) -> _Rig:
-    rig = _Rig(turns)
+    rig = _Rig(turns, search_results)
     config = AigatewayConfig(
         default_model=_PLAIN,
         models=(ModelSpec(id=_TAVILY, web_tools=True), ModelSpec(id=_PLAIN)),
@@ -259,6 +265,38 @@ async def test_a_subdomain_of_a_blocked_host_is_blocked() -> None:
     )
 
     assert rig.extracts == []
+
+
+@pytest.mark.asyncio
+async def test_a_trailing_dot_cannot_bypass_the_blocked_host() -> None:
+    rig = await _run(
+        f";web_search_policy={_POLICY_PATH}",
+        turns=[[_fetch_call(f"https://{_BLOCKED}./rubric")]],
+        data=(_policy_route(),),
+    )
+
+    assert rig.extracts == []
+
+
+@pytest.mark.asyncio
+async def test_search_results_are_post_filtered_before_the_model_sees_them() -> None:
+    rig = await _run(
+        f";web_search_policy={_POLICY_PATH}",
+        turns=[[_SEARCH_CALL]],
+        data=(_policy_route(),),
+        search_results=[
+            {
+                "title": "blocked",
+                "url": f"https://cdn.{_BLOCKED}/answer-key",
+                "content": "PRIVATE RUBRIC",
+            },
+            {"title": "allowed", "url": "https://ok.test/source", "content": "PUBLIC"},
+        ],
+    )
+
+    tool_output = "\n".join(message["content"] for message in rig.tool_messages)
+    assert "PRIVATE RUBRIC" not in tool_output
+    assert "PUBLIC" in tool_output
 
 
 # --- the invariant that did NOT change --------------------------------------------

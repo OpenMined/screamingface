@@ -2,7 +2,10 @@
 # just stack-up | stack-down | stack-status | stack-logs | stack-prepare | jupyter
 
 assets := "/tmp/screamingface-benchmark-assets"  # datasets for url4-cloud benchmarks
-rundir := "/tmp/sf-stack"  # pid files and logs
+rundir := env_var_or_default(
+    "SCREAMINGFACE_STACK_DIR",
+    env_var_or_default("XDG_RUNTIME_DIR", env_var_or_default("TMPDIR", "/tmp")) / "screamingface-stack",
+)  # pid files and logs
 repo := justfile_directory() / "../.."
 # During stacked development the SDK and Engine may be separate worktrees.
 engine_repo := env_var_or_default("SCREAMINGFACE_ENGINE_REPO", repo)
@@ -20,6 +23,7 @@ stack-up:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p {{rundir}}
+    chmod 700 {{rundir}}
     test -x {{repo}}/apps/aigateway/.venv/bin/uvicorn || {
         echo "AI Gateway environment missing; run: cd {{repo}}/apps/aigateway && uv sync"
         exit 1
@@ -66,17 +70,33 @@ stack-up:
 # Stop both services
 stack-down:
     #!/usr/bin/env bash
+    set -u
     for name in aigateway url4-cloud; do
         pidfile={{rundir}}/$name.pid
-        if [ -f "$pidfile" ] && kill "$(cat "$pidfile")" 2>/dev/null; then
-            echo "$name stopped"
+        if [ -f "$pidfile" ]; then
+            IFS= read -r pid < "$pidfile"
+            case "$pid" in
+                ''|*[!0-9]*)
+                    echo "$name has an invalid pid file; refusing to signal it"
+                    ;;
+                *)
+                    command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+                    case "$name:$command" in
+                        aigateway:*uvicorn*aigateway.main:app*|url4-cloud:*url4-cloud*serve*)
+                            if kill "$pid" 2>/dev/null; then
+                                echo "$name stopped"
+                            fi
+                            ;;
+                        *:)
+                            ;;
+                        *)
+                            echo "$name pid $pid belongs to another command; refusing to signal it"
+                            ;;
+                    esac
+                    ;;
+            esac
         fi
         rm -f "$pidfile"
-    done
-    # fallback: whatever still holds the ports
-    for port in 9105 9108; do
-        pid=$(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null || true)
-        [ -n "$pid" ] && kill "$pid" && echo "port $port freed (pid $pid)"
     done
     exit 0
 

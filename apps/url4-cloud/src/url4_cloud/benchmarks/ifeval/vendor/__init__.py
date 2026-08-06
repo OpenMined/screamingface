@@ -19,10 +19,12 @@ The ONLY changes we made
        package (one in ``instructions.py``, one in ``instructions_registry.py``).
     Everything else is byte-identical to the fork.
 
-What we did NOT copy
-    ``evaluation.py`` (a CLI wrapper needing typer/rich) — its small scoring
-    protocol is reimplemented in ``..grading``. The dataset file — we download
-    it from HuggingFace at a pinned revision in ``..prepare`` instead.
+Protocol oracle
+    ``evaluation_lib.py`` is the strict/loose checking excerpt from Google's official
+    evaluator at the commit named in ``..definition``. It is used only during benchmark
+    preparation to prove ``..grading`` agrees on every prepared Case and all four global
+    metrics. The dataset file is downloaded from HuggingFace at a pinned revision and its
+    one divergent prompt is repaired explicitly in ``..prepare``.
 
 INVARIANT: please do not edit these files. This checker IS the exam — changing it
 changes every published IFEval score. Any intentional update must also update

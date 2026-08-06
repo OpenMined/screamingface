@@ -127,8 +127,13 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
                 "metrics": {
                     "normalized_score_sd": 0.0,
                     "pass_rate": 1.0,
+                    "pass_rate_sd": 0.0,
+                    "accuracy": 0.0,
+                    "accuracy_pass_rate": 0.0,
                     "axis_scores": {"correctness": 1.0},
+                    "axis_pass_rates": {"correctness": 1.0},
                     "coverage": 1.0,
+                    "coverage_sd": 0.0,
                     "n_runs": 1,
                     "verdicts_expected": 1,
                     "verdicts_accepted": 1,

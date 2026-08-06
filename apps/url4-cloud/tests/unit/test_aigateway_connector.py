@@ -441,6 +441,26 @@ async def test_aigateway_http_errors_map_to_resolution_error(
     assert exc_info.value.permanent is expected_permanent
 
 
+async def test_non_text_aigateway_error_fields_fall_back_to_safe_defaults() -> None:
+    model = "anthropic/claude-haiku-4-5"
+    gw = _MockAigateway(
+        (model,),
+        responses={model: (503, {"code": 17, "message": {"secret": "nope"}})},
+    )
+    cfg = AigatewayConfig(models=gw.models, default_model=model)
+    async with gw.client() as client:
+        world = await build_aigateway_world(cfg, client=client)
+        try:
+            with pytest.raises(ResolutionError) as exc_info:
+                await url4_run(f"/{model}(ctx)!go", io=world.node)
+        finally:
+            await world.aclose()
+
+    assert exc_info.value.code == "aigateway_http_503"
+    assert str(exc_info.value) == "aigateway request failed with status 503"
+    assert exc_info.value.permanent is False
+
+
 async def test_default_model_must_be_one_of_the_declared_models() -> None:
     gw = _MockAigateway(("openrouter/gpt-4o",))
     cfg = AigatewayConfig(

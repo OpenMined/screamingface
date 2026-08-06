@@ -46,19 +46,23 @@ def _selected(*case_ids: int) -> list[dict[str, object]]:
 
 def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> object:
     raw_output = json.dumps({"explanation": "fixture verdict", "criterion_status": status})
-    verdict: dict[str, object] = {
-        "schema": agg.VERDICT_SCHEMA,
-        "criterion_id": criterion,
-        "sequence": 1,
-        "producer_type": "model",
-        "producer_id": "fixture-judge",
-        "criterion_status": status,
-        "valid": True,
-        "explanation": "fixture verdict",
-        "raw_output": raw_output,
-    }
+    verdicts = [
+        {
+            "schema": agg.VERDICT_SCHEMA,
+            "criterion_id": criterion,
+            "sequence": sequence,
+            "producer_type": "model",
+            "producer_id": "fixture-judge",
+            "criterion_status": status,
+            "valid": True,
+            "explanation": "fixture verdict",
+            "raw_output": raw_output,
+        }
+        for sequence in range(1, 6)
+    ]
     if case is not None:
-        verdict["case_id"] = case
+        for verdict in verdicts:
+            verdict["case_id"] = case
         case_record = {
             "schema": CASE_SCHEMA,
             "case_id": case,
@@ -76,9 +80,9 @@ def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> obj
         }
         return bind_case_evaluation(
             case,
-            [bind_criterion_evaluation(case, case_record, check_record, [verdict])],
+            [bind_criterion_evaluation(case, case_record, check_record, verdicts)],
         )
-    return {"not": "a DRACO Case Evaluation", "verdict": verdict}
+    return {"not": "a DRACO Case Evaluation", "verdicts": verdicts}
 
 
 # --- the guard ------------------------------------------------------------------

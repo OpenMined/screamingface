@@ -210,6 +210,13 @@ def test_report_flattens_candidate_failures_without_duplicating_them_on_the_wire
     assert candidate_payload["failures"] == [owned.to_dict()]
 
 
+def test_report_is_not_ok_when_a_candidate_has_no_score_or_failure_record() -> None:
+    value = report(candidate("opus", score=None))
+
+    assert value.failures == ()
+    assert value.ok is False
+
+
 def test_failure_serializes_the_locked_domain_contract() -> None:
     failure = sf.Failure(
         stage="grading",

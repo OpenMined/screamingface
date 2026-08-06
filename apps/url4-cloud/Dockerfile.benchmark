@@ -48,9 +48,11 @@ WORKDIR /app/apps/url4-cloud
 # carries NO pip, and the runtime stage never installed the uv binary either — `python -m pip`
 # fails with "No module named pip". Copying the same tool the base image builds with keeps one
 # installer across both Dockerfiles.
-COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim /usr/local/bin/uv /usr/local/bin/uv
+# Keep this digest and the exact datasets version synchronized with the preparer revisions in
+# both Benchmark definitions. Changing either changes the bytes that may be baked into an image.
+COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 /usr/local/bin/uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --python /app/apps/url4-cloud/.venv/bin/python --quiet "datasets>=2.19"
+    uv pip install --python /app/apps/url4-cloud/.venv/bin/python --quiet "datasets==5.0.0"
 RUN mkdir -p /opt/benchmarks/draco /opt/benchmarks/ifeval \
  && /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.benchmarks.draco.prepare \
       --out /opt/benchmarks/draco \

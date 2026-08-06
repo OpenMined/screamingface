@@ -195,7 +195,7 @@ class ConnectionPanel:
         self._set_notice(None)
         try:
             action()
-        except (ScreamingFaceError, ValueError) as exc:
+        except (ScreamingFaceError, RuntimeError, ValueError) as exc:
             self._set_notice(_user_message(exc))
 
     def _set_notice(self, message: str | None) -> None:
@@ -241,7 +241,7 @@ class ConnectionPanel:
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             raise
-        except (ScreamingFaceError, ValueError) as exc:
+        except (ScreamingFaceError, RuntimeError, ValueError) as exc:
             self._state.flows.pop(provider, None)
             self._set_notice(_user_message(exc))
             self._render_rows()

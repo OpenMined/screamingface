@@ -46,6 +46,28 @@ def test_model_accepts_optional_candidate_owned_prompt_and_parameters() -> None:
     assert isinstance(model.params, MappingProxyType)
 
 
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"stop": ")("},
+        {"stop": "'"},
+        {"bad&name": "value"},
+    ],
+)
+def test_candidate_parameters_reject_values_that_cannot_be_encoded(
+    params: dict[str, str],
+) -> None:
+    with pytest.raises(ValueError, match="cannot be encoded"):
+        sf.Model("provider/model", params=params)
+
+    with pytest.raises(ValueError, match="cannot be encoded"):
+        sf.Fusion(
+            [sf.Model("provider/a"), sf.Model("provider/b")],
+            synthesizer="provider/synth",
+            params=params,
+        )
+
+
 def test_fusion_keeps_members_in_order_and_infers_a_name() -> None:
     opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
     gpt = sf.Model("openrouter/openai/gpt-5.5")

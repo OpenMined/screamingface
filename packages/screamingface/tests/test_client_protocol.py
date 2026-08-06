@@ -249,6 +249,44 @@ async def test_async_sequence_gap_reattaches_from_the_first_missing_event() -> N
     ]
 
 
+def test_silent_event_stream_times_out_and_stops_the_paid_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "screamingface._engine.transport._EVENT_RECEIVE_TIMEOUT_SECONDS",
+        0.1,
+    )
+    with protocol_server(mode="stop") as engine:
+        with pytest.raises(sf.ExecutionError) as caught:
+            _run(engine.url)
+
+    assert caught.value.code == "event_stream_timeout"
+    assert caught.value.permanent is False
+    assert [event["type"] for event in engine.state.inbound_events] == [
+        "ai.url4.attach",
+        "ai.url4.stop",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_async_silent_event_stream_has_the_same_bounded_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "screamingface._engine.transport._EVENT_RECEIVE_TIMEOUT_SECONDS",
+        0.1,
+    )
+    with protocol_server(mode="stop") as engine:
+        with pytest.raises(sf.ExecutionError) as caught:
+            await _arun(engine.url)
+
+    assert caught.value.code == "event_stream_timeout"
+    assert [event["type"] for event in engine.state.inbound_events] == [
+        "ai.url4.attach",
+        "ai.url4.stop",
+    ]
+
+
 def test_disconnect_before_terminal_state_is_an_execution_error() -> None:
     with protocol_server(mode="disconnect") as engine:
         with pytest.raises(sf.ExecutionError, match="disconnected") as caught:
@@ -359,6 +397,15 @@ def test_heartbeat_is_consumed_as_internal_liveness() -> None:
     with protocol_server(mode="heartbeat") as engine:
         _run(engine.url, lambda event: seen.append(event.kind))
 
+    assert seen == ["started", "usage", "terminated"]
+
+
+def test_advisory_error_is_consumed_without_terminating_the_run() -> None:
+    seen: list[str] = []
+    with protocol_server(mode="advisory_error") as engine:
+        outcome = _run(engine.url, lambda event: seen.append(event.kind))
+
+    assert outcome.result_body == "[test] done"
     assert seen == ["started", "usage", "terminated"]
 
 

@@ -463,6 +463,60 @@ def test_discovery_and_transfer_network_failures_are_typed() -> None:
     auth.close()
 
 
+def test_access_discovery_and_close_are_one_atomic_auth_operation() -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    completed: list[bool] = []
+
+    def blocking_discovery(request: httpx.Request) -> httpx.Response:
+        assert request.method == "HEAD"
+        entered.set()
+        assert release.wait(1)
+        return httpx.Response(200)
+
+    auth = _CloudflareAccessAuth(
+        _ENGINE,
+        access_transport=httpx.MockTransport(blocking_discovery),
+        browser_presenter=lambda url: None,
+    )
+    discovery = threading.Thread(target=lambda: completed.append(auth.access_required()))
+    closing = threading.Thread(target=auth.close)
+    discovery.start()
+    assert entered.wait(1)
+    closing.start()
+    time.sleep(0.01)
+    assert closing.is_alive()
+    release.set()
+    discovery.join(1)
+    closing.join(1)
+
+    assert completed == [False]
+    assert not discovery.is_alive()
+    assert not closing.is_alive()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_auth_worker_preserves_cleanup_failure_as_a_note() -> None:
+    auth = _AccessFixture().auth()
+    started = threading.Event()
+    release = threading.Event()
+
+    def fail_during_cleanup() -> None:
+        started.set()
+        assert release.wait(1)
+        raise RuntimeError("private cleanup detail")
+
+    task = asyncio.create_task(auth._cancellable_thread_call(fail_during_cleanup))
+    assert await asyncio.to_thread(started.wait, 1)
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError) as caught:
+        await task
+
+    assert caught.value.__notes__ == ["Background authentication cleanup raised RuntimeError"]
+    auth.close()
+
+
 def test_transfer_read_timeout_is_retried_within_the_login_deadline() -> None:
     fixture = _AccessFixture()
     transfer_attempts = 0

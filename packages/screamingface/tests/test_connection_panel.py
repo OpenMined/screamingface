@@ -195,6 +195,24 @@ def test_panel_displays_safe_inline_errors_and_always_clears_the_password() -> N
     client.close()
 
 
+def test_panel_displays_a_closed_client_error_instead_of_looking_saved() -> None:
+    engine = Engine()
+    client = _client(engine)
+    root = client.connect().widget()
+    _button(root, "Connect").click()
+    _button(root, "API key").click()
+    password = _password(root)
+    password.value = SECRET
+    client.close()
+
+    _button(root, "Save").click()
+
+    assert password.value == ""
+    assert "Client is closed" in _text(root)
+    assert engine.connected is False
+    root.close()
+
+
 def test_local_panel_renders_engine_unavailability_inline() -> None:
     def unreachable(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("private socket detail", request=request)

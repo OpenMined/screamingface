@@ -46,18 +46,35 @@ def params(value: object | None, label: str) -> GenerationParams:
         raise TypeError(f"{label} must be a mapping or None")
     selected: dict[str, GenerationScalar] = {}
     for name, item in value.items():
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError(f"{label} names must be non-empty strings")
-        if name in _EXECUTION_OWNED_PARAMS:
-            raise ValueError(
-                f"{label} parameter {name!r} is reserved for Benchmark and Engine execution"
-            )
-        if not isinstance(item, str | int | float | bool):
-            raise TypeError(f"{label} value {name!r} must be a scalar")
-        if isinstance(item, float) and not math.isfinite(item):
-            raise ValueError(f"{label} value {name!r} must be finite")
-        selected[name] = item
+        selected_name = _parameter_name(name, label)
+        selected[selected_name] = _parameter_value(selected_name, item, label)
     return MappingProxyType(selected)
+
+
+def _parameter_name(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} names must be non-empty strings")
+    if not value.isascii() or not all(
+        character.isalnum() or character in "._" for character in value
+    ):
+        raise ValueError(f"{label} parameter {value!r} cannot be encoded")
+    if value in _EXECUTION_OWNED_PARAMS:
+        raise ValueError(
+            f"{label} parameter {value!r} is reserved for Benchmark and Engine execution"
+        )
+    return value
+
+
+def _parameter_value(name: str, value: object, label: str) -> GenerationScalar:
+    if not isinstance(value, str | int | float | bool):
+        raise TypeError(f"{label} value {name!r} must be a scalar")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{label} value {name!r} must be finite")
+    if isinstance(value, str) and any(
+        character in "';(),&" or ord(character) < 32 or ord(character) == 127 for character in value
+    ):
+        raise ValueError(f"{label} value {name!r} cannot be encoded")
+    return value
 
 
 __all__: list[str] = []

@@ -122,19 +122,14 @@ jobs:
           push: true
           build-args: |
             BASE=${{ env.BASE }}:${{ needs.verify.outputs.version }}
-          tags: |
-            ${{ env.REPO }}:${{ needs.verify.outputs.version }}
-            ${{ env.REPO }}:latest
+          tags: ${{ env.REPO }}:${{ needs.verify.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.verify.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
   chart:
-    # NOTE: the chart is LINTED only. OCI Helm publishing is DEFERRED until the NATS dependency in
-    # apps/url4-cloud/deploy/helm/Chart.yaml is pinned + vendored — it is a placeholder today
-    # (Chart.yaml: "confirm before enabling"), so `helm template`/`helm package` fail with
-    # "found in Chart.yaml, but missing in charts/ directory: nats". Follow-up: OME-567.
+    # NOTE: the chart is linted but not published to OCI yet. Follow-up: OME-567.
     needs: verify
     runs-on: ubuntu-latest
     steps:
@@ -156,15 +151,16 @@ jobs:
           name: ScreamingFace url4-cloud ${{ needs.verify.outputs.version }}
           draft: true
           body: |
-            Container image (one artifact, two modes — `url4-cloud serve` and `url4-cloud run`;
-            the separate runner image is merged in as of this release):
+            Control-plane image (`url4-cloud serve`):
             ```
             docker pull ghcr.io/openmined/screamingface-url4-cloud:${{ needs.verify.outputs.version }}
             ```
 
-            Benchmark image — the same engine plus DRACO's dataset and its private rubrics. Point
-            Runner Jobs at it with `runner.image.repository`; the control plane must keep running
-            the image above, so a rubric never reaches the pod that terminates client connections:
+            Benchmark image — the same engine plus the benchmark datasets and private rubrics.
+            The chart selects this derived `-benchmark` repository for Runner Jobs by default;
+            override `runner.image.repository` only if your mirror uses another name. The control
+            plane must keep running the image above, so a rubric never reaches the pod that
+            terminates client connections:
             ```
             docker pull ghcr.io/openmined/screamingface-url4-cloud-benchmark:${{ needs.verify.outputs.version }}
             ```

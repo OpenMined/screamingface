@@ -11,12 +11,17 @@ from url4_cloud.benchmarks.definition import Benchmark, candidate
 
 BENCHMARK_ID = "ifeval"
 CASE_COUNT = 541
+INSTRUCTION_COUNT = 834
 DATASET = "google/IFEval"
 DATASET_REVISION = "966cd89545d6b6acfd7638bc708b98261ca58e84"
+DATASET_PREPARER_REVISION = "datasets-5.0.0"
+DATASET_PATCH_REVISION = "official-key-2785-placeholder-count-v1"
 # The pip-installable, bug-fixed fork that inspect_evals pins — vendored under ./vendor.
 VERIFIER_REPOSITORY = "josejg/instruction_following_eval"
 VERIFIER_REVISION = "0c495b2f95155e8b10acb919ae283bfb4d5be6e2"
-PROTOCOL_REVISION = "ifeval-case-evaluation-v1"
+OFFICIAL_EVALUATOR_REPOSITORY = "google-research/google-research"
+OFFICIAL_EVALUATOR_REVISION = "e6890f85757dd84e27ca6df2dd30651dafad28e0"
+PROTOCOL_REVISION = "canonical-v1"
 CANDIDATE_WEB_SEARCH = False
 
 # The verifier code is the grading contract, so changing it changes the Benchmark revision.
@@ -25,8 +30,12 @@ REVISION = hashlib.sha256(
         (
             DATASET,
             DATASET_REVISION,
+            DATASET_PREPARER_REVISION,
+            DATASET_PATCH_REVISION,
             VERIFIER_REPOSITORY,
             VERIFIER_REVISION,
+            OFFICIAL_EVALUATOR_REPOSITORY,
+            OFFICIAL_EVALUATOR_REVISION,
             PROTOCOL_REVISION,
             f"candidate_web_search={CANDIDATE_WEB_SEARCH}",
         )
@@ -101,9 +110,11 @@ IFEVAL = Benchmark(
     variant="canonical",
     title="IFEval",
     description=(
-        "The canonical 541-prompt instruction-following benchmark "
+        "The 541-prompt IFEval instruction-following benchmark, preserving official Case keys "
+        "and the official key-2785 prompt, "
         "(https://arxiv.org/abs/2311.07911), graded by deterministic strict and loose "
-        "verification. Each Case invokes the Candidate exactly once."
+        "verification from a pinned bug-fixed checker fork. Each Case invokes the Candidate "
+        "exactly once."
     ),
     revision=REVISION,
     case_count=CASE_COUNT,

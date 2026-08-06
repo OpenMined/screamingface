@@ -10,8 +10,11 @@ import pytest
 from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
-    aggregate,
+    load_cases,
     load_specs,
+)
+from url4_cloud.benchmarks.ifeval.aggregate import (
+    aggregate as _aggregate,
 )
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
@@ -36,6 +39,19 @@ _SPECS = {
         "kwargs": [{}],
     },
 }
+
+
+def _selected_cases(specs: dict[int, dict[str, object]]) -> list[dict[str, object]]:
+    return [{"id": case_id, "input": spec["prompt"]} for case_id, spec in specs.items()]
+
+
+def aggregate(payload: str, specs: dict[int, dict[str, object]], benchmark_id: str):
+    return _aggregate(
+        payload,
+        specs,
+        benchmark_id,
+        selected_cases=_selected_cases(specs),
+    )
 
 
 def _record(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, object]:
@@ -208,3 +224,16 @@ def test_load_specs_reads_case_keyed_files(tmp_path: Path) -> None:
     specs = load_specs(directory)
 
     assert specs[1]["instruction_id_list"] == _SPECS[1]["instruction_id_list"]
+
+
+def test_load_cases_preserves_dataset_order_instead_of_sorting_official_ids(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "cases.json"
+    expected = [
+        {"id": 1000, "input": "First official Case"},
+        {"id": 102, "input": "Second official Case"},
+    ]
+    path.write_text(json.dumps(expected), encoding="utf-8")
+
+    assert load_cases(path) == expected

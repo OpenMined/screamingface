@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from url4 import RelExpr, Text, expr, render, src
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import ASSETS_ENV, BENCHMARKS, install_benchmarks
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
@@ -30,6 +31,8 @@ from url4_cloud.benchmarks.draco.definition import (
     LITE_CASE_IDS,
     LITE_CASES_ROUTE,
     LITE_CRITERION_COUNT,
+    LITE_CRITERION_SELECTION,
+    LITE_TASKS_ROUTE,
 )
 from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from url4_cloud.rest.benchmarks import router
@@ -75,6 +78,8 @@ def test_lite_is_a_separate_noncanonical_benchmark() -> None:
     assert DRACO_LITE.case_ids == _EXPECTED_IDS == LITE_CASE_IDS
     assert DRACO_LITE.revision not in {DRACO.revision, DRACO_SMOKE.revision}
     assert "not comparable" in DRACO_LITE.description.lower()
+    assert LITE_CRITERION_SELECTION == "axis-balanced"
+    assert "axis-balanced" in DRACO_LITE.description.lower()
 
 
 def test_lite_caps_criteria_and_reduces_judge_repetition() -> None:
@@ -111,6 +116,69 @@ async def test_lite_private_cases_expose_the_ordered_pinned_subset(tmp_path: Pat
     cases = json.loads(await node.fetch(LITE_CASES_ROUTE, relative=True))
 
     assert [case["id"] for case in cases] == list(_EXPECTED_IDS)
+
+
+@pytest.mark.asyncio
+async def test_lite_task_route_selects_criteria_across_axes(tmp_path: Path) -> None:
+    root = tmp_path / "draco"
+    _assets(root)
+    rubric = {
+        "sections": [
+            {
+                "id": axis,
+                "criteria": [
+                    {"id": f"{axis}{index}", "requirement": "Correct", "weight": 1}
+                    for index in range(1, 4)
+                ],
+            }
+            for axis in ("a", "b", "c", "d")
+        ]
+    }
+    criteria = [
+        {
+            "id": criterion["id"],
+            "requirement": criterion["requirement"],
+            "criterion_type": "positive",
+        }
+        for section in rubric["sections"]
+        for criterion in section["criteria"]
+    ]
+    (root / "rubrics" / "2.json").write_text(json.dumps(rubric), encoding="utf-8")
+    (root / "criteria" / "2.json").write_text(json.dumps(criteria), encoding="utf-8")
+    node = Url4Node("test")
+    install_benchmarks(node, tmp_path)
+
+    expression = expr(
+        src(
+            Text(encode_candidate_invocation("Answer", "stop")),
+            name="candidate_result",
+            weight=0.0,
+        ),
+        src(
+            RelExpr(
+                path=LITE_TASKS_ROUTE,
+                context="$candidate_result",
+                intent=Text("2"),
+            ),
+            name="criteria",
+            weight=0.0,
+        ),
+        intent=Text("$criteria"),
+    )
+    result = json.loads((await node.evaluate(render(expression))).text)
+
+    assert [criterion["criterion_id"] for criterion in result] == [
+        "a1",
+        "b1",
+        "c1",
+        "d1",
+        "a2",
+        "b2",
+        "c2",
+        "d2",
+        "a3",
+        "b3",
+    ]
 
 
 @pytest.mark.asyncio

@@ -268,7 +268,9 @@ class Report:
 
     @property
     def ok(self) -> bool:
-        return not self.failures
+        return not self.failures and all(
+            candidate.score is not None for candidate in self.candidates
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {

@@ -19,12 +19,14 @@ LITE_BENCHMARK_ID = "draco/lite"
 LITE_CASE_IDS = (2, 15)
 LITE_CASE_COUNT = len(LITE_CASE_IDS)
 LITE_CRITERION_COUNT = 10
+LITE_CRITERION_SELECTION = "axis-balanced"
 SMOKE_BENCHMARK_ID = "draco/smoke"
 SMOKE_CASE_COUNT = 1
 DATASET = "perplexity-ai/draco"
 DATASET_REVISION = "ce076749809027649ebd331bcb70f42bf720d387"
+DATASET_PREPARER_REVISION = "datasets-5.0.0"
 PROTOCOL_REVISION = "official-five-pass-v1"
-LITE_PROTOCOL_REVISION = "directional-lite-v2"
+LITE_PROTOCOL_REVISION = "balanced-lite-v1"
 SMOKE_PROTOCOL_REVISION = "structural-smoke-v1"
 # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09. Google designated
 # Gemini-3.1-Pro Preview as its replacement; the retired API id now resolves to this newer model.
@@ -58,6 +60,7 @@ REVISION = hashlib.sha256(
         (
             DATASET,
             DATASET_REVISION,
+            DATASET_PREPARER_REVISION,
             PROTOCOL_REVISION,
             RETRIEVAL_POLICY_ID,
             repr(EXCLUDED_DOMAINS),
@@ -75,6 +78,7 @@ LITE_REVISION = hashlib.sha256(
             LITE_PROTOCOL_REVISION,
             repr(LITE_CASE_IDS),
             str(LITE_CRITERION_COUNT),
+            LITE_CRITERION_SELECTION,
             str(LITE_JUDGE_PASSES),
         )
     ).encode()
@@ -299,8 +303,8 @@ DRACO_LITE = Benchmark(
     variant="lite",
     title="DRACO Lite",
     description=(
-        "A two-Case directional preview using ten criteria per Case and one Judge pass per "
-        "criterion. Its score is not comparable to canonical DRACO."
+        "A two-Case directional preview using an axis-balanced selection of ten criteria per "
+        "Case and one Judge pass per criterion. Its score is not comparable to canonical DRACO."
     ),
     revision=LITE_REVISION,
     case_count=LITE_CASE_COUNT,

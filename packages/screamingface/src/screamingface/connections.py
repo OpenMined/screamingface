@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -21,6 +22,18 @@ type ConnectionStatus = Literal[
 
 _METHODS = frozenset({"api_key", "oauth"})
 _STATUSES = frozenset({"not_connected", "pending", "connected", "needs_reauth", "error"})
+_PROVIDER_ID = re.compile(r"[a-z0-9][a-z0-9_-]*\Z", re.ASCII)
+
+
+def _provider_id(value: object) -> str:
+    """Return one canonical provider path segment or reject it before request construction."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("provider must be a non-empty string")
+    selected = value.strip()
+    if _PROVIDER_ID.fullmatch(selected) is None:
+        raise ValueError("provider must be a lowercase ASCII identifier")
+    return selected
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,8 +48,15 @@ class Connection:
     account_label: str | None
 
     def __post_init__(self) -> None:
-        if not self.provider.strip() or not self.display_name.strip():
+        if (
+            not isinstance(self.provider, str)
+            or not self.provider.strip()
+            or not isinstance(self.display_name, str)
+            or not self.display_name.strip()
+        ):
             raise ValueError("connection provider and display_name must be non-empty")
+        if _provider_id(self.provider) != self.provider:
+            raise ValueError("connection provider must be canonical")
         if not self.auth_methods or any(method not in _METHODS for method in self.auth_methods):
             raise ValueError("connection auth_methods contain an unsupported method")
         if self.status not in _STATUSES:
@@ -63,16 +83,25 @@ class OAuthFlow:
     )
     _expires_at: float = field(default=0.0, repr=False, compare=False)
 
-    def wait(self, *, poll_interval: float = 0.5) -> Connection:
+    def wait(
+        self,
+        *,
+        poll_interval: float = 0.5,
+        timeout: float | None = None,
+    ) -> Connection:
         """Block until authorization completes or the bounded flow expires."""
 
         interval = _poll_interval(poll_interval)
+        timeout_seconds = _wait_timeout(timeout)
         get = _required_callback(self._get)
-        while time.monotonic() <= self._expires_at:
+        deadline = _wait_deadline(self._expires_at, timeout_seconds)
+        while time.monotonic() <= deadline:
             connection = get()
             if connection.status != "pending":
                 return connection
-            time.sleep(interval)
+            time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
+        if timeout_seconds is not None and deadline < self._expires_at:
+            raise _wait_expired(self.provider)
         raise _expired(self.provider)
 
     def cancel(self) -> Connection:
@@ -107,16 +136,25 @@ class AsyncOAuthFlow:
     )
     _expires_at: float = field(default=0.0, repr=False, compare=False)
 
-    async def wait(self, *, poll_interval: float = 0.5) -> Connection:
+    async def wait(
+        self,
+        *,
+        poll_interval: float = 0.5,
+        timeout: float | None = None,
+    ) -> Connection:
         """Wait asynchronously until authorization completes or expires."""
 
         interval = _poll_interval(poll_interval)
+        timeout_seconds = _wait_timeout(timeout)
         get = _required_callback(self._get)
-        while time.monotonic() <= self._expires_at:
+        deadline = _wait_deadline(self._expires_at, timeout_seconds)
+        while time.monotonic() <= deadline:
             connection = await get()
             if connection.status != "pending":
                 return connection
-            await asyncio.sleep(interval)
+            await asyncio.sleep(min(interval, max(0.0, deadline - time.monotonic())))
+        if timeout_seconds is not None and deadline < self._expires_at:
+            raise _wait_expired(self.provider)
         raise _expired(self.provider)
 
     async def cancel(self) -> Connection:
@@ -139,6 +177,22 @@ def _poll_interval(value: float) -> float:
     return float(value)
 
 
+def _wait_timeout(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError("timeout must be a positive number or None")
+    if value <= 0:
+        raise ValueError("timeout must be a positive number or None")
+    return float(value)
+
+
+def _wait_deadline(expires_at: float, timeout: float | None) -> float:
+    if timeout is None:
+        return expires_at
+    return min(expires_at, time.monotonic() + timeout)
+
+
 def _required_callback[T](callback: T | None) -> T:
     if callback is None:
         raise ValueError("OAuth flow values are created by Client.connect(..., method='oauth')")
@@ -150,6 +204,15 @@ def _expired(provider: str) -> ProviderConnectionError:
         f"OAuth authorization for {provider!r} expired",
         provider=provider,
         code="oauth_authorization_expired",
+        permanent=False,
+    )
+
+
+def _wait_expired(provider: str) -> ProviderConnectionError:
+    return ProviderConnectionError(
+        f"Timed out waiting for OAuth authorization for {provider!r}",
+        provider=provider,
+        code="oauth_authorization_timeout",
         permanent=False,
     )
 

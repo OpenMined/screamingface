@@ -1,6 +1,6 @@
 # OME-712 URL4 runtime foundations — implementation and certification plan
 
-**Ticket:** OME-712  
+**Ticket:** OME-712
 **Spec:** `docs/spec/2026-08-04-OME-712-url4-runtime-foundations.md`
 
 ## Goal

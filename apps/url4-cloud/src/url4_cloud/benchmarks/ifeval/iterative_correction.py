@@ -4,7 +4,7 @@
   violations, the Candidate AUTHORS ITS OWN feedback and retries — the {solo + loop}
   ablation that Skurikhin et al., "Beyond Leaderboards: Tokenomics of Agentic Small
   Language Model Ensembles" (LANL, https://openreview.net/forum?id=XSIYfTm2h7), never ran.
-- verifying-ensemble (2..4 direct Model members): an OpenMined variant inspired by
+- verifying-ensemble (2..4 direct Model members): a ScreamingFace variant inspired by
   Skurikhin et al.'s ensemble. Every member draft is checked individually; the Candidate's
   SYNTHESIZER acts as JUDGE — it authors corrective feedback and tie-breaks among passers.
   The selection is a member's answer VERBATIM (deterministic select route), so the judge can
@@ -395,7 +395,7 @@ IFEVAL_VERIFYING_ENSEMBLE = Benchmark(
     variant="verifying-ensemble",
     title="IFEval Verifying Ensemble",
     description=(
-        "An OpenMined verifying-ensemble variant inspired by Skurikhin et al.: two to four "
+        "A ScreamingFace verifying-ensemble variant inspired by Skurikhin et al.: two to four "
         "direct Fusion members are checked and retried independently while the explicit "
         "Fusion synthesizer selects answers and authors corrective feedback. Selected answers "
         "remain verbatim, and all three attempts execute unconditionally."

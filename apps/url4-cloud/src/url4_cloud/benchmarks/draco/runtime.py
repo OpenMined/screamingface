@@ -10,6 +10,7 @@ from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.contract import decode_candidate_invocation
 from url4_cloud.benchmarks.draco import aggregate as scoring
 from url4_cloud.benchmarks.draco import records, tasks
+from url4_cloud.benchmarks.draco import scoring as rubric_scoring
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
@@ -29,6 +30,7 @@ from url4_cloud.benchmarks.draco.definition import (
     LITE_CASES_ROUTE,
     LITE_CRITERION_COUNT,
     LITE_CRITERION_EVALUATION_ROUTE,
+    LITE_CRITERION_SELECTION,
     LITE_JUDGE_PASSES,
     LITE_REVISION,
     LITE_TASKS_ROUTE,
@@ -70,6 +72,7 @@ def install(node: Url4Node, root: Path) -> None:
         benchmark_revision=REVISION,
         judge_passes=JUDGE_PASSES,
         criterion_count=None,
+        criterion_selection="all",
         case_ids=None,
     )
     _install_protocol(
@@ -85,6 +88,7 @@ def install(node: Url4Node, root: Path) -> None:
         benchmark_revision=LITE_REVISION,
         judge_passes=LITE_JUDGE_PASSES,
         criterion_count=LITE_CRITERION_COUNT,
+        criterion_selection=LITE_CRITERION_SELECTION,
         case_ids=LITE_CASE_IDS,
     )
     _install_protocol(
@@ -100,6 +104,7 @@ def install(node: Url4Node, root: Path) -> None:
         benchmark_revision=SMOKE_REVISION,
         judge_passes=SMOKE_JUDGE_PASSES,
         criterion_count=SMOKE_CRITERION_COUNT,
+        criterion_selection="prefix",
         case_ids=(1,),
     )
 
@@ -118,12 +123,17 @@ def _install_protocol(
     benchmark_revision: str,
     judge_passes: int,
     criterion_count: int | None,
+    criterion_selection: rubric_scoring.CriterionSelection,
     case_ids: tuple[int, ...] | None,
 ) -> None:
     """Register one DRACO multiplicity profile over the shared pinned assets."""
 
-    node.data(cases_route, _cases(root, case_ids), media_type="application/json")
-    node.endpoint(tasks_route)(_task_rows(root))
+    node.data(
+        cases_route,
+        _cases(root, case_ids, criterion_count, criterion_selection),
+        media_type="application/json",
+    )
+    node.endpoint(tasks_route)(_task_rows(root, criterion_count, criterion_selection))
     node.endpoint(verdict_route)(_criterion_verdict)
     node.endpoint(criterion_evaluation_route)(_criterion_evaluation(judge_passes))
     node.endpoint(case_evaluation_route)(_case_evaluation)
@@ -139,25 +149,80 @@ def _install_protocol(
     )
 
 
-def _cases(root: Path, case_ids: tuple[int, ...] | None):
+def _cases(
+    root: Path,
+    case_ids: tuple[int, ...] | None,
+    criterion_count: int | None,
+    criterion_selection: rubric_scoring.CriterionSelection,
+):
     def cases() -> str:
         raw = _read(root / "cases.json", "DRACO cases")
-        return json.dumps(_select_cases(raw, case_ids), ensure_ascii=False, separators=(",", ":"))
+        selected = _select_cases(raw, case_ids)
+        try:
+            _validate_protocol_assets(root, selected, criterion_count, criterion_selection)
+        except (OSError, ValueError) as exc:
+            raise _unavailable(str(exc)) from exc
+        return json.dumps(selected, ensure_ascii=False, separators=(",", ":"))
 
     return cases
 
 
-def _task_rows(root: Path):
+def _validate_protocol_assets(
+    root: Path,
+    cases: list[dict[str, object]],
+    criterion_count: int | None,
+    criterion_selection: rubric_scoring.CriterionSelection,
+) -> None:
+    rubrics = scoring.load_rubrics(root / "rubrics")
+    for case in cases:
+        case_id = tasks.positive_case_id(case.get("id"))
+        rubric = rubrics.get(case_id)
+        if rubric is None:
+            raise ValueError(f"Case {case_id} has no installed DRACO rubric")
+        rubric_ids = [str(criterion.get("id")) for criterion in scoring.flatten_criteria(rubric)]
+        criteria_ids = [
+            str(criterion.get("id"))
+            for criterion in tasks.load_criteria(root / "criteria", case_id)
+        ]
+        if criteria_ids != rubric_ids:
+            raise ValueError(
+                f"Case {case_id} criterion assets do not match its installed DRACO rubric"
+            )
+        if criterion_count is not None and criterion_count > len(rubric_ids):
+            raise ValueError(
+                f"criterion_count {criterion_count} exceeds Case {case_id} rubric size "
+                f"{len(rubric_ids)}"
+            )
+        rubric_scoring.select_criteria(rubric, criterion_count, criterion_selection)
+
+
+def _task_rows(
+    root: Path,
+    criterion_count: int | None,
+    criterion_selection: rubric_scoring.CriterionSelection,
+):
     def task_rows(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
             output, finish_reason = decode_candidate_invocation(request.context)
             raw_cases = _read(root / "cases.json", "DRACO cases")
+            criteria = tasks.load_criteria(root / "criteria", case_id)
+            rubric = _object(
+                _read(root / "rubrics" / f"{case_id}.json", f"DRACO Case {case_id} rubric"),
+                f"DRACO Case {case_id} rubric",
+            )
+            selected = rubric_scoring.select_criteria(
+                rubric,
+                criterion_count,
+                criterion_selection,
+            )
+            criteria_by_id = {str(criterion.get("id")): criterion for criterion in criteria}
+            selected_criteria = [criteria_by_id[str(criterion["id"])] for criterion in selected]
             result = tasks.build_tasks(
                 case_id,
                 tasks.load_question(root / "criteria", case_id),
                 output,
-                tasks.load_criteria(root / "criteria", case_id),
+                selected_criteria,
             )
             case_record = records.bind_case(
                 raw_cases,

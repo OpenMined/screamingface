@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -14,6 +15,9 @@ from screamingface import events
 from screamingface._core.ports import _RunOutcome
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
+
+_LOG = logging.getLogger(__name__)
+_MAX_CONSECUTIVE_REPLAY_REQUESTS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,14 +40,13 @@ class _RunState:
         self._root_usage: AccountingUsage | None = None
         self._last_sequence = 0
         self._event_ids: set[str] = set()
+        self._consecutive_replay_requests = 0
 
     def accept(self, raw: str | bytes) -> _Accepted:
         payload = _payload(raw)
         event_type = _text(payload, "type")
-        if event_type == "ai.url4.heartbeat":
-            _object(payload.get("data"), "heartbeat data")
-            self._observe_run(_common_envelope(payload)["run_id"])
-            return _Accepted()
+        if event_type in {"ai.url4.heartbeat", "ai.url4.error"}:
+            return self._accept_unsequenced(payload, event_type)
         sequence_result = self._accept_sequence(payload)
         if sequence_result is not None:
             return sequence_result
@@ -58,13 +61,24 @@ class _RunState:
             "ai.url4.cost.usage": self._usage,
             "ai.url4.result": self._result_event,
             "ai.url4.terminated": self._terminated,
-            "ai.url4.error": self._error,
         }
         try:
             handler = handlers[event_type]
         except KeyError:
             raise ExecutionError(f"unsupported SF Engine CloudEvent type {event_type!r}") from None
         return handler(envelope, data)
+
+    def _accept_unsequenced(
+        self,
+        payload: Mapping[str, object],
+        event_type: str,
+    ) -> _Accepted:
+        label = "heartbeat" if event_type == "ai.url4.heartbeat" else "ai.url4.error"
+        data = _object(payload.get("data"), f"{label} data")
+        self._observe_run(_common_envelope(payload)["run_id"])
+        if event_type == "ai.url4.error":
+            _advisory_error(data)
+        return _Accepted()
 
     def _accept_sequence(self, payload: Mapping[str, object]) -> _Accepted | None:
         sequence = _sequence(payload)
@@ -74,7 +88,15 @@ class _RunState:
         if event_id in self._event_ids:
             raise ExecutionError("SF Engine reused a CloudEvent event id at a new sequence")
         if sequence > self._last_sequence + 1:
+            self._consecutive_replay_requests += 1
+            if self._consecutive_replay_requests > _MAX_CONSECUTIVE_REPLAY_REQUESTS:
+                raise ExecutionError(
+                    "SF Engine repeatedly failed to replay a missing Run event",
+                    code="event_stream_replay_exhausted",
+                    permanent=False,
+                )
             return _Accepted(replay_from=self._last_sequence + 1)
+        self._consecutive_replay_requests = 0
         self._event_ids.add(event_id)
         self._last_sequence = sequence
         return None
@@ -117,15 +139,6 @@ class _RunState:
         self._result = (body, media_type)
         return _Accepted()
 
-    def _error(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        del envelope
-        raise ExecutionError(
-            _text(data, "message"),
-            code=_text(data, "code"),
-            permanent=False,
-            details=data,
-        )
-
     def _terminated(
         self,
         envelope: dict[str, Any],
@@ -161,6 +174,12 @@ class _RunState:
                 root_usage=self._root_usage,
             ),
         )
+
+
+def _advisory_error(data: Mapping[str, object]) -> None:
+    _text(data, "code")
+    _text(data, "message")
+    _optional_text(data.get("ref_id"), "error ref_id")
 
 
 def _payload(raw: str | bytes) -> dict[str, object]:
@@ -279,7 +298,12 @@ def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage
         Decimal(),
     )
     if total != parts:
-        raise ExecutionError("SF Engine cost total_usd does not equal its parts")
+        _LOG.warning(
+            "SF Engine cost total_usd does not equal its parts; using total_usd "
+            "(total=%s, parts=%s)",
+            total,
+            parts,
+        )
     unpriced = pricing_version == "unpriced"
     accounting = AccountingUsage(
         input_tokens=_integer(usage.get("gen_ai.usage.input_tokens", 0), "input tokens"),

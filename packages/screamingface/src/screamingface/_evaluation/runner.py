@@ -116,7 +116,7 @@ def _sync_event_observer(
     def observe(event: Event) -> None:
         with lock:
             if builtin is not None:
-                builtin(event)
+                _observe_progress(builtin, event)
             if callback is not None:
                 callback(event)
 
@@ -137,13 +137,23 @@ def _async_event_observer(
     async def observe(event: Event) -> None:
         async with lock:
             if builtin is not None:
-                builtin(event)
+                _observe_progress(builtin, event)
             if callback is not None:
                 returned = callback(event)
                 if inspect.isawaitable(returned):
                     await returned
 
     return observe
+
+
+def _observe_progress(observer: Callable[[Event], None], event: Event) -> None:
+    """Keep decorative progress output outside the Evaluation failure boundary."""
+
+    try:
+        observer(event)
+    except Exception:
+        # Closed pipes and notebook streams must not cancel paid Engine work.
+        pass
 
 
 def _run_candidates_sync(

@@ -6,6 +6,7 @@ import os
 import sqlite3
 import uuid
 from collections.abc import Callable, Generator
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -87,7 +88,7 @@ class CredentialBlobProbe:
         return None if raw is None else _test_decrypt(raw)
 
     def read_raw(self, service: str, account: str) -> str | None:
-        with sqlite3.connect(self._db_path) as conn:
+        with closing(sqlite3.connect(self._db_path)) as conn:
             row = conn.execute(
                 "select value from credential_blobs where service = ? and account = ?",
                 (service, account),
@@ -95,7 +96,7 @@ class CredentialBlobProbe:
         return row[0] if row is not None else None
 
     def read_ciphertext_version(self, service: str, account: str) -> str | None:
-        with sqlite3.connect(self._db_path) as conn:
+        with closing(sqlite3.connect(self._db_path)) as conn:
             row = conn.execute(
                 "select ciphertext_version from credential_blobs where service = ? and account = ?",
                 (service, account),
@@ -109,7 +110,7 @@ class CredentialBlobProbe:
     def write_raw(
         self, service: str, account: str, value: str, ciphertext_version: str | None = None
     ) -> None:
-        with sqlite3.connect(self._db_path) as conn:
+        with closing(sqlite3.connect(self._db_path)) as conn, conn:
             conn.execute(
                 """
                 insert into credential_blobs
@@ -124,7 +125,7 @@ class CredentialBlobProbe:
             )
 
     def delete(self, service: str, account: str) -> None:
-        with sqlite3.connect(self._db_path) as conn:
+        with closing(sqlite3.connect(self._db_path)) as conn, conn:
             conn.execute(
                 "delete from credential_blobs where service = ? and account = ?",
                 (service, account),

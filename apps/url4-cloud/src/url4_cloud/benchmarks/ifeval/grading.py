@@ -11,8 +11,16 @@ the exam. A different reading is a different benchmark.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class CaseVerification:
+    strict: tuple[bool, ...]
+    loose: tuple[bool, ...]
+    descriptions: tuple[str, ...]
 
 
 def configure_nltk(data_dir: Path) -> None:
@@ -39,77 +47,60 @@ def check_case(
 ) -> dict[str, list[bool]]:
     """Check one response against its case's constraints, strict and loose."""
 
+    verified = verify_case(
+        instruction_id_list=instruction_id_list,
+        kwargs_list=kwargs_list,
+        prompt=prompt,
+        response=response,
+    )
+    return {"strict": list(verified.strict), "loose": list(verified.loose)}
+
+
+def verify_case(
+    *,
+    instruction_id_list: Sequence[str],
+    kwargs_list: Sequence[Mapping[str, Any]],
+    prompt: str,
+    response: str,
+) -> CaseVerification:
+    """Return verdicts and the exact descriptions instantiated for the strict pass."""
+
     if len(instruction_id_list) != len(kwargs_list):
         raise ValueError(
             "instruction_id_list and kwargs must be positionally parallel — "
             f"got {len(instruction_id_list)} instructions and {len(kwargs_list)} kwargs"
         )
     loose_responses = _loose_variants(response)
-    strict: list[bool] = []
-    loose: list[bool] = []
-    for instruction_id, kwargs in zip(instruction_id_list, kwargs_list, strict=True):
-        strict.append(_follows(instruction_id, kwargs, prompt, [response]))
-        loose.append(_follows(instruction_id, kwargs, prompt, loose_responses))
-    return {"strict": strict, "loose": loose}
+    # The official evaluator completes the strict pass over every instruction before it
+    # starts the loose pass. That ordering matters for the benchmark's one randomized upstream
+    # checker, so do not interleave strict/loose checks per instruction.
+    pairs = tuple(zip(instruction_id_list, kwargs_list, strict=True))
+    strict_results = [
+        _follows(instruction_id, kwargs, prompt, [response]) for instruction_id, kwargs in pairs
+    ]
+    loose = [
+        _follows(instruction_id, kwargs, prompt, loose_responses)[0]
+        for instruction_id, kwargs in pairs
+    ]
+    return CaseVerification(
+        strict=tuple(passed for passed, _description in strict_results),
+        loose=tuple(loose),
+        descriptions=tuple(description for _passed, description in strict_results),
+    )
 
 
-def describe_failures(
-    *,
-    instruction_id_list: Sequence[str],
-    kwargs_list: Sequence[Mapping[str, Any]],
-    prompt: str,
-    strict: Sequence[bool],
-) -> list[str]:
-    """The checker's own wording for every failed instruction — the retry's feedback.
+def failed_descriptions(verification: CaseVerification) -> list[str]:
+    """Return the exact strict-pass descriptions for failed instructions."""
 
-    WHY the verifier's own ``build_description`` text: the feedback a corrective
-    attempt sees must describe the constraint exactly as the checker enforces it —
-    a paraphrase could drift from what the exam actually grades.
-    """
-
-    if not (len(instruction_id_list) == len(kwargs_list) == len(strict)):
-        raise ValueError("instruction ids, kwargs and verdicts must be positionally parallel")
     return [
-        _describe(instruction_id, kwargs, prompt)
-        for instruction_id, kwargs, passed in zip(
-            instruction_id_list, kwargs_list, strict, strict=True
+        description
+        for description, passed in zip(
+            verification.descriptions,
+            verification.strict,
+            strict=True,
         )
         if not passed
     ]
-
-
-def describe_instructions(
-    *,
-    instruction_id_list: Sequence[str],
-    kwargs_list: Sequence[Mapping[str, Any]],
-    prompt: str,
-) -> list[str]:
-    """Return the official human-readable description of every checked constraint."""
-
-    if len(instruction_id_list) != len(kwargs_list):
-        raise ValueError("instruction ids and kwargs must be positionally parallel")
-    return [
-        _describe(instruction_id, kwargs, prompt)
-        for instruction_id, kwargs in zip(instruction_id_list, kwargs_list, strict=True)
-    ]
-
-
-def _describe(instruction_id: str, kwargs: Mapping[str, Any], prompt: str) -> str:
-    from url4_cloud.benchmarks.ifeval.vendor import instructions_registry
-
-    try:
-        instruction_cls = instructions_registry.INSTRUCTION_DICT[instruction_id]
-        instruction = instruction_cls(instruction_id)
-        description = instruction.build_description(**kwargs)
-        args = instruction.get_instruction_args()
-        if args and "prompt" in args:
-            description = instruction.build_description(prompt=prompt)
-        return str(description)
-    except Exception:  # noqa: BLE001
-        # Same crash-policy boundary as _follows: a describer bug must never take the
-        # whole check down. Keep the fallback generic because instruction identifiers
-        # are private grading material and must not enter Candidate context.
-        return "One instruction requirement was not satisfied."
 
 
 def _loose_variants(response: str) -> list[str]:
@@ -132,16 +123,25 @@ def _follows(
     kwargs: Mapping[str, Any],
     prompt: str,
     responses: Sequence[str],
-) -> bool:
+) -> tuple[bool, str]:
     from url4_cloud.benchmarks.ifeval.vendor import instructions_registry
 
     instruction_cls = instructions_registry.INSTRUCTION_DICT[instruction_id]
     instruction = instruction_cls(instruction_id)
-    instruction.build_description(**kwargs)
+    description = instruction.build_description(**kwargs)
     args = instruction.get_instruction_args()
     if args and "prompt" in args:
-        instruction.build_description(prompt=prompt)
-    return any(response.strip() and instruction.check_following(response) for response in responses)
+        description = instruction.build_description(prompt=prompt)
+    follows = any(
+        response.strip() and instruction.check_following(response) for response in responses
+    )
+    return follows, str(description)
 
 
-__all__ = ["check_case", "configure_nltk", "describe_failures", "describe_instructions"]
+__all__ = [
+    "CaseVerification",
+    "check_case",
+    "configure_nltk",
+    "failed_descriptions",
+    "verify_case",
+]

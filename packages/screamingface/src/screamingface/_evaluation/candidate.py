@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from url4 import Node, RelExpr, Text, expr, render, src
+from url4 import Node, RelExpr, RenderError, Text, expr, render, src
 
 from screamingface._evaluation.model import (
     _compiled_operation,
@@ -73,7 +73,15 @@ class _ResolvedRecipe:
 def compile_candidate(recipe: Recipe) -> _CompiledCandidate:
     """Compile a Candidate, retaining structural members when a Fusion is incomplete."""
 
-    return _CandidateCompiler().compile(recipe)
+    try:
+        return _CandidateCompiler().compile(recipe)
+    except RenderError as exc:
+        raise PlanningError(
+            "The SDK could not encode Candidate generation parameters for the SF Engine",
+            code="invalid_candidate_parameter",
+            permanent=True,
+            details={"reason": str(exc)},
+        ) from exc
 
 
 class _CandidateCompiler:

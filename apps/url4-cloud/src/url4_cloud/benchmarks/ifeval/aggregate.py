@@ -36,6 +36,8 @@ def aggregate(
     rows_json: str,
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
+    *,
+    selected_cases: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Reduce the row array into a `CandidateResult` — exactly one entry per row."""
 
@@ -43,7 +45,8 @@ def aggregate(
     case_results: list[dict[str, Any]] = []
     accepted: list[dict[str, Any]] = []
     recordless_cases: list[tuple[int, int]] = []
-    for index, (raw, case_id) in enumerate(zip(rows, _selected_case_ids(rows, specs), strict=True)):
+    case_ids = _selected_case_ids(rows, specs, selected_cases)
+    for index, (raw, case_id) in enumerate(zip(rows, case_ids, strict=True)):
         spec = specs[case_id]
         record = _first_valid_record(raw, case_id, spec)
         if record is None:
@@ -159,6 +162,8 @@ def aggregate_corrective(
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
     benchmark_revision: str,
+    *,
+    selected_cases: Sequence[Mapping[str, Any]],
     max_attempts: int = 3,
 ) -> dict[str, Any]:
     """Reduce corrective-chain rows — one scored entry per case, pass@attempt metrics.
@@ -172,14 +177,9 @@ def aggregate_corrective(
     case_results: list[dict[str, Any]] = []
     selected_records: list[dict[str, Any]] = []
     recordless_cases: list[tuple[int, int]] = []
-    for index, raw in enumerate(rows):
-        case_id = index + 1
-        spec = specs.get(case_id)
-        if spec is None:
-            raise AggregateError(
-                f"row {index} has no spec for case {case_id}; "
-                "the installed IFEval assets are incomplete"
-            )
+    case_ids = _selected_case_ids(rows, specs, selected_cases)
+    for index, (raw, case_id) in enumerate(zip(rows, case_ids, strict=True)):
+        spec = specs[case_id]
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
             recordless_cases.append((index, case_id))
@@ -344,15 +344,52 @@ def _rows(rows_json: str) -> list[Any]:
     return rows
 
 
-def _selected_case_ids(rows: Sequence[Any], specs: Mapping[int, Mapping[str, Any]]) -> list[int]:
-    """The prefix of installed Cases selected by the Benchmark's `limit` slice."""
+def load_cases(path: Path) -> list[dict[str, Any]]:
+    """Load the public Case sequence that the URL4 iteration consumes."""
 
-    case_ids = sorted(specs)
-    if len(rows) > len(case_ids):
+    try:
+        decoded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AggregateError(f"could not load IFEval Cases at {str(path)!r}: {exc}") from None
+    if not isinstance(decoded, list) or not decoded:
+        raise AggregateError("installed IFEval Cases must be a non-empty JSON array")
+    if not all(isinstance(case, dict) for case in decoded):
+        raise AggregateError("every installed IFEval Case must be an object")
+    return decoded
+
+
+def _selected_case_ids(
+    rows: Sequence[Any],
+    specs: Mapping[int, Mapping[str, Any]],
+    selected_cases: Sequence[Mapping[str, Any]],
+) -> list[int]:
+    """Bind reducer rows to the exact public Case prefix selected by URL4."""
+
+    if len(rows) > len(selected_cases):
         raise AggregateError(
-            f"reducer carried {len(rows)} rows but only {len(case_ids)} IFEval specs are installed"
+            f"reducer carried {len(rows)} rows but only {len(selected_cases)} IFEval Cases "
+            "are installed"
         )
-    return case_ids[: len(rows)]
+    case_ids: list[int] = []
+    for index, case in enumerate(selected_cases[: len(rows)]):
+        case_id = _as_int(case.get("id"))
+        prompt = case.get("input")
+        if case_id is None or case_id <= 0:
+            raise AggregateError(f"selected Case {index} has no positive integer id")
+        if case_id in case_ids:
+            raise AggregateError(f"selected Case id {case_id} is duplicated")
+        spec = specs.get(case_id)
+        if spec is None:
+            raise AggregateError(
+                f"selected Case {case_id} has no private instruction spec; "
+                "the installed IFEval assets are incomplete"
+            )
+        if not isinstance(prompt, str) or prompt != spec.get("prompt"):
+            raise AggregateError(
+                f"selected Case {case_id} does not match its private instruction spec"
+            )
+        case_ids.append(case_id)
+    return case_ids
 
 
 def _first_valid_record(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assert what the aigateway and aigateway-ui charts actually RENDER (OME-710).
+"""Assert what the aigateway, aigateway-ui, and url4-cloud charts actually render.
 
 WHY this exists rather than a `helm lint` step: `helm lint` reports "0 chart(s) failed" on a chart
 that cannot render at all — it reads the templates without executing them, so every `fail` guard
@@ -12,9 +12,9 @@ because grep cannot see that a namespaceSelector and a podSelector landed in two
 elements (ORed) rather than one (ANDed). That distinction is the entire security value of the
 policy, and it is invisible to text matching.
 
-WHY both charts in one script: the load-bearing properties are about the PAIR — the console must
-point at the gateway's Service, and the gateway must admit the console's Pod. Each half can be
-individually correct while the pair is broken, and neither chart's own test suite would notice.
+WHY these charts share one script: the console/gateway properties are about the pair, while the
+url4-cloud chart derives a private-rubric Runner image that must match its publishing lanes. Each
+side can be valid alone while the deployed combination is broken.
 
 Run:  python3 .github/scripts/verify_chart_wiring.py
 """
@@ -30,12 +30,14 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 GATEWAY_CHART = REPO / "apps/aigateway/charts/aigateway"
 CONSOLE_CHART = REPO / "apps/aigateway-ui/charts/aigateway-ui"
+URL4_CLOUD_CHART = REPO / "apps/url4-cloud/deploy/helm"
 
 # The release name this repo uses for the gateway everywhere (release-aigateway.yml renders with
 # it, and the console chart's `aigateway.serviceName` default is derived from it). The pair check
 # below is what keeps that default honest.
 GATEWAY_RELEASE = "aigw"
 CONSOLE_RELEASE = "aigw-ui"
+URL4_CLOUD_RELEASE = "url4-cloud"
 
 failures: list[str] = []
 checks = 0
@@ -81,6 +83,14 @@ def find(docs: list[dict], kind: str) -> dict:
         if doc.get("kind") == kind:
             return doc
     raise AssertionError(f"no {kind} in the rendered chart")
+
+
+def find_data_owner(docs: list[dict], key: str) -> dict:
+    """Find the single rendered object whose data contains ``key``."""
+    matches = [doc for doc in docs if key in doc.get("data", {})]
+    if len(matches) != 1:
+        raise AssertionError(f"expected one rendered object carrying {key!r}, found {len(matches)}")
+    return matches[0]
 
 
 def peer_names(policy: dict, direction: str) -> set[str]:
@@ -276,6 +286,28 @@ check(
     "the console's port IS the port the gateway's Service listens on",
 )
 
+print("\nurl4-cloud chart")
+url4_cloud = render(
+    URL4_CLOUD_CHART,
+    URL4_CLOUD_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+)
+url4_deployment = find(url4_cloud, "Deployment")
+url4_config = find_data_owner(url4_cloud, "URL4_CLOUD_RUNNER_IMAGE")
+url4_app_image = url4_deployment["spec"]["template"]["spec"]["containers"][0]["image"]
+url4_runner_image = url4_config["data"]["URL4_CLOUD_RUNNER_IMAGE"]
+url4_app_repository, url4_app_tag = url4_app_image.rsplit(":", 1)
+url4_runner_repository, url4_runner_tag = url4_runner_image.rsplit(":", 1)
+check(
+    url4_runner_repository == f"{url4_app_repository}-benchmark",
+    "derives the Runner repository from the rendered control-plane repository",
+)
+check(
+    url4_runner_tag == url4_app_tag,
+    "pins the rendered Runner and control-plane images to the same tag",
+)
+
 print("\nthe publishing lanes")
 # A chart naming an image nobody publishes is installable and permanently ImagePullBackOff, and
 # neither the chart nor the workflow can notice on its own — renaming either side is a silent
@@ -318,25 +350,69 @@ check(
 url4_dev_lane = yaml.safe_load(
     (REPO / ".github/workflows/dev-build-url4-cloud.yml").read_text()
 )
+url4_app_tags = {
+    tag.strip()
+    for tag in url4_dev_lane["jobs"]["image"]["steps"][-1]["with"]["tags"].split("\n")
+    if tag.strip()
+}
 benchmark_steps = url4_dev_lane["jobs"]["benchmark-image"]["steps"]
 benchmark_tags = {
     tag.strip()
     for tag in benchmark_steps[-1]["with"]["tags"].split("\n")
     if tag.strip()
 }
-acr_benchmark = "acropenmined.azurecr.io/screamingface-url4-cloud-benchmark"
+acr_app_tag = next(
+    tag
+    for tag in url4_app_tags
+    if tag.startswith("acropenmined.azurecr.io/") and "${{ github.sha }}" in tag
+)
+acr_app_repository = acr_app_tag.rsplit(":", 1)[0]
+url4_cloud_acr = render(
+    URL4_CLOUD_CHART,
+    URL4_CLOUD_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    "--set-string",
+    f"image.repository={acr_app_repository}",
+    "--set-string",
+    "image.tag=main-ci",
+)
+acr_runner_image = find_data_owner(url4_cloud_acr, "URL4_CLOUD_RUNNER_IMAGE")["data"][
+    "URL4_CLOUD_RUNNER_IMAGE"
+]
+acr_runner_repository = acr_runner_image.rsplit(":", 1)[0]
 check(
     {
-        f"{acr_benchmark}:main-${{{{ needs.image.outputs.short }}}}",
-        f"{acr_benchmark}:main-${{{{ github.sha }}}}",
+        f"{acr_runner_repository}:main-${{{{ needs.image.outputs.short }}}}",
+        f"{acr_runner_repository}:main-${{{{ github.sha }}}}",
     }
     <= benchmark_tags,
-    "the url4-cloud dev lane publishes the derived Benchmark image to ACR under both immutable tags",
+    "the URL4 dev lane publishes the chart-derived Runner repository to ACR under both immutable tags",
 )
 check(
     any(str(step.get("uses", "")).startswith("azure/login@") for step in benchmark_steps)
     and any("az acr login --name acropenmined" in str(step.get("run", "")) for step in benchmark_steps),
     "the url4-cloud Benchmark job authenticates to the ACR receiving its image",
+)
+
+url4_release_lane = yaml.safe_load(
+    (REPO / ".github/workflows/release-url4-cloud.yml").read_text()
+)
+release_benchmark_job = url4_release_lane["jobs"]["benchmark-image"]
+release_benchmark_repo = release_benchmark_job["env"]["REPO"]
+release_benchmark_tags = {
+    tag.strip().replace("${{ env.REPO }}", release_benchmark_repo)
+    for tag in release_benchmark_job["steps"][-1]["with"]["tags"].split("\n")
+    if tag.strip()
+}
+check(
+    {tag.rsplit(":", 1)[0] for tag in release_benchmark_tags} == {url4_runner_repository},
+    "the URL4 release lane publishes the Runner repository rendered by the chart",
+)
+check(
+    release_benchmark_tags
+    and not any(tag.endswith(":latest") for tag in release_benchmark_tags),
+    "the private-rubric Benchmark image is published only under immutable version tags",
 )
 
 # A shared GHA cache scope between images with disjoint layer sets (uv/Python vs node/Next.js) is

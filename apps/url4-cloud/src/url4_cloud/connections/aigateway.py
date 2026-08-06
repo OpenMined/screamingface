@@ -314,7 +314,9 @@ def _validate_row(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ConnectionBadResponse()
     required = {"id": str, "provider": str, "label": str, "status": str, "auth_type": str}
-    if any(not isinstance(value.get(name), expected) for name, expected in required.items()):
+    if any(
+        not isinstance(value.get(name), expected) for name, expected in required.items()
+    ) or not _is_uuid(value.get("id")):
         raise ConnectionBadResponse()
     return {
         "id": value["id"],

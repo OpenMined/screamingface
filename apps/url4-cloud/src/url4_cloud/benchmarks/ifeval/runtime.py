@@ -77,7 +77,7 @@ def _check(root: Path):
         try:
             case_id, attempt = _case_and_attempt(request.intent)
             answer, finish_reason = decode_candidate_invocation(request.context)
-            spec, result, violations = _verification(root, case_id, answer)
+            spec, verification, violations = _verification(root, case_id, answer)
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
         record = {
@@ -88,13 +88,9 @@ def _check(root: Path):
             "answer": answer,
             "finish_reason": finish_reason,
             "instruction_id_list": spec["instruction_id_list"],
-            "descriptions": grading.describe_instructions(
-                instruction_id_list=spec["instruction_id_list"],
-                kwargs_list=spec["kwargs"],
-                prompt=spec["prompt"],
-            ),
-            "strict": result["strict"],
-            "loose": result["loose"],
+            "descriptions": list(verification.descriptions),
+            "strict": list(verification.strict),
+            "loose": list(verification.loose),
             # Violations remain ordinary fields inside the exact Case Evaluation.
             "violations": violations,
         }
@@ -152,24 +148,19 @@ def _verification(
     root: Path,
     case_id: int,
     response: str,
-) -> tuple[dict[str, Any], dict[str, list[bool]], list[str]]:
+) -> tuple[dict[str, Any], grading.CaseVerification, list[str]]:
     spec = json.loads(
         _read(root / "instructions" / f"{case_id}.json", f"IFEval case {case_id} spec")
     )
     grading.configure_nltk(root / "nltk_data")
-    result = grading.check_case(
+    verification = grading.verify_case(
         instruction_id_list=spec["instruction_id_list"],
         kwargs_list=spec["kwargs"],
         prompt=spec["prompt"],
         response=response,
     )
-    violations = grading.describe_failures(
-        instruction_id_list=spec["instruction_id_list"],
-        kwargs_list=spec["kwargs"],
-        prompt=spec["prompt"],
-        strict=result["strict"],
-    )
-    return spec, result, violations
+    violations = grading.failed_descriptions(verification)
+    return spec, verification, violations
 
 
 def _aggregate(root: Path):
@@ -181,6 +172,7 @@ def _aggregate(root: Path):
                 request.context,
                 scoring.load_specs(root / "instructions"),
                 BENCHMARK_ID,
+                selected_cases=scoring.load_cases(root / "cases.json"),
             )
         except (OSError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
@@ -199,6 +191,7 @@ def _aggregate_corrective(root: Path, benchmark_id: str, benchmark_revision: str
                 scoring.load_specs(root / "instructions"),
                 benchmark_id,
                 benchmark_revision,
+                selected_cases=scoring.load_cases(root / "cases.json"),
                 max_attempts=MAX_ATTEMPTS,
             )
         except (OSError, ValueError) as exc:

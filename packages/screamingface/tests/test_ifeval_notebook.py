@@ -27,18 +27,25 @@ def test_required_ifeval_smoke_is_provider_stable_and_one_case() -> None:
         if "sf.evaluate(" in source and "if RUN_KIMI_RESEARCH:" not in source
     )
 
-    # INVARIANT: Run All exercises the four protocol shapes without depending on Kimi K3.
+    # INVARIANT: one explicit opt-in exercises all four protocol shapes without Kimi K3.
     assert len(required_evaluations) == 4
     assert all("limit=1" in source for source in required_evaluations)
     assert all("progress=True" in source for source in required_evaluations)
-    assert any('smoke_model,\n    benchmark="ifeval"' in source for source in required_evaluations)
-    assert any('smoke_fusion,\n    benchmark="ifeval"' in source for source in required_evaluations)
+    assert all("if RUN_EVALUATION" in source for source in required_evaluations)
     assert any(
-        'smoke_model,\n    benchmark="ifeval/self-corrective"' in source
+        "smoke_model," in source and 'benchmark="ifeval",' in source
         for source in required_evaluations
     )
     assert any(
-        'smoke_fusion,\n    benchmark="ifeval/verifying-ensemble"' in source
+        "smoke_fusion," in source and 'benchmark="ifeval",' in source
+        for source in required_evaluations
+    )
+    assert any(
+        "smoke_model," in source and 'benchmark="ifeval/self-corrective",' in source
+        for source in required_evaluations
+    )
+    assert any(
+        "smoke_fusion," in source and 'benchmark="ifeval/verifying-ensemble",' in source
         for source in required_evaluations
     )
     assert all("kimi" not in source.lower() for source in required_evaluations)

@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import json
 
-from url4_cloud.benchmarks.ifeval.aggregate import SCHEMA, aggregate, aggregate_corrective
+from url4_cloud.benchmarks.ifeval.aggregate import (
+    SCHEMA,
+)
+from url4_cloud.benchmarks.ifeval.aggregate import (
+    aggregate as _aggregate,
+)
+from url4_cloud.benchmarks.ifeval.aggregate import (
+    aggregate_corrective as _aggregate_corrective,
+)
 from url4_cloud.benchmarks.ifeval.corrective_policy import (
     SELF_CORRECTIVE_ID,
     SELF_CORRECTIVE_REVISION,
@@ -17,6 +25,21 @@ _SPEC = {
         "kwargs": [{}],
     }
 }
+_CASES = [{"id": 1, "input": _SPEC[1]["prompt"]}]
+
+
+def aggregate(payload: str, specs, benchmark_id: str):
+    return _aggregate(payload, specs, benchmark_id, selected_cases=_CASES)
+
+
+def aggregate_corrective(payload: str, specs, benchmark_id: str, benchmark_revision: str):
+    return _aggregate_corrective(
+        payload,
+        specs,
+        benchmark_id,
+        benchmark_revision,
+        selected_cases=_CASES,
+    )
 
 
 def _valid_record() -> dict[str, object]:
