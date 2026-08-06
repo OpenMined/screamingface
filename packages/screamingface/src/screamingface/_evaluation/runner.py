@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
@@ -37,6 +38,7 @@ type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
 type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
+_logger = logging.getLogger(__name__)
 
 
 def evaluate_sync(
@@ -151,9 +153,13 @@ def _observe_progress(observer: Callable[[Event], None], event: Event) -> None:
 
     try:
         observer(event)
-    except Exception:
+    except (OSError, ValueError):
         # Closed pipes and notebook streams must not cancel paid Engine work.
-        pass
+        return
+    except Exception:
+        # Progress is decorative, so an unexpected renderer defect must not abort paid work.
+        # Log it rather than swallowing it: this path needs to remain diagnosable.
+        _logger.exception("ScreamingFace progress rendering failed")
 
 
 def _run_candidates_sync(

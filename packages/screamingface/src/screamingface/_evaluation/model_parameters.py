@@ -16,11 +16,11 @@ type _AsyncDetailsLoading = Callable[[str], Awaitable[ModelDetails]]
 
 
 def preflight_sync(candidates: Sequence[Candidate], load: _SyncDetailsLoading) -> None:
-    """Validate readiness and explicit parameters for every linked Model once."""
+    """Validate explicit parameters against each affected Model contract once."""
 
     assignments = _assignments(candidates)
-    for model in _models(candidates):
-        _validate_assignments(load(model), assignments.get(model, ()))
+    for model, selected in assignments.items():
+        _validate_assignments(load(model), selected)
 
 
 async def preflight_async(
@@ -30,18 +30,12 @@ async def preflight_async(
     """Asynchronous counterpart of :func:`preflight_sync`."""
 
     assignments = _assignments(candidates)
-    models = _models(candidates)
+    models = tuple(assignments)
     if not models:
         return
     details = await asyncio.gather(*(load(model) for model in models))
     for model, selected in zip(models, details, strict=True):
-        _validate_assignments(selected, assignments.get(model, ()))
-
-
-def _models(candidates: Sequence[Candidate]) -> tuple[str, ...]:
-    """Return linked Models in first-use order, excluding unused Candidate branches."""
-
-    return tuple(dict.fromkeys(model for candidate in candidates for model in candidate.models))
+        _validate_assignments(selected, assignments[model])
 
 
 def _assignments(candidates: Sequence[Candidate]) -> _Assignments:

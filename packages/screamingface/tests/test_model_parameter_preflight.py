@@ -173,7 +173,7 @@ def _engine(
     return httpx.MockTransport(handler)
 
 
-def test_parameter_free_evaluation_preflights_model_readiness() -> None:
+def test_parameter_free_evaluation_does_not_fetch_model_details() -> None:
     detail_models: list[str] = []
     transport = _ReachedTransport()
     client = sf.Client(
@@ -186,48 +186,7 @@ def test_parameter_free_evaluation_preflights_model_readiness() -> None:
         client.evaluate(sf.Model("provider/opus"), benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == ["provider/opus"]
-
-
-def test_parameter_free_evaluation_rejects_a_disconnected_provider_before_execution() -> None:
-    def disconnected(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/benchmarks/fixture":
-            response = httpx.Response(200, json=_BENCHMARK)
-        elif request.url.path == "/v1/models":
-            response = httpx.Response(
-                200,
-                json={"object": "list", "data": [_summary("codex/gpt-5.4")]},
-            )
-        elif request.url.path == "/v1/model-parameters":
-            response = httpx.Response(
-                404,
-                json={
-                    "detail": {
-                        "code": "profile_not_found",
-                        "provider": "codex",
-                        "name": "default",
-                    }
-                },
-            )
-        else:
-            response = httpx.Response(404)
-        return response
-
-    transport = _ForbiddenTransport()
-    client = sf.Client(
-        engine_url="https://engine.example",
-        http_transport=httpx.MockTransport(disconnected),
-        run_transport=transport,
-    )
-
-    with client, pytest.raises(sf.ProviderConnectionError) as caught:
-        client.evaluate(sf.Model("codex/gpt-5.4"), benchmark="fixture")
-
-    assert caught.value.message == "Codex profile 'default' is not connected"
-    assert caught.value.code == "profile_not_found"
-    assert caught.value.provider == "codex"
-    assert caught.value.hint == "Open `sf.connect()` and connect Codex, then retry."
-    assert transport.called is False
+    assert detail_models == []
 
 
 def test_valid_explicit_params_fetch_each_distinct_model_once() -> None:
@@ -250,7 +209,7 @@ def test_valid_explicit_params_fetch_each_distinct_model_once() -> None:
         client.evaluate(candidate, benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == ["provider/opus", "provider/synth"]
+    assert detail_models == ["provider/opus"]
 
 
 def test_deduplicated_operation_retains_an_explicit_default_override() -> None:
@@ -287,12 +246,7 @@ def test_deduplicated_operation_retains_an_explicit_default_override() -> None:
         client.evaluate(candidate, benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == [
-        "provider/opus",
-        "provider/other",
-        "provider/inner-synth",
-        "provider/outer-synth",
-    ]
+    assert detail_models == ["provider/opus"]
 
 
 def test_fusion_params_are_preflighted_against_its_synthesizer() -> None:
@@ -313,10 +267,10 @@ def test_fusion_params_are_preflighted_against_its_synthesizer() -> None:
         client.evaluate(candidate, benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == ["provider/opus", "provider/synth"]
+    assert detail_models == ["provider/synth"]
 
 
-def test_member_only_benchmark_checks_members_but_not_unused_synthesizer_params() -> None:
+def test_member_only_benchmark_does_not_fetch_unused_parameter_contracts() -> None:
     detail_models: list[str] = []
     transport = _ReachedTransport()
     candidate = sf.Fusion(
@@ -338,11 +292,11 @@ def test_member_only_benchmark_checks_members_but_not_unused_synthesizer_params(
         client.evaluate(candidate, benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == ["provider/opus", "provider/other"]
+    assert detail_models == []
 
 
 @pytest.mark.asyncio
-async def test_async_member_only_benchmark_checks_only_selected_models() -> None:
+async def test_async_member_only_benchmark_does_not_fetch_unused_parameter_contracts() -> None:
     detail_models: list[str] = []
     transport = _AsyncReachedTransport()
     candidate = sf.Fusion(
@@ -365,7 +319,7 @@ async def test_async_member_only_benchmark_checks_only_selected_models() -> None
     await client.aclose()
 
     assert transport.called is True
-    assert detail_models == ["provider/opus", "provider/other"]
+    assert detail_models == []
 
 
 def test_structural_synthesizer_is_preflighted_when_whole_fusion_is_incomplete() -> None:
