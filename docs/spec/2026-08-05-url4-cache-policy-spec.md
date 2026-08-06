@@ -2,7 +2,7 @@
 title: url4 per-run cache policy — technical specification
 status: PROPOSED — **all decisions LOCKED**. Awaiting approval to implement. No code written.
 created: 2026-08-05
-revised: 2026-08-05 (r7 — D3/D4/D6/D11 all LOCKED by owner; D11's upstream blockers stated)
+revised: 2026-08-06 (r8 — corrections found by the implementation's adversarial review)
 author: Claude (Opus 5) + Sergey
 ticket: UNFILED — Linear MCP unauthenticated at authoring time (see the ledger)
 related:
@@ -21,6 +21,7 @@ related:
 |---|---|---|
 | r1 | 2026-08-05 | First draft — located the change in url4-cloud's REST layer. |
 | r2 | 2026-08-05 | **Superseded r1's location.** Owner: protocol belongs in `packages/url4`; both HTTP header *and* protocol frame are carriers. Adds §3 D3/D4 and §5.2. |
+| **r8** | 2026-08-06 | **Corrections from the implementation review.** §4.1 said "exactly one field" while the type carries two (`participate`, `max_age`) — the plan superseded itself and the spec never caught up. §9.7 struck (unsatisfiable under v2). §9.10 restated as N/A. §5.2's "first attach wins" narrowed to what the code actually guarantees. |
 | **r7** | 2026-08-05 | **Owner locked the last four**: D3 extend `AttachData` · D4 header wins · D6 standard `Cache-Control` · D11 **honour `max-age`**. D11 carries two upstream blockers — §3.5. Spec is decision-complete. |
 | **r6** | 2026-08-05 | **Standards alignment.** Read-back prefers **`Cache-Status`** (RFC 9211) over the ad hoc `X-AIGW-Cache*`; **`Age`** (RFC 9111 §5.1) makes `max-age` honourable, so **D11 is reopened** (§3.5). Adds §2.2 with the registry evidence. |
 | **r5** | 2026-08-05 | **Rebased on aigateway v2** (`OME-305`, PR #507 — WIP, assumed landing). v2 is a **global, never-expiring, ON-by-default cache with a CLOSED one-field grammar**. This **revokes r4** (v2 rows never expire, so TTL knobs are v1's), **deletes the aigateway sub-issue** (#507 does the chart itself), and **collapses the protocol to a single opt-out signal** — §1.0. Security section rewritten: the cache is now shared across accounts. |
@@ -318,7 +319,7 @@ either blocker lifts, the change is a branch, not a redesign.
 
 ```python
 class CachePolicy(BaseModel):
-    """Per-run cache intent. ONE field, because aigateway v2's grammar is closed to one field.
+    """Per-run cache intent. TWO fields — one that reaches aigateway, one that never does.
 
     INVARIANT: url4 must never send a control key v2 does not understand. Under v2 an
     unrecognised key does not degrade to "ignored" — it makes the whole request BYPASS
@@ -326,7 +327,13 @@ class CachePolicy(BaseModel):
     WRONG reason and a well-meant `ttl` would silently lose caching altogether.
     """
     participate: bool | None = None   # None = "not stated" -> D1 default (participate)
+    max_age: int | None = None        # url4-INTERNAL. Never sent: v2's grammar would bypass on it.
 ```
+
+**`max_age` is url4-internal (r8).** It exists so a stated bound survives to the point where it
+could be honoured; it is never serialised into the `cache` object, because v2's closed grammar
+bypasses on any key but `use-cache`. `extra="forbid"` plus a test pinning
+`set(CachePolicy.model_fields) == {"participate", "max_age"}` keeps a third field from appearing.
 
 **Deliberately absent: `no_cache`, `no_store`, `s_maxage`.** r2 had all three. v2 retires them
 (`LEGACY_CONTROL_FIELDS`) and bypasses on them, so carrying them in the url4 protocol would model
@@ -402,8 +409,12 @@ docstring states malformed values parse as "not requested".
 {"type": "ai.url4.attach", "data": {"from_sequence": 1, "cache": {"participate": false}}}
 ```
 
-**First attach wins.** A re-attach (reconnect, or `from_sequence` resume) carrying a different
-policy does **not** restate it; the run's policy is fixed at run start. A differing re-attach
+**First attach wins, for the life of the subscription (r8).** A re-attach carrying a different
+policy does **not** restate it while a subscriber remains. Precise scope, per the implementation:
+the registry forgets the declaration when the **last** subscriber leaves, so a client that fully
+disconnects and reconnects before `GET /` can state a different policy — that is a new session,
+not a re-attach. No run in flight can change: the policy is captured into the job env at schedule
+time, and `_require_subscriber` gates run start. A differing re-attach
 emits a `LogEvent` at `warn`. Rationale: a run's aigateway calls may already have executed under
 the original policy, so a mid-run change would make the run's cache behaviour unreproducible.
 
@@ -519,10 +530,16 @@ credential.**
 4. Header and frame disagreeing → header applies, and a `LogEvent` records the override.
 5. A re-attach with a different policy does **not** change the run, and warns.
 6. A default run reports `miss` first, then `hit` on an identical immediate repeat.
-7. Two runs under different `X-Profile` never share an entry.
+7. ~~Two runs under different `X-Profile` never share an entry.~~ **STRUCK (r8)** — a v1 leftover
+   the r5 rebase missed. Under v2 identity is structurally absent from the key (§1.0), and url4
+   sends the profile as a request *header*, never in the body — so two runs differing only by
+   profile **do** share an entry. No url4-side code can satisfy this and none should try.
 8. A malformed directive is ignored; the run proceeds and is not 4xx'd.
 9. Cache status/reason appear on spans for every case above.
-10. A streaming turn reports `bypass` / `stream`, and no policy makes it cacheable.
+10. **N/A (r8)** — a streaming turn cannot reach this path. The connector only ever posts
+   transactional chat completions; there is no `stream` key in the body it builds. The criterion
+   was satisfied by absence rather than behaviour, so it is restated here instead of left as a
+   test someone will go looking for.
 
 ## 10. Open questions for the owner
 
