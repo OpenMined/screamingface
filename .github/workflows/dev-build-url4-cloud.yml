@@ -81,6 +81,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # INVARIANT: Helm derives the Runner repository from the control-plane repository, so the
+      # benchmark pair must be published to every registry the base job targets.
       - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}

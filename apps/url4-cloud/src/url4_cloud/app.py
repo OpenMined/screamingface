@@ -42,7 +42,7 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def create_app(
+def create_app(  # noqa: PLR0915 - this is the explicit application composition root
     settings: Settings | None = None,
     *,
     stream: EventConsumer | None = None,
@@ -63,7 +63,8 @@ def create_app(
     app.state.settings = settings
     app.state.stream = stream
     app.state.job_runner = job_runner
-    app.state.catalog, app.state.model_parameters = catalog, model_parameters
+    app.state.catalog = catalog
+    app.state.model_parameters = model_parameters
     app.state.connections = connections
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on

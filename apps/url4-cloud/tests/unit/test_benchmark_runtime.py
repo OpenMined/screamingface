@@ -254,3 +254,25 @@ async def test_aggregate_accepts_payload_larger_than_process_argv(tmp_path: Path
 
     assert result["score"] == 1.0
     assert result["case_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_aggregate_refuses_to_report_success_when_no_cases_scored(tmp_path: Path) -> None:
+    """INVARIANT: no Case result is an Evaluation failure, never a Candidate score of zero."""
+
+    _assets(tmp_path / "draco")
+    node = Url4Node("test")
+    install_benchmarks(node, tmp_path)
+    expression = render(
+        RelExpr(
+            path=AGGREGATE_ROUTE,
+            context="[]",
+            intent=Text("aggregate"),
+        )
+    )
+
+    with pytest.raises(ResolutionError, match="no DRACO rows") as caught:
+        await node.evaluate(expression)
+
+    assert caught.value.code == "benchmark_unavailable"
+    assert caught.value.permanent is True
