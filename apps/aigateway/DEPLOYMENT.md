@@ -26,15 +26,17 @@ docker buildx build \
 Import the local image into k3s containerd when you do not want to push a temporary tag:
 
 ```bash
+export K3S_SSH_TARGET='adminuser@k3s-host.example.com'
+
 docker save ghcr.io/openmined/screamingface-aigateway:sf186-local \
-  | ssh adminuser@40.76.107.241 \
+  | ssh "$K3S_SSH_TARGET" \
       "sudo k3s ctr -n k8s.io images import --platform linux/amd64 -"
 ```
 
 Verify it is available to pods:
 
 ```bash
-ssh adminuser@40.76.107.241 \
+ssh "$K3S_SSH_TARGET" \
   "sudo k3s ctr -n k8s.io images ls | grep screamingface-aigateway"
 ```
 
@@ -56,17 +58,21 @@ For production, replace this chart with managed Postgres or a Postgres operator.
 
 ## App Install
 
-Use a real HTTPS hostname in production. For a temporary k3s smoke test, `nip.io` can map a hostname to an IP without creating DNS records. For example, `aigateway.40.76.107.241.nip.io` resolves to `40.76.107.241` and works with Traefik host-based Ingress.
+Use a real HTTPS hostname in production. For a temporary k3s smoke test, set
+`AIGW_SMOKE_HOST` locally to a disposable DNS name that resolves to the server. A service such as
+`nip.io` can provide that mapping without committing a machine address to this runbook.
 
 ```bash
+export AIGW_SMOKE_HOST='aigateway.example.com'
+
 helm upgrade --install aigw apps/aigateway/charts/aigateway \
   --namespace aigw \
   --set image.tag=sf186-local \
   --set ingress.className=traefik \
-  --set "ingress.hosts[0].host=aigateway.40.76.107.241.nip.io" \
+  --set "ingress.hosts[0].host=${AIGW_SMOKE_HOST}" \
   --set "ingress.hosts[0].paths[0].path=/" \
   --set "ingress.hosts[0].paths[0].pathType=Prefix" \
-  --set publicUrl=http://aigateway.40.76.107.241.nip.io \
+  --set "publicUrl=http://${AIGW_SMOKE_HOST}" \
   --wait
 ```
 
@@ -96,8 +102,10 @@ helm upgrade --install aigw oci://ghcr.io/openmined/screamingface/charts/aigatew
 Run the Helm test and check public health:
 
 ```bash
+export AIGW_SMOKE_HOST='aigateway.example.com'
+
 helm test aigw --namespace aigw --timeout 3m
-curl -fsS http://aigateway.40.76.107.241.nip.io/healthz
+curl -fsS "http://${AIGW_SMOKE_HOST}/healthz"
 ```
 
 Check gateway login without printing the token:
@@ -109,7 +117,7 @@ ADMIN_PASSWORD=$(kubectl -n aigw get secret aigw-auth \
 STATUS=$(curl -fsS -o /tmp/aigw-login.json -w '%{http_code}' \
   -H 'content-type: application/json' \
   --data "{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" \
-  http://aigateway.40.76.107.241.nip.io/v1/auth/login)
+  "http://${AIGW_SMOKE_HOST}/v1/auth/login")
 
 python3 -c 'import json; print(bool(json.load(open("/tmp/aigw-login.json")).get("token")))'
 ```
