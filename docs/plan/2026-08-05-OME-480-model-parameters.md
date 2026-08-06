@@ -29,7 +29,7 @@ Branch `OME-480-engine-model-parameters`, stack `url4-cloud`, based directly on 
 ## Verification
 
 - Focused new test module while iterating; existing test files remain unchanged.
-- `python3 .claude/scripts/run_gates.py url4-cloud` from the repository root.
+- `uv run .claude/scripts/run_gates.py url4-cloud` from the repository root.
 - Final `origin/main...HEAD` scope and secret-leak review.
 
 No SDK, AI Gateway, URL4, Benchmark, cache-setting, or provider-policy change belongs here.

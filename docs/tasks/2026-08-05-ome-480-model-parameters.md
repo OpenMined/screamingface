@@ -4,7 +4,7 @@ linear_url: https://linear.app/openmined/issue/OME-480/the-sf-engine-should-expo
 status: in_progress
 type: feature
 priority:
-labels: [screamingface-engine, app/url4-cloud, autonomous, agentic]
+labels: [screamingface-engine, url4-cloud, autonomous, agentic]
 created: 2026-08-05
 closed:
 ---

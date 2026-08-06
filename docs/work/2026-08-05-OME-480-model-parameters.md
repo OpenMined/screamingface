@@ -43,7 +43,7 @@ No schema/model migration applies.
 
 ## Outcome
 
-- **Actual files:** six URL4 Cloud modules, one new focused test module, and this task's
+- **Actual files:** seven URL4 Cloud modules, one new focused test module, and this task's
   task/spec/plan/work artifacts. No runner, connector, Benchmark, AI Gateway, URL4, SDK, Helm, or
   dependency file changed.
 - **Behavior:** URL4 Cloud exposes uncached `GET /v1/model-parameters`, forwards the existing
@@ -53,9 +53,11 @@ No schema/model migration applies.
   skipped**, and **96.74%** coverage.
 - **Gates:** `uv run .claude/scripts/run_gates.py url4-cloud` — append-only, Ruff, formatting,
   Pyright, layering, and pytest/coverage all green.
-- **Commit:** `feat(url4-cloud): proxy model parameter contracts` (`Refs: OME-480`), based
-  directly on `origin/main`.
+- **Implementation commit:** `d9db1e6c` — `feat(url4-cloud): proxy model parameter contracts`
+  (`Refs: OME-480`), based directly on `origin/main`.
 - **Deviations:** `CachedCatalog` retains a reference to the detail source for composition rather
   than implementing `ModelParameterSource`; this keeps the cache boundary honest while preserving
-  one owned HTTP client and shutdown hook. Linear remains unchanged until the full stack is ready
-  for review, as requested.
+  one owned HTTP client and shutdown hook. `local.py` also wires that source into local mode; it
+  was omitted from Planned changes, but without it the production entrypoint would work while the
+  supported local composition returned `503`. Linear remains unchanged until the full stack is
+  ready for review, as requested.
