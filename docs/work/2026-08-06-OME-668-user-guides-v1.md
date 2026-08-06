@@ -1,9 +1,9 @@
 ---
 ticket: OME-668
 stack: repo
-status: in_progress
+status: done
 started: 2026-08-06
-finished:
+finished: 2026-08-06
 ---
 
 # OME-668 — User guides v1: connections, models, fusions, benchmarks, evaluation, URL4
@@ -78,7 +78,23 @@ is no RED→GREEN loop. Verification is the gates CI runs, plus live execution a
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
+- **Actual files:** 21 changed, +1751 / −163. More than planned: the navigation refactor and the
+  mobile navigation were added during the unit.
+  - six guide pages under `public-docs/src/pages/sf-client/guides/`
+  - `useDocNavigation.ts` (NavEntry union), `NavTree.vue` (new), `DocLayout.vue`,
+    `TheNavbar.vue`, both `navigation/` files, `router/index.ts`
+  - `components/nb/NbTextOut.vue` (new) and `nb/index.ts`
+  - `Index.vue`, `InstallationPage.vue`, `QuickstartPage.vue` — version prop; the Overview also
+    lost its "Where next" section
+  - `public-docs/CLAUDE.md`, plus this ledger and the `docs/tasks` mirror
 - **Commits:**
-- **Gates:**
-- **Deviations:**
+  - `0a4dab36` — feat(public-docs): model navigation as groups and links, add the User Guides tree
+  - `a7ed90ba` — feat(public-docs): six SF Client user guides against the live SDK
+  - `0c0161b3` — feat(public-docs): make the sidebar and product nav reachable on mobile
+- **Gates:** `oxlint` and `eslint` clean (run bare, as CI does) · `build` succeeds ·
+  `prettier --check` clean on every file this unit touched. `public-docs` has no test suite, so
+  there is no RED→GREEN loop.
+- **Deviations:** the navigation model was refactored (groups vs links) rather than patched;
+  mobile navigation was added — a drawer plus a navbar product switcher — which was not in the AC
+  and touches `TheNavbar`; the commit stamp renders once in the sidebar footer rather than at the
+  foot of each guide; the Overview's "Where next" section was removed as duplicating the sidebar.

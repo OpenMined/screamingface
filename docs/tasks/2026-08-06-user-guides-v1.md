@@ -2,12 +2,12 @@
 id: OME-668
 linear_url: https://linear.app/openmined/issue/OME-668
 parent: OME-666
-status: In Progress
+status: Done
 type: Task
 priority: P2
 labels: [repo, autonomous, agentic, task]
 created: 2026-08-06
-closed:
+closed: 2026-08-06
 ---
 
 # User guides v1 for connections, compose (models, fusions), benchmarks (first only), running an evaluation
