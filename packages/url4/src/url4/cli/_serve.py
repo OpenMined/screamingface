@@ -371,6 +371,12 @@ operator's string through and translating the ``ValueError``, rather than keepin
 free to drift.
 """
 
+# The Engine deployment target is Linux, whose exec(2) ceiling for one argv token is
+# MAX_ARG_STRLEN (32 pages = 131,072 bytes, including the trailing NUL). Enforce that
+# portable floor before spawning so the same URL4 command fails predictably on hosts
+# with a larger ceiling (notably macOS) instead of becoming environment-dependent.
+_MAX_ARG_TOKEN_BYTES = 131_072
+
 
 def make_command_handler(
     argv: Sequence[str], timeout: float, *, stdin: str = "context"
@@ -447,6 +453,11 @@ def _subst_all(template: Sequence[str], request: Request) -> list[str]:
 
 
 async def _run_command(command: list[str], stdin_text: str, timeout: float) -> str:
+    if any(len(token.encode()) >= _MAX_ARG_TOKEN_BYTES for token in command):
+        raise ResolutionError(
+            f"command {command[0]!r} failed to start: an argv token exceeds "
+            f"{_MAX_ARG_TOKEN_BYTES - 1} bytes; pass large payloads on stdin"
+        )
     try:
         proc = await asyncio.create_subprocess_exec(
             *command,
