@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/OpenMined/screamingface/compare/url4-v1.1.0...url4-v1.2.0) (2026-08-05)
+
+
+### Features
+
+* **url4-cloud:** capture finish_reason and refusal, classify a refused turn ([#506](https://github.com/OpenMined/screamingface/issues/506)) ([b594d6f](https://github.com/OpenMined/screamingface/commit/b594d6fcc11b10c4593d1fbe4d95ab3c7adc4bc1))
+* **url4:** add a ModelResponse observation event and its ctx-less sink ([#488](https://github.com/OpenMined/screamingface/issues/488)) ([b787cf5](https://github.com/OpenMined/screamingface/commit/b787cf5d63ab364928229723adfc7655d220a779))
+
 ## [1.1.0](https://github.com/OpenMined/screamingface/compare/url4-v1.0.0...url4-v1.1.0) (2026-07-31)
 
 
