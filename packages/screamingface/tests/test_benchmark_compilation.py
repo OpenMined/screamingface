@@ -343,6 +343,75 @@ def test_dynamic_judge_requires_an_explicit_fusion_synthesizer() -> None:
     assert error.value.code == "candidate_shape_mismatch"
 
 
+def test_local_candidate_linking_precedes_model_catalog_preflight() -> None:
+    requests: list[str] = []
+
+    def engine(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path == "/v1/benchmarks/bench@1":
+            return httpx.Response(
+                200,
+                json=_resource(
+                    url4=(
+                        "(members:0.0:/validate($candidate_members)!"
+                        "'$candidate_synthesizer')!'$members'"
+                    )
+                ),
+            )
+        if request.url.path == "/v1/models":
+            return httpx.Response(503, json={"detail": "catalog unavailable"})
+        raise AssertionError(f"unexpected Engine request: {request.method} {request.url}")
+
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        name="pair",
+    )
+    with sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(engine),
+    ) as client:
+        with pytest.raises(sf.PlanningError, match="synthesizer=") as error:
+            client.evaluate(fusion, benchmark="bench@1")
+
+    assert error.value.code == "candidate_shape_mismatch"
+    assert requests == ["/v1/benchmarks/bench@1"]
+
+
+@pytest.mark.asyncio
+async def test_async_local_candidate_linking_precedes_model_catalog_preflight() -> None:
+    requests: list[str] = []
+
+    def engine(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path == "/v1/benchmarks/bench@1":
+            return httpx.Response(
+                200,
+                json=_resource(
+                    url4=(
+                        "(members:0.0:/validate($candidate_members)!"
+                        "'$candidate_synthesizer')!'$members'"
+                    )
+                ),
+            )
+        if request.url.path == "/v1/models":
+            return httpx.Response(503, json={"detail": "catalog unavailable"})
+        raise AssertionError(f"unexpected Engine request: {request.method} {request.url}")
+
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        name="pair",
+    )
+    async with sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(engine),
+    ) as client:
+        with pytest.raises(sf.PlanningError, match="synthesizer=") as error:
+            await client.evaluate(fusion, benchmark="bench@1")
+
+    assert error.value.code == "candidate_shape_mismatch"
+    assert requests == ["/v1/benchmarks/bench@1"]
+
+
 @pytest.mark.parametrize(
     "candidate",
     [
