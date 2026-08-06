@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-08-02
-amended_by: 0003-benchmark-family-resource-and-universal-candidate-bindings.md
+amended_by: 0004-flat-benchmarks-and-isolated-candidate-invocation.md
 ---
 
 # Link Engine-owned Benchmark expressions with SDK-owned Candidate expressions
@@ -15,8 +15,8 @@ binding. The Candidate expression accepts `$input` and returns an answer. A gene
 URL4 is submitted through the ordinary execution GET and can be saved or shared independently of
 the SDK.
 
-ADR 0003 later groups related expressions in `screamingface.benchmark-family.v1`; each selected
-Variant still carries one canonical expression in a `url4` field. “Benchmark program” and
+ADR 0004 later restores one flat `screamingface.benchmark.v1` resource per executable protocol;
+each selected Variant carries one canonical expression in a `url4` field. “Benchmark program” and
 `screamingface.benchmark-program.v1` are deliberately avoided: URL4 already names its executable
 artifact an expression, while the response represents the whole Benchmark rather than only its
 executable field. “Manifest,” “plan,” “workflow,” “harness,” and “template” are also avoided for
@@ -113,9 +113,9 @@ Benchmark template or protocol branch.
 - **Changing URL4 to add functions, modules, or a sequential fold** could provide a cleaner
   language-level abstraction later, but it is not currently available and is unnecessary for the
   required architecture.
-- **Inlining the Candidate graph at every invocation** is possible but duplicates large Fusion
-  graphs, inflates GET targets, and adds no behavior. It remains a fallback only if in-process
-  Candidate Invocation cannot satisfy an execution or telemetry invariant.
+- **Inlining the Candidate graph at every invocation** was rejected because it duplicates large
+  Fusion graphs, inflates GET targets, and adds no behavior. Reconsidering that boundary would
+  require a new architecture decision rather than a silent runtime fallback.
 
 ## Consequences
 
@@ -124,11 +124,12 @@ Benchmark template or protocol branch.
   total-call limits.
 - Benchmark expressions must be canonical, parseable, Candidate-independent, and validated before
   the first paid call. The SDK must link ASTs rather than concatenate URL4 text.
-- The executable resource reports only exact, reusable facts: stable identity, immutable
-  revision, Case counts, required fixed models, and canonical URL4. Human-facing title and
-  description remain in the catalog. It does not
-  publish unused capability declarations or predicted invocation/operation counts; actual usage
-  belongs to execution telemetry.
+- The executable resource reports only exact, reusable facts: stable identity, descriptive
+  Variant, immutable revision, the complete installed Case count, and canonical URL4. A
+  Benchmark-owned fixed Model is already visible in that URL4 and hashed into the revision, so it
+  is not duplicated as public metadata. Human-facing title and description remain in the
+  resource and catalog. It does not publish unused capability declarations or predicted
+  invocation/operation counts; actual usage belongs to execution telemetry.
 - Every Candidate result has one canonical, higher-is-better `score`. `metrics` contains only
   supporting diagnostics, not a second copy of the score. Benchmark-specific score names and
   direction flags are deliberately absent from the universal Client interface.
@@ -142,6 +143,5 @@ Benchmark template or protocol branch.
   the one-fetch Benchmark contract passes the vertical-slice gates. They have been removed from
   the implemented DRACO vertical slice.
 - Protocol alternatives remain separate Engine-owned Variant identities rather than resource
-  methods or Candidate capabilities. ADR 0003 supersedes ADR 0002's separate-resource decision:
-  one family fetch may contain several Variants, but the SDK selects exactly one executable and
-  comparable URL4 protocol for an Evaluation.
+  methods or Candidate capabilities. ADR 0004 publishes each directly under its flat id, and the
+  SDK selects exactly one executable and comparable URL4 protocol for an Evaluation.

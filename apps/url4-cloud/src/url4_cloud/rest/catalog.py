@@ -3,8 +3,7 @@
 FEATURE: model-catalog discovery.
 
 STORY: as a client about to compose a url4 expression, I ask url4-cloud which models I can address
-— and get back exactly what aigateway would have told me directly, without url4-cloud holding a
-credential of its own.
+and receive the caller-visible AI Gateway models installed in this Engine's declared world.
 
 Owns request-side concerns only (credential resolution, conditional-request/ETag handling, mapping
 ``CatalogError`` to RFC 9457 problems); the actual upstream fetch and per-credential caching live
@@ -20,13 +19,18 @@ import logging
 from collections.abc import Mapping
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Request, Response
+from fastapi import APIRouter, Header, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from url4_cloud import job_env
 from url4_cloud.auth import ProblemException
 from url4_cloud.catalog.cache import CatalogService
-from url4_cloud.catalog.port import CatalogError, Credential
+from url4_cloud.catalog.port import (
+    CatalogError,
+    Credential,
+    ModelDetailsError,
+    ModelDetailsSource,
+)
 from url4_cloud.rest.conditional import validator_matches
 
 logger = logging.getLogger(__name__)
@@ -59,13 +63,15 @@ _MODELS_RESPONSES: dict[int | str, dict[str, object]] = {
     summary="List the models this caller can address",
     responses=_MODELS_RESPONSES,
     description=(
-        "Proxy aigateway's model listing for the caller's own identity, from a per-caller cache."
+        "List the caller-visible aigateway models installed as routes on this Engine, from a "
+        "per-caller cache."
         "\n\n"
         "The caller is the verified ``X-User-Email`` the mesh gateway injects, matching "
         "``GET /?q=``. url4-cloud verifies nothing and holds no credential of its own — aigateway "
         "decides, and refuses the request itself when its mode requires an identity that is "
         "absent. Locally, where aigateway runs with auth disabled, no identity is needed.\n\n"
-        "The body is aigateway's, verbatim. Responses are cached per caller, so "
+        "Retained model documents are aigateway's verbatim; models outside this Engine's "
+        "declared execution world are omitted. Responses are cached per caller, so "
         "``Cache-Control`` is ``private`` and ``ETag``/``If-None-Match`` are scoped to that "
         "caller's catalog."
     ),
@@ -79,13 +85,13 @@ async def list_models(
         str | None, Header(alias="If-None-Match", description="Conditional-request validator.")
     ] = None,
 ) -> Response:
-    """Proxy aigateway's model listing for the caller's own identity, from a per-caller cache.
+    """List caller-visible AI Gateway models installed in this Engine's execution world.
 
     The caller is the verified ``X-User-Email`` the mesh gateway injects, matching ``GET /?q=``.
     url4-cloud verifies nothing and holds no credential of its own — aigateway does.
 
-    The body is aigateway's, verbatim. Responses are cached per caller, so ``Cache-Control`` is
-    ``private`` and ``ETag``/``If-None-Match`` are scoped to that caller's catalog.
+    Retained documents are passed through unchanged. Responses are cached per caller, so
+    ``Cache-Control`` is ``private`` and ``ETag``/``If-None-Match`` are scoped to that caller.
     """
     service = _require_service(request)
     credential = _caller(x_profile, request.headers)
@@ -113,6 +119,36 @@ async def list_models(
     return JSONResponse(content=catalog.body, headers=headers)
 
 
+@router.get(
+    "/v1/model-parameters",
+    tags=["Catalog"],
+    summary="Get the profile-bound contract for one model",
+)
+async def model_parameters(
+    request: Request,
+    model: Annotated[str, Query(min_length=1)],
+    x_profile: Annotated[str | None, Header(alias="X-Profile")] = None,
+) -> Response:
+    """Proxy AI Gateway's authoritative detailed model contract verbatim."""
+
+    source = _require_model_details(request)
+    credential = _caller(x_profile, request.headers)
+    try:
+        details = await source.fetch_details(model, credential)
+    except ModelDetailsError as exc:
+        raise ProblemException(status=exc.status, title=exc.title, detail=exc.detail) from exc
+    headers = {
+        **details.headers,
+        "Cache-Control": "private, no-store",
+        "Vary": _VARY,
+    }
+    return JSONResponse(
+        content=details.body,
+        status_code=details.status_code,
+        headers=headers,
+    )
+
+
 def _require_service(request: Request) -> CatalogService:
     """The wired catalog service, or a 503.
 
@@ -128,6 +164,17 @@ def _require_service(request: Request) -> CatalogService:
             detail="the model catalog is not configured (URL4_CLOUD_AIGATEWAY_BASE_URL)",
         )
     return service
+
+
+def _require_model_details(request: Request) -> ModelDetailsSource:
+    source = getattr(request.app.state, "model_details", None)
+    if source is None:
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="model details are not configured (URL4_CLOUD_AIGATEWAY_BASE_URL)",
+        )
+    return source
 
 
 def _caller(profile: str | None, headers: Mapping[str, str]) -> Credential:

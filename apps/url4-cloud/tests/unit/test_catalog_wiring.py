@@ -12,11 +12,7 @@ from url4_cloud.testing import InMemoryEventStream
 
 pytestmark = pytest.mark.asyncio
 
-DEFAULT_SYNTHESIZER = "anthropic/claude-haiku-4-5"
-BODY: dict[str, object] = {
-    "object": "list",
-    "data": [{"id": DEFAULT_SYNTHESIZER, "object": "model"}],
-}
+BODY: dict[str, object] = {"object": "list", "data": [{"id": "m", "object": "model"}]}
 TOKEN = "wiring-secret-token"
 
 
@@ -118,10 +114,9 @@ async def test_cache_counters_are_exposed_on_the_metrics_endpoint() -> None:
     app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream(), catalog=catalog)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/v1/models", headers={"Authorization": f"Bearer {TOKEN}"})
+        await client.get("/v1/models", headers={"Authorization": f"Bearer {TOKEN}"})
         await client.get("/v1/models", headers={"Authorization": f"Bearer {TOKEN}"})
         scrape = await client.get("/metrics")
-    assert response.json()["default_synthesizer"] == DEFAULT_SYNTHESIZER
     body = scrape.text
     assert "url4_cloud_catalog_cache_hits" in body
     assert "url4_cloud_catalog_cache_misses" in body

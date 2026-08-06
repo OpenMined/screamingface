@@ -500,57 +500,37 @@ def _imports_url4_engine(py_file: Path) -> bool:
     return False
 
 
-def _url4_engine_modules(py_file: Path) -> set[str]:
-    tree = ast.parse(py_file.read_text(), filename=str(py_file))
-    selected: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            selected.update(alias.name for alias in node.names if _is_engine_module(alias.name))
-        elif isinstance(node, ast.ImportFrom) and node.module is not None:
-            if _is_engine_module(node.module):
-                selected.add(node.module)
-    return selected
+_ALLOWED_URL4_IMPORTERS = frozenset(
+    {
+        "url4_cloud/benchmarks/__init__.py",
+        "url4_cloud/benchmarks/definition.py",
+        "url4_cloud/benchmarks/draco/definition.py",
+        "url4_cloud/benchmarks/draco/runtime.py",
+        "url4_cloud/benchmarks/draco/verdict.py",
+        "url4_cloud/benchmarks/ifeval/definition.py",
+        "url4_cloud/benchmarks/ifeval/iterative_correction.py",
+        "url4_cloud/benchmarks/ifeval/runtime.py",
+        "url4_cloud/runner/candidate.py",
+        "url4_cloud/runner/connector.py",
+        "url4_cloud/runner/executor.py",
+    }
+)
 
 
-_ALLOWED_URL4_IMPORTERS = frozenset({"executor.py", "connector.py"})
-
-
-def _is_benchmark_author(py_file: Path) -> bool:
-    return "benchmarks" in py_file.relative_to(_SRC_ROOT).parts
-
-
-def test_only_runner_adapters_and_benchmark_authors_import_url4() -> None:
-    """Execution stays in two adapters; Benchmark authors may construct public URL4 ASTs.
+def test_only_declared_engine_adapters_import_url4() -> None:
+    """Only explicitly reviewed Engine adapters may import URL4 execution modules.
 
     `url4.streaming` is exempt — it is the wire contract, which both halves speak. This scans
     the whole distribution now rather than a separate runner tree: merging the two packages
-    means the control-plane modules are in scope too. Engine-owned Benchmark definitions are the
-    one deliberate construction boundary: authors use URL4's public typed AST and server API to
-    install their private runtime, while execution remains confined to Runner-owned worlds.
+    means the control-plane modules are in scope too. The exact path set makes every new URL4
+    importer an explicit architecture review rather than granting a directory-wide exemption.
     """
-    offenders = [
-        py_file
+    actual = {
+        py_file.relative_to(_SRC_ROOT).as_posix()
         for py_file in _SRC_ROOT.rglob("*.py")
         if _imports_url4_engine(py_file)
-        and py_file.name not in _ALLOWED_URL4_IMPORTERS
-        and not _is_benchmark_author(py_file)
-    ]
-    assert offenders == []
-
-    allowed = {
-        py_file.name
-        for py_file in _SRC_ROOT.rglob("*.py")
-        if py_file.name in _ALLOWED_URL4_IMPORTERS and _imports_url4_engine(py_file)
     }
-    assert allowed == _ALLOWED_URL4_IMPORTERS
-
-    benchmark_imports = {
-        module
-        for py_file in _SRC_ROOT.rglob("*.py")
-        if _is_benchmark_author(py_file)
-        for module in _url4_engine_modules(py_file)
-    }
-    assert benchmark_imports <= {"url4", "url4.core.errors", "url4.peer.server"}
+    assert actual == _ALLOWED_URL4_IMPORTERS
 
 
 # --- per-span usage accumulation ---------------------------------------------------------

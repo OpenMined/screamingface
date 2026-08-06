@@ -117,34 +117,6 @@ def test_multiple_instructions_report_positionally() -> None:
     assert result["loose"] == [True, False]
 
 
-def test_an_unknown_instruction_id_scores_false_instead_of_raising() -> None:
-    # INVARIANT: a verifier crash is OUR bug, never the Candidate's judge-flake — the case
-    # still scores (as failed) and `failures` stays empty. Deliberate divergence from
-    # draco's unscored-never-zero rule, decided in OME-719.
-    result = check_case(
-        instruction_id_list=["bogus:not_an_instruction"],
-        kwargs_list=[{}],
-        prompt="anything",
-        response="anything",
-    )
-
-    assert result["strict"] == [False]
-    assert result["loose"] == [False]
-
-
-def test_a_crashing_checker_scores_false_instead_of_raising() -> None:
-    # combination:repeat_prompt without its required kwarg makes build_description raise.
-    result = check_case(
-        instruction_id_list=["combination:repeat_prompt"],
-        kwargs_list=[{}],
-        prompt="anything",
-        response="anything",
-    )
-
-    assert result["strict"] == [False]
-    assert result["loose"] == [False]
-
-
 def test_mismatched_instruction_and_kwargs_lengths_raise() -> None:
     # WHY loud: positional parallelism is the dataset contract — a length skew means the
     # prepared assets are corrupt, not that the Candidate failed.

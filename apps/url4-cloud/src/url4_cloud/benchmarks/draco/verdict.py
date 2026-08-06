@@ -11,13 +11,22 @@ from url4 import Node, RelExpr, Text, render
 SCHEMA = "screamingface.criterion-verdict.v1"
 
 
-def call(judge: Node, criterion_id: str, *, case_id: str, route: str) -> RelExpr:
+def call(
+    judge: Node,
+    criterion_id: str,
+    *,
+    case_id: str,
+    sequence: int,
+    route: str,
+) -> RelExpr:
     """Wrap a Judge call with the case and criterion identities already known by the Engine."""
 
     if not isinstance(criterion_id, str) or not criterion_id:
         raise ValueError("criterion_id must be non-empty URL4 text")
     if not isinstance(case_id, str) or not case_id:
         raise ValueError("case_id must be non-empty URL4 text")
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise ValueError("sequence must be a positive integer")
     if not isinstance(route, str) or not route.startswith("/"):
         raise ValueError("criterion verdict route must be an absolute URL4 path")
     return RelExpr(
@@ -25,35 +34,58 @@ def call(judge: Node, criterion_id: str, *, case_id: str, route: str) -> RelExpr
         context=render(judge, check=False),
         # The case id is numeric, so the first colon is an unambiguous boundary even when an
         # opaque criterion id itself contains colons. The model never sees or supplies either id.
-        intent=Text(f"{case_id}:{criterion_id}"),
+        intent=Text(f"{case_id}:{sequence}:{criterion_id}"),
     )
 
 
-def binding_key(value: str) -> tuple[int, str]:
-    """Decode the internal ``case_id:criterion_id`` intent carried by :func:`call`."""
+def binding_key(value: str) -> tuple[int, int, str]:
+    """Decode ``case_id:sequence:criterion_id`` while preserving criterion-id colons."""
 
-    case_text, separator, criterion_id = value.partition(":")
-    if not separator:
-        raise ValueError("criterion verdict binding must contain case_id:criterion_id")
+    case_text, first, remainder = value.partition(":")
+    sequence_text, second, criterion_id = remainder.partition(":")
+    if not first or not second:
+        raise ValueError("criterion verdict binding must contain case_id:sequence:criterion_id")
     try:
         case_id = int(case_text)
-    except ValueError:
-        raise ValueError("criterion verdict case_id must be a positive integer") from None
+        sequence = int(sequence_text)
+    except ValueError as exc:
+        raise ValueError(
+            "criterion verdict case_id and sequence must be positive integers"
+        ) from exc
     if case_id < 1:
         raise ValueError("criterion verdict case_id must be a positive integer")
-    return case_id, _text(criterion_id, "criterion_id")
+    if sequence < 1:
+        raise ValueError("criterion verdict sequence must be a positive integer")
+    return case_id, sequence, _text(criterion_id, "criterion_id")
 
 
-def bind(raw: str, *, case_id: int, criterion_id: str) -> dict[str, object]:
+def bind(
+    raw: str,
+    *,
+    case_id: int,
+    criterion_id: str,
+    sequence: int,
+    producer_id: str,
+) -> dict[str, object]:
     """Validate ``raw`` and attach Engine-known case and criterion identifiers."""
 
     if isinstance(case_id, bool) or not isinstance(case_id, int) or case_id < 1:
         raise ValueError("case_id must be a positive integer")
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise ValueError("sequence must be a positive integer")
     selected_id = _text(criterion_id, "criterion_id")
+    selected_producer = _text(producer_id, "producer_id")
     decoded = _decode_object(raw)
     reason = _invalid_reason(raw, decoded)
     if reason is not None:
-        return _invalid(case_id, selected_id, reason)
+        return _invalid(
+            raw,
+            case_id=case_id,
+            criterion_id=selected_id,
+            sequence=sequence,
+            producer_id=selected_producer,
+            reason=reason,
+        )
     assert isinstance(decoded, Mapping)
     explanation = decoded.get("explanation")
     status = decoded.get("criterion_status")
@@ -62,9 +94,13 @@ def bind(raw: str, *, case_id: int, criterion_id: str) -> dict[str, object]:
         "schema": SCHEMA,
         "case_id": case_id,
         "criterion_id": selected_id,
+        "sequence": sequence,
+        "producer_type": "model",
+        "producer_id": selected_producer,
         "valid": True,
         "explanation": explanation,
         "criterion_status": status,
+        "raw_output": raw,
     }
 
 
@@ -113,13 +149,25 @@ def _first_json_value(text: str) -> Any:
     return value
 
 
-def _invalid(case_id: int, criterion_id: str, reason: str) -> dict[str, object]:
+def _invalid(
+    raw: str,
+    *,
+    case_id: int,
+    criterion_id: str,
+    sequence: int,
+    producer_id: str,
+    reason: str,
+) -> dict[str, object]:
     return {
         "schema": SCHEMA,
         "case_id": case_id,
         "criterion_id": criterion_id,
+        "sequence": sequence,
+        "producer_type": "model",
+        "producer_id": producer_id,
         "valid": False,
         "reason": reason,
+        "raw_output": raw,
     }
 
 

@@ -36,7 +36,6 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from url4_cloud.benchmarks.draco.aggregate import flatten_criteria
 from url4_cloud.benchmarks.draco.definition import (
     CASE_COUNT,
     DATASET,
@@ -44,6 +43,7 @@ from url4_cloud.benchmarks.draco.definition import (
     EXCLUDED_DOMAINS,
     RETRIEVAL_POLICY_ID,
 )
+from url4_cloud.benchmarks.draco.scoring import flatten_criteria
 
 COLUMN_QUESTION = "problem"
 COLUMN_RUBRIC = "answer"

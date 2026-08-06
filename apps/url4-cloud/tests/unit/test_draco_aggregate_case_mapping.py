@@ -4,22 +4,13 @@ FEATURE: a DRACO run scores each case's answer against that case's rubric.
 STORY: as a researcher I need a published score to be the score of the cases I ran, not of
 whichever rubrics happened to sit at the same offsets.
 
-`aggregate` learns a row's case id one of two ways: the Engine binds it to the verdict, or it
-falls back to the row's POSITION. Position is only defensible when the rows ARE the whole
-declared case set — `iteration.on_error=collect` preserves row order and substitutes an error
-object in place, so index N is case N+1.
+The Engine binds `case_id` onto every verdict after the Judge call. Aggregation requires that
+identity on every scoreable row and never infers it from row position. That remains correct for
+full, sliced, reordered, and partially failed iterations, while keeping orchestration identity
+out of the Judge's control.
 
-`;iteration.slice=10:20` breaks that, and breaks it silently. The rows are cases 11-20 while the
-positions say 1-10, so every case is scored against the WRONG rubric, no `failures` entry is
-produced, and the run reports `terminated: succeeded` with a plausible number. `iteration.slice`
-is the sanctioned way to size a run — `manifests.py` and `Dockerfile.benchmark` both advertise it,
-the latter having REMOVED a build-time case cap in its favour — so this is reachable from the
-documented path, not from misuse.
-
-INVARIANT: when a legacy row needs the positional fallback and the row count does not match the
-declared rubric set, the mapping is unverifiable and `aggregate` RAISES. It never scores against
-a mapping it cannot prove. Current Engine-owned benchmark expressions bind `case_id` after each
-Judge call; the model is never trusted to repeat orchestration identity.
+INVARIANT: every scoreable row carries exactly one unique Engine-bound `case_id`. Missing,
+mixed, or duplicate identities raise before scoring; the reducer never guesses.
 """
 
 from __future__ import annotations
@@ -29,6 +20,7 @@ import json
 import pytest
 
 from url4_cloud.benchmarks.draco import aggregate as agg
+from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 
 
 def _rubric(criterion: str) -> dict[str, object]:
@@ -43,41 +35,74 @@ def _rubric(criterion: str) -> dict[str, object]:
 _RUBRICS: dict[int, dict[str, object]] = {n: _rubric(f"c{n}") for n in (1, 2, 3, 4)}
 
 
+def _selected(*case_ids: int) -> list[dict[str, object]]:
+    return [{"id": case_id, "input": f"Question {case_id}"} for case_id in case_ids]
+
+
 def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> str:
+    raw_output = json.dumps({"explanation": "fixture verdict", "criterion_status": status})
     verdict: dict[str, object] = {
         "schema": agg.VERDICT_SCHEMA,
         "criterion_id": criterion,
+        "sequence": 1,
+        "producer_type": "model",
+        "producer_id": "fixture-judge",
         "criterion_status": status,
         "valid": True,
         "explanation": "fixture verdict",
+        "raw_output": raw_output,
     }
     if case is not None:
         verdict["case_id"] = case
+        case_record = {
+            "schema": CASE_SCHEMA,
+            "case_id": case,
+            "input": f"Question {case}",
+            "output": f"Answer {case}",
+            "finish_reason": "stop",
+            "metadata": {},
+        }
+        check_record = {
+            "schema": CHECK_SCHEMA,
+            "case_id": case,
+            "criterion_id": criterion,
+            "criterion_type": "positive",
+            "requirement": f"Requirement {criterion}",
+        }
+        return "\n".join(map(json.dumps, (case_record, check_record, verdict)))
     return f"case\n\ngraded: [{json.dumps(json.dumps(verdict))}]"
 
 
 # --- the guard ------------------------------------------------------------------
 
 
-def test_a_short_row_set_without_an_echoed_case_id_raises() -> None:
+def test_a_short_row_set_without_a_bound_case_id_raises() -> None:
     """The `;iteration.slice=10:20` shape — two rows against four declared cases."""
     rows = json.dumps([_row("c3"), _row("c4")])
 
     with pytest.raises(agg.AggregateError):
-        agg.aggregate(rows, rubrics=_RUBRICS, benchmark_id="draco")
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(3, 4),
+        )
 
 
-def test_the_error_names_both_ways_out() -> None:
-    """A benchmark operator has exactly two escapes; the message must state them, because the
-    alternative it replaces produced a plausible number instead of any message at all."""
+def test_the_error_names_the_missing_engine_binding() -> None:
     rows = json.dumps([_row("c3"), _row("c4")])
 
     with pytest.raises(agg.AggregateError) as excinfo:
-        agg.aggregate(rows, rubrics=_RUBRICS, benchmark_id="draco")
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(3, 4),
+        )
 
     message = str(excinfo.value)
-    assert "case_id" in message
-    assert "2" in message and "4" in message  # the counts that disagree
+    assert "Engine-bound Case record" in message
+    assert "row 0" in message
 
 
 def test_a_mixed_row_set_raises_on_the_unverifiable_row() -> None:
@@ -85,7 +110,12 @@ def test_a_mixed_row_set_raises_on_the_unverifiable_row() -> None:
     rows = json.dumps([_row("c1", case=1), _row("c2")])
 
     with pytest.raises(agg.AggregateError):
-        agg.aggregate(rows, rubrics=_RUBRICS, benchmark_id="draco")
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(1, 2),
+        )
 
 
 # --- what the guard must NOT catch ----------------------------------------------
@@ -99,36 +129,49 @@ def test_a_short_row_set_with_bound_case_ids_scores_normally() -> None:
     """
     rows = json.dumps([_row("c3", case=3), _row("c4", case=4)])
 
-    result = agg.aggregate(rows, rubrics=_RUBRICS, benchmark_id="draco")
+    result = agg.aggregate(
+        rows,
+        rubrics=_RUBRICS,
+        benchmark_id="draco",
+        selected_cases=_selected(3, 4),
+    )
 
     assert result["case_count"] == 2
-    assert [c["case_id"] for c in result["case_results"]] == [3, 4]
+    assert [c["case_id"] for c in result["cases"]] == [3, 4]
     assert result["score"] == 1.0  # each row met ITS OWN case's criterion
 
 
-def test_a_full_row_set_without_echoed_ids_still_falls_back_to_position() -> None:
-    """The unchanged path: rows ARE the declared set, so position is the benchmark's own
-    knowledge and stays trustworthy."""
+def test_a_full_row_set_without_bound_ids_is_still_rejected() -> None:
+    """Completeness does not make row position a durable Case identity."""
     rows = json.dumps([_row(f"c{n}") for n in (1, 2, 3, 4)])
 
-    result = agg.aggregate(rows, rubrics=_RUBRICS, benchmark_id="draco")
-
-    assert result["case_count"] == 4
-    assert [c["case_id"] for c in result["case_results"]] == [1, 2, 3, 4]
+    with pytest.raises(agg.AggregateError, match="Engine-bound Case record"):
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(1, 2, 3, 4),
+        )
 
 
 def test_no_rows_at_all_fails_after_the_mapping_guard() -> None:
     """An empty payload has no mapping error, but it still cannot produce a valid result."""
     with pytest.raises(agg.AggregateError, match="no DRACO rows"):
-        agg.aggregate("[]", rubrics=_RUBRICS, benchmark_id="draco")
+        agg.aggregate("[]", rubrics=_RUBRICS, benchmark_id="draco", selected_cases=[])
 
 
-def test_rows_that_produced_no_verdicts_do_not_trip_the_guard() -> None:
-    """A verdict-less row becomes a `failures` entry and never reaches a rubric, so it needs no
-    mapping — counting it as unverifiable would turn a partial judge failure into a dead run."""
-    rows = json.dumps([_row("c1", case=1), "case\n\ngraded: judge refused"])
+def test_rows_with_a_bound_case_but_no_verdict_become_failed_cases() -> None:
+    failed = _row("c2", case=2).replace(agg.VERDICT_SCHEMA, "not-a-verdict")
+    rows = json.dumps([_row("c1", case=1), failed])
 
-    result = agg.aggregate(rows, rubrics=_RUBRICS, benchmark_id="draco")
+    result = agg.aggregate(
+        rows,
+        rubrics=_RUBRICS,
+        benchmark_id="draco",
+        selected_cases=_selected(1, 2),
+    )
 
-    assert result["case_count"] == 1
-    assert len(result["failures"]) == 1
+    assert result["case_count"] == 2
+    assert result["failures"] == []
+    assert result["cases"][1]["grade"] is None
+    assert len(result["cases"][1]["failures"]) == 1

@@ -9,7 +9,17 @@ import pytest
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
-from url4_cloud.benchmarks.draco.definition import AGGREGATE_ROUTE, TASKS_ROUTE, VERDICT_ROUTE
+from url4_cloud.benchmarks.draco.definition import (
+    AGGREGATE_ROUTE,
+    LITE_AGGREGATE_ROUTE,
+    LITE_TASKS_ROUTE,
+    LITE_VERDICT_ROUTE,
+    SMOKE_AGGREGATE_ROUTE,
+    SMOKE_TASKS_ROUTE,
+    SMOKE_VERDICT_ROUTE,
+    TASKS_ROUTE,
+    VERDICT_ROUTE,
+)
 from url4_cloud.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE as IFEVAL_AGGREGATE_ROUTE,
 )
@@ -20,9 +30,9 @@ from url4_cloud.benchmarks.ifeval.iterative_correction import (
     ENSEMBLE_AGGREGATE_ROUTE,
     MEMBER_ANSWER_ROUTE,
     MEMBER_RECORD_ROUTE,
+    RESOLVE_CANDIDATE_ROUTE,
     SELECT_ROUTE,
     SELF_AGGREGATE_ROUTE,
-    VALIDATE_MEMBERS_ROUTE,
 )
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
@@ -33,18 +43,23 @@ _TOKEN = "test-token"  # noqa: S105 - not a real credential
 _TAVILY_TOKEN = "tvly-test"  # noqa: S105 - not a real credential
 
 _FANOUT = "(/openrouter/gpt-4o(ctx)!probe)!combine"
-# Every installed benchmark family contributes its processor routes to each world —
-# extended in OME-719 when ifeval joined draco in the registry.
+# Every installed Benchmark contributes its processor routes to each world.
 _BENCHMARK_ROUTES = {
     AGGREGATE_ROUTE,
     TASKS_ROUTE,
     VERDICT_ROUTE,
+    LITE_AGGREGATE_ROUTE,
+    LITE_TASKS_ROUTE,
+    LITE_VERDICT_ROUTE,
+    SMOKE_AGGREGATE_ROUTE,
+    SMOKE_TASKS_ROUTE,
+    SMOKE_VERDICT_ROUTE,
     IFEVAL_AGGREGATE_ROUTE,
     IFEVAL_CHECK_ROUTE,
     SELF_AGGREGATE_ROUTE,
     ENSEMBLE_AGGREGATE_ROUTE,
     SELECT_ROUTE,
-    VALIDATE_MEMBERS_ROUTE,
+    RESOLVE_CANDIDATE_ROUTE,
     MEMBER_RECORD_ROUTE,
     MEMBER_ANSWER_ROUTE,
 }

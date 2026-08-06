@@ -13,6 +13,7 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
     aggregate,
     load_specs,
 )
+from url4_cloud.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
 
 _SPECS = {
     1: {
@@ -38,10 +39,17 @@ def _record(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, ob
     return {
         "schema": SCHEMA,
         "case_id": case_id,
+        "attempt": 1,
         "valid": True,
+        "answer": f"Answer {case_id}",
+        "finish_reason": "stop",
         "instruction_id_list": spec["instruction_id_list"],
+        "descriptions": [
+            f"Instruction {index}" for index in range(1, len(spec["instruction_id_list"]) + 1)
+        ],
         "strict": strict,
         "loose": loose,
+        "violations": [],
     }
 
 
@@ -63,11 +71,15 @@ def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
     # the leaderboard number must mean what arXiv:2311.07911 says it means.
     assert result["schema"] == "screamingface.candidate-result.v1"
     assert result["benchmark_id"] == "ifeval"
+    assert result["benchmark_revision"] == IFEVAL_REVISION
     assert result["score"] == 0.5
     assert result["metrics"]["inst_level_strict_accuracy"] == round(2 / 3, 4)
     assert result["metrics"]["prompt_level_loose_accuracy"] == 1.0
     assert result["metrics"]["inst_level_loose_accuracy"] == 1.0
     assert result["case_count"] == 2
+    assert result["cases"][0]["input"] == _SPECS[1]["prompt"]
+    assert result["cases"][0]["output"] == "Answer 1"
+    assert result["cases"][0]["grade"]["checks"][0]["evidence"][0]["outcome"] == "PASS"
     assert result["failures"] == []
 
 

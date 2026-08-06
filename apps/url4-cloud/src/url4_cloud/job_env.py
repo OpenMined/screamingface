@@ -114,6 +114,9 @@ RUNNER_CONFIG = "URL4_RUNNER_CONFIG"
 """Path to the declared world (:mod:`url4_cloud.runner.config`). Baked into the image; the App
 never writes it."""
 
+DEFAULT_RUNNER_CONFIG_PATH = "/etc/url4/url4.toml"
+"""Image path for the declared world when :data:`RUNNER_CONFIG` is absent."""
+
 DEFAULT_NATS_URL = "nats://localhost:4222"
 """Fallback for an unset :data:`NATS_URL`. Lives beside the name it defaults so the two cannot
 drift — every reader of the variable needs the same answer for "and if it is absent?"."""
@@ -159,6 +162,7 @@ __all__ = [
     "AIGATEWAY_PROFILE",
     "DEFAULT_NATS_URL",
     "DEPLOY_TIME",
+    "DEFAULT_RUNNER_CONFIG_PATH",
     "EXPRESSION",
     "IDENTITY_HEADER_ENV",
     "JOB_DEADLINE_S",

@@ -18,12 +18,16 @@ from url4_cloud.catalog.port import (
     CatalogUnavailable,
     Credential,
     ModelCatalog,
+    ModelDetails,
+    ModelDetailsError,
+    ModelDetailsUnavailable,
     compute_etag,
 )
 
 logger = logging.getLogger(__name__)
 
 _CATALOG_PATH = "/v1/models"
+_DETAILS_PATH = "/v1/model-parameters"
 
 # WHY: aigateway may refuse a credential with either 401 or 403; both are treated as
 # a bad credential (CatalogRejected, always surfaced as 401) rather than CatalogBadResponse.
@@ -31,11 +35,10 @@ _REJECTION_STATUSES = frozenset({401, 403})
 
 
 class AigatewayCatalogSource:
-    """Fetch and enrich the model catalog with the Engine's synthesis default."""
+    """Fetch and validate the per-credential model catalog from AI Gateway."""
 
-    def __init__(self, client: httpx.AsyncClient, *, default_synthesizer: str) -> None:
+    def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
-        self._default_synthesizer = default_synthesizer
 
     async def fetch(self, credential: Credential) -> ModelCatalog:
         """Fetch the catalog for ``credential``, raising a typed ``CatalogError`` on failure.
@@ -53,7 +56,6 @@ class AigatewayCatalogSource:
             raise CatalogBadResponse(CatalogBadResponse.detail)
         body = self._decode(response)
         _validate(body)
-        _publish_default(body, self._default_synthesizer)
         return ModelCatalog(body=body, etag=compute_etag(body))
 
     async def _get(self, credential: Credential) -> httpx.Response:
@@ -77,6 +79,46 @@ class AigatewayCatalogSource:
         if not isinstance(body, dict):
             raise CatalogBadResponse(CatalogBadResponse.detail)
         return body
+
+
+class AigatewayModelDetailsSource:
+    """Fetch one profile-bound model contract without caching or reshaping it."""
+
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        self._client = client
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def fetch_details(self, model: str, credential: Credential) -> ModelDetails:
+        try:
+            response = await self._client.get(
+                _DETAILS_PATH,
+                params={"model": model},
+                headers=_headers(credential),
+            )
+        except httpx.TimeoutException as exc:
+            raise ModelDetailsUnavailable(ModelDetailsUnavailable.detail) from exc
+        except httpx.HTTPError as exc:
+            raise ModelDetailsError(ModelDetailsError.detail) from exc
+        if response.status_code >= 500:
+            raise ModelDetailsError(ModelDetailsError.detail)
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ModelDetailsError(ModelDetailsError.detail) from exc
+        if not isinstance(body, dict):
+            raise ModelDetailsError(ModelDetailsError.detail)
+        forwarded_headers = {
+            name: value
+            for name in ("WWW-Authenticate", "Retry-After")
+            if (value := response.headers.get(name)) is not None
+        }
+        return ModelDetails(
+            body=body,
+            status_code=response.status_code,
+            headers=forwarded_headers,
+        )
 
 
 def _headers(credential: Credential) -> dict[str, str]:
@@ -107,12 +149,4 @@ def _validate(body: dict[str, Any]) -> None:
             raise CatalogBadResponse(CatalogBadResponse.detail)
 
 
-def _publish_default(body: dict[str, Any], default_synthesizer: str) -> None:
-    ids = {entry["id"] for entry in body["data"]}
-    if default_synthesizer not in ids:
-        logger.warning("configured default synthesizer is absent from the aigateway catalog")
-        raise CatalogBadResponse(CatalogBadResponse.detail)
-    body["default_synthesizer"] = default_synthesizer
-
-
-__all__ = ["AigatewayCatalogSource"]
+__all__ = ["AigatewayCatalogSource", "AigatewayModelDetailsSource"]

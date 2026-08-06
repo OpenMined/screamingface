@@ -84,14 +84,56 @@ class Credential:
 
 @dataclass(frozen=True, slots=True)
 class ModelCatalog:
-    """One fetched catalog: aigateway's response body verbatim, plus its derived ETag.
+    """One fetched catalog document plus its derived ETag.
 
-    WHY verbatim: url4-cloud proxies, it does not reshape. Passing the body through unchanged keeps
-    the response OpenAI-tool-compatible and means a new upstream field needs no change here.
+    The AI Gateway adapter fills this with the upstream body verbatim. The Engine projection
+    later replaces only ``data`` with the declared-route intersection and derives a new ETag.
     """
 
     body: dict[str, object]
     etag: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModelDetails:
+    """One profile-bound AI Gateway model-parameter response, preserved verbatim."""
+
+    body: dict[str, object]
+    status_code: int = 200
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+
+class ModelDetailsError(Exception):
+    """A model-details request failed before AI Gateway produced a usable response."""
+
+    status = 502
+    title = "Bad Gateway"
+    detail = "aigateway returned unusable model details"
+
+
+class ModelDetailsUnavailable(ModelDetailsError):
+    """AI Gateway did not answer the model-details request in time."""
+
+    status = 504
+    title = "Gateway Timeout"
+    detail = "aigateway did not respond in time"
+
+
+class ModelDetailsNotInstalled(ModelDetailsError):
+    """The requested Gateway model is absent from this Engine's declared world."""
+
+    status = 404
+    title = "Not Found"
+    detail = "the model is not installed on this Engine"
+
+
+@runtime_checkable
+class ModelDetailsSource(Protocol):
+    """Anything that can fetch one caller's profile-bound model contract."""
+
+    async def fetch_details(self, model: str, credential: Credential) -> ModelDetails: ...
+
+    async def aclose(self) -> None: ...
 
 
 def compute_etag(body: dict[str, object]) -> str:
@@ -166,5 +208,10 @@ __all__ = [
     "CatalogUnavailable",
     "Credential",
     "ModelCatalog",
+    "ModelDetails",
+    "ModelDetailsError",
+    "ModelDetailsNotInstalled",
+    "ModelDetailsSource",
+    "ModelDetailsUnavailable",
     "compute_etag",
 ]

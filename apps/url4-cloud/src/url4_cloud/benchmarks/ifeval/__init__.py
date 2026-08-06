@@ -1,4 +1,4 @@
-"""IFEval as one Engine-owned Benchmark family — deterministic verification, no judge.
+"""IFEval Engine-owned Benchmarks — deterministic verification, no grading Judge.
 
 FEATURE: the first judge-free benchmark — 541 instruction-following prompts graded by
 vendored deterministic code (arXiv:2311.07911), zero judge calls.

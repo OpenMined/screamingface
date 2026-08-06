@@ -151,10 +151,10 @@ def test_a_full_build_must_match_the_declared_case_count(tmp_path: Path) -> None
 
 def test_prepared_rubrics_load_back_into_the_aggregator(tmp_path: Path) -> None:
     """The two halves must agree on the on-disk shape — this is the seam between them."""
-    from url4_cloud.benchmarks.draco import aggregate
+    from url4_cloud.benchmarks.draco import aggregate, scoring
 
     prepare.build([_row(), _row()], tmp_path)
 
     rubrics = aggregate.load_rubrics(tmp_path / "rubrics")
     assert set(rubrics) == {1, 2}
-    assert aggregate.normalized_score(rubrics[1], {"a1": True}) == 1.0
+    assert scoring.normalized_score(rubrics[1], {"a1": True}) == 1.0

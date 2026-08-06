@@ -78,6 +78,22 @@ def describe_failures(
     ]
 
 
+def describe_instructions(
+    *,
+    instruction_id_list: Sequence[str],
+    kwargs_list: Sequence[Mapping[str, Any]],
+    prompt: str,
+) -> list[str]:
+    """Return the official human-readable description of every checked constraint."""
+
+    if len(instruction_id_list) != len(kwargs_list):
+        raise ValueError("instruction ids and kwargs must be positionally parallel")
+    return [
+        _describe(instruction_id, kwargs, prompt)
+        for instruction_id, kwargs in zip(instruction_id_list, kwargs_list, strict=True)
+    ]
+
+
 def _describe(instruction_id: str, kwargs: Mapping[str, Any], prompt: str) -> str:
     from url4_cloud.benchmarks.ifeval.vendor import instructions_registry
 
@@ -119,22 +135,13 @@ def _follows(
 ) -> bool:
     from url4_cloud.benchmarks.ifeval.vendor import instructions_registry
 
-    try:
-        instruction_cls = instructions_registry.INSTRUCTION_DICT[instruction_id]
-        instruction = instruction_cls(instruction_id)
-        instruction.build_description(**kwargs)
-        args = instruction.get_instruction_args()
-        if args and "prompt" in args:
-            instruction.build_description(prompt=prompt)
-        return any(
-            response.strip() and instruction.check_following(response) for response in responses
-        )
-    except Exception:  # noqa: BLE001
-        # WHY broad: this is the crash-policy boundary decided in OME-719 — a checker bug
-        # (unknown id, bad kwargs, any verifier internal error) scores the instruction
-        # False and the case still counts; it must never surface as a judge-flake-style
-        # harness failure, because the deterministic verifier failing is OUR defect.
-        return False
+    instruction_cls = instructions_registry.INSTRUCTION_DICT[instruction_id]
+    instruction = instruction_cls(instruction_id)
+    instruction.build_description(**kwargs)
+    args = instruction.get_instruction_args()
+    if args and "prompt" in args:
+        instruction.build_description(prompt=prompt)
+    return any(response.strip() and instruction.check_following(response) for response in responses)
 
 
-__all__ = ["check_case", "configure_nltk", "describe_failures"]
+__all__ = ["check_case", "configure_nltk", "describe_failures", "describe_instructions"]

@@ -1,10 +1,15 @@
 ---
-status: accepted
+status: superseded
 date: 2026-08-04
 supersedes: 0002-model-protocol-alternatives-as-benchmark-variants.md
+superseded_by: 0004-flat-benchmarks-and-isolated-candidate-invocation.md
 ---
 
 # Fetch one Benchmark Family and link one explicit Variant locally
+
+> **Superseded contract:** ADR 0004 keeps independently identified Variants and universal
+> Candidate bindings but publishes every executable protocol directly as
+> `screamingface.benchmark.v1`. There is no public Family resource or compatibility fallback.
 
 The Engine publishes one `screamingface.benchmark-family.v1` resource per Benchmark Family. The
 resource contains family metadata, a `default_variant`, and a map of independently revisioned
@@ -36,7 +41,10 @@ such as the verifying ensemble's two-to-four direct Model members, before its fi
 `$candidate_members` is one runtime-sized collection, so the Engine returns the same URL4 for two,
 three, or four members. The SDK no longer sends `?members=N`, and the resource contains no URL4
 table keyed by Candidate shape. This keeps a Benchmark resource Candidate-independent and reusable
-across every Candidate in the Evaluation.
+across every Candidate in the Evaluation. The linker emits each complete expression once as an
+ordinary `$candidate_member_N` binding, then binds `$candidate_members` to a native URL4 struct
+whose entries reference those names. There is no Base64 or embedded JSON execution payload, so
+the complete linked artifact remains visibly URL4.
 
 This ADR changes the packaging of Variants, not Khoa's current IFEval behavior. In particular, the
 three corrective rounds remain visibly unrolled and execute as before. A source comment beside the

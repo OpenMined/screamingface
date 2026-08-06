@@ -32,8 +32,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from url4_cloud import job_env
+from url4_cloud.model_routes import ModelRouteConfigError, require_model_route_id
 
-DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
+DEFAULT_CONFIG_PATH = job_env.DEFAULT_RUNNER_CONFIG_PATH
 """Where the declared world lives unless :data:`job_env.RUNNER_CONFIG` overrides it. Image-level
 wiring: the App never writes that variable — the file is baked into the image."""
 
@@ -309,12 +310,9 @@ def _command_stdin(path: str, value: object) -> str:
 def _command_timeout(path: str, value: object) -> float:
     if value is None:
         return DEFAULT_COMMAND_TIMEOUT_S
-    try:
-        timeout_s = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        raise RunnerConfigError(
-            f"[commands] {path!r} timeout_s must be a number, got {value!r}"
-        ) from None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RunnerConfigError(f"[commands] {path!r} timeout_s must be a number, got {value!r}")
+    timeout_s = float(value)
     if timeout_s <= 0:
         raise RunnerConfigError(f"[commands] {path!r} timeout_s must be > 0, got {timeout_s!r}")
     return timeout_s
@@ -539,13 +537,10 @@ def _model_flag(table: Mapping[str, object], key: str) -> bool:
 
 
 def _model_id(model: str) -> str:
-    if not model:
-        raise RunnerConfigError("[aigateway] declares an empty model id")
-    if model.startswith("/"):
-        raise RunnerConfigError(
-            f"model id {model!r} must not start with '/' — the route path is derived as '/' + id"
-        )
-    return model
+    try:
+        return require_model_route_id(model)
+    except ModelRouteConfigError as exc:
+        raise RunnerConfigError(str(exc)) from None
 
 
 def _normalize_id(value: str) -> str:

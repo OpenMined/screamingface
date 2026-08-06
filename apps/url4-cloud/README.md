@@ -109,10 +109,10 @@ where every caller is anonymous. Nothing needs a token: url4-cloud carries no ai
 in either mode.
 
 `/opt/benchmarks` is the benchmark image's container path; it normally does not exist when running
-directly from a host checkout. `URL4_BENCHMARK_ASSETS` must name a root containing one directory
-per Benchmark Family, such as `draco/cases.json` and `ifeval/cases.json`. Canonical `ifeval`,
-`ifeval/self-corrective`, and `ifeval/verifying-ensemble` share the latter assets and family
-runtime while publishing distinct URL4 protocols in one family resource. If `/tmp` is cleared,
+directly from a host checkout. `URL4_BENCHMARK_ASSETS` must name a root containing each installed
+runtime's asset directory, such as `draco/cases.json` and `ifeval/cases.json`. Canonical `ifeval`,
+`ifeval/self-corrective`, and `ifeval/verifying-ensemble` share the latter assets and installer
+while publishing three independent flat Benchmark resources. If `/tmp` is cleared,
 run the preparation command
 again. Preparation is deliberately separate from startup so a run cannot silently download a
 different dataset revision.
@@ -171,8 +171,8 @@ docker build \
   .
 ```
 
-`Dockerfile.benchmark` downloads every registered Benchmark Family's pinned dataset during the
-build, prepares the runtime files under `/opt/benchmarks/<family-id>`, discards the build-only dataset
+`Dockerfile.benchmark` downloads every registered Benchmark runtime's pinned dataset during the
+build, prepares the runtime files under `/opt/benchmarks/<benchmark-id>`, discards the build-only dataset
 tooling, and sets `URL4_BENCHMARK_ASSETS=/opt/benchmarks` in the runtime image. The resulting image
 must be published where the cluster can pull it. Adding a Benchmark therefore means adding its
 definition to the registry and its deterministic preparation command to this image.
@@ -197,11 +197,6 @@ belongs to the deployment pipeline; SDK users do not prepare production assets t
 Discover which models an expression can address, proxied from aigateway's own `/v1/models` and
 served from a per-caller cache. Design: `docs/spec/2026-07-26-url4-cloud-model-catalog-spec.md`
 · OME-625.
-
-The Engine enriches the catalog with `default_synthesizer`, a concrete model ID configured by
-`URL4_CLOUD_DEFAULT_SYNTHESIZER` (default: `anthropic/claude-haiku-4-5`). Clients use it only when
-a Fusion omits its synthesizer; the resulting URL4 still contains the concrete model route and is
-therefore portable without consulting the catalog again.
 
 The caller is the verified `X-User-Email` the mesh gateway injects. Deployed, Envoy always supplies
 it. Locally, aigateway runs with auth disabled and none is needed:
@@ -271,6 +266,7 @@ envelope as `GET /v1/models`:
     {
       "id": "draco",
       "object": "benchmark",
+      "variant": "canonical",
       "title": "DRACO",
       "description": "The 100-task DRACO deep-research benchmark.",
       "href": "/v1/benchmarks/draco"
@@ -279,10 +275,9 @@ envelope as `GET /v1/models`:
 }
 ```
 
-`GET /v1/benchmarks/{id}` returns one minimal executable resource containing its stable id,
-immutable protocol revision, selected and total Case counts, required fixed models, and the
-Candidate-independent URL4 expression. Human-facing title and description live only in the
-catalog above. `limit=N` selects the first `N`
+`GET /v1/benchmarks/{id}` returns one executable resource containing its stable id, descriptive
+Variant label, title, description, immutable protocol revision, installed Case count, and the
+Candidate-independent URL4 expression. `limit=N` selects the first `N`
 Cases while building that resource; it does not name a separate Lite Benchmark. The Client fetches
 the resource once, links each Candidate into its `/candidate` boundary, and sends each resulting
 complete URL4 directly to the Engine for execution. Reports retain the revision so results remain
@@ -293,6 +288,15 @@ per criterion. Its fixed Judge is `openrouter/google/gemini-3.1-pro-preview`: th
 `Gemini-3-Pro Preview` was shut down on 2026-03-09, and Google designated Gemini 3.1 Pro Preview
 as its replacement. Runs are therefore protocol-aligned but must disclose that Judge version
 difference rather than claiming bit-for-bit reproduction of the paper's scores.
+
+`ifeval/verifying-ensemble` is an OpenMined Variant inspired by Skurikhin et al. and treats an
+explicitly configured Fusion synthesizer as the Judge. The paper evaluates two Judge models across
+five two-member configurations; that table is experimental design, not a protocol allowlist. This
+Variant accepts two to four direct members and executes all three attempts and Judge steps
+unconditionally, while the source study stops conditionally. A different direct-Model synthesizer
+therefore produces a custom experiment, not a reproduction of Ens-1 through Ens-5. Omitting
+`synthesizer=` is rejected before execution because silently inheriting or inventing any default
+would make the experimental configuration implicit.
 
 Candidate results expose one canonical, higher-is-better `score`. Benchmark-specific values such
 as DRACO's coverage, pass rate, Judge spread, and verdict counts are diagnostics under `metrics`;

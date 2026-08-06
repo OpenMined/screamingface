@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-import base64
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from url4.core.errors import ResolutionError
+from url4 import Expression, RelExpr, Source, Text, build, render
+from url4.core.errors import ParseError, RenderError, ResolutionError
 from url4.peer.server import Request, Url4Node
+from url4_cloud.benchmarks.contract import (
+    decode_candidate_invocation,
+    encode_candidate_invocation,
+)
 from url4_cloud.benchmarks.ifeval import aggregate as scoring
 from url4_cloud.benchmarks.ifeval import grading
 from url4_cloud.benchmarks.ifeval.definition import (
@@ -25,24 +30,30 @@ from url4_cloud.benchmarks.ifeval.iterative_correction import (
     MEMBER_LETTERS,
     MEMBER_RECORD_ROUTE,
     MIN_MEMBERS,
+    RESOLVE_CANDIDATE_ROUTE,
     SELECT_ROUTE,
     SELF_AGGREGATE_ROUTE,
     SELF_CORRECTIVE_ID,
-    VALIDATE_MEMBERS_ROUTE,
+    SELF_CORRECTIVE_REVISION,
     VERIFYING_ENSEMBLE_ID,
+    VERIFYING_ENSEMBLE_REVISION,
 )
 
 
-def install(node: Url4Node, root: Path) -> None:
-    """Register the shared family runtime for both IFEval protocols."""
+def install(node: Url4Node, root: Path, model_routes: frozenset[str]) -> None:
+    """Register the shared runtime for all installed IFEval Variants."""
 
     node.data(CASES_ROUTE, _cases(root), media_type="application/json")
     node.endpoint(CHECK_ROUTE)(_check(root))
     node.endpoint(AGGREGATE_ROUTE)(_aggregate(root))
-    node.endpoint(SELF_AGGREGATE_ROUTE)(_aggregate_corrective(root, SELF_CORRECTIVE_ID))
-    node.endpoint(ENSEMBLE_AGGREGATE_ROUTE)(_aggregate_corrective(root, VERIFYING_ENSEMBLE_ID))
+    node.endpoint(SELF_AGGREGATE_ROUTE)(
+        _aggregate_corrective(root, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
+    )
+    node.endpoint(ENSEMBLE_AGGREGATE_ROUTE)(
+        _aggregate_corrective(root, VERIFYING_ENSEMBLE_ID, VERIFYING_ENSEMBLE_REVISION)
+    )
     node.endpoint(SELECT_ROUTE)(_select)
-    node.endpoint(VALIDATE_MEMBERS_ROUTE)(_validate_members)
+    node.endpoint(RESOLVE_CANDIDATE_ROUTE)(_resolve_candidate(model_routes))
     node.endpoint(MEMBER_RECORD_ROUTE)(_member_record)
     node.endpoint(MEMBER_ANSWER_ROUTE)(_member_answer)
 
@@ -62,7 +73,8 @@ def _check(root: Path):
             return _feedback(request.context)
         try:
             case_id, attempt = _case_and_attempt(request.intent)
-            spec, result, violations = _verification(root, case_id, request.context)
+            answer, finish_reason = decode_candidate_invocation(request.context)
+            spec, result, violations = _verification(root, case_id, answer)
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
         record = {
@@ -70,7 +82,14 @@ def _check(root: Path):
             "case_id": case_id,
             "attempt": attempt,
             "valid": True,
+            "answer": answer,
+            "finish_reason": finish_reason,
             "instruction_id_list": spec["instruction_id_list"],
+            "descriptions": grading.describe_instructions(
+                instruction_id_list=spec["instruction_id_list"],
+                kwargs_list=spec["kwargs"],
+                prompt=spec["prompt"],
+            ),
             "strict": result["strict"],
             "loose": result["loose"],
             # Keep this record flat: Aggregation deliberately harvests flat records.
@@ -141,7 +160,7 @@ def _aggregate(root: Path):
     return aggregate
 
 
-def _aggregate_corrective(root: Path, benchmark_id: str):
+def _aggregate_corrective(root: Path, benchmark_id: str, benchmark_revision: str):
     def aggregate(request: Request) -> str:
         if request.intent != "aggregate":
             raise _unsupported("IFEval corrective aggregation", request.intent)
@@ -150,6 +169,7 @@ def _aggregate_corrective(root: Path, benchmark_id: str):
                 request.context,
                 scoring.load_specs(root / "instructions"),
                 benchmark_id,
+                benchmark_revision,
                 max_attempts=MAX_ATTEMPTS,
             )
         except (OSError, ValueError) as exc:
@@ -178,60 +198,122 @@ def _select(request: Request) -> str:
 
     raw_members = _json_array(request.context, "selection members")
     members = [_member(value, index) for index, value in enumerate(raw_members)]
-    answers = [(member["key"], member["answer"]) for member in members]
-    if not MIN_MEMBERS <= len(answers) <= MAX_MEMBERS:
+    attempts = [_attempt_member(member, index) for index, member in enumerate(members)]
+    if not MIN_MEMBERS <= len(attempts) <= MAX_MEMBERS:
         raise _unavailable(
             f"selection input must carry {MIN_MEMBERS}..{MAX_MEMBERS} member answers"
         )
-    selected = {letter.upper(): answer for letter, answer in answers}
-    passers = [member["key"].lower() for member in members if member["feedback"] == "PASSED"]
+    selected = {member["key"].upper(): member for member in attempts}
+    passers = [member["key"].lower() for member in attempts if member["feedback"] == "PASSED"]
     pick = _judge_letter(request.intent, selected)
     if passers:
         judged = pick if pick is not None and pick.lower() in passers else passers[0].upper()
-        return selected[judged]
-    return selected[pick] if pick is not None else answers[0][1]
+        chosen = selected[judged]
+    else:
+        chosen = selected[pick] if pick is not None else attempts[0]
+    return encode_candidate_invocation(chosen["answer"], chosen["finish_reason"])
 
 
-def _validate_members(request: Request) -> str:
-    """Validate the entire bound member interface before the first paid invocation."""
+def _resolve_candidate(model_routes: frozenset[str]):
+    """Validate raw Fusion bindings against this Runner's declared Model routes."""
 
-    if not request.intent.startswith("validate-"):
-        raise _unsupported("IFEval member validation", request.intent)
-    value = _bound_members(request)
-    return _json(_validated_members(value))
+    def resolve_candidate(request: Request) -> str:
+        value = _bound_members(request, model_routes)
+        return _json(_resolved_members(value, model_routes))
+
+    return resolve_candidate
 
 
-def _bound_members(request: Request) -> list[object]:
+def _bound_members(request: Request, model_routes: frozenset[str]) -> dict[str, object]:
+    _direct_model_expression(request.intent, "Candidate synthesizer", model_routes)
     try:
         decoded = json.loads(request.context or "")
     except ValueError as exc:
-        raise _unavailable(f"Candidate members at {request.intent} must be JSON: {exc}") from exc
-    if isinstance(decoded, dict):
-        decoded = _decode_member_binding(decoded.get("encoded"), request.intent)
-    return _json_array(decoded, "Candidate members")
+        raise _candidate_invalid(f"Candidate member bindings must be a URL4 struct: {exc}") from exc
+    if not isinstance(decoded, dict):
+        raise _candidate_invalid("Candidate member bindings must be a URL4 struct")
+    return decoded
 
 
-def _decode_member_binding(value: object, intent: str) -> object:
-    if not isinstance(value, str) or not value:
-        raise _unavailable("Candidate member binding must carry encoded text")
-    try:
-        return json.loads(base64.b64decode(value, altchars=b"-_", validate=True))
-    except ValueError as exc:
-        raise _unavailable(f"Candidate member binding at {intent} is invalid: {exc}") from exc
-
-
-def _validated_members(value: list[object]) -> list[dict[str, str]]:
+def _resolved_members(
+    value: dict[str, object], model_routes: frozenset[str]
+) -> list[dict[str, str]]:
     if not MIN_MEMBERS <= len(value) <= MAX_MEMBERS:
-        raise _unavailable(
+        raise _candidate_invalid(
             f"verifying-ensemble requires {MIN_MEMBERS}..{MAX_MEMBERS} direct Model members"
         )
-    members = [_member(item, index) for index, item in enumerate(value)]
-    expected = tuple(MEMBER_LETTERS[: len(members)].upper())
-    if tuple(member["key"] for member in members) != expected:
-        raise _unavailable("Candidate member keys must be the ordered letters A through D")
-    if any(member["kind"] != "model" for member in members):
-        raise _unavailable("verifying-ensemble requires every direct member to be a Model")
-    return members
+    expected = tuple(f"member_{index}" for index in range(1, len(value) + 1))
+    if tuple(value) != expected:
+        raise _candidate_invalid(
+            "Candidate member fields must be ordered member_1 through member_4"
+        )
+    return [
+        _resolved_member(value[field], index, model_routes) for index, field in enumerate(expected)
+    ]
+
+
+def _resolved_member(value: object, index: int, model_routes: frozenset[str]) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != {"name", "url4"}:
+        raise _candidate_invalid(
+            f"Candidate member {index + 1} must contain exactly name and url4 fields"
+        )
+    name = value["name"]
+    if not isinstance(name, str) or not name.strip():
+        raise _candidate_invalid(f"Candidate member {index + 1} name must be non-blank text")
+    expression = _direct_model_expression(
+        value["url4"], f"Candidate member {index + 1}", model_routes
+    )
+    return {
+        "key": MEMBER_LETTERS[index].upper(),
+        "name": name.strip(),
+        "kind": "model",
+        "expression": expression,
+    }
+
+
+def _direct_model_expression(
+    value: object,
+    label: str,
+    model_routes: frozenset[str],
+) -> str:
+    """Return canonical URL4 only when `value` is one input-consuming model call."""
+
+    if not isinstance(value, str) or not value.strip() or value.lstrip().startswith("$"):
+        raise _candidate_invalid(f"{label} must be one direct Model URL4 expression")
+    try:
+        parsed = build(value)
+    except ParseError as exc:
+        raise _candidate_invalid(f"{label} URL4 is invalid: {exc}") from exc
+    if not isinstance(parsed, Expression):
+        raise _candidate_invalid(f"{label} must be one direct Model URL4 expression")
+    call = _direct_model_call(parsed, label)
+    if call.path not in model_routes:
+        raise _candidate_invalid(f"{label} must call a declared Model route; got {call.path!r}")
+    if call.context != "$input":
+        raise _candidate_invalid(f"{label} must consume the Candidate $input binding")
+    try:
+        return render(parsed.sources[0] if parsed.intent is None else parsed)
+    except RenderError as exc:  # pragma: no cover - build already seals supported shapes
+        raise _candidate_invalid(f"{label} URL4 is invalid: {exc}") from exc
+
+
+def _direct_model_call(parsed: Expression, label: str) -> RelExpr:
+    if len(parsed.sources) != 1:
+        raise _candidate_invalid(f"{label} must be one direct Model URL4 expression")
+    source = parsed.sources[0]
+    if isinstance(source, RelExpr) and parsed.intent is None:
+        call = source
+    elif (
+        isinstance(source, Source)
+        and isinstance(source.value, RelExpr)
+        and source.name is not None
+        and isinstance(parsed.intent, Text)
+        and parsed.intent.value == f"${source.name}"
+    ):
+        call = source.value
+    else:
+        raise _candidate_invalid(f"{label} must be one direct Model URL4 expression")
+    return call
 
 
 def _json_array(value: object, label: str) -> list[object]:
@@ -252,7 +334,7 @@ def _member_record(request: Request) -> str:
 
     if request.intent != "record":
         raise _unsupported("IFEval member record", request.intent)
-    return _json(_member(_json_payload(request.context, "member record"), 0))
+    return _json(_attempt_member(_json_payload(request.context, "member record"), 0))
 
 
 def _member_answer(request: Request) -> str:
@@ -264,20 +346,32 @@ def _member_answer(request: Request) -> str:
     ]
     for member in members:
         if member["key"] == request.intent:
-            return member.get("answer", "")
+            return _attempt_member(member, 0)["answer"]
     raise _unavailable(f"Candidate member round has no key {request.intent!r}")
 
 
-def _member(value: object, index: int) -> dict[str, str]:
+def _member(value: object, index: int) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _unavailable(f"Candidate member {index + 1} must be an object")
-    required = ("key", "name", "kind", "expression")
+    selected: dict[str, Any] = _required_member_fields(value, index)
+    selected.update(_optional_member_text(value, index))
+    if "finish_reason" in value:
+        selected["finish_reason"] = _finish_reason(value["finish_reason"], index)
+    return selected
+
+
+def _required_member_fields(value: dict[Any, Any], index: int) -> dict[str, str]:
     selected: dict[str, str] = {}
-    for name in required:
+    for name in ("key", "name", "kind", "expression"):
         field = value.get(name)
         if not isinstance(field, str) or not field.strip():
             raise _unavailable(f"Candidate member {index + 1} {name} must be non-blank text")
         selected[name] = field.strip()
+    return selected
+
+
+def _optional_member_text(value: dict[Any, Any], index: int) -> dict[str, str]:
+    selected: dict[str, str] = {}
     for name in ("answer", "feedback"):
         field = value.get(name)
         if field is not None:
@@ -287,7 +381,27 @@ def _member(value: object, index: int) -> dict[str, str]:
     return selected
 
 
-def _judge_letter(reply: object, selected: dict[str, str]) -> str | None:
+def _finish_reason(value: object, index: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise _unavailable(
+            f"Candidate member {index + 1} finish_reason must be non-blank text or null"
+        )
+    return value
+
+
+def _attempt_member(value: object, index: int) -> dict[str, Any]:
+    """Require the complete output contract for one checked member attempt."""
+
+    member = _member(value, index)
+    for name in ("answer", "feedback", "finish_reason"):
+        if name not in member:
+            raise _unavailable(f"Candidate member {index + 1} has no {name}")
+    return member
+
+
+def _judge_letter(reply: object, selected: Mapping[str, object]) -> str | None:
     """Accept only an unambiguous single-letter judge reply; prose gets no vote.
 
     A letter names a member answer (``a`` = member 1's answer, ``b`` = member 2's,
@@ -320,9 +434,11 @@ def _case_and_attempt(value: str) -> tuple[int, int]:
 
 
 def _positive_int(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError(f"IFEval {label} must be an integer, got {value!r}")
     try:
-        selected = int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+        selected = int(value)
+    except ValueError:
         raise ValueError(f"IFEval {label} must be an integer, got {value!r}") from None
     if selected < 1:
         raise ValueError(f"IFEval {label} must be positive, got {selected}")
@@ -350,6 +466,10 @@ def _read(path: Path, label: str) -> str:
 
 def _unavailable(detail: str) -> ResolutionError:
     return ResolutionError(detail, code="benchmark_unavailable", permanent=True)
+
+
+def _candidate_invalid(detail: str) -> ResolutionError:
+    return ResolutionError(detail, code="benchmark_candidate_invalid", permanent=True)
 
 
 __all__ = ["install"]

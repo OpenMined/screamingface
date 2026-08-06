@@ -4,13 +4,12 @@
   violations, the Candidate AUTHORS ITS OWN feedback and retries — the {solo + loop}
   ablation that Skurikhin et al., "Beyond Leaderboards: Tokenomics of Agentic Small
   Language Model Ensembles" (LANL, https://openreview.net/forum?id=XSIYfTm2h7), never ran.
-- verifying-ensemble (2..4 direct Model members): Skurikhin et al.'s ensemble. Every member
-  draft is checked individually; the Candidate's SYNTHESIZER acts as JUDGE — it authors
-  the corrective feedback when nobody passes and tie-breaks among passers otherwise. The
-  selection is a member's answer VERBATIM (deterministic select route), so the judge can
-  never break a constraint a member satisfied. The judge belongs to the system under
-  test, as in the source study — its [Ens-1] and [Ens-2] configurations share members
-  and differ only in the judge model.
+- verifying-ensemble (2..4 direct Model members): an OpenMined variant inspired by
+  Skurikhin et al.'s ensemble. Every member draft is checked individually; the Candidate's
+  SYNTHESIZER acts as JUDGE — it authors corrective feedback and tie-breaks among passers.
+  The selection is a member's answer VERBATIM (deterministic select route), so the judge can
+  never break a constraint a member satisfied. Unlike the source study's conditional loop,
+  this URL4 executes all three attempts and Judge steps unconditionally.
 
 Both Variants emit one attempt-tagged selection/check record per attempt and share the
 same earliest-strict-pass Aggregation implementation. They remain separately identified
@@ -19,97 +18,36 @@ because the LANL paper did not run the self-corrective ablation.
 
 from __future__ import annotations
 
-import hashlib
-
-from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
+from url4 import Node, RelExpr, Text, expr, iterate, ref, render, src, struct
 from url4_cloud.benchmarks.definition import Benchmark, candidate
+from url4_cloud.benchmarks.ifeval.corrective_policy import (
+    ENSEMBLE_AGGREGATE_ROUTE,
+    JUDGE_FEEDBACK_INSTRUCTION,
+    JUDGE_PICK_INSTRUCTION,
+    MAX_ATTEMPTS,
+    MAX_MEMBERS,
+    MEMBER_ANSWER_ROUTE,
+    MEMBER_LETTERS,
+    MEMBER_RECORD_ROUTE,
+    MIN_MEMBERS,
+    PROSE_CONSTANTS,
+    RESOLVE_CANDIDATE_ROUTE,
+    RETRY_INSTRUCTION,
+    SELECT_ROUTE,
+    SELF_AGGREGATE_ROUTE,
+    SELF_CORRECTIVE_ID,
+    SELF_CORRECTIVE_REVISION,
+    SELF_FEEDBACK_INSTRUCTION,
+    SYNTHESIZER_BINDING,
+    VERIFYING_ENSEMBLE_ID,
+    VERIFYING_ENSEMBLE_REVISION,
+)
 from url4_cloud.benchmarks.ifeval.definition import (
     CASE_COUNT,
     CASES_ROUTE,
     CHECK_ROUTE,
-    IFEVAL,
-    install_family,
+    install_ifeval,
 )
-from url4_cloud.benchmarks.ifeval.definition import (
-    REVISION as IFEVAL_REVISION,
-)
-
-MAX_ATTEMPTS = 3
-MIN_MEMBERS = 2
-MAX_MEMBERS = 4
-MEMBER_LETTERS = "abcd"
-SELF_CORRECTIVE_ID = "ifeval/self-corrective"
-VERIFYING_ENSEMBLE_ID = "ifeval/verifying-ensemble"
-SELF_PROTOCOL_REVISION = "self-corrective-three-attempt-v1"
-ENSEMBLE_PROTOCOL_REVISION = "lanl-verifying-ensemble-v1"
-
-RETRY_INSTRUCTION = (
-    "Write a new answer to the original request. Correct every requirement named in the "
-    "feedback and return only the new answer."
-)
-SELF_FEEDBACK_INSTRUCTION = (
-    "Write short concrete feedback telling yourself how to fix every failed requirement "
-    "named in the verification feedback. Do not write a new answer."
-)
-JUDGE_FEEDBACK_INSTRUCTION = (
-    "You are the judge for a team of answer writers. Their answers failed the listed "
-    "requirements. Write short concrete corrective feedback that tells the writers how "
-    "to satisfy every failed requirement. Do not write an answer yourself."
-)
-JUDGE_PICK_INSTRUCTION = (
-    "Pick the best candidate answer for the request. Prefer candidates whose verdict is "
-    "PASSED. Reply with exactly one letter naming your pick and nothing else."
-)
-
-# INVARIANT: URL4 context prose ships unescaped — a single quote corrupts the rendered
-# expression's re-parse (checks run with raw $refs and sibling sources drop) and a
-# top-level comma splits the context into slots. Proven by DAG repro (edge_probe5,
-# 2026-08-03). AIDEV-NOTE: enforced by
-# test_ifeval_iterative_correction.py::test_prose_constants_stay_quote_and_comma_free —
-# keep every fixed prose constant free of both when editing.
-PROSE_CONSTANTS = (
-    RETRY_INSTRUCTION,
-    SELF_FEEDBACK_INSTRUCTION,
-    JUDGE_FEEDBACK_INSTRUCTION,
-    JUDGE_PICK_INSTRUCTION,
-)
-
-# WHY every prose constant and shape bound is a hash input: they define a protocol.
-# Changing any of them changes what a score means, so it changes that Variant's identity.
-SELF_CORRECTIVE_REVISION = hashlib.sha256(
-    "\n".join(
-        (
-            IFEVAL_REVISION,
-            SELF_PROTOCOL_REVISION,
-            str(MAX_ATTEMPTS),
-            RETRY_INSTRUCTION,
-            SELF_FEEDBACK_INSTRUCTION,
-        )
-    ).encode()
-).hexdigest()[:16]
-VERIFYING_ENSEMBLE_REVISION = hashlib.sha256(
-    "\n".join(
-        (
-            IFEVAL_REVISION,
-            ENSEMBLE_PROTOCOL_REVISION,
-            str(MAX_ATTEMPTS),
-            str(MIN_MEMBERS),
-            str(MAX_MEMBERS),
-            RETRY_INSTRUCTION,
-            JUDGE_FEEDBACK_INSTRUCTION,
-            JUDGE_PICK_INSTRUCTION,
-        )
-    ).encode()
-).hexdigest()[:16]
-SELF_ROUTE_PREFIX = f"/benchmarks/ifeval/self-corrective/{SELF_CORRECTIVE_REVISION}"
-ENSEMBLE_ROUTE_PREFIX = f"/benchmarks/ifeval/verifying-ensemble/{VERIFYING_ENSEMBLE_REVISION}"
-SELF_AGGREGATE_ROUTE = f"{SELF_ROUTE_PREFIX}/aggregate"
-ENSEMBLE_AGGREGATE_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/aggregate"
-SELECT_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/select"
-VALIDATE_MEMBERS_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/validate-members"
-MEMBER_RECORD_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/member-record"
-MEMBER_ANSWER_ROUTE = f"{ENSEMBLE_ROUTE_PREFIX}/member-answer"
-SYNTHESIZER_BINDING = "$candidate_synthesizer"
 
 
 def _solo_attempt_input(attempt: int) -> str:
@@ -118,8 +56,8 @@ def _solo_attempt_input(attempt: int) -> str:
     previous = attempt - 1
     return (
         "$item.input"
-        f" | Previous answer: $answer_{previous}"
-        f" | Feedback: $self_feedback_{previous}"
+        f" | Previous answer: $check_{previous}.answer"
+        f" | Feedback: $self_feedback_{previous}.output"
         f" | {RETRY_INSTRUCTION}"
     )
 
@@ -168,7 +106,7 @@ def _build_solo(case_count: int) -> Node:
                 src(
                     candidate(
                         "$item.input"
-                        f" | Your answer: $answer_{attempt}"
+                        f" | Your answer: $check_{attempt}.answer"
                         f" | Verification feedback: $feedback_{attempt}"
                         f" | {SELF_FEEDBACK_INSTRUCTION}",
                         web_search=False,
@@ -186,7 +124,7 @@ def _member_attempt_input(attempt: int) -> str:
     return (
         "$question"
         f" | Your previous answer: $previous_answer_{attempt}"
-        f" | Judge feedback: $judge_feedback_{attempt - 1}"
+        f" | Judge feedback: $judge_feedback_{attempt - 1}.output"
         f" | {RETRY_INSTRUCTION}"
     )
 
@@ -245,7 +183,8 @@ def _member_round(collection: Node, attempt: int) -> Node:
                             "name": "$item.name",
                             "kind": "$item.kind",
                             "expression": "$item.expression",
-                            "answer": f"${answer}",
+                            "answer": f"${check}.answer",
+                            "finish_reason": f"${check}.finish_reason",
                             "feedback": f"${feedback}",
                         }
                     ),
@@ -266,7 +205,7 @@ def _member_round(collection: Node, attempt: int) -> Node:
 
 
 def _build_members(case_count: int) -> Node:
-    """Build one member-count-independent LANL verifying-ensemble expression."""
+    """Build one member-count-independent verifying-ensemble expression."""
 
     # FOLLOW-UP(khoa): This architecture refactor intentionally preserves the current
     # three-round implementation. If we later align its control flow more closely with
@@ -276,6 +215,15 @@ def _build_members(case_count: int) -> Node:
     # no member passes. Confirm the authors' prompts and all-fail behavior before calling
     # that implementation an exact reproduction.
 
+    resolution = RelExpr(
+        path=RESOLVE_CANDIDATE_ROUTE,
+        context="$candidate_members",
+        intent=Text(SYNTHESIZER_BINDING),
+    )
+    # INVARIANT: the SDK supplies an ordinary URL4 struct whose fields reference ordinary
+    # `candidate_member_N` bindings. Resolution validates and canonicalizes those expressions
+    # once before any row can invoke a member; it never chooses or defaults a Judge.
+    members = src(resolution, name="members", weight=0.0)
     sources = [
         src("$item.input", name="question", weight=0.0),
         src("$item.id", name="case_id", weight=0.0),
@@ -285,11 +233,7 @@ def _build_members(case_count: int) -> Node:
         sources.append(
             src(
                 _member_round(
-                    RelExpr(
-                        path=VALIDATE_MEMBERS_ROUTE,
-                        context=_endpoint_payload({"encoded": "$candidate_members"}),
-                        intent=Text(f"validate-{attempt}"),
-                    ),
+                    ref("members"),
                     attempt,
                 ),
                 name=round_name,
@@ -311,7 +255,7 @@ def _build_members(case_count: int) -> Node:
                     RelExpr(
                         path=SELECT_ROUTE,
                         context=f"${round_name}",
-                        intent=Text(f"$judge_pick_{attempt}"),
+                        intent=Text(f"$judge_pick_{attempt}.output"),
                     ),
                     name=f"selection_{attempt}",
                     weight=0.0,
@@ -344,6 +288,7 @@ def _build_members(case_count: int) -> Node:
         case_count,
         aggregate_route=ENSEMBLE_AGGREGATE_ROUTE,
         selection_records=True,
+        row_bindings=(members,),
     )
 
 
@@ -373,6 +318,7 @@ def _rows(
     *,
     aggregate_route: str,
     selection_records: bool = False,
+    row_bindings: tuple[Node, ...] = (),
 ) -> Node:
     # INVARIANT: both shapes emit exactly one attempt-tagged check record per attempt
     # (solo: the answer's check; ensemble: the selection's check), so ONE aggregation
@@ -389,7 +335,11 @@ def _rows(
         slice=None if case_count == CASE_COUNT else (0, case_count),
         on_error="collect",
     )
-    row_set = expr(src(rows, name="selected_rows", weight=0.0), intent=Text("$selected_rows"))
+    row_set = expr(
+        *row_bindings,
+        src(rows, name="selected_rows", weight=0.0),
+        intent=Text("$selected_rows"),
+    )
     return expr(
         src(row_set, name="rows", weight=0.0),
         src(
@@ -411,7 +361,6 @@ def _endpoint_payload(value: dict[str, object]) -> str:
 
 IFEVAL_SELF_CORRECTIVE = Benchmark(
     id=SELF_CORRECTIVE_ID,
-    family=IFEVAL.family,
     variant="self-corrective",
     title="IFEval Self-corrective",
     description=(
@@ -421,26 +370,24 @@ IFEVAL_SELF_CORRECTIVE = Benchmark(
     ),
     revision=SELF_CORRECTIVE_REVISION,
     case_count=CASE_COUNT,
-    required_models=(),
     build=_build_solo,
-    install=install_family,
+    install=install_ifeval,
 )
 
 IFEVAL_VERIFYING_ENSEMBLE = Benchmark(
     id=VERIFYING_ENSEMBLE_ID,
-    family=IFEVAL.family,
     variant="verifying-ensemble",
     title="IFEval Verifying Ensemble",
     description=(
-        "The LANL iterative-correction protocol: every direct Fusion member is checked "
-        "and retried independently while the Fusion synthesizer tie-breaks compliant "
-        "answers and authors corrective feedback. Selected answers remain verbatim."
+        "An OpenMined verifying-ensemble variant inspired by Skurikhin et al.: two to four "
+        "direct Fusion members are checked and retried independently while the explicit "
+        "Fusion synthesizer selects answers and authors corrective feedback. Selected answers "
+        "remain verbatim, and all three attempts execute unconditionally."
     ),
     revision=VERIFYING_ENSEMBLE_REVISION,
     case_count=CASE_COUNT,
-    required_models=(),
     build=_build_members,
-    install=install_family,
+    install=install_ifeval,
 )
 
 __all__ = [

@@ -81,6 +81,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az acr login --name acropenmined
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -93,6 +99,9 @@ jobs:
           # image can never be mistaken for a full one.
           build-args: |
             BASE=ghcr.io/openmined/screamingface-url4-cloud:main-${{ needs.image.outputs.short }}
-          tags: ghcr.io/openmined/screamingface-url4-cloud-benchmark:main-${{ needs.image.outputs.short }}
+          tags: |
+            ghcr.io/openmined/screamingface-url4-cloud-benchmark:main-${{ needs.image.outputs.short }}
+            acropenmined.azurecr.io/screamingface-url4-cloud-benchmark:main-${{ needs.image.outputs.short }}
+            acropenmined.azurecr.io/screamingface-url4-cloud-benchmark:main-${{ github.sha }}
           cache-from: type=gha,scope=dev-url4-cloud-benchmark
           cache-to: type=gha,scope=dev-url4-cloud-benchmark,mode=max
