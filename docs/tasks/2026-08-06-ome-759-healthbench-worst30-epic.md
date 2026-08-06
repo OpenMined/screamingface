@@ -12,7 +12,8 @@ closed:
 # OME-759 — Ship the HealthBench worst-30% challenge exam on the SF engine
 
 Epic. HealthBench onto the engine as `healthbench-worst30`: 157 hardest Professional
-rows, per-item GPT-5.4 judging (house-paid), unclipped-mean challenge metric, target =
+rows, per-item GPT-5.4 judging (billed to the submitter's OpenRouter key, judge
+included), unclipped-mean challenge metric, target =
 our open-fusion baseline rerun on the engine. Built against
 `integration/keelan-all-changes-20260806` (Keelan's ask — its client→benchmark flow is
 the client-v1 freeze).
