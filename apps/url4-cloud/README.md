@@ -147,3 +147,39 @@ caller's identity and aigateway decides, including whether an absent identity is
   `config.aigatewayBaseUrl`. Unset ⇒ the endpoint answers `503`; everything else is a code default
   (see the `models_cache_*` fields in `config.py`).
 - Cache behaviour is observable at `/metrics` (`url4_cloud_catalog_*`).
+
+## Provider connections — `/v1/connections`
+
+The ScreamingFace Client connects provider credentials through the Engine:
+
+```text
+GET    /v1/connections
+PUT    /v1/connections/{provider}
+POST   /v1/connections/{provider}/oauth
+DELETE /v1/connections/{provider}
+```
+
+The list is derived from AI Gateway's enabled provider plugins and advertises each provider's
+supported authentication methods. `PUT` accepts `{"api_key": "..."}` for a provider that
+supports API-key authentication; the Engine forwards the key and never persists or echoes it.
+`POST .../oauth` starts OAuth only when the provider advertises that method and returns a
+sanitized authorization URL and bounded lifetime. Provider-specific URLs, scopes, callback paths,
+and token exchange remain owned by AI Gateway.
+
+The label `screamingface` is the explicit inter-service designation for the row this Engine
+manages. A row assigned that label through another Gateway surface is intentionally opted into
+Engine management; creator identity is not inferred. Rows under every other label are never
+adopted, replaced, reported, or deleted. API-key `PUT` creates the designated row when absent and
+replaces its key only when it already uses API-key authentication. Changing authentication methods
+requires an explicit disconnect, so setup never destroys a working connection as a side effect.
+
+In a deployed App these routes return `503` when `URL4_CLOUD_AIGATEWAY_BASE_URL` is unset. Local
+mode uses `http://127.0.0.1:9105` for connection operations unless explicitly overridden; this does
+not change the existing local model-catalog configuration.
+
+Responses contain only the public provider name, supported methods, status, authentication method,
+and optional account label. AI Gateway account identifiers, credential locators, OAuth state, and
+upstream error bodies never cross this boundary. The Engine forwards only the verified
+`X-User-Email` identity; it does not forward `Authorization`. OAuth state is returned only as part
+of the provider-generated authorization URL, never as a separate response field. All successful
+connection responses are private and non-cacheable and vary by the verified identity header.
