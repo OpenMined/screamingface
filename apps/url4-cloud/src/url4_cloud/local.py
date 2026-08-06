@@ -32,10 +32,7 @@ from url4_cloud import job_env
 from url4_cloud.adapters.inprocess import InProcessJobRunner
 from url4_cloud.adapters.memory import InMemoryEventStream
 from url4_cloud.app import create_app
-from url4_cloud.catalog import (
-    build_executable_catalog_service,
-    build_executable_model_details_source,
-)
+from url4_cloud.catalog import build_executable_catalog_service
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
 from url4_cloud.model_routes import declared_model_ids
@@ -129,21 +126,18 @@ def create_local_app(
     )
     model_ids = declared_model_ids(run_env)
     catalog = build_executable_catalog_service(settings, model_ids)
-    model_details = build_executable_model_details_source(settings, model_ids)
     connections = build_connections(settings)
     app = create_app(
         settings,
         stream=stream,
         job_runner=job_runner,
         catalog=catalog,
-        model_details=model_details,
+        model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
     )
     app.router.on_shutdown.append(job_runner.aclose)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
-    if model_details is not None:
-        app.router.on_shutdown.append(model_details.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
     return app

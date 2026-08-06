@@ -1,9 +1,9 @@
 ---
 ticket: OME-745
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-08-04
-finished:
+finished: 2026-08-05
 ---
 
 # OME-745 — capture finish_reason / refusal and classify a refused turn
@@ -79,6 +79,13 @@ Failing tests first:
 
 ## Outcome
 
+- **Merged:** `3a6e4ad3` + `27b274db` + `e015be7f` squash-merged as `b594d6fc` (#506), remote CI
+  **23/23 pass**. This completes OME-679's main-landable half: `finish_reason` and the provider
+  `refusal` field now survive from aigateway through the url4 boundary onto the wire frame, and a
+  refused turn is a typed `provider_refusal` failure rather than a generic malformed-response
+  error. The remaining hop — turning that into a refusal-kind failure excluded from the scored
+  denominator, plus the refusal-rate headline — is `OME-680`, blocked on the
+  `packages/screamingface` SDK drafts landing.
 - **Actual files:**
 
   | File | Planned? | What |

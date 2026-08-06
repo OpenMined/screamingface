@@ -14,7 +14,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      # release-please bumps `version` in pyproject.toml and stops there, but every uv.lock
+      # records that same version — so the release PR it just opened already fails
+      # `uv lock --check`. The steps below re-lock the branch before anyone looks at it.
+      # See .github/scripts/sync_release_locks.py for the full why.
+      - uses: astral-sh/setup-uv@v7
+        if: steps.release.outputs.prs_created == 'true'
+
+      - uses: actions/checkout@v7
+        if: steps.release.outputs.prs_created == 'true'
+        with:
+          # RELEASE_PAT, not GITHUB_TOKEN: a GITHUB_TOKEN push raises no workflow events, so
+          # the release PR would keep the red check it was opened with. No `||` fallback here
+          # — a push that cannot retrigger the checks defeats the point of the step.
+          token: ${{ secrets.RELEASE_PAT }}
+          # The release branches were created moments ago by the step above; the script
+          # fetches each one, and full history keeps that fetch and the push off the
+          # shallow-clone paths.
+          fetch-depth: 0
+
+      # SECURITY: the release-please payload reaches the script through the environment,
+      # never interpolated into this shell context, and the script hands branch names to git
+      # as argv with no shell in between.
+      - name: Sync the uv lockfiles on each release branch
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          RELEASE_PRS: ${{ steps.release.outputs.prs }}
+        run: python3 .github/scripts/sync_release_locks.py

@@ -1,8 +1,8 @@
 """The FastAPI composition root for the url4-cloud App.
 
-Builds the App instance: wires the REST, catalog, WS, and ops routers, installs auth/problem
-handlers and the metrics middleware, and assembles the injectable adapters (event stream, job
-runner, catalog service) that tests substitute for the production ones built here from `Settings`.
+Builds the App instance: wires the REST, model discovery, WS, and ops routers, installs
+auth/problem handlers and the metrics middleware, and assembles the injectable adapters that
+tests substitute for the production ones built here from `Settings`.
 """
 
 from __future__ import annotations
@@ -17,12 +17,9 @@ from fastapi.staticfiles import StaticFiles
 from url4.streaming.interfaces import EventConsumer, JobRunner
 from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.auth import Clock, install_problem_handlers
-from url4_cloud.catalog import (
-    build_executable_catalog_service,
-    build_executable_model_details_source,
-)
+from url4_cloud.catalog import build_executable_catalog_service
 from url4_cloud.catalog.cache import CatalogService
-from url4_cloud.catalog.port import ModelDetailsSource
+from url4_cloud.catalog.port import ModelParameterSource
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
 from url4_cloud.connections.port import Connections
@@ -53,7 +50,7 @@ def create_app(
     clock: Clock | None = None,
     interest: SubscriberGate | None = None,
     catalog: CatalogService | None = None,
-    model_details: ModelDetailsSource | None = None,
+    model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
 ) -> FastAPI:
     """Build the App instance.
@@ -66,7 +63,7 @@ def create_app(
     app.state.settings = settings
     app.state.stream = stream
     app.state.job_runner = job_runner
-    app.state.catalog, app.state.model_details = catalog, model_details
+    app.state.catalog, app.state.model_parameters = catalog, model_parameters
     app.state.connections = connections
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
@@ -132,21 +129,18 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         )
     model_ids = declared_model_ids(os.environ)
     catalog = build_executable_catalog_service(settings, model_ids)
-    model_details = build_executable_model_details_source(settings, model_ids)
     connections = build_connections(settings)
     app = create_app(
         settings,
         stream=stream,
         job_runner=job_runner,
         catalog=catalog,
-        model_details=model_details,
+        model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
     )
     app.router.on_shutdown.append(stream.close)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
-    if model_details is not None:
-        app.router.on_shutdown.append(model_details.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
     return app

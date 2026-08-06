@@ -13,12 +13,12 @@ import pytest
 from httpx import ASGITransport
 
 from url4_cloud.app import create_app
-from url4_cloud.catalog.executable import ExecutableCatalog, ExecutableModelDetailsSource
+from url4_cloud.catalog.executable import ExecutableCatalog, ExecutableModelParameterSource
 from url4_cloud.catalog.port import (
     CatalogBadResponse,
     Credential,
     ModelCatalog,
-    ModelDetails,
+    ModelParameterResponse,
     compute_etag,
 )
 from url4_cloud.config import Settings
@@ -62,9 +62,13 @@ class _GatewayDetails:
     def __init__(self) -> None:
         self.seen: list[str] = []
 
-    async def fetch_details(self, model: str, credential: Credential) -> ModelDetails:
+    async def fetch_model_parameters(
+        self,
+        credential: Credential,
+        model: str,
+    ) -> ModelParameterResponse:
         self.seen.append(model)
-        return ModelDetails(body={"model": {"id": model}})
+        return ModelParameterResponse(status=200, body={"model": {"id": model}})
 
     async def aclose(self) -> None:
         pass
@@ -75,8 +79,8 @@ def _app(details: _GatewayDetails | None = None):
         Settings(jwt_secret="executable-catalog-secret"),
         stream=InMemoryEventStream(),
         catalog=ExecutableCatalog(_GatewayCatalog(), frozenset({_DECLARED})),
-        model_details=(
-            ExecutableModelDetailsSource(details, frozenset({_DECLARED}))
+        model_parameters=(
+            ExecutableModelParameterSource(details, frozenset({_DECLARED}))
             if details is not None
             else None
         ),

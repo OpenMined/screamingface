@@ -10,9 +10,9 @@ from url4_cloud.catalog.port import (
     CatalogBadResponse,
     Credential,
     ModelCatalog,
-    ModelDetails,
-    ModelDetailsNotInstalled,
-    ModelDetailsSource,
+    ModelNotInstalled,
+    ModelParameterResponse,
+    ModelParameterSource,
     compute_etag,
 )
 
@@ -60,21 +60,31 @@ class ExecutableCatalog:
         if close is not None:
             await close()
 
+    @property
+    def model_parameter_source(self) -> ModelParameterSource | None:
+        """The uncached Gateway detail source, guarded by this same executable route set."""
 
-class ExecutableModelDetailsSource:
-    """Reject model-detail lookups outside the same declared execution world."""
+        source = getattr(self._source, "model_parameter_source", None)
+        if source is None:
+            return None
+        return ExecutableModelParameterSource(source, self._model_ids)
 
-    def __init__(self, source: ModelDetailsSource, model_ids: frozenset[str]) -> None:
+
+class ExecutableModelParameterSource:
+    """Reject model-parameter lookups outside the same declared execution world."""
+
+    def __init__(self, source: ModelParameterSource, model_ids: frozenset[str]) -> None:
         self._source = source
         self._model_ids = model_ids
 
-    async def fetch_details(self, model: str, credential: Credential) -> ModelDetails:
+    async def fetch_model_parameters(
+        self,
+        credential: Credential,
+        model: str,
+    ) -> ModelParameterResponse:
         if model not in self._model_ids:
-            raise ModelDetailsNotInstalled(model)
-        return await self._source.fetch_details(model, credential)
-
-    async def aclose(self) -> None:
-        await self._source.aclose()
+            raise ModelNotInstalled(model)
+        return await self._source.fetch_model_parameters(credential, model)
 
 
-__all__ = ["ExecutableCatalog", "ExecutableModelDetailsSource"]
+__all__ = ["ExecutableCatalog", "ExecutableModelParameterSource"]
