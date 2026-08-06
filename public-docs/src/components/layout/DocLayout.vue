@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from 'vue-router'
-import { watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Menu, X } from 'lucide-vue-next'
 import { useCodeLangStore } from '@/stores/codelangStore'
 import { useDocNavigation, type NavEntry } from '@/composables/useDocNavigation'
 import NavTree from './NavTree.vue'
@@ -19,7 +20,24 @@ interface Props {
 const props = defineProps<Props>()
 const route = useRoute()
 const { reset: resetCodeLang } = useCodeLangStore()
-watch(() => route.path, resetCodeLang)
+
+// Below lg the sidebar is off-canvas. Above it this stays false and is inert,
+// because the drawer classes are all lg:-overridden.
+const navOpen = ref(false)
+
+watch(
+  () => route.path,
+  () => {
+    resetCodeLang()
+    navOpen.value = false
+  },
+)
+
+const onKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') navOpen.value = false
+}
+onMounted(() => document.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 // Active state and the sidebar tree belong to NavTree; this layout only needs
 // the prev/next pair.
@@ -28,10 +46,32 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 
 <template>
   <div class="flex min-h-[calc(100vh-4rem)]">
-    <!-- Sidebar -->
+    <!-- Backdrop, drawer only -->
+    <div
+      v-if="navOpen"
+      class="lg:hidden fixed inset-0 z-30 bg-background/80 backdrop-blur-sm"
+      @click="navOpen = false"
+    />
+
+    <!-- Sidebar: one element, two layouts. Off-canvas below lg, a static
+         column above it — so the drawer reuses NavTree rather than copying it. -->
     <aside
-      class="hidden lg:flex w-64 flex-col border-r border-border/50 bg-sidebar sticky top-16 h-[calc(100vh-4rem)]"
+      :class="[
+        'w-64 flex flex-col border-r border-border/50 bg-sidebar',
+        'fixed inset-y-0 left-0 z-40 pt-16 transition-transform duration-200',
+        'lg:sticky lg:inset-y-auto lg:top-16 lg:z-auto lg:h-[calc(100vh-4rem)] lg:pt-0 lg:translate-x-0',
+        navOpen ? 'translate-x-0' : '-translate-x-full',
+      ]"
     >
+      <button
+        type="button"
+        class="lg:hidden self-end m-3 p-1 text-muted-foreground hover:text-foreground"
+        aria-label="Close navigation"
+        @click="navOpen = false"
+      >
+        <X class="w-5 h-5" />
+      </button>
+
       <div class="flex-1 overflow-y-auto py-6 px-4">
         <nav>
           <NavTree :entries="navigation" />
@@ -58,6 +98,15 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
     <!-- Main content -->
     <div class="flex-1 overflow-y-auto">
       <div class="max-w-4xl mx-auto px-6 py-10">
+        <button
+          type="button"
+          class="lg:hidden mb-8 flex items-center gap-2 px-3 py-2 text-sm rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-primary/40"
+          @click="navOpen = true"
+        >
+          <Menu class="w-4 h-4" />
+          Menu
+        </button>
+
         <!-- Page header (skipped when no title/description — e.g. notebook pages) -->
         <header v-if="title || description" class="mb-12 pb-8 border-b border-border/50">
           <h1
