@@ -26,6 +26,18 @@ and bridges NATS but schedules nothing.
 # secret.
 INSECURE_DEFAULT_JWT_SECRET = "dev-insecure-change-me"
 
+LOCAL_AIGATEWAY_BASE_URL = "http://127.0.0.1:9105"
+"""The AI Gateway address local-mode connection operations fall back to.
+
+WHY it lives beside `aigateway_base_url` rather than in `local.py`: it is a DEFAULT for that
+setting, not a property of how local mode is assembled, and stating it here keeps the field and
+its local fallback from drifting apart. An explicit `URL4_CLOUD_AIGATEWAY_BASE_URL` still wins —
+`create_local_app` only substitutes this when the setting is unset.
+
+INVARIANT: loopback, like `LOCAL_HOST`. Local mode is a single-process developer deployment, and
+the gateway it manages credentials through is the one running beside it.
+"""
+
 
 class Settings(BaseSettings):
     """Environment-backed configuration for the App: auth, NATS, job-runner backend selection,
