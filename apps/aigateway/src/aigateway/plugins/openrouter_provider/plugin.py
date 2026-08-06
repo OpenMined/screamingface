@@ -50,6 +50,7 @@ from .discovery import (
 from .dispatch_errors import (
     _embedded_error_exception,
     _invalid_model_error,
+    _online_model_suffix_error,
     _unsafe_litellm_state_error,
 )
 
@@ -337,6 +338,8 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         model = out.get("model")
         if not isinstance(model, str) or not model.startswith(GATEWAY_MODEL_PREFIX):
             raise _invalid_model_error()
+        if model.endswith(":online"):
+            raise _online_model_suffix_error()
         if not is_valid_upstream_model_id(model[len(GATEWAY_MODEL_PREFIX) :]):
             raise _invalid_model_error()
         # Keep the model unchanged: the gateway prefix IS LiteLLM's provider

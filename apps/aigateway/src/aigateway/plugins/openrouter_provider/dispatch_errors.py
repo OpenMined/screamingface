@@ -31,6 +31,23 @@ def _invalid_model_error() -> HTTPException:
     )
 
 
+def _online_model_suffix_error() -> HTTPException:
+    """Refuse OpenRouter's implicit-search model variant.
+
+    Search is a provider-neutral Gateway parameter. Allowing ``:online`` would create a second,
+    provider-specific route around parameter validation and deployment domain exclusions.
+    """
+
+    return HTTPException(
+        status_code=400,
+        detail={
+            "code": "unsupported_model_variant",
+            "provider": "openrouter",
+            "message": "OpenRouter ':online' is not supported; use web_search=true",
+        },
+    )
+
+
 class _UnsafeLiteLLMStateError(HTTPException):
     """A pre-dispatch global-state conflict that the retry loop must not repeat."""
 
