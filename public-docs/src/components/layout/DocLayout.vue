@@ -11,6 +11,9 @@ interface Props {
   title?: string
   description?: string
   navigation: NavEntry[]
+  // Which version of the documented thing these pages describe. Optional because
+  // DocLayout also serves sections that have no version to claim.
+  version?: { prefix: string; label: string; url: string }
 }
 
 const props = defineProps<Props>()
@@ -26,11 +29,29 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 <template>
   <div class="flex min-h-[calc(100vh-4rem)]">
     <!-- Sidebar -->
-    <aside class="hidden lg:flex w-64 flex-col border-r border-border/50 bg-sidebar sticky top-16 h-[calc(100vh-4rem)]">
+    <aside
+      class="hidden lg:flex w-64 flex-col border-r border-border/50 bg-sidebar sticky top-16 h-[calc(100vh-4rem)]"
+    >
       <div class="flex-1 overflow-y-auto py-6 px-4">
         <nav>
           <NavTree :entries="navigation" />
         </nav>
+      </div>
+
+      <!-- Version footer: the nav above is flex-1, so this sits on the bottom edge. -->
+      <div v-if="version" class="border-t border-border/50 px-4 py-3">
+        <p class="text-xs text-muted-foreground">
+          {{ version.prefix }}
+          <!-- Underlined at rest: the sidebar sits outside .prose-content, so it
+               inherits none of the layout's link styling. -->
+          <a
+            :href="version.url"
+            target="_blank"
+            rel="noopener"
+            class="font-mono text-primary underline underline-offset-2 hover:text-accent"
+            >{{ version.label }}</a
+          >
+        </p>
       </div>
     </aside>
 
@@ -39,10 +60,16 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
       <div class="max-w-4xl mx-auto px-6 py-10">
         <!-- Page header (skipped when no title/description — e.g. notebook pages) -->
         <header v-if="title || description" class="mb-12 pb-8 border-b border-border/50">
-          <h1 v-if="title" class="text-4xl sm:text-5xl font-normal tracking-tight text-foreground mb-4 bg-linear-to-r from-foreground via-foreground to-muted-foreground bg-clip-text">
+          <h1
+            v-if="title"
+            class="text-4xl sm:text-5xl font-normal tracking-tight text-foreground mb-4 bg-linear-to-r from-foreground via-foreground to-muted-foreground bg-clip-text"
+          >
             {{ title }}
           </h1>
-          <p v-if="description" class="text-lg sm:text-xl text-muted-foreground leading-relaxed max-w-3xl">
+          <p
+            v-if="description"
+            class="text-lg sm:text-xl text-muted-foreground leading-relaxed max-w-3xl"
+          >
             {{ description }}
           </p>
         </header>
@@ -53,7 +80,10 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
         </div>
 
         <!-- Prev / Next navigation -->
-        <div v-if="prevPage || nextPage" class="flex justify-between items-center mt-16 pt-8 border-t border-border/50 gap-4">
+        <div
+          v-if="prevPage || nextPage"
+          class="flex justify-between items-center mt-16 pt-8 border-t border-border/50 gap-4"
+        >
           <RouterLink
             v-if="prevPage"
             :to="prevPage.path"
@@ -62,7 +92,11 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
             <span class="text-muted-foreground group-hover:text-primary transition-colors">←</span>
             <div class="text-right min-w-0">
               <div class="text-xs text-muted-foreground mb-0.5">Previous</div>
-              <div class="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{{ prevPage.title }}</div>
+              <div
+                class="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate"
+              >
+                {{ prevPage.title }}
+              </div>
             </div>
           </RouterLink>
           <div v-else />
@@ -74,7 +108,11 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
           >
             <div class="text-left min-w-0">
               <div class="text-xs text-muted-foreground mb-0.5">Next</div>
-              <div class="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{{ nextPage.title }}</div>
+              <div
+                class="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate"
+              >
+                {{ nextPage.title }}
+              </div>
             </div>
             <span class="text-muted-foreground group-hover:text-primary transition-colors">→</span>
           </RouterLink>
@@ -231,7 +269,7 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 }
 
 /* Reset prose link styles inside .not-prose, but preserve explicit text-color classes */
-.prose-content :deep(.not-prose a:not([class*="text-"])) {
+.prose-content :deep(.not-prose a:not([class*='text-'])) {
   color: inherit;
   text-decoration: none;
 }

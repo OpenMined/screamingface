@@ -1,5 +1,15 @@
 import type { NavEntry } from '@/composables/useDocNavigation'
 
+// The SDK version these pages were written and verified against, shown once in the
+// sidebar footer. A commit for now because screamingface is not on PyPI yet; when it
+// ships this becomes { prefix: 'Version', label: '1.0.0', url: <PyPI release> } and
+// nothing else changes.
+export const sfClientVersion = {
+  prefix: 'Based on state at commit',
+  label: 'e387aefd',
+  url: 'https://github.com/OpenMined/screamingface/commit/e387aefd311b1f4f057a0858fdf4c363f145bddb',
+}
+
 // ScreamingFace Client sidebar (OME-666). A group labels its children and is
 // never clickable; a link points at a page. Overview is a plain top-level link,
 // so it sits above the labelled groups without needing a group of its own.

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
-import { sfClientNavigation as navigation } from '@/navigation/sf-client'
+import {
+  sfClientNavigation as navigation,
+  sfClientVersion as version,
+} from '@/navigation/sf-client'
 
 // The smallest complete run: configure an engine, compose a Fusion, evaluate it,
 // read the comparison. Every name here is part of the shipped public API.
@@ -20,6 +22,7 @@ print(report.score, report.baseline, report.gain)`
     title="Overview"
     description="Compose an ensemble of frontier models, evaluate it against a benchmark, and see whether it beat its own best member."
     :navigation="navigation"
+    :version="version"
   >
     <p>
       ScreamingFace is an open-source client for building <strong>model ensembles</strong> — several
@@ -74,22 +77,5 @@ print(report.score, report.baseline, report.gain)`
       expression is the contract between them: the engine resolves it, and anyone holding it can
       reproduce the run.
     </p>
-
-    <h2>Where next</h2>
-
-    <ul>
-      <li>
-        <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> — run a benchmark end to
-        end and read the comparison.
-      </li>
-      <li>
-        <RouterLink to="/sf-client/installation">Installation</RouterLink> — install the library and
-        start the engine.
-      </li>
-      <li>
-        <strong>User guides</strong> — connections, composing models and fusions, benchmarks, and
-        reports. Coming soon.
-      </li>
-    </ul>
   </DocLayout>
 </template>
