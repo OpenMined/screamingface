@@ -1,9 +1,10 @@
-"""Public surface of the model-catalog subsystem.
+"""Public surface and production wiring for Engine model discovery.
 
 Re-exports the hexagonal port (``catalog/port.py``), the aigateway adapter
 (``catalog/aigateway.py``), and the caching layer (``catalog/cache.py``), and
-provides ``build_catalog_service`` — the composition root that wires an
-``AigatewayCatalogSource`` behind a ``CachedCatalog`` from ``Settings``.
+provides ``build_catalog_service`` — the composition root that wires one
+``AigatewayCatalogSource`` behind a ``CachedCatalog`` for model lists while retaining uncached
+model-detail delegation through the same client.
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ from url4_cloud.catalog.port import (
     CatalogUnavailable,
     Credential,
     ModelCatalog,
+    ModelParameterBadResponse,
+    ModelParameterResponse,
+    ModelParameterSource,
     compute_etag,
 )
 from url4_cloud.config import Settings
@@ -47,8 +51,10 @@ def build_catalog_service(
     if not base_url:
         return None
     client = client_factory(base_url)
+    source = AigatewayCatalogSource(client)
     return CachedCatalog(
-        AigatewayCatalogSource(client),
+        source,
+        parameter_source=source,
         ttl_s=settings.models_cache_ttl_s,
         stale_max_s=settings.models_cache_stale_max_s,
         error_backoff_s=settings.models_cache_error_backoff_s,
@@ -70,6 +76,9 @@ __all__ = [
     "CatalogUnavailable",
     "Credential",
     "ModelCatalog",
+    "ModelParameterBadResponse",
+    "ModelParameterResponse",
+    "ModelParameterSource",
     "build_catalog_service",
     "compute_etag",
 ]
