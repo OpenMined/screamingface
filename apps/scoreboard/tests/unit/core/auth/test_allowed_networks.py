@@ -12,7 +12,7 @@ to decide whether to trust a forgeable header is circular.
 
 from __future__ import annotations
 
-from ipaddress import ip_network
+from ipaddress import ip_address, ip_network
 
 import pytest
 
@@ -93,7 +93,9 @@ def test_header_mode_refuses_to_start_with_wildcard_forwarded_allow_ips(
 def test_header_mode_starts_with_scoped_forwarded_allow_ips(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "10.0.0.5")
+    # WHY 203.0.113.5, not 10.0.0.5: it must be genuinely disjoint from allowed_networks
+    # below, or this "scoped/safe" case is actually the overlap bug the next section covers.
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "203.0.113.5")
     settings = _settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8")
 
     assert create_app(settings).state.settings.auth_mode == "cloudflare_headers"
@@ -108,6 +110,68 @@ def test_header_mode_starts_with_unset_forwarded_allow_ips(
     settings = _settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8")
 
     assert create_app(settings).state.settings.auth_mode == "cloudflare_headers"
+
+
+# --- FORWARDED_ALLOW_IPS overlapping allowed_networks defeats the peer check too -------------
+#
+# WHY this is a separate guard from the "*" check above: scoping FORWARDED_ALLOW_IPS away from
+# "*" is not enough on its own. uvicorn's ProxyHeadersMiddleware still overwrites
+# request.client.host from a client-supplied X-Forwarded-For whenever the real peer falls
+# inside FORWARDED_ALLOW_IPS — even a single, deliberately narrow address. If that address also
+# falls inside allowed_networks, the exact peers the check exists to authenticate are the ones
+# it can no longer see correctly (found in external review of this PR).
+
+
+def test_header_mode_refuses_to_start_with_bare_ip_forwarded_allow_ips_inside_allowed_networks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "10.0.0.5")
+
+    with pytest.raises(ValueError, match="overlaps"):
+        create_app(_settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8"))
+
+
+def test_header_mode_refuses_to_start_with_forwarded_allow_ips_cidr_overlapping_allowed_networks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "10.0.0.0/16")
+
+    with pytest.raises(ValueError, match="overlaps"):
+        create_app(_settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8"))
+
+
+def test_header_mode_starts_with_forwarded_allow_ips_cidr_disjoint_from_allowed_networks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: a genuinely disjoint FORWARDED_ALLOW_IPS must not trip the overlap
+    check."""
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "192.0.2.0/24")
+    settings = _settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8")
+
+    assert create_app(settings).state.settings.auth_mode == "cloudflare_headers"
+
+
+def test_header_mode_starts_with_ipv6_forwarded_allow_ips_against_ipv4_only_allowed_networks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An IPv6 FORWARDED_ALLOW_IPS entry must never be treated as overlapping an IPv4-only
+    allowed_networks — ipaddress itself refuses cross-version containment, but the new guard's
+    own comparison must not crash or false-positive on a version mismatch either."""
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "fd00::1")
+    settings = _settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8")
+
+    assert create_app(settings).state.settings.auth_mode == "cloudflare_headers"
+
+
+def test_header_mode_refuses_to_start_when_one_entry_in_a_mixed_forwarded_allow_ips_list_overlaps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Proves the guard classifies FORWARDED_ALLOW_IPS per entry, not as one opaque string — a
+    non-overlapping IPv6 entry must not mask a real overlapping IPv4 entry in the same list."""
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "fd00::1,10.0.0.5")
+
+    with pytest.raises(ValueError, match="overlaps"):
+        create_app(_settings(auth_mode="cloudflare_headers", allowed_networks="10.0.0.0/8"))
 
 
 def test_disabled_mode_starts_with_wildcard_forwarded_allow_ips(
@@ -185,3 +249,20 @@ def test_uvicorn_does_not_treat_a_wildcard_inside_a_list_as_always_trust() -> No
     from uvicorn.middleware.proxy_headers import _TrustedHosts
 
     assert _TrustedHosts(["127.0.0.1", "*"]).always_trust is False
+
+
+def test_uvicorn_parses_a_cidr_forwarded_allow_ips_entry_into_trusted_networks() -> None:
+    """main.py's overlap guard mirrors this classification independently — it can't import a
+    private class to do its own parsing — so this pins the real behavior it assumes: a `/`
+    entry becomes a real ipaddress network, not a string literal. A future `uv lock --upgrade`
+    that changes this fails HERE rather than silently invalidating the overlap guard.
+    """
+    from uvicorn.middleware.proxy_headers import _TrustedHosts
+
+    assert _TrustedHosts("10.0.0.0/8").trusted_networks == {ip_network("10.0.0.0/8")}
+
+
+def test_uvicorn_parses_a_bare_ip_forwarded_allow_ips_entry_into_trusted_hosts() -> None:
+    from uvicorn.middleware.proxy_headers import _TrustedHosts
+
+    assert _TrustedHosts("10.0.0.5").trusted_hosts == {ip_address("10.0.0.5")}

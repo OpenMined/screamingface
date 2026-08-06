@@ -61,7 +61,15 @@ async def score_client(app_with_benchmark: FastAPI) -> AsyncGenerator[AsyncClien
 
 
 @pytest_asyncio.fixture
-async def app_with_cloudflare_auth(tortoise_db: None) -> FastAPI:
+async def app_with_cloudflare_auth(tortoise_db: None, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    # WHY monkeypatch FORWARDED_ALLOW_IPS explicitly, not left at ambient/unset env: unset
+    # falls back to uvicorn's own default "127.0.0.1" (see main.py), which is the EXACT SAME
+    # address as this fixture's allowed_networks below — chosen because ASGITransport's default
+    # fake peer is ("127.0.0.1", 123). create_app's overlap guard now refuses exactly that
+    # combination (FORWARDED_ALLOW_IPS overlapping allowed_networks), so this fixture must pin
+    # FORWARDED_ALLOW_IPS to something genuinely disjoint instead of relying on the implicit
+    # uvicorn default no longer being safe to assume here.
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "192.0.2.1")
     # model_validate, not the constructor: allowed_networks arrives as a comma-separated
     # STRING (as the environment supplies it) and is parsed into networks by the
     # mode="before" validator — the behavior under test, same idiom aigateway's own

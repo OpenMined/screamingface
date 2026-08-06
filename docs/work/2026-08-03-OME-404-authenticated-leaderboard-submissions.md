@@ -211,3 +211,63 @@ every prior round's fix and comment against the current code.
 
 **No new findings.** Fixed point reached — stopping the iteration here per instruction to iterate
 until a round finds nothing new.
+
+## External review round (2026-08-06) — PR #466 feedback
+
+An external reviewer of the open PR found a real gap that survived all 4 self-review rounds:
+scoping `FORWARDED_ALLOW_IPS` away from `"*"` (round 2's own recommended remedy) is not
+sufficient. uvicorn's `ProxyHeadersMiddleware` overwrites `request.client.host` from a
+client-supplied `X-Forwarded-For` whenever the real peer falls inside `FORWARDED_ALLOW_IPS` —
+*even a single, deliberately narrow address*, not just `"*"`. If that address also overlaps
+`allowed_networks`, the exact peers `peer_in_networks()` exists to authenticate are the ones it
+can no longer see correctly — the same bypass round 2 fixed, just reproduced at a smaller scope
+via the very configuration round 2's own guard message recommends. This had no test coverage
+across any round because no test in the suite wires a real `ProxyHeadersMiddleware` around the
+app — every existing test calls `create_app()` directly via `TestClient`/`ASGITransport`,
+bypassing that middleware layer entirely.
+
+**Fixed:**
+- `main.py`: added `_classify_forwarded_allow_ips`/`_find_forwarded_allow_ips_overlap`, mirroring
+  uvicorn's own (private, undocumented) `_TrustedHosts` CIDR/bare-IP parsing, and a second startup
+  check rejecting any overlap between `FORWARDED_ALLOW_IPS` and `allowed_networks` — not just the
+  literal `"*"` case the existing guard already caught.
+- `test_allowed_networks.py`: fixed a real bug in the existing test data —
+  `test_header_mode_starts_with_scoped_forwarded_allow_ips` used `FORWARDED_ALLOW_IPS="10.0.0.5"`
+  with `allowed_networks="10.0.0.0/8"`, which *is* an overlap, mislabeled "scoped/safe." Added 5
+  new tests (bare-IP overlap, CIDR overlap, genuinely-disjoint regression guard, IPv6-vs-IPv4
+  no-crash, mixed-list per-entry classification) and 2 new uvicorn-internals pinning tests for
+  `_TrustedHosts`'s CIDR/bare-IP parsing.
+- `test_scores_routes.py`: fixed collateral breakage — `app_with_cloudflare_auth` built a
+  `cloudflare_headers`-mode app with `allowed_networks="127.0.0.1/32"` and no `FORWARDED_ALLOW_IPS`
+  override, silently relying on uvicorn's own default (`"127.0.0.1"`) being the *exact same*
+  address — the new overlap guard correctly rejects that. Pinned `FORWARDED_ALLOW_IPS` to a
+  disjoint address in the fixture instead.
+- New file `test_proxy_headers_integration.py`: the first test in the suite to wire a *real*
+  `uvicorn.middleware.proxy_headers.ProxyHeadersMiddleware` around `create_app()`'s output —
+  proves that for the correct (disjoint) configuration, a forged `X-Forwarded-For` from a peer
+  outside `FORWARDED_ALLOW_IPS`'s trusted set is genuinely ignored by real uvicorn behavior, not
+  just by this app's own logic in isolation.
+- `DEPLOYMENT.md`: the documented `helm upgrade` example never set `config.forwardedAllowIps`, so
+  under `--reuse-values` it silently inherited `values.yaml`'s base `"*"` — already rejected by
+  the *old* guard, for the wrong reason, and still rejected by the new one. Added
+  `--set config.forwardedAllowIps="127.0.0.1"` to the example and rewrote the explanatory
+  paragraph to state the disjointness invariant plainly, explicitly retracting the old advice to
+  "scope `forwardedAllowIps` to the real reverse proxy's address" — that advice was exactly the
+  configuration this round's fix closes.
+
+**Gates:** `uv run .claude/scripts/run_gates.py scoreboard --base origin/main --skip-append-only`
+→ ruff check ✓, ruff format ✓, pyright (0 errors) ✓, pytest 165 passed / 2 skipped. Re-run
+identically under `--python 3.13` (fresh venv) → same result. `--skip-append-only` used for the
+same already-documented reason as round 1 (Deviation #1 above) — this round's one fixture edit
+(`app_with_cloudflare_auth`) lands inside the same file that unit already legitimately rewrote;
+no assertion in any test was weakened, only one fixture's setup gained a required env var.
+
+**Deviation:** two `cast(Any, ...)` calls added in `test_proxy_headers_integration.py`, at the two
+points where uvicorn's `ProxyHeadersMiddleware`/`ASGI3Application` stub types meet
+httpx/starlette's own `Scope`/`Receive` stubs — structurally identical ASGI callables at runtime,
+nominally incompatible types across the two packages' independent stubs. Not a real type error on
+either side; narrower than a blanket `# type: ignore`, each with a `WHY:` comment.
+
+**Owner-verify:** none beyond OME-404's original owner-verify note (the network-trust boundary
+still can't be verified from unit tests alone) — this round doesn't change what needs verifying in
+the real dev-cloud deployment, only closes a gap in how the guard enforces it locally.
