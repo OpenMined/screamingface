@@ -650,7 +650,8 @@ def _healthbench_worst30_e2e() -> NotebookNode:
 
 Can an open-weights Fusion beat our best open Fusion on the **157 hardest HealthBench
 Professional conversations**? This notebook runs the challenge exam end to end: the Engine owns
-the Cases, the pinned GPT-5.4 judge (house-paid), the per-rubric-item grading, and the
+the Cases, the pinned GPT-5.4 judge (billed to your OpenRouter key, like every model call in
+the run), the per-rubric-item grading, and the
 aggregation; you own the Candidate.
 
 > **This is a challenge metric, NOT an official HealthBench score.** The exam scores the
@@ -729,7 +730,8 @@ open_trio = sf.Fusion(
         nbformat.v4.new_markdown_cell(
             """## 4. Arm the challenge run explicitly
 
-157 Cases × (3 members + 1 synthesis) answer calls plus ~350 house-paid judge calls per attempt.
+157 Cases × (3 members + 1 synthesis) answer calls plus ~350 GPT-5.4 judge calls per attempt —
+ALL billed to your OpenRouter key, judge included.
 Leaving `RUN_EVALUATION = False` keeps **Run All** free of model spend."""
         ),
         nbformat.v4.new_code_cell("RUN_EVALUATION = False"),
