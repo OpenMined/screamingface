@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import httpx
@@ -18,6 +18,11 @@ from url4.io.static import StaticIOLayer
 from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
+from url4_cloud.model_outcomes import ModelOutcome, bind_model_outcome, record_model_outcome
+from url4_cloud.retrieval_policy import (
+    RetrievalPolicy,
+    current_retrieval_policy,
+)
 from url4_cloud.runner.cache import policy_to_body_field
 from url4_cloud.runner.cache_readback import CacheOutcome, read_cache_outcome, requires_revalidation
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError, routes_for
@@ -177,6 +182,7 @@ class _ModelEndpoint:
             tavily_http=self._tavily_http,
             tavily_api_key=self._tavily_api_key,
             web_tools=spec.web_tools,
+            retrieval_policy=current_retrieval_policy(),
             identity_headers=self._identity_headers,
             cache=self._cache,
         )
@@ -227,7 +233,13 @@ async def build_aigateway_world(
     )
     routes = routes_for(cfg.models)
 
-    tavily_http, owns_tavily_client = _build_tavily_client(cfg, tavily_api_key, tavily_client)
+    normalized_tavily_key = tavily_api_key.strip() if tavily_api_key else None
+    normalized_tavily_key = normalized_tavily_key or None
+    tavily_http, owns_tavily_client = _build_tavily_client(
+        cfg,
+        normalized_tavily_key,
+        tavily_client,
+    )
 
     call_model = _ModelEndpoint(
         http_client=http_client,
@@ -235,7 +247,7 @@ async def build_aigateway_world(
         profile=profile,
         routes=routes,
         tavily_http=tavily_http,
-        tavily_api_key=tavily_api_key,
+        tavily_api_key=normalized_tavily_key,
         identity_headers=identity_headers or None,
         # `is not None`, not `or`: a policy is a pydantic model and always truthy, but spelling the
         # fallback explicitly says what it is — an unstated policy, not a stated default.
@@ -279,6 +291,7 @@ def _report_response(choice: _Choice, cache: CacheOutcome) -> None:
     carries the tokens without the outcome states a cost that was never paid — an error in the
     direction that hides savings, and therefore one nobody reports.
     """
+    record_model_outcome(choice.finish_reason, choice.refusal)
     sink = current_response_sink()
     if sink is None:
         return
@@ -359,8 +372,13 @@ def _raise_if_unusable(choice: _Choice) -> None:
     if choice.finish_reason == "content_filter" or choice.refusal is not None:
         # `permanent=True`: a refusal is deterministic, so a retry spends budget to be refused
         # again. This is the wire signal a client maps to a refusal-kind failure.
-        raise ResolutionError(
-            "provider refused the request", code="provider_refusal", permanent=True
+        raise bind_model_outcome(
+            ResolutionError(
+                "provider refused the request",
+                code="provider_refusal",
+                permanent=True,
+            ),
+            ModelOutcome(choice.finish_reason, choice.refusal),
         )
     if not choice.tool_calls and choice.content is None:
         raise ResolutionError(
@@ -441,6 +459,48 @@ async def _fetch_completion(
     return resp, read_cache_outcome(resp.headers)
 
 
+@dataclass(frozen=True, slots=True)
+class _WebToolRuntime:
+    client: httpx.AsyncClient
+    config: AigatewayConfig
+    api_key: str
+    excluded_domains: tuple[str, ...]
+
+
+def _web_tool_runtime(
+    *,
+    model: str,
+    route_supports_tools: bool,
+    tavily_http: httpx.AsyncClient | None,
+    tavily_api_key: str | None,
+    config: AigatewayConfig,
+    policy: RetrievalPolicy | None,
+) -> _WebToolRuntime | None:
+    """Resolve tool availability before the first paid model request."""
+
+    if policy is None:
+        return (
+            _WebToolRuntime(tavily_http, config, tavily_api_key, ())
+            if route_supports_tools and tavily_http is not None and tavily_api_key is not None
+            else None
+        )
+    if not policy.web_search:
+        return None
+    if not route_supports_tools:
+        raise ResolutionError(
+            f"model route {model!r} does not declare runner-driven web tools",
+            code="benchmark_retrieval_unavailable",
+            permanent=True,
+        )
+    if tavily_http is None or tavily_api_key is None:
+        raise ResolutionError(
+            "Benchmark requires web retrieval but Tavily is not configured",
+            code="benchmark_retrieval_unavailable",
+            permanent=True,
+        )
+    return _WebToolRuntime(tavily_http, config, tavily_api_key, policy.excluded_domains)
+
+
 async def _chat_completion_loop(
     *,
     http_client: httpx.AsyncClient,
@@ -451,6 +511,7 @@ async def _chat_completion_loop(
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     web_tools: bool,
+    retrieval_policy: RetrievalPolicy | None = None,
     identity_headers: Mapping[str, str] | None = None,
     cache: CachePolicy,
 ) -> str:
@@ -471,8 +532,15 @@ async def _chat_completion_loop(
         ResolutionError: the loop exceeds `cfg.web_tool_max_iterations` without a final
             answer — the model keeps calling tools instead of returning content.
     """
-    offer_tools = web_tools and tavily_http is not None
-    extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if offer_tools else {}
+    tools = _web_tool_runtime(
+        model=model,
+        route_supports_tools=web_tools,
+        tavily_http=tavily_http,
+        tavily_api_key=tavily_api_key,
+        config=cfg,
+        policy=retrieval_policy,
+    )
+    extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if tools is not None else {}
     headers = _headers(profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
         body = {"model": model, "messages": messages, **extra}
@@ -497,9 +565,7 @@ async def _chat_completion_loop(
             tool_calls[cfg.web_tool_max_calls_per_turn :],
         )
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
-        results = await asyncio.gather(
-            *(_execute_tool(tc, tavily_http, cfg, tavily_api_key) for tc in served)
-        )
+        results = await asyncio.gather(*(_execute_tool(tc, tools) for tc in served))
         for tc, result in zip(served, results, strict=True):
             messages.append(
                 {
@@ -563,55 +629,56 @@ def _tool_args(tool_call: dict) -> tuple[str, dict | None]:
 async def _dispatch_tool(
     name: str,
     args: dict,
-    tavily_client: httpx.AsyncClient | None,
-    cfg: AigatewayConfig,
-    tavily_api_key: str | None,
+    runtime: _WebToolRuntime | None,
 ) -> str:
     if name not in ("web_search", "web_fetch"):
         return f"unknown tool: {name}"
-    if tavily_client is None or tavily_api_key is None:
+    if runtime is None:
         raise RuntimeError(f"{name} requested but Tavily is not configured")
     if name == "web_search":
-        return await _tavily_search(tavily_client, cfg, tavily_api_key, args)
-    return await _tavily_extract(tavily_client, cfg, tavily_api_key, args)
+        return await _tavily_search(runtime, args)
+    return await _tavily_extract(runtime, args)
 
 
 async def _execute_tool(
     tool_call: dict,
-    tavily_client: httpx.AsyncClient | None,
-    cfg: AigatewayConfig,
-    tavily_api_key: str | None,
+    runtime: _WebToolRuntime | None,
 ) -> str:
     name, args = _tool_args(tool_call)
     if args is None:
         return f"invalid arguments for {name}"
     try:
-        return await _dispatch_tool(name, args, tavily_client, cfg, tavily_api_key)
+        return await _dispatch_tool(name, args, runtime)
     except Exception as exc:  # noqa: BLE001 — fed back to the model, not raised (dec:W2)
         return f"{name} failed: {exc}"
 
 
 async def _tavily_search(
-    client: httpx.AsyncClient,
-    cfg: AigatewayConfig,
-    api_key: str,
+    runtime: _WebToolRuntime,
     args: dict,
 ) -> str:
     query = args.get("query")
     if not isinstance(query, str) or not query:
         raise ValueError("web_search requires a non-empty 'query'")
-    resp = await client.post(
+    payload: dict[str, object] = {
+        "query": query,
+        "search_depth": runtime.config.tavily_search_depth,
+        "max_results": runtime.config.tavily_max_results,
+    }
+    if runtime.excluded_domains:
+        payload["exclude_domains"] = list(runtime.excluded_domains)
+    resp = await runtime.client.post(
         "/search",
-        headers=_tavily_headers(api_key),
-        json={
-            "query": query,
-            "search_depth": cfg.tavily_search_depth,
-            "max_results": cfg.tavily_max_results,
-        },
+        headers=_tavily_headers(runtime.api_key),
+        json=payload,
     )
     resp.raise_for_status()
     data = resp.json()
-    results = data.get("results") or []
+    results = [
+        result
+        for result in (data.get("results") or [])
+        if isinstance(result, dict) and _search_result_allowed(result, runtime.excluded_domains)
+    ]
     if not results:
         return "no results"
     return "\n\n".join(
@@ -622,17 +689,17 @@ async def _tavily_search(
 
 
 async def _tavily_extract(
-    client: httpx.AsyncClient,
-    cfg: AigatewayConfig,
-    api_key: str,
+    runtime: _WebToolRuntime,
     args: dict,
 ) -> str:
     url = args.get("url")
     if not isinstance(url, str) or not url:
         raise ValueError("web_fetch requires a non-empty 'url'")
-    resp = await client.post(
+    if _is_blocked(url, runtime.excluded_domains):
+        raise ValueError("web_fetch URL is blocked by Benchmark retrieval policy")
+    resp = await runtime.client.post(
         "/extract",
-        headers=_tavily_headers(api_key),
+        headers=_tavily_headers(runtime.api_key),
         json={"urls": url, "format": "markdown", "extract_depth": "advanced"},
     )
     resp.raise_for_status()
@@ -646,6 +713,31 @@ async def _tavily_extract(
         failed_err = failed[0].get("error", "unknown")
         return f"{failed_url} could not be extracted: {failed_err}"
     return "no content extracted"
+
+
+def _search_result_allowed(result: Mapping[str, object], exclusions: Sequence[str]) -> bool:
+    if not exclusions:
+        return True
+    url = result.get("url")
+    return isinstance(url, str) and not _is_blocked(url, exclusions)
+
+
+def _is_blocked(url: str, exclusions: Sequence[str]) -> bool:
+    """Match a bare-domain exclusion against its host and every subdomain."""
+
+    if not exclusions:
+        return False
+    normalized_host: str | None = None
+    try:
+        parsed = httpx.URL(url if "://" in url else f"https://{url}")
+        normalized_host = parsed.raw_host.decode("ascii").lower().rstrip(".")
+    except (httpx.InvalidURL, UnicodeDecodeError):
+        pass
+    if not normalized_host:
+        return True
+    return any(
+        normalized_host == domain or normalized_host.endswith(f".{domain}") for domain in exclusions
+    )
 
 
 def _tavily_headers(api_key: str) -> dict[str, str]:

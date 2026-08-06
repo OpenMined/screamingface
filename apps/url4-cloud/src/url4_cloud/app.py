@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from url4.streaming.interfaces import EventConsumer, JobRunner
 from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.auth import Clock, install_problem_handlers
+from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from url4_cloud.catalog import build_catalog_service
 from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.catalog.port import ModelParameterSource
@@ -24,7 +25,12 @@ from url4_cloud.connections import build_connections
 from url4_cloud.connections.port import Connections
 from url4_cloud.metrics import MetricsMiddleware, build_metrics, register_catalog_metrics
 from url4_cloud.ops import router as ops_router
-from url4_cloud.rest import SubscriberGate, catalog_router, connection_router
+from url4_cloud.rest import (
+    SubscriberGate,
+    benchmark_router,
+    catalog_router,
+    connection_router,
+)
 from url4_cloud.rest import router as rest_router
 from url4_cloud.schemas import customize_openapi
 from url4_cloud.ws import ConnectionRegistry
@@ -33,6 +39,18 @@ from url4_cloud.ws import router as ws_router
 router = APIRouter()
 
 _DIAGRAMS_DIR = Path(__file__).parent / "assets" / "diagrams"
+
+# Mounted in this order by `create_app`. A tuple rather than seven calls: the wiring is data, and
+# every new surface (benchmarks, connections, …) would otherwise grow the builder itself.
+_ROUTERS = (
+    router,
+    rest_router,
+    benchmark_router,
+    catalog_router,
+    connection_router,
+    ws_router,
+    ops_router,
+)
 
 
 @router.get("/healthz", include_in_schema=False)
@@ -50,6 +68,7 @@ def create_app(
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
+    benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -64,6 +83,7 @@ def create_app(
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
     app.state.connections = connections
+    app.state.benchmarks = benchmarks
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
@@ -75,12 +95,8 @@ def create_app(
     if clock is not None:
         app.state.clock = clock
     install_problem_handlers(app)
-    app.include_router(router)
-    app.include_router(rest_router)
-    app.include_router(catalog_router)
-    app.include_router(connection_router)
-    app.include_router(ws_router)
-    app.include_router(ops_router)
+    for api_router in _ROUTERS:
+        app.include_router(api_router)
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
     customize_openapi(app)
     return app
