@@ -57,6 +57,11 @@ def _default_model_slugs() -> list[str]:
         "openrouter/anthropic/claude-fable-5",
         "openrouter/anthropic/claude-haiku-4.5",
         "openrouter/openai/gpt-5.5",
+        # AIDEV-NOTE: the HealthBench worst-30% judge (healthbench/definition.py JUDGE_MODEL
+        # pins it; the official judge is an OpenAI-internal gpt-5.4 snapshot, OpenRouter routes
+        # the floating slug). Seeded here for the same reason as the DRACO judge below —
+        # a different judge materially changes scores.
+        "openrouter/openai/gpt-5.4",
         "openrouter/anthropic/claude-opus-4.8",
         # AIDEV-NOTE: the DRACO benchmark judge. arXiv:2602.11685 §4.2 PINS it, and the
         # benchmarks repo warns that a different judge materially changes the scores — so it is
