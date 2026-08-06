@@ -157,13 +157,13 @@ No database schema or migration change is planned.
   only names and references. The artifact round-trips unchanged and executes through the same
   one-time `/resolve-candidate` route. That route derives direct-Model shape from each URL4
   expression rather than trusting client metadata, assigns protocol-local member letters, and
-  returns `$members` for the attempt loops without choosing a Judge. No URL4-core change or legacy
-  decoder remains.
-- Final integrity hardening requires one unique Engine-bound DRACO `case_id` per scoreable row,
+  returns `$members` for the attempt loops without choosing a Judge. No URL4-core change or
+  compatibility decoder remains.
+- Final integrity hardening requires one unique Engine-bound DRACO `case_id` per scoreable Case,
   preserves bounded typed errors for partially failed Cases, and propagates immutable
   `benchmark_revision` beside `benchmark_id` in every serialized Candidate result. IFEval verifier
-  defects now fail loudly as `benchmark_unavailable` rather than becoming incorrect Candidate
-  answers.
+  defects now retain the paid Case artifact and produce a null Candidate score with a structured
+  Case failure rather than becoming incorrect Candidate answers or a partial aggregate.
 - The internal `Benchmark.family` draft field is removed rather than renamed. Slash-qualified
   public ids provide the Cases asset prefix, and shared IFEval installation is deduplicated by its
   installer function. There is no public or internal Family abstraction left.

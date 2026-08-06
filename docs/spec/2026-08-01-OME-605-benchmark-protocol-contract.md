@@ -159,13 +159,20 @@ protocol models remain explicit model routes in its Benchmark URL4.
 
 ## Failure and evidence contract
 
-- A Case with no valid score/check record is an execution failure, never a plausible zero.
-- An in-band row error must survive aggregation into the public failure message with its Case id.
+- A Case with no valid score/check record is retained with `grade=null` or a null Grade score and
+  a structured Case failure; it is never converted into a plausible zero.
+- If any selected Case is unscored, the Candidate score is null rather than a partial mean over
+  the surviving Cases.
+- An in-band Case error survives Aggregation with its Case id and bounded stage, code, message,
+  retryability, and diagnostic metadata.
 - Provider refusal and finish reasons are inherited from the URL4/URL4 Cloud baseline and remain
   attached to streamed spans. The SDK preserves those fields rather than fabricating them.
 - Actual usage comes from execution telemetry. The manifest does not predict calls or cost.
-- Detailed durable per-Case artifacts remain separate report/export work; this contract does not
-  claim they already exist.
+- The Candidate result retains exact input, output, finish reason, Grade, Checks, raw Evidence,
+  metadata, and Case failures. The SDK decodes these into immutable Case Results and preserves
+  them through `Report.to_dict()` and `Report.to_json()`.
+- Aggregation accepts only the protocol's exact Engine-bound Case-evaluation envelope. It never
+  searches arbitrary nested text or values for grading records and has no compatibility decoder.
 
 ## Non-goals
 

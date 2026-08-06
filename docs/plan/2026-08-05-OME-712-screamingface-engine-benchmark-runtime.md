@@ -19,8 +19,9 @@ fail-loud results, deployment parity, and documentation matching the executable 
 3. **Validation seam:** the complete verifying-ensemble URL4 rejects an invalid Candidate shape
    before any provider-backed Model handler is called, and a valid Candidate is decoded and
    validated once for the complete Evaluation.
-4. **Integrity seam:** public Evaluation/result behavior exposes collected Case failures and
-   rejects empty or all-invalid grading results.
+4. **Integrity seam:** public Evaluation/result behavior exposes collected Case failures, rejects
+   empty selections, and withholds the Candidate score for all-invalid or partially unscored
+   selections.
 5. **Deployment seam:** chart image references match development and release workflow outputs.
 6. **Retrieval seam:** evaluating linked Candidate URL4 exposes actual Gateway request bodies and
    Tavily calls, proving answer-member retrieval, tool-free synthesis/Grading, exclusion policy,
@@ -83,7 +84,8 @@ Tests observe those interfaces rather than private helper call graphs.
       payload or compatibility decoder.
 - [x] Keep the existing parameterized Candidate Invocation wrapper; URL4 parser/compiler changes
       are explicitly outside this Engine landing.
-- [x] Verify DRACO zero-Case and IFEval empty/all-error paths fail loudly.
+- [x] Verify DRACO and IFEval empty selections fail execution, while all-error selections retain
+      every Case and return a null Candidate score with structured failures.
 - [x] Preserve per-Case collected errors in structured result failures.
 
 ## Phase 5 — Structure, deployment, and certification

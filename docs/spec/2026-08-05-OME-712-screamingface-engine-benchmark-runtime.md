@@ -230,15 +230,23 @@ establish their absence.
 ## Failure and result integrity
 
 - Zero selected or scored Cases cannot produce a plausible zero score.
-- IFEval publishes no partial score when any selected Case lacks a valid verifier record; its
-  typed execution failure includes the bounded collected row error that prevented Grading.
-- DRACO excludes operationally ungraded Cases from its mean and reports them as structured
-  failures; if no Case can be scored, the Evaluation fails loudly with bounded row diagnostics.
+- IFEval publishes no partial score when any selected Case lacks a valid verifier record. It
+  retains every selected Case, attaches the bounded collected error to the affected Case, and
+  returns a null Candidate score.
+- DRACO likewise retains every selected Case and withholds the complete Candidate score when any
+  Case is operationally ungraded or Judge coverage falls below the protocol threshold. Candidate
+  output and valid grading evidence remain available for inspection.
+- DRACO and IFEval Aggregation decode only their exact Engine-bound Case-evaluation envelopes.
+  Neither searches nested text or arbitrary values for grading records, and neither has a
+  compatibility fallback.
+- Candidate-level failures are reserved for failures that cannot be attributed to a selected
+  Case. The SDK's `Report.failures` includes Candidate, member, and Case failures.
 - Provider finish reason and refusal remain distinguishable from empty successful text.
 - Required retrieval never degrades silently: a missing Tavily key fails before model spend and
   Tavily authentication/transport failures surface as typed `web_retrieval_unavailable` errors.
 - Benchmark id and revision travel into every Candidate result.
-- No legacy resource, fallback model, default synthesizer, or silent error coercion remains.
+- No superseded resource shape, fallback model, default synthesizer, or silent error coercion
+  remains.
 
 ## Deployment parity
 
@@ -267,7 +275,8 @@ rules.
 - Candidate recursion and total-invocation limits remain enforced.
 - Variant-specific shape validation occurs exactly once and before Case evaluation or a paid
   Model call; every later member invocation uses the validated array.
-- DRACO and IFEval empty/all-error paths fail loudly and preserve structured diagnostics.
+- DRACO and IFEval empty selections fail execution; all-error selections return an unscored
+  complete artifact with structured per-Case diagnostics.
 - `draco/smoke` exercises the canonical DRACO execution seams with one pinned Case, one criterion,
   and one Judge pass, and is never described as a canonical or publishable DRACO score.
 - `draco/lite` evaluates pinned Cases `2, 15`, ten criteria per Case, and one Judge pass per criterion;
