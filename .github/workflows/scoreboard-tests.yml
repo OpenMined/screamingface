@@ -19,6 +19,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
     defaults:
       run:
         working-directory: apps/scoreboard
@@ -30,7 +33,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
       # longer matches pyproject.toml is invisible to every later step — including the
