@@ -133,3 +133,24 @@ OME-404's security-critical auth-boundary work that warranted 4 rounds.
   happened yet, so this feature's first real computation on production will
   currently include that junk row until that separate, explicitly-confirmed cleanup
   action happens.
+
+## Review round 1 (2026-08-06) — PR #519 feedback
+
+External review found a real gap `renderFrontier` (`benchmark.js`) gated on
+`data.current` being set, but a benchmark with imported `Baseline` rows and zero
+`Score` submissions yet has a real, meaningful `open_share` — Baselines count
+toward the current split (`_current_split`) independent of the trend walk
+(`_compute_trend`, which only ever produces a `current` holder from Score rows).
+Verified empirically before fixing: `compute_frontier(scores=[], baselines=[one
+open baseline])` returns `current=None` but `open_share=1.0`. The old guard
+silently hid the stat card for every baseline-only benchmark — plausible in
+practice, since that's the normal state right after `import_baselines` runs and
+before anyone's submitted a Score.
+
+**Fixed:** gate on `open_count + closed_count > 0` (is there anything to show at
+all) instead of `data.current` truthiness; `current` is now used only for the
+optional hover title, which is simply empty when there's no Score holder yet.
+
+**Gates:** re-ran the full suite (`ruff check`/`format`, `pyright`, `pytest`) —
+all green, unchanged pass count (this fix touches only untested portal JS, per
+the plan's own decision not to introduce a JS test harness in this unit).

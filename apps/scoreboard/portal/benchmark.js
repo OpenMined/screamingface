@@ -228,11 +228,21 @@
   function renderFrontier(data) {
     var card = document.getElementById("summary-frontier-card");
     var node = document.getElementById("summary-frontier");
-    if (!card || !node || !data || !data.current) return;
+    if (!card || !node || !data) return;
+    // WHY count on open_count/closed_count, not data.current: a benchmark with
+    // imported Baselines but zero Score submissions yet has a real, meaningful
+    // open_share (Baselines count toward the split) even though current is null
+    // (Baselines never become the trend holder — see frontier.py). Gating on
+    // current alone silently hid the stat for every baseline-only benchmark
+    // (found in review).
+    var total = (data.open_count || 0) + (data.closed_count || 0);
+    if (total === 0) return;
     var pct = Math.round((data.open_share || 0) * 100);
     node.textContent = pct + "% open";
-    node.title = "Frontier currently held by a " + data.current.openness +
-      " entry (" + data.current.label + ")";
+    node.title = data.current
+      ? "Frontier currently held by a " + data.current.openness +
+        " entry (" + data.current.label + ")"
+      : "";
     card.hidden = false;
   }
 
