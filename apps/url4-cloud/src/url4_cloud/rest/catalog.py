@@ -1,4 +1,4 @@
-"""``GET /v1/models`` — the cached, credential-scoped model catalog (spec §5).
+"""Credential-scoped Engine model discovery.
 
 FEATURE: model-catalog discovery.
 
@@ -10,8 +10,9 @@ Owns request-side concerns only (credential resolution, conditional-request/ETag
 ``CatalogError`` to RFC 9457 problems); the actual upstream fetch and per-credential caching live
 in ``url4_cloud.catalog.cache.CatalogService``.
 
-Every response is tied to the caller's credential, which is why ``Cache-Control`` is unconditionally
-``private`` and ``Vary`` names all three credential headers.
+``GET /v1/models`` is the cached summary. ``GET /v1/model-parameters`` is an uncached,
+profile-bound detail proxy. Every response is private and varies by the identity inputs that can
+change it.
 """
 
 from __future__ import annotations
@@ -20,13 +21,13 @@ import logging
 from collections.abc import Mapping
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Request, Response
+from fastapi import APIRouter, Header, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from url4_cloud import job_env
 from url4_cloud.auth import ProblemException
 from url4_cloud.catalog.cache import CatalogService
-from url4_cloud.catalog.port import CatalogError, Credential
+from url4_cloud.catalog.port import CatalogError, Credential, ModelParameterSource
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,10 @@ _VARY = "X-Profile, X-User-Email"
 # would name this deployment's identity provider to an unauthenticated caller. Only used to relay
 # an upstream refusal now; this route no longer refuses anyone itself.
 _CHALLENGE = {"WWW-Authenticate": "Bearer"}
+_MODEL_PARAMETER_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "Vary": _VARY,
+}
 
 _MODELS_RESPONSES: dict[int | str, dict[str, object]] = {
     200: {"description": "The models this caller can address."},
@@ -49,6 +54,18 @@ _MODELS_RESPONSES: dict[int | str, dict[str, object]] = {
     502: {"description": "aigateway returned an unusable catalog."},
     503: {"description": "The catalog is not configured on this deployment."},
     504: {"description": "aigateway did not respond in time."},
+}
+
+_MODEL_PARAMETER_RESPONSES: dict[int | str, dict[str, object]] = {
+    200: {"description": "AI Gateway's model-parameter contract."},
+    400: {"description": "The canonical model id is invalid."},
+    401: {"description": "The selected profile requires authentication."},
+    403: {"description": "The caller cannot access the selected profile."},
+    404: {"description": "The model or profile does not exist."},
+    409: {"description": "The selected profile is not ready."},
+    502: {"description": "AI Gateway returned an unusable contract."},
+    503: {"description": "AI Gateway is not configured."},
+    504: {"description": "AI Gateway did not respond in time."},
 }
 
 
@@ -112,6 +129,56 @@ async def list_models(
     return JSONResponse(content=catalog.body, headers=headers)
 
 
+@router.get(
+    "/v1/model-parameters",
+    tags=["Catalog"],
+    summary="Get one model's parameter contract",
+    responses=_MODEL_PARAMETER_RESPONSES,
+    description=(
+        "Proxy AI Gateway's profile-bound parameter contract for one canonical model. "
+        "The body is AI Gateway's, verbatim, and is never cached by URL4 Cloud."
+    ),
+)
+async def model_parameters(
+    request: Request,
+    model: Annotated[
+        str | None,
+        Query(description="Canonical provider-prefixed model id."),
+    ] = None,
+    x_profile: Annotated[
+        str | None, Header(alias="X-Profile", description="Optional AI Gateway profile.")
+    ] = None,
+) -> Response:
+    """Return one caller/profile-specific AI Gateway model contract."""
+
+    if model is None:
+        raise ProblemException(
+            status=400,
+            title="Bad Request",
+            detail="model is required",
+            headers=_MODEL_PARAMETER_HEADERS,
+        )
+    source = _require_model_parameter_source(request)
+    try:
+        result = await source.fetch_model_parameters(
+            _caller(x_profile, request.headers),
+            model,
+        )
+    except CatalogError as exc:
+        logger.info("model-parameter request failed: %s", type(exc).__name__)
+        raise ProblemException(
+            status=exc.status,
+            title=exc.title,
+            detail=exc.detail,
+            headers=_MODEL_PARAMETER_HEADERS,
+        ) from exc
+    return JSONResponse(
+        status_code=result.status,
+        content=result.body,
+        headers=_model_parameter_headers(result.status),
+    )
+
+
 def _require_service(request: Request) -> CatalogService:
     """The wired catalog service, or a 503.
 
@@ -127,6 +194,26 @@ def _require_service(request: Request) -> CatalogService:
             detail="the model catalog is not configured (URL4_CLOUD_AIGATEWAY_BASE_URL)",
         )
     return service
+
+
+def _require_model_parameter_source(request: Request) -> ModelParameterSource:
+    source = getattr(request.app.state, "model_parameters", None)
+    if source is None:
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="model details are not configured (URL4_CLOUD_AIGATEWAY_BASE_URL)",
+            headers=_MODEL_PARAMETER_HEADERS,
+        )
+    return source
+
+
+def _model_parameter_headers(status: int) -> dict[str, str]:
+    """Privacy headers for every result, plus the challenge RFC 9110 requires on 401."""
+
+    if status == 401:
+        return {**_MODEL_PARAMETER_HEADERS, **_CHALLENGE}
+    return _MODEL_PARAMETER_HEADERS
 
 
 def _caller(profile: str | None, headers: Mapping[str, str]) -> Credential:

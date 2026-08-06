@@ -1,4 +1,4 @@
-"""The model-catalog port — the contract the cache and the aigateway adapter share (spec §6.2).
+"""Model-discovery ports shared by the cache, REST boundary, and AI Gateway adapter.
 
 FEATURE: model-catalog discovery. ``GET /v1/models`` on url4-cloud answers "which models can I
 address?" by forwarding the caller's own verified identity upstream and caching the result per
@@ -7,10 +7,10 @@ caller.
 STORY: as a client composing a url4 expression, I ask url4-cloud which model paths exist before I
 reference one, instead of guessing and failing at run time.
 
-Defines the domain value types (``Credential``, ``ModelCatalog``), the RFC 9457-style error
-hierarchy the aigateway adapter and the REST layer share, and the ``CatalogSource`` Protocol — the
-port that concrete catalog adapters (e.g. ``AigatewayCatalogSource`` in ``catalog/aigateway.py``)
-implement.
+Defines the shared identity, the cached model-list contract, the uncached profile-bound parameter
+contract, and the RFC 9457-style error hierarchy. ``CatalogSource`` and
+``ModelParameterSource`` stay separate so a catalog-only adapter is not forced to pretend it can
+serve details.
 
 AIDEV-NOTE: this module is a dependency-free leaf on purpose — no httpx, no FastAPI. Both the
 adapter (which speaks HTTP) and the cache (which speaks to nothing) import it, and the route maps
@@ -94,6 +94,14 @@ class ModelCatalog:
     etag: str
 
 
+@dataclass(frozen=True, slots=True)
+class ModelParameterResponse:
+    """One JSON response from AI Gateway's model-parameter contract route."""
+
+    status: int
+    body: dict[str, object]
+
+
 def compute_etag(body: dict[str, object]) -> str:
     """A strong ETag over the catalog's content (spec §5.2).
 
@@ -138,6 +146,12 @@ class CatalogBadResponse(CatalogError):
     detail = "aigateway returned an unusable model catalog"
 
 
+class ModelParameterBadResponse(CatalogBadResponse):
+    """The detailed parameter response was not safe to proxy."""
+
+    detail = "aigateway returned an unusable model-parameter contract"
+
+
 class CatalogUnavailable(CatalogError):
     """The upstream request timed out."""
 
@@ -158,6 +172,17 @@ class CatalogSource(Protocol):
     async def fetch(self, credential: Credential) -> ModelCatalog: ...
 
 
+@runtime_checkable
+class ModelParameterSource(Protocol):
+    """Anything that can fetch one profile-bound model-parameter contract."""
+
+    async def fetch_model_parameters(
+        self,
+        credential: Credential,
+        model: str,
+    ) -> ModelParameterResponse: ...
+
+
 __all__ = [
     "CatalogBadResponse",
     "CatalogError",
@@ -166,5 +191,8 @@ __all__ = [
     "CatalogUnavailable",
     "Credential",
     "ModelCatalog",
+    "ModelParameterBadResponse",
+    "ModelParameterResponse",
+    "ModelParameterSource",
     "compute_etag",
 ]

@@ -18,6 +18,8 @@ Five behaviours compose here, each closing a specific failure:
 
 AIDEV-NOTE: the stale-on-error discipline is deliberate — serve what is cached, refuse when cold,
 never fail open. A refresh failure must not degrade into "this credential can address no models".
+Detailed model-parameter contracts are profile-stateful and explicitly no-store, so this service
+only retains their source for composition; those reads never enter this cache.
 """
 
 from __future__ import annotations
@@ -30,7 +32,13 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from url4_cloud.catalog.port import CatalogError, CatalogSource, Credential, ModelCatalog
+from url4_cloud.catalog.port import (
+    CatalogError,
+    CatalogSource,
+    Credential,
+    ModelCatalog,
+    ModelParameterSource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +102,7 @@ class CachedCatalog:
         self,
         source: CatalogSource,
         *,
+        parameter_source: ModelParameterSource | None = None,
         ttl_s: float = 300.0,
         stale_max_s: float = 3600.0,
         error_backoff_s: float = 30.0,
@@ -104,6 +113,7 @@ class CachedCatalog:
         source_aclose: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._source = source
+        self._parameter_source = parameter_source
         # WHY teardown lives here rather than on the source: the app holds the CACHE, so the cache
         # is what its ASGI shutdown hook can reach. Mirrors `Url4Executor(world_aclose=...)`.
         self._source_aclose = source_aclose
@@ -135,6 +145,12 @@ class CachedCatalog:
         aclose, self._source_aclose = self._source_aclose, None
         if aclose is not None:
             await aclose()
+
+    @property
+    def model_parameter_source(self) -> ModelParameterSource | None:
+        """The uncached detail source sharing this service's owned client lifecycle."""
+
+        return self._parameter_source
 
     def max_age_s(self, credential: Credential) -> int:
         """Seconds this credential's entry may still be considered fresh, floored at 0.
