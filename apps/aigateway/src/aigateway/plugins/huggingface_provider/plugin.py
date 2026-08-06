@@ -71,6 +71,7 @@ def _credential_service_for(profile_name: str) -> str:
 
 class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
     custom_llm_provider = "huggingface"
+    provider_display_name = "Hugging Face"
     settings_cls = HuggingFacePluginSettings
 
     def register_models(self) -> list[ModelEntry]:

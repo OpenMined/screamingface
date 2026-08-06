@@ -19,12 +19,6 @@ from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_mo
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
-_SEEDS = [
-    "openrouter/anthropic/claude-fable-5",
-    "openrouter/openai/gpt-5.5",
-    "openrouter/anthropic/claude-opus-4.8",
-]
-
 
 def _plugin(*, enabled: bool) -> OpenRouterProviderPlugin:
     return OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=enabled))
@@ -46,7 +40,7 @@ def test_register_models_empty_when_disabled() -> None:
 
 def test_register_models_seeds_when_enabled() -> None:
     entries = _plugin(enabled=True).register_models()
-    assert [entry.model_name for entry in entries] == _SEEDS
+    assert [entry.model_name for entry in entries] == OpenRouterPluginSettings().default_models
     for entry in entries:
         assert entry.litellm_params == {"model": entry.model_name}
 

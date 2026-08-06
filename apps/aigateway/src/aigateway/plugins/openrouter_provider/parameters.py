@@ -30,6 +30,8 @@ from aigateway.core.standard_parameters import (
     TEMPERATURE_SCHEMA,
     TOP_LOGPROBS_SCHEMA,
     TOP_P_SCHEMA,
+    WEB_SEARCH_EXCLUDED_DOMAINS_SCHEMA,
+    WEB_SEARCH_SCHEMA,
     direct_rule,
     function_calling_rules,
     provider_native_rule,
@@ -80,7 +82,56 @@ TOP_K_LEAF = "top_k"
 # WITH tool_choice.
 _TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
     ToolCapability(tool_type="function", provider_support="supported", gateway_status="enabled"),
+    # AIDEV-NOTE: `openrouter:web_search` / `openrouter:web_fetch` are deliberately ABSENT.
+    # OpenRouter documents that server-tool surface, but the 2026-07-31 conformance probe through
+    # this Gateway's pinned LiteLLM/provider path returned HTTP 200 without search evidence.
+    # Server-side web search in this landing uses the separately proven `web_search` rule below.
+    # Advertising another surface requires fresh end-to-end evidence; it is not a compatibility
+    # fallback for the proven plugin projection.
 )
+
+# --- server-side web search --------------------------------------------------
+# OpenRouter retrieves through `plugins: [{"id": "web", ...}]`, and `plugins` stays REFUSED as a
+# caller path (OME-646, pinned by `test_openrouter_security`). That is not an obstacle worked
+# around here — it is correct, and the reason is worth stating: `plugins` is an extensibility
+# ENVELOPE. Carrying arbitrary provider extensions is its entire purpose, so no schema can bound
+# it without defeating it, and a rule enabling it forwards nested JSON verbatim.
+#
+# The caller instead says `web_search: true` — bounded completely, because it is a boolean — and
+# `plugin.prepare_chat_body` ASSIGNS the `plugins` payload from gateway-owned policy, the same
+# two-layer shape `provider` already uses: the classifier refuses the native field, the provider
+# sets it. The caller can never reach the envelope.
+#
+# AIDEV-NOTE (OME-712, owner decision — READ BEFORE PROMOTING THESE TO ``keyed``). Both search
+# rules declare ``cache_behavior="bypass"``, alone among the output-affecting rules in this file.
+# Two independent reasons, either sufficient:
+#
+# 1. The dispatched envelope's `exclude_domains` is the UNION of the caller's list and the
+#    DEPLOYMENT setting ``AIGW_OPENROUTER_WEB_SEARCH_EXCLUDED_DOMAINS``. That setting is not in
+#    the request body, and ``global_cache_projection`` is contractually forbidden from reading
+#    ``self.settings`` (the purity INVARIANT on the port, with
+#    ``test_no_projection_reads_operator_configuration`` as the tripwire), so it can never reach
+#    the key. That is exactly the shape ruling 34 names: identical bodies, one key, two different
+#    upstream calls. Ruling 34 allows two answers — bypass, or accept the collision in writing —
+#    and the colliding input here is a BLOCKLIST, so accepting the collision would mean serving
+#    an answer retrieved without an operator's exclusions to a deployment that requires them.
+# 2. Retrieval is time-varying by definition. An EXACT-REQUEST cache answers "the same call was
+#    made before"; for a search-backed call that is precisely the wrong question.
+#
+# INVARIANT this rests on: the `plugins` envelope is emitted ONLY when `web_search is True`
+# (``web_search.apply_web_search`` returns early otherwise), and any request carrying that field
+# bypasses here. So no CACHEABLE request can be dispatched with a `plugins` block, which is what
+# keeps ``global_cache``'s `prepared` a complete description of what this boundary sends. Emit
+# the envelope on any other condition and that projection silently becomes incomplete.
+#
+# ACCEPTED CONSEQUENCE: a benchmark re-run that uses `web_search` re-pays OpenRouter every time,
+# and `web_search: false` bypasses too — ``_accept`` reads ``cache_behavior`` before it looks at
+# the value. Do not add a falsy-value exemption; the saving is not worth a second code path.
+#
+# The route out, if this ever needs to be `keyed`: fold the deployment policy into the request
+# BODY before the key is built — the pattern OME-638 already uses for profile defaults — so the
+# projection has nothing unobservable left to read. That needs a new plugin port; it is not a
+# change to this file alone.
 
 _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
@@ -212,6 +263,25 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     *routing_policy_rules(auth_modes=_AUTH, projection_revision=_REVISION),
     # OME-583: tools + tool_choice (OpenAI-native, §9 proof).
     *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),
+    # Server-side web search — the caller-facing half. `direct` is the ADDRESSING kind, not the
+    # wire shape: `prepare_chat_body` consumes both fields and emits `plugins` in their place,
+    # so neither name reaches OpenRouter. Verified live 2026-07-31 (litellm 1.87.0) that the
+    # emitted `plugins` retrieves: same prompt, with it a current cited answer, without it the
+    # model's training cutoff.
+    direct_rule(
+        "web_search",
+        auth_modes=_AUTH,
+        schema=WEB_SEARCH_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
+    ),
+    direct_rule(
+        "web_search_excluded_domains",
+        auth_modes=_AUTH,
+        schema=WEB_SEARCH_EXCLUDED_DOMAINS_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
+    ),
 )
 
 

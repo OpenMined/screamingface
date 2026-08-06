@@ -25,7 +25,12 @@ from aigateway.core.parameter_projection import WRAPPER_KEY
 from .dispatch_errors import _UnexpectedRoutingPolicyError
 from .parameters import EXTRA_BODY_OBJECT, TOP_K_LEAF
 from .routing_policy import PROVIDER_OBJECT, build_provider_policy, project_routing_controls
-from .settings import GATEWAY_MODEL_PREFIX, OFFICIAL_API_BASE, is_valid_upstream_model_id
+from .settings import (
+    GATEWAY_MODEL_PREFIX,
+    OFFICIAL_API_BASE,
+    is_online_variant,
+    is_valid_upstream_model_id,
+)
 
 # OME-305: the revision of THIS plugin's output-affecting preparation, as reported
 # by ``global_cache_projection``.
@@ -40,7 +45,11 @@ from .settings import GATEWAY_MODEL_PREFIX, OFFICIAL_API_BASE, is_valid_upstream
 # what a caller may say and where each value lands; this one versions what the
 # boundary adds on its own. A change to either must invalidate, and collapsing them
 # into one constant would make every rule edit look like a dispatch change.
-GLOBAL_CACHE_ADAPTER_REVISION = "openrouter-global-cache-2026-08"
+#
+# OME-712 (`...-08` -> `...-08b`): `:online` ids USED to dispatch and fill entries, and are
+# now refused. The projection below bypasses them, but a bypass only stops NEW rows — rows
+# written before this landed stay readable under their old key. Bumping abandons them.
+GLOBAL_CACHE_ADAPTER_REVISION = "openrouter-global-cache-2026-08b"
 
 
 def project_global_cache_request(body: dict[str, Any]) -> dict[str, Any] | CacheBypass:
@@ -80,6 +89,14 @@ def project_global_cache_request(body: dict[str, Any]) -> dict[str, Any] | Cache
         return CacheBypass(reason=PROJECTION_BYPASS_REASON)
     upstream = model[len(GATEWAY_MODEL_PREFIX) :]
     if not is_valid_upstream_model_id(upstream):
+        return CacheBypass(reason=PROJECTION_BYPASS_REASON)
+    if is_online_variant(upstream):
+        # OME-712: ``prepare_chat_body`` REFUSES this id with a 400 — the `:online` suffix is
+        # OpenRouter's implicit search, a second route around the provider-neutral `web_search`
+        # parameter and the deployment exclusions it carries. The refusal alone is not enough,
+        # because the cache is read BEFORE preparation: without this, a stored entry would
+        # answer 200 for a request the gateway must refuse. Same class as the routing-policy
+        # bypass below, and the same predicate as the dispatch guard so the two cannot drift.
         return CacheBypass(reason=PROJECTION_BYPASS_REASON)
     wrapper = body.get(WRAPPER_KEY)
     try:
