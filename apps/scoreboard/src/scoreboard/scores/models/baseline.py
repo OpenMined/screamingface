@@ -18,6 +18,10 @@ class BaseBaseline(BaseScoreboardModel):
     source_url = fields.CharField(max_length=2048, null=True)
     imported_at = fields.DatetimeField(auto_now_add=True)
     metadata = fields.JSONField(null=True)
+    # FEATURE: OME-323 — manual open/closed correction, mirrors Score.openness_override.
+    # `null` defers to the classification registry; an explicit "open"/"closed" wins
+    # outright.
+    openness_override = fields.CharField(max_length=8, null=True)
 
 
 class Baseline(BaseBaseline):

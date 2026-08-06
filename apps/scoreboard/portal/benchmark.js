@@ -221,6 +221,21 @@
     summaryNode.hidden = false;
   }
 
+  // OME-323: how much of this benchmark's accuracy frontier is held by
+  // open-reproducible stacks vs. proprietary ones. Fetched and rendered
+  // independently of the main leaderboard call — a failure here must not
+  // block or error out the leaderboard itself, it's a supplementary stat.
+  function renderFrontier(data) {
+    var card = document.getElementById("summary-frontier-card");
+    var node = document.getElementById("summary-frontier");
+    if (!card || !node || !data || !data.current) return;
+    var pct = Math.round((data.open_share || 0) * 100);
+    node.textContent = pct + "% open";
+    node.title = "Frontier currently held by a " + data.current.openness +
+      " entry (" + data.current.label + ")";
+    card.hidden = false;
+  }
+
   // Climb accuracy bars (brand viz-a direction): one row per spec, the SOTA
   // entry carries the sota (gain) fill — same story color as tr.sota.
   // Purely visual: aria-hidden, the table is the accessible representation.
@@ -332,6 +347,13 @@
           generic: "Could not load leaderboard — try again later.",
         }));
       }
+    );
+
+    // Independent of the fetch above: a failure here just leaves the card
+    // hidden (its default state in the markup), never surfaces an error.
+    P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "/frontier").then(
+      renderFrontier,
+      function () {}
     );
   }
 

@@ -8,10 +8,12 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
 from scoreboard.scores.baseline_store import BaselineStore
+from scoreboard.scores.frontier import compute_frontier
 from scoreboard.scores.models import Benchmark
 from scoreboard.scores.schemas import (
     BaselineSchema,
     BenchmarkSchema,
+    FrontierResponse,
     LeaderboardEntry,
     ScoreSchema,
 )
@@ -180,3 +182,21 @@ async def get_spec_history(
         benchmark_id=benchmark_id,
         submissions=[_history_submission(score) for score in submissions],
     )
+
+
+@router.get(
+    "/leaderboard/{benchmark_id}/frontier",
+    response_model=FrontierResponse,
+    tags=["leaderboard"],
+)
+async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
+    """How much of `benchmark_id`'s accuracy frontier is held by open-reproducible
+    stacks vs. proprietary ones (OME-323) — the current split plus the trend over
+    time. Unknown benchmarks return 404. Deliberately benchmark-wide across every
+    spec, not scoped per-spec like the ranked leaderboard above (spec §6).
+    """
+    await _get_benchmark_or_404(benchmark_id)
+    scores = await _score_store(request).list_all_for_benchmark(benchmark_id)
+    baselines = await _baseline_store(request).list_baselines(benchmark_id)
+    result = compute_frontier(scores=scores, baselines=baselines)
+    return FrontierResponse(benchmark_id=benchmark_id, **result.model_dump())

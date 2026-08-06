@@ -24,6 +24,7 @@ def _baseline_to_schema(model: Baseline) -> BaselineSchema:
         source_url=model.source_url,
         imported_at=model.imported_at,
         metadata=model.metadata,
+        openness_override=model.openness_override,
     )
 
 

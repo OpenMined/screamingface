@@ -167,6 +167,9 @@ class ScoreSchema(BaseModel):
     client_platform: str | None
     verified_by_openmined: bool
     metadata: dict[str, Any] | None
+    # FEATURE: OME-323 — manual open/closed correction; None defers to the
+    # classification registry. Operator-only, never set via ScoreSubmission.
+    openness_override: Literal["open", "closed"] | None = None
 
 
 class LeaderboardEntry(BaseModel):
@@ -197,11 +200,56 @@ class BaselineSchema(BaseModel):
     source_url: str | None
     imported_at: datetime
     metadata: dict[str, Any] | None
+    # FEATURE: OME-323 — manual open/closed correction, mirrors ScoreSchema's field.
+    openness_override: Literal["open", "closed"] | None = None
 
     @field_validator("metadata")
     @classmethod
     def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
         return _validate_bounded_metadata(value)
+
+
+class FrontierPoint(BaseModel):
+    """One step of the open/closed frontier trend (OME-323, spec §5/§6): the
+    running-best accuracy at the moment it changed, and whether the entry holding
+    that position was open or closed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    at: datetime
+    accuracy: float
+    openness: Literal["open", "closed"]
+    # INVARIANT: always "score" — a Baseline's imported_at isn't a trustworthy
+    # real-world timestamp, so it never participates in this walk (spec §6).
+    holder: Literal["score"]
+    label: str
+
+
+class FrontierResult(BaseModel):
+    """Return type of `compute_frontier` — no `benchmark_id`, since the pure
+    function itself has no notion of which benchmark it was called for. The route
+    adds that to build the public `FrontierResponse`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    open_count: int
+    closed_count: int
+    open_share: float
+    current: FrontierPoint | None
+    trend: list[FrontierPoint]
+
+
+class FrontierResponse(BaseModel):
+    """Read DTO for GET /v1/leaderboard/{benchmark_id}/frontier (OME-323, spec §5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    benchmark_id: str
+    open_count: int
+    closed_count: int
+    open_share: float
+    current: FrontierPoint | None
+    trend: list[FrontierPoint]
 
 
 class BaselineImportRow(BaseModel):
