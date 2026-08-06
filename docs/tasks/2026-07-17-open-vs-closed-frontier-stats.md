@@ -23,4 +23,14 @@ default. §6 ("what is the frontier") resolved to trend-over-time, matching the
 ticket's own "frontier share + trend" scope line — not just a point-in-time
 split.
 
-Next: `docs/plan/` artifact, then implementation.
+Extended 2026-08-06: nine follow-up dilemmas found while reviewing the spec against
+real production data (mixed-provider classification, registry staleness, cross-system
+drift, tie-breaking, baseline timing, frontier scope, junk production data,
+unverified/anonymous submissions, manual override) — all resolved, folded into the
+spec as new/extended §4, §6, §7, §8, plus new §9 (manual override column + migration)
+and §10 (pre-launch production cleanup).
+
+Next: `docs/plan/` artifact (existing draft at
+`docs/plan/2026-08-06-open-vs-closed-frontier-stats-plan.md` needs updating against
+these nine resolutions before implementation), then implementation. §10's production
+cleanup is a separate, explicitly-confirmed action, not part of the code unit.
