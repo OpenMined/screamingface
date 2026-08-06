@@ -76,7 +76,12 @@ def bind_case_evaluation(
     return _case_envelope(cases[0], checks, evidence)
 
 
-def decode_case_evaluation(value: Any, expected_case_id: int) -> dict[str, Any]:
+def decode_case_evaluation(
+    value: Any,
+    expected_case_id: int,
+    *,
+    judge_passes: int,
+) -> dict[str, Any]:
     """Decode one exact Case Evaluation without searching nested text or values."""
 
     decoded = _root_object(value)
@@ -91,7 +96,7 @@ def decode_case_evaluation(value: Any, expected_case_id: int) -> dict[str, Any]:
     _require(_valid_case(case, expected_case_id), "invalid DRACO Case record")
     checks = _mapping_sequence(decoded.get("checks"), "DRACO Checks")
     evidence = _mapping_sequence(decoded.get("evidence"), "DRACO Judge Evidence")
-    _validate_final_records(expected_case_id, checks, evidence)
+    _validate_final_records(expected_case_id, checks, evidence, judge_passes)
     return _case_envelope(case, checks, evidence)
 
 
@@ -124,7 +129,9 @@ def _validate_final_records(
     case_id: int,
     checks: Sequence[Mapping[str, Any]],
     evidence: Sequence[Mapping[str, Any]],
+    judge_passes: int,
 ) -> None:
+    _require(judge_passes > 0, "judge_passes must be positive")
     criterion_ids = [str(item.get("criterion_id")) for item in checks]
     _require(
         len(set(criterion_ids)) == len(criterion_ids)
@@ -142,6 +149,10 @@ def _validate_final_records(
             "invalid DRACO Judge Evidence",
         )
     _require(all(sequences.values()), "a DRACO Check carries no Judge Evidence")
+    _require(
+        all(count <= judge_passes for count in sequences.values()),
+        f"a DRACO Check cannot carry more than {judge_passes} Judge Evidence records",
+    )
 
 
 def _case_envelope(

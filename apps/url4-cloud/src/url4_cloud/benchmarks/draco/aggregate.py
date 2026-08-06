@@ -151,7 +151,7 @@ def aggregate(
         raise AggregateError("no DRACO rows were collected; the Candidate cannot be scored")
     expected_cases = _validate_selected_cases(selected_cases, len(rows))
 
-    evaluations, decode_errors = _decode_evaluations(rows, expected_cases)
+    evaluations, decode_errors = _decode_evaluations(rows, expected_cases, judge_passes)
     case_rows = [
         [evaluation["case"]] if evaluation is not None else [] for evaluation in evaluations
     ]
@@ -227,12 +227,17 @@ def aggregate(
 def _decode_evaluations(
     rows: Sequence[Any],
     expected_cases: Sequence[Mapping[str, Any]],
+    judge_passes: int,
 ) -> tuple[list[dict[str, Any] | None], list[str | None]]:
     evaluations: list[dict[str, Any] | None] = []
     errors: list[str | None] = []
     for raw, expected_case in zip(rows, expected_cases, strict=True):
         try:
-            evaluation = decode_case_evaluation(raw, int(expected_case["id"]))
+            evaluation = decode_case_evaluation(
+                raw,
+                int(expected_case["id"]),
+                judge_passes=judge_passes,
+            )
         except (TypeError, ValueError) as exc:
             evaluation = None
             errors.append(str(exc))

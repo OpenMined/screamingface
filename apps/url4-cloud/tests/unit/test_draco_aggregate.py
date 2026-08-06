@@ -436,6 +436,31 @@ def test_aggregate_scores_the_official_nested_payload() -> None:
     assert result["failures"] == []
 
 
+def test_extra_judge_pass_makes_the_case_unscored() -> None:
+    row = _case_row(
+        1,
+        ("a1", ["MET"] * 6),
+        ("a2", ["MET"] * 5),
+        ("a3", ["UNMET"] * 5),
+        ("b1", ["MET"] * 5),
+    )
+
+    result = agg.aggregate(
+        json.dumps([row]),
+        rubrics={1: _RUBRIC},
+        benchmark_id="draco",
+        selected_cases=_selected_cases(1),
+    )
+
+    assert result["score"] is None
+    assert result["cases"][0]["grade"] is None
+    failure = result["cases"][0]["failures"][0]
+    assert failure["code"] == "invalid_case_evaluation"
+    assert failure["metadata"]["reason"] == (
+        "a DRACO Check cannot carry more than 5 Judge Evidence records"
+    )
+
+
 def test_a_case_id_missing_from_evidence_makes_the_case_unscored() -> None:
     """A scoreable verdict must carry the identity bound by the Engine after judging."""
     row = _case_row(
