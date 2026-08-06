@@ -81,6 +81,7 @@ from .routing_policy import build_provider_policy
 from .settings import (
     GATEWAY_MODEL_PREFIX,
     OpenRouterPluginSettings,
+    is_online_variant,
     is_valid_upstream_model_id,
 )
 from .settings import OFFICIAL_API_BASE as OFFICIAL_API_BASE
@@ -338,7 +339,10 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         model = out.get("model")
         if not isinstance(model, str) or not model.startswith(GATEWAY_MODEL_PREFIX):
             raise _invalid_model_error()
-        if model.endswith(":online"):
+        # OME-712: BEFORE the validity check, so a `:online` id reports the specific
+        # `unsupported_model_variant` rather than a generic invalid-model error. The
+        # cache projection refuses the same ids via the same predicate.
+        if is_online_variant(model):
             raise _online_model_suffix_error()
         if not is_valid_upstream_model_id(model[len(GATEWAY_MODEL_PREFIX) :]):
             raise _invalid_model_error()
