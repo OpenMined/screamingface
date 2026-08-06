@@ -354,13 +354,30 @@ class ExecutionContext:
         return await self._execute_node_hook(self, node, scope)
 
     def report_usage(
-        self, *, provider: str, model: str, input_tokens: int, output_tokens: int
+        self,
+        *,
+        provider: str,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        response_model: str | None = None,
     ) -> None:
         """Report model token usage under this node's current span. A no-op
-        when no ``observer`` was passed to :func:`~url4.dag.executor.run`."""
+        when no ``observer`` was passed to :func:`~url4.dag.executor.run`.
+
+        ``model`` is the REQUESTED model; pass ``response_model`` when the provider
+        reports which model actually served the call (see :class:`~url4.observe.Usage`).
+        """
         if self._obs is not None:
             self._obs.emit(
-                Usage(self._current_span_id, provider, model, input_tokens, output_tokens)
+                Usage(
+                    self._current_span_id,
+                    provider,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                    response_model,
+                )
             )
 
     def report_response(self, *, finish_reason: str | None, refusal: str | None) -> None:

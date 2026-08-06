@@ -288,6 +288,14 @@ def _lower_expression(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     )
 
 
+_ROW_NAMES = frozenset({"item", "current"})
+"""The reserved per-row names (§5.3.4) — never wired from an enclosing binding.
+
+Mirrors the exclusion `_refs_of_ast` already applies when collecting AST references, so the
+text path and the AST path agree on which names an iteration rebinds for itself.
+"""
+
+
 def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, Iteration)
     collection = _lower_collection(node.collection, registry)
@@ -295,11 +303,47 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
         body=node.body,
         intent=node.intent,
         directives=node.directives,
-        deps={"collection": collection},
+        # WHY the body's references become EDGES: the body is re-parsed per row at resolve time,
+        # so the compiler cannot see its `$name`s by walking the AST — it must read them out of
+        # the text. Without these edges the enclosing group's bindings never reach the spawned
+        # row, and a reference the grammar admits (§6.2 — `item-ref` reserves the NAME `$item`
+        # inside a body, it does not close the scope) substituted VERBATIM instead. Silently:
+        # the leaf received the literal `$ans`.
+        deps={"collection": collection, **_body_ref_edges(node.body, node.intent, edges)},
     )
     if node.reducer is not None:
         return ReduceNode(node.reducer, deps={"rows": map_node})
     return CollectNode(deps={"rows": map_node})
+
+
+def _body_intent_refs(body: str, intent: str | None) -> set[str]:
+    """The `$name`s an iteration's body and per-row intent mention, minus the reserved row names.
+
+    INVARIANT: the ONE reading of an iteration's template strings. Both compilation paths need
+    it — `_body_ref_edges` at lowering time and `_refs_of_ast` when collecting a slot's
+    references — and if they ever disagree about which names an iteration rebinds for itself,
+    the AST path silently stops wiring an outer binding while the text path keeps working. That
+    divergence is invisible: the reference substitutes VERBATIM and the run still succeeds.
+    """
+    return (find_references(body) | (find_references(intent) if intent else set())) - _ROW_NAMES
+
+
+def _body_ref_edges(body: str, intent: str | None, edges: Edges) -> dict[str, DagNode]:
+    """Reference edges for the `$name`s an iteration's body and per-row intent mention.
+
+    INVARIANT: ``item`` and ``current`` are excluded. They are the RESERVED row names (§5.3.4),
+    rebound per row by :class:`~url4.dag.nodes.MapNode`; wiring one to an enclosing binding of
+    the same name would let an outer value capture the row and silently iterate the wrong data.
+
+    An edge is added only for a name the enclosing group actually declares, so a body that
+    references nothing gains no dependency and keeps its previous concurrency.
+    """
+    wired: dict[str, DagNode] = {}
+    for ref in sorted(_body_intent_refs(body, intent)):
+        key = f"pos:{ref}" if ref.isdigit() else f"bind:{ref}"
+        if key in edges:
+            wired[key] = edges[key]
+    return wired
 
 
 def _lower_collection(node: Node, registry: LoweringRegistry) -> DagNode:
@@ -843,9 +887,22 @@ def _refs_of_ast(node: Node) -> set[str]:
             refs |= find_references(descendant.value)
         elif isinstance(descendant, (RelExpr, RemoteExpr)) and descendant.context:
             refs |= find_references(descendant.context)
+        elif isinstance(descendant, Iteration):
+            # WHY read as TEXT: an iteration's body and per-row intent are template strings,
+            # not child nodes — `children(Iteration)` yields only the collection — so the walk
+            # cannot reach their `$name`s. Without this the enclosing group's slot declared no
+            # dependency on them, `_ref_edges` emitted no `bind:` edge, and `_lower_iteration`
+            # had nothing left to wire: the AST path substituted an outer reference VERBATIM,
+            # which is the silent failure the text path already fixed (§6.2).
+            #
+            # INVARIANT: the SAME reading `_body_ref_edges` uses, shared rather than restated —
+            # a slot that declares fewer references than the lowering step wires is a wiring
+            # step with nothing to wire. The collection is deliberately not part of it: it
+            # resolves in the ENCLOSING scope and reaches this walk as an ordinary child.
+            refs |= _body_intent_refs(descendant.body, descendant.intent)
         elif isinstance(descendant, StructObject):
             refs |= find_references(descendant.raw)
-        elif isinstance(descendant, VarRef) and descendant.name not in ("item", "current"):
+        elif isinstance(descendant, VarRef) and descendant.name not in _ROW_NAMES:
             refs.add(descendant.name)
     return refs
 
