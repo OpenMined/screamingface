@@ -844,3 +844,74 @@ stack tamper; a bare `return` inserted as a new first line; shrinking a
 fixed by rounds 2, 3, 3, and 8 respectively. Nothing new to fix. The PR is
 genuinely just waiting on a re-review that hasn't happened in 3+ weeks, not
 on any further code change.
+
+## Round 14 (2026-08-06) — applied HupBaHa's validated review suggestions
+
+HupBaHa left a real, substantive review on the round-13 head (2026-08-06):
+his original 2026-07-17 nested-stack concern, plus several more gaps he found
+independently, delivered as validated GitHub suggestion blocks — "Applied
+together on an exact-head disposable copy, these pass all 48 tests on Python
+3.10 and 3.12; byte-compilation and whitespace checks pass, and Ruff remains
+baseline-identical. Two adversarial reviews found no blocking issues."
+
+Applied his suggestions verbatim (reconstructed from the review's GitHub
+suggestion blocks, cross-checked against the file's current structure since
+the review API returned no line anchors for these comments):
+
+- **Class-body protection.** `_old_protected_ranges` now also walks
+  `ast.ClassDef` nodes, protecting existing decorators + the class header
+  (via a new `_class_header_end` token-scanner) but not the body — so tamper
+  inside an existing test *class* is caught while a first new sibling method
+  stays a legitimate addition. This directly closes his original nested-stack
+  finding.
+- **Module-level `ast.Assert` protection.** `_MODULE_LEVEL_DATA` now also
+  covers a direct module-level assertion statement (executes at collection
+  time — real test logic, not documentation).
+- **Fail-closed on unsupported/unparseable files.** `_old_protected_ranges`
+  now returns `None` (not `[]`) for a non-`.py` file or one that fails to
+  parse — the caller now flags any modification to such a file as an
+  offender, rather than silently treating "can't protect it" as "nothing to
+  protect." Closes a real fail-open gap for configured non-Python globs
+  (e.g. `aigateway-ui`'s `*.test.ts`).
+- **Diff detection reworked onto real tokens.** `_diff_positions` now tracks
+  whether the *current* file tokenizes at all (`current_parseable`, also
+  fail-closed on `False`) and computes insertion indent via a new
+  `_added_span_indent` helper that reads real Python tokens (falling back to
+  leading-whitespace scanning only when tokenization fails) — more accurate
+  than the old raw-byte-prefix indent guess, and correctly ignores comments
+  as indentation signals.
+- **Glob matching rewritten.** New `_matches_glob` replaces `fnmatch.fnmatch`
+  directly on the whole path with a component-aware recursive matcher, so a
+  bare `**` component correctly spans zero-or-more path segments while a
+  `**` embedded inside a larger component (e.g. `test**`) does not.
+- **NUL-delimited git status parsing.** `append_only_check` now runs
+  `git diff --name-status -z` and splits on `\0` instead of `\t`/`\n`, so a
+  path containing a tab, newline, quote, or backslash can't desync the
+  status-line parser and slip through unchecked. Handles rename/copy's
+  two-path records explicitly.
+- **Test suite:** added his 16 new tests (1 quoted-filename-parsing
+  regression + 15 covering class/module-assert protection, fail-closed
+  non-Python/unparseable-source handling, and the new glob matcher's edge
+  cases) verbatim, landing at exactly the 48 he validated against.
+
+**Deviation, disclosed:** the review API returned every one of these
+suggestion comments with `line`/`start_line`/`original_line` all `null` (an
+anomaly in how this review was posted — worth flagging to HupBaHa, not
+something introduced by applying it), so the suggestions couldn't be
+mechanically applied via GitHub's own "commit suggestion" affordance. Mapped
+each suggestion onto the current file by matching function signatures/names
+instead, and one suggestion comment (the 15-new-tests block) was truncated
+mid-statement in the stored comment body itself (11506 characters, cut off
+inside the final test's closing parens) — completed the closing
+`assertTrue(...)` call and the file's trailing `if __name__ == "__main__":`
+block by mirroring the identical pattern already used one test earlier in
+the same block (`test_globstar_inside_component_is_not_recursive`, same exact
+glob string). Confirmed no tests were missing: 32 original + 1 + 15 = 48,
+exactly matching his stated count.
+
+**Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 48/48 passed.
+`python3 -m py_compile` on both files → OK. `ruff check`/`ruff format --check`
+(bare `uvx ruff`, no project config covers this path) → identical 8
+findings / 2-files-reformatted count on both the pre- and post-change file,
+confirming "Ruff remains baseline-identical" as claimed — pre-existing
+default-ruleset noise unrelated to this change, not a regression.

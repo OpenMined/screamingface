@@ -542,6 +542,18 @@ class AppendOnlyCheckTests(unittest.TestCase):
             _write(root / "test_ä.py", "def test_one():\n    assert 1 == 2\n")
             self.assertFalse(self._check(root, base))
 
+    def test_git_quoted_filename_rewrite_detected(self):
+        """NUL-delimited git output must preserve path characters that trigger
+        C-style quoting or collide with line/tab-delimited status parsing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            path = root / 'test_\t\n\\"case.py'
+            _write(path, "def test_one():\n    assert 1 == 1\n")
+            base = _commit_all(root, "base")
+            _write(path, "def test_one():\n    assert 1 == 2\n")
+            self.assertFalse(self._check(root, base))
+
     def test_indented_append_extending_final_test_body_detected(self):
         """Regression test (code-review finding, false-negative direction): an
         INDENTED line appended directly after the file's final test extends
@@ -580,6 +592,251 @@ class AppendOnlyCheckTests(unittest.TestCase):
                 "    def test_two(self):\n        assert 2 == 2\n",
             )
             self.assertTrue(self._check(root, base))
+
+    def test_existing_typescript_assertion_rewrite_fails_closed(self):
+        """A configured non-Python test file must not lose all protection merely
+        because Python's AST cannot parse it. Until a language-aware range parser
+        exists, modifications to an existing unsupported test artifact fail closed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "src" / "nested" / "auth.test.ts",
+                'test("auth", () => {\n  expect(authorize()).toBe(false);\n});\n',
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "src" / "nested" / "auth.test.ts",
+                'test("auth", () => {\n  expect(true).toBe(true);\n});\n',
+            )
+            self.assertFalse(self._check(root, base, ["src/**/*.test.ts"]))
+
+    def test_replacing_separator_with_indented_code_fails(self):
+        """The added side of a SequenceMatcher replace matters: replacing the
+        old blank immediately after a loop test with `break` extends that test."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = (
+                "CASES = [1, 2, 3]\n\n\ndef test_all_cases():\n"
+                "    for case in CASES:\n        assert case < 3\n\n\n"
+                "def test_other():\n    assert True\n"
+            )
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                base_src.replace(
+                    "        assert case < 3\n\n",
+                    "        assert case < 3\n        break\n",
+                    1,
+                ),
+            )
+            self.assertFalse(self._check(root, base))
+
+    def test_comment_before_indented_append_does_not_hide_code(self):
+        """Comments do not emit Python indentation tokens. A column-zero comment
+        before an indented `break` must not make the body extension look dedented."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = (
+                "CASES = [1, 2, 3]\n\n\ndef test_all_cases():\n"
+                "    for case in CASES:\n        assert case < 3\n"
+            )
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                base_src + "# explanation\n        break\n",
+            )
+            self.assertFalse(self._check(root, base))
+
+    def test_existing_test_class_decorator_edit_fails(self):
+        """Existing test-class metadata is prior test behavior too. This is not
+        OME-475's deferred case of stacking a new outer function decorator."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = (
+                "import pytest\n\n"
+                '@pytest.mark.skipif(False, reason="enabled")\n'
+                "class TestThings:\n"
+                "    def test_one(self):\n        assert False\n"
+            )
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                base_src.replace("skipif(False", "skipif(True"),
+            )
+            self.assertFalse(self._check(root, base))
+
+    def test_module_level_assert_edit_fails(self):
+        """A direct module assertion executes during collection and is test logic,
+        not documentation or an exempt runner block."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                "def behavior():\n    return False\n\nassert behavior()\n",
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "def behavior():\n    return False\n\nassert True\n",
+            )
+            self.assertFalse(self._check(root, base))
+
+    def test_direct_child_typescript_test_matches_recursive_glob(self):
+        """`**/` includes zero directories in stack-card intent; direct children
+        must not escape merely because fnmatch treats the slash literally."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "src" / "auth.test.ts",
+                'test("auth", () => expect(authorize()).toBe(false));\n',
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "src" / "auth.test.ts",
+                'test("auth", () => expect(true).toBe(true));\n',
+            )
+            self.assertFalse(self._check(root, base, ["src/**/*.test.ts"]))
+
+    def test_first_method_added_to_existing_class_passes(self):
+        """Protect class metadata without treating its header endpoint like a
+        function body endpoint: the first new method is a legitimate addition."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_a.py", "class TestThings:\n    pass\n")
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "class TestThings:\n    def test_one(self):\n        assert True\n    pass\n",
+            )
+            self.assertTrue(self._check(root, base))
+
+    def test_invalid_current_source_fails_closed_on_deep_added_code(self):
+        """If tokenization fails, a leading comment must not hide deeper added
+        code at a protected endpoint. Invalid current source should fail closed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = (
+                "CASES = [1, 2, 3]\n\n\ndef test_all_cases():\n"
+                "    for case in CASES:\n        assert case < 3\n"
+            )
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                base_src + "# explanation\n        break\n(\n",
+            )
+            self.assertFalse(self._check(root, base))
+
+    def test_each_recursive_glob_segment_can_match_zero_directories(self):
+        """Multiple `**/` segments vary independently; removing only a prefix
+        chain leaves valid direct-child combinations unmatched."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            path = root / "x" / "foo" / "bar.test.ts"
+            _write(path, 'test("x", () => expect(false).toBe(true));\n')
+            base = _commit_all(root, "base")
+            _write(path, 'test("x", () => expect(true).toBe(true));\n')
+            self.assertFalse(
+                self._check(root, base, ["**/foo/**/bar.test.ts"])
+            )
+
+    def test_invalid_source_form_feed_indentation_fails_closed(self):
+        """Python accepts form feed in leading indentation. The invalid-source
+        fallback must not treat a deeply indented line as column zero."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = (
+                "CASES = [1, 2, 3]\n\n\ndef test_all_cases():\n"
+                "    for case in CASES:\n        assert case < 3\n"
+            )
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                base_src + "# explanation\n\f        break\n(\n",
+            )
+            self.assertFalse(self._check(root, base))
+
+    def test_form_feed_prefixed_sibling_function_passes(self):
+        """At the start of indentation, form feed resets Python's indentation
+        column; it must not make a module-level sibling look nested."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_a.py", "def test_one():\n    assert True\n")
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "def test_one():\n    assert True\n\fdef test_two():\n    assert True\n",
+            )
+            self.assertTrue(self._check(root, base))
+
+    def test_current_tab_error_fails_closed(self):
+        """Tokenization alone does not validate indentation. A current file that
+        ast.parse rejects with TabError must not pass append-only checking."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = (
+                "class TestThings:\n    def test_all(self):\n"
+                "        for case in [1, 2, 3]:\n            assert case < 3\n"
+            )
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(root / "test_a.py", base_src + "\t\tbreak\n")
+            self.assertFalse(self._check(root, base))
+
+    def test_current_compile_time_syntax_error_fails_closed(self):
+        """AST construction accepts some contextually invalid statements, so
+        current Python source must pass full compilation before it can pass."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = "def test_one():\n    assert True\n"
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(root / "test_a.py", base_src + "break\n")
+            self.assertFalse(self._check(root, base))
+
+    def test_globstar_inside_component_is_not_recursive(self):
+        """Only a standalone `**` path component has zero-directory semantics;
+        textual `**/` inside a larger component must retain fnmatch behavior."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            path = root / "src" / "testauth.test.ts"
+            _write(path, 'test("x", () => expect(false).toBe(true));\n')
+            base = _commit_all(root, "base")
+            _write(path, 'test("x", () => expect(true).toBe(true));\n')
+            self.assertTrue(
+                self._check(root, base, ["src/test**/auth.test.ts"])
+            )
+
+    def test_non_globstar_wildcard_does_not_cross_directories(self):
+        """Wildcards within a component must not consume path separators."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            path = root / "src" / "test" / "deep" / "auth.test.ts"
+            _write(path, 'test("x", () => expect(false).toBe(true));\n')
+            base = _commit_all(root, "base")
+            _write(path, 'test("x", () => expect(true).toBe(true));\n')
+            self.assertTrue(
+                self._check(root, base, ["src/test**/auth.test.ts"])
+            )
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@ import argparse
 import ast
 import difflib
 import fnmatch
+import io
+import os
 import pathlib
 import subprocess
 import sys
@@ -72,39 +74,65 @@ def load_card(path: pathlib.Path) -> dict:
 # (a docstring, an `if __name__ == "__main__":` block, an import nested inside
 # a version-guard) silently becomes a false positive the next time someone
 # edits one. Assign/AnnAssign/AugAssign hold the kind of shared test data (e.g.
-# a `_BASE_KW = {...}` dict, or a `_CASES += [...]` accumulator) rule 5 needs
-# to protect.
-_MODULE_LEVEL_DATA = (ast.Assign, ast.AnnAssign, ast.AugAssign)
+# a `_BASE_KW = {...}` dict, a `_CASES += [...]` accumulator, or a direct
+# collection-time assertion) rule 5 needs to protect.
+_MODULE_LEVEL_DATA = (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Assert)
 
 
-def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int, int]]:
+def _class_header_end(tokens: list, node: ast.ClassDef) -> int:
+    """Last source line in a class header, excluding the class body."""
+    started = False
+    depth = 0
+    for token in tokens:
+        if not started:
+            started = token.string == "class" and token.start == (
+                node.lineno,
+                node.col_offset,
+            )
+            continue
+        if token.string in "([{":
+            depth += 1
+        elif token.string in ")]}" and depth:
+            depth -= 1
+        elif token.string == ":" and depth == 0:
+            return token.end[0]
+    return node.lineno
+
+
+def _old_protected_ranges(
+    root: pathlib.Path, base: str, path: str
+) -> list[tuple[int, int, int | None]] | None:
     """(start_line, end_line, def_column) triples — lines 1-indexed inclusive — for
     every protected node in `path` at `base`: every function body, plus every direct
     module-level Assign/AnnAssign/AugAssign statement. `def_column` is the node's
     own column offset, used to tell "new sibling appended after this body" apart
     from "new line appended INTO this body" (see append_only_check).
     """
+    import tokenize
+
     # AIDEV-NOTE: `path` is cwd-relative (it comes from `git diff --relative`), but
     # `git show rev:path` resolves a bare path relative to the REPO ROOT, not cwd —
     # the `./` prefix is what makes it cwd-relative. Without it, this silently
     # returns `[]` (falls into the "didn't exist" branch) for every stack whose
     # root isn't the repo root, i.e. every real stack in `.claude/sdlc.local.md`.
+    # Non-Python files still appear in active stack globs (for example the
+    # aigateway-ui TypeScript tests). Until a language-aware range parser exists,
+    # modifications to an existing unsupported artifact keep the old fail-closed
+    # behavior; A/C statuses remain legitimate additions in append_only_check.
+    if pathlib.PurePosixPath(path).suffix != ".py":
+        return None
+
     proc = subprocess.run(
         ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True,
     )
     if proc.returncode != 0:
-        return []  # file didn't exist at base — nothing to protect
+        return None
     try:
-        # WHY: bytes + errors="replace", not text=True — a committed undecodable
-        # file must fall through to the permissive SyntaxError branch below, not
-        # crash the subprocess decode with UnicodeDecodeError. The BOM strip is
-        # load-bearing too: CPython's tokenizer skips a UTF-8 BOM when reading
-        # source BYTES, but ast.parse of a STR starting with U+FEFF raises
-        # SyntaxError — without the strip, a BOM'd (perfectly valid, runnable)
-        # test file would fall into the permissive branch and lose ALL protection.
-        tree = ast.parse(proc.stdout.decode("utf-8", errors="replace").lstrip("\ufeff"))
-    except (SyntaxError, ValueError):
-        return []  # can't parse (incl. null bytes) — fall through to the safe (permissive) side
+        # Passing bytes lets Python honor UTF-8 BOM and PEP-263 source encodings.
+        tree = ast.parse(proc.stdout)
+        tokens = list(tokenize.tokenize(io.BytesIO(proc.stdout).readline))
+    except (IndentationError, SyntaxError, UnicodeDecodeError, ValueError, tokenize.TokenError):
+        return None
     ranges = []
     # INVARIANT: covers EVERY function, not just `test_*`-named ones — a
     # `conftest.py` fixture or a plain helper a test depends on is just as
@@ -117,6 +145,14 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
             # outermost decorator onto an old function is NOT caught — see gap (5).
             start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
             ranges.append((start, getattr(node, "end_lineno", node.lineno), node.col_offset))
+        elif isinstance(node, ast.ClassDef):
+            # Protect only existing decorators and the class header/bases, not the
+            # whole body: adding a new sibling method must remain a pure addition.
+            start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            # `None` disables the function-only end-of-body indentation rule:
+            # content after a class header is its body, where a first new method is
+            # a legitimate addition rather than an extension of old test logic.
+            ranges.append((start, _class_header_end(tokens, node), None))
     # INVARIANT: module-level test data is just as protected as a fixture — a
     # `-` line there is invisible to the function-only pass above.
     for node in tree.body:  # direct top-level children only — see AIDEV-NOTE below
@@ -154,7 +190,52 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     return ranges
 
 
-def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int], dict[int, int]]:
+def _added_span_indent(
+    tokens: list | None,
+    new_lines: list[bytes],
+    start: int,
+    end: int,
+) -> int:
+    """Indent of the first code token in new_lines[start:end], else first text."""
+    import tokenize
+
+    ignored = {
+        tokenize.COMMENT,
+        tokenize.DEDENT,
+        tokenize.ENCODING,
+        tokenize.ENDMARKER,
+        tokenize.INDENT,
+        tokenize.NEWLINE,
+        tokenize.NL,
+    }
+    if tokens is not None:
+        for token in tokens:
+            if start + 1 <= token.start[0] <= end and token.type not in ignored:
+                line = new_lines[token.start[0] - 1]
+                prefix = line[: token.start[1]]
+                return len(prefix.rsplit(b"\f", 1)[-1])
+    else:
+        # Invalid current source will fail later gates, but must not fail open here.
+        return max(
+            (
+                len(
+                    line[: len(line) - len(line.lstrip(b" \t\f"))].rsplit(b"\f", 1)[-1]
+                )
+                for line in new_lines[start:end]
+                if line.strip()
+            ),
+            default=0,
+        )
+    for line in new_lines[start:end]:
+        if line.strip():
+            prefix = line[: len(line) - len(line.lstrip(b" \t\f"))]
+            return len(prefix.rsplit(b"\f", 1)[-1])
+    return 0
+
+
+def _diff_positions(
+    root: pathlib.Path, base: str, path: str
+) -> tuple[set[int], dict[int, int], bool]:
     """Old-file positions where `path`'s content differs between `base` and the
     working tree, in two forms:
 
@@ -167,6 +248,8 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
       end (`n == hi`) whose indent is deeper than the range's own definition
       column extends that body and is a violation too (see append_only_check).
     """
+    import tokenize
+
     # WHY: diff actual line CONTENT (old file via `git show`, new file read
     # straight off disk) with difflib.SequenceMatcher, rather than hand-parsing
     # `git diff`'s unified-diff TEXT. Three separate rounds of bugs (a removed
@@ -199,13 +282,26 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
         ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True,
     )
     if old_proc.returncode != 0:
-        return set(), set()  # file didn't exist at base — nothing to protect
+        return set(), {}, True  # file didn't exist at base — nothing to protect
     # AIDEV-NOTE: `append_only_check` only ever calls this for status "M" files,
     # which are guaranteed to exist in the working tree — reading directly off
     # disk is the correct equivalent of `git diff base -- path`'s implicit
     # "against the working tree" comparison (no second ref given).
     old_lines = old_proc.stdout.splitlines()
-    new_lines = (root / path).read_bytes().splitlines()
+    new_source = (root / path).read_bytes()
+    new_lines = new_source.splitlines()
+    try:
+        compile(new_source, path, "exec")
+        new_tokens = list(tokenize.tokenize(io.BytesIO(new_source).readline))
+    except (
+        IndentationError,
+        SyntaxError,
+        UnicodeDecodeError,
+        ValueError,
+        tokenize.TokenError,
+    ):
+        new_tokens = None
+    current_parseable = new_tokens is not None
     matcher = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False)
     removed: set[int] = set()
     inserted_after: dict[int, int] = {}
@@ -214,20 +310,40 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
             continue
         if tag in ("delete", "replace"):
             removed.update(range(i1 + 1, i2 + 1))  # old_lines is 0-indexed, ranges are 1-indexed
-        if tag == "insert":
-            # Indent of the first non-blank inserted line; 0 when all blank
-            # (blank lines can never extend a body's logic).
-            indent = 0
-            for line in new_lines[j1:j2]:
-                if line.strip():
-                    indent = len(line) - len(line.lstrip(b" \t"))
-                    break
-            inserted_after[i1] = indent  # anchored right after old 1-indexed line i1
-        # "replace" deliberately does NOT also populate inserted_after — the
-        # removed lines already comprehensively signal the violation if inside
-        # a range, and anchoring the replacement's added lines too would
-        # double-count without adding coverage.
-    return removed, inserted_after
+        if tag in ("insert", "replace") and j1 < j2:
+            # A replace can remove an unprotected separator while adding code that
+            # extends the preceding protected body. Comments are not indentation
+            # tokens, so use the first real Python token when one exists.
+            indent = _added_span_indent(new_tokens, new_lines, j1, j2)
+            inserted_after[i1] = max(inserted_after.get(i1, 0), indent)
+    return removed, inserted_after, current_parseable
+
+
+def _matches_glob(path: str, pattern: str) -> bool:
+    """Match slash-delimited globs; only a complete `**` spans directories."""
+    path_parts = path.split("/")
+    pattern_parts = pattern.split("/")
+    memo: dict[tuple[int, int], bool] = {}
+
+    def matches(path_index: int, pattern_index: int) -> bool:
+        key = (path_index, pattern_index)
+        if key in memo:
+            return memo[key]
+        if pattern_index == len(pattern_parts):
+            result = path_index == len(path_parts)
+        elif pattern_parts[pattern_index] == "**":
+            result = matches(path_index, pattern_index + 1) or (
+                path_index < len(path_parts)
+                and matches(path_index + 1, pattern_index)
+            )
+        else:
+            result = path_index < len(path_parts) and fnmatch.fnmatchcase(
+                path_parts[path_index], pattern_parts[pattern_index]
+            ) and matches(path_index + 1, pattern_index + 1)
+        memo[key] = result
+        return result
+
+    return matches(0, 0)
 
 
 def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
@@ -243,26 +359,36 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
     Deleting, renaming, or type-changing (e.g. replacing with a symlink) a whole
     test file is always a violation regardless of content.
     """
-    # WHY: core.quotepath=off — with the default quoting, a non-ASCII filename
-    # (e.g. test_ä.py) is emitted as an octal-escaped C-string in double quotes,
-    # which never matches any glob → deletions AND rewrites of such files were
-    # silently skipped (fail-open). Off = raw UTF-8 paths that match normally.
+    # NUL delimiters preserve tabs, newlines, quotes, and backslashes in paths;
+    # core.quotepath=off additionally keeps non-ASCII names unescaped.
     proc = subprocess.run(
-        ["git", "-c", "core.quotepath=off", "diff", "--relative", "--name-status", base],
-        cwd=root, capture_output=True, text=True,
+        [
+            "git", "-c", "core.quotepath=off", "diff", "--relative",
+            "--name-status", "-z", base,
+        ],
+        cwd=root, capture_output=True,
     )
     if proc.returncode != 0:
-        fail_config(f"git diff failed in {root}: {proc.stderr.strip()}")
+        fail_config(f"git diff failed in {root}: {os.fsdecode(proc.stderr).strip()}")
     offenders = []
-    for line in proc.stdout.splitlines():
-        parts = line.split("\t")
-        status, paths = parts[0], parts[1:]
+    fields = proc.stdout.split(b"\0")
+    if fields[-1:] == [b""]:
+        fields.pop()
+    field_index = 0
+    while field_index < len(fields):
+        status = os.fsdecode(fields[field_index])
+        field_index += 1
+        path_count = 2 if status[:1] in "RC" else 1
+        if field_index + path_count > len(fields):
+            fail_config(f"malformed git diff --name-status output in {root}")
+        paths = [os.fsdecode(p) for p in fields[field_index:field_index + path_count]]
+        field_index += path_count
         # WHY: T(ypechange) is in the offender set — replacing a committed test
         # file with a symlink wholesale swaps its effective content, exactly like
         # a delete+recreate. A(dded)/C(opied) stay fine: adding tests is always fine.
         if status[:1] not in "MDRT":
             continue
-        matched = [p for p in paths if any(fnmatch.fnmatch(p, g) for g in globs)]
+        matched = [p for p in paths if any(_matches_glob(p, g) for g in globs)]
         if not matched:
             continue
         p = matched[-1]  # for R(ename), name-status gives "old\tnew" — the new path is what's on disk
@@ -270,7 +396,13 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
             offenders.append(f"  {status}\t{p}")
             continue
         ranges = _old_protected_ranges(root, base, p)
-        removed, inserted_after = _diff_positions(root, base, p)
+        if ranges is None:
+            offenders.append(f"  M\t{p}  (existing test artifact is unsupported or unparseable)")
+            continue
+        removed, inserted_after, current_parseable = _diff_positions(root, base, p)
+        if not current_parseable:
+            offenders.append(f"  M\t{p}  (current Python test file is unparseable)")
+            continue
         bad_removed = sorted(ln for ln in removed if any(lo <= ln <= hi for lo, hi, _ in ranges))
         # INVARIANT: two distinct insertion violations — (a) anchored strictly
         # inside a range (`lo <= n < hi`), and (b) anchored exactly at a range's
@@ -281,7 +413,10 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
         # same anchor starts at the same-or-shallower column and stays legitimate.
         bad_inserted = sorted(
             n for n, indent in inserted_after.items()
-            if any(lo <= n < hi or (n == hi and indent > col) for lo, hi, col in ranges)
+            if any(
+                lo <= n < hi or (n == hi and col is not None and indent > col)
+                for lo, hi, col in ranges
+            )
         )
         if bad_removed or bad_inserted:
             detail = []
