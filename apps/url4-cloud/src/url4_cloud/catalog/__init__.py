@@ -2,8 +2,8 @@
 
 Re-exports the hexagonal port (``catalog/port.py``), the aigateway adapter
 (``catalog/aigateway.py``), and the caching layer (``catalog/cache.py``), and
-provides ``build_catalog_service`` — the composition root that wires an
-``AigatewayCatalogSource`` behind a ``CachedCatalog`` from ``Settings``.
+provides raw Gateway builders plus the Engine composition builders that project discovery and
+model details onto its declared executable routes.
 """
 
 from __future__ import annotations
@@ -12,8 +12,9 @@ from collections.abc import Callable
 
 import httpx
 
-from url4_cloud.catalog.aigateway import AigatewayCatalogSource
+from url4_cloud.catalog.aigateway import AigatewayCatalogSource, AigatewayModelDetailsSource
 from url4_cloud.catalog.cache import CacheCounters, CachedCatalog, CatalogService
+from url4_cloud.catalog.executable import ExecutableCatalog, ExecutableModelDetailsSource
 from url4_cloud.catalog.port import (
     CatalogBadResponse,
     CatalogError,
@@ -22,6 +23,11 @@ from url4_cloud.catalog.port import (
     CatalogUnavailable,
     Credential,
     ModelCatalog,
+    ModelDetails,
+    ModelDetailsError,
+    ModelDetailsNotInstalled,
+    ModelDetailsSource,
+    ModelDetailsUnavailable,
     compute_etag,
 )
 from url4_cloud.config import Settings
@@ -58,8 +64,46 @@ def build_catalog_service(
     )
 
 
+def build_model_details_source(
+    settings: Settings,
+    *,
+    client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
+) -> AigatewayModelDetailsSource | None:
+    """Wire the uncached, profile-bound AI Gateway model-details adapter."""
+
+    base_url = settings.aigateway_base_url
+    if not base_url:
+        return None
+    return AigatewayModelDetailsSource(client_factory(base_url))
+
+
+def build_executable_catalog_service(
+    settings: Settings,
+    model_ids: frozenset[str],
+    *,
+    client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
+) -> ExecutableCatalog | None:
+    """Wire caller-scoped Gateway discovery through the Engine's declared route set."""
+
+    source = build_catalog_service(settings, client_factory=client_factory)
+    return None if source is None else ExecutableCatalog(source, model_ids)
+
+
+def build_executable_model_details_source(
+    settings: Settings,
+    model_ids: frozenset[str],
+    *,
+    client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
+) -> ExecutableModelDetailsSource | None:
+    """Wire model details through the same Engine route-set guard as discovery."""
+
+    source = build_model_details_source(settings, client_factory=client_factory)
+    return None if source is None else ExecutableModelDetailsSource(source, model_ids)
+
+
 __all__ = [
     "AigatewayCatalogSource",
+    "AigatewayModelDetailsSource",
     "CacheCounters",
     "CachedCatalog",
     "CatalogBadResponse",
@@ -69,7 +113,17 @@ __all__ = [
     "CatalogSource",
     "CatalogUnavailable",
     "Credential",
+    "ExecutableCatalog",
+    "ExecutableModelDetailsSource",
     "ModelCatalog",
+    "ModelDetails",
+    "ModelDetailsError",
+    "ModelDetailsNotInstalled",
+    "ModelDetailsSource",
+    "ModelDetailsUnavailable",
     "build_catalog_service",
+    "build_executable_catalog_service",
+    "build_executable_model_details_source",
+    "build_model_details_source",
     "compute_etag",
 ]

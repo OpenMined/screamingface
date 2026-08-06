@@ -43,6 +43,8 @@ Confidence-Gate exception rather than retaining draft compatibility behavior:
   `total_case_count` contract was replaced by flat `screamingface.benchmark.v1` resources.
 - `test_benchmark_runtime.py` — shared installer terminology and Engine-bound DRACO Case identity.
 - `test_candidate_invocation.py` — Candidate execution moved to its isolated Engine-owned world.
+- `test_draco_lineup_declared.py` — a route-level no-tools assertion was replaced by the
+  stronger request-body invariant proving one dual-role route retrieves only as a Candidate.
 - `test_catalog_aigateway.py`, `test_catalog_wiring.py` — the discarded Engine-wide default
   synthesizer enrichment was removed; the upstream catalog remains verbatim.
 - `test_draco_aggregate.py`, `test_draco_aggregate_case_mapping.py` — scoring was separated from
@@ -173,6 +175,14 @@ No database schema or migration change is planned.
   Pyright, layering, and the complete coverage suite all green; **877 passed, 10 skipped, 94% total
   coverage**. The append-only gate itself remains visibly skipped only under the owner approval
   enumerated above; no substantive gate is bypassed.
+- DRACO now enables guarded retrieval at the visible `/candidate` invocation. Ordinary Candidate
+  Model calls inherit that ceiling, while the universal Fusion compiler explicitly pins synthesis
+  `web_search=false`; the Engine needs no Fusion- or role-specific vocabulary. The dual-use Gemini
+  Pro route retrieves as a Candidate while Benchmark-owned Judge URL4 also pins retrieval off.
+  Canonical, self-corrective, and verifying-ensemble IFEval still pin every Candidate Invocation
+  off. Required Tavily retrieval without a non-blank key fails before the first Gateway request; a
+  Tavily authentication, transport, or malformed-response error becomes typed
+  `web_retrieval_unavailable` rather than in-band prose a model can ignore.
 
 ## Outcome
 

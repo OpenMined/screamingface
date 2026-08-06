@@ -8,6 +8,7 @@ runner, catalog service) that tests substitute for the production ones built her
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
@@ -16,12 +17,17 @@ from fastapi.staticfiles import StaticFiles
 from url4.streaming.interfaces import EventConsumer, JobRunner
 from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.auth import Clock, install_problem_handlers
-from url4_cloud.catalog import build_catalog_service
+from url4_cloud.catalog import (
+    build_executable_catalog_service,
+    build_executable_model_details_source,
+)
 from url4_cloud.catalog.cache import CatalogService
+from url4_cloud.catalog.port import ModelDetailsSource
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
 from url4_cloud.connections.port import Connections
 from url4_cloud.metrics import MetricsMiddleware, build_metrics, register_catalog_metrics
+from url4_cloud.model_routes import declared_model_ids
 from url4_cloud.ops import router as ops_router
 from url4_cloud.rest import SubscriberGate, benchmarks_router, catalog_router, connection_router
 from url4_cloud.rest import router as rest_router
@@ -47,6 +53,7 @@ def create_app(
     clock: Clock | None = None,
     interest: SubscriberGate | None = None,
     catalog: CatalogService | None = None,
+    model_details: ModelDetailsSource | None = None,
     connections: Connections | None = None,
 ) -> FastAPI:
     """Build the App instance.
@@ -59,7 +66,7 @@ def create_app(
     app.state.settings = settings
     app.state.stream = stream
     app.state.job_runner = job_runner
-    app.state.catalog = catalog
+    app.state.catalog, app.state.model_details = catalog, model_details
     app.state.connections = connections
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
@@ -123,18 +130,23 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         logging.warning(
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
-    catalog = build_catalog_service(settings)
+    model_ids = declared_model_ids(os.environ)
+    catalog = build_executable_catalog_service(settings, model_ids)
+    model_details = build_executable_model_details_source(settings, model_ids)
     connections = build_connections(settings)
     app = create_app(
         settings,
         stream=stream,
         job_runner=job_runner,
         catalog=catalog,
+        model_details=model_details,
         connections=connections,
     )
     app.router.on_shutdown.append(stream.close)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
+    if model_details is not None:
+        app.router.on_shutdown.append(model_details.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
     return app

@@ -78,6 +78,22 @@ def describe_failures(
     ]
 
 
+def describe_instructions(
+    *,
+    instruction_id_list: Sequence[str],
+    kwargs_list: Sequence[Mapping[str, Any]],
+    prompt: str,
+) -> list[str]:
+    """Return the official human-readable description of every checked constraint."""
+
+    if len(instruction_id_list) != len(kwargs_list):
+        raise ValueError("instruction ids and kwargs must be positionally parallel")
+    return [
+        _describe(instruction_id, kwargs, prompt)
+        for instruction_id, kwargs in zip(instruction_id_list, kwargs_list, strict=True)
+    ]
+
+
 def _describe(instruction_id: str, kwargs: Mapping[str, Any], prompt: str) -> str:
     from url4_cloud.benchmarks.ifeval.vendor import instructions_registry
 
@@ -128,4 +144,4 @@ def _follows(
     return any(response.strip() and instruction.check_following(response) for response in responses)
 
 
-__all__ = ["check_case", "configure_nltk", "describe_failures"]
+__all__ = ["check_case", "configure_nltk", "describe_failures", "describe_instructions"]

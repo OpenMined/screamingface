@@ -16,6 +16,7 @@ import pytest
 from url4 import RelExpr, Text, build, expr, render, src, text
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import install_benchmarks
+from url4_cloud.benchmarks.contract import decode_candidate_invocation
 from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_VERIFYING_ENSEMBLE,
@@ -102,7 +103,9 @@ async def _select(tmp_path: Path, payload: dict[str, object]) -> str:
             )
         )
     )
-    return result.text
+    output, finish_reason = decode_candidate_invocation(result.text)
+    assert finish_reason == "stop"
+    return output
 
 
 def _members(*values: tuple[str, str]) -> list[dict[str, str]]:
@@ -113,6 +116,7 @@ def _members(*values: tuple[str, str]) -> list[dict[str, str]]:
             "kind": "model",
             "expression": f"/provider/member-{index + 1}",
             "answer": answer,
+            "finish_reason": "stop",
             "feedback": feedback,
         }
         for index, (answer, feedback) in enumerate(values)

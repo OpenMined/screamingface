@@ -22,6 +22,9 @@ fail-loud results, deployment parity, and documentation matching the executable 
 4. **Integrity seam:** public Evaluation/result behavior exposes collected Case failures and
    rejects empty or all-invalid grading results.
 5. **Deployment seam:** chart image references match development and release workflow outputs.
+6. **Retrieval seam:** evaluating linked Candidate URL4 exposes actual Gateway request bodies and
+   Tavily calls, proving answer-member retrieval, tool-free synthesis/Grading, exclusion policy,
+   and typed failure rather than silent weights-only fallback.
 
 Tests observe those interfaces rather than private helper call graphs.
 
@@ -61,6 +64,11 @@ Tests observe those interfaces rather than private helper call graphs.
       Candidate even when orchestration permits it.
 - [x] Preserve valid Model/Fusion execution, retrieval policy, usage, cancellation, recursion
       protection, total-call limits, commands, and data through focused vertical slices.
+- [x] Treat DRACO retrieval as a Benchmark ceiling: answer members inherit it, while explicit
+      `web_search=false` keeps whole-Fusion synthesis and Benchmark-owned Grading tool-free; keep
+      all IFEval Benchmarks off.
+- [x] Fail required Tavily retrieval loudly for missing credentials before spend and for
+      authentication/transport failure after a tool request.
 
 ## Phase 4 — Protocol validation and result integrity
 
@@ -95,11 +103,12 @@ Tests observe those interfaces rather than private helper call graphs.
       criterion count, and Judge-pass count.
 - [x] Give smoke its own flat id, revision, private routes, and Candidate result identity.
 - [x] Prove canonical DRACO remains 100 Cases, all criteria, and five Judge passes.
-- [x] Add `draco/lite` with five pinned typical-complexity Cases from the five most represented
-      domains, every criterion, and one Judge pass.
+- [x] Add `draco/lite` with two pinned typical-complexity Cases from the two most represented
+      domains, ten criteria per Case, and one Judge pass per criterion.
 - [x] Prove lite discovery and execution expose exactly the same ordered pinned Case ids.
-- [ ] Keep notebook execution disabled by default; the SDK chooses a Benchmark id and never
-      rewrites DRACO protocol multiplicity itself.
+- [x] Keep lite and canonical notebook execution disabled by default. The quickstart deliberately
+      executes only the bounded two-call `draco/smoke` protocol; the SDK chooses a Benchmark id and
+      never rewrites DRACO protocol multiplicity itself.
 
 ## Explicit process deviations
 

@@ -32,9 +32,13 @@ from url4_cloud import job_env
 from url4_cloud.adapters.inprocess import InProcessJobRunner
 from url4_cloud.adapters.memory import InMemoryEventStream
 from url4_cloud.app import create_app
-from url4_cloud.catalog import build_catalog_service
+from url4_cloud.catalog import (
+    build_executable_catalog_service,
+    build_executable_model_details_source,
+)
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
+from url4_cloud.model_routes import declared_model_ids
 
 _logger = logging.getLogger(__name__)
 
@@ -81,9 +85,7 @@ def _with_runner_config(env: Mapping[str, str]) -> Mapping[str, str]:
     Deliberately narrow: an explicit ``URL4_RUNNER_CONFIG`` always wins, and so does a real
     ``/etc/url4/url4.toml`` — this only fills a gap that exists nowhere but a source checkout.
     """
-    from url4_cloud.runner.config import DEFAULT_CONFIG_PATH
-
-    if job_env.RUNNER_CONFIG in env or Path(DEFAULT_CONFIG_PATH).is_file():
+    if job_env.RUNNER_CONFIG in env or Path(job_env.DEFAULT_RUNNER_CONFIG_PATH).is_file():
         return env
     candidate = Path(__file__).resolve().parents[2] / "url4.toml"
     if not candidate.is_file():
@@ -117,25 +119,31 @@ def create_local_app(
     # import (see the SCOPE NOTE in `check_layering.py`).
     from url4_cloud.runner.main import build_executor
 
+    run_env = _with_runner_config(env if env is not None else os.environ)
     job_runner = InProcessJobRunner(
         stream,
         build_executor,
-        base_env=_with_runner_config(env if env is not None else os.environ),
+        base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
     )
-    catalog = build_catalog_service(settings)
+    model_ids = declared_model_ids(run_env)
+    catalog = build_executable_catalog_service(settings, model_ids)
+    model_details = build_executable_model_details_source(settings, model_ids)
     connections = build_connections(settings)
     app = create_app(
         settings,
         stream=stream,
         job_runner=job_runner,
         catalog=catalog,
+        model_details=model_details,
         connections=connections,
     )
     app.router.on_shutdown.append(job_runner.aclose)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
+    if model_details is not None:
+        app.router.on_shutdown.append(model_details.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
     return app

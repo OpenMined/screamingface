@@ -25,6 +25,7 @@ from url4_cloud.benchmarks.draco.definition import (
     SMOKE_AGGREGATE_ROUTE,
     SMOKE_CASES_ROUTE,
 )
+from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from url4_cloud.rest.benchmarks import router
 
 
@@ -110,21 +111,50 @@ async def test_smoke_runtime_reports_its_own_identity_and_one_judge_pass(tmp_pat
     (root / "rubrics").mkdir()
     (root / "cases.json").write_text('[{"id":1,"input":"Question"}]', encoding="utf-8")
     (root / "criteria" / "1.json").write_text(
-        '[{"id":"c1","requirement":"Correct","criterion_type":"positive"}]',
+        '[{"id":"c1","requirement":"Correct","criterion_type":"positive"},'
+        '{"id":"c2","requirement":"Complete","criterion_type":"positive"}]',
         encoding="utf-8",
     )
     (root / "rubrics" / "1.json").write_text(
-        '{"sections":[{"id":"correctness","criteria":[{"id":"c1","weight":1}]}]}',
+        '{"sections":[{"id":"correctness","criteria":['
+        '{"id":"c1","weight":1},{"id":"c2","weight":1}]}]}',
         encoding="utf-8",
     )
-    verdict = {
-        "schema": "screamingface.criterion-verdict.v1",
-        "case_id": 1,
-        "criterion_id": "c1",
-        "valid": True,
-        "explanation": "evidence",
-        "criterion_status": "MET",
-    }
+    raw_output = json.dumps({"explanation": "evidence", "criterion_status": "MET"})
+    row = "\n".join(
+        map(
+            json.dumps,
+            (
+                {
+                    "schema": CASE_SCHEMA,
+                    "case_id": 1,
+                    "input": "Question",
+                    "output": "Answer",
+                    "finish_reason": "stop",
+                    "metadata": {},
+                },
+                {
+                    "schema": CHECK_SCHEMA,
+                    "case_id": 1,
+                    "criterion_id": "c1",
+                    "criterion_type": "positive",
+                    "requirement": "Correct",
+                },
+                {
+                    "schema": "screamingface.criterion-verdict.v1",
+                    "case_id": 1,
+                    "criterion_id": "c1",
+                    "sequence": 1,
+                    "producer_type": "model",
+                    "producer_id": "fixture-judge",
+                    "valid": True,
+                    "explanation": "evidence",
+                    "criterion_status": "MET",
+                    "raw_output": raw_output,
+                },
+            ),
+        )
+    )
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
 
@@ -134,7 +164,7 @@ async def test_smoke_runtime_reports_its_own_identity_and_one_judge_pass(tmp_pat
                 render(
                     RelExpr(
                         path=SMOKE_AGGREGATE_ROUTE,
-                        context=json.dumps([json.dumps(verdict)]),
+                        context=json.dumps([row]),
                         intent=Text("aggregate"),
                     )
                 )
@@ -146,3 +176,4 @@ async def test_smoke_runtime_reports_its_own_identity_and_one_judge_pass(tmp_pat
     assert result["benchmark_revision"] == DRACO_SMOKE.revision
     assert result["metrics"]["n_runs"] == 1
     assert result["metrics"]["coverage"] == 1.0
+    assert result["metrics"]["verdicts_expected"] == 1

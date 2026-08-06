@@ -85,9 +85,11 @@ id = "openrouter/anthropic/claude-haiku-4.5"
 id = "openrouter/anthropic/claude-fable-5"
 native_web_search = true
 
-# DRACO's judge is deliberately retrieval-free. The benchmark pins this route explicitly.
+# Gemini Pro has two DRACO roles. Candidate Invocations enable this Tavily capability, while the
+# Benchmark's Judge call explicitly pins ``web_search=false`` and therefore receives no tools.
 [[aigateway.models]]
 id = "openrouter/google/gemini-3.1-pro-preview"
+web_tools = true
 
 # Remaining DRACO / small-model lineup. These routes use the Runner-owned Tavily loop: native
 # search either returns 404 or, for Google, cannot apply the benchmark's required blocklist.

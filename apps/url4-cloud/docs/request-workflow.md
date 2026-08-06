@@ -210,7 +210,12 @@ manifest, since a Job object is readable via `get jobs`), the aigateway connecto
   `tool_calls` → parallel `asyncio.gather` of Tavily `/search` & `/extract` → results appended
   as `role:"tool"` messages → model re‑called until a final answer or
   `ResolutionError(code="web_tool_loop_limit")`,
-- feeds Tavily/tool failures back to the model as tool‑result text (dec:W2 — never raised),
+- feeds optional Tavily/tool failures back to the model as tool-result text;
+- raises typed `web_retrieval_unavailable` before model spend when an explicit `web_search=true`
+  Tavily route is not configured, and when an attempted Tavily call fails transport,
+  authentication, or response-shape validation;
+- offers retrieval to the model rather than forcing a tool call: a model may answer directly,
+  matching the reference DRACO tool policy;
 - with no key, the request body stays byte‑identical `{"model","messages"}` (deny‑by‑default).
 
 ## 7. k8s‑specific hardening points

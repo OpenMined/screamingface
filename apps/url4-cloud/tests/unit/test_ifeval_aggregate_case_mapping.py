@@ -15,8 +15,8 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
 from url4_cloud.benchmarks.ifeval.iterative_correction import SELF_CORRECTIVE_REVISION
 
 _SPECS = {
-    1: {"instruction_id_list": ["punctuation:no_comma"]},
-    2: {"instruction_id_list": ["startend:quotation"]},
+    1: {"prompt": "No commas.", "instruction_id_list": ["punctuation:no_comma"]},
+    2: {"prompt": "Use quotes.", "instruction_id_list": ["startend:quotation"]},
 }
 
 
@@ -25,10 +25,15 @@ def _record(case_id: int) -> str:
         {
             "schema": SCHEMA,
             "case_id": case_id,
+            "attempt": 1,
             "valid": True,
+            "answer": f"Answer {case_id}",
+            "finish_reason": "stop",
             "instruction_id_list": _SPECS[case_id]["instruction_id_list"],
+            "descriptions": ["Fixture instruction"],
             "strict": [True],
             "loose": [True],
+            "violations": [],
         }
     )
 

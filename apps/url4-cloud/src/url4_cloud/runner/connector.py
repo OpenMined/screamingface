@@ -41,8 +41,9 @@ from url4_cloud.benchmarks.contract import (
 )
 from url4_cloud.runner.candidate import (
     DEFAULT_CANDIDATE_MAX_INVOCATIONS,
-    current_candidate_model_params,
+    apply_candidate_model_policy,
     install_candidate_invocation,
+    record_candidate_finish_reason,
 )
 from url4_cloud.runner.config import (
     DEFAULT_WEB_TOOL_MAX_ITERATIONS,
@@ -144,7 +145,11 @@ field by `_native_web_search`. Same capability, no shared name, no weakened inva
 POLICY_NONE = "none"
 
 _RUNNER_INTERPRETED_PARAMS = frozenset(
-    {WEB_SEARCH_PARAM, WEB_SEARCH_POLICY_PARAM, WEB_SEARCH_EXCLUDE_PARAM}
+    {
+        WEB_SEARCH_PARAM,
+        WEB_SEARCH_POLICY_PARAM,
+        WEB_SEARCH_EXCLUDE_PARAM,
+    }
 )
 """Params the runner CONSUMES. Forwarded, each would be an unknown gateway field and fail closed
 on every call that carried it."""
@@ -304,10 +309,7 @@ class _ModelEndpoint:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
         spec = self._routes[request.path]
-        candidate_policy = current_candidate_model_params()
-        params = (
-            request.params if candidate_policy is None else {**request.params, **candidate_policy}
-        )
+        params = apply_candidate_model_policy(request.params)
         return await _chat_completion_loop(
             http_client=self._http_client,
             cfg=self._cfg,
@@ -623,6 +625,9 @@ def _report_response(choice: _Choice) -> None:
     Null-safe exactly like `_report_usage`: outside a run, or with no observer attached, the
     sink is absent and this is a no-op.
     """
+    # FEATURE: OME-319 — preserve the same provider signal in the terminal Case Result. This
+    # recorder is task-local to `/candidate`; Judge calls outside it remain ordinary span events.
+    record_candidate_finish_reason(choice.finish_reason)
     sink = current_response_sink()
     if sink is None:
         return
@@ -722,12 +727,12 @@ def _build_tavily_client(
     """Resolve the optional Tavily client.
 
     Returns:
-        ``(client, owns_client)`` — ``client`` is ``None`` when no API key is configured, which
-        IS the "web tools are off" signal (see `AigatewayWorld.web_tools_enabled`);
+        ``(client, owns_client)`` — ``client`` is ``None`` when no non-blank API key is configured,
+        which IS the "web tools are off" signal (see `AigatewayWorld.web_tools_enabled`);
         ``owns_client`` says whether the caller must close it (``False`` when an existing client
         was passed in).
     """
-    if tavily_api_key is None:
+    if tavily_api_key is None or not tavily_api_key.strip():
         return None, False
     owns = tavily_client is None
     client = (
@@ -875,7 +880,9 @@ async def _retrieval_exclusions(
                 f"{', '.join(named)} needs retrieval, which this route does not run — declare "
                 "`native_web_search` (provider-driven) or `web_tools` (runner-driven) on its "
                 "[[aigateway.models]] entry, or drop the option rather than letting it read as "
-                "an enforced guard"
+                "an enforced guard",
+                code="web_retrieval_unavailable",
+                permanent=True,
             )
         return ()
     if path is None or path == POLICY_NONE:
@@ -889,7 +896,7 @@ async def _retrieval_exclusions(
     return (*await policy.resolve(path), *ad_hoc)
 
 
-async def _chat_completion_loop(  # noqa: PLR0915 - one auditable provider turn state machine
+async def _chat_completion_loop(  # noqa: PLR0912, PLR0915 - one auditable turn state machine
     *,
     http_client: httpx.AsyncClient,
     cfg: AigatewayConfig,
@@ -920,6 +927,13 @@ async def _chat_completion_loop(  # noqa: PLR0915 - one auditable provider turn 
     # model's request payload, and without the client the model could call a tool nothing can
     # execute.
     wants_search = _wants_web_search(params, spec)
+    required_retrieval = _coerce_param(params.get(WEB_SEARCH_PARAM, "false")) is True
+    if required_retrieval and spec.web_tools and (tavily_http is None or tavily_api_key is None):
+        raise ResolutionError(
+            f"web_search=true on /{spec.id} requires a configured Tavily connection",
+            code="web_retrieval_unavailable",
+            permanent=True,
+        )
     native = wants_search and spec.native_web_search
     offer_tools = wants_search and spec.web_tools and tavily_http is not None
     # Resolved BEFORE the loop with the sampling params: a tool-calling turn re-posts, and the
@@ -968,7 +982,17 @@ async def _chat_completion_loop(  # noqa: PLR0915 - one auditable provider turn 
         )
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
         results = await asyncio.gather(
-            *(_execute_tool(tc, tavily_http, cfg, tavily_api_key, exclusions) for tc in served)
+            *(
+                _execute_tool(
+                    tc,
+                    tavily_http,
+                    cfg,
+                    tavily_api_key,
+                    exclusions,
+                    required_retrieval=required_retrieval,
+                )
+                for tc in served
+            )
         )
         for tc, result in zip(served, results, strict=True):
             messages.append(
@@ -1109,14 +1133,27 @@ async def _execute_tool(
     cfg: AigatewayConfig,
     tavily_api_key: str | None,
     exclusions: Sequence[str] = (),
+    *,
+    required_retrieval: bool = False,
 ) -> str:
     name, args = _tool_args(tool_call)
     if args is None:
         return f"invalid arguments for {name}"
     try:
-        return await _dispatch_tool(name, args, tavily_client, cfg, tavily_api_key, exclusions)
-    except Exception as exc:  # noqa: BLE001 — fed back to the model, not raised (dec:W2)
-        return f"{name} failed: {exc}"
+        result = await _dispatch_tool(name, args, tavily_client, cfg, tavily_api_key, exclusions)
+    except (httpx.HTTPError, RuntimeError) as exc:
+        if required_retrieval:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            permanent = status is not None and status not in {408, 429} and status < 500
+            raise ResolutionError(
+                f"required web retrieval failed: {exc}",
+                code="web_retrieval_unavailable",
+                permanent=permanent,
+            ) from exc
+        result = f"{name} failed: {exc}"
+    except Exception as exc:  # noqa: BLE001 — model-authored mistakes remain recoverable
+        result = f"{name} failed: {exc}"
+    return result
 
 
 async def _tavily_search(
@@ -1152,8 +1189,8 @@ async def _tavily_search(
         json=payload,
     )
     resp.raise_for_status()
-    data = resp.json()
-    results = data.get("results") or []
+    data = _tavily_json(resp)
+    results = _tavily_items(data, "results")
     if not results:
         return "no results"
     return "\n\n".join(
@@ -1195,7 +1232,30 @@ async def _tavily_extract(
         json={"urls": url, "format": "markdown", "extract_depth": "advanced"},
     )
     resp.raise_for_status()
-    return _extracted_content(resp.json(), url)
+    return _extracted_content(_tavily_json(resp), url)
+
+
+def _tavily_json(resp: httpx.Response) -> dict:
+    """Decode one successful Tavily response, failing loud on an invalid wire contract."""
+
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise RuntimeError("Tavily returned malformed JSON") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("Tavily returned a non-object JSON payload")
+    return data
+
+
+def _tavily_items(data: Mapping[str, object], field: str) -> list[dict]:
+    """Validate a Tavily result collection before treating it as an empty result."""
+
+    value = data.get(field)
+    if value is None:
+        return []
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise RuntimeError(f"Tavily returned invalid {field!r}")
+    return value
 
 
 def _extracted_content(data: dict, url: str) -> str:
@@ -1204,11 +1264,11 @@ def _extracted_content(data: dict, url: str) -> str:
     Split out from `_tavily_extract` so the guard clause there reads as the one early exit it is,
     rather than one of four returns.
     """
-    results = data.get("results") or []
-    if results and isinstance(results[0], dict) and results[0].get("raw_content"):
+    results = _tavily_items(data, "results")
+    if results and results[0].get("raw_content"):
         return str(results[0]["raw_content"])
-    failed = data.get("failed_results") or []
-    if failed and isinstance(failed[0], dict):
+    failed = _tavily_items(data, "failed_results")
+    if failed:
         return (
             f"{failed[0].get('url', url)} could not be extracted: "
             f"{failed[0].get('error', 'unknown')}"

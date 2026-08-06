@@ -57,7 +57,12 @@ def _record(case_id: int, attempt: int, strict: list[bool]) -> str:
             "case_id": case_id,
             "attempt": attempt,
             "valid": True,
+            "answer": f"Case {case_id} answer {attempt}",
+            "finish_reason": "stop",
             "instruction_id_list": spec["instruction_id_list"],
+            "descriptions": [
+                f"Instruction {index}" for index in range(1, len(spec["instruction_id_list"]) + 1)
+            ],
             "strict": strict,
             "loose": strict,
             "violations": [],
@@ -178,8 +183,14 @@ def test_selected_attempt_is_the_earliest_strict_pass() -> None:
     assert result["schema"] == "screamingface.candidate-result.v1"
     assert result["benchmark_revision"] == SELF_CORRECTIVE_REVISION
     assert result["score"] == 1.0
-    assert result["case_results"][0]["selected_attempt"] == 2
-    assert result["case_results"][1]["selected_attempt"] == 1
+    assert result["cases"][0]["metadata"]["selected_attempt"] == 2
+    assert result["cases"][1]["metadata"]["selected_attempt"] == 1
+    assert result["cases"][0]["output"] == "Case 1 answer 2"
+    assert [attempt["output"] for attempt in result["cases"][0]["metadata"]["attempts"]] == [
+        "Case 1 answer 1",
+        "Case 1 answer 2",
+        "Case 1 answer 3",
+    ]
     assert result["metrics"]["pass_at_1"] == 0.5
     assert result["metrics"]["pass_at_2"] == 1.0
     assert result["metrics"]["pass_at_3"] == 1.0
@@ -202,7 +213,7 @@ def test_a_never_passing_case_scores_its_last_attempt() -> None:
     )
 
     assert result["score"] == 0.0
-    assert result["case_results"][0]["selected_attempt"] == 3
+    assert result["cases"][0]["metadata"]["selected_attempt"] == 3
     assert result["metrics"]["inst_level_strict_accuracy"] == 0.5
     assert result["metrics"]["pass_at_3"] == 0.0
 
@@ -289,7 +300,7 @@ def test_duplicate_attempt_records_keep_the_first() -> None:
         payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION
     )
 
-    assert result["case_results"][0]["selected_attempt"] == 1
+    assert result["cases"][0]["metadata"]["selected_attempt"] == 1
     assert result["score"] == 0.0
 
 

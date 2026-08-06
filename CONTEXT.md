@@ -30,6 +30,26 @@ _Avoid_: Model call, because a Candidate may be a Fusion
 One Benchmark item containing an input, its grading material, and optional metadata.
 _Avoid_: Row, sample
 
+**Case Result**:
+The completed record of one Case for one Candidate: its exact input and output, Case Grade,
+failures, and non-secret Benchmark metadata.
+_Avoid_: Artifact, row result
+
+**Case Grade**:
+The Benchmark-produced score, metrics, and ordered Checks for one Case. A failed Case may have no
+Case Grade.
+_Avoid_: Result when referring specifically to grading
+
+**Check**:
+One named grading requirement inspected within a Case Grade, together with the Evidence used to
+evaluate it. A DRACO rubric criterion and an IFEval instruction constraint are both Checks.
+_Avoid_: Criterion when speaking across Benchmarks
+
+**Evidence**:
+One ordered, attributable observation used by a Check, including its normalized outcome and exact
+raw output when one exists. Evidence may be produced by a Judge or a deterministic verifier.
+_Avoid_: Verdict when speaking across Benchmarks
+
 **Rubric**:
 The Case-owned criteria used to grade a Candidate answer.
 _Avoid_: Reference when the grading material is specifically a rubric

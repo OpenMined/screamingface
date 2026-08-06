@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from url4 import Expression, RelExpr, Source, Text, build, render
 from url4.core.errors import ParseError, RenderError, ResolutionError
 from url4.peer.server import Request, Url4Node
+from url4_cloud.benchmarks.contract import (
+    decode_candidate_invocation,
+    encode_candidate_invocation,
+)
 from url4_cloud.benchmarks.ifeval import aggregate as scoring
 from url4_cloud.benchmarks.ifeval import grading
 from url4_cloud.benchmarks.ifeval.definition import (
@@ -68,7 +73,8 @@ def _check(root: Path):
             return _feedback(request.context)
         try:
             case_id, attempt = _case_and_attempt(request.intent)
-            spec, result, violations = _verification(root, case_id, request.context)
+            answer, finish_reason = decode_candidate_invocation(request.context)
+            spec, result, violations = _verification(root, case_id, answer)
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
         record = {
@@ -76,7 +82,14 @@ def _check(root: Path):
             "case_id": case_id,
             "attempt": attempt,
             "valid": True,
+            "answer": answer,
+            "finish_reason": finish_reason,
             "instruction_id_list": spec["instruction_id_list"],
+            "descriptions": grading.describe_instructions(
+                instruction_id_list=spec["instruction_id_list"],
+                kwargs_list=spec["kwargs"],
+                prompt=spec["prompt"],
+            ),
             "strict": result["strict"],
             "loose": result["loose"],
             # Keep this record flat: Aggregation deliberately harvests flat records.
@@ -185,18 +198,20 @@ def _select(request: Request) -> str:
 
     raw_members = _json_array(request.context, "selection members")
     members = [_member(value, index) for index, value in enumerate(raw_members)]
-    answers = [(member["key"], member["answer"]) for member in members]
-    if not MIN_MEMBERS <= len(answers) <= MAX_MEMBERS:
+    attempts = [_attempt_member(member, index) for index, member in enumerate(members)]
+    if not MIN_MEMBERS <= len(attempts) <= MAX_MEMBERS:
         raise _unavailable(
             f"selection input must carry {MIN_MEMBERS}..{MAX_MEMBERS} member answers"
         )
-    selected = {letter.upper(): answer for letter, answer in answers}
-    passers = [member["key"].lower() for member in members if member["feedback"] == "PASSED"]
+    selected = {member["key"].upper(): member for member in attempts}
+    passers = [member["key"].lower() for member in attempts if member["feedback"] == "PASSED"]
     pick = _judge_letter(request.intent, selected)
     if passers:
         judged = pick if pick is not None and pick.lower() in passers else passers[0].upper()
-        return selected[judged]
-    return selected[pick] if pick is not None else answers[0][1]
+        chosen = selected[judged]
+    else:
+        chosen = selected[pick] if pick is not None else attempts[0]
+    return encode_candidate_invocation(chosen["answer"], chosen["finish_reason"])
 
 
 def _resolve_candidate(model_routes: frozenset[str]):
@@ -319,7 +334,7 @@ def _member_record(request: Request) -> str:
 
     if request.intent != "record":
         raise _unsupported("IFEval member record", request.intent)
-    return _json(_member(_json_payload(request.context, "member record"), 0))
+    return _json(_attempt_member(_json_payload(request.context, "member record"), 0))
 
 
 def _member_answer(request: Request) -> str:
@@ -331,20 +346,32 @@ def _member_answer(request: Request) -> str:
     ]
     for member in members:
         if member["key"] == request.intent:
-            return member.get("answer", "")
+            return _attempt_member(member, 0)["answer"]
     raise _unavailable(f"Candidate member round has no key {request.intent!r}")
 
 
-def _member(value: object, index: int) -> dict[str, str]:
+def _member(value: object, index: int) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _unavailable(f"Candidate member {index + 1} must be an object")
-    required = ("key", "name", "kind", "expression")
+    selected: dict[str, Any] = _required_member_fields(value, index)
+    selected.update(_optional_member_text(value, index))
+    if "finish_reason" in value:
+        selected["finish_reason"] = _finish_reason(value["finish_reason"], index)
+    return selected
+
+
+def _required_member_fields(value: dict[Any, Any], index: int) -> dict[str, str]:
     selected: dict[str, str] = {}
-    for name in required:
+    for name in ("key", "name", "kind", "expression"):
         field = value.get(name)
         if not isinstance(field, str) or not field.strip():
             raise _unavailable(f"Candidate member {index + 1} {name} must be non-blank text")
         selected[name] = field.strip()
+    return selected
+
+
+def _optional_member_text(value: dict[Any, Any], index: int) -> dict[str, str]:
+    selected: dict[str, str] = {}
     for name in ("answer", "feedback"):
         field = value.get(name)
         if field is not None:
@@ -354,7 +381,27 @@ def _member(value: object, index: int) -> dict[str, str]:
     return selected
 
 
-def _judge_letter(reply: object, selected: dict[str, str]) -> str | None:
+def _finish_reason(value: object, index: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise _unavailable(
+            f"Candidate member {index + 1} finish_reason must be non-blank text or null"
+        )
+    return value
+
+
+def _attempt_member(value: object, index: int) -> dict[str, Any]:
+    """Require the complete output contract for one checked member attempt."""
+
+    member = _member(value, index)
+    for name in ("answer", "feedback", "finish_reason"):
+        if name not in member:
+            raise _unavailable(f"Candidate member {index + 1} has no {name}")
+    return member
+
+
+def _judge_letter(reply: object, selected: Mapping[str, object]) -> str | None:
     """Accept only an unambiguous single-letter judge reply; prose gets no vote.
 
     A letter names a member answer (``a`` = member 1's answer, ``b`` = member 2's,

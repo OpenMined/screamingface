@@ -18,12 +18,16 @@ from url4_cloud.catalog.port import (
     CatalogUnavailable,
     Credential,
     ModelCatalog,
+    ModelDetails,
+    ModelDetailsError,
+    ModelDetailsUnavailable,
     compute_etag,
 )
 
 logger = logging.getLogger(__name__)
 
 _CATALOG_PATH = "/v1/models"
+_DETAILS_PATH = "/v1/model-parameters"
 
 # WHY: aigateway may refuse a credential with either 401 or 403; both are treated as
 # a bad credential (CatalogRejected, always surfaced as 401) rather than CatalogBadResponse.
@@ -77,6 +81,46 @@ class AigatewayCatalogSource:
         return body
 
 
+class AigatewayModelDetailsSource:
+    """Fetch one profile-bound model contract without caching or reshaping it."""
+
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        self._client = client
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def fetch_details(self, model: str, credential: Credential) -> ModelDetails:
+        try:
+            response = await self._client.get(
+                _DETAILS_PATH,
+                params={"model": model},
+                headers=_headers(credential),
+            )
+        except httpx.TimeoutException as exc:
+            raise ModelDetailsUnavailable(ModelDetailsUnavailable.detail) from exc
+        except httpx.HTTPError as exc:
+            raise ModelDetailsError(ModelDetailsError.detail) from exc
+        if response.status_code >= 500:
+            raise ModelDetailsError(ModelDetailsError.detail)
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ModelDetailsError(ModelDetailsError.detail) from exc
+        if not isinstance(body, dict):
+            raise ModelDetailsError(ModelDetailsError.detail)
+        forwarded_headers = {
+            name: value
+            for name in ("WWW-Authenticate", "Retry-After")
+            if (value := response.headers.get(name)) is not None
+        }
+        return ModelDetails(
+            body=body,
+            status_code=response.status_code,
+            headers=forwarded_headers,
+        )
+
+
 def _headers(credential: Credential) -> dict[str, str]:
     """Build the upstream request headers from the credential's identity and profile.
 
@@ -105,4 +149,4 @@ def _validate(body: dict[str, Any]) -> None:
             raise CatalogBadResponse(CatalogBadResponse.detail)
 
 
-__all__ = ["AigatewayCatalogSource"]
+__all__ = ["AigatewayCatalogSource", "AigatewayModelDetailsSource"]

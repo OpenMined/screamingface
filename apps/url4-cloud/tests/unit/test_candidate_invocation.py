@@ -362,7 +362,7 @@ async def test_ifeval_corrective_definition_retries_until_the_check_passes(
     assert decoded["metrics"]["pass_at_2"] == 1.0
     assert decoded["metrics"]["corrected_cases"] == 1
     assert decoded["failures"] == []
-    assert decoded["case_results"][0]["selected_attempt"] == 2
+    assert decoded["cases"][0]["metadata"]["selected_attempt"] == 2
 
 
 @pytest.mark.asyncio
@@ -623,7 +623,11 @@ async def test_candidate_expression_runs_with_the_invocation_input() -> None:
         finally:
             await world.aclose()
 
-    assert result.text == "candidate answer"
+    assert json.loads(result.text) == {
+        "schema": "screamingface.candidate-invocation.v1",
+        "output": "candidate answer",
+        "finish_reason": None,
+    }
     assert len(requests) == 1
     assert "What is 2 + 2?" in json.dumps(requests[0]["messages"])
 
@@ -710,13 +714,13 @@ async def test_later_invocation_can_receive_an_earlier_candidate_answer() -> Non
     first = RelExpr(path="/candidate", context="first question", intent=text("$candidate"))
     second = RelExpr(
         path="/candidate",
-        context="Continue from this answer: $first",
+        context="Continue from this answer: $first.output",
         intent=text("$candidate"),
     )
     benchmark = expr(
         src(first, name="first", weight=0.0),
         src(second, name="second", weight=0.0),
-        intent=text("$second"),
+        intent=text("$second.output"),
     )
 
     async with httpx.AsyncClient(
@@ -780,7 +784,7 @@ async def test_candidate_input_preserves_healthbench_style_native_chat_turns() -
         finally:
             await world.aclose()
 
-    assert result.text == "candidate answer"
+    assert json.loads(result.text)["output"] == "candidate answer"
     assert requests[0]["messages"] == [
         {"role": "system", "content": "Candidate-owned policy."},
         *turns,
@@ -849,7 +853,7 @@ async def test_candidate_input_replays_medxpert_reasoning_as_an_assistant_turn()
     )
     second_turns = [
         {"role": "user", "content": question},
-        {"role": "assistant", "content": "$reasoning"},
+        {"role": "assistant", "content": "$reasoning.output"},
         {"role": "user", "content": "Return only the answer letter."},
     ]
     second = RelExpr(
@@ -860,7 +864,7 @@ async def test_candidate_input_replays_medxpert_reasoning_as_an_assistant_turn()
     benchmark = expr(
         src(first, name="reasoning", weight=0.0),
         src(second, name="commit", weight=0.0),
-        intent=text("$commit"),
+        intent=text("$commit.output"),
     )
 
     async with httpx.AsyncClient(
@@ -895,14 +899,14 @@ def test_chat_input_rejects_malformed_python_messages_while_authoring() -> None:
 def _scicode_graph(model: str) -> tuple[Node, Node]:
     candidate = RelExpr(path=f"/{model}", context="$input", intent=text("generate"))
     first = RelExpr(path="/candidate", context="Implement step 1.", intent=text("$candidate"))
-    first_code = RelExpr(path="/extract", context="$first", intent=text("extract"))
+    first_code = RelExpr(path="/extract", context="$first.output", intent=text("extract"))
     first_grade = RelExpr(path="/sandbox", context="$code_1", intent=text("grade step 1"))
     second = RelExpr(
         path="/candidate",
         context="Implement step 2 using prior code: $code_1. Prior grade: $grade_1.",
         intent=text("$candidate"),
     )
-    second_code = RelExpr(path="/extract", context="$second", intent=text("extract"))
+    second_code = RelExpr(path="/extract", context="$second.output", intent=text("extract"))
     second_grade = RelExpr(path="/sandbox", context="$code_2", intent=text("grade step 2"))
     benchmark = expr(
         src(first, name="first", weight=0.0),
@@ -1033,7 +1037,7 @@ async def test_candidate_expression_can_be_a_nested_fusion_graph() -> None:
         finally:
             await world.aclose()
 
-    assert result.text == "combined answer"
+    assert json.loads(result.text)["output"] == "combined answer"
     assert set(requests) == set(answers)
     synthesis_messages = json.dumps(requests["provider/synthesizer"]["messages"])
     assert "Explain why the sky is blue." in synthesis_messages
@@ -1077,7 +1081,7 @@ async def test_nested_candidate_model_usage_reaches_the_outer_run_observer() -> 
         finally:
             await world.aclose()
 
-    assert result == "candidate answer"
+    assert json.loads(result)["output"] == "candidate answer"
     usages = [event for event in recorder.events if isinstance(event, Usage)]
     assert [(event.provider, event.model) for event in usages] == [("provider", model)]
     assert sum(event.input_tokens for event in usages) == 13
@@ -1249,7 +1253,7 @@ async def test_top_level_benchmark_iteration_can_invoke_the_linked_candidate() -
                 weight=0.0,
             ),
         ),
-        intent=text("$answer"),
+        intent=text("$answer.output"),
         on_error="fail",
     )
     linked = _link(candidate, benchmark)

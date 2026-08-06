@@ -14,16 +14,17 @@ from url4_cloud.benchmarks.draco.verdict import call as criterion_verdict
 BENCHMARK_ID = "draco"
 CASE_COUNT = 100
 LITE_BENCHMARK_ID = "draco/lite"
-# Five most represented pinned-data domains; within each, choose the Case nearest the global
+# Two most represented pinned-data domains; within each, choose the Case nearest the global
 # median rubric size (38 criteria), breaking ties by Case id. Order follows domain prevalence.
-LITE_CASE_IDS = (2, 15, 40, 83, 34)
+LITE_CASE_IDS = (2, 15)
 LITE_CASE_COUNT = len(LITE_CASE_IDS)
+LITE_CRITERION_COUNT = 10
 SMOKE_BENCHMARK_ID = "draco/smoke"
 SMOKE_CASE_COUNT = 1
 DATASET = "perplexity-ai/draco"
 DATASET_REVISION = "ce076749809027649ebd331bcb70f42bf720d387"
 PROTOCOL_REVISION = "official-five-pass-v1"
-LITE_PROTOCOL_REVISION = "directional-lite-v1"
+LITE_PROTOCOL_REVISION = "directional-lite-v2"
 SMOKE_PROTOCOL_REVISION = "structural-smoke-v1"
 # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09. Google designated
 # Gemini-3.1-Pro Preview as its replacement; the retired API id now resolves to this newer model.
@@ -43,6 +44,9 @@ EXCLUDED_DOMAINS = (
     "research.perplexity.ai",
 )
 JUDGE_PARAMS = (
+    # The same model is also a DRACO Candidate. Its route can retrieve, but Grading cannot: this
+    # call-level pin keeps the Benchmark-owned Judge tool-free without weakening Candidate use.
+    ("web_search", "false"),
     ("temperature", "0.2"),
     # The official low-reasoning setting is added once AI Gateway exposes a validated
     # OpenRouter parameter for it. Unknown fields fail closed, so guessing here breaks every
@@ -70,6 +74,7 @@ LITE_REVISION = hashlib.sha256(
             REVISION,
             LITE_PROTOCOL_REVISION,
             repr(LITE_CASE_IDS),
+            str(LITE_CRITERION_COUNT),
             str(LITE_JUDGE_PASSES),
         )
     ).encode()
@@ -122,7 +127,7 @@ def _build_lite(case_count: int) -> Node:
         verdict_route=LITE_VERDICT_ROUTE,
         aggregate_route=LITE_AGGREGATE_ROUTE,
         judge_passes=LITE_JUDGE_PASSES,
-        criterion_count=None,
+        criterion_count=LITE_CRITERION_COUNT,
     )
 
 
@@ -162,6 +167,7 @@ def _build_protocol(
                 ),
                 "$item.criterion_id",
                 case_id="$item.case_id",
+                sequence=run,
                 route=verdict_route,
             ),
             name=f"verdict_{run}",
@@ -172,9 +178,8 @@ def _build_protocol(
     criteria = iterate(
         RelExpr(
             path=tasks_route,
-            # The Candidate call is the collection call's direct context, so it executes exactly
-            # once per case before the returned criterion tasks fan out. No case-row sibling has
-            # to cross into the nested criterion map.
+            # This collection boundary invokes the Candidate exactly once, then returns the
+            # criterion tasks plus Engine-bound Case/Check records for lossless aggregation.
             context=render(
                 candidate(
                     "$item.input",
@@ -185,9 +190,8 @@ def _build_protocol(
             intent=Text("$item.id"),
         ),
         body=(
-            src("$item.criterion_id", name="criterion_id", weight=0.0),
-            src("$item.criterion", name="criterion", weight=0.0),
-            src("$item.criterion_type", name="criterion_type", weight=0.0),
+            src("$item.case_record", name="case", weight=1.0),
+            src("$item.check_record", name="check", weight=1.0),
             *judge_calls,
         ),
         intent=Text("criterion"),
@@ -250,8 +254,8 @@ DRACO_LITE = Benchmark(
     variant="lite",
     title="DRACO Lite",
     description=(
-        "A five-Case directional preview using every criterion and one Judge pass. Its score "
-        "is not comparable to canonical DRACO."
+        "A two-Case directional preview using ten criteria per Case and one Judge pass per "
+        "criterion. Its score is not comparable to canonical DRACO."
     ),
     revision=LITE_REVISION,
     case_count=LITE_CASE_COUNT,

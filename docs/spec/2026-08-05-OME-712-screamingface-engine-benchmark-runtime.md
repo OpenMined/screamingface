@@ -45,9 +45,9 @@ ids, revisions, URL4, costs, and scores. They may share assets and implementatio
 no public Benchmark Family resource and no compatibility response containing nested Variants.
 
 `draco` is the canonical 100-Case protocol: every selected Case, every criterion, and five
-independent Judge passes. `draco/lite` is a non-comparable directional preview pinned to five
-Cases, every criterion, and one Judge pass. Its Cases are selected from the pinned dataset by one
-reviewable rule: take the five most represented domains, then choose the Case nearest the global
+independent Judge passes. `draco/lite` is a non-comparable directional preview pinned to two
+Cases, ten criteria per Case, and one Judge pass per criterion. Its Cases are selected from the
+pinned dataset by one reviewable rule: take the two most represented domains, then choose the Case nearest the global
 median rubric size in each domain, breaking ties by Case id. `draco/smoke` is a non-comparable
 structural probe pinned to one Case, one criterion, and one Judge pass. All definitions are built
 from the same DRACO protocol constructor so reduced paths cannot acquire a second Candidate,
@@ -131,7 +131,10 @@ The route owns these ScreamingFace Engine invariants:
 - one fresh lexical scope containing only the Benchmark-supplied `$input`;
 - a per-Evaluation total invocation limit;
 - recursion prevention;
-- Benchmark-owned retrieval policy applied task-locally to Model calls;
+- Benchmark-owned retrieval policy applied task-locally to Model calls. DRACO enables guarded
+  retrieval at the Candidate invocation; ordinary Model calls inherit that ceiling and the
+  universal Fusion compiler explicitly narrows synthesis with `web_search=false`. IFEval disables
+  retrieval for every Candidate invocation. The Engine interprets no Fusion structure or role;
 - parent cancellation, observation, usage, credentials, and typed-failure behavior.
 
 ## Candidate isolation
@@ -232,6 +235,8 @@ establish their absence.
 - DRACO excludes operationally ungraded Cases from its mean and reports them as structured
   failures; if no Case can be scored, the Evaluation fails loudly with bounded row diagnostics.
 - Provider finish reason and refusal remain distinguishable from empty successful text.
+- Required retrieval never degrades silently: a missing Tavily key fails before model spend and
+  Tavily authentication/transport failures surface as typed `web_retrieval_unavailable` errors.
 - Benchmark id and revision travel into every Candidate result.
 - No legacy resource, fallback model, default synthesizer, or silent error coercion remains.
 
@@ -265,6 +270,6 @@ rules.
 - DRACO and IFEval empty/all-error paths fail loudly and preserve structured diagnostics.
 - `draco/smoke` exercises the canonical DRACO execution seams with one pinned Case, one criterion,
   and one Judge pass, and is never described as a canonical or publishable DRACO score.
-- `draco/lite` evaluates pinned Cases `2, 15, 40, 83, 34`, every criterion, and one Judge pass;
+- `draco/lite` evaluates pinned Cases `2, 15`, ten criteria per Case, and one Judge pass per criterion;
   its selection rule and non-comparable status remain visible in repository documentation.
 - URL4 Cloud's complete gate and focused cross-package Evaluation tests pass.

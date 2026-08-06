@@ -81,9 +81,10 @@ def candidate(
     """Invoke the structurally linked Candidate with one Benchmark-owned input.
 
     Retrieval is Benchmark policy, not Candidate policy. These options are carried on the
-    ``/candidate`` call and applied to every model call inside the linked Candidate while it is
-    evaluated. This keeps the SDK generic, makes the policy visible in the final URL4, and lets
-    DRACO require guarded retrieval while IFEval explicitly disables it in the same Runner.
+    ``/candidate`` call and applied task-locally while the linked Candidate is evaluated.
+    A Candidate call may explicitly narrow an enabled Benchmark policy—for example, Fusion
+    synthesis always pins retrieval off. The policy remains visible in the final URL4 and
+    IFEval explicitly disables it in the same Runner.
     """
 
     if not isinstance(input, str) or not input:

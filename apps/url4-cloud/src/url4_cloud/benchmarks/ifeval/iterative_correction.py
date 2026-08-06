@@ -56,8 +56,8 @@ def _solo_attempt_input(attempt: int) -> str:
     previous = attempt - 1
     return (
         "$item.input"
-        f" | Previous answer: $answer_{previous}"
-        f" | Feedback: $self_feedback_{previous}"
+        f" | Previous answer: $check_{previous}.answer"
+        f" | Feedback: $self_feedback_{previous}.output"
         f" | {RETRY_INSTRUCTION}"
     )
 
@@ -106,7 +106,7 @@ def _build_solo(case_count: int) -> Node:
                 src(
                     candidate(
                         "$item.input"
-                        f" | Your answer: $answer_{attempt}"
+                        f" | Your answer: $check_{attempt}.answer"
                         f" | Verification feedback: $feedback_{attempt}"
                         f" | {SELF_FEEDBACK_INSTRUCTION}",
                         web_search=False,
@@ -124,7 +124,7 @@ def _member_attempt_input(attempt: int) -> str:
     return (
         "$question"
         f" | Your previous answer: $previous_answer_{attempt}"
-        f" | Judge feedback: $judge_feedback_{attempt - 1}"
+        f" | Judge feedback: $judge_feedback_{attempt - 1}.output"
         f" | {RETRY_INSTRUCTION}"
     )
 
@@ -183,7 +183,8 @@ def _member_round(collection: Node, attempt: int) -> Node:
                             "name": "$item.name",
                             "kind": "$item.kind",
                             "expression": "$item.expression",
-                            "answer": f"${answer}",
+                            "answer": f"${check}.answer",
+                            "finish_reason": f"${check}.finish_reason",
                             "feedback": f"${feedback}",
                         }
                     ),
@@ -254,7 +255,7 @@ def _build_members(case_count: int) -> Node:
                     RelExpr(
                         path=SELECT_ROUTE,
                         context=f"${round_name}",
-                        intent=Text(f"$judge_pick_{attempt}"),
+                        intent=Text(f"$judge_pick_{attempt}.output"),
                     ),
                     name=f"selection_{attempt}",
                     weight=0.0,

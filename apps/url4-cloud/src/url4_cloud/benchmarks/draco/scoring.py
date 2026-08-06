@@ -89,9 +89,18 @@ def _restrict(rubric: Mapping[str, Any], judged_ids: Sequence[str]) -> dict[str,
     }
 
 
-def score_case(rubric: Mapping[str, Any], runs: Sequence[Mapping[str, bool]]) -> dict[str, Any]:
+def score_case(
+    rubric: Mapping[str, Any],
+    runs: Sequence[Mapping[str, bool]],
+    *,
+    criteria_expected: int | None = None,
+) -> dict[str, Any]:
     """Score each judge pass independently, then report its mean and population spread."""
-    total = sum(1 for _ in flatten_criteria(rubric))
+    total = (
+        criteria_expected
+        if criteria_expected is not None
+        else sum(1 for _ in flatten_criteria(rubric))
+    )
     scored = [_score_one_run(rubric, verdicts, total) for verdicts in runs]
     if not scored:
         return {

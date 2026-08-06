@@ -65,22 +65,10 @@ def test_every_lineup_model_has_a_declared_route(slug: str) -> None:
     )
 
 
-def test_the_judge_route_never_offers_tools() -> None:
-    """INVARIANT (arXiv:2602.11685 §4.2): the judge sees only the answer and one criterion.
+def test_the_dual_role_judge_route_can_retrieve_as_a_candidate() -> None:
+    """The route declares capability; the Benchmark Judge call pins retrieval off in URL4."""
 
-    Offering it retrieval would let it check claims against the live web, which is a DIFFERENT
-    benchmark from the one the paper defines — and `web_tools` changes the request payload
-    (`tools`/`tool_choice`), so this is a protocol deviation even if the judge never calls one.
-    Pinned rather than left to a comment because the same model is ALSO a solo candidate, and
-    the obvious "give the candidates tools" edit would silently take the judge with it.
-    """
-    judge = _routes()[_GATEWAY_PREFIX + DRACO_JUDGE]
-
-    assert not judge.get("web_tools"), (
-        "the DRACO judge route declares web_tools — the paper's judge gets none. Note this route "
-        "is shared with the gemini-3.1-pro-preview SOLO candidate, which does want retrieval; "
-        "one id is one route, so the two roles cannot be configured apart today."
-    )
+    assert _routes()[_GATEWAY_PREFIX + DRACO_JUDGE].get("web_tools") is True
 
 
 def test_the_lineup_has_no_duplicate_entries() -> None:

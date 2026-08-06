@@ -25,10 +25,12 @@ from url4_cloud.benchmarks.draco.definition import (
     LITE_AGGREGATE_ROUTE,
     LITE_CASE_IDS,
     LITE_CASES_ROUTE,
+    LITE_CRITERION_COUNT,
 )
+from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from url4_cloud.rest.benchmarks import router
 
-_EXPECTED_IDS = (2, 15, 40, 83, 34)
+_EXPECTED_IDS = (2, 15)
 
 
 def _assets(root: Path) -> None:
@@ -38,12 +40,24 @@ def _assets(root: Path) -> None:
     cases = []
     for case_id in range(1, 101):
         cases.append({"id": case_id, "input": f"Question {case_id}", "domain": "test"})
+        criteria = [
+            {
+                "id": f"c{index}",
+                "requirement": f"Correct {index}",
+                "criterion_type": "positive",
+            }
+            for index in range(1, 13)
+        ]
         (root / "criteria" / f"{case_id}.json").write_text(
-            '[{"id":"c1","requirement":"Correct","criterion_type":"positive"}]',
+            json.dumps(criteria),
             encoding="utf-8",
         )
+        rubric_criteria = [
+            {"id": f"c{index}", "requirement": f"Correct {index}", "weight": 1}
+            for index in range(1, 13)
+        ]
         (root / "rubrics" / f"{case_id}.json").write_text(
-            '{"sections":[{"id":"correctness","criteria":[{"id":"c1","weight":1}]}]}',
+            json.dumps({"sections": [{"id": "correctness", "criteria": rubric_criteria}]}),
             encoding="utf-8",
         )
     (root / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
@@ -53,19 +67,19 @@ def test_lite_is_a_separate_noncanonical_benchmark() -> None:
     assert BENCHMARKS["draco/lite"] is DRACO_LITE
     assert DRACO_LITE.id == "draco/lite"
     assert DRACO_LITE.variant == "lite"
-    assert DRACO_LITE.case_count == 5
+    assert DRACO_LITE.case_count == 2
     assert DRACO_LITE.case_ids == _EXPECTED_IDS == LITE_CASE_IDS
     assert DRACO_LITE.revision not in {DRACO.revision, DRACO_SMOKE.revision}
     assert "not comparable" in DRACO_LITE.description.lower()
 
 
-def test_lite_keeps_every_criterion_and_reduces_judge_repetition() -> None:
+def test_lite_caps_criteria_and_reduces_judge_repetition() -> None:
     expression = render(DRACO_LITE.build(DRACO_LITE.case_count))
 
     for route_fragment in ("/candidate", "/tasks", "/criterion-verdict", "/aggregate"):
         assert route_fragment in expression
     assert expression.count("/" + JUDGE_MODEL) == 1
-    assert "iteration.slice=0:1" not in expression
+    assert f"iteration.slice=0:{LITE_CRITERION_COUNT}" in expression
 
 
 def test_lite_public_cases_expose_the_ordered_pinned_subset(
@@ -80,7 +94,7 @@ def test_lite_public_cases_expose_the_ordered_pinned_subset(
 
     assert response.status_code == 200
     page = response.json()
-    assert page["total"] == 5
+    assert page["total"] == 2
     assert [case["id"] for case in page["data"]] == list(_EXPECTED_IDS)
 
 
@@ -98,19 +112,44 @@ async def test_lite_private_cases_expose_the_ordered_pinned_subset(tmp_path: Pat
 @pytest.mark.asyncio
 async def test_lite_runtime_reports_its_own_identity_and_one_judge_pass(tmp_path: Path) -> None:
     _assets(tmp_path / "draco")
-    verdicts = [
-        json.dumps(
+    rows = []
+    for case_id in _EXPECTED_IDS:
+        raw_output = json.dumps({"explanation": "evidence", "criterion_status": "MET"})
+        records = [
             {
-                "schema": "screamingface.criterion-verdict.v1",
+                "schema": CASE_SCHEMA,
                 "case_id": case_id,
-                "criterion_id": "c1",
-                "valid": True,
-                "explanation": "evidence",
-                "criterion_status": "MET",
-            }
-        )
-        for case_id in _EXPECTED_IDS
-    ]
+                "input": f"Question {case_id}",
+                "output": f"Answer {case_id}",
+                "finish_reason": "stop",
+                "metadata": {"domain": "test"},
+            },
+        ]
+        for index in range(1, LITE_CRITERION_COUNT + 1):
+            records.extend(
+                (
+                    {
+                        "schema": CHECK_SCHEMA,
+                        "case_id": case_id,
+                        "criterion_id": f"c{index}",
+                        "criterion_type": "positive",
+                        "requirement": f"Correct {index}",
+                    },
+                    {
+                        "schema": "screamingface.criterion-verdict.v1",
+                        "case_id": case_id,
+                        "criterion_id": f"c{index}",
+                        "sequence": 1,
+                        "producer_type": "model",
+                        "producer_id": "fixture-judge",
+                        "valid": True,
+                        "explanation": "evidence",
+                        "criterion_status": "MET",
+                        "raw_output": raw_output,
+                    },
+                )
+            )
+        rows.append("\n".join(map(json.dumps, records)))
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
 
@@ -119,7 +158,7 @@ async def test_lite_runtime_reports_its_own_identity_and_one_judge_pass(tmp_path
             await node.evaluate(
                 render(
                     expr(
-                        src(Text(json.dumps(verdicts)), name="rows", weight=0.0),
+                        src(Text(json.dumps(rows)), name="rows", weight=0.0),
                         src(
                             RelExpr(
                                 path=LITE_AGGREGATE_ROUTE,
@@ -138,6 +177,6 @@ async def test_lite_runtime_reports_its_own_identity_and_one_judge_pass(tmp_path
 
     assert result["benchmark_id"] == DRACO_LITE.id
     assert result["benchmark_revision"] == DRACO_LITE.revision
-    assert result["case_count"] == 5
+    assert result["case_count"] == 2
     assert result["metrics"]["n_runs"] == 1
     assert result["metrics"]["coverage"] == 1.0

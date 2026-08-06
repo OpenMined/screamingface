@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from url4 import RelExpr, Text, render
+from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import BENCHMARKS, install_benchmarks
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.draco.definition import (
     AGGREGATE_ROUTE,
     CASES_ROUTE,
     TASKS_ROUTE,
     VERDICT_ROUTE,
 )
+from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from url4_cloud.benchmarks.ifeval.definition import (
     CASES_ROUTE as IFEVAL_CASES_ROUTE,
 )
@@ -93,18 +96,10 @@ async def test_ifeval_check_route_grades_a_response(tmp_path: Path) -> None:
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
 
-    record = json.loads(
-        (
-            await node.evaluate(
-                render(
-                    RelExpr(
-                        path=IFEVAL_CHECK_ROUTE,
-                        context="A sentence with no comma at all.",
-                        intent=Text("1"),
-                    )
-                )
-            )
-        ).text
+    record = await _ifeval_check(
+        node,
+        encode_candidate_invocation("A sentence with no comma at all.", "stop"),
+        "1",
     )
 
     assert record["schema"] == "screamingface.ifeval-check.v1"
@@ -123,18 +118,10 @@ async def test_ifeval_check_intent_carries_an_optional_attempt(tmp_path: Path) -
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
 
-    record = json.loads(
-        (
-            await node.evaluate(
-                render(
-                    RelExpr(
-                        path=IFEVAL_CHECK_ROUTE,
-                        context="A short comma-free answer.",
-                        intent=Text("2:2"),
-                    )
-                )
-            )
-        ).text
+    record = await _ifeval_check(
+        node,
+        encode_candidate_invocation("A short comma-free answer.", "length"),
+        "2:2",
     )
 
     assert record["case_id"] == 2
@@ -143,6 +130,29 @@ async def test_ifeval_check_intent_carries_an_optional_attempt(tmp_path: Path) -
     # The retry path needs the checker's own wording of what failed.
     assert record["violations"]
     assert "50" in record["violations"][0]
+
+
+async def _ifeval_check(node: Url4Node, invocation: str, intent: str) -> dict[str, Any]:
+    """Exercise the check route through the same value binding the Benchmark uses.
+
+    Candidate Invocation JSON is runtime data. Embedding it directly as expression source text
+    asks URL4 to parse its braces as structure and is not equivalent to ``$candidate_result``.
+    """
+
+    expression = expr(
+        src(Text(invocation), name="candidate_result", weight=0.0),
+        src(
+            RelExpr(
+                path=IFEVAL_CHECK_ROUTE,
+                context="$candidate_result",
+                intent=Text(intent),
+            ),
+            name="record",
+            weight=0.0,
+        ),
+        intent=Text("$record"),
+    )
+    return json.loads((await node.evaluate(render(expression))).text)
 
 
 @pytest.mark.asyncio
@@ -198,18 +208,44 @@ async def test_aggregate_accepts_payload_larger_than_process_argv(tmp_path: Path
     _assets(tmp_path / "draco")
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
-    verdict = {
-        "schema": "screamingface.criterion-verdict.v1",
-        "case_id": 1,
-        "criterion_id": "c1",
-        "valid": True,
-        "explanation": "x" * 2_100_000,
-        "criterion_status": "MET",
-    }
+    row = "\n".join(
+        map(
+            json.dumps,
+            (
+                {
+                    "schema": CASE_SCHEMA,
+                    "case_id": 1,
+                    "input": "Question",
+                    "output": "Answer",
+                    "finish_reason": "stop",
+                    "metadata": {},
+                },
+                {
+                    "schema": CHECK_SCHEMA,
+                    "case_id": 1,
+                    "criterion_id": "c1",
+                    "criterion_type": "positive",
+                    "requirement": "Correct",
+                },
+                {
+                    "schema": "screamingface.criterion-verdict.v1",
+                    "case_id": 1,
+                    "criterion_id": "c1",
+                    "sequence": 1,
+                    "producer_type": "model",
+                    "producer_id": "fixture-judge",
+                    "valid": True,
+                    "explanation": "x" * 2_100_000,
+                    "criterion_status": "MET",
+                    "raw_output": '{"criterion_status":"MET"}',
+                },
+            ),
+        )
+    )
     expression = render(
         RelExpr(
             path=AGGREGATE_ROUTE,
-            context=json.dumps([json.dumps(verdict)]),
+            context=json.dumps([row]),
             intent=Text("aggregate"),
         )
     )

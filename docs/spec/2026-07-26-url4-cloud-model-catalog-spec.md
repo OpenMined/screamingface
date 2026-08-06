@@ -1,8 +1,8 @@
 ---
 title: url4-cloud model catalog endpoint — technical specification
-status: implemented — shipped in `92fdf233`; live at `apps/url4-cloud/src/url4_cloud/rest/catalog.py`
+status: r4 implementation in progress
 created: 2026-07-26
-revised: 2026-07-26 (r3 — credential required; no service secret; mode-agnostic by construction)
+revised: 2026-08-05 (r4 — Engine catalog projected onto declared executable routes)
 author: Claude (Opus 5) + Ionesio
 ticket: OME-625
 related:
@@ -16,13 +16,46 @@ related:
 
 ## 0. Status & revision history
 
-Proposed. Implementation starts only on explicit approval.
+r4 is the current normative contract. The r1–r3 material after §0.1 is retained as design
+history only; where it disagrees with r4 or the current identity-header flow it is superseded.
 
 | Rev | Change | Why |
 |---|---|---|
 | r1 | Unauthenticated · one shared cache entry · service credential | Initial owner forks. |
 | r2 | Credential-optional · identity-keyed cache | Owner required correctness under aigateway `byok` **and** `shared`. |
 | **r3** | **Credential required · no service credential · no new secret** | Owner confirmed callers are already authenticated when they reach url4-cloud, so the anonymous path bought nothing and cost a standing privileged secret. |
+| **r4** | **Caller-visible Gateway catalog ∩ Engine-declared model routes** | A live quickstart selected a colon-qualified Hugging Face id returned by the Engine, but URL4 expression paths cannot represent that id and the Runner had no such declared route. Discovery must describe the Engine, not the Gateway in isolation. |
+
+### 0.1 Current normative contract (r4)
+
+`GET /v1/models` answers: **which model routes can this caller execute through this Engine?**
+The answer is the intersection of:
+
+1. the caller/profile-visible AI Gateway catalog; and
+2. the model ids declared in the Engine's configured `url4.toml`.
+
+AI Gateway remains the authority for model metadata and caller visibility. The Engine remains
+the authority for its executable world. Retained model documents and unknown top-level fields
+are preserved; only undeclared model entries are omitted. The ETag is recomputed over that
+projected response.
+
+The same declared set guards `GET /v1/model-parameters?model=…`. An undeclared model returns a
+404 problem without contacting AI Gateway. This prevents the list and details surfaces from
+describing different execution capabilities.
+
+The declared model id must be a valid URL4 expression-path id: one or more non-empty `/`-separated
+segments containing only ASCII letters, digits, `-`, `_`, `.`, or `~`. Invalid ids fail while
+the Runner configuration is parsed. There is deliberately no aliasing, percent-encoding escape,
+or URL4 grammar extension.
+
+The raw AI Gateway adapter and its caller-keyed cache remain broad and unchanged. Projection is
+an Engine composition decorator after the cache, so provider/profile semantics stay in AI
+Gateway and deployment route policy stays in URL4 Cloud.
+
+The caller identity contract is the verified `X-User-Email` header plus optional `X-Profile`;
+anonymous local mode remains valid and AI Gateway decides whether the identity is sufficient.
+
+### Historical r1–r3 design (superseded where inconsistent with §0.1)
 
 ## 1. Purpose & scope
 

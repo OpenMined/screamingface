@@ -6,6 +6,7 @@ import pytest
 
 from url4 import RelExpr, expr, render, src, text
 from url4.streaming.interfaces import Completed
+from url4_cloud.benchmarks.contract import decode_candidate_invocation
 from url4_cloud.runner.config import CommandSpec, RunnerConfig
 from url4_cloud.runner.main import build_executor
 
@@ -39,4 +40,6 @@ async def test_command_only_world_can_run_as_a_linked_candidate() -> None:
 
     completed = frames[-1]
     assert isinstance(completed, Completed)
-    assert completed.result.body.strip() == "candidate:case-1"
+    output, finish_reason = decode_candidate_invocation(completed.result.body)
+    assert output.strip() == "candidate:case-1"
+    assert finish_reason is None

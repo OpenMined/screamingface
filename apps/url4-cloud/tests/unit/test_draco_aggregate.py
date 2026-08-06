@@ -1,7 +1,7 @@
 """DRACO aggregation — the paper's exact scoring math.
 
-FEATURE: the cross-row reducer of a Candidate benchmark run turns per-criterion judge verdicts
-into a `CandidateResult`.
+FEATURE: the cross-row reducer of a Candidate benchmark run turns per-criterion Judge verdicts
+into a Candidate Result.
 STORY: as a researcher, the score I get back is the DRACO paper's `normalized_score`, not an
 approximation, so a leaderboard number means what the paper says it means.
 
@@ -20,6 +20,7 @@ import pytest
 from url4_cloud.benchmarks.draco import aggregate as agg
 from url4_cloud.benchmarks.draco import scoring
 from url4_cloud.benchmarks.draco.definition import REVISION as DRACO_REVISION
+from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 
 # Two sections, one negative criterion. Positive weights sum to 4 (a1=2, a2=1, b1=1).
 _RUBRIC = {
@@ -39,6 +40,10 @@ _RUBRIC = {
 
 def _verdicts(**kwargs: bool) -> dict[str, bool]:
     return dict(kwargs)
+
+
+def _selected_cases(*case_ids: int) -> list[dict[str, object]]:
+    return [{"id": case_id, "input": f"Question {case_id}"} for case_id in case_ids]
 
 
 # --- normalized_score -----------------------------------------------------------
@@ -137,40 +142,74 @@ def test_coverage_reports_the_judged_fraction() -> None:
 # that has already changed once; a regex over it would be a silent-breakage contract.
 
 
-def _verdict(cid: str, status: str, case: int = 1) -> str:
+def _verdict(cid: str, status: str, case: int = 1, sequence: int = 1) -> str:
+    raw = json.dumps({"explanation": "evidence", "criterion_status": status})
     return json.dumps(
         {
             "schema": "screamingface.criterion-verdict.v1",
             "case_id": case,
             "criterion_id": cid,
+            "sequence": sequence,
+            "producer_type": "model",
+            "producer_id": "fixture-judge",
             "valid": True,
             "explanation": "evidence",
             "criterion_status": status,
+            "raw_output": raw,
         }
     )
 
 
-def _invalid(cid: str, reason: str, case: int = 1) -> str:
+def _invalid(cid: str, reason: str, case: int = 1, sequence: int = 1) -> str:
     return json.dumps(
         {
             "schema": "screamingface.criterion-verdict.v1",
             "case_id": case,
             "criterion_id": cid,
+            "sequence": sequence,
+            "producer_type": "model",
+            "producer_id": "fixture-judge",
             "valid": False,
             "reason": reason,
+            "raw_output": "not json",
         }
     )
 
 
 def _case_row(case: int, *per_criterion: tuple[str, list[str]]) -> str:
     """Rebuild the engine's real nesting: case → criteria → runs."""
+    statuses = dict(per_criterion)
+    case_record = json.dumps(
+        {
+            "schema": CASE_SCHEMA,
+            "case_id": case,
+            "input": f"Question {case}",
+            "output": f"Answer {case}",
+            "finish_reason": "stop",
+            "metadata": {},
+        }
+    )
     crits = [
-        "criterion\\n\\ncrit: {}\\nruns: [{}]".format(
-            cid, ", ".join(_verdict(cid, s, case) for s in st)
+        "criterion\\n\\ncheck: {}\\nruns: [{}]".format(
+            json.dumps(
+                {
+                    "schema": CHECK_SCHEMA,
+                    "case_id": case,
+                    "criterion_id": cid,
+                    "criterion_type": "negative" if cid == "a3" else "positive",
+                    "requirement": f"Requirement {cid}",
+                }
+            ),
+            ", ".join(
+                _verdict(cid, status, case, sequence)
+                for sequence, status in enumerate(statuses.get(cid, []), start=1)
+            ),
         )
-        for cid, st in per_criterion
+        for cid in ("a1", "a2", "a3", "b1")
     ]
-    return "case\n\ngraded: [{}]".format(", ".join(json.dumps(c) for c in crits))
+    return "case\n\nrecord: {}\ngraded: [{}]".format(
+        case_record, ", ".join(json.dumps(c) for c in crits)
+    )
 
 
 def test_verdicts_are_harvested_from_the_nested_prose() -> None:
@@ -178,7 +217,7 @@ def test_verdicts_are_harvested_from_the_nested_prose() -> None:
 
     harvested = agg.harvest_verdicts(row)
 
-    assert harvested == [json.loads(_verdict("a1", "MET"))] * 5
+    assert harvested == [json.loads(_verdict("a1", "MET", sequence=n)) for n in range(1, 6)]
 
 
 def test_harvesting_ignores_json_without_a_criterion_status() -> None:
@@ -207,12 +246,26 @@ def test_prompt_examples_cannot_become_judge_runs() -> None:
     fragments: list[str] = []
     for criterion_id in ("a1", "a2", "a3", "b1"):
         for status in ("MET", "UNMET", "MET", "UNMET", "MET"):
-            fragments.extend((example, _verdict(criterion_id, status)))
+            sequence = len(fragments) // 2 % 5 + 1
+            fragments.extend((example, _verdict(criterion_id, status, sequence=sequence)))
 
     result = agg.aggregate(
-        json.dumps(["\n".join(fragments)]),
+        json.dumps(
+            [
+                _case_row(
+                    1,
+                    ("a1", ["MET", "UNMET", "MET", "UNMET", "MET"]),
+                    ("a2", ["MET", "UNMET", "MET", "UNMET", "MET"]),
+                    ("a3", ["MET", "UNMET", "MET", "UNMET", "MET"]),
+                    ("b1", ["MET", "UNMET", "MET", "UNMET", "MET"]),
+                )
+                + "\n"
+                + "\n".join(fragments[::2])
+            ]
+        ),
         rubrics={1: _RUBRIC},
         benchmark_id="draco",
+        selected_cases=_selected_cases(1),
     )
 
     assert result["metrics"]["n_runs"] == 5
@@ -221,18 +274,31 @@ def test_prompt_examples_cannot_become_judge_runs() -> None:
 
 def test_coverage_diagnostics_distinguish_invalid_and_missing_verdicts() -> None:
     fragments = [
-        *(_verdict("a1", "MET") for _ in range(5)),
-        *(_verdict("a2", "MET") for _ in range(5)),
-        *(_verdict("a3", "UNMET") for _ in range(4)),
-        _invalid("a3", "invalid_json"),
-        *(_verdict("b1", "MET") for _ in range(4)),
+        *(_verdict("a1", "MET", sequence=n) for n in range(1, 6)),
+        *(_verdict("a2", "MET", sequence=n) for n in range(1, 6)),
+        *(_verdict("a3", "UNMET", sequence=n) for n in range(1, 5)),
+        _invalid("a3", "invalid_json", sequence=5),
+        *(_verdict("b1", "MET", sequence=n) for n in range(1, 5)),
         # b1's fifth pass is absent: a transport/model call failed before binding.
     ]
 
     result = agg.aggregate(
-        json.dumps(["\n".join(fragments)]),
+        json.dumps(
+            [
+                _case_row(
+                    1,
+                    ("a1", []),
+                    ("a2", []),
+                    ("a3", []),
+                    ("b1", []),
+                )
+                + "\n"
+                + "\n".join(fragments)
+            ]
+        ),
         rubrics={1: _RUBRIC},
         benchmark_id="draco",
+        selected_cases=_selected_cases(1),
     )
 
     assert {
@@ -258,7 +324,7 @@ def test_coverage_diagnostics_distinguish_invalid_and_missing_verdicts() -> None
 
 
 def test_a_fenced_verdict_is_still_harvested() -> None:
-    row = 'runs: ["```json\\n{}\\n```"]'.format(_verdict("a1", "MET").replace('"', '\\"'))
+    row = f"runs: [{json.dumps(f'```json\n{_verdict("a1", "MET")}\n```')}]"
 
     assert len(agg.harvest_verdicts(row)) == 1
 
@@ -277,7 +343,8 @@ def test_runs_are_grouped_in_order_so_each_pass_scores_independently() -> None:
     and would make the reported spread meaningless — the sd IS the judge-stability signal.
     """
     verdicts = [
-        {"case_id": 1, "criterion_id": "a1", "criterion_status": s} for s in ("MET", "UNMET", "MET")
+        {"case_id": 1, "criterion_id": "a1", "sequence": n, "criterion_status": s}
+        for n, s in enumerate(("MET", "UNMET", "MET"), start=1)
     ]
 
     per_run = agg.group_runs(verdicts)
@@ -288,9 +355,9 @@ def test_runs_are_grouped_in_order_so_each_pass_scores_independently() -> None:
 def test_a_criterion_with_fewer_passes_drops_out_of_the_missing_run() -> None:
     """A dropped judge pass must not become an UNMET — it leaves that run's rubric entirely."""
     verdicts = [
-        {"case_id": 1, "criterion_id": "a1", "criterion_status": "MET"},
-        {"case_id": 1, "criterion_id": "a1", "criterion_status": "MET"},
-        {"case_id": 1, "criterion_id": "a2", "criterion_status": "MET"},
+        {"case_id": 1, "criterion_id": "a1", "sequence": 1, "criterion_status": "MET"},
+        {"case_id": 1, "criterion_id": "a1", "sequence": 2, "criterion_status": "MET"},
+        {"case_id": 1, "criterion_id": "a2", "sequence": 1, "criterion_status": "MET"},
     ]
 
     per_run = agg.group_runs(verdicts)
@@ -344,13 +411,18 @@ def test_aggregate_scores_the_official_nested_payload() -> None:
             ),
         ]
     )
-    result = agg.aggregate(rows, rubrics={1: _RUBRIC, 2: _RUBRIC}, benchmark_id="draco")
+    result = agg.aggregate(
+        rows,
+        rubrics={1: _RUBRIC, 2: _RUBRIC},
+        benchmark_id="draco",
+        selected_cases=_selected_cases(1, 2),
+    )
 
     assert result["case_count"] == 2
     assert result["benchmark_revision"] == DRACO_REVISION
     assert result["score"] == 0.75  # case 1 → 1.0 · case 2 → 0.5
     assert "normalized_score" not in result["metrics"]
-    assert [c["case_id"] for c in result["case_results"]] == [1, 2]
+    assert [c["case_id"] for c in result["cases"]] == [1, 2]
     assert result["metrics"]["n_runs"] == 5
     assert result["failures"] == []
 
@@ -359,25 +431,42 @@ def test_a_case_id_missing_from_a_verdict_is_rejected() -> None:
     """A scoreable verdict must carry the identity bound by the Engine after judging."""
     verdict = json.loads(_verdict("a1", "MET"))
     del verdict["case_id"]
-    row = f"runs: [{json.dumps(verdict)}]"
+    row = _case_row(1, ("a1", [])) + f"\nruns: [{json.dumps(verdict)}]"
 
     with pytest.raises(agg.AggregateError, match="Engine-bound case_id"):
-        agg.aggregate(json.dumps([row]), rubrics={1: _RUBRIC}, benchmark_id="draco")
+        agg.aggregate(
+            json.dumps([row]),
+            rubrics={1: _RUBRIC},
+            benchmark_id="draco",
+            selected_cases=_selected_cases(1),
+        )
 
 
 def test_a_row_with_no_verdicts_is_a_failure_not_a_zero() -> None:
-    rows = json.dumps([_case_row(1, ("a1", ["MET"])), "case\n\ngraded: judge refused"])
-    result = agg.aggregate(rows, rubrics={1: _RUBRIC, 2: _RUBRIC}, benchmark_id="draco")
+    rows = json.dumps([_case_row(1, ("a1", ["MET"])), _case_row(2, ("a1", [])) + "\njudge refused"])
+    result = agg.aggregate(
+        rows,
+        rubrics={1: _RUBRIC, 2: _RUBRIC},
+        benchmark_id="draco",
+        selected_cases=_selected_cases(1, 2),
+    )
 
-    assert result["case_count"] == 1
-    assert len(result["failures"]) == 1
+    assert result["case_count"] == 2
+    assert result["failures"] == []
+    assert result["cases"][1]["grade"] is None
+    assert len(result["cases"][1]["failures"]) == 1
     assert result["score"] == 1.0
 
 
 def test_no_rows_at_all_is_an_execution_failure() -> None:
     """INVARIANT: a run with no evaluated Cases cannot report Candidate score zero."""
     with pytest.raises(agg.AggregateError, match="no DRACO rows"):
-        agg.aggregate("[]", rubrics={1: _RUBRIC}, benchmark_id="draco")
+        agg.aggregate(
+            "[]",
+            rubrics={1: _RUBRIC},
+            benchmark_id="draco",
+            selected_cases=_selected_cases(1),
+        )
 
 
 def test_all_failed_rows_raise_with_the_collected_execution_error() -> None:
@@ -399,13 +488,23 @@ def test_all_failed_rows_raise_with_the_collected_execution_error() -> None:
             "row 1: ResolutionError: aigateway returned neither answer content nor tool calls"
         ),
     ):
-        agg.aggregate(rows, rubrics={1: _RUBRIC}, benchmark_id="draco")
+        agg.aggregate(
+            rows,
+            rubrics={1: _RUBRIC},
+            benchmark_id="draco",
+            selected_cases=_selected_cases(1),
+        )
 
 
 def test_a_valid_evaluated_case_may_legitimately_score_zero() -> None:
     rows = json.dumps([_case_row(1, ("a1", ["UNMET"]))])
 
-    result = agg.aggregate(rows, rubrics={1: _RUBRIC}, benchmark_id="draco")
+    result = agg.aggregate(
+        rows,
+        rubrics={1: _RUBRIC},
+        benchmark_id="draco",
+        selected_cases=_selected_cases(1),
+    )
 
     assert result["case_count"] == 1
     assert result["score"] == 0.0
@@ -414,7 +513,7 @@ def test_a_valid_evaluated_case_may_legitimately_score_zero() -> None:
 
 def test_a_malformed_top_level_payload_raises() -> None:
     with pytest.raises(agg.AggregateError):
-        agg.aggregate("not json", rubrics={}, benchmark_id="draco")
+        agg.aggregate("not json", rubrics={}, benchmark_id="draco", selected_cases=[])
 
 
 # --- where the rubrics come from -------------------------------------------------
