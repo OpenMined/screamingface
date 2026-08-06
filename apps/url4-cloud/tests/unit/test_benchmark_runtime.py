@@ -13,6 +13,10 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import BENCHMARKS, install_benchmarks
 from url4_cloud.benchmarks.contract import encode_candidate_invocation
+from url4_cloud.benchmarks.draco.case_evaluation import (
+    bind_case_evaluation,
+    bind_criterion_evaluation,
+)
 from url4_cloud.benchmarks.draco.definition import (
     AGGREGATE_ROUTE,
     CASES_ROUTE,
@@ -208,39 +212,38 @@ async def test_aggregate_accepts_payload_larger_than_process_argv(tmp_path: Path
     _assets(tmp_path / "draco")
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
-    row = "\n".join(
-        map(
-            json.dumps,
-            (
-                {
-                    "schema": CASE_SCHEMA,
-                    "case_id": 1,
-                    "input": "Question",
-                    "output": "Answer",
-                    "finish_reason": "stop",
-                    "metadata": {},
-                },
-                {
-                    "schema": CHECK_SCHEMA,
-                    "case_id": 1,
-                    "criterion_id": "c1",
-                    "criterion_type": "positive",
-                    "requirement": "Correct",
-                },
-                {
-                    "schema": "screamingface.criterion-verdict.v1",
-                    "case_id": 1,
-                    "criterion_id": "c1",
-                    "sequence": 1,
-                    "producer_type": "model",
-                    "producer_id": "fixture-judge",
-                    "valid": True,
-                    "explanation": "x" * 2_100_000,
-                    "criterion_status": "MET",
-                    "raw_output": '{"criterion_status":"MET"}',
-                },
-            ),
-        )
+    case = {
+        "schema": CASE_SCHEMA,
+        "case_id": 1,
+        "input": "Question",
+        "output": "Answer",
+        "finish_reason": "stop",
+        "metadata": {},
+    }
+    check = {
+        "schema": CHECK_SCHEMA,
+        "case_id": 1,
+        "criterion_id": "c1",
+        "criterion_type": "positive",
+        "requirement": "Correct",
+    }
+    evidence = {
+        "schema": "screamingface.criterion-verdict.v1",
+        "case_id": 1,
+        "criterion_id": "c1",
+        "sequence": 1,
+        "producer_type": "model",
+        "producer_id": "fixture-judge",
+        "valid": True,
+        "explanation": "x" * 2_100_000,
+        "criterion_status": "MET",
+        "raw_output": '{"criterion_status":"MET"}',
+    }
+    criterion = bind_criterion_evaluation(1, case, check, [evidence])
+    row = json.dumps(
+        bind_case_evaluation(1, [criterion]),
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
     expression = render(
         RelExpr(

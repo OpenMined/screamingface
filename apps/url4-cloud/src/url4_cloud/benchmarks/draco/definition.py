@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from url4 import Node, RelExpr, Text, expr, iterate, render, src
+from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.definition import Benchmark, candidate
 from url4_cloud.benchmarks.draco.prompts import JUDGE_INSTRUCTIONS
@@ -94,16 +94,22 @@ ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
 CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 TASKS_ROUTE = f"{ROUTE_PREFIX}/tasks"
 VERDICT_ROUTE = f"{ROUTE_PREFIX}/criterion-verdict"
+CRITERION_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/criterion-evaluation"
+CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
 LITE_ROUTE_PREFIX = f"/benchmarks/{LITE_BENCHMARK_ID}/{LITE_REVISION}"
 LITE_CASES_ROUTE = f"{LITE_ROUTE_PREFIX}/cases"
 LITE_TASKS_ROUTE = f"{LITE_ROUTE_PREFIX}/tasks"
 LITE_VERDICT_ROUTE = f"{LITE_ROUTE_PREFIX}/criterion-verdict"
+LITE_CRITERION_EVALUATION_ROUTE = f"{LITE_ROUTE_PREFIX}/criterion-evaluation"
+LITE_CASE_EVALUATION_ROUTE = f"{LITE_ROUTE_PREFIX}/case-evaluation"
 LITE_AGGREGATE_ROUTE = f"{LITE_ROUTE_PREFIX}/aggregate"
 SMOKE_ROUTE_PREFIX = f"/benchmarks/{SMOKE_BENCHMARK_ID}/{SMOKE_REVISION}"
 SMOKE_CASES_ROUTE = f"{SMOKE_ROUTE_PREFIX}/cases"
 SMOKE_TASKS_ROUTE = f"{SMOKE_ROUTE_PREFIX}/tasks"
 SMOKE_VERDICT_ROUTE = f"{SMOKE_ROUTE_PREFIX}/criterion-verdict"
+SMOKE_CRITERION_EVALUATION_ROUTE = f"{SMOKE_ROUTE_PREFIX}/criterion-evaluation"
+SMOKE_CASE_EVALUATION_ROUTE = f"{SMOKE_ROUTE_PREFIX}/case-evaluation"
 SMOKE_AGGREGATE_ROUTE = f"{SMOKE_ROUTE_PREFIX}/aggregate"
 
 
@@ -113,6 +119,8 @@ def _build(case_count: int) -> Node:
         cases_route=CASES_ROUTE,
         tasks_route=TASKS_ROUTE,
         verdict_route=VERDICT_ROUTE,
+        criterion_evaluation_route=CRITERION_EVALUATION_ROUTE,
+        case_evaluation_route=CASE_EVALUATION_ROUTE,
         aggregate_route=AGGREGATE_ROUTE,
         judge_passes=JUDGE_PASSES,
         criterion_count=None,
@@ -125,6 +133,8 @@ def _build_lite(case_count: int) -> Node:
         cases_route=LITE_CASES_ROUTE,
         tasks_route=LITE_TASKS_ROUTE,
         verdict_route=LITE_VERDICT_ROUTE,
+        criterion_evaluation_route=LITE_CRITERION_EVALUATION_ROUTE,
+        case_evaluation_route=LITE_CASE_EVALUATION_ROUTE,
         aggregate_route=LITE_AGGREGATE_ROUTE,
         judge_passes=LITE_JUDGE_PASSES,
         criterion_count=LITE_CRITERION_COUNT,
@@ -137,6 +147,8 @@ def _build_smoke(case_count: int) -> Node:
         cases_route=SMOKE_CASES_ROUTE,
         tasks_route=SMOKE_TASKS_ROUTE,
         verdict_route=SMOKE_VERDICT_ROUTE,
+        criterion_evaluation_route=SMOKE_CRITERION_EVALUATION_ROUTE,
+        case_evaluation_route=SMOKE_CASE_EVALUATION_ROUTE,
         aggregate_route=SMOKE_AGGREGATE_ROUTE,
         judge_passes=SMOKE_JUDGE_PASSES,
         criterion_count=SMOKE_CRITERION_COUNT,
@@ -149,6 +161,8 @@ def _build_protocol(
     cases_route: str,
     tasks_route: str,
     verdict_route: str,
+    criterion_evaluation_route: str,
+    case_evaluation_route: str,
     aggregate_route: str,
     judge_passes: int,
     criterion_count: int | None,
@@ -171,9 +185,35 @@ def _build_protocol(
                 route=verdict_route,
             ),
             name=f"verdict_{run}",
-            weight=1.0,
+            weight=0.0,
         )
         for run in range(1, judge_passes + 1)
+    )
+    criterion_evaluation = expr(
+        src("$item.case_record", name="case_record", weight=0.0),
+        src("$item.check_record", name="check_record", weight=0.0),
+        *judge_calls,
+        src(
+            RelExpr(
+                path=criterion_evaluation_route,
+                context=render(
+                    struct(
+                        {
+                            "case": "$case_record",
+                            "check": "$check_record",
+                            **{
+                                f"evidence_{run}": f"$verdict_{run}"
+                                for run in range(1, judge_passes + 1)
+                            },
+                        }
+                    )
+                ),
+                intent=Text("$item.case_id"),
+            ),
+            name="criterion_evaluation",
+            weight=0.0,
+        ),
+        intent=Text("$criterion_evaluation"),
     )
     criteria = iterate(
         RelExpr(
@@ -189,22 +229,27 @@ def _build_protocol(
             ),
             intent=Text("$item.id"),
         ),
-        body=(
-            src("$item.case_record", name="case", weight=1.0),
-            src("$item.check_record", name="check", weight=1.0),
-            *judge_calls,
-        ),
-        intent=Text("criterion"),
+        body=(src(criterion_evaluation, name="evaluated", weight=0.0),),
+        intent=Text("$evaluated"),
         slice=None if criterion_count is None else (0, criterion_count),
     )
-    criterion_results = expr(
+    case_evaluation = expr(
         src(criteria, name="criteria", weight=0.0),
-        intent=Text("$criteria"),
+        src(
+            RelExpr(
+                path=case_evaluation_route,
+                context="$criteria",
+                intent=Text("$item.id"),
+            ),
+            name="case_evaluation",
+            weight=0.0,
+        ),
+        intent=Text("$case_evaluation"),
     )
     rows = iterate(
         cases_route,
-        body=(src(criterion_results, name="graded", weight=1.0),),
-        intent=Text("case"),
+        body=(src(case_evaluation, name="graded", weight=0.0),),
+        intent=Text("$graded"),
         slice=None if case_count == CASE_COUNT else (0, case_count),
         on_error="collect",
     )

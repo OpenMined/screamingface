@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from url4 import Node, RelExpr, Text, expr, iterate, render, src
+from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.definition import Benchmark, candidate
 
@@ -16,7 +16,7 @@ DATASET_REVISION = "966cd89545d6b6acfd7638bc708b98261ca58e84"
 # The pip-installable, bug-fixed fork that inspect_evals pins — vendored under ./vendor.
 VERIFIER_REPOSITORY = "josejg/instruction_following_eval"
 VERIFIER_REVISION = "0c495b2f95155e8b10acb919ae283bfb4d5be6e2"
-PROTOCOL_REVISION = "official-strict-loose-v1"
+PROTOCOL_REVISION = "ifeval-case-evaluation-v1"
 CANDIDATE_WEB_SEARCH = False
 
 # The verifier code is the grading contract, so changing it changes the Benchmark revision.
@@ -36,6 +36,7 @@ REVISION = hashlib.sha256(
 ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
 CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 CHECK_ROUTE = f"{ROUTE_PREFIX}/check"
+CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
 
 
@@ -53,12 +54,21 @@ def _build(case_count: int) -> Node:
     )
     checked = expr(
         src(checked_call, name="record", weight=0.0),
-        intent=Text("$record"),
+        src(
+            RelExpr(
+                path=CASE_EVALUATION_ROUTE,
+                context=render(struct({"attempt_1": "$record"})),
+                intent=Text("$item.id"),
+            ),
+            name="case_evaluation",
+            weight=0.0,
+        ),
+        intent=Text("$case_evaluation"),
     )
     rows = iterate(
         CASES_ROUTE,
-        body=(src(checked, name="checked", weight=1.0),),
-        intent=Text("case"),
+        body=(src(checked, name="checked", weight=0.0),),
+        intent=Text("$checked"),
         slice=None if case_count == CASE_COUNT else (0, case_count),
         on_error="collect",
     )

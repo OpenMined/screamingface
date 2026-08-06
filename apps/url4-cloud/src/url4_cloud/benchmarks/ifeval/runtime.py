@@ -16,9 +16,11 @@ from url4_cloud.benchmarks.contract import (
 )
 from url4_cloud.benchmarks.ifeval import aggregate as scoring
 from url4_cloud.benchmarks.ifeval import grading
+from url4_cloud.benchmarks.ifeval.case_evaluation import bind_case_evaluation
 from url4_cloud.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
+    CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
 )
@@ -45,6 +47,7 @@ def install(node: Url4Node, root: Path, model_routes: frozenset[str]) -> None:
 
     node.data(CASES_ROUTE, _cases(root), media_type="application/json")
     node.endpoint(CHECK_ROUTE)(_check(root))
+    node.endpoint(CASE_EVALUATION_ROUTE)(_case_evaluation)
     node.endpoint(AGGREGATE_ROUTE)(_aggregate(root))
     node.endpoint(SELF_AGGREGATE_ROUTE)(
         _aggregate_corrective(root, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
@@ -92,7 +95,7 @@ def _check(root: Path):
             ),
             "strict": result["strict"],
             "loose": result["loose"],
-            # Keep this record flat: Aggregation deliberately harvests flat records.
+            # Violations remain ordinary fields inside the exact Case Evaluation.
             "violations": violations,
         }
         return _json(record)
@@ -117,6 +120,32 @@ def _feedback(record_json: str) -> str:
         return "PASSED"
     described = " | ".join(str(item) for item in violations) or "unspecified requirement"
     return f"The answer failed these requirements: {described}"
+
+
+def _case_evaluation(request: Request) -> str:
+    """Pack exact attempt records into one authoritative per-Case envelope."""
+
+    try:
+        case_id = _positive_int(request.intent, "case id")
+        payload = _json_payload(request.context, "Case evaluation")
+        expected = tuple(f"attempt_{index}" for index in range(1, len(payload) + 1))
+        if not expected or tuple(payload) != expected:
+            raise ValueError(
+                "IFEval Case evaluation fields must be consecutive attempt_1..attempt_N"
+            )
+        attempts: list[dict[str, Any]] = []
+        for field in expected:
+            raw = payload[field]
+            if not isinstance(raw, str):
+                raise ValueError(f"IFEval Case evaluation {field} must be JSON text")
+            decoded = json.loads(raw)
+            if not isinstance(decoded, dict):
+                raise ValueError(f"IFEval Case evaluation {field} must decode to an object")
+            attempts.append(decoded)
+        result = bind_case_evaluation(case_id, attempts)
+    except (TypeError, ValueError) as exc:
+        raise _unavailable(str(exc)) from exc
+    return _json(result)
 
 
 def _verification(

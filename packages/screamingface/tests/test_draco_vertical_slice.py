@@ -151,10 +151,38 @@ def _case_payload(*, score: float = 1.0) -> dict[str, object]:
     }
 
 
+def _unscored_invalid_evidence_case_payload() -> dict[str, object]:
+    case = _case_payload()
+    grade = cast(dict[str, Any], case["grade"])
+    grade["score"] = None
+    check = cast(list[dict[str, Any]], grade["checks"])[0]
+    check["evidence"] = [
+        {
+            "sequence": 1,
+            "producer": {"type": "model", "id": "provider/judge"},
+            "valid": False,
+            "raw_output": "not json",
+            "metadata": {"rejection_reason": "invalid_json"},
+        }
+    ]
+    case["failures"] = [
+        {
+            "stage": "grading",
+            "code": "no_valid_judge_verdict",
+            "message": "no valid Judge verdict was produced for this Case",
+            "retryable": None,
+            "case_id": 1,
+            "metadata": {"row_index": 0},
+        }
+    ]
+    return case
+
+
 class _FakeTransport:
-    def __init__(self) -> None:
+    def __init__(self, result_payload: dict[str, object] | None = None) -> None:
         self.closed = False
         self.calls: list[str] = []
+        self._result_payload = deepcopy(result_payload)
 
     def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         assert on_event is None
@@ -164,7 +192,8 @@ class _FakeTransport:
             started_at=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
             completed_at=datetime(2026, 7, 28, 10, 0, 2, tzinfo=UTC),
             result_body=json.dumps(
-                {
+                self._result_payload
+                or {
                     "schema": "screamingface.candidate-result.v1",
                     "benchmark_id": "draco",
                     "benchmark_revision": "fixture-revision",
@@ -280,8 +309,10 @@ def _engine(request: httpx.Request) -> httpx.Response:
     return response
 
 
-def _client() -> tuple[sf.Client, _FakeTransport]:
-    transport = _FakeTransport()
+def _client(
+    result_payload: dict[str, object] | None = None,
+) -> tuple[sf.Client, _FakeTransport]:
+    transport = _FakeTransport(result_payload)
     client = sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
@@ -339,6 +370,47 @@ def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     assert result.usage.input_tokens == 120
     assert result.duration_ms == 2000
     assert transport.closed is True
+
+
+def test_client_retains_an_unscored_case_with_its_invalid_judge_evidence() -> None:
+    payload: dict[str, object] = {
+        "schema": "screamingface.candidate-result.v1",
+        "benchmark_id": "draco",
+        "benchmark_revision": "fixture-revision",
+        "case_count": 1,
+        "score": None,
+        "metrics": {},
+        "cases": [_unscored_invalid_evidence_case_payload()],
+        "failures": [],
+    }
+    client, _ = _client(payload)
+
+    with client:
+        report = client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+        )
+
+    result = report.candidates.only
+    case = result.cases[0]
+    assert result.score is None
+    assert result.metrics == {}
+    assert case.grade is not None
+    assert case.grade.score is None
+    assert case.grade.checks[0].evidence[0].valid is False
+    assert case.grade.checks[0].evidence[0].raw_output == "not json"
+    assert case.grade.checks[0].evidence[0].metadata == {"rejection_reason": "invalid_json"}
+    assert case.failures[0].code == "no_valid_judge_verdict"
+    artifact = json.loads(report.to_json())
+    artifact_case = artifact["candidates"][0]["cases"][0]
+    assert artifact["candidates"][0]["score"] is None
+    assert artifact_case["grade"]["score"] is None
+    assert artifact_case["grade"]["checks"][0]["evidence"][0]["raw_output"] == "not json"
+    assert artifact_case["grade"]["checks"][0]["evidence"][0]["metadata"] == {
+        "rejection_reason": "invalid_json"
+    }
+    assert artifact_case["failures"][0]["code"] == "no_valid_judge_verdict"
 
 
 @pytest.mark.asyncio
@@ -657,6 +729,106 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
         )
         with pytest.raises(sf.ExecutionError):
             _candidate_result(evaluation, candidate, outcome)
+
+
+def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
+    resource = _decode_benchmark_resource(
+        BENCHMARK,
+        requested_id="draco",
+        requested_limit=1,
+    )
+    evaluation = compile_evaluation(
+        (sf.Model("anthropic/claude-haiku-4-5"),),
+        resource,
+        1,
+    )
+    candidate = evaluation.candidates.only
+    failure = {
+        "stage": "candidate",
+        "code": "provider_refusal",
+        "message": "provider refused the request",
+        "retryable": False,
+        "case_id": 1,
+        "metadata": {"row_index": 0},
+    }
+    outcome = _RunOutcome(
+        run_id="run_unscored",
+        started_at=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 28, 10, 0, 1, tzinfo=UTC),
+        result_body=json.dumps(
+            {
+                "schema": "screamingface.candidate-result.v1",
+                "benchmark_id": "draco",
+                "benchmark_revision": "fixture-revision",
+                "case_count": 1,
+                "score": None,
+                "metrics": {},
+                "cases": [
+                    {
+                        "case_id": 1,
+                        "input": "Fixture question",
+                        "output": None,
+                        "finish_reason": None,
+                        "grade": None,
+                        "failures": [failure],
+                        "metadata": {},
+                    }
+                ],
+                "failures": [],
+            }
+        ),
+        media_type="application/json",
+        root_usage=None,
+    )
+
+    result = _candidate_result(evaluation, candidate, outcome)
+
+    assert result.score is None
+    assert result.metrics == {}
+    assert result.cases[0].grade is None
+    assert result.cases[0].failures[0].code == "provider_refusal"
+
+
+def test_candidate_result_decoder_retains_invalid_evidence_under_an_unscored_grade() -> None:
+    resource = _decode_benchmark_resource(
+        BENCHMARK,
+        requested_id="draco",
+        requested_limit=1,
+    )
+    evaluation = compile_evaluation(
+        (sf.Model("anthropic/claude-haiku-4-5"),),
+        resource,
+        1,
+    )
+    candidate = evaluation.candidates.only
+    case = _unscored_invalid_evidence_case_payload()
+    outcome = _RunOutcome(
+        run_id="run_invalid_evidence",
+        started_at=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 28, 10, 0, 1, tzinfo=UTC),
+        result_body=json.dumps(
+            {
+                "schema": "screamingface.candidate-result.v1",
+                "benchmark_id": "draco",
+                "benchmark_revision": "fixture-revision",
+                "case_count": 1,
+                "score": None,
+                "metrics": {},
+                "cases": [case],
+                "failures": [],
+            }
+        ),
+        media_type="application/json",
+        root_usage=None,
+    )
+
+    result = _candidate_result(evaluation, candidate, outcome)
+
+    assert result.score is None
+    assert result.cases[0].grade is not None
+    assert result.cases[0].grade.score is None
+    assert result.cases[0].grade.checks[0].evidence[0].valid is False
+    assert result.cases[0].failures[0].code == "no_valid_judge_verdict"
 
 
 def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None:

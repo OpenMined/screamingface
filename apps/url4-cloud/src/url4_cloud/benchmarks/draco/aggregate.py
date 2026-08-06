@@ -48,38 +48,16 @@ from pathlib import Path
 from typing import Any
 
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
+from url4_cloud.benchmarks.draco.case_evaluation import decode_case_evaluation
 from url4_cloud.benchmarks.draco.definition import JUDGE_PASSES, REVISION
-from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from url4_cloud.benchmarks.draco.scoring import flatten_criteria, score_case
 from url4_cloud.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
-from url4_cloud.benchmarks.result_records import harvest_records
 
 COVERAGE_TARGET = 0.95
 
 
 class AggregateError(ValueError):
     """The reducer's input is unusable — raised before any scoring."""
-
-
-# --- harvesting verdicts out of the nested payload -------------------------------
-
-
-def harvest_verdicts(row: Any) -> list[dict[str, Any]]:
-    """Every Engine-bound Evidence record in one Case's output, in order."""
-
-    return harvest_records(row, VERDICT_SCHEMA)
-
-
-def harvest_case_records(row: Any) -> list[dict[str, Any]]:
-    """Engine-bound Case records in one Case output; exactly one is valid downstream."""
-
-    return harvest_records(row, CASE_SCHEMA)
-
-
-def harvest_check_records(row: Any) -> list[dict[str, Any]]:
-    """Engine-bound Check records in one Case output, in Benchmark order."""
-
-    return harvest_records(row, CHECK_SCHEMA)
 
 
 def group_runs(verdicts: Sequence[Mapping[str, Any]]) -> list[dict[str, bool]]:
@@ -173,27 +151,49 @@ def aggregate(
         raise AggregateError("no DRACO rows were collected; the Candidate cannot be scored")
     expected_cases = _validate_selected_cases(selected_cases, len(rows))
 
-    # Harvested ONCE, before scoring: the mapping guard below needs to know which rows carry an
-    # echoed id, and re-scanning a multi-hundred-KB payload to find out would double the only
-    # expensive step in this module.
-    harvested_rows = [harvest_verdicts(raw) for raw in rows]
-    case_rows = [harvest_case_records(raw) for raw in rows]
-    check_rows = [harvest_check_records(raw) for raw in rows]
-    _require_verifiable_mapping(case_rows, check_rows, harvested_rows, expected_cases)
+    evaluations = [
+        decode_case_evaluation(raw, int(expected_case["id"]))
+        for raw, expected_case in zip(rows, expected_cases, strict=True)
+    ]
+    case_rows = [
+        [evaluation["case"]] if evaluation is not None else [] for evaluation in evaluations
+    ]
+    check_rows = [
+        evaluation["checks"] if evaluation is not None else [] for evaluation in evaluations
+    ]
+    evidence_rows = [
+        evaluation["evidence"] if evaluation is not None else [] for evaluation in evaluations
+    ]
+    _require_verifiable_mapping(case_rows, check_rows, evidence_rows, expected_cases)
 
-    case_results, failures = _aggregate_rows(
+    case_results, _failures = _aggregate_rows(
         rows,
         case_rows,
         check_rows,
-        harvested_rows,
+        evidence_rows,
         expected_cases,
         rubrics,
         judge_passes,
         criterion_count,
     )
-    scored = [case for case in case_results if isinstance(case.get("grade"), Mapping)]
-    if not scored:
-        raise AggregateError(_no_scored_cases_message(rows, failures))
+    scored = [
+        case
+        for case in case_results
+        if isinstance((grade := case.get("grade")), Mapping)
+        and isinstance(grade.get("score"), int | float)
+        and not isinstance(grade.get("score"), bool)
+    ]
+    if len(scored) != len(case_results):
+        return {
+            "schema": CANDIDATE_RESULT_SCHEMA,
+            "benchmark_id": benchmark_id,
+            "benchmark_revision": benchmark_revision,
+            "case_count": len(case_results),
+            "score": None,
+            "metrics": {},
+            "cases": case_results,
+            "failures": [],
+        }
 
     return {
         "schema": CANDIDATE_RESULT_SCHEMA,
@@ -224,7 +224,7 @@ def _aggregate_rows(
     raw_rows: Sequence[Any],
     case_rows: Sequence[Sequence[Mapping[str, Any]]],
     check_rows: Sequence[Sequence[Mapping[str, Any]]],
-    harvested_rows: Sequence[Sequence[Mapping[str, Any]]],
+    evidence_rows: Sequence[Sequence[Mapping[str, Any]]],
     expected_cases: Sequence[Mapping[str, Any]],
     rubrics: Mapping[int, Mapping[str, Any]],
     judge_passes: int,
@@ -232,7 +232,7 @@ def _aggregate_rows(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     case_results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
-    for index, records in enumerate(harvested_rows):
+    for index, records in enumerate(evidence_rows):
         expected_case = expected_cases[index]
         case_records = case_rows[index]
         checks = check_rows[index]
@@ -252,12 +252,25 @@ def _aggregate_rows(
         verdicts = valid_verdicts(rubric, records, case_id)
         if not verdicts:
             failure = {
-                "index": index,
+                "stage": "grading",
+                "code": "no_valid_judge_verdict",
+                "message": "no valid Judge verdict was produced for this Case",
+                "retryable": None,
                 "case_id": case_id,
-                "reason": "no valid judge verdicts in row",
+                "metadata": {"row_index": index},
             }
             failures.append(failure)
-            case_results.append(_failed_case_result(case_record, failure))
+            case_results.append(
+                _incomplete_case_result(
+                    case_record,
+                    rubric,
+                    checks,
+                    records,
+                    judge_passes,
+                    criterion_count,
+                    failure,
+                )
+            )
             continue
         case_results.append(
             _case_result(
@@ -280,8 +293,8 @@ def _row_failure(
 ) -> dict[str, Any]:
     failure: dict[str, Any] = {
         "stage": "grading",
-        "code": "no_valid_judge_verdict",
-        "message": "no valid Judge verdict was produced for this Case",
+        "code": "invalid_case_evaluation",
+        "message": "the Case produced no valid DRACO Case Evaluation",
         "retryable": None,
         "case_id": int(expected_case["id"]),
         "metadata": {"row_index": index},
@@ -318,32 +331,6 @@ def _retryable(error: Mapping[str, Any]) -> bool | None:
     if isinstance(permanent := error.get("permanent"), bool):
         return not permanent
     return None
-
-
-def _no_scored_cases_message(rows: Sequence[Any], failures: Sequence[Mapping[str, Any]]) -> str:
-    """Keep a bounded trace of collected execution errors when every Case failed."""
-    base = "no row carried a valid DRACO judge verdict; the Candidate cannot be scored"
-    details: list[str] = []
-    for index, row in enumerate(rows):
-        error = row.get("error") if isinstance(row, Mapping) else None
-        if not isinstance(error, Mapping):
-            continue
-        message = error.get("message")
-        if not isinstance(message, str) or not message.strip():
-            continue
-        clean = " ".join(message.split())[:200]
-        kind = error.get("kind")
-        clean_kind = " ".join(kind.split())[:80] if isinstance(kind, str) else ""
-        detail = f"{clean_kind}: {clean}" if clean_kind else clean
-        details.append(f"row {index + 1}: {detail}")
-        if len(details) == 3:
-            break
-    if not details:
-        details = [
-            f"row {int(failure['metadata']['row_index']) + 1}: {failure['message']}"
-            for failure in failures[:3]
-        ]
-    return f"{base}; collected row error: {'; '.join(details)}" if details else base
 
 
 def _case_result(
@@ -399,15 +386,50 @@ def _case_result(
     }
 
 
-def _failed_case_result(
-    case_record: Mapping[str, Any], failure: Mapping[str, Any]
+def _incomplete_case_result(
+    case_record: Mapping[str, Any],
+    rubric: Mapping[str, Any],
+    check_records: Sequence[Mapping[str, Any]],
+    evidence: Sequence[Mapping[str, Any]],
+    judge_passes: int,
+    criterion_count: int | None,
+    failure: Mapping[str, Any],
 ) -> dict[str, Any]:
+    """Retain auditable grading material when no Judge Evidence was scoreable."""
+
+    case_id = int(case_record["case_id"])
+    rubric_count = sum(1 for _ in flatten_criteria(rubric))
+    if criterion_count is not None and criterion_count > rubric_count:
+        raise AggregateError(
+            f"criterion_count {criterion_count} exceeds Case {case_id} rubric size {rubric_count}"
+        )
+    criteria_expected = criterion_count if criterion_count is not None else rubric_count
+    verdicts_expected = criteria_expected * judge_passes
     return {
-        "case_id": int(case_record["case_id"]),
+        "case_id": case_id,
         "input": case_record["input"],
         "output": case_record["output"],
         "finish_reason": case_record["finish_reason"],
-        "grade": None,
+        "grade": {
+            "method": "rubric",
+            "score": None,
+            "metrics": {
+                "coverage": 0.0,
+                "n_runs": 0,
+                "verdicts_expected": verdicts_expected,
+                "verdicts_accepted": 0,
+                "verdicts_rejected": verdicts_expected,
+                "verdicts_invalid": len(evidence),
+                "verdicts_missing": max(verdicts_expected - len(evidence), 0),
+            },
+            "checks": _checks(
+                case_id,
+                rubric,
+                check_records,
+                evidence,
+                criteria_expected,
+            ),
+        },
         "failures": [dict(failure)],
         "metadata": case_record.get("metadata", {}),
     }
@@ -489,14 +511,14 @@ def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
 def _require_verifiable_mapping(
     cases: Sequence[Sequence[Mapping[str, Any]]],
     checks: Sequence[Sequence[Mapping[str, Any]]],
-    harvested: Sequence[Sequence[Mapping[str, Any]]],
+    evidence_rows: Sequence[Sequence[Mapping[str, Any]]],
     expected_cases: Sequence[Mapping[str, Any]],
 ) -> None:
     """Require one unique Engine-bound Case identity for every scoreable row."""
 
     claimed: dict[int, int] = {}
     for index, (case_records, check_records, verdicts) in enumerate(
-        zip(cases, checks, harvested, strict=True)
+        zip(cases, checks, evidence_rows, strict=True)
     ):
         if not case_records and not verdicts:
             continue

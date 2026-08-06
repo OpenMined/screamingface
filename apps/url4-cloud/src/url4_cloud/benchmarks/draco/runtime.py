@@ -10,17 +10,25 @@ from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.contract import decode_candidate_invocation
 from url4_cloud.benchmarks.draco import aggregate as scoring
 from url4_cloud.benchmarks.draco import records, tasks
+from url4_cloud.benchmarks.draco.case_evaluation import (
+    bind_case_evaluation,
+    bind_criterion_evaluation,
+)
 from url4_cloud.benchmarks.draco.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
+    CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
+    CRITERION_EVALUATION_ROUTE,
     JUDGE_MODEL,
     JUDGE_PASSES,
     LITE_AGGREGATE_ROUTE,
     LITE_BENCHMARK_ID,
+    LITE_CASE_EVALUATION_ROUTE,
     LITE_CASE_IDS,
     LITE_CASES_ROUTE,
     LITE_CRITERION_COUNT,
+    LITE_CRITERION_EVALUATION_ROUTE,
     LITE_JUDGE_PASSES,
     LITE_REVISION,
     LITE_TASKS_ROUTE,
@@ -28,8 +36,10 @@ from url4_cloud.benchmarks.draco.definition import (
     REVISION,
     SMOKE_AGGREGATE_ROUTE,
     SMOKE_BENCHMARK_ID,
+    SMOKE_CASE_EVALUATION_ROUTE,
     SMOKE_CASES_ROUTE,
     SMOKE_CRITERION_COUNT,
+    SMOKE_CRITERION_EVALUATION_ROUTE,
     SMOKE_JUDGE_PASSES,
     SMOKE_REVISION,
     SMOKE_TASKS_ROUTE,
@@ -53,6 +63,8 @@ def install(node: Url4Node, root: Path) -> None:
         cases_route=CASES_ROUTE,
         tasks_route=TASKS_ROUTE,
         verdict_route=VERDICT_ROUTE,
+        criterion_evaluation_route=CRITERION_EVALUATION_ROUTE,
+        case_evaluation_route=CASE_EVALUATION_ROUTE,
         aggregate_route=AGGREGATE_ROUTE,
         benchmark_id=BENCHMARK_ID,
         benchmark_revision=REVISION,
@@ -66,6 +78,8 @@ def install(node: Url4Node, root: Path) -> None:
         cases_route=LITE_CASES_ROUTE,
         tasks_route=LITE_TASKS_ROUTE,
         verdict_route=LITE_VERDICT_ROUTE,
+        criterion_evaluation_route=LITE_CRITERION_EVALUATION_ROUTE,
+        case_evaluation_route=LITE_CASE_EVALUATION_ROUTE,
         aggregate_route=LITE_AGGREGATE_ROUTE,
         benchmark_id=LITE_BENCHMARK_ID,
         benchmark_revision=LITE_REVISION,
@@ -79,6 +93,8 @@ def install(node: Url4Node, root: Path) -> None:
         cases_route=SMOKE_CASES_ROUTE,
         tasks_route=SMOKE_TASKS_ROUTE,
         verdict_route=SMOKE_VERDICT_ROUTE,
+        criterion_evaluation_route=SMOKE_CRITERION_EVALUATION_ROUTE,
+        case_evaluation_route=SMOKE_CASE_EVALUATION_ROUTE,
         aggregate_route=SMOKE_AGGREGATE_ROUTE,
         benchmark_id=SMOKE_BENCHMARK_ID,
         benchmark_revision=SMOKE_REVISION,
@@ -95,6 +111,8 @@ def _install_protocol(
     cases_route: str,
     tasks_route: str,
     verdict_route: str,
+    criterion_evaluation_route: str,
+    case_evaluation_route: str,
     aggregate_route: str,
     benchmark_id: str,
     benchmark_revision: str,
@@ -107,6 +125,8 @@ def _install_protocol(
     node.data(cases_route, _cases(root, case_ids), media_type="application/json")
     node.endpoint(tasks_route)(_task_rows(root))
     node.endpoint(verdict_route)(_criterion_verdict)
+    node.endpoint(criterion_evaluation_route)(_criterion_evaluation(judge_passes))
+    node.endpoint(case_evaluation_route)(_case_evaluation)
     node.endpoint(aggregate_route)(
         _aggregate(
             root,
@@ -181,6 +201,72 @@ def _criterion_verdict(request: Request) -> str:
     except ValueError as exc:
         raise _unavailable(str(exc)) from exc
     return json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+
+
+def _criterion_evaluation(judge_passes: int):
+    def criterion_evaluation(request: Request) -> str:
+        try:
+            case_id = tasks.positive_case_id(request.intent)
+            payload = _object(request.context, "DRACO Criterion evaluation")
+            expected = (
+                "case",
+                "check",
+                *(f"evidence_{sequence}" for sequence in range(1, judge_passes + 1)),
+            )
+            if tuple(payload) != expected:
+                raise ValueError(
+                    "DRACO Criterion evaluation fields must be case, check, and consecutive "
+                    "evidence_1..evidence_N"
+                )
+            raw_case = _embedded_object(payload["case"], "Case record")
+            case_record = raw_case or None
+            check_record = _embedded_object(payload["check"], "Check record")
+            evidence = [
+                _embedded_object(payload[field], field)
+                for field in expected
+                if field.startswith("evidence_")
+            ]
+            result = bind_criterion_evaluation(
+                case_id,
+                case_record,
+                check_record,
+                evidence,
+            )
+        except (TypeError, ValueError) as exc:
+            raise _unavailable(str(exc)) from exc
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+
+    return criterion_evaluation
+
+
+def _case_evaluation(request: Request) -> str:
+    try:
+        case_id = tasks.positive_case_id(request.intent)
+        raw = json.loads(request.context)
+        if not isinstance(raw, list) or not raw:
+            raise ValueError("DRACO Case evaluation must be a non-empty JSON array")
+        criteria = [
+            _embedded_object(item, f"Criterion evaluation {index}")
+            for index, item in enumerate(raw, start=1)
+        ]
+        result = bind_case_evaluation(case_id, criteria)
+    except (TypeError, ValueError) as exc:
+        raise _unavailable(str(exc)) from exc
+    return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+
+
+def _object(value: str, label: str) -> dict[str, object]:
+    decoded = json.loads(value)
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return decoded
+
+
+def _embedded_object(value: object, label: str) -> dict[str, object]:
+    decoded = json.loads(value) if isinstance(value, str) else value
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{label} must decode to an object")
+    return decoded
 
 
 def _aggregate(

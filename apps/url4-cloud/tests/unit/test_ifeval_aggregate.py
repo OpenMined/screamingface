@@ -13,6 +13,10 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
     aggregate,
     load_specs,
 )
+from url4_cloud.benchmarks.ifeval.case_evaluation import (
+    CASE_EVALUATION_SCHEMA,
+    bind_case_evaluation,
+)
 from url4_cloud.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
 
 _SPECS = {
@@ -57,12 +61,16 @@ def _rows(*rows: object) -> str:
     return json.dumps(list(rows))
 
 
+def _evaluation(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, object]:
+    return bind_case_evaluation(case_id, [_record(case_id, strict, loose)])
+
+
 def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
     # case 1: one of two instructions followed → prompt-level fail, inst-level 1/2.
     # case 2: followed → prompt-level pass, inst-level 1/1.
     payload = _rows(
-        json.dumps(_record(1, [True, False], [True, True])),
-        json.dumps(_record(2, [True], [True])),
+        _evaluation(1, [True, False], [True, True]),
+        _evaluation(2, [True], [True]),
     )
 
     result = aggregate(payload, _SPECS, "ifeval")
@@ -83,23 +91,25 @@ def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
     assert result["failures"] == []
 
 
-def test_records_survive_prose_wrapping_and_json_escaping() -> None:
-    # WHY: each url4 nesting level prose-wraps and JSON-escapes the level below — the
-    # reducer reads only schema-marked spans, never the scaffolding.
-    wrapped = "case output → " + json.dumps(_record(1, [True, True], [True, True]))
-    escaped = json.dumps({"row": json.dumps(_record(2, [True], [True]))})
-
-    result = aggregate(_rows(wrapped, escaped), _SPECS, "ifeval")
+def test_exact_case_evaluations_survive_the_collect_boundary() -> None:
+    result = aggregate(
+        _rows(
+            _evaluation(1, [True, True], [True, True]),
+            _evaluation(2, [True], [True]),
+        ),
+        _SPECS,
+        "ifeval",
+    )
 
     assert result["score"] == 1.0
     assert result["case_count"] == 2
 
 
-def test_a_partial_recordless_case_is_loud_and_retains_the_inner_error() -> None:
+def test_a_partial_failed_case_is_retained_without_a_partial_score() -> None:
     # INVARIANT: an operationally failed Case is not a legitimate incorrect answer and
     # must never be folded into a plausible Benchmark score.
     payload = _rows(
-        json.dumps(_record(1, [True, True], [True, True])),
+        _evaluation(1, [True, True], [True, True]),
         {
             "error": {
                 "kind": "ResolutionError",
@@ -108,37 +118,38 @@ def test_a_partial_recordless_case_is_loud_and_retains_the_inner_error() -> None
         },
     )
 
-    with pytest.raises(AggregateError) as caught:
-        aggregate(payload, _SPECS, "ifeval")
+    result = aggregate(payload, _SPECS, "ifeval")
 
-    message = str(caught.value)
-    assert "case 2" in message
-    assert "ResolutionError" in message
-    assert "neither answer content nor tool calls" in message
-
-
-def test_a_recordless_case_without_error_detail_still_names_its_position() -> None:
-    payload = _rows(
-        "broken row",
-        json.dumps(_record(2, [True], [True])),
+    assert result["score"] is None
+    assert result["cases"][0]["grade"]["score"] == 1.0
+    assert result["cases"][1]["grade"] is None
+    assert result["cases"][1]["failures"][0]["message"] == (
+        "aigateway returned neither answer content nor tool calls"
     )
 
-    with pytest.raises(AggregateError) as caught:
-        aggregate(payload, _SPECS, "ifeval")
 
-    assert "case 1" in str(caught.value)
+def test_an_invalid_case_evaluation_is_retained_as_a_grading_failure() -> None:
+    payload = _rows(
+        "broken row",
+        _evaluation(2, [True], [True]),
+    )
+
+    result = aggregate(payload, _SPECS, "ifeval")
+
+    assert result["score"] is None
+    assert result["cases"][0]["failures"][0]["code"] == "invalid_case_evaluation"
 
 
-def test_every_row_recordless_raises_instead_of_reporting_zero() -> None:
+def test_every_failed_case_returns_null_instead_of_reporting_zero() -> None:
     # Scoring this would hand the client a plausible 0.0 from a misconfigured assets
     # path — draco's load_rubrics lesson.
-    with pytest.raises(AggregateError) as caught:
-        aggregate(_rows("broken", "also broken"), _SPECS, "ifeval")
+    result = aggregate(_rows("broken", "also broken"), _SPECS, "ifeval")
 
-    assert "cases 1, 2" in str(caught.value)
+    assert result["score"] is None
+    assert [case["grade"] for case in result["cases"]] == [None, None]
 
 
-def test_all_crash_error_reports_the_collected_inner_failure() -> None:
+def test_all_crash_result_retains_the_collected_inner_failure() -> None:
     failed = {
         "error": {
             "kind": "ResolutionError",
@@ -146,12 +157,14 @@ def test_all_crash_error_reports_the_collected_inner_failure() -> None:
         }
     }
 
-    with pytest.raises(AggregateError, match="malformed aigateway response"):
-        aggregate(_rows(failed), {1: _SPECS[1]}, "ifeval")
+    result = aggregate(_rows(failed), {1: _SPECS[1]}, "ifeval")
+
+    assert result["score"] is None
+    assert result["cases"][0]["failures"][0]["message"] == "malformed aigateway response"
 
 
 def test_metrics_are_flat_numbers_only() -> None:
-    payload = _rows(json.dumps(_record(2, [True], [True])))
+    payload = _rows(_evaluation(2, [True], [True]))
 
     result = aggregate(payload, {2: _SPECS[2]}, "ifeval")
 
@@ -160,14 +173,19 @@ def test_metrics_are_flat_numbers_only() -> None:
 
 def test_a_record_for_an_unknown_case_id_is_ignored() -> None:
     stray = dict(_record(2, [True], [True]), case_id=99)
-    payload = _rows(json.dumps(_record(1, [True, True], [True, True])), json.dumps(stray))
+    stray_evaluation = {
+        "schema": CASE_EVALUATION_SCHEMA,
+        "case_id": 2,
+        "attempts": [stray],
+    }
+    payload = _rows(_evaluation(1, [True, True], [True, True]), stray_evaluation)
 
-    with pytest.raises(AggregateError) as caught:
-        aggregate(payload, _SPECS, "ifeval")
+    result = aggregate(payload, _SPECS, "ifeval")
 
     # The stray record cannot smuggle a score into a Case its check never ran for, and
     # the missing authentic grade cannot be recast as an incorrect answer.
-    assert "case 2" in str(caught.value)
+    assert result["score"] is None
+    assert result["cases"][1]["grade"] is None
 
 
 def test_non_array_payload_raises() -> None:

@@ -18,6 +18,10 @@ from fastapi.testclient import TestClient
 from url4 import RelExpr, Text, render
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import ASSETS_ENV, BENCHMARKS, install_benchmarks
+from url4_cloud.benchmarks.draco.case_evaluation import (
+    bind_case_evaluation,
+    bind_criterion_evaluation,
+)
 from url4_cloud.benchmarks.draco.definition import (
     DRACO,
     DRACO_SMOKE,
@@ -121,39 +125,36 @@ async def test_smoke_runtime_reports_its_own_identity_and_one_judge_pass(tmp_pat
         encoding="utf-8",
     )
     raw_output = json.dumps({"explanation": "evidence", "criterion_status": "MET"})
-    row = "\n".join(
-        map(
-            json.dumps,
-            (
-                {
-                    "schema": CASE_SCHEMA,
-                    "case_id": 1,
-                    "input": "Question",
-                    "output": "Answer",
-                    "finish_reason": "stop",
-                    "metadata": {},
-                },
-                {
-                    "schema": CHECK_SCHEMA,
-                    "case_id": 1,
-                    "criterion_id": "c1",
-                    "criterion_type": "positive",
-                    "requirement": "Correct",
-                },
-                {
-                    "schema": "screamingface.criterion-verdict.v1",
-                    "case_id": 1,
-                    "criterion_id": "c1",
-                    "sequence": 1,
-                    "producer_type": "model",
-                    "producer_id": "fixture-judge",
-                    "valid": True,
-                    "explanation": "evidence",
-                    "criterion_status": "MET",
-                    "raw_output": raw_output,
-                },
-            ),
-        )
+    case_record = {
+        "schema": CASE_SCHEMA,
+        "case_id": 1,
+        "input": "Question",
+        "output": "Answer",
+        "finish_reason": "stop",
+        "metadata": {},
+    }
+    check_record = {
+        "schema": CHECK_SCHEMA,
+        "case_id": 1,
+        "criterion_id": "c1",
+        "criterion_type": "positive",
+        "requirement": "Correct",
+    }
+    verdict = {
+        "schema": "screamingface.criterion-verdict.v1",
+        "case_id": 1,
+        "criterion_id": "c1",
+        "sequence": 1,
+        "producer_type": "model",
+        "producer_id": "fixture-judge",
+        "valid": True,
+        "explanation": "evidence",
+        "criterion_status": "MET",
+        "raw_output": raw_output,
+    }
+    row = bind_case_evaluation(
+        1,
+        [bind_criterion_evaluation(1, case_record, check_record, [verdict])],
     )
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)

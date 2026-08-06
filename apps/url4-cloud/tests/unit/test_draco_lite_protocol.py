@@ -17,6 +17,10 @@ from fastapi.testclient import TestClient
 from url4 import RelExpr, Text, expr, render, src
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import ASSETS_ENV, BENCHMARKS, install_benchmarks
+from url4_cloud.benchmarks.draco.case_evaluation import (
+    bind_case_evaluation,
+    bind_criterion_evaluation,
+)
 from url4_cloud.benchmarks.draco.definition import (
     DRACO,
     DRACO_LITE,
@@ -149,7 +153,16 @@ async def test_lite_runtime_reports_its_own_identity_and_one_judge_pass(tmp_path
                     },
                 )
             )
-        rows.append("\n".join(map(json.dumps, records)))
+        criteria = [
+            bind_criterion_evaluation(
+                case_id,
+                records[0] if index == 0 else None,
+                records[1 + index * 2],
+                [records[2 + index * 2]],
+            )
+            for index in range(LITE_CRITERION_COUNT)
+        ]
+        rows.append(bind_case_evaluation(case_id, criteria))
     node = Url4Node("test")
     install_benchmarks(node, tmp_path)
 

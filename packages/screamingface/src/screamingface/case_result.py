@@ -157,7 +157,7 @@ class CaseGrade:
     """One Benchmark-owned grade for a Case."""
 
     method: str
-    score: float
+    score: float | None
     checks: tuple[Check, ...]
     _metrics: Mapping[str, object] = field(repr=False)
 
@@ -165,7 +165,7 @@ class CaseGrade:
         self,
         *,
         method: str,
-        score: float,
+        score: float | None,
         metrics: Mapping[str, object],
         checks: Sequence[Check],
     ) -> None:
@@ -177,7 +177,7 @@ class CaseGrade:
             raise ValueError("Case Grade Check ids must be unique")
         values = {
             "method": _nonblank(method, "Case Grade method"),
-            "score": _required_number(score, "Case Grade score"),
+            "score": _optional_number(score, "Case Grade score"),
             "checks": selected_checks,
             "_metrics": freeze_mapping(metrics, "Case Grade metrics"),
         }
@@ -229,10 +229,7 @@ class CaseResult:
         selected_failures = tuple(failures)
         if any(not isinstance(item, Failure) for item in selected_failures):
             raise TypeError("Case Result failures must contain sf.Failure values")
-        if grade is None and not selected_failures:
-            raise ValueError("an ungraded Case Result must contain a Failure")
-        if grade is not None and selected_failures:
-            raise ValueError("a graded Case Result cannot contain failures")
+        _validate_case_state(grade, selected_failures)
         values = {
             "case_id": case_id,
             "input": freeze_json(input, "Case Result input"),
@@ -272,6 +269,15 @@ def _required_number(value: object, label: str) -> float:
     if selected in {float("inf"), float("-inf")} or selected != selected:
         raise ValueError(f"{label} must be a finite number")
     return selected
+
+
+def _validate_case_state(grade: CaseGrade | None, failures: Sequence[Failure]) -> None:
+    if grade is None and not failures:
+        raise ValueError("an ungraded Case Result must contain a Failure")
+    if grade is not None and grade.score is None and not failures:
+        raise ValueError("an unscored Case Grade must contain a Case Result Failure")
+    if grade is not None and grade.score is not None and failures:
+        raise ValueError("a graded Case Result cannot contain failures")
 
 
 __all__ = ["CaseGrade", "CaseResult", "Check", "Evidence", "EvidenceProducer"]

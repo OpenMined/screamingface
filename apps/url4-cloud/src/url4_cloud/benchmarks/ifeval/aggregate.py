@@ -7,8 +7,8 @@ accuracy (arXiv:2311.07911).
 
 INVARIANT: `case_count` is EXACT (one entry per selected Case) and every scored Case has a
 real verifier record. A missing record is an operational failure rather than an incorrect
-answer, so Aggregation raises with the in-band Case error instead of publishing a plausible
-score. This is the fail-loud bridge until the SDK decodes typed partial failures.
+answer: Aggregation retains that Case and returns a null Candidate score instead of publishing
+a plausible partial score.
 """
 
 from __future__ import annotations
@@ -19,10 +19,13 @@ from pathlib import Path
 from typing import Any
 
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
+from url4_cloud.benchmarks.ifeval.case_evaluation import (
+    CHECK_SCHEMA,
+    decode_case_evaluation,
+)
 from url4_cloud.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
-from url4_cloud.benchmarks.result_records import harvest_records
 
-SCHEMA = "screamingface.ifeval-check.v1"
+SCHEMA = CHECK_SCHEMA
 
 
 class AggregateError(ValueError):
@@ -45,11 +48,12 @@ def aggregate(
         record = _first_valid_record(raw, case_id, spec)
         if record is None:
             recordless_cases.append((index, case_id))
+            case_results.append(_failed_case_result(raw, index, case_id, spec))
             continue
         accepted.append(record)
         case_results.append(_case_result(case_id, spec, record))
     if recordless_cases:
-        raise AggregateError(_recordless_message(rows, recordless_cases))
+        return _unscored_result(benchmark_id, IFEVAL_REVISION, case_results)
 
     strict_all = [all(record["strict"]) for record in accepted]
     loose_all = [all(record["loose"]) for record in accepted]
@@ -71,6 +75,83 @@ def aggregate(
         "cases": case_results,
         "failures": [],
     }
+
+
+def _unscored_result(
+    benchmark_id: str,
+    benchmark_revision: str,
+    cases: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Return the complete Evaluation record without fabricating an aggregate score."""
+
+    return {
+        "schema": CANDIDATE_RESULT_SCHEMA,
+        "benchmark_id": benchmark_id,
+        "benchmark_revision": benchmark_revision,
+        "case_count": len(cases),
+        "score": None,
+        "metrics": {},
+        "cases": [dict(case) for case in cases],
+        "failures": [],
+    }
+
+
+def _failed_case_result(
+    row: Any,
+    row_index: int,
+    case_id: int,
+    spec: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Retain one selected Case whose Candidate Invocation or Grading failed."""
+
+    error = row.get("error") if isinstance(row, Mapping) else None
+    error = error if isinstance(error, Mapping) else {}
+    kind = _bounded_text(error.get("kind"), 80)
+    code = _bounded_text(error.get("code"), 80) or "invalid_case_evaluation"
+    message = _bounded_text(error.get("message"), 200) or (
+        "the Case produced no valid IFEval evaluation record"
+    )
+    metadata: dict[str, Any] = {"row_index": row_index}
+    if kind is not None:
+        metadata["error_kind"] = kind
+    return {
+        "case_id": case_id,
+        "input": spec["prompt"],
+        "output": None,
+        "finish_reason": None,
+        "grade": None,
+        "failures": [
+            {
+                "stage": _failure_stage(code),
+                "code": code,
+                "message": message,
+                "retryable": _retryable(error),
+                "case_id": case_id,
+                "metadata": metadata,
+            }
+        ],
+        "metadata": {},
+    }
+
+
+def _failure_stage(code: str) -> str:
+    return (
+        "candidate" if code.startswith("provider_") or code.startswith("aigateway_") else "grading"
+    )
+
+
+def _retryable(error: Mapping[str, Any]) -> bool | None:
+    retryable = error.get("retryable")
+    if isinstance(retryable, bool):
+        return retryable
+    permanent = error.get("permanent")
+    return not permanent if isinstance(permanent, bool) else None
+
+
+def _bounded_text(value: object, limit: int) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return " ".join(value.split())[:limit]
 
 
 def aggregate_corrective(
@@ -102,6 +183,7 @@ def aggregate_corrective(
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
             recordless_cases.append((index, case_id))
+            case_results.append(_failed_case_result(raw, index, case_id, spec))
             continue
         earliest_pass = min(
             (attempt for attempt, record in records.items() if all(record["strict"])),
@@ -120,7 +202,7 @@ def aggregate_corrective(
             )
         )
     if recordless_cases:
-        raise AggregateError(_recordless_message(rows, recordless_cases))
+        return _unscored_result(benchmark_id, benchmark_revision, case_results)
 
     strict_all = [all(record["strict"]) for record in selected_records]
     loose_all = [all(record["loose"]) for record in selected_records]
@@ -172,16 +254,19 @@ def _attempt_records(
     spec: Mapping[str, Any],
     max_attempts: int,
 ) -> dict[int, dict[str, Any]]:
-    """Every valid check record for this row, keyed by attempt (first per attempt wins).
+    """Every valid declared attempt in this exact Case Evaluation, keyed by number.
 
     INVARIANT: a Candidate that echoes a forged record into its answer text cannot
-    self-grade — a record must carry THIS row's case id and the private spec's exact
-    instruction id list, which the prompt never reveals.
+    self-grade. Aggregation never searches nested values: the root envelope and every
+    attempt must bind to THIS Case and its private instruction id list.
     """
 
     expected_ids = list(_instruction_ids(spec))
     records: dict[int, dict[str, Any]] = {}
-    for record in harvest_records(row, SCHEMA):
+    attempts = decode_case_evaluation(row, case_id)
+    if attempts is None:
+        return records
+    for record in attempts:
         attempt = _as_int(record.get("attempt"))
         strict = record.get("strict")
         loose = record.get("loose")
@@ -259,35 +344,6 @@ def _rows(rows_json: str) -> list[Any]:
     return rows
 
 
-def _recordless_message(rows: Sequence[Any], cases: Sequence[tuple[int, int]]) -> str:
-    """Name Cases and sanitized errors that URL4 collected before IFEval could check."""
-
-    case_ids = [case_id for _, case_id in cases]
-    shown = ", ".join(str(case_id) for case_id in case_ids[:10])
-    if len(case_ids) > 10:
-        shown = f"{shown}, … (+{len(case_ids) - 10} more)"
-    label = "case" if len(case_ids) == 1 else "cases"
-    base = f"{label} {shown} carried no valid IFEval check record; the Candidate cannot be scored"
-    failures: list[str] = []
-    for row_index, case_id in cases:
-        row = rows[row_index]
-        error = row.get("error") if isinstance(row, Mapping) else None
-        if not isinstance(error, Mapping):
-            continue
-        kind = error.get("kind")
-        message = error.get("message")
-        if not isinstance(message, str) or not message.strip():
-            continue
-        clean = " ".join(message.split())[:200]
-        detail = f"{kind}: {clean}" if isinstance(kind, str) and kind else clean
-        failures.append(f"case {case_id}: {detail}")
-        if len(failures) == 3:
-            break
-    if not failures:
-        return base
-    return f"{base}; collected row error: {'; '.join(failures)}"
-
-
 def _selected_case_ids(rows: Sequence[Any], specs: Mapping[int, Mapping[str, Any]]) -> list[int]:
     """The prefix of installed Cases selected by the Benchmark's `limit` slice."""
 
@@ -305,20 +361,24 @@ def _first_valid_record(
     spec: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     expected_ids = list(_instruction_ids(spec))
-    for record in harvest_records(row, SCHEMA):
-        strict = record.get("strict")
-        loose = record.get("loose")
-        if (
-            record.get("valid") is True
-            # INVARIANT: an authentic record for ANOTHER known Case is still not this row's
-            # grade. The private instruction vector binds the record to the same Case too.
-            and _as_int(record.get("case_id")) == expected_case_id
-            and record.get("instruction_id_list") == expected_ids
-            and _is_bool_vector(strict, len(expected_ids))
-            and _is_bool_vector(loose, len(expected_ids))
-            and _record_content(record, len(expected_ids))
-        ):
-            return record
+    records = decode_case_evaluation(row, expected_case_id)
+    if records is None or len(records) != 1:
+        return None
+    record = records[0]
+    strict = record.get("strict")
+    loose = record.get("loose")
+    if (
+        record.get("schema") == SCHEMA
+        and record.get("valid") is True
+        # INVARIANT: an authentic record for ANOTHER known Case is still not this row's
+        # grade. The private instruction vector binds the record to the same Case too.
+        and _as_int(record.get("case_id")) == expected_case_id
+        and record.get("instruction_id_list") == expected_ids
+        and _is_bool_vector(strict, len(expected_ids))
+        and _is_bool_vector(loose, len(expected_ids))
+        and _record_content(record, len(expected_ids))
+    ):
+        return record
     return None
 
 

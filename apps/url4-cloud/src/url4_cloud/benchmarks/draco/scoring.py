@@ -1,7 +1,7 @@
 """Pure DRACO rubric scoring primitives.
 
 These formulas mirror ``screamingface-benchmarks/benchmarking/graders/rubric.py``
-(arXiv:2602.11685 §4.2).  They are deliberately isolated from row harvesting and
+(arXiv:2602.11685 §4.2). They are deliberately isolated from execution framing and
 aggregation so protocol math can be reviewed and tested without the URL4 payload
 machinery.
 """

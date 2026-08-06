@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from url4_cloud.benchmarks.draco import aggregate as agg
+from url4_cloud.benchmarks.draco.case_evaluation import (
+    bind_case_evaluation,
+    bind_criterion_evaluation,
+)
 from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 
 _RUBRIC = {
@@ -16,7 +18,7 @@ _RUBRIC = {
 }
 
 
-def _scored_row(case_id: int) -> str:
+def _scored_row(case_id: int) -> dict[str, object]:
     raw_output = json.dumps({"explanation": "fixture verdict", "criterion_status": "MET"})
     records = [
         {
@@ -47,7 +49,10 @@ def _scored_row(case_id: int) -> str:
             "raw_output": raw_output,
         },
     ]
-    return "\n".join(map(json.dumps, records))
+    return bind_case_evaluation(
+        case_id,
+        [bind_criterion_evaluation(case_id, records[0], records[1], [records[2]])],
+    )
 
 
 def _selected(*case_ids: int) -> list[dict[str, object]]:
@@ -76,6 +81,9 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
     )
 
     assert result["case_count"] == 2
+    assert result["score"] is None
+    assert result["metrics"] == {}
+    assert result["cases"][0]["grade"]["score"] == 1.0
     expected_failure = [
         {
             "stage": "candidate",
@@ -98,26 +106,103 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
     }
 
 
-def test_two_rows_cannot_claim_the_same_case() -> None:
+def test_nested_draco_records_are_not_discovered_as_a_case_evaluation() -> None:
+    rows = json.dumps([{"nested": {"records": _scored_row(1)}}])
+
+    result = agg.aggregate(
+        rows,
+        {1: _RUBRIC},
+        "draco",
+        selected_cases=_selected(1),
+    )
+
+    assert result["score"] is None
+    assert result["cases"][0]["grade"] is None
+    assert result["cases"][0]["failures"][0]["code"] == "invalid_case_evaluation"
+
+
+def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
+    case = {
+        "schema": CASE_SCHEMA,
+        "case_id": 1,
+        "input": "Question 1",
+        "output": "Answer 1",
+        "finish_reason": "stop",
+        "metadata": {},
+    }
+    check = {
+        "schema": CHECK_SCHEMA,
+        "case_id": 1,
+        "criterion_id": "c1",
+        "criterion_type": "positive",
+        "requirement": "Correct",
+    }
+    invalid = {
+        "schema": agg.VERDICT_SCHEMA,
+        "case_id": 1,
+        "criterion_id": "c1",
+        "sequence": 1,
+        "producer_type": "model",
+        "producer_id": "fixture-judge",
+        "valid": False,
+        "reason": "invalid_json",
+        "raw_output": "not json",
+    }
+    row = bind_case_evaluation(
+        1,
+        [bind_criterion_evaluation(1, case, check, [invalid])],
+    )
+
+    result = agg.aggregate(
+        json.dumps([row]),
+        {1: _RUBRIC},
+        "draco",
+        selected_cases=_selected(1),
+        judge_passes=1,
+    )
+
+    grade = result["cases"][0]["grade"]
+    assert result["score"] is None
+    assert grade["score"] is None
+    assert grade["checks"][0]["evidence"] == [
+        {
+            "sequence": 1,
+            "producer": {"type": "model", "id": "fixture-judge"},
+            "valid": False,
+            "raw_output": "not json",
+            "metadata": {"rejection_reason": "invalid_json"},
+        }
+    ]
+    assert result["cases"][0]["failures"][0]["code"] == "no_valid_judge_verdict"
+
+
+def test_a_row_claiming_another_selected_case_is_retained_as_unscored() -> None:
     rows = json.dumps([_scored_row(1), _scored_row(1)])
 
-    with pytest.raises(agg.AggregateError, match="duplicate case_id"):
-        agg.aggregate(
-            rows,
-            {1: _RUBRIC, 2: _RUBRIC},
-            "draco",
-            selected_cases=_selected(1, 2),
-        )
+    result = agg.aggregate(
+        rows,
+        {1: _RUBRIC, 2: _RUBRIC},
+        "draco",
+        selected_cases=_selected(1, 2),
+    )
+
+    assert result["score"] is None
+    assert result["cases"][0]["grade"]["score"] == 1.0
+    assert result["cases"][1]["grade"] is None
 
 
 def test_one_row_cannot_mix_verdicts_from_different_cases() -> None:
-    foreign_verdict = agg.harvest_verdicts(_scored_row(2))[0]
-    rows = json.dumps([_scored_row(1) + "\n" + json.dumps(foreign_verdict)])
+    row = _scored_row(1)
+    foreign = _scored_row(2)
+    row["evidence"].append(foreign["evidence"][0])
+    rows = json.dumps([row])
 
-    with pytest.raises(agg.AggregateError, match="multiple case_id"):
-        agg.aggregate(
-            rows,
-            {1: _RUBRIC, 2: _RUBRIC},
-            "draco",
-            selected_cases=_selected(1),
-        )
+    result = agg.aggregate(
+        rows,
+        {1: _RUBRIC, 2: _RUBRIC},
+        "draco",
+        selected_cases=_selected(1),
+    )
+
+    assert result["score"] is None
+    assert result["cases"][0]["grade"] is None

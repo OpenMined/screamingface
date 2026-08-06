@@ -73,7 +73,8 @@ def _candidate_result(
         raise ExecutionError("SF Engine Candidate result has the wrong Benchmark revision")
     if _positive_integer(value.get("case_count"), "Candidate case_count") != evaluation.case_count:
         raise ExecutionError("SF Engine Candidate result has the wrong case count")
-    score = _number(value.get("score"), "Candidate score")
+    score_value = value.get("score")
+    score = None if score_value is None else _number(score_value, "Candidate score")
     metrics = _metrics(value.get("metrics"))
     _warn_on_coverage(candidate.name, metrics)
     try:
@@ -167,9 +168,10 @@ def _case_result(value: object) -> CaseResult:
 def _case_grade(value: object) -> CaseGrade:
     raw = _mapping(value, "Case Grade")
     _keys(raw, required={"method", "score", "metrics", "checks"}, label="Case Grade")
+    score_value = raw.get("score")
     return CaseGrade(
         method=_text(raw.get("method"), "Case Grade method"),
-        score=_number(raw.get("score"), "Case Grade score"),
+        score=None if score_value is None else _number(score_value, "Case Grade score"),
         metrics=_mapping(raw.get("metrics"), "Case Grade metrics"),
         checks=tuple(_check(item) for item in _sequence(raw.get("checks"), "Case Grade checks")),
     )

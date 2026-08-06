@@ -388,7 +388,24 @@ answer and synthesis policy.
 
 This notebook always selects canonical `draco`: all 100 Cases, every criterion, and five Judge
 passes per criterion. It has no smoke or lite switch, so a completed Report is unambiguously a
-full-protocol result.
+full Engine-protocol result.
+
+> **Fidelity status:** `full` describes multiplicity, not byte-for-byte reference conformance.
+> The Engine uses the DRACO dataset source, official per-criterion Judge instructions, published
+> scoring math, reference answer/synthesis system prompts, and the 7-solo/9-Fusion lineup. Do not
+> present its score as a reproduced paper or OpenRouter-blog number yet:
+>
+> - canonical Engine DRACO uses the paper's five Judge passes, while the current source walkthrough
+>   uses three; the retired paper Judge is replaced by Gemini 3.1 Pro and `reasoning=low` is not yet
+>   forwarded on that OpenRouter route;
+> - answer retrieval is route-declared provider-native search or a Tavily search/fetch loop, not the
+>   reference harness's single OpenRouter server-tool configuration and exact tool budgets;
+> - Fusion writers receive the same question and ordered labeled panel answers, but the universal
+>   SDK framing omits the reference template's final redundant “Produce the unified prose answer
+>   now.” sentence and labels members by their public Recipe names;
+> - the reference harness can reuse prior solo answers in Fusion panels; this run currently makes
+>   independent Candidate calls. That can change spend and generated answers, although the grading
+>   protocol is unchanged.
 
 > **Spend warning:** execution is disabled by default. Set `RUN_EVALUATION = True` only after
 > reviewing the full experiment's estimated scope."""
@@ -471,8 +488,8 @@ retrieval-free.
 
 The reference harness can reuse solo answers across overlapping Fusion panels. Until the Engine's
 cross-Candidate cache lands, this SDK run evaluates each Candidate independently and may repeat
-those member calls. That does not change a Candidate's DRACO protocol or score, but it can make the
-full experiment materially more expensive."""
+those member calls. The grading protocol stays fixed, but fresh provider calls can change both the
+generated answer and spend; cross-harness scores therefore are not assumed identical."""
         ),
         nbformat.v4.new_code_cell(
             """fable_plus_gpt = sf.Fusion(

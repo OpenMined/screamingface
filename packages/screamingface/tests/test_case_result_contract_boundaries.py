@@ -180,6 +180,18 @@ def _failure_value() -> sf.Failure:
                 input="question",
                 output="answer",
                 finish_reason="stop",
+                grade=sf.CaseGrade(method="rubric", score=None, metrics={}, checks=(_check(),)),
+                failures=(),
+                metadata={},
+            ),
+            "unscored Case Grade",
+        ),
+        (
+            lambda: sf.CaseResult(
+                case_id=1,
+                input="question",
+                output="answer",
+                finish_reason="stop",
                 grade=_grade(),
                 failures=(_failure_value(),),
                 metadata={},
@@ -205,6 +217,49 @@ def _failure_value() -> sf.Failure:
 def test_public_case_result_values_reject_ambiguous_state(factory: Any, message: str) -> None:
     with pytest.raises((TypeError, ValueError), match=message):
         factory()
+
+
+def test_unscored_grade_retains_checks_evidence_and_its_failure() -> None:
+    evidence = sf.Evidence(
+        sequence=1,
+        producer=_producer(),
+        valid=False,
+        raw_output="not json",
+        metadata={"rejection_reason": "invalid_json"},
+    )
+    failure = sf.Failure(
+        stage="grading",
+        code="no_valid_judge_verdict",
+        message="no valid Judge verdict was produced",
+        case_id=1,
+    )
+
+    result = sf.CaseResult(
+        case_id=1,
+        input="question",
+        output="answer",
+        finish_reason="stop",
+        grade=sf.CaseGrade(
+            method="rubric",
+            score=None,
+            metrics={"verdicts_invalid": 1},
+            checks=(
+                sf.Check(
+                    type="criterion",
+                    id="criterion-1",
+                    label="The answer is correct",
+                    evidence=(evidence,),
+                ),
+            ),
+        ),
+        failures=(failure,),
+        metadata={},
+    )
+
+    assert result.grade is not None
+    assert result.grade.score is None
+    assert result.grade.checks[0].evidence[0].valid is False
+    assert result.failures == (failure,)
 
 
 def test_wire_failure_decoder_accepts_each_stage_and_case_id_shape() -> None:

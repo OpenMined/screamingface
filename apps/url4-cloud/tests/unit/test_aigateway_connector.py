@@ -11,10 +11,16 @@ from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
 from url4_cloud.benchmarks.draco.definition import (
     AGGREGATE_ROUTE,
+    CASE_EVALUATION_ROUTE,
+    CRITERION_EVALUATION_ROUTE,
     LITE_AGGREGATE_ROUTE,
+    LITE_CASE_EVALUATION_ROUTE,
+    LITE_CRITERION_EVALUATION_ROUTE,
     LITE_TASKS_ROUTE,
     LITE_VERDICT_ROUTE,
     SMOKE_AGGREGATE_ROUTE,
+    SMOKE_CASE_EVALUATION_ROUTE,
+    SMOKE_CRITERION_EVALUATION_ROUTE,
     SMOKE_TASKS_ROUTE,
     SMOKE_VERDICT_ROUTE,
     TASKS_ROUTE,
@@ -22,6 +28,9 @@ from url4_cloud.benchmarks.draco.definition import (
 )
 from url4_cloud.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE as IFEVAL_AGGREGATE_ROUTE,
+)
+from url4_cloud.benchmarks.ifeval.definition import (
+    CASE_EVALUATION_ROUTE as IFEVAL_CASE_EVALUATION_ROUTE,
 )
 from url4_cloud.benchmarks.ifeval.definition import (
     CHECK_ROUTE as IFEVAL_CHECK_ROUTE,
@@ -46,15 +55,22 @@ _FANOUT = "(/openrouter/gpt-4o(ctx)!probe)!combine"
 # Every installed Benchmark contributes its processor routes to each world.
 _BENCHMARK_ROUTES = {
     AGGREGATE_ROUTE,
+    CASE_EVALUATION_ROUTE,
+    CRITERION_EVALUATION_ROUTE,
     TASKS_ROUTE,
     VERDICT_ROUTE,
     LITE_AGGREGATE_ROUTE,
+    LITE_CASE_EVALUATION_ROUTE,
+    LITE_CRITERION_EVALUATION_ROUTE,
     LITE_TASKS_ROUTE,
     LITE_VERDICT_ROUTE,
     SMOKE_AGGREGATE_ROUTE,
+    SMOKE_CASE_EVALUATION_ROUTE,
+    SMOKE_CRITERION_EVALUATION_ROUTE,
     SMOKE_TASKS_ROUTE,
     SMOKE_VERDICT_ROUTE,
     IFEVAL_AGGREGATE_ROUTE,
+    IFEVAL_CASE_EVALUATION_ROUTE,
     IFEVAL_CHECK_ROUTE,
     SELF_AGGREGATE_ROUTE,
     ENSEMBLE_AGGREGATE_ROUTE,

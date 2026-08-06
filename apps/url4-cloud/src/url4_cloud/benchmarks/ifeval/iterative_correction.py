@@ -44,6 +44,7 @@ from url4_cloud.benchmarks.ifeval.corrective_policy import (
 )
 from url4_cloud.benchmarks.ifeval.definition import (
     CASE_COUNT,
+    CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
     install_ifeval,
@@ -321,17 +322,32 @@ def _rows(
     row_bindings: tuple[Node, ...] = (),
 ) -> Node:
     # INVARIANT: both shapes emit exactly one attempt-tagged check record per attempt
-    # (solo: the answer's check; ensemble: the selection's check), so ONE aggregation
-    # scores both — earliest strict pass, pass@attempt telemetry preserved.
+    # (solo: the answer's check; ensemble: the selection's check). The Benchmark then
+    # binds those records into one exact Case Evaluation before Aggregation, so the
+    # Aggregator never has to discover grading records inside arbitrary text.
     record = "selection_check" if selection_records else "check"
     checked = expr(
         *sources,
-        intent=Text(" ".join(f"${record}_{attempt}" for attempt in range(1, MAX_ATTEMPTS + 1))),
+        src(
+            RelExpr(
+                path=CASE_EVALUATION_ROUTE,
+                context=_endpoint_payload(
+                    {
+                        f"attempt_{attempt}": f"${record}_{attempt}"
+                        for attempt in range(1, MAX_ATTEMPTS + 1)
+                    }
+                ),
+                intent=Text("$item.id"),
+            ),
+            name="case_evaluation",
+            weight=0.0,
+        ),
+        intent=Text("$case_evaluation"),
     )
     rows = iterate(
         CASES_ROUTE,
-        body=(src(checked, name="checked", weight=1.0),),
-        intent=Text("case"),
+        body=(src(checked, name="checked", weight=0.0),),
+        intent=Text("$checked"),
         slice=None if case_count == CASE_COUNT else (0, case_count),
         on_error="collect",
     )
