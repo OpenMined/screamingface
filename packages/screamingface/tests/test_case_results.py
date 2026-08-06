@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 import screamingface as sf
@@ -96,9 +98,10 @@ def test_case_result_recursively_freezes_benchmark_metadata() -> None:
     case = _graded_case()
 
     with pytest.raises(TypeError):
-        case.metadata["domain"] = "changed"  # type: ignore[index]
+        cast(dict[str, object], case.metadata)["domain"] = "changed"
+    assert case.grade is not None
     with pytest.raises(TypeError):
-        case.grade.metrics["coverage"] = 0.0  # type: ignore[index,union-attr]
+        cast(dict[str, object], case.grade.metrics)["coverage"] = 0.0
     assert case.metadata["tags"] == ("smoke",)
 
 

@@ -121,8 +121,8 @@ def test_module_evaluate_delegates_to_the_lazy_default_client(monkeypatch: Any) 
 
     monkeypatch.setattr(_default_client, "default_client", lambda: FakeClient())
 
-    candidates = object()
-    result = sf.evaluate(candidates, benchmark="draco", limit=1)  # type: ignore[arg-type]
+    candidates = sf.Model("provider/model")
+    result = sf.evaluate(candidates, benchmark="draco", limit=1)
 
     assert result is sentinel
     assert calls == [(candidates, "draco", 1)]

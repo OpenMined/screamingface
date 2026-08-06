@@ -10,7 +10,7 @@ import time
 from collections.abc import AsyncGenerator, Generator, Mapping
 from contextlib import closing
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
@@ -269,21 +269,22 @@ async def test_access_discovery_and_explicit_reauthentication_refresh_credential
 
 def test_waiting_login_reports_timeout_worker_failure_and_missing_credentials() -> None:
     auth = _AccessFixture().auth()
+    await_login = getattr(auth, "_await_login")
     pending = _LoginAttempt(threading.Event(), threading.Event())
     with pytest.raises(sf.AuthenticationError) as timeout:
-        auth._await_login(pending, 0)  # type: ignore[attr-defined]
+        await_login(pending, 0)
     assert timeout.value.code == "access_login_timeout"
 
     failed = _LoginAttempt(threading.Event(), threading.Event())
     failed.error = RuntimeError("worker failed")
     failed.done.set()
     with pytest.raises(RuntimeError, match="worker failed"):
-        auth._await_login(failed, 0)  # type: ignore[attr-defined]
+        await_login(failed, 0)
 
     empty = _LoginAttempt(threading.Event(), threading.Event())
     empty.done.set()
     with pytest.raises(sf.AuthenticationError) as invalid:
-        auth._await_login(empty, 0)  # type: ignore[attr-defined]
+        await_login(empty, 0)
     assert invalid.value.code == "access_invalid_token"
     auth.close()
 
@@ -729,7 +730,7 @@ def test_logout_without_an_access_login_does_not_open_a_browser() -> None:
 @pytest.mark.parametrize("timeout", [0, -1, True, "1", None])
 def test_login_timeout_must_be_positive(timeout: object) -> None:
     with pytest.raises(ValueError, match="positive"):
-        _require_positive_timeout(timeout)  # type: ignore[arg-type]
+        _require_positive_timeout(cast(Any, timeout))
 
 
 def test_closed_authentication_rejects_login_and_requests() -> None:

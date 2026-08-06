@@ -5,6 +5,7 @@ import json
 import threading
 import time
 from collections.abc import Callable
+from typing import Any, cast
 
 import httpx
 import ipywidgets as widgets
@@ -86,6 +87,12 @@ def _text(widget: widgets.Widget) -> str:
         for attribute in ("value", "description", "tooltip")
         if isinstance((value := getattr(item, attribute, None)), str)
     )
+
+
+def _panel(client: object) -> sf.ConnectionPanel:
+    """Construct a panel from the deliberately minimal test doubles below."""
+
+    return sf.ConnectionPanel(cast(Any, client))
 
 
 async def _wait_for_button(widget: widgets.Widget, description: str) -> None:
@@ -270,7 +277,7 @@ def test_panel_retains_dormant_oauth_pending_and_cancel_controls() -> None:
         engine_url = "http://127.0.0.1:9108"
         connections = Connections()
 
-    panel = sf.ConnectionPanel(FutureClient())  # type: ignore[arg-type]
+    panel = _panel(FutureClient())
     root = panel.widget()
 
     _button(root, "Connect").click()
@@ -416,7 +423,7 @@ def test_panel_oauth_without_a_running_loop_remains_cancelable() -> None:
             return self.flow
 
     client = Client()
-    panel = sf.ConnectionPanel(client)  # type: ignore[arg-type]
+    panel = _panel(client)
     root = panel.widget()
     _button(root, "Connect").click()
     _button(root, "OAuth").click()
@@ -462,7 +469,7 @@ async def test_panel_reports_an_expired_oauth_flow_and_cleans_up_its_task() -> N
             assert (provider, method) == ("anthropic", "oauth")
             return Flow()
 
-    panel = sf.ConnectionPanel(Client())  # type: ignore[arg-type]
+    panel = _panel(Client())
     root = panel.widget()
     _button(root, "Connect").click()
     _button(root, "OAuth").click()
@@ -517,7 +524,7 @@ def test_hosted_panel_prompts_for_engine_login_before_loading_providers() -> Non
             self.authenticated = False
 
     client = HostedClient()
-    panel = sf.ConnectionPanel(client)  # type: ignore[arg-type]
+    panel = _panel(client)
     root = panel.widget()
 
     assert panel.connections == ()
@@ -563,7 +570,7 @@ def test_hosted_panel_shows_login_errors_without_loading_providers() -> None:
         def logout(self) -> None:
             self.authenticated = False
 
-    panel = sf.ConnectionPanel(RejectingClient())  # type: ignore[arg-type]
+    panel = _panel(RejectingClient())
     root = panel.widget()
 
     _button(root, "Log in").click()
@@ -614,7 +621,7 @@ async def test_hosted_panel_login_is_non_blocking_and_waiting_can_be_cancelled()
             self.authenticated = False
 
     client = WaitingClient()
-    panel = sf.ConnectionPanel(client)  # type: ignore[arg-type]
+    panel = _panel(client)
     root = panel.widget()
 
     started = time.monotonic()
@@ -625,7 +632,7 @@ async def test_hosted_panel_login_is_non_blocking_and_waiting_can_be_cancelled()
     assert client.started.wait(1)
     assert [button.description for button in _buttons(root)] == ["Cancel"]
 
-    second_root = sf.ConnectionPanel(client).widget()  # type: ignore[arg-type]
+    second_root = _panel(client).widget()
     assert [button.description for button in _buttons(second_root)] == ["Cancel"]
 
     _button(second_root, "Cancel").click()
@@ -669,7 +676,7 @@ async def test_hosted_panel_returns_to_login_after_cloudflare_denial() -> None:
         def logout(self) -> None:
             self.authenticated = False
 
-    panel = sf.ConnectionPanel(DeniedClient())  # type: ignore[arg-type]
+    panel = _panel(DeniedClient())
     root = panel.widget()
     _button(root, "Log in").click()
 
@@ -706,7 +713,7 @@ async def test_hosted_panel_shows_authenticated_when_provider_loading_fails() ->
             self.authenticated = False
 
     client = AuthenticatedClient()
-    panel = sf.ConnectionPanel(client)  # type: ignore[arg-type]
+    panel = _panel(client)
     root = panel.widget()
     _button(root, "Log in").click()
 
@@ -735,7 +742,7 @@ def test_authenticated_panel_renders_even_when_initial_provider_loading_fails() 
         def logout(self) -> None:
             self.authenticated = False
 
-    panel = sf.ConnectionPanel(AuthenticatedClient())  # type: ignore[arg-type]
+    panel = _panel(AuthenticatedClient())
     root = panel.widget()
 
     assert "Provider discovery is unavailable" in _text(root)
@@ -747,11 +754,11 @@ def test_authenticated_panel_renders_even_when_initial_provider_loading_fails() 
 @pytest.mark.asyncio
 async def test_all_open_panels_follow_shared_login_and_logout_state() -> None:
     client = _SharedAuthClient()
-    first = sf.ConnectionPanel(client)  # type: ignore[arg-type]
+    first = _panel(client)
     first_root = first.widget()
     _button(first_root, "Log in").click()
     assert client.started.wait(1)
-    second = sf.ConnectionPanel(client)  # type: ignore[arg-type]
+    second = _panel(client)
     second_root = second.widget()
     assert [button.description for button in _buttons(second_root)] == ["Cancel"]
 
@@ -793,7 +800,7 @@ async def test_unprotected_remote_engine_skips_the_access_login_row() -> None:
         def _access_required(self) -> bool:
             return False
 
-    panel = sf.ConnectionPanel(RemoteClient())  # type: ignore[arg-type]
+    panel = _panel(RemoteClient())
     root = panel.widget()
     for _ in range(100):
         if "OpenRouter" in _text(root):
@@ -818,7 +825,7 @@ async def test_unexpected_login_failure_does_not_leave_panel_waiting() -> None:
             del timeout
             raise RuntimeError("Client closed during login")
 
-    panel = sf.ConnectionPanel(Client())  # type: ignore[arg-type]
+    panel = _panel(Client())
     root = panel.widget()
     _button(root, "Log in").click()
     await _wait_for_button(root, "Log in")

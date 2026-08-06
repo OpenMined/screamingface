@@ -10,7 +10,7 @@ shows me the actual exam, then I evaluate.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Never
 
 import httpx
 import pytest
@@ -333,6 +333,9 @@ def test_case_info_rejects_invalid_values(kwargs: dict[str, Any], error: type[Ex
 
 
 def test_benchmark_value_rejects_a_non_positive_case_count() -> None:
+    def unused_cases(limit: int, offset: int) -> Never:
+        raise AssertionError(f"unexpected Case fetch: limit={limit}, offset={offset}")
+
     with pytest.raises(ValueError, match="case_count"):
         sf.Benchmark(
             id="x",
@@ -341,7 +344,7 @@ def test_benchmark_value_rejects_a_non_positive_case_count() -> None:
             description="d",
             revision="r",
             case_count=0,
-            _fetch_cases=lambda limit, offset: None,  # type: ignore[arg-type,return-value]
+            _fetch_cases=unused_cases,
         )
 
 

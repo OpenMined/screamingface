@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -443,7 +443,7 @@ def test_connection_values_are_immutable_and_strict() -> None:
     )
 
     with pytest.raises(AttributeError):
-        value.status = "error"  # type: ignore[misc]
+        setattr(value, "status", "error")
     with pytest.raises(ValueError, match="not advertised"):
         sf.Connection("openrouter", "OpenRouter", ("api_key",), "connected", "oauth", None)
     with pytest.raises(ValueError, match="non-empty"):
@@ -454,7 +454,14 @@ def test_connection_values_are_immutable_and_strict() -> None:
     with pytest.raises(ValueError, match="provider and display_name"):
         sf.Connection(" ", "OpenRouter", ("api_key",), "connected", "api_key", None)
     with pytest.raises(ValueError, match="unsupported method"):
-        sf.Connection("openrouter", "OpenRouter", ("oauth2",), "connected", None, None)  # type: ignore[arg-type]
+        sf.Connection(
+            "openrouter",
+            "OpenRouter",
+            cast(Any, ("oauth2",)),
+            "connected",
+            None,
+            None,
+        )
     with pytest.raises(ValueError, match="account_label"):
         sf.Connection("openrouter", "OpenRouter", ("api_key",), "connected", None, " ")
 
