@@ -1,8 +1,9 @@
-export const sdkNavigation = [
+import type { NavEntry } from '@/composables/useDocNavigation'
+
+// SDK sidebar. Typed like sf-client so the shared NavTree renders it.
+export const sdkNavigation: NavEntry[] = [
   {
     title: 'Getting Started',
-    items: [
-      { title: 'Overview', path: '/sdk' },
-    ],
+    children: [{ title: 'Overview', path: '/sdk' }],
   },
 ]

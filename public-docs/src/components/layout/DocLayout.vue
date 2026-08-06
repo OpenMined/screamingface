@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from 'vue-router'
 import { watch } from 'vue'
-import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useCodeLangStore } from '@/stores/codelangStore'
-import { useDocNavigation, type NavSection } from '@/composables/useDocNavigation'
+import { useDocNavigation, type NavEntry } from '@/composables/useDocNavigation'
+import NavTree from './NavTree.vue'
 
 interface Props {
   // Optional: when omitted, the page header is skipped entirely (e.g. a notebook
   // page whose NotebookViewer renders the notebook's own title as content).
   title?: string
   description?: string
-  navigation: NavSection[]
+  navigation: NavEntry[]
 }
 
 const props = defineProps<Props>()
@@ -18,7 +18,9 @@ const route = useRoute()
 const { reset: resetCodeLang } = useCodeLangStore()
 watch(() => route.path, resetCodeLang)
 
-const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() => props.navigation)
+// Active state and the sidebar tree belong to NavTree; this layout only needs
+// the prev/next pair.
+const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 </script>
 
 <template>
@@ -26,48 +28,8 @@ const { isActive, isActiveOrChild, prevPage, nextPage } = useDocNavigation(() =>
     <!-- Sidebar -->
     <aside class="hidden lg:flex w-64 flex-col border-r border-border/50 bg-sidebar sticky top-16 h-[calc(100vh-4rem)]">
       <div class="flex-1 overflow-y-auto py-6 px-4">
-        <nav class="space-y-6">
-          <div v-for="section in navigation" :key="section.title">
-            <!-- An empty section title renders no heading, letting an item sit ungrouped. -->
-            <h3 v-if="section.title" class="px-3 text-xs font-semibold tracking-widest text-muted-foreground/70 uppercase mb-3">
-              {{ section.title }}
-            </h3>
-            <ul class="space-y-1">
-              <li v-for="item in section.items" :key="item.path">
-                <RouterLink
-                  :to="item.path"
-                  :class="[
-                    'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-all duration-200',
-                    isActive(item.path)
-                      ? 'text-sidebar-primary bg-sidebar-accent border-l-2 border-sidebar-primary'
-                      : 'text-sidebar-foreground hover:text-sidebar-primary hover:bg-sidebar-accent/50'
-                  ]"
-                >
-                  {{ item.title }}
-                  <template v-if="item.children">
-                    <ChevronUp v-if="isActiveOrChild(item)" class="ml-auto w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <ChevronDown v-else class="ml-auto w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  </template>
-                </RouterLink>
-                <!-- Nested children -->
-                <ul v-if="item.children && isActiveOrChild(item)" class="ml-4 mt-1 space-y-1 border-l border-border/50 pl-2">
-                  <li v-for="child in item.children" :key="child.path">
-                    <RouterLink
-                      :to="child.path"
-                      :class="[
-                        'flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-all duration-200',
-                        isActive(child.path)
-                          ? 'text-sidebar-primary bg-sidebar-accent/50'
-                          : 'text-muted-foreground hover:text-sidebar-primary hover:bg-sidebar-accent/30'
-                      ]"
-                    >
-                      {{ child.title }}
-                    </RouterLink>
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </div>
+        <nav>
+          <NavTree :entries="navigation" />
         </nav>
       </div>
     </aside>
