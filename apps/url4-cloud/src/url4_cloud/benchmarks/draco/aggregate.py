@@ -148,7 +148,7 @@ def aggregate(
         raise AggregateError("criterion_count must be a positive integer or None")
     # INVARIANT: absence of evaluated Cases is an execution failure, not Candidate score zero.
     if not rows:
-        raise AggregateError("no DRACO rows were collected; the Candidate cannot be scored")
+        raise AggregateError("no DRACO Case results were collected; the Candidate cannot be scored")
     expected_cases = _validate_selected_cases(selected_cases, len(rows))
 
     evaluations, decode_errors = _decode_evaluations(rows, expected_cases, judge_passes)
@@ -629,27 +629,33 @@ def _require_verifiable_mapping(
             continue
         if len(case_records) != 1:
             raise AggregateError(
-                f"row {index} must carry exactly one Engine-bound Case record; "
+                f"Case result at position {index} must carry exactly one Engine-bound Case record; "
                 f"found {len(case_records)}"
             )
         ids = [
             _as_int(record.get("case_id")) for record in (*case_records, *check_records, *verdicts)
         ]
         if any(case_id is None for case_id in ids):
-            raise AggregateError(f"row {index} has a verdict without an Engine-bound case_id")
+            raise AggregateError(
+                f"Case result at position {index} has a verdict without an Engine-bound case_id"
+            )
         unique = {case_id for case_id in ids if case_id is not None}
         if len(unique) != 1:
-            raise AggregateError(f"row {index} carries multiple case_id values {sorted(unique)}")
+            raise AggregateError(
+                f"Case result at position {index} carries multiple case_id values {sorted(unique)}"
+            )
         case_id = unique.pop()
         previous = claimed.get(case_id)
         if previous is not None:
             raise AggregateError(
-                f"duplicate case_id {case_id} appears in rows {previous} and {index}"
+                f"duplicate case_id {case_id} appears at Case result positions "
+                f"{previous} and {index}"
             )
         expected_id = int(expected_cases[index]["id"])
         if case_id != expected_id:
             raise AggregateError(
-                f"row {index} claims case_id {case_id}, but the selected Case is {expected_id}"
+                f"Case result at position {index} claims case_id {case_id}, "
+                f"but the selected Case is {expected_id}"
             )
         claimed[case_id] = index
 
@@ -659,7 +665,7 @@ def _validate_selected_cases(
 ) -> list[Mapping[str, Any]]:
     if len(selected_cases) < row_count:
         raise AggregateError(
-            f"selected Case sequence has {len(selected_cases)} entries for {row_count} rows"
+            f"selected Case sequence has {len(selected_cases)} entries for {row_count} Case results"
         )
     expected = list(selected_cases[:row_count])
     ids: set[int] = set()

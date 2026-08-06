@@ -518,7 +518,7 @@ def test_a_row_with_no_verdicts_is_a_failure_not_a_zero() -> None:
 
 def test_no_rows_at_all_is_an_execution_failure() -> None:
     """INVARIANT: a run with no evaluated Cases cannot report Candidate score zero."""
-    with pytest.raises(agg.AggregateError, match="no DRACO rows"):
+    with pytest.raises(agg.AggregateError, match="no DRACO Case results"):
         agg.aggregate(
             "[]",
             rubrics={1: _RUBRIC},

@@ -81,7 +81,7 @@ def test_swapped_known_case_records_cannot_publish_a_score() -> None:
 def test_zero_case_ifeval_payloads_fail_loudly(reducer, extra) -> None:
     """An empty Evaluation is an execution failure, never a plausible zero score."""
 
-    with pytest.raises(AggregateError, match="no IFEval rows"):
+    with pytest.raises(AggregateError, match="no IFEval Case results"):
         reducer("[]", _SPECS, "ifeval", *extra)
 
 

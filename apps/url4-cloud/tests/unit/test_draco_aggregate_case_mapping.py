@@ -173,7 +173,7 @@ def test_a_full_row_set_without_case_evaluations_is_still_unscored() -> None:
 
 def test_no_rows_at_all_fails_after_the_mapping_guard() -> None:
     """An empty payload has no mapping error, but it still cannot produce a valid result."""
-    with pytest.raises(agg.AggregateError, match="no DRACO rows"):
+    with pytest.raises(agg.AggregateError, match="no DRACO Case results"):
         agg.aggregate("[]", rubrics=_RUBRICS, benchmark_id="draco", selected_cases=[])
 
 

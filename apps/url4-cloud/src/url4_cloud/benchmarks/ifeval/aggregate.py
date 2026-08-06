@@ -340,7 +340,7 @@ def _rows(rows_json: str) -> list[Any]:
     if not isinstance(rows, list):
         raise AggregateError(f"reducer payload must be a JSON array, got {type(rows).__name__}")
     if not rows:
-        raise AggregateError("no IFEval rows were produced; the Candidate cannot be scored")
+        raise AggregateError("no IFEval Case results were produced; the Candidate cannot be scored")
     return rows
 
 
@@ -367,7 +367,8 @@ def _selected_case_ids(
 
     if len(rows) > len(selected_cases):
         raise AggregateError(
-            f"reducer carried {len(rows)} rows but only {len(selected_cases)} IFEval Cases "
+            f"reducer carried {len(rows)} Case results but only "
+            f"{len(selected_cases)} IFEval Cases "
             "are installed"
         )
     case_ids: list[int] = []

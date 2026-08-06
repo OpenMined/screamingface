@@ -291,7 +291,7 @@ async def test_aggregate_refuses_to_report_success_when_no_cases_scored(tmp_path
         )
     )
 
-    with pytest.raises(ResolutionError, match="no DRACO rows") as caught:
+    with pytest.raises(ResolutionError, match="no DRACO Case results") as caught:
         await node.evaluate(expression)
 
     assert caught.value.code == "benchmark_unavailable"
