@@ -119,6 +119,7 @@ def test_web_search_is_enabled_as_a_plain_boolean() -> None:
     rule = _rule("web_search")
 
     assert rule is not None
+    assert rule.cache_behavior == "bypass"
     assert rule.parameter_schema is not None
     assert rule.parameter_schema.type == "boolean"
 
@@ -127,6 +128,7 @@ def test_caller_exclusions_are_a_bounded_string_array() -> None:
     rule = _rule("web_search_excluded_domains")
 
     assert rule is not None
+    assert rule.cache_behavior == "bypass"
     assert rule.parameter_schema is not None
     assert rule.parameter_schema.type == "array"
     assert rule.parameter_schema.item_type == "string"

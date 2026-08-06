@@ -238,12 +238,17 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     # emitted `plugins` retrieves: same prompt, with it a current cited answer, without it the
     # model's training cutoff.
     direct_rule(
-        "web_search", auth_modes=_AUTH, schema=WEB_SEARCH_SCHEMA, projection_revision=_REVISION
+        "web_search",
+        auth_modes=_AUTH,
+        schema=WEB_SEARCH_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
     ),
     direct_rule(
         "web_search_excluded_domains",
         auth_modes=_AUTH,
         schema=WEB_SEARCH_EXCLUDED_DOMAINS_SCHEMA,
+        cache_behavior="bypass",
         projection_revision=_REVISION,
     ),
 )
