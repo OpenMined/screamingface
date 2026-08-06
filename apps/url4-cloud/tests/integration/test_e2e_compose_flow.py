@@ -11,6 +11,7 @@ from url4.streaming.interfaces import JobStatus, job_name
 from url4.streaming.protocol import (
     AttachData,
     AttachEvent,
+    CachePolicy,
     CostUsageEvent,
     OutboundFrame,
     OutboundFrameAdapter,
@@ -49,6 +50,9 @@ class MockRunnerJobRunner(IdentityAwareJobRunner):
         credential: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
+        # Accepted so this fake still satisfies the port; the mock run it publishes never reaches
+        # a gateway, so there is nothing here for a cache policy to change.
+        cache: CachePolicy | None = None,
     ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
         self._tasks.append(asyncio.ensure_future(publish_mock_run(self._stream, topic, url4)))

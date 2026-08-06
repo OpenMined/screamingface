@@ -23,6 +23,7 @@ from url4.streaming.interfaces import (
     job_name,
 )
 from url4.streaming.lifecycle import run as lifecycle_run
+from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import valid_traceparent
 from url4_cloud import job_env
 from url4_cloud.ports import IdentityAwareJobRunner
@@ -128,6 +129,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         traceparent: str | None,
         profile: str | None,
         identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -156,6 +158,13 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         for name in job_env.IDENTITY_HEADER_ENV.values():
             env.pop(name, None)
         env.update(job_env.identity_to_env(identity or {}))
+        # INVARIANT: same reset, and the sharpest case for it. `_base_env` is one dict shared by
+        # every local run, so a leftover `participate=true` would let a run that explicitly opted
+        # out be served a stored answer it refused — the exact silent, chargeable failure this
+        # whole design exists to prevent. Cleared unconditionally, then re-stated from THIS run.
+        for name in (job_env.CACHE_PARTICIPATE, job_env.CACHE_MAX_AGE_S):
+            env.pop(name, None)
+        env.update(job_env.cache_policy_to_env(cache))
         return env
 
     # --- the JobRunner port -----------------------------------------------------------------
@@ -170,6 +179,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         credential: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -183,7 +193,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         existing = self._tasks.get(name)
         if existing is not None and not existing.done():
             raise JobAlreadyExists(name)
-        env = self._env(topic, url4, deadline_s, traceparent, profile, identity)
+        env = self._env(topic, url4, deadline_s, traceparent, profile, identity, cache)
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a
         # failure inside the run terminates the topic properly. See `Url4Executor._resolve_world`.

@@ -9,7 +9,7 @@ first.
 """
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -21,9 +21,9 @@ from url4.streaming.interfaces import (
     JobAlreadyExists,
     JobRunnerAtCapacity,
 )
-from url4.streaming.protocol import ResultEvent, TerminatedEvent
+from url4.streaming.protocol import CachePolicy, ResultEvent, TerminatedEvent
 from url4.streaming.trace import valid_traceparent
-from url4_cloud import job_env
+from url4_cloud import job_env, notices
 from url4_cloud.auth import (
     PROBLEM_MEDIA_TYPE,
     JwtCodec,
@@ -33,7 +33,10 @@ from url4_cloud.auth import (
 )
 from url4_cloud.config import Settings
 from url4_cloud.ports import IdentityAwareJobRunner
+from url4_cloud.rest.cache_header import parse_cache_control
+from url4_cloud.rest.cache_policy import resolve
 from url4_cloud.rest.interest import SubscriberGate
+from url4_cloud.rest.sessions import RunSessions
 
 router = APIRouter()
 
@@ -55,6 +58,7 @@ class _Deps:
     stream: EventConsumer
     job_runner: IdentityAwareJobRunner
     interest: SubscriberGate
+    sessions: RunSessions
     settings: Settings
 
 
@@ -72,6 +76,11 @@ def _deps(request: Request) -> _Deps:
         stream=state.stream,
         job_runner=job_runner,
         interest=state.interest,
+        # `registry` and not `interest`: the subscriber gate is a DI seam tests replace with a
+        # fixed answer, while the session state is the real registry the WS transport writes an
+        # attach frame's declaration into. Reading the declaration off a substituted gate would
+        # make the frame carrier disappear the moment a test pinned the 428 behaviour.
+        sessions=state.registry,
         settings=state.settings,
     )
 
@@ -141,11 +150,18 @@ async def _schedule(
     traceparent: str | None = None,
     profile: str | None = None,
     identity: Mapping[str, str] | None = None,
+    cache: CachePolicy,
 ) -> None:
     """Schedule the run on the job runner, or raise 409 if one already exists for ``topic``.
 
     Topics are single-shot: both the pre-check and the runner's own ``JobAlreadyExists`` guard
     against a race collapse into the same 409 problem.
+
+    ``cache`` is the run's RESOLVED cache policy — the one thing both carriers converged on, and
+    required rather than optional so that "nobody decided" cannot reach this hop. It travels
+    beside ``profile`` and ``identity`` because it is the same kind of value: per-RUN, captured at
+    the REST edge, re-rendered onto the aigateway call by the Runner. It is deliberately NOT world
+    config; a per-run value parked on the shared aigateway configuration would leak across runs.
     """
     if await deps.job_runner.exists(topic):
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
@@ -157,6 +173,7 @@ async def _schedule(
             traceparent=traceparent,
             profile=profile,
             identity=identity,
+            cache=cache,
         )
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
@@ -241,6 +258,41 @@ def _terminal_response(terminated: TerminatedEvent, result: ResultEvent | None) 
     raise ProblemException(status=http_status, title=title, detail=detail)
 
 
+_OVERRIDE_WARNING = (
+    "this request's Cache-Control header overrode the cache policy declared on the attach frame"
+)
+
+
+def _converge_cache(
+    deps: _Deps, topic: str, cache_control: str | None, clock: Callable[[], datetime]
+) -> CachePolicy:
+    """The run's one cache policy, and a word to the client when stating it cost them theirs.
+
+    Convergence happens BEFORE the run is scheduled, so the notice is queued ahead of any frame
+    the run itself produces: a client reads "your declaration was overridden" and only then the
+    run that ran under the other policy, rather than having to reinterpret what it already saw.
+
+    The warning names both halves of the disagreement, in the same attribute vocabulary the
+    re-attach warning uses, because the client's question is the same one either way — *what did I
+    ask for, and what actually applies?*
+    """
+    resolution = resolve(parse_cache_control(cache_control), deps.sessions.cache_policy_for(topic))
+    if resolution.overridden is not None:
+        deps.sessions.notify(
+            topic,
+            notices.warn(
+                topic,
+                clock,
+                _OVERRIDE_WARNING,
+                {
+                    "cache.declared": notices.rendered(resolution.overridden),
+                    "cache.effective": notices.rendered(resolution.effective),
+                },
+            ),
+        )
+    return resolution.effective
+
+
 async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
     """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses.
 
@@ -309,6 +361,16 @@ _PREFER_DESC = (
 )
 
 
+_CACHE_CONTROL_DESC = (
+    "RFC 9111 request cache directives, scoped to this whole run — every leaf and every fan-out "
+    "branch. Omit → the run participates in the gateway's response cache (the default). "
+    "`no-store` / `no-cache` → it does not. `max-age=<seconds>` → participate under a freshness "
+    "bound. `url4-use-cache` → participate, explicitly. Conflicting directives resolve to "
+    "not participating; unknown or malformed ones are ignored — a cache directive never fails a "
+    "run."
+)
+
+
 _START_DESC = (
     "Start the run for the token's topic (spec §5).\n\n"
     "Synchronous (default): hold until the terminal frame (bounded by ``SYNC_MAX_WAIT``) and "
@@ -323,7 +385,11 @@ _START_DESC = (
     "The caller's verified identity header (``X-User-Email``) is read off the inbound request and "
     "carried to the run, which renders it onto its aigateway calls. Envoy strips and re-injects it "
     "after re-verifying Cloudflare Access's assertion, so a client cannot forge it. Absent, the "
-    "run carries no identity and an aigateway in header mode rejects it."
+    "run carries no identity and an aigateway in header mode rejects it.\n\n"
+    "The optional ``Cache-Control`` header declares whether this run may participate in the "
+    "gateway's response cache. It is the standard field, so an intermediary may read and add to "
+    "it; a malformed or unknown directive is ignored rather than refused, because a cache "
+    "directive is a hint about cost and must never fail a run."
 )
 
 
@@ -347,6 +413,16 @@ async def start_run(
         str | None,
         Header(alias="X-Profile", description="Optional aigateway routing profile label."),
     ] = None,
+    # DECLARED HERE, RESOLVED IN `_converge_cache`. The run's cache intent has two carriers — this
+    # header and the WS attach frame — and the header wins when both speak. Reading it into a
+    # policy is therefore not this handler's business alone: `cache_header.parse_cache_control`
+    # turns the field into intent, and convergence reconciles it with the frame's declaration
+    # before the run is scheduled. The parameter lands here so the ingress contract and its
+    # OpenAPI documentation are one thing, not two.
+    cache_control: Annotated[
+        str | None,
+        Header(alias="Cache-Control", description=_CACHE_CONTROL_DESC),
+    ] = None,
 ) -> Response:
     """Require an attached subscriber, then schedule the run for the token's topic, forwarding
     the adopted traceparent and the caller's verified identity; hold for the terminal frame by
@@ -366,6 +442,7 @@ async def start_run(
     # document. `or None`: absent identity is None, the same "nothing to forward" every other
     # optional forwarded value uses — one representation rather than an empty mapping meaning it.
     identity = job_env.identity_from_headers(request.headers) or None
+    clock = getattr(request.app.state, "clock", _default_clock)
     await _schedule(
         deps,
         topic,
@@ -373,6 +450,7 @@ async def start_run(
         traceparent=inbound_traceparent,
         profile=x_profile,
         identity=identity,
+        cache=_converge_cache(deps, topic, cache_control, clock),
     )
     pref = _parse_prefer(prefer or "")
     if pref.respond_async:

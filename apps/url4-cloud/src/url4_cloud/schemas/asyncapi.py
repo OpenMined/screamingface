@@ -19,6 +19,23 @@ INFO_DESCRIPTION = """\
 The url4-cloud telemetry stream. One **CloudEvents 1.0** event per WebSocket message
 (subprotocol `cloudevents.json`, docs/protocol.md §8). The client *receives* lifecycle/log/span/
 cost/heartbeat/result/terminated events and *sends* stop/attach commands.
+
+`ai.url4.attach` carries more than a resume point: its optional **`cache`** object declares
+whether the run may participate in the gateway's response cache, which it otherwise does by
+default. `{"cache": {"participate": false}}` declines for the whole run — every leaf, every
+fan-out branch. Omitting the object, sending `null`, or sending `{}` all state *nothing*, which
+is not the same as declining and stays distinguishable from it.
+
+Two rules govern it, and both are announced rather than silent:
+
+- **The first attach wins.** A re-attach carrying a different policy does not restate it — the
+  run's gateway calls may already have executed under the original one, so a mid-run change would
+  make the run's cache behaviour unreproducible. The client is told with a `warn` `ai.url4.log`.
+- **A `Cache-Control` header on the `GET /` that starts the run overrides this frame**, since it
+  is the later, run-scoped statement. That override is announced the same way.
+
+The outcome comes back on `ai.url4.span` as `cache_status` / `cache_reason`, plus one run summary
+`ai.url4.log` carrying the hit, miss and bypass-by-reason totals.
 """
 
 

@@ -93,11 +93,28 @@ class ModelResponse:
     OpenAI vocabulary (``stop`` | ``length`` | ``content_filter`` |
     ``tool_calls``); ``refusal`` is the provider's refusal text when it sends
     one. Both are optional because not every provider reports either.
+
+    ``cache_status`` / ``cache_reason`` say whether the gateway that answered
+    served this round trip from its response cache, and — when it did not —
+    its own word for why. They ride HERE rather than on a seam of their own
+    because the fact is per-round-trip exactly as ``finish_reason`` is, and an
+    adapter reads both off the same response. WHY it must be reported at all: a
+    hit costs nothing upstream, so a run that cannot report one bills it as a
+    fresh call — an error that HIDES savings and is therefore never noticed.
+    ``cache_reason`` is the reporting cache's vocabulary VERBATIM; normalizing
+    it here would erase the distinction that makes "I asked for no caching and
+    something still cached" an answerable question.
     """
 
     span_id: str | None
     finish_reason: str | None
     refusal: str | None
+    # AIDEV-NOTE: this literal is spelled again on `url4.streaming.protocol.SpanData`, which is
+    # where it reaches the wire. Deliberately duplicated rather than shared: this module is the
+    # engine's dependency-free observation leaf and the protocol package is the wire contract,
+    # and coupling the two to save three tokens would be the worse trade. Change both together.
+    cache_status: Literal["hit", "miss", "bypass"] | None = None
+    cache_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +172,12 @@ def current_usage_sink() -> UsageSink | None:
 
 
 ResponseSink = Callable[..., None]  # matches ExecutionContext.report_response's kwargs:
-# (*, finish_reason: str | None, refusal: str | None) -> None
+# (*, finish_reason: str | None, refusal: str | None,
+#     cache_status: Literal["hit", "miss", "bypass"] | None = None,
+#     cache_reason: str | None = None) -> None
+# INVARIANT: the two cache kwargs are OPTIONAL. This is a live seam with callers already written
+# against it, and an adapter that learns no cache outcome must be able to say nothing rather
+# than be forced to invent one.
 
 _response_sink: contextvars.ContextVar[ResponseSink | None] = contextvars.ContextVar(
     "url4_response_sink", default=None

@@ -76,8 +76,18 @@ async def ws_endpoint(websocket: WebSocket, ticket: str | None = None) -> None:
     registry.add(topic)
     try:
         await _accept(websocket)
+        # `registry` is passed twice over, as the subscriber count AND as the session state the
+        # attach frame's cache intent lands in: both are per-topic bookkeeping with the same
+        # lifetime, and the `add` above is what guarantees the session exists before any frame
+        # arrives.
         await run_bridge(
-            websocket, stream, topic, job_runner=job_runner, clock=clock, heartbeat_s=heartbeat_s
+            websocket,
+            stream,
+            topic,
+            job_runner=job_runner,
+            sessions=registry,
+            clock=clock,
+            heartbeat_s=heartbeat_s,
         )
     finally:
         # INVARIANT: the registry count is decremented exactly once per successful

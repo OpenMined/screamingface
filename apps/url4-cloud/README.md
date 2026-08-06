@@ -147,3 +147,60 @@ caller's identity and aigateway decides, including whether an absent identity is
   `config.aigatewayBaseUrl`. Unset ⇒ the endpoint answers `503`; everything else is a code default
   (see the `models_cache_*` fields in `config.py`).
 - Cache behaviour is observable at `/metrics` (`url4_cloud_catalog_*`).
+
+## Per-run cache policy
+
+A different cache from the one above: aigateway's **response** cache, which answers an identical
+model call from a stored corpus instead of dispatching it to the provider again. Design:
+`docs/spec/2026-08-05-url4-cache-policy-spec.md`.
+
+**Caching is ON by default.** Only declining is explicit — the gateway participates unless told
+not to, so a switch that "turns caching off" is the only switch there is. Two carriers, one
+meaning, scoped to the **whole run** (every leaf, every fan-out branch — per-node intent would
+need url4 grammar and is out of scope):
+
+```sh
+# HTTP — the standard RFC 9111 request field on GET /
+curl -H 'URL4-Capability: <jwt>' -H 'Cache-Control: no-store' 'http://localhost:9108/?q=...'
+```
+
+```json
+{"type": "ai.url4.attach", "data": {"from_sequence": 1, "cache": {"participate": false}}}
+```
+
+| directive | effect |
+| --- | --- |
+| *(absent)* | participate — the default |
+| `no-store`, `no-cache` | do not participate |
+| `max-age=<seconds>` | participate under a freshness bound (see **Known-inert** below) |
+| `url4-use-cache` | participate, explicitly — the token that lets the header override a frame opt-out |
+
+Conflicting directives resolve to **not** participating: the worst case of declining is a missed
+hit, while the worst case of participating against a caller who refused is a shared answer they
+explicitly declined. Unknown and malformed directives are **ignored, never 4xx** — a cache
+directive is a hint about cost, not a term of the request.
+
+**Precedence: the header wins**, and the overridden declaration is announced as a `warn`
+`ai.url4.log` on the stream. **First attach wins** on the frame side: a re-attach with a different
+policy leaves the run's policy alone (calls may already have run under it) and warns.
+
+> **INVARIANT — url4 never sends a cache control key other than `use-cache`.** aigateway's cache
+> grammar is CLOSED to that one field, and any other key inside the request body's `cache` object
+> makes the whole request **bypass** the cache — silently, with nothing raised anywhere, even
+> alongside a valid `use-cache: true`. So every directive above collapses to participate/opt-out
+> at url4's own edge (`rest/cache_header.py` → intent, `runner/cache.py` → the wire), and a run
+> that participates sends **no `cache` field at all**. `tests/unit/test_runner_cache_body_field.py`
+> pins it as a property over every input.
+
+**Observability.** Each span carries `cache_status` (`hit`/`miss`/`bypass`) and `cache_reason` —
+the gateway's vocabulary verbatim, so `opted_out` stays distinct from `unsupported_control`. The
+run publishes one summary `ai.url4.log` with its hit, miss and **bypass-by-reason** totals
+(`runner/cache_counters.py`). Not Prometheus: a run is a one-shot Job with no scrape endpoint, and
+the layering gate keeps `url4_cloud.runner.*` out of `url4_cloud.metrics` anyway. **No counter is
+labelled by cache key, prompt or credential** — the gateway's entry key is parsed and stops at
+`runner/cache_readback.py`.
+
+**Known-inert: `max-age`.** The bound is parsed and preserved end to end, but the gateway today
+neither accepts a freshness bound nor reports an entry's `Age`, so a bounded run cannot prove a
+hit fresh and declines instead — observably, as `bypass` / `opted_out`. The honouring path is
+written and dormant; when either upstream half lands, the change is a branch, not a redesign.

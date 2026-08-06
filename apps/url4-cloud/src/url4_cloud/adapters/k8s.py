@@ -15,6 +15,7 @@ from typing import Protocol
 from kubernetes.client import ApiException
 
 from url4.streaming.interfaces import JobAlreadyExists, JobStatus, job_name
+from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import valid_traceparent
 from url4_cloud import job_env
 from url4_cloud.ports import IdentityAwareJobRunner
@@ -143,6 +144,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
         credential: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
     ) -> str:
         """Creates the Job.
 
@@ -161,6 +163,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
             traceparent=traceparent,
             profile=profile,
             identity=identity,
+            cache=cache,
         )
 
     def _schedule_blocking(
@@ -172,12 +175,15 @@ class K8sJobRunner(IdentityAwareJobRunner):
         traceparent: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
     ) -> str:
         name = job_name(topic)
         try:
             self._client.create_namespaced_job(
                 self._namespace,
-                self._manifest(name, topic, url4, deadline_s, traceparent, profile, identity),
+                self._manifest(
+                    name, topic, url4, deadline_s, traceparent, profile, identity, cache
+                ),
                 _request_timeout=self._request_timeout_s,
             )
         except ApiException as exc:
@@ -240,6 +246,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
         traceparent: str | None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
     ) -> list[dict[str, object]]:
         # INVARIANT: PER-RUN values only. Everything constant for a deployment (the NATS URL, the
         # aigateway base URL and model, the Tavily key) arrives through `envFrom` — Helm owns both
@@ -265,6 +272,14 @@ class K8sJobRunner(IdentityAwareJobRunner):
             {"name": name, "value": value}
             for name, value in job_env.identity_to_env(identity or {}).items()
         )
+        # Plain `value` again, and for a plainer reason: a cache directive names nothing about the
+        # caller and authorizes nothing — it says only whether this run may reuse a stored answer.
+        # A run that declared nothing writes nothing, so a Job spec still shows exactly what was
+        # decided rather than the default restated.
+        env.extend(
+            {"name": name, "value": value}
+            for name, value in job_env.cache_policy_to_env(cache).items()
+        )
         return env
 
     def _env_from(self) -> list[dict[str, object]]:
@@ -289,6 +304,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
         traceparent: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
     ) -> dict[str, object]:
         """Builds the Job manifest: a hardened, single-attempt Pod (no restarts, no privilege
         escalation, non-root, read-only rootfs) running `self._command` with per-run env layered
@@ -297,7 +313,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
             "name": "runner",
             "image": self._image,
             "command": self._command,
-            "env": self._env(topic, url4, deadline_s, traceparent, profile, identity),
+            "env": self._env(topic, url4, deadline_s, traceparent, profile, identity, cache),
             "securityContext": {
                 "allowPrivilegeEscalation": False,
                 "capabilities": {"drop": ["ALL"]},

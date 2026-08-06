@@ -20,6 +20,7 @@ from url4.streaming.interfaces import (
     job_name,
 )
 from url4.streaming.protocol import (
+    CachePolicy,
     CostUsageData,
     LogData,
     OutboundFrame,
@@ -137,6 +138,11 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         credential: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
+        # Accepted so this fake still satisfies the port, and deliberately NOT recorded onto
+        # `ScheduledRun`: that tuple is compared whole by an existing test, so widening it would
+        # change what an already-written assertion means. A test that needs to observe the policy
+        # subclasses this and records it there.
+        cache: CachePolicy | None = None,
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)

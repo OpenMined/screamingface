@@ -2,6 +2,7 @@ from url4.streaming.protocol.envelope import CloudEvent, source_for
 from url4.streaming.protocol.signals import (
     SEVERITY_NUMBER,
     AttachData,
+    CachePolicy,
     CostUsageData,
     ErrorData,
     HeartbeatData,
@@ -37,6 +38,7 @@ __all__ = [
     "SEVERITY_NUMBER",
     "AttachData",
     "AttachEvent",
+    "CachePolicy",
     "CloudEvent",
     "CostBreakdown",
     "CostUsageData",
