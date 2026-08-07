@@ -17,7 +17,12 @@ from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
 from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
+from url4.streaming.protocol import CachePolicy
+from url4_cloud.runner.cache import policy_to_body_field
+from url4_cloud.runner.cache_readback import CacheOutcome, read_cache_outcome, requires_revalidation
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError, routes_for
+
+_COMPLETIONS_PATH = "/v1/chat/completions"
 
 _WEB_TOOLS = [
     {
@@ -125,6 +130,7 @@ class _ModelEndpoint:
     """
 
     __slots__ = (
+        "_cache",
         "_cfg",
         "_http_client",
         "_identity_headers",
@@ -144,6 +150,7 @@ class _ModelEndpoint:
         tavily_http: httpx.AsyncClient | None,
         tavily_api_key: str | None,
         identity_headers: Mapping[str, str] | None = None,
+        cache: CachePolicy,
     ) -> None:
         self._http_client = http_client
         self._cfg = cfg
@@ -152,6 +159,10 @@ class _ModelEndpoint:
         self._tavily_http = tavily_http
         self._tavily_api_key = tavily_api_key
         self._identity_headers = identity_headers
+        # INVARIANT: held HERE and not on `cfg`. This object is built once per RUN, while `cfg` is
+        # the world every run in the process shares — and in local mode those runs share an event
+        # loop, so a policy parked on `cfg` is the previous caller's answer applied to this one.
+        self._cache = cache
 
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
@@ -167,6 +178,7 @@ class _ModelEndpoint:
             tavily_api_key=self._tavily_api_key,
             web_tools=spec.web_tools,
             identity_headers=self._identity_headers,
+            cache=self._cache,
         )
 
 
@@ -178,6 +190,7 @@ async def build_aigateway_world(
     tavily_api_key: str | None = None,
     tavily_client: httpx.AsyncClient | None = None,
     identity_headers: Mapping[str, str] | None = None,
+    cache: CachePolicy | None = None,
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
@@ -185,6 +198,12 @@ async def build_aigateway_world(
     `url4_cloud.job_env.IDENTITY_HEADER_ENV`), rendered onto every chat-completions request this
     world makes. It is per-RUN rather than per-call: one run has exactly one caller, so the
     endpoint holds it for the run's duration exactly as it holds `profile`.
+
+    ``cache`` is that run's cache policy, and it is a PARAMETER of this call rather than a field of
+    `cfg` for exactly one reason: `cfg` is the world, one description of the gateway shared by
+    every run in the process, and a per-run value there is a value one run reads out of another's.
+    ``None`` means nothing was stated, which reaches the wire as no `cache` field at all — the
+    gateway's own default — so this half never has to re-decide what silence means.
 
     Raises:
         RunnerConfigError: no models are declared, or `default_model` is not among them.
@@ -218,6 +237,9 @@ async def build_aigateway_world(
         tavily_http=tavily_http,
         tavily_api_key=tavily_api_key,
         identity_headers=identity_headers or None,
+        # `is not None`, not `or`: a policy is a pydantic model and always truthy, but spelling the
+        # fallback explicitly says what it is — an unstated policy, not a stated default.
+        cache=cache if cache is not None else CachePolicy(),
     )
 
     # WHY: `outbound=StaticIOLayer()` denies every absolute-URL fetch: an unmapped target raises
@@ -245,16 +267,27 @@ def _provider_of(model: str) -> str:
     return "anthropic"
 
 
-def _report_response(choice: _Choice) -> None:
-    """Report how one model round trip ended, onto the currently-resolving node's span.
+def _report_response(choice: _Choice, cache: CacheOutcome) -> None:
+    """Report how one model round trip ended — and whether the gateway served it from its
+    response cache — onto the currently-resolving node's span.
 
     Null-safe exactly like `_report_usage`: outside a run, or with no observer attached, the
     sink is absent and this is a no-op.
+
+    INVARIANT: reported BESIDE `_report_usage`, for the same call, or the two disagree. A hit
+    costs nothing upstream while `_report_usage` bills it as a fresh call, so a span that
+    carries the tokens without the outcome states a cost that was never paid — an error in the
+    direction that hides savings, and therefore one nobody reports.
     """
     sink = current_response_sink()
     if sink is None:
         return
-    sink(finish_reason=choice.finish_reason, refusal=choice.refusal)
+    sink(
+        finish_reason=choice.finish_reason,
+        refusal=choice.refusal,
+        cache_status=cache.status,
+        cache_reason=cache.reason,
+    )
 
 
 def _report_usage(model: str, usage: dict | None) -> None:
@@ -359,6 +392,55 @@ def _build_tavily_client(
     return client, owns
 
 
+async def _fetch_completion(
+    http_client: httpx.AsyncClient,
+    *,
+    headers: dict[str, str],
+    body: dict,
+    cache: CachePolicy,
+) -> tuple[httpx.Response, CacheOutcome]:
+    """One chat-completions round trip under this run's cache policy, plus what the gateway
+    reported about the cache — re-issued without the cache when the answer cannot be served.
+
+    The re-issue is D11's honouring half (spec §3.5). A caller that stated `max-age` gets an
+    answer it can trust: a hit whose age the gateway cannot establish is refused rather than
+    served, since the corpus is global and never expires, so "how old is this" has no bound at
+    all. It costs one extra round trip and a discarded body, and ONLY on a hit — a miss or a
+    bypass was generated just now and satisfies every bound already (`requires_revalidation`).
+
+    INVARIANT: the discarded response is read for its headers and nothing else. Its usage is
+    never reported, or the turn would be billed twice — the exact error class this read-back
+    exists to prevent.
+
+    Returns:
+        The response to consume, and the cache outcome of the round trip that produced IT — not
+        of the one that was discarded, whose only remaining trace is that it happened.
+    """
+    resp = await http_client.post(
+        _COMPLETIONS_PATH,
+        headers=headers,
+        # `policy_to_body_field` yields an EMPTY dict for a run that participates, so an ordinary
+        # run's body is byte-identical to the one this connector has always sent — which is also
+        # the smallest surface exposed to the gateway's closed cache grammar, where one
+        # unrecognised key silently costs every hit (spec §1.0).
+        json={**body, **policy_to_body_field(cache)},
+    )
+    _raise_for_status(resp)
+    outcome = read_cache_outcome(resp.headers)
+    if not requires_revalidation(cache, outcome):
+        return resp, outcome
+    # An explicit opt-out, built here rather than derived from `cache`: the run's own policy
+    # PARTICIPATES (a bound is not a refusal), and the re-issue must state the one thing the
+    # closed grammar understands — `use-cache: false` — and nothing else.
+    resp = await http_client.post(
+        _COMPLETIONS_PATH,
+        headers=headers,
+        json={**body, **policy_to_body_field(CachePolicy(participate=False))},
+    )
+    _raise_for_status(resp)
+    return resp, read_cache_outcome(resp.headers)
+
+
 async def _chat_completion_loop(
     *,
     http_client: httpx.AsyncClient,
@@ -370,6 +452,7 @@ async def _chat_completion_loop(
     tavily_api_key: str | None,
     web_tools: bool,
     identity_headers: Mapping[str, str] | None = None,
+    cache: CachePolicy,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
@@ -379,6 +462,11 @@ async def _chat_completion_loop(
     configured key would silently change every model's request payload, and without the client
     the model could call a tool nothing can execute.
 
+    INVARIANT: the cache policy is re-applied on EVERY round trip, not merged once before the
+    loop. One turn is several independently-keyed gateway calls, and a policy that lapsed after
+    the first would serve the tool-augmented continuation — the most context-specific call of the
+    turn — from a shared corpus the caller had just refused.
+
     Raises:
         ResolutionError: the loop exceeds `cfg.web_tool_max_iterations` without a final
             answer — the model keeps calling tools instead of returning content.
@@ -387,18 +475,16 @@ async def _chat_completion_loop(
     extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if offer_tools else {}
     headers = _headers(profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
-        resp = await http_client.post(
-            "/v1/chat/completions",
-            headers=headers,
-            json={"model": model, "messages": messages, **extra},
+        body = {"model": model, "messages": messages, **extra}
+        resp, outcome = await _fetch_completion(
+            http_client, headers=headers, body=body, cache=cache
         )
-        _raise_for_status(resp)
         data = _json_or_raise(resp)
         _report_usage(model, data.get("usage"))
         choice = _parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
-        _report_response(choice)
+        _report_response(choice, outcome)
         _raise_if_unusable(choice)
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:

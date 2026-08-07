@@ -35,7 +35,7 @@ import asyncio
 import secrets
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NoReturn, Protocol, runtime_checkable
+from typing import Literal, NoReturn, Protocol, runtime_checkable
 
 from url4.core.context import Context
 from url4.io.layer import (
@@ -380,7 +380,14 @@ class ExecutionContext:
                 )
             )
 
-    def report_response(self, *, finish_reason: str | None, refusal: str | None) -> None:
+    def report_response(
+        self,
+        *,
+        finish_reason: str | None,
+        refusal: str | None,
+        cache_status: Literal["hit", "miss", "bypass"] | None = None,
+        cache_reason: str | None = None,
+    ) -> None:
         """Report how one model round trip ended, under this node's current
         span. A no-op when no ``observer`` was passed to
         :func:`~url4.dag.executor.run`.
@@ -388,9 +395,18 @@ class ExecutionContext:
         INVARIANT: emits one event per call — a node making several round trips
         (a tool-calling turn) produces several events on the same span, never a
         single collapsed one.
+
+        ``cache_status`` / ``cache_reason`` describe whether the answering
+        gateway served this trip from its response cache. They DEFAULT to
+        nothing on purpose: not every world talks to a cache, and this is a
+        live seam whose existing callers must keep compiling unchanged.
         """
         if self._obs is not None:
-            self._obs.emit(ModelResponse(self._current_span_id, finish_reason, refusal))
+            self._obs.emit(
+                ModelResponse(
+                    self._current_span_id, finish_reason, refusal, cache_status, cache_reason
+                )
+            )
 
     def log(self, severity: str, body: str) -> None:
         """Emit a log line attributed to this node's current span. A no-op

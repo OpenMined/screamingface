@@ -20,10 +20,12 @@ from abc import abstractmethod
 from collections.abc import Mapping
 
 from url4.streaming.interfaces import JobRunner
+from url4.streaming.protocol import CachePolicy
 
 
 class IdentityAwareJobRunner(JobRunner):
-    """A :class:`JobRunner` whose ``schedule`` also carries the caller's verified identity.
+    """A :class:`JobRunner` whose ``schedule`` also carries the caller's verified identity and the
+    run's cache policy.
 
     ``identity`` is canonical header name → value, exactly as
     :func:`url4_cloud.job_env.identity_from_headers` produces it. An adapter serializes it onto the
@@ -34,6 +36,17 @@ class IdentityAwareJobRunner(JobRunner):
     calls aigateway are different processes, and the outgoing request does not exist yet when the
     headers arrive. Identity has to be captured, serialized, and re-rendered — the same path
     ``credential`` and ``profile`` already take.
+
+    ``cache`` takes that same path for the same reason, and is declared HERE rather than on the
+    engine's port for the same one again: whether a run participates in some GATEWAY's response
+    cache is this app's deployment concern, not a term of the url4 language. It is the run's
+    RESOLVED policy — both carriers have already been reconciled
+    (:mod:`url4_cloud.rest.cache_policy`) — or ``None`` when the caller of this port stated
+    nothing at all, which stays distinguishable from an explicit opt-out all the way down.
+
+    INVARIANT: per RUN. It must never be folded into world configuration shared by every run in a
+    process — in local mode those runs share one event loop, so a policy parked there is one
+    caller's directive that another caller's run reads.
     """
 
     @abstractmethod
@@ -47,4 +60,5 @@ class IdentityAwareJobRunner(JobRunner):
         credential: str | None = None,
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
     ) -> str: ...

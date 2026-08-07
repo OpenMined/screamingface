@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import cast
+from typing import Literal, cast
 
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
@@ -43,6 +43,7 @@ from url4.streaming.protocol import (
     TokenUsage,
 )
 from url4.streaming.protocol.taxonomy import CostBreakdown
+from url4_cloud.runner.cache_counters import RunCacheCounters
 
 _logger = logging.getLogger(__name__)
 
@@ -148,6 +149,11 @@ class _SpanState:
     # needs it, count the folded events here rather than inferring it from this list.
     finish_reasons: list[str] = field(default_factory=list)
     refusal: str | None = field(default=None)
+    # A span carries ONE cache outcome while a turn may be several gateway calls, so last-wins
+    # (see `_fold_response`). Held as a pair and written as a pair: a status from one round trip
+    # beside a reason from another would describe a call that never happened.
+    cache_status: Literal["hit", "miss", "bypass"] | None = field(default=None)
+    cache_reason: str | None = field(default=None)
 
 
 class _RunState:
@@ -162,6 +168,10 @@ class _RunState:
         self.trace_id: str | None = None
         self.root_span_id: str | None = None
         self.spans: dict[str, _SpanState] = {}
+        # Run-level, exactly like the subtree token sums beside it, and for the same reason: the
+        # per-span outcome answers "what happened to this call", while the question an operator
+        # asks is about the run. Published once at the end — see `Url4Executor.execute`.
+        self.cache_counters = RunCacheCounters()
         self._sum_input = 0
         self._sum_output = 0
         self._providers_models: set[tuple[str, str]] = set()
@@ -216,6 +226,11 @@ class _RunState:
         this run never opened is dropped rather than fabricating one, and several calls on the
         same span each keep their own entry.
         """
+        # Counted BEFORE the span guard, and that difference is deliberate. A span frame must not
+        # be fabricated for an id this run never opened — a consumer cannot tell an invented span
+        # from a real one. A run TOTAL has no such problem: the round trip happened and it either
+        # cost or saved money, so dropping it would under-report the run's own summary.
+        self.cache_counters.record(event.cache_status, event.cache_reason)
         span = self.spans.get(event.span_id) if event.span_id is not None else None
         if span is None:
             return
@@ -224,6 +239,13 @@ class _RunState:
         if event.refusal is not None:
             # Last refusal wins: for a multi-call turn the final one is the turn's outcome.
             span.refusal = event.refusal
+        if event.cache_status is not None:
+            # Same rule, and guarded on the STATUS rather than on the event: a later round trip
+            # that reported no outcome at all — an older gateway, a non-cache error path — must
+            # leave the earlier one standing rather than blanking it, because "nothing reported"
+            # is not "no cache involved".
+            span.cache_status = event.cache_status
+            span.cache_reason = event.cache_reason
 
     def _fold_usage(self, event: Usage) -> None:
         self._sum_input += event.input_tokens
@@ -270,6 +292,10 @@ class _RunState:
             # that reported no reason" into the same wire shape — intended, not an oversight.
             finish_reasons=span.finish_reasons or None,
             refusal=span.refusal,
+            # Absent for the many nodes that call no gateway at all. A default of "bypass" would
+            # read as "the cache refused this call" — a claim nobody made.
+            cache_status=span.cache_status,
+            cache_reason=span.cache_reason,
             start=start,
             end=datetime.now(UTC),
             status="ok" if event.status == "ok" else "error",
@@ -334,6 +360,43 @@ class _RunState:
         if len(self._providers_models) == 1:
             return next(iter(self._providers_models))
         return "mixed", "mixed"
+
+
+def _closing_logs(dropped: int, counters: RunCacheCounters) -> list[Traced]:
+    """The log frames a run emits about ITSELF, after its last span and before `Completed`.
+
+    Both are statements about the whole run rather than about any node, so both carry
+    ``span=None`` and neither can be made until every event has been folded. Extracted from
+    `Url4Executor.execute` so the generator stays a straight line — the run loop's shape is what
+    a reader checks for correctness, and a growing tail of end-of-run bookkeeping obscures it.
+
+    Args:
+        dropped: Log events the bridge discarded under backpressure.
+        counters: The run's cache tallies.
+
+    Returns:
+        Only the frames that have something to say. A run that dropped nothing and touched no
+        cache — the overwhelming majority, since most expressions call no gateway at all —
+        produces neither, rather than two lines reporting that nothing happened.
+    """
+    frames: list[Traced] = []
+    if dropped:
+        frames.append(
+            Traced(
+                payload=LogData.at("WARN", f"dropped {dropped} log event(s) (telemetry overflow)"),
+                span=None,
+            )
+        )
+    if counters.observed:
+        # The run's cache summary (spec §7): hits, misses and bypasses BY REASON, which is what
+        # turns "I asked for no caching and something still cached" into an answerable question.
+        frames.append(
+            Traced(
+                payload=LogData.at("INFO", counters.summary_body(), counters.attributes()),
+                span=None,
+            )
+        )
+    return frames
 
 
 def _log_frame(event: Log) -> LogData:
@@ -418,13 +481,8 @@ class Url4Executor(Executor):
                 for frame in state.map(ev):
                     yield frame
             result_str = await task
-            if bridge.dropped:
-                yield Traced(
-                    payload=LogData.at(
-                        "WARN", f"dropped {bridge.dropped} log event(s) (telemetry overflow)"
-                    ),
-                    span=None,
-                )
+            for frame in _closing_logs(bridge.dropped, state.cache_counters):
+                yield frame
             yield Completed(
                 result=state.build_result(result_str, self._result_cap),
                 subtree_cost=state.build_subtree(),

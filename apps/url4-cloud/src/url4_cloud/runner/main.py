@@ -113,6 +113,12 @@ def build_executor(
             ),
             profile=env.get(job_env.AIGATEWAY_PROFILE),
             identity_headers=job_env.identity_from_env(env),
+            # Read back per RUN, from this run's own environment — never folded into the
+            # `AigatewayConfig` above, which describes the WORLD and is shared by every run the
+            # process serves. `cache_policy_from_env` is total, so an env that states nothing
+            # yields a policy that states nothing, which the connector sends as no `cache` field
+            # at all — participation, without this half re-deciding what silence means.
+            cache=job_env.cache_policy_from_env(env),
             client=client,
             tavily_api_key=env.get(job_env.TAVILY_API_KEY),
             tavily_client=tavily_client,

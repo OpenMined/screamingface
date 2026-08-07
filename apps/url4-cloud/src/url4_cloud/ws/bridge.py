@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from datetime import datetime
+from typing import Protocol
 from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -19,6 +20,7 @@ from url4.streaming.codec import encode
 from url4.streaming.interfaces import EventConsumer, JobRunner
 from url4.streaming.protocol import (
     AttachEvent,
+    CachePolicy,
     ErrorData,
     ErrorEvent,
     HeartbeatEvent,
@@ -27,10 +29,36 @@ from url4.streaming.protocol import (
     StopEvent,
     source_for,
 )
+from url4_cloud import notices
 
 Clock = Callable[[], datetime]
 
 _InboundEvent = AttachEvent | StopEvent
+
+
+class TopicSession(Protocol):
+    """The per-topic session state a bridge reads, writes and registers itself with.
+
+    A port, not an import of the concrete registry: what a bridge needs is somewhere that outlives
+    ONE connection — first-attach-wins has to hold across a reconnect and across two sockets on the
+    same topic, which a per-connection object cannot express — and nothing more specific than that.
+    """
+
+    def declare_cache_policy(self, topic: str, policy: CachePolicy | None) -> bool:
+        """Record ``policy`` for ``topic`` if nothing is recorded yet; ``False`` if it conflicts."""
+        ...
+
+    def cache_policy_for(self, topic: str) -> CachePolicy | None:
+        """The intent standing for ``topic``, or ``None`` when none was declared."""
+        ...
+
+    def add_notifier(self, topic: str, notify: Callable[[OutboundFrame], None]) -> None:
+        """Register this connection as a destination for out-of-band frames on ``topic``."""
+        ...
+
+    def remove_notifier(self, topic: str, notify: Callable[[OutboundFrame], None]) -> None:
+        """Withdraw a destination registered by :meth:`add_notifier`."""
+        ...
 
 
 async def _send(ws: WebSocket, event: OutboundFrame) -> None:
@@ -87,6 +115,7 @@ class Bridge:
         topic: str,
         *,
         job_runner: JobRunner | None,
+        sessions: TopicSession,
         clock: Clock,
         heartbeat_s: float,
     ) -> None:
@@ -94,6 +123,7 @@ class Bridge:
         self._stream = stream
         self._topic = topic
         self._job_runner = job_runner
+        self._sessions = sessions
         self._clock = clock
         self._heartbeat_s = heartbeat_s
         # INVARIANT: bounded. `_pump` awaits `put`, so a full queue is BACKPRESSURE — the pump
@@ -125,12 +155,20 @@ class Bridge:
         Blocks for the connection's whole lifetime: either the inbound task
         observes a disconnect or the writer fails to send, and both paths set
         `_stop`, which is the only way this coroutine returns.
+
+        The connection is registered as a notice destination for its topic for exactly this
+        window, and withdrawn in `finally`. That is what lets a REST handler — which has no socket
+        of its own and, in a deployed App, no publisher either — tell an attached client that
+        something it declared was overridden. `_offer` is the sink because it is already the
+        non-blocking, drop-if-behind path every other advisory frame takes.
         """
+        self._sessions.add_notifier(self._topic, self._offer)
         inbound = asyncio.ensure_future(self._inbound())
         writer = asyncio.ensure_future(self._writer())
         try:
             await self._stop.wait()
         finally:
+            self._sessions.remove_notifier(self._topic, self._offer)
             await self._teardown(inbound, writer)
 
     async def _inbound(self) -> None:
@@ -162,6 +200,10 @@ class Bridge:
         else queues an `unsupported` error frame.
         """
         if isinstance(event, AttachEvent):
+            # ORDER MATTERS, and only in this direction: the declaration is recorded before the
+            # subscription is (re)started, so a run cannot be scheduled — nor a replayed frame
+            # delivered — under a policy the session state has not seen yet.
+            self._declare_cache(event.data.cache)
             self._resubscribe(event.data.from_sequence)
         elif isinstance(event, StopEvent):
             if self._job_runner is not None:
@@ -176,6 +218,36 @@ class Bridge:
                         event.id,
                     )
                 )
+
+    def _declare_cache(self, policy: CachePolicy | None) -> None:
+        """Carry the attach frame's cache intent into the topic's session state.
+
+        FIRST ATTACH WINS (spec §5.2). A re-attach — a reconnect, a `from_sequence` resume, or a
+        second socket on the same topic — does NOT restate the policy: the run's aigateway calls
+        may already have executed under the standing one, so accepting a change mid-run would make
+        the run's cache behaviour unreproducible after the fact.
+
+        WHY it warns rather than nacks: the frame is otherwise perfectly valid and its
+        resubscription is honoured in full, so refusing it would cost the client its replay over a
+        directive about cost. `warn` says the intent was dropped, loudly enough to debug "I asked
+        for no caching and something still cached" and quietly enough not to break the resume.
+        """
+        if self._sessions.declare_cache_policy(self._topic, policy):
+            return
+        self._offer(
+            notices.warn(
+                self._topic,
+                self._clock,
+                "the run's cache policy is fixed by its first attach; this re-attach declared a "
+                "different one and it was ignored",
+                {
+                    "cache.declared": notices.rendered(policy),
+                    "cache.effective": notices.rendered(
+                        self._sessions.cache_policy_for(self._topic)
+                    ),
+                },
+            )
+        )
 
     def _resubscribe(self, cursor: int | None) -> None:
         # WHY: an attach mid-connection (e.g. client resuming after a gap) replaces
@@ -254,6 +326,7 @@ async def run_bridge(
     topic: str,
     *,
     job_runner: JobRunner | None,
+    sessions: TopicSession,
     clock: Clock,
     heartbeat_s: float,
 ) -> None:
@@ -263,5 +336,11 @@ async def run_bridge(
     (client disconnect or an unrecoverable send failure).
     """
     await Bridge(
-        ws, stream, topic, job_runner=job_runner, clock=clock, heartbeat_s=heartbeat_s
+        ws,
+        stream,
+        topic,
+        job_runner=job_runner,
+        sessions=sessions,
+        clock=clock,
+        heartbeat_s=heartbeat_s,
     ).run()

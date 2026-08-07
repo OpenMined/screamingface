@@ -33,6 +33,31 @@ Result arrives on the WebSocket stream:
 replay via `ai.url4.attach`, or cancel via `ai.url4.stop`:
 
 ![Streaming, resume and cancel](/diagrams/url4-cloud-execution-stream.svg)
+
+## Response caching
+
+A run **participates in the gateway's response cache by default**: an identical call is answered
+from the stored corpus instead of being dispatched to the provider again. Only *declining* is
+explicit, and there are two carriers for it — one per execution flow above:
+
+- **`Cache-Control` on this `GET /`** — `no-store` / `no-cache` decline, `max-age=<seconds>`
+  states a freshness bound, `url4-use-cache` opts in explicitly. It is the standard RFC 9111
+  field, deliberately, so an intermediary may read it and add to it; conflicting directives
+  resolve to declining, and an unknown or malformed one is ignored. A cache directive is a hint
+  about cost, never a term of the request, so it never fails a run.
+- **`cache` on the `ai.url4.attach` frame** — the same intent stated when the WebSocket attaches,
+  for a client that has no other request to hang a header on. Described in the companion
+  **AsyncAPI** doc at `/asyncapi.json`.
+
+**The header wins** when both carriers speak, and the overridden declaration is announced on the
+stream as a `warn` `ai.url4.log` rather than dropped silently. The policy covers the **whole
+run** — every leaf and every fan-out branch — because one url4 expression is many gateway calls
+and a per-node intent is not expressible in the grammar.
+
+The outcome comes back: every span carries `cache_status` (`hit` / `miss` / `bypass`) and
+`cache_reason` in the gateway's own vocabulary, and the run publishes one summary `ai.url4.log`
+with its hit, miss and bypass-by-reason totals. Nothing in that telemetry is labelled by cache
+key, prompt or credential.
 """
 
 TAGS: list[dict[str, str]] = [

@@ -20,6 +20,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
+from url4.streaming.protocol import CachePolicy
+
 # --- per-run: written by the App onto the Job spec -------------------------------------------
 TOPIC = "URL4_CLOUD_TOPIC"
 EXPRESSION = "URL4_CLOUD_EXPRESSION"
@@ -99,6 +101,74 @@ def identity_from_env(env: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+CACHE_PARTICIPATE = "URL4_CLOUD_CACHE_PARTICIPATE"
+"""Whether this run may participate in the gateway's response cache — `"true"` / `"false"`.
+
+Per-run for the same reason ``AIGATEWAY_PROFILE`` is: it does not exist until a caller states it,
+so Helm cannot supply it and the App must. INVARIANT: it is written per RUN and never onto shared
+world configuration — the run mode's ``AigatewayConfig`` describes the gateway for every run in the
+process, and a per-run value parked there is one caller's directive another caller's run can read.
+
+Absent means the App stated nothing, which the run mode carries through as "not stated" rather
+than resolving: the D1 default belongs to convergence (:mod:`url4_cloud.rest.cache_policy`) and is
+decided exactly once, there.
+"""
+
+CACHE_MAX_AGE_S = "URL4_CLOUD_CACHE_MAX_AGE_S"
+"""The caller's freshness bound in whole seconds, when they stated one.
+
+url4-INTERNAL: it is never sent to the gateway, whose cache-control grammar is closed to a single
+key and BYPASSES on any other. It travels only so the value survives to read-back, where an entry's
+age can be compared against it.
+"""
+
+_TRUE, _FALSE = "true", "false"
+
+
+def cache_policy_to_env(policy: CachePolicy | None) -> dict[str, str]:
+    """Render a run's cache policy as the Job env keys that carry it.
+
+    Args:
+        policy: The run's RESOLVED policy, or ``None`` when this hop was told nothing — a Job
+            scheduled directly rather than through the REST edge. ``None`` renders NOTHING, so an
+            unstated policy stays distinguishable from a stated one all the way down.
+
+    Returns:
+        Only the fields the policy actually states. A `None` field is silence, and rendering it as
+        a literal would turn "nobody said" into "somebody said the default".
+    """
+    if policy is None:
+        return {}
+    env: dict[str, str] = {}
+    if policy.participate is not None:
+        env[CACHE_PARTICIPATE] = _TRUE if policy.participate else _FALSE
+    if policy.max_age is not None:
+        env[CACHE_MAX_AGE_S] = str(policy.max_age)
+    return env
+
+
+def cache_policy_from_env(env: Mapping[str, str]) -> CachePolicy:
+    """Read a run's cache policy back out of its environment. Total — it never raises.
+
+    Returns a policy rather than ``CachePolicy | None`` because an all-unstated policy already IS
+    "nothing declared": :func:`url4_cloud.runner.cache.policy_to_body_field` renders it as an absent
+    `cache` field, which the gateway reads as participation. So a Job whose env carries no policy
+    behaves like every other one WITHOUT the run mode re-deciding what silence means.
+
+    An unreadable ``CACHE_PARTICIPATE`` resolves to **opt out**, not to silence. This env is
+    App-written, so an unrecognised value is a bug rather than caller input, and of the two wrong
+    answers the cheap one — a missed hit — is the one to take: the expensive one serves a run a
+    shared, permanent answer it may have explicitly refused. An unreadable bound is simply dropped;
+    it is advisory and cannot be got wrong in a direction that costs anything.
+    """
+    raw_participate = env.get(CACHE_PARTICIPATE)
+    raw_max_age = env.get(CACHE_MAX_AGE_S)
+    return CachePolicy(
+        participate=None if raw_participate is None else raw_participate.strip().lower() == _TRUE,
+        max_age=int(raw_max_age) if raw_max_age is not None and raw_max_age.isdigit() else None,
+    )
+
+
 # --- per-deploy: named by the chart, injected via envFrom ------------------------------------
 NATS_URL = "URL4_CLOUD_NATS_URL"
 AIGATEWAY_BASE_URL = "AIGATEWAY_BASE_URL"
@@ -142,6 +212,8 @@ WRITTEN_BY_APP = frozenset(
         JOB_DEADLINE_S,
         TRACEPARENT,
         AIGATEWAY_PROFILE,
+        CACHE_PARTICIPATE,
+        CACHE_MAX_AGE_S,
         *IDENTITY_HEADER_ENV.values(),
     }
 )
@@ -157,6 +229,8 @@ __all__ = [
     "AIGATEWAY_BASE_URL",
     "AIGATEWAY_MODEL",
     "AIGATEWAY_PROFILE",
+    "CACHE_MAX_AGE_S",
+    "CACHE_PARTICIPATE",
     "DEFAULT_NATS_URL",
     "DEPLOY_TIME",
     "EXPRESSION",
@@ -170,6 +244,8 @@ __all__ = [
     "TOPIC",
     "TRACEPARENT",
     "WRITTEN_BY_APP",
+    "cache_policy_from_env",
+    "cache_policy_to_env",
     "identity_from_env",
     "identity_from_headers",
     "identity_to_env",
