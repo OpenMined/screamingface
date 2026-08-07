@@ -16,10 +16,15 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.podAnnotations }}
       annotations:
+        # Roll the Pods when the ConfigMap changes. Without this a `helm upgrade` that flips
+        # AIGW_OPENROUTER_ENABLED (or any other key) updates the ConfigMap and changes nothing
+        # else — envFrom is read once at container start, so every Pod keeps the old value and
+        # the upgrade reports success. Same guard aigateway-ui already carries.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "aigateway.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
