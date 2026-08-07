@@ -18,17 +18,13 @@ router = APIRouter()
 _CACHE_CONTROL = "public, max-age=300, must-revalidate"
 
 
-def _registry(request: Request) -> BenchmarkRegistry:
-    return request.app.state.benchmarks
-
-
 def _json_bytes(value: object) -> bytes:
     return json.dumps(
         value,
         ensure_ascii=False,
         allow_nan=False,
         separators=(",", ":"),
-    ).encode()
+    ).encode("utf-8")
 
 
 def _response(value: object, if_none_match: str | None) -> Response:
@@ -40,17 +36,21 @@ def _response(value: object, if_none_match: str | None) -> Response:
     return Response(content=body, media_type="application/json", headers=headers)
 
 
-@router.get("/v1/benchmarks", tags=["Catalog"], summary="List the installed Benchmarks")
+def _registry(request: Request) -> BenchmarkRegistry:
+    return request.app.state.benchmarks
+
+
+@router.get(
+    "/v1/benchmarks",
+    tags=["Catalog"],
+    summary="List the installed Benchmarks",
+)
 async def list_benchmarks(
     request: Request,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
-    registry = _registry(request)
     return _response(
-        {
-            "object": "list",
-            "data": [benchmark.catalog_entry() for benchmark in registry],
-        },
+        {"object": "list", "data": [benchmark.catalog_entry() for benchmark in _registry(request)]},
         if_none_match,
     )
 

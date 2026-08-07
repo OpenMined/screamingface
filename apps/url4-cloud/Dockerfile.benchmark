@@ -1,0 +1,81 @@
+# syntax=docker/dockerfile:1.7
+# The BENCHMARK image — the url4-cloud Runner plus every registered benchmark's assets.
+#
+#   docker build -f apps/url4-cloud/Dockerfile -t url4-cloud:dev .
+#   docker build -f apps/url4-cloud/Dockerfile.benchmark \
+#       --build-arg BASE=url4-cloud:dev \
+#       -t url4-cloud-benchmark:dev .
+#
+# INVARIANT: the benchmark image carries every registered Benchmark's WHOLE dataset. There is
+# deliberately no build arg to truncate any of them.
+#
+# WHY: run size is an EXPRESSION concern — `…!'case';iteration.slice=0:5`
+# picks how many declared cases a run touches, needs no rebuild, and lives inside the recipe
+# identity the scoreboard hashes. A build-time cap addressed the same need one layer down and
+# produced a DIFFERENT ARTIFACT THAT LOOKS IDENTICAL: same tags, a manifest still advertising
+# `cases: 100`, and nothing in the result recording the truncation — so a partial run was
+# indistinguishable from a full one, in the flattering direction. It also bought almost nothing,
+# because `load_dataset` downloads the full split regardless and only the file writes were
+# skipped. `prepare --limit` still exists for a local generator run; it just cannot shape a
+# deployable image any more.
+#
+# WHY: use a SEPARATE image layered on the base rather than a stage in the main Dockerfile:
+#
+#   - ISOLATION OF CONCERNS: benchmark assets grow as benchmarks are added, and they change for
+#     reasons that have nothing to do with the engine. Keeping them in their own artifact keeps
+#     the client-facing control-plane image lean and gives grading assets their own build inputs.
+#     NOTE: this does NOT keep assets out of deployments that never benchmark — the chart makes
+#     this image the ONLY Runner image, so every deployment pulls it;
+#   - dataset revisions rebuild THIS image only. CAVEAT: they do not yet ship independently —
+#     `_helpers.tpl` derives this image's tag from the control plane's, and the release lane
+#     builds it only inside a version-gated `url4-cloud-v*` release, so a benchmark-only change
+#     still rides an engine version bump. Independent benchmark versioning needs an explicit tag
+#     plus a control-plane/Runner compatibility check;
+#   - `datasets` (and its pyarrow tail) is installed in a build stage that is thrown away — the
+#     runtime image never carries it. `prepare.py` imports it through `importlib` for exactly
+#     this reason.
+#
+# INVARIANT: build context is the REPO ROOT, like the base image — `prepare` runs from the
+# installed package, which path-depends on `packages/url4`.
+#
+# AIDEV-NOTE: datasets are welded to an image, so adding a benchmark means a rebuild. Anyone who
+# can pull the image has the rubrics — accepted: DRACO's rubrics are PUBLIC (the upstream
+# `perplexity-ai/draco` dataset downloads without credentials, and each Case Result publishes its
+# graded criteria), so this image needs no registry secrecy. The alternative is a mounted volume
+# plus `URL4_RUNNER_CONFIG` pointing beside it — which needs a volume the Job spec does not have
+# today (read-only rootfs, one emptyDir at /tmp). Decide before this leaves experimentation.
+
+ARG BASE=url4-cloud:dev
+
+# --- build stage: download the dataset, emit the declared world -----------------------------
+FROM ${BASE} AS prepare
+# root only for the build stage; the runtime image below drops back to uid 1000.
+USER 0
+WORKDIR /app/apps/url4-cloud
+# WHY: `uv` is copied in because the base image's uv-created venv has no pip and its runtime
+# stage does not install uv. Reusing the base image's package manager keeps one installer across
+# both Dockerfiles.
+# Keep this digest and the exact datasets version synchronized with DRACO's preparer revision.
+# Changing either changes the bytes that may be baked into an image.
+COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 /usr/local/bin/uv /usr/local/bin/uv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /app/apps/url4-cloud/.venv/bin/python --quiet "datasets==5.0.0"
+RUN mkdir -p /opt/benchmarks/draco \
+ && /app/apps/url4-cloud/.venv/bin/python -m url4_cloud.benchmarks.draco.prepare \
+      --out /opt/benchmarks/draco
+
+# --- runtime: the base image + the prepared assets -------------------------------------------
+FROM ${BASE} AS runtime
+LABEL org.opencontainers.image.title="url4-cloud-benchmark" \
+      org.opencontainers.image.description="url4-cloud Runner with registered Benchmark assets"
+USER 0
+# `rubrics/` ships too — DRACO's installed runtime reads it off disk. It is deliberately NOT a
+# data route: the weights must be unreachable from an expression, or a judge prompt could be
+# handed the thing it is being kept blind to.
+COPY --from=prepare --chown=1000:1000 /opt/benchmarks /opt/benchmarks
+# The Benchmark definition installs its own namespaced routes. This one root points those routes
+# at the immutable assets baked into this image; the shared url4.toml remains model-only.
+ENV URL4_BENCHMARK_ASSETS=/opt/benchmarks
+USER 1000
+# Unchanged from the base: `url4-cloud` (serve) by default, `["url4-cloud","run"]` for a Job.
+CMD ["url4-cloud"]

@@ -6,11 +6,14 @@ the App **Deployment · Service · ConfigMap · Secret**, one of two edge object
 (**ServiceAccount · Role · RoleBinding**) that lets the App schedule Runner Jobs in its own
 namespace.
 
-**One image, two modes.** The Deployment runs `url4-cloud` (which defaults to `serve`); every
-Runner Job runs the **same** image with `command: ["url4-cloud", "run"]`. There is no second
-`runner.image` block and no separate template helper for it any more — `URL4_CLOUD_RUNNER_IMAGE`
-renders from the App's own `image:` block via `url4-cloud.image`, so the two can no longer drift
-out of version alignment.
+**Two paired images.** The Deployment runs the dataset-free control-plane image. Runner Jobs run
+the matching `-benchmark` image with `command: ["url4-cloud", "run"]`; that image layers private
+grading assets onto the same engine release. `runner.image.tag` defaults to the control-plane
+tag, so upgrades remain paired while rubrics stay off the client-facing pod.
+
+By default a control-plane repository such as `registry.example/url4-cloud` yields Runner image
+`registry.example/url4-cloud-benchmark`. Override `runner.image.repository` only when a registry
+uses another name.
 
 ## Install
 
@@ -114,11 +117,11 @@ maintained as a second definition.)
 
 What the App schedules:
 
-- the App's **own image** in run mode — `command: ["url4-cloud", "run"]`, pinned in
+- the paired benchmark image in run mode — `command: ["url4-cloud", "run"]`, pinned in
   `url4_cloud.adapters.k8s` rather than in values: the command is the mode switch and nothing
   else, so a chart override could only ever name a mode the image does not have. The image
-  reference itself stays a value (`URL4_CLOUD_RUNNER_IMAGE`, rendered from `image:`) so a staged
-  rollout can still pin Jobs to a different tag than the Deployment
+  reference itself stays a value (`URL4_CLOUD_RUNNER_IMAGE`, rendered from `runner.image`) so a
+  staged rollout can still pin Jobs to a different tag than the Deployment
 - run-once — `backoffLimit: 0`, `restartPolicy: Never` (retry = new token, new job; spec §2.3)
 - `activeDeadlineSeconds` = `config.jobDeadlineS`, surfacing as `timed_out`
 - `enableServiceLinks: false` — kubelet's legacy Docker-link vars would export

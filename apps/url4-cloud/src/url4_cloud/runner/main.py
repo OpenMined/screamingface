@@ -9,6 +9,7 @@ layering note in :mod:`url4_cloud.runner`.
 import asyncio
 import os
 from collections.abc import Mapping
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from url4.streaming.lifecycle import run
 from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
 from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
+from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.benchmarks.candidate import install_candidate_invocation
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world
@@ -97,7 +99,7 @@ def build_executor(
     ``AIGATEWAY_SECRET_KEY`` — never logged. It is read here and forwarded to
     ``build_aigateway_world`` as ``tavily_api_key``; when it is unset, the built world disables
     the web-search/web-fetch tool loop entirely (deny-by-default — see
-    ``connector._build_tavily_client``), rather than leaving it half-configured.
+    ``web_tools.build_client``), rather than leaving it half-configured.
     """
 
     async def _world() -> World:
@@ -111,7 +113,7 @@ def build_executor(
             # WHY: a world with no [aigateway] table is a legitimate empty world; the node itself
             # denies everything undeclared.
             return deny_by_default_world(), None
-        # WHY no credential check here any more: aigateway runs `cloudflare_headers` when deployed
+        # WHY: no credential check here; aigateway runs `cloudflare_headers` when deployed
         # and `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to
         # demand. Identity is forwarded when present and simply absent locally, where every caller
         # is anonymous. The old unconditional token requirement made every deployed run fail
@@ -123,6 +125,7 @@ def build_executor(
                 models=section.models,
                 allow_outbound=section.allow_outbound,
                 timeout_s=section.timeout_s,
+                web_tool_max_iterations=section.web_tool_max_iterations,
             ),
             profile=env.get(job_env.AIGATEWAY_PROFILE),
             identity_headers=job_env.identity_from_env(env),
@@ -137,7 +140,10 @@ def build_executor(
             tavily_client=tavily_client,
         )
         if len(benchmarks):
-            try:
+            # WHY: installation can fail through any concrete Benchmark adapter. AsyncExitStack
+            # guarantees the already-open model world closes without a catch-all exception clause.
+            async with AsyncExitStack() as cleanup:
+                cleanup.push_async_callback(world.aclose)
                 install_candidate_invocation(world.node)
                 benchmarks.install(
                     world.node,
@@ -147,9 +153,7 @@ def build_executor(
                         else assets_root(env)
                     ),
                 )
-            except Exception:
-                await world.aclose()
-                raise
+                cleanup.pop_all()
         return world.node, world.aclose
 
     return Url4Executor(world_factory=_world)
@@ -158,7 +162,7 @@ def build_executor(
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
     async def _main() -> None:
         params = params_from_env(os.environ)
-        executor = build_executor(os.environ)
+        executor = build_executor(os.environ, benchmarks=BUILTIN_BENCHMARKS)
         traceparent = os.environ.get(job_env.TRACEPARENT)
         await run(
             JetStreamPublisher(params.nats_url),

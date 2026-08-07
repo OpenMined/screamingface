@@ -41,8 +41,19 @@ DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
 """Where the declared world lives unless :data:`job_env.RUNNER_CONFIG` overrides it. Image-level
 wiring: the App never writes that variable — the file is baked into the image."""
 
-_AIGATEWAY_KEYS = frozenset({"base_url", "default_route", "models", "allow_outbound", "timeout_s"})
-_MODEL_KEYS = frozenset({"id", "web_tools"})
+DEFAULT_WEB_TOOL_MAX_ITERATIONS = 5
+
+_AIGATEWAY_KEYS = frozenset(
+    {
+        "base_url",
+        "default_route",
+        "models",
+        "allow_outbound",
+        "timeout_s",
+        "web_tool_max_iterations",
+    }
+)
+_MODEL_KEYS = frozenset({"id", "web_tools", "native_web_search"})
 _RESERVED_TABLES = frozenset({"data", "commands", "holdings", "identities"})
 _TOP_LEVEL_KEYS = frozenset({"aigateway"})
 _MODEL_ID_RE = re.compile(r"[A-Za-z0-9\-_.~]+(?:/[A-Za-z0-9\-_.~]+)*", re.ASCII)
@@ -70,6 +81,7 @@ class ModelSpec:
 
     id: str
     web_tools: bool = False
+    native_web_search: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +93,7 @@ class AigatewaySection:
     models: tuple[ModelSpec, ...]
     allow_outbound: bool = True
     timeout_s: float = 60.0
+    web_tool_max_iterations: int = DEFAULT_WEB_TOOL_MAX_ITERATIONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +173,11 @@ def _parse_aigateway(table: Mapping[str, object], env: Mapping[str, str]) -> Aig
         models=models,
         allow_outbound=_bool(table, "allow_outbound", default=True),
         timeout_s=_float(table, "timeout_s", 60.0),
+        web_tool_max_iterations=_positive_int(
+            table,
+            "web_tool_max_iterations",
+            DEFAULT_WEB_TOOL_MAX_ITERATIONS,
+        ),
     )
     section = _apply_env(section, env)
     _require_declared(section.default_model, models)
@@ -228,12 +246,25 @@ def _model_table(table: Mapping[str, object]) -> ModelSpec:
     raw_id = table.get("id")
     if raw_id is None:
         raise WorldConfigError("[[aigateway.models]] entry is missing its `id`")
-    web_tools = table.get("web_tools", False)
-    if not isinstance(web_tools, bool):
+    web_tools = _model_flag(table, "web_tools")
+    native_web_search = _model_flag(table, "native_web_search")
+    if web_tools and native_web_search:
         raise WorldConfigError(
-            f"[[aigateway.models]] web_tools must be a boolean, got {web_tools!r}"
+            f"[[aigateway.models]] {raw_id!r} declares both web_tools and native_web_search — "
+            "a route serves one retrieval mechanism"
         )
-    return ModelSpec(id=_model_id(str(raw_id)), web_tools=web_tools)
+    return ModelSpec(
+        id=_model_id(str(raw_id)),
+        web_tools=web_tools,
+        native_web_search=native_web_search,
+    )
+
+
+def _model_flag(table: Mapping[str, object], key: str) -> bool:
+    value = table.get(key, False)
+    if not isinstance(value, bool):
+        raise WorldConfigError(f"[[aigateway.models]] {key} must be a boolean, got {value!r}")
+    return value
 
 
 def _model_id(model: str) -> str:
@@ -278,6 +309,13 @@ def _float(table: Mapping[str, object], key: str, default: float) -> float:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         raise WorldConfigError(f"[aigateway] {key} must be a number, got {value!r}") from None
+
+
+def _positive_int(table: Mapping[str, object], key: str, default: int) -> int:
+    value = table.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise WorldConfigError(f"[aigateway] {key} must be a positive integer, got {value!r}")
+    return value
 
 
 __all__ = [

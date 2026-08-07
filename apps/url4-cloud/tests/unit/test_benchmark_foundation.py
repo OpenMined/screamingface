@@ -36,8 +36,9 @@ from url4_cloud.model_outcomes import (
     capture_model_outcomes,
     record_model_outcome,
 )
-from url4_cloud.runner.connector import AigatewayConfig, _is_blocked, build_aigateway_world
+from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.main import build_executor
+from url4_cloud.runner.web_tools import _is_blocked
 from url4_cloud.testing import InMemoryEventStream
 from url4_cloud.world_config import AigatewaySection, ModelSpec, WorldConfig
 

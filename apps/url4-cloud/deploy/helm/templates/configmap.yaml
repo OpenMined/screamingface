@@ -17,12 +17,12 @@ data:
   # INVARIANT: Jobs are created in the release namespace only — this must match the namespace the
   # Role/RoleBinding bind, or the App's ServiceAccount is not authorized to create them.
   URL4_CLOUD_NAMESPACE: {{ .Release.Namespace | quote }}
-  # The Job runs THIS SAME image in its run mode (`url4-cloud run`) — one artifact, two modes.
-  # WHY the App is told its own image rather than discovering it: a process cannot reliably read
+  # The image every Runner Job runs, in its run mode (`url4-cloud run`).
+  # WHY: the App is told the image because a process cannot reliably read
   # back the image reference it was started from (that lives in the pod spec, needs RBAC on pods,
-  # and the Downward API does not expose it). Rendering the same `image:` the Deployment gets is
-  # what keeps the Job and the App on one version through an upgrade.
-  URL4_CLOUD_RUNNER_IMAGE: {{ include "url4-cloud.image" . | quote }}
+  # and the Downward API does not expose it). The derived image carries private benchmark assets
+  # while retaining the control plane's resolved tag.
+  URL4_CLOUD_RUNNER_IMAGE: {{ include "url4-cloud.runnerImage" . | quote }}
   {{- with .Values.runner.resources }}
   # The Runner's own requests/limits. Carried as JSON because a ConfigMap value is a string and
   # pydantic-settings parses complex fields as JSON — so the k8s `resources` block travels
@@ -53,7 +53,7 @@ data:
   # no App change and no restart.
   URL4_CLOUD_RUNNER_ENV_CONFIGMAP: {{ include "url4-cloud.fullname" . }}-runner-env
   {{- if .Values.tavily.enabled }}
-  # WHY only the Secret's NAME travels: the App attaches it to each Job with `envFrom.secretRef`
+  # WHY: only the Secret's NAME travels; the App attaches it to each Job with `envFrom.secretRef`
   # and never reads the credential, so nothing secret belongs in this ConfigMap. The Secret's KEY
   # must be `TAVILY_API_KEY` — `envFrom` injects keys under their own names and does no renaming.
   # Absent => the Runner never sees TAVILY_API_KEY and web tools stay off (dec:W5).

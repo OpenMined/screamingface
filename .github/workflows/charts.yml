@@ -17,6 +17,7 @@ on:
       - "apps/aigateway/charts/**"
       - "apps/aigateway-ui/charts/**"
       - "apps/aigateway-ui/Dockerfile"
+      - "apps/url4-cloud/deploy/helm/**"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
       # The verifier compares the chart's image against the images these lanes publish, and checks
@@ -24,12 +25,14 @@ on:
       # installable and permanently ImagePullBackOff, so editing either lane has to re-run the
       # comparison. `dev-build-*` is a glob because the cache-scope check spans all of them.
       - ".github/workflows/release-aigateway-ui.yml"
+      - ".github/workflows/release-url4-cloud.yml"
       - ".github/workflows/dev-build-*.yml"
   pull_request:
     paths:
       - "apps/aigateway/charts/**"
       - "apps/aigateway-ui/charts/**"
       - "apps/aigateway-ui/Dockerfile"
+      - "apps/url4-cloud/deploy/helm/**"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
       # The verifier compares the chart's image against the images these lanes publish, and checks
@@ -37,6 +40,7 @@ on:
       # installable and permanently ImagePullBackOff, so editing either lane has to re-run the
       # comparison. `dev-build-*` is a glob because the cache-scope check spans all of them.
       - ".github/workflows/release-aigateway-ui.yml"
+      - ".github/workflows/release-url4-cloud.yml"
       - ".github/workflows/dev-build-*.yml"
   workflow_dispatch:
 
@@ -67,10 +71,10 @@ jobs:
           helm lint apps/aigateway/charts/aigateway
           helm lint apps/aigateway/charts/db
           helm lint apps/aigateway-ui/charts/aigateway-ui
+          helm lint apps/url4-cloud/deploy/helm
 
-      # Renders both charts and asserts on the parsed output — including the cross-chart
-      # properties neither chart can check alone: the console points at the Service the gateway
-      # renders, and the gateway admits the label the console's Pods carry.
+      # Renders the charts and asserts on parsed output, including the cross-chart console/gateway
+      # contract and url4-cloud's paired Runner image.
       - name: Verify chart wiring
         run: python3 .github/scripts/verify_chart_wiring.py
 

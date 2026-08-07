@@ -131,7 +131,7 @@ jobs:
           fi
 
   image:
-    name: Build the image
+    name: Build the deployable images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -139,6 +139,9 @@ jobs:
       # context, mirrored /app layout, editable path-dep resolution at runtime) and nothing built
       # it until a release tag — so a break surfaced at release time, on the release path.
       - uses: docker/setup-buildx-action@v4
+        with:
+          # Let the benchmark build consume the PR-built base without publishing it.
+          driver: docker
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -146,14 +149,25 @@ jobs:
           push: false
           load: true
           tags: url4-cloud:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Build the DRACO benchmark image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/url4-cloud/Dockerfile.benchmark
+          build-contexts: |
+            url4-cloud-ci=docker-image://url4-cloud:ci
+          build-args: |
+            BASE=url4-cloud-ci
+          push: false
+          load: true
+          tags: url4-cloud-benchmark:ci
       # Both argv modes must at least start from the built image: the entrypoint is the mode
       # switch, so a broken one is a deployment that cannot run either half.
       - name: Smoke both modes
         run: |
           docker run --rm url4-cloud:ci url4-cloud --help
           docker run --rm url4-cloud:ci url4-cloud run --help
+          docker run --rm url4-cloud-benchmark:ci url4-cloud run --help
 
   chart:
     name: Render the Helm chart

@@ -6,9 +6,7 @@ resolves and runs an expression against.
 
 from __future__ import annotations
 
-import asyncio
-import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import httpx
@@ -18,48 +16,38 @@ from url4.io.static import StaticIOLayer
 from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
-from url4_cloud.model_outcomes import ModelOutcome, bind_model_outcome, record_model_outcome
+from url4_cloud.model_outcomes import bind_model_outcome, record_model_outcome
 from url4_cloud.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
 )
 from url4_cloud.runner.cache import policy_to_body_field
 from url4_cloud.runner.cache_readback import CacheOutcome, read_cache_outcome, requires_revalidation
+from url4_cloud.runner.errors import RunnerRequestError
+from url4_cloud.runner.model_response import (
+    Choice,
+    parse_choice,
+    raise_if_unusable,
+)
+from url4_cloud.runner.request_parameters import (
+    WEB_SEARCH_PARAM,
+    apply_retrieval_policy,
+    caller_exclusions,
+    model_params,
+    wants_web_search,
+)
+from url4_cloud.runner.web_tools import (
+    WEB_TOOLS,
+    WebToolRuntime,
+    append_tool_results,
+    build_client,
+    build_runtime,
+    truncate_tool_result,
+)
 from url4_cloud.world_config import ModelSpec, WorldConfigError, routes_for
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
-
-_WEB_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": (
-                "Search the web for current or real-time information. Use when the answer "
-                "needs up-to-date data not in your training."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"query": {"type": "string", "description": "The search query."}},
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_fetch",
-            "description": "Fetch and extract the main content of a web page from a known URL.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "The absolute URL to fetch."}
-                },
-                "required": ["url"],
-            },
-        },
-    },
-]
+_truncate_tool_result = truncate_tool_result
 
 
 @dataclass(frozen=True)
@@ -172,20 +160,28 @@ class _ModelEndpoint:
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
-        spec = self._routes[request.path]
-        return await _chat_completion_loop(
-            http_client=self._http_client,
-            cfg=self._cfg,
-            profile=self._profile,
-            model=spec.id,
-            messages=_messages(request.context, request.intent),
-            tavily_http=self._tavily_http,
-            tavily_api_key=self._tavily_api_key,
-            web_tools=spec.web_tools,
-            retrieval_policy=current_retrieval_policy(),
-            identity_headers=self._identity_headers,
-            cache=self._cache,
-        )
+        try:
+            spec = self._routes[request.path]
+            retrieval_policy = current_retrieval_policy()
+            params = apply_retrieval_policy(request.params, retrieval_policy)
+            return await _chat_completion_loop(
+                http_client=self._http_client,
+                cfg=self._cfg,
+                profile=self._profile,
+                messages=_messages(request.context, request.intent),
+                params=params,
+                spec=spec,
+                tavily_http=self._tavily_http,
+                tavily_api_key=self._tavily_api_key,
+                retrieval_policy=retrieval_policy,
+                identity_headers=self._identity_headers,
+                cache=self._cache,
+            )
+        except RunnerRequestError as exc:
+            error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
+            if exc.outcome is not None:
+                bind_model_outcome(error, exc.outcome)
+            raise error from exc
 
 
 async def build_aigateway_world(
@@ -235,7 +231,7 @@ async def build_aigateway_world(
 
     normalized_tavily_key = tavily_api_key.strip() if tavily_api_key else None
     normalized_tavily_key = normalized_tavily_key or None
-    tavily_http, owns_tavily_client = _build_tavily_client(
+    tavily_http, owns_tavily_client = build_client(
         cfg,
         normalized_tavily_key,
         tavily_client,
@@ -273,13 +269,7 @@ async def build_aigateway_world(
     )
 
 
-def _provider_of(model: str) -> str:
-    if "/" in model:
-        return model.split("/", 1)[0]
-    return "anthropic"
-
-
-def _report_response(choice: _Choice, cache: CacheOutcome) -> None:
+def _report_response(choice: Choice, cache: CacheOutcome) -> None:
     """Report how one model round trip ended — and whether the gateway served it from its
     response cache — onto the currently-resolving node's span.
 
@@ -303,110 +293,14 @@ def _report_response(choice: _Choice, cache: CacheOutcome) -> None:
 
 
 def _report_usage(model: str, usage: dict | None) -> None:
-    if usage is None:
-        return
-    sink = current_usage_sink()
-    if sink is None:
+    if usage is None or (sink := current_usage_sink()) is None:
         return
     sink(
-        provider=_provider_of(model),
+        provider=model.split("/", 1)[0] if "/" in model else "anthropic",
         model=model,
         input_tokens=usage.get("prompt_tokens", 0),
         output_tokens=usage.get("completion_tokens", 0),
     )
-
-
-@dataclass(frozen=True, slots=True)
-class _Choice:
-    """One chat-completions choice, reduced to what this connector consumes."""
-
-    content: str | None
-    tool_calls: list[dict] | None
-    finish_reason: str | None
-    refusal: str | None
-
-
-def _parse_choice(data: dict) -> _Choice:
-    """Pull the first choice out of a chat-completions response.
-
-    Extraction only — whether the choice is *usable* is `_raise_if_unusable`'s call. The split
-    is load-bearing: the caller reports the finish reason between the two, so a refused turn is
-    still observable even though it goes on to fail (dec: OME-745).
-
-    Raises:
-        ResolutionError: the response shape is unparsable — there is nothing to report either.
-    """
-    try:
-        choice = data["choices"][0]
-        message = choice["message"]
-        content = message.get("content")
-        tool_calls = message.get("tool_calls")
-        finish_reason = choice.get("finish_reason")
-        refusal = message.get("refusal")
-    except (KeyError, IndexError, TypeError) as exc:
-        raise ResolutionError(
-            "malformed aigateway response", code="aigateway_bad_response", permanent=True
-        ) from exc
-    return _Choice(
-        content=content,
-        tool_calls=tool_calls,
-        finish_reason=finish_reason if isinstance(finish_reason, str) else None,
-        refusal=refusal if isinstance(refusal, str) and refusal.strip() else None,
-    )
-
-
-def _raise_if_unusable(choice: _Choice) -> None:
-    """Reject a choice that carries no answer, distinguishing a REFUSAL from a malformed reply.
-
-    WHY the distinction: these used to collapse into one `aigateway_bad_response`, so a model
-    that declined on safety grounds was indistinguishable from a broken payload — and downstream
-    a refusal was scored as if the model had answered badly (FEATURE: OME-679).
-
-    Raises:
-        ResolutionError: ``provider_refusal`` when the provider declined, else
-            ``aigateway_bad_response`` when there is neither content nor a tool call.
-    """
-    # INVARIANT: the refusal check precedes the emptiness check. A content_filter turn normally
-    # carries null content, so testing emptiness first would classify every refusal as malformed.
-    if choice.finish_reason == "content_filter" or choice.refusal is not None:
-        # `permanent=True`: a refusal is deterministic, so a retry spends budget to be refused
-        # again. This is the wire signal a client maps to a refusal-kind failure.
-        raise bind_model_outcome(
-            ResolutionError(
-                "provider refused the request",
-                code="provider_refusal",
-                permanent=True,
-            ),
-            ModelOutcome(choice.finish_reason, choice.refusal),
-        )
-    if not choice.tool_calls and choice.content is None:
-        raise ResolutionError(
-            "malformed aigateway response", code="aigateway_bad_response", permanent=True
-        )
-
-
-def _build_tavily_client(
-    cfg: AigatewayConfig,
-    tavily_api_key: str | None,
-    tavily_client: httpx.AsyncClient | None,
-) -> tuple[httpx.AsyncClient | None, bool]:
-    """Resolve the optional Tavily client.
-
-    Returns:
-        ``(client, owns_client)`` — ``client`` is ``None`` when no API key is configured, which
-        IS the "web tools are off" signal (see `AigatewayWorld.web_tools_enabled`);
-        ``owns_client`` says whether the caller must close it (``False`` when an existing client
-        was passed in).
-    """
-    if tavily_api_key is None:
-        return None, False
-    owns = tavily_client is None
-    client = (
-        tavily_client
-        if tavily_client is not None
-        else httpx.AsyncClient(base_url=cfg.tavily_base_url, timeout=cfg.tavily_timeout_s)
-    )
-    return client, owns
 
 
 async def _fetch_completion(
@@ -458,58 +352,16 @@ async def _fetch_completion(
     return resp, read_cache_outcome(resp.headers)
 
 
-@dataclass(frozen=True, slots=True)
-class _WebToolRuntime:
-    client: httpx.AsyncClient
-    config: AigatewayConfig
-    api_key: str
-    excluded_domains: tuple[str, ...]
-
-
-def _web_tool_runtime(
-    *,
-    model: str,
-    route_supports_tools: bool,
-    tavily_http: httpx.AsyncClient | None,
-    tavily_api_key: str | None,
-    config: AigatewayConfig,
-    policy: RetrievalPolicy | None,
-) -> _WebToolRuntime | None:
-    """Resolve tool availability before the first paid model request."""
-
-    if policy is None:
-        return (
-            _WebToolRuntime(tavily_http, config, tavily_api_key, ())
-            if route_supports_tools and tavily_http is not None and tavily_api_key is not None
-            else None
-        )
-    if not policy.web_search:
-        return None
-    if not route_supports_tools:
-        raise ResolutionError(
-            f"model route {model!r} does not declare runner-driven web tools",
-            code="benchmark_retrieval_unavailable",
-            permanent=True,
-        )
-    if tavily_http is None or tavily_api_key is None:
-        raise ResolutionError(
-            "Benchmark requires web retrieval but Tavily is not configured",
-            code="benchmark_retrieval_unavailable",
-            permanent=True,
-        )
-    return _WebToolRuntime(tavily_http, config, tavily_api_key, policy.excluded_domains)
-
-
 async def _chat_completion_loop(
     *,
     http_client: httpx.AsyncClient,
     cfg: AigatewayConfig,
     profile: str | None,
-    model: str,
     messages: list[dict],
+    spec: ModelSpec,
+    params: Mapping[str, str],
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
-    web_tools: bool,
     retrieval_policy: RetrievalPolicy | None = None,
     identity_headers: Mapping[str, str] | None = None,
     cache: CachePolicy,
@@ -517,10 +369,10 @@ async def _chat_completion_loop(
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
 
-    Tools are offered only when the ROUTE opted in (`web_tools`) AND the world can serve them
-    (a Tavily client exists). Both conditions are load-bearing: without the route's opt-in a
-    configured key would silently change every model's request payload, and without the client
-    the model could call a tool nothing can execute.
+    Tools are offered only when the route declares `web_tools` and the world can serve them
+    through Tavily. A configured key alone must never change a model request, an explicit
+    ``web_search=false`` disables retrieval, and benchmark-required search fails closed when
+    Tavily is unavailable.
 
     INVARIANT: the cache policy is re-applied on EVERY round trip, not merged once before the
     loop. One turn is several independently-keyed gateway calls, and a policy that lapsed after
@@ -531,28 +383,28 @@ async def _chat_completion_loop(
         ResolutionError: the loop exceeds `cfg.web_tool_max_iterations` without a final
             answer — the model keeps calling tools instead of returning content.
     """
-    tools = _web_tool_runtime(
-        model=model,
-        route_supports_tools=web_tools,
+    tools, extra = _retrieval_request(
+        cfg=cfg,
+        spec=spec,
+        params=params,
         tavily_http=tavily_http,
         tavily_api_key=tavily_api_key,
-        config=cfg,
-        policy=retrieval_policy,
+        retrieval_policy=retrieval_policy,
     )
-    extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if tools is not None else {}
+    sampling = model_params(params)
     headers = _headers(profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
-        body = {"model": model, "messages": messages, **extra}
+        body = {"model": spec.id, "messages": messages, **sampling, **extra}
         resp, outcome = await _fetch_completion(
             http_client, headers=headers, body=body, cache=cache
         )
         data = _json_or_raise(resp)
-        _report_usage(model, data.get("usage"))
-        choice = _parse_choice(data)
+        _report_usage(spec.id, data.get("usage"))
+        choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
         _report_response(choice, outcome)
-        _raise_if_unusable(choice)
+        raise_if_unusable(choice)
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
             # Recorded HERE, not per round trip: a tool loop is several round trips serving ONE
@@ -561,36 +413,8 @@ async def _chat_completion_loop(
             # from two calls that disagreed (`_terminal_outcome` in `benchmarks/candidate.py`).
             record_model_outcome(choice.finish_reason, choice.refusal)
             return content or ""
-        # Cap the fan-out BEFORE dispatching: the model decides how many calls a turn carries, and
-        # they all run concurrently. The dropped ones still get a tool message, because the API
-        # requires one reply per tool_call_id — omitting them makes the next request malformed.
-        served, dropped = (
-            tool_calls[: cfg.web_tool_max_calls_per_turn],
-            tool_calls[cfg.web_tool_max_calls_per_turn :],
-        )
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
-        results = await asyncio.gather(*(_execute_tool(tc, tools) for tc in served))
-        for tc, result in zip(served, results, strict=True):
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "name": tc["function"]["name"],
-                    "content": _truncate_tool_result(result, cfg.web_tool_max_result_bytes),
-                }
-            )
-        for tc in dropped:
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "name": tc.get("function", {}).get("name", ""),
-                    "content": (
-                        f"error: not executed — at most {cfg.web_tool_max_calls_per_turn} tool "
-                        f"calls are served per turn; request fewer"
-                    ),
-                }
-            )
+        await append_tool_results(messages, tool_calls, tools, cfg)
     raise ResolutionError(
         f"web tool loop exceeded {cfg.web_tool_max_iterations} iterations",
         code="web_tool_loop_limit",
@@ -598,158 +422,44 @@ async def _chat_completion_loop(
     )
 
 
-_TOOL_TRUNCATION_MARKER = "\n…[truncated]"
-
-
-def _truncate_tool_result(result: str, cap: int) -> str:
-    """Bound one tool result to `cap` UTF-8 bytes, marking that it was cut.
-
-    Cuts on a byte boundary (`errors="ignore"` drops a partial trailing character rather than
-    raising), mirroring `_RunState.build_result`. The marker matters: a silently truncated web
-    page reads to the model as a complete one, and it will answer confidently from the fragment.
-    """
-    encoded = result.encode("utf-8")
-    if len(encoded) <= cap:
-        return result
-    marker = _TOOL_TRUNCATION_MARKER.encode("utf-8")
-    if len(marker) >= cap:
-        return marker[:cap].decode("utf-8", errors="ignore")
-    kept = encoded[: cap - len(marker)]
-    return kept.decode("utf-8", errors="ignore") + _TOOL_TRUNCATION_MARKER
-
-
-def _tool_args(tool_call: dict) -> tuple[str, dict | None]:
-    """The call's tool name plus its parsed arguments, or ``None`` args when they are unusable —
-    the caller renders the one error message both failure modes produce."""
-    name = tool_call.get("function", {}).get("name", "")
-    raw = tool_call.get("function", {}).get("arguments")
-    try:
-        args = json.loads(raw) if isinstance(raw, str) else (raw or {})
-    except (TypeError, json.JSONDecodeError):
-        return name, None
-    return (name, args) if isinstance(args, dict) else (name, None)
-
-
-async def _dispatch_tool(
-    name: str,
-    args: dict,
-    runtime: _WebToolRuntime | None,
-) -> str:
-    if name not in ("web_search", "web_fetch"):
-        return f"unknown tool: {name}"
-    if runtime is None:
-        raise RuntimeError(f"{name} requested but Tavily is not configured")
-    if name == "web_search":
-        return await _tavily_search(runtime, args)
-    return await _tavily_extract(runtime, args)
-
-
-async def _execute_tool(
-    tool_call: dict,
-    runtime: _WebToolRuntime | None,
-) -> str:
-    name, args = _tool_args(tool_call)
-    if args is None:
-        return f"invalid arguments for {name}"
-    try:
-        return await _dispatch_tool(name, args, runtime)
-    except Exception as exc:  # noqa: BLE001 — fed back to the model, not raised (dec:W2)
-        return f"{name} failed: {exc}"
-
-
-async def _tavily_search(
-    runtime: _WebToolRuntime,
-    args: dict,
-) -> str:
-    query = args.get("query")
-    if not isinstance(query, str) or not query:
-        raise ValueError("web_search requires a non-empty 'query'")
-    payload: dict[str, object] = {
-        "query": query,
-        "search_depth": runtime.config.tavily_search_depth,
-        "max_results": runtime.config.tavily_max_results,
-    }
-    if runtime.excluded_domains:
-        payload["exclude_domains"] = list(runtime.excluded_domains)
-    resp = await runtime.client.post(
-        "/search",
-        headers=_tavily_headers(runtime.api_key),
-        json=payload,
+def _retrieval_request(
+    *,
+    cfg: AigatewayConfig,
+    spec: ModelSpec,
+    params: Mapping[str, str],
+    tavily_http: httpx.AsyncClient | None,
+    tavily_api_key: str | None,
+    retrieval_policy: RetrievalPolicy | None,
+) -> tuple[WebToolRuntime | None, dict[str, object]]:
+    if (
+        retrieval_policy is not None
+        and params.get(WEB_SEARCH_PARAM) == "true"
+        and not (spec.web_tools or spec.native_web_search)
+    ):
+        raise ResolutionError(
+            f"model route {spec.id!r} does not declare a web search mechanism",
+            code="benchmark_retrieval_unavailable",
+            permanent=True,
+        )
+    wants_search = wants_web_search(params, spec)
+    tools = build_runtime(
+        spec=spec,
+        wants_search=wants_search,
+        tavily_http=tavily_http,
+        tavily_api_key=tavily_api_key,
+        config=cfg,
+        policy=retrieval_policy,
+        params=params,
     )
-    resp.raise_for_status()
-    data = resp.json()
-    results = [
-        result
-        for result in (data.get("results") or [])
-        if isinstance(result, dict) and _search_result_allowed(result, runtime.excluded_domains)
-    ]
-    if not results:
-        return "no results"
-    return "\n\n".join(
-        f"Title: {r.get('title', '')}\nURL: {r.get('url', '')}\nContent: {r.get('content', '')}"
-        for r in results
-        if isinstance(r, dict)
-    )
-
-
-async def _tavily_extract(
-    runtime: _WebToolRuntime,
-    args: dict,
-) -> str:
-    url = args.get("url")
-    if not isinstance(url, str) or not url:
-        raise ValueError("web_fetch requires a non-empty 'url'")
-    if _is_blocked(url, runtime.excluded_domains):
-        raise ValueError("web_fetch URL is blocked by Benchmark retrieval policy")
-    resp = await runtime.client.post(
-        "/extract",
-        headers=_tavily_headers(runtime.api_key),
-        json={"urls": url, "format": "markdown", "extract_depth": "advanced"},
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    results = data.get("results") or []
-    if results and isinstance(results[0], dict) and results[0].get("raw_content"):
-        return str(results[0]["raw_content"])
-    failed = data.get("failed_results") or []
-    if failed and isinstance(failed[0], dict):
-        failed_url = failed[0].get("url", url)
-        failed_err = failed[0].get("error", "unknown")
-        return f"{failed_url} could not be extracted: {failed_err}"
-    return "no content extracted"
-
-
-def _search_result_allowed(result: Mapping[str, object], exclusions: Sequence[str]) -> bool:
-    if not exclusions:
-        return True
-    url = result.get("url")
-    return isinstance(url, str) and not _is_blocked(url, exclusions)
-
-
-def _is_blocked(url: str, exclusions: Sequence[str]) -> bool:
-    """Match a bare-domain exclusion against its host and every subdomain."""
-
-    if not exclusions:
-        return False
-    normalized_host: str | None = None
-    try:
-        parsed = httpx.URL(url if "://" in url else f"https://{url}")
-        normalized_host = parsed.raw_host.decode("ascii").lower().rstrip(".")
-    except (httpx.InvalidURL, UnicodeDecodeError):
-        pass
-    # Fail closed on a host this comparison cannot decide. An unparsed host is the obvious case;
-    # a percent-encoded one is the subtle one — httpx leaves the authority encoded, so `ev%69l.com`
-    # would not match `evil.com` here and would then be handed to a fetcher that decodes it. A
-    # real host never carries a literal `%`, so refusing one costs nothing.
-    if not normalized_host or "%" in normalized_host:
-        return True
-    return any(
-        normalized_host == domain or normalized_host.endswith(f".{domain}") for domain in exclusions
-    )
-
-
-def _tavily_headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_key}"}
+    if wants_search and spec.native_web_search:
+        extra: dict[str, object] = {"web_search": True}
+        exclusions = caller_exclusions(params)
+        if exclusions:
+            extra["web_search_excluded_domains"] = list(exclusions)
+        return tools, extra
+    if tools is not None:
+        return tools, {"tools": WEB_TOOLS, "tool_choice": "auto"}
+    return tools, {}
 
 
 def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
