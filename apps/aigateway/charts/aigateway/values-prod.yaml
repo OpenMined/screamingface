@@ -22,6 +22,18 @@ config:
   # for a file that cannot know who the operators are — the console will report "admin API
   # disabled" rather than silently letting anyone in.
   adminEmails: []
+  # Re-state the chart's default-on global response cache explicitly for production. Read the five
+  # consequences documented on `config.requestCache` in `values.yaml`; the load-bearing ones are
+  # that any two callers sending the identical request get the identical stored response, and that
+  # rows never expire.
+  # Cached provider responses are stored as plaintext compact JSON in
+  # `request_cache_entries.response_json`. Database readers, replicas, snapshots and backups
+  # can read the entire cache corpus. Provider API keys and OAuth tokens remain encrypted in
+  # `credential_blobs`; `auth.secretKeyKey` still governs those credentials, not response-cache rows.
+  #
+  # THE BLAST RADIUS: every hosted user's responses share one indefinitely retained corpus.
+  requestCache:
+    enabled: true
 
 # Internal-only. There is no public route to the gateway, and that is load-bearing rather than
 # incidental — it is what makes the injected identity headers unforgeable.

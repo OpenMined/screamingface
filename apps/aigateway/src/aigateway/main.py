@@ -34,7 +34,7 @@ from .core.parameter_discovery_cache import (
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
-from .core.request_cache.store import TortoiseRequestCacheStore
+from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .db import close_db, init_db
 from .routes import (
@@ -199,6 +199,7 @@ async def _lifespan(app):
                         "bootstrap failed for provider %s; gateway will continue",
                         plugin.custom_llm_provider,
                     )
+
         yield
     finally:
         await auth.close_loopback_callbacks(app)
@@ -317,9 +318,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     credential_store = ORMStore()
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
-    # Resolves the active secret store lazily at call time (mirrors ORMStore);
-    # Tortoise itself is initialized once, by the lifespan.
-    app.state.request_cache_store = TortoiseRequestCacheStore()
+    app.state.request_cache_store = TortoiseRequestCacheStore(
+        availability=ConfiguredCacheAvailability(settings.request_cache_enabled)
+    )
 
     _configure_fake_anthropic_oauth(app)
     _configure_fake_codex_oauth(app)

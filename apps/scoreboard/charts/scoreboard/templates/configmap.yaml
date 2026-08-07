@@ -12,3 +12,5 @@ data:
   SCOREBOARD_PORTAL_ARTIFACTS_DIR: {{ .Values.config.portalArtifactsDir | quote }}
   FORWARDED_ALLOW_IPS: {{ .Values.config.forwardedAllowIps | quote }}
   SCOREBOARD_CORS_ORIGINS: {{ .Values.cors.origins | toJson | quote }}
+  SCOREBOARD_AUTH_MODE: {{ .Values.config.authMode | quote }}
+  SCOREBOARD_ALLOWED_NETWORKS: {{ .Values.config.allowedNetworks | quote }}

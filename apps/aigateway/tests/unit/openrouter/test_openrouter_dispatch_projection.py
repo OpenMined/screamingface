@@ -1,17 +1,15 @@
-"""Phase 6d (OME-479 §4.6/§6.1): OpenRouter dispatch-side projection + cache isolation.
+"""Phase 6d (OME-479 §4.6/§6.1): OpenRouter dispatch-side projection.
 
 FEATURE: OpenRouter P0 observation overlay — the DISPATCH side. Proves the fail-
 closed classifier + provider projection produce the exact serialized body
 OpenRouter dispatch sends: the P0-promoted provider_params.top_k lands at its
 native extra_body target, an unruled field is rejected BEFORE any credential is
 read, and a request carrying an output-affecting parameter can never take a cached
-response meant for a different one (§4.6 cache isolation).
+response shape expected by the provider.
 
 INVARIANT: parameter projection COMPOSES with the existing OME-428 hardening — the
 pinned official api_base and gateway-owned attribution headers survive intact
 alongside the projected params, and a caller-supplied api_key never dispatches.
-INVARIANT (§4.6): a body carrying a projected optional parameter is not cacheable,
-so a differently-parameterized request can never share its key.
 """
 
 from __future__ import annotations
@@ -23,7 +21,6 @@ from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
-from aigateway.core.request_cache.keys import CacheBypass, CacheKeyResult, build_cache_key
 from aigateway.plugins.openrouter_provider.plugin import (
     OFFICIAL_API_BASE,
     OpenRouterProviderPlugin,
@@ -136,37 +133,3 @@ def test_caller_supplied_api_key_is_rejected_not_forwarded() -> None:
             auth_mode="api_key",
         )
     assert "api_key" in exc.value.rejected
-
-
-def test_top_k_bearing_body_bypasses_cache_never_shares_a_key() -> None:
-    # §4.6 isolation: a normalized body carrying the projected top_k is NOT
-    # cacheable, so it can never be served a response produced with a different
-    # top_k. Two different top_k values BOTH bypass — there is no shared key.
-    def key_for(top_k: int) -> CacheKeyResult | CacheBypass:
-        return build_cache_key(
-            account_id="acct-1",
-            profile_name="default",
-            provider="openrouter",
-            normalized_body={
-                "model": _MODEL,
-                "messages": _MESSAGES,
-                "extra_body": {"top_k": top_k},
-            },
-        )
-
-    forty = key_for(40)
-    assert isinstance(forty, CacheBypass)
-    assert forty.reason == "unsupported_fields"
-    assert isinstance(key_for(80), CacheBypass)
-
-
-def test_bare_prompt_without_params_remains_cacheable() -> None:
-    # the isolation is SPECIFIC to output-affecting params: the same prompt with NO
-    # parameters is cacheable, proving it is the projected top_k that forces bypass.
-    result = build_cache_key(
-        account_id="acct-1",
-        profile_name="default",
-        provider="openrouter",
-        normalized_body={"model": _MODEL, "messages": _MESSAGES},
-    )
-    assert isinstance(result, CacheKeyResult)

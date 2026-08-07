@@ -8,13 +8,6 @@ database:
   existingSecret: scoreboard-db
   existingSecretKey: database-url
 
-# WHY: declared here (not just passed via --set) so the Secret reference survives every
-# ordinary helm upgrade, rollback, reinstall, and the planned Azure migration, instead of
-# depending on a one-time --set/--reuse-values invocation (OME-467).
-submissionApiKey:
-  existingSecret: scoreboard-submission-api-key
-  existingSecretKey: SCOREBOARD_SUBMISSION_API_KEY
-
 ingress:
   enabled: true
   className: traefik

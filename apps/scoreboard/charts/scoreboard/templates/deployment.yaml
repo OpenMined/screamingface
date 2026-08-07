@@ -50,13 +50,6 @@ spec:
                 secretKeyRef:
                   name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
                   key: {{ .Values.database.existingSecretKey }}
-            {{- if .Values.submissionApiKey.existingSecret }}
-            - name: SCOREBOARD_SUBMISSION_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.submissionApiKey.existingSecret }}
-                  key: {{ .Values.submissionApiKey.existingSecretKey }}
-            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

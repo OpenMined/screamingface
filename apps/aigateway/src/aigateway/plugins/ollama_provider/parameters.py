@@ -73,6 +73,26 @@ LITELLM_CHAT_SOURCE = "ollama:litellm-chat"
 # cannot take, and would make the summary intersection describe a fiction.
 _AUTH: tuple[AuthMode, ...] = ("none",)
 # Bump when a projection's semantics change; folds into the contract digests.
+
+# AIDEV-NOTE (OME-305, owner decision B — READ BEFORE CHANGING A ``cache_behavior``).
+# Every rule below states ``cache_behavior="bypass"`` EXPLICITLY. That is a disposition,
+# not an oversight, and it is not a judgement about the parameter: each of these values
+# is output-affecting and WOULD have to be keyed for a cached answer to be correct.
+#
+# The reason they are not keyed is that THIS PROVIDER DOES NOT IMPLEMENT
+# ``global_cache_projection`` — it inherits the ``CacheBypass`` default from
+# ``ProviderPluginBase``. While that is true, every request to this provider bypasses
+# the cache at the projection step regardless of any rule, so declaring ``keyed`` here
+# would change no behaviour while advertising a cacheable parameter to callers that can
+# never be cached. ``test_a_provider_that_declares_a_keyed_rule_backs_it_with_a_real_projection``
+# in ``tests/unit/test_global_cache_registry_conformance.py`` is what enforces that.
+#
+# TO PROMOTE THESE: implement ``global_cache_projection`` for this provider FIRST, then
+# flip these to ``keyed`` in the same change. The order matters — the conformance sweep
+# will refuse the flip on its own, which is the intended guard rail rather than an
+# obstacle. Anthropic and OpenRouter are the two providers that have the projection and
+# therefore carry keyed rules today.
+
 _REVISION = "ollama-2026-07"
 
 # Non-tool enabled paths, in the order the mapping handles them.
@@ -94,26 +114,54 @@ _TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
 
 _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
-        "temperature", auth_modes=_AUTH, schema=TEMPERATURE_SCHEMA, projection_revision=_REVISION
+        "temperature",
+        auth_modes=_AUTH,
+        schema=TEMPERATURE_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
     ),
-    direct_rule("top_p", auth_modes=_AUTH, schema=TOP_P_SCHEMA, projection_revision=_REVISION),
+    direct_rule(
+        "top_p",
+        auth_modes=_AUTH,
+        schema=TOP_P_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
+    ),
     # direct at the CALLER path: litellm owns the rename to num_predict. A
     # provider_target here would put the wire key on the body twice.
     direct_rule(
-        "max_tokens", auth_modes=_AUTH, schema=MAX_TOKENS_SCHEMA, projection_revision=_REVISION
+        "max_tokens",
+        auth_modes=_AUTH,
+        schema=MAX_TOKENS_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
     ),
-    direct_rule("seed", auth_modes=_AUTH, schema=SEED_SCHEMA, projection_revision=_REVISION),
-    direct_rule("stop", auth_modes=_AUTH, schema=STOP_SCHEMA, projection_revision=_REVISION),
+    direct_rule(
+        "seed",
+        auth_modes=_AUTH,
+        schema=SEED_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
+    ),
+    direct_rule(
+        "stop",
+        auth_modes=_AUTH,
+        schema=STOP_SCHEMA,
+        cache_behavior="bypass",
+        projection_revision=_REVISION,
+    ),
     direct_rule(
         "response_format",
         auth_modes=_AUTH,
         schema=RESPONSE_FORMAT_SCHEMA,
+        cache_behavior="bypass",
         projection_revision=_REVISION,
     ),
     direct_rule(
         "reasoning_effort",
         auth_modes=_AUTH,
         schema=REASONING_EFFORT_SCHEMA,
+        cache_behavior="bypass",
         projection_revision=_REVISION,
     ),
     *function_calling_rules(

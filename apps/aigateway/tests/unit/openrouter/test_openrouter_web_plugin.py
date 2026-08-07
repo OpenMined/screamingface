@@ -119,6 +119,7 @@ def test_web_search_is_enabled_as_a_plain_boolean() -> None:
     rule = _rule("web_search")
 
     assert rule is not None
+    assert rule.cache_behavior == "bypass"
     assert rule.parameter_schema is not None
     assert rule.parameter_schema.type == "boolean"
 
@@ -127,6 +128,7 @@ def test_caller_exclusions_are_a_bounded_string_array() -> None:
     rule = _rule("web_search_excluded_domains")
 
     assert rule is not None
+    assert rule.cache_behavior == "bypass"
     assert rule.parameter_schema is not None
     assert rule.parameter_schema.type == "array"
     assert rule.parameter_schema.item_type == "string"
@@ -202,27 +204,22 @@ def test_false_and_absent_both_send_no_plugin() -> None:
     assert "plugins" not in _prepared({})
 
 
-def test_online_model_suffix_is_normalized_into_the_guarded_plugin_path() -> None:
-    out = _prepared(
+def test_online_model_suffix_is_rejected_in_favour_of_the_neutral_parameter(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+
+    response = _post_chat(
+        authenticated_client,
         {"model": "openrouter/google/gemini-3-flash-preview:online"},
-        _Settings(["rubric.test"]),
     )
 
-    assert out["model"] == "openrouter/google/gemini-3-flash-preview"
-    assert out["plugins"] == [{"id": "web", "engine": "native", "exclude_domains": ["rubric.test"]}]
-
-
-def test_explicit_false_disables_an_online_model_suffix() -> None:
-    out = _prepared(
-        {
-            "model": "openrouter/google/gemini-3-flash-preview:online",
-            "web_search": False,
-        },
-        _Settings(["rubric.test"]),
-    )
-
-    assert out["model"] == "openrouter/google/gemini-3-flash-preview"
-    assert "plugins" not in out
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "unsupported_model_variant",
+        "provider": "openrouter",
+        "message": "OpenRouter ':online' is not supported; use web_search=true",
+    }
 
 
 def test_exclusions_without_web_search_fail_instead_of_becoming_a_silent_noop() -> None:

@@ -25,6 +25,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from ..api_key_validation import ApiKeyValidator
+from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from ._ports import (
     CredentialStrategy,
     ModelEntry,
@@ -170,6 +171,110 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Apply provider-specific request normalization before dispatch."""
         return body
+
+    def global_cache_projection(self, body: dict[str, Any]) -> dict[str, Any] | CacheBypass:
+        """This provider's PURE view of the output-affecting call it would send.
+
+        FEATURE (OME-305): one global exact-request cache. The gateway can hash the
+        caller's explicit request on its own, but only the provider knows what IT
+        adds — a resolved model snapshot, a normalized routing policy, a mandatory
+        strictness flag. Two callers may share one cached response only when that
+        provider-side contribution is identical too, so it must be part of the key.
+
+        Return a closed mapping::
+
+            {"resolved_model": str, "provider_adapter_revision": str, "prepared": dict}
+
+        ``prepared`` carries every output-affecting field this provider will add or
+        rewrite, in a deterministic normalized form. ``provider_adapter_revision``
+        is bumped whenever that preparation changes without the caller's request
+        changing, which abandons entries built under the old behaviour.
+
+        INVARIANT (this is the whole reason the port exists): PURE. Synchronous, no
+        I/O, no clock, no randomness, no counter, no cache lookup — and it receives
+        the request body ALONE, so no account, profile, user, auth mode or
+        credential can reach a globally shared key. A provider that cannot describe
+        itself under those terms returns ``CacheBypass``.
+
+        INVARIANT: it must never mutate ``body``; the core passes a deep copy as
+        defence in depth, not as permission.
+
+        INVARIANT (ruling 34) — what ``provider_adapter_revision`` does NOT cover.
+        The revision handles variation ACROSS revisions: you changed what this boundary
+        sends, so every entry built under the old behaviour is abandoned. It cannot
+        handle variation WITHIN one deployment at a FIXED revision on state the
+        projection cannot observe. If what you dispatch depends on something absent
+        from ``body`` — a credential kind, an environment variable, a flag evaluated at
+        dispatch, a per-instance cache — then two requests identical in ``body`` produce
+        one key and two different upstream calls, and the cache will serve one caller
+        the other's answer. Bumping the revision does not help: both variants bump
+        together. There are exactly two correct answers. Either return ``CacheBypass``,
+        or make the unobservable variation IRRELEVANT to the key and say so in writing
+        — which means folding the shaping constants into the revision unconditionally
+        and accepting that both variants share an entry, as a documented consequence.
+
+        INVARIANT (ruling 36) — credential-gated transforms default to ``CacheBypass``.
+        A transform that runs at dispatch time from credential material is the common
+        case of the above, and the port is structurally incapable of keying it: the
+        projection never receives a credential, by design, because a credential in a
+        globally shared key is the thing this whole feature must never do. So a
+        provider whose outbound body changes shape according to which KIND of
+        credential is present cannot key that difference, and must bypass unless it can
+        argue the difference does not affect the answer.
+
+        The worked example is the Anthropic plugin. Its Claude-Code attribution block
+        is added only for an OAuth subscription token, decided at dispatch from
+        ``body["api_key"]``. It does NOT bypass; it folds every constant that shapes the
+        block into its revision unconditionally and accepts the cross-credential share,
+        on the stated grounds that the block is attribution rather than instruction, is
+        derived from already-keyed ``messages``, and that a MISS still dispatches under
+        the caller's own real credential. Read that plugin's docstring before copying
+        the pattern — the accepted consequence is what makes it legitimate, and an
+        unstated one is just a bug.
+
+        Default: ``CacheBypass`` — fail safe. A provider is cacheable only by
+        deliberately implementing this hook, never by inheriting a guess about what
+        ``prepare_chat_body`` does.
+
+        WHY an operator gate must NOT be expressed here: see
+        ``participates_in_global_cache``. Reading ``self.settings`` from this method
+        breaks the purity contract above, and the two decisions are genuinely
+        different — this one describes WHAT would be sent, that one whether this
+        provider may take part at all.
+        """
+        return CacheBypass(reason=PROJECTION_BYPASS_REASON)
+
+    def participates_in_global_cache(self) -> bool:
+        """Whether this provider may take part in the shared cache at all.
+
+        WHY this is separate from ``global_cache_projection`` rather than a branch
+        inside it: the two answer different questions, and only one of them may see
+        operator configuration.
+
+        - The PROJECTION decides KEY MATERIAL. It is contractually a pure function of
+          the request body, so that the same request keys identically in every
+          deployment. A per-deployment key would partition a shared cache, or worse
+          let two deployments agree on a key while disagreeing on what gets dispatched
+          (``test_no_projection_reads_operator_configuration`` is the tripwire).
+        - This hook decides PARTICIPATION. Returning False removes the provider from
+          the cache entirely — no read, no write — which is deployment-local by nature
+          and cannot affect any key. Flipping it must leave every stored row exactly as
+          it was, so that re-enabling the provider finds its cache intact.
+
+        INVARIANT: a False answer is FAIL-SAFE and lossless. It suppresses the lookup;
+        it never invalidates, rewrites or re-keys an entry.
+
+        AIDEV-NOTE: an operator kill switch has to be checked HERE and not left to the
+        dispatch-side guards, because the cache stage runs before model resolution and
+        before credentials are read. A provider that registers no models and yields no
+        credential strategy can still have its stored rows replayed — that was a real
+        defect in OpenRouter (observed: a 200 with ``X-AIGW-Cache: hit`` from a
+        switched-off provider), not a hypothetical.
+
+        Default: True — a provider that has implemented a projection participates.
+        Overriding is only for a provider that can be switched off.
+        """
+        return True
 
     def should_apply_profile_default(self, field: str) -> bool:
         """Return whether a profile default field should be merged into chat bodies."""

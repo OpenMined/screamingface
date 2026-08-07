@@ -22,6 +22,11 @@ from aigateway.core.plugin_base import PluginSettings
 
 GATEWAY_MODEL_PREFIX = "openrouter/"
 
+# D7: the gateway owns routing — every dispatch goes to the official API base.
+# Homed here rather than in ``plugin.py`` so that both the dispatch path and the
+# pure global-cache projection can reach it without importing the plugin.
+OFFICIAL_API_BASE = "https://openrouter.ai/api/v1"
+
 # D8: ASCII upstream ID `<author>/<model>[:variant]` with exactly two non-empty
 # segments; the author may carry a single leading `~` alias marker. The
 # character classes reject every forbidden shape by construction: Unicode,
@@ -41,6 +46,27 @@ def is_valid_upstream_model_id(value: object) -> bool:
     authorization, so valid unlisted IDs pass and no catalog lookup happens.
     """
     return isinstance(value, str) and _UPSTREAM_MODEL_ID_RE.fullmatch(value) is not None
+
+
+# OME-712: OpenRouter's implicit-search model variant. It is a syntactically VALID
+# ``:variant`` (D8 accepts it), so nothing else in this module refuses it — it needs its
+# own predicate.
+ONLINE_VARIANT_SUFFIX = ":online"
+
+
+def is_online_variant(model: str) -> bool:
+    """True for OpenRouter's implicit web-search model variant.
+
+    ONE predicate for two call sites that must never disagree: ``prepare_chat_body``
+    REFUSES such a model (search is a provider-neutral Gateway parameter, and this suffix
+    is a second route around it), and the global-cache projection BYPASSES it. Both are
+    required, because the cache is consulted before dispatch — a guard only on the
+    dispatch path would still let a stored entry answer 200 for a refused request.
+
+    Suffix-only, so it answers for a gateway id and its upstream remainder alike:
+    ``prepare_chat_body`` holds the former and the projection the latter.
+    """
+    return model.endswith(ONLINE_VARIANT_SUFFIX)
 
 
 def _default_model_slugs() -> list[str]:

@@ -68,9 +68,21 @@ spec:
                   optional: true
             {{- if .Values.auth.secretKeyKey }}
             # AIGATEWAY_SECRET_KEY: the AES-256-GCM master key for credential_blobs.
-            # Hosted/multi-replica deployments MUST set this (README §security) — without
-            # it each process mints its own key and credentials written by one replica
-            # are unreadable by another. Opt-in: render only when secretKeyKey is set.
+            # WHY hosted deployments MUST set this (README §security): without it
+            # get_or_create_master_key persists a generated key into secret_master_keys — the
+            # SAME database that holds credential_blobs — so one pg_dump, snapshot, replica or
+            # stolen backup captures the key together with the ciphertext it protects. Two
+            # tables in one database are one artifact. Supplying the key from a Secret puts it
+            # in a different trust domain, which is what makes the separation load-bearing, and
+            # is a HARD PRECONDITION AT ANY REPLICA COUNT (see values.yaml auth.secretKeyKey).
+            # AIDEV-NOTE: do not re-justify this with replica divergence. Replicas share one
+            # Postgres and converge on the one existing key row, so credentials written by one
+            # replica ARE readable by another. An operator who tests that false claim, finds it
+            # untrue, and dismisses the warning discards the true reason above along with it.
+            # AIDEV-NOTE: if this deployment has ALREADY auto-generated a key, the Secret must
+            # carry THAT key, read out of secret_master_keys. A fresh value makes every stored
+            # provider credential and OAuth refresh token undecryptable.
+            # Opt-in: rendered only when secretKeyKey is set.
             - name: AIGATEWAY_SECRET_KEY
               valueFrom:
                 secretKeyRef:

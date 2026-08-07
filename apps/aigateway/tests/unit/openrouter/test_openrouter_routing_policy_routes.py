@@ -35,6 +35,7 @@ import pytest
 from fastapi.testclient import TestClient
 from litellm.exceptions import NotFoundError
 
+from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.parameter_projection import caller_cache_bypass_paths
 from aigateway.core.request_cache.models import RequestCacheEntry
@@ -97,7 +98,7 @@ class _Dispatch:
         return SimpleNamespace(
             model_dump=lambda: {
                 "id": f"or-{len(self.calls)}",
-                "choices": [{"message": {"content": "ok"}}],
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
             }
         )
 
@@ -340,16 +341,32 @@ def _post_cacheable(client, wrapper: dict[str, Any] | None = None):
     [*[(leaf, value) for leaf, value, _ in _CONTROLS], ("zdr", False)],
     ids=[*[c[0] for c in _CONTROLS], "zdr-false"],
 )
-def test_a_routing_control_request_bypasses_the_cache_and_stores_nothing(
+def test_a_routing_control_request_is_cached_under_the_policy_it_will_be_sent_with(
     leaf, value, enabled_openrouter, credential_blobs, cache_client
 ) -> None:
-    # INVARIANT (OME-479 §4.6): every routing control declares
-    # ``cache_behavior="bypass"``, because the v1 cache key cannot carry a routing
-    # policy (OME-702). Serving a cached answer produced under a DIFFERENT price
-    # ceiling or data policy would silently violate the constraint the caller set —
-    # and ``zdr: false`` is included precisely because it projects to nothing: the
-    # bypass is owed to the field's PRESENCE in the request, not to its effect on
-    # the wire.
+    """SUPERSEDED (OME-305), was
+    ``test_a_routing_control_request_bypasses_the_cache_and_stores_nothing``.
+
+    The old assertion was ``bypass`` twice, no key, two dispatches, zero rows — and it
+    was correct for v1, whose key builder accepted only ``model``/``messages``/
+    ``system`` and therefore could not carry a routing policy (OME-702). OME-702 is
+    absorbed into OME-305: OpenRouter now PROJECTS its prepared request, so the policy
+    that will actually be sent participates in the hash and the five controls declare
+    ``cache_behavior="keyed"``. Demanding a bypass here would demand the defect.
+
+    RECONSTRUCTED, not dropped. The old test's real subject was the SAFETY property in
+    its comment — "serving a cached answer produced under a DIFFERENT price ceiling or
+    data policy would silently violate the constraint the caller set". v1 delivered it
+    by refusing to cache at all; v2 delivers it by keying the policy. So this case now
+    proves the caching works, and ``test_two_requests_under_different_routing_policies_
+    never_share_an_entry`` below proves the constraint it protects. Both are needed:
+    either one alone can be satisfied by a cache that is simply broken.
+
+    The ``zdr: false`` row stays for the same reason it was added — it is the value the
+    gateway OMITS upstream. Under v1 its presence alone forced a bypass; under v2 it
+    must still resolve through a real rule and land on the same key as omitting it
+    (pinned at the key level in ``test_openrouter_global_cache_projection``).
+    """
     _create_connection(cache_client)
     dispatch = _Dispatch()
     with patch("litellm.acompletion", dispatch):
@@ -358,13 +375,45 @@ def test_a_routing_control_request_bypasses_the_cache_and_stores_nothing(
 
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
-    assert first.headers["X-AIGW-Cache"] == "bypass"
-    assert second.headers["X-AIGW-Cache"] == "bypass"
-    # No key is published for a bypassed request, so nothing identifies an entry.
-    assert "X-AIGW-Cache-Key" not in first.headers
-    # Symmetric proof: it neither READ (both dispatched) nor WROTE (store empty).
+    assert first.headers["X-AIGW-Cache"] == "miss"
+    assert first.headers["X-AIGW-Cache-Write"] == "stored"
+    assert second.headers["X-AIGW-Cache"] == "hit"
+    # A participating request DOES publish a key, and both requests resolve to one.
+    assert len(first.headers["X-AIGW-Cache-Key"]) == 12
+    assert second.headers["X-AIGW-Cache-Key"] == first.headers["X-AIGW-Cache-Key"]
+    # Symmetric proof, inverted: it read (one dispatch, not two) and wrote (one row).
+    assert len(dispatch.calls) == 1
+    assert _stored_entries(cache_client) == 1
+
+
+def test_two_requests_under_different_routing_policies_never_share_an_entry(
+    enabled_openrouter, credential_blobs, cache_client
+) -> None:
+    """The safety property the superseded bypass test existed to protect.
+
+    A caller who says "refuse an endpoint that trains on my data" must never be handed
+    a response produced without that constraint. v1 guaranteed it by never caching a
+    routing-controlled request; v2 guarantees it by putting the reconstructed policy in
+    the key — so this is the route-level proof that the promotion did not trade the
+    guarantee away for a hit rate.
+
+    ``data_collection`` is used because it is the one reviewed control with two
+    distinct valid values (``sort`` admits only ``"price"``), so the two requests differ
+    in nothing but the policy.
+    """
+    _create_connection(cache_client)
+    dispatch = _Dispatch()
+    with patch("litellm.acompletion", dispatch):
+        allow = _post_cacheable(cache_client, {"data_collection": "allow"})
+        deny = _post_cacheable(cache_client, {"data_collection": "deny"})
+
+    assert allow.status_code == 200, allow.text
+    assert deny.status_code == 200, deny.text
+    assert allow.headers["X-AIGW-Cache"] == "miss"
+    assert deny.headers["X-AIGW-Cache"] == "miss", "a stricter policy must not hit a laxer fill"
+    assert deny.headers["X-AIGW-Cache-Key"] != allow.headers["X-AIGW-Cache-Key"]
     assert len(dispatch.calls) == 2
-    assert _stored_entries(cache_client) == 0
+    assert _stored_entries(cache_client) == 2
 
 
 @pytest.mark.parametrize(
@@ -372,28 +421,133 @@ def test_a_routing_control_request_bypasses_the_cache_and_stores_nothing(
     [*[(leaf, value) for leaf, value, _ in _CONTROLS], ("zdr", False)],
     ids=[*[c[0] for c in _CONTROLS], "zdr-false"],
 )
-def test_every_control_is_attributed_as_a_caller_visible_bypass_path(leaf, value) -> None:
-    # AIDEV-NOTE: the route test above cannot ATTRIBUTE the bypass. Today every
-    # OpenRouter request is structurally cache-ineligible (``prepare_chat_body``
-    # always sets ``api_base`` and ``provider``, neither of which the v1 key builder
-    # can key), so a bare request bypasses too and the header proves nothing about
-    # these five paths specifically.
-    #
-    # This is the tripwire that survives that: the bypass is ALSO owed to the
-    # caller-visible contract, resolved from the real rule set before preparation.
-    # If a later cache change (OME-702) makes the prepared body keyable, this path
-    # still forces the bypass — and if a rule ever stopped declaring it, this test
-    # fails while the route test would still pass on the structural accident.
+def test_no_control_is_attributed_as_a_caller_visible_bypass_path(leaf, value) -> None:
+    """Every reviewed routing control remains keyed in the compatibility policy view."""
     plugin = OpenRouterProviderPlugin()
     rules = tuple(plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"))
     paths = caller_cache_bypass_paths(
         {
             "model": _MODEL,
             "messages": list(_MESSAGES),
-            # The `zdr: False` row is here on purpose: presence is what bypasses.
+            # ``zdr: False`` is omitted upstream but must still resolve through a real rule.
             "provider_params": {leaf: value},
         },
         rules=rules,
         auth_mode="api_key",
     )
-    assert paths == (f"provider_params.{leaf}",)
+    assert paths == ()
+    by_path = {rule.request_path: rule for rule in rules}
+    assert by_path[f"provider_params.{leaf}"].cache_behavior == "keyed"
+
+
+# --- 10: the operator gate reaches the cache path too (OME-305 review, MEDIUM-1) --
+
+
+def test_a_pre_existing_row_is_not_replayed_after_the_provider_is_disabled(
+    monkeypatch, enabled_openrouter, credential_blobs, cache_client
+) -> None:
+    """A disabled provider must not keep answering from rows it filled while enabled.
+
+    WHY this is a route test and not only a projection test: the global cache is a
+    SECOND path to this provider's responses, and it needs neither a registered model
+    nor a credential to be walked — so the D2 guarantees on `register_models` and
+    `api_key_strategy_for` do not cover it. Cache rows never expire, so without the gate
+    the replay window is unbounded.
+
+    The row is filled FIRST, while enabled, because that is the only arrangement in
+    which the defect is observable: a gate that merely stops new writes would pass a
+    test that never stored anything.
+
+    AIDEV-NOTE: this is proven by a tripwire that was OBSERVED TO FIRE — with the
+    ``participates_in_global_cache`` check in ``build_global_cache_plan`` neutralized,
+    this test fails with ``x-aigw-cache: hit`` and a real key (``22bc51f35b2c``),
+    returning a 200 body to a provider that is switched off. That also settles WHERE
+    the gate has to live: the cache read happens ahead of model resolution and
+    credential rejection, so the D2 404/400 paths never get a chance to refuse the
+    request. Do not relocate this gate downstream on the assumption that dispatch-side
+    failure covers it — and do not move it INTO the projection either, which is pure by
+    contract (``test_no_projection_reads_operator_configuration``).
+    """
+    _create_connection(cache_client)
+    dispatch = _Dispatch()
+    with patch("litellm.acompletion", dispatch):
+        filled = _post_cacheable(cache_client)
+        assert filled.status_code == 200, filled.text
+        assert filled.headers["X-AIGW-Cache-Write"] == "stored"
+        assert _stored_entries(cache_client) == 1
+
+        monkeypatch.setattr(
+            openrouter_plugin_module.PLUGIN, "settings", OpenRouterPluginSettings(enabled=False)
+        )
+        # Production settings are read once when a process starts, so disabling the
+        # provider also starts with no strategy cached by its formerly enabled state.
+        credential_strategy_cache(cache_client.app).clear()
+        after = _post_cacheable(cache_client)
+
+    # A fresh disabled process follows the existing provider refusal path: it neither
+    # replays the row nor dispatches with the credential strategy created while enabled.
+    assert after.status_code == 400, after.text
+    assert after.json()["detail"] == {
+        "code": "api_key_not_supported",
+        "provider": "openrouter",
+    }
+    assert len(dispatch.calls) == 1
+    # ...and the row survives untouched: the gate declines to PARTICIPATE, it does not
+    # invalidate. Re-enabling the provider must find its cache exactly as it left it.
+    assert _stored_entries(cache_client) == 1
+
+
+# --- 11: the declared `top_k` leaf really keys (OME-305 review, MEDIUM-2) --------
+
+
+def test_the_same_top_k_request_is_served_from_cache_the_second_time(
+    enabled_openrouter, credential_blobs, cache_client
+) -> None:
+    """`provider_params.top_k` declares ``cache_behavior="keyed"``; this is the proof.
+
+    Before the fix every one of these requests bypassed with `unprojected_parameter`,
+    because the projection never emitted the `extra_body` root its own rule targets.
+    Fail-safe — but `top_k` is the one supported output-affecting provider parameter,
+    so benchmark traffic using it could never reuse a response.
+    """
+    _create_connection(cache_client)
+    dispatch = _Dispatch()
+    with patch("litellm.acompletion", dispatch):
+        first = _post_cacheable(cache_client, {"top_k": 3})
+        second = _post_cacheable(cache_client, {"top_k": 3})
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.headers["X-AIGW-Cache"] == "miss"
+    assert first.headers["X-AIGW-Cache-Write"] == "stored"
+    assert second.headers["X-AIGW-Cache"] == "hit"
+    assert second.headers["X-AIGW-Cache-Key"] == first.headers["X-AIGW-Cache-Key"]
+    assert len(dispatch.calls) == 1
+    assert _stored_entries(cache_client) == 1
+    # The value the key describes is the value the provider was actually sent.
+    assert dispatch.only["extra_body"]["top_k"] == 3
+
+
+def test_two_different_top_k_values_never_share_an_entry(
+    enabled_openrouter, credential_blobs, cache_client
+) -> None:
+    """The safety half of keying `top_k`, and the reason the leaf must be projected.
+
+    `top_k` changes the sampling distribution, so a response produced under 3 must
+    never be handed to a caller who asked for 7. Emitting the `extra_body` ROOT while
+    omitting the leaf would satisfy the key builder's root-only presence gate and
+    produce exactly that collision — silently, with no bypass to signal it.
+    """
+    _create_connection(cache_client)
+    dispatch = _Dispatch()
+    with patch("litellm.acompletion", dispatch):
+        three = _post_cacheable(cache_client, {"top_k": 3})
+        seven = _post_cacheable(cache_client, {"top_k": 7})
+
+    assert three.status_code == 200, three.text
+    assert seven.status_code == 200, seven.text
+    assert three.headers["X-AIGW-Cache"] == "miss"
+    assert seven.headers["X-AIGW-Cache"] == "miss", "a different top_k must not hit"
+    assert seven.headers["X-AIGW-Cache-Key"] != three.headers["X-AIGW-Cache-Key"]
+    assert len(dispatch.calls) == 2
+    assert _stored_entries(cache_client) == 2

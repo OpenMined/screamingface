@@ -335,13 +335,22 @@ def test_every_routing_control_is_ruled_as_a_wrapped_native_field(path: str) -> 
 
 
 @pytest.mark.parametrize("path", _PATHS)
-def test_every_routing_control_bypasses_the_prompt_cache(path: str) -> None:
-    # WHY bypass (not `keyed`): the response depends on WHICH endpoint served it,
-    # and the resolved endpoint is a function of the whole routing policy. Until the
-    # cache key can carry that policy (OME-702), a cached answer produced under a
-    # different ceiling or data policy would be served as if it satisfied this one.
+def test_every_routing_control_is_keyed_into_the_global_cache(path: str) -> None:
+    # SUPERSEDED (OME-305, was `..._bypasses_the_prompt_cache`): the response depends
+    # on WHICH endpoint served it, and the resolved endpoint is a function of the whole
+    # routing policy — so that policy has to be IN the key. It now is: the v2 key
+    # hashes `prepared_request`, which OpenRouter's `global_cache_projection` fills by
+    # calling the same `build_provider_policy` reconstruction dispatch uses. The
+    # blocker this rule deferred to (OME-702) was absorbed into OME-305 and its
+    # precondition is discharged.
+    #
+    # INVARIANT preserved from the superseded version: an answer produced under a
+    # different ceiling or data policy is never served as if it satisfied this
+    # request. Bypassing achieved that by never caching; keying achieves it by
+    # landing on a different hash — see
+    # test_two_requests_differing_only_in_one_control_never_cross_hit.
     rule = _rule_by_path()[path]
-    assert rule.cache_behavior == "bypass"
+    assert rule.cache_behavior == "keyed"
     assert rule.output_affecting is True
 
 
@@ -397,7 +406,10 @@ def test_the_detail_contract_publishes_every_control_as_enabled(path: str) -> No
     entry = _document_parameters()[path]
     assert entry["gateway"]["status"] == "enabled"
     assert entry["gateway"]["projection"] == "provider_native"
-    assert entry["gateway"]["cache_behavior"] == "bypass"
+    # SUPERSEDED (OME-305): was `"bypass"`. The PUBLISHED cache behaviour must equal
+    # the rule's, and the rule is now keyed — a document still advertising `bypass`
+    # would tell a client its routing controls are uncacheable when they are keyed.
+    assert entry["gateway"]["cache_behavior"] == "keyed"
     assert entry["gateway"]["applicable_auth_modes"] == ["api_key"]
     # the PUBLISHED bound is the bound dispatch enforces — same schema object.
     assert entry["schema"] == _rule_by_path()[path].parameter_schema.to_json_schema()

@@ -66,7 +66,7 @@ class _Dispatch:
         return SimpleNamespace(
             model_dump=lambda: {
                 "id": f"or-{len(self.calls)}",
-                "choices": [{"message": {"content": "ok"}}],
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
             }
         )
 
