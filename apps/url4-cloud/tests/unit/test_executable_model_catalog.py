@@ -68,7 +68,8 @@ class _GatewayDetails:
         model: str,
     ) -> ModelParameterResponse:
         self.seen.append(model)
-        return ModelParameterResponse(status=200, body={"model": {"id": model}})
+        content = f'{{"model":{{"id":"{model}"}}}}'.encode()
+        return ModelParameterResponse(status=200, content=content)
 
     async def aclose(self) -> None:
         pass

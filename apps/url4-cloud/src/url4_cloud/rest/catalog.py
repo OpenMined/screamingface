@@ -46,6 +46,17 @@ _MODEL_PARAMETER_HEADERS = {
     "Cache-Control": "private, no-store",
     "Vary": _VARY,
 }
+_MODEL_PARAMETER_OPENAPI = {
+    "parameters": [
+        {
+            "name": "model",
+            "in": "query",
+            "required": True,
+            "description": "Canonical provider-prefixed model id.",
+            "schema": {"type": "string"},
+        }
+    ]
+}
 
 _MODELS_RESPONSES: dict[int | str, dict[str, object]] = {
     200: {"description": "The models this caller can address."},
@@ -136,6 +147,7 @@ async def list_models(
     tags=["Catalog"],
     summary="Get one model's parameter contract",
     responses=_MODEL_PARAMETER_RESPONSES,
+    openapi_extra=_MODEL_PARAMETER_OPENAPI,
     description=(
         "Proxy AI Gateway's profile-bound parameter contract for one canonical model. "
         "The body is AI Gateway's, verbatim, and is never cached by URL4 Cloud."
@@ -174,9 +186,10 @@ async def model_parameters(
             detail=exc.detail,
             headers=_MODEL_PARAMETER_HEADERS,
         ) from exc
-    return JSONResponse(
+    return Response(
         status_code=result.status,
-        content=result.body,
+        content=result.content,
+        media_type="application/json",
         headers=_model_parameter_headers(result.status),
     )
 

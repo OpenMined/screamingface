@@ -1,9 +1,9 @@
 ---
 ticket: OME-480
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-08-05
-finished:
+finished: 2026-08-06
 ---
 
 # OME-480 — expose AI Gateway model details through the Engine
@@ -43,18 +43,21 @@ No schema/model migration applies.
 
 ## Outcome
 
-- **Actual files:** six URL4 Cloud modules, one new focused test module, and this task's
+- **Actual files:** seven URL4 Cloud modules, one new focused test module, and this task's
   task/spec/plan/work artifacts. No runner, connector, Benchmark, AI Gateway, URL4, SDK, Helm, or
   dependency file changed.
 - **Behavior:** URL4 Cloud exposes uncached `GET /v1/model-parameters`, forwards the existing
   verified identity/profile, preserves valid v1 documents and caller-correctable JSON `4xx`, and
   fails closed for malformed or unavailable upstream responses.
-- **Tests:** 29 focused detail tests; the complete URL4 Cloud suite passes with **522 passed, 5
-  skipped**, and **96.70%** coverage.
-- **Gates:** `python3 .claude/scripts/run_gates.py url4-cloud` — append-only, Ruff, formatting,
+- **Tests:** 36 focused contract tests; the complete URL4 Cloud suite passes with **529 passed, 5
+  skipped**, and **96.74%** coverage.
+- **Gates:** `uv run .claude/scripts/run_gates.py url4-cloud` — append-only, Ruff, formatting,
   Pyright, layering, and pytest/coverage all green.
-- **Commits:** pending explicit handoff approval.
+- **Implementation commit:** `d9db1e6c` — `feat(url4-cloud): proxy model parameter contracts`
+  (`Refs: OME-480`), based directly on `origin/main`.
 - **Deviations:** `CachedCatalog` retains a reference to the detail source for composition rather
   than implementing `ModelParameterSource`; this keeps the cache boundary honest while preserving
-  one owned HTTP client and shutdown hook. Linear remains unchanged until the full stack is ready
-  for review, as requested.
+  one owned HTTP client and shutdown hook. `local.py` also wires that source into local mode; it
+  was omitted from Planned changes, but without it the production entrypoint would work while the
+  supported local composition returned `503`. Linear remains unchanged until the full stack is
+  ready for review, as requested.

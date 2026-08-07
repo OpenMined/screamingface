@@ -29,6 +29,12 @@ class ExecutableCatalog:
     def __init__(self, source: CatalogService, model_ids: frozenset[str]) -> None:
         self._source = source
         self._model_ids = model_ids
+        parameter_source = getattr(source, "model_parameter_source", None)
+        self._model_parameter_source = (
+            None
+            if parameter_source is None
+            else ExecutableModelParameterSource(parameter_source, model_ids)
+        )
 
     @property
     def counters(self) -> Any:
@@ -64,10 +70,7 @@ class ExecutableCatalog:
     def model_parameter_source(self) -> ModelParameterSource | None:
         """The uncached Gateway detail source, guarded by this same executable route set."""
 
-        source = getattr(self._source, "model_parameter_source", None)
-        if source is None:
-            return None
-        return ExecutableModelParameterSource(source, self._model_ids)
+        return self._model_parameter_source
 
 
 class ExecutableModelParameterSource:

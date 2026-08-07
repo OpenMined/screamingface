@@ -96,10 +96,10 @@ class ModelCatalog:
 
 @dataclass(frozen=True, slots=True)
 class ModelParameterResponse:
-    """One JSON response from AI Gateway's model-parameter contract route."""
+    """One validated JSON response from AI Gateway, retaining its wire representation."""
 
     status: int
-    body: dict[str, object]
+    content: bytes
 
 
 def compute_etag(body: dict[str, object]) -> str:
