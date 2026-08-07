@@ -9,13 +9,13 @@ created: 2026-07-26
 closed:
 ---
 
-# Add a cached aigateway model-catalog endpoint to url4-cloud
+# Expose only executable models from the Engine catalog
 
-Read-only `GET /v1/models` on the url4-cloud backend, proxied from aigateway's own
-`GET /v1/models` and served from a process-wide TTL cache with single-flight and
-stale-on-error. Unauthenticated by owner decision (ingress is the trust boundary); the
-Runner's `_list_models` is out of scope.
+Project the existing caller-visible AI Gateway catalog onto the model routes declared by this
+Engine's `url4.toml`. The App and Runner consume one shared declared-world parser, so discovery
+cannot advertise a route whose complete execution configuration is invalid. Apply the same set to
+model-parameter lookup and reject undeclared models without contacting AI Gateway.
 
 Spec: `docs/spec/2026-07-26-url4-cloud-model-catalog-spec.md`
 Plan: `docs/plan/2026-07-26-url4-cloud-model-catalog.md`
-Ledger: `docs/work/2026-07-26-OME-625-url4-cloud-model-catalog.md`
+Ledger: `docs/work/2026-08-05-OME-625-executable-model-catalog.md`

@@ -10,8 +10,8 @@ import pytest
 
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
-from url4_cloud.runner.config import ModelSpec
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.world_config import ModelSpec
 
 _TOKEN = "tok"  # noqa: S105 - not a real credential
 _MODEL = "claude-haiku-4-5"

@@ -1,17 +1,36 @@
 ---
 title: url4-cloud model catalog endpoint — implementation plan
-status: proposed — awaiting owner approval
+status: approved
 created: 2026-07-26
-revised: 2026-07-26 (r3 — credential required; no service secret)
+revised: 2026-08-07 (r4 — executable Engine catalog)
 ticket: OME-625
 spec: docs/spec/2026-07-26-url4-cloud-model-catalog-spec.md
-ledger: docs/work/2026-07-26-OME-625-url4-cloud-model-catalog.md
+ledger: docs/work/2026-08-05-OME-625-executable-model-catalog.md
 ---
 
-# Implementation plan — OME-625 (r3)
+# Implementation plan — OME-625
 
-Branch `OME-625-url4-cloud-model-catalog`. Stack `url4-cloud` (`sdlc-python`), TDD RED→GREEN per
-batch, `run_gates.py` between batches. Conventional commits, body `Refs: OME-625`.
+Branch `OME-625-engine-executable-model-catalog`. Stack `url4-cloud` (`sdlc-python`).
+
+## r4 executable-world correction — approved 2026-08-07
+
+The original catalog and cache are already implemented. This correction makes discovery answer
+which models the Engine can execute rather than which models AI Gateway can serve directly:
+
+1. Move the declared-world parser to a neutral URL4 Cloud module shared by the App and Runner.
+   Both consumers must validate the complete same configuration; no partial second TOML reader.
+2. Reject model ids that cannot form URL4 expression paths while parsing the declared world.
+3. Decorate the caller-visible Gateway catalog with the declared model-id intersection, preserving
+   retained model documents and unknown top-level fields and recomputing the ETag.
+4. Guard model-parameter lookup with the same declared set and reject undeclared ids before an
+   upstream request.
+5. Wire production and local composition, add focused parity/HTTP/startup tests, and run the full
+   URL4 Cloud gate.
+
+No AI Gateway, URL4 grammar, Benchmark, authentication, deployment, or Client changes belong in
+this correction.
+
+## Historical r3 implementation plan
 
 **r3 vs r2:** the anonymous path and the `aigateway_token` setting are gone (spec D1/D2), so
 Batch 5 shrinks, `Cache-Control` stops being conditional, and Batch 6 loses the chart Secret

@@ -181,7 +181,7 @@ TAVILY_API_KEY = "TAVILY_API_KEY"
 Absent => web tools stay off."""
 
 RUNNER_CONFIG = "URL4_RUNNER_CONFIG"
-"""Path to the declared world (:mod:`url4_cloud.runner.config`). Baked into the image; the App
+"""Path to the declared world (:mod:`url4_cloud.world_config`). Baked into the image; the App
 never writes it."""
 
 DEFAULT_NATS_URL = "nats://localhost:4222"
@@ -203,7 +203,8 @@ holding — re-adding a per-run secret must go through it rather than around it.
 """
 
 REQUIRED = frozenset({TOPIC, EXPRESSION})
-"""Absent ⇒ run mode raises ``RunnerConfigError`` at boot. Every adapter must write these."""
+"""Absent ⇒ run mode raises ``runner.main.RunnerConfigError`` at boot (the PER-RUN env error; a
+bad declared world is ``world_config.WorldConfigError``). Every adapter must write these."""
 
 WRITTEN_BY_APP = frozenset(
     {

@@ -84,10 +84,10 @@ class Credential:
 
 @dataclass(frozen=True, slots=True)
 class ModelCatalog:
-    """One fetched catalog: aigateway's response body verbatim, plus its derived ETag.
+    """One fetched catalog document plus its derived ETag.
 
-    WHY verbatim: url4-cloud proxies, it does not reshape. Passing the body through unchanged keeps
-    the response OpenAI-tool-compatible and means a new upstream field needs no change here.
+    The AI Gateway adapter fills this with the upstream body verbatim. The Engine projection
+    later replaces only ``data`` with the declared-route intersection and derives a new ETag.
     """
 
     body: dict[str, object]
@@ -152,6 +152,14 @@ class ModelParameterBadResponse(CatalogBadResponse):
     detail = "aigateway returned an unusable model-parameter contract"
 
 
+class ModelNotInstalled(CatalogError):
+    """The requested model is absent from this Engine's declared execution world."""
+
+    status = 404
+    title = "Not Found"
+    detail = "the model is not installed on this Engine"
+
+
 class CatalogUnavailable(CatalogError):
     """The upstream request timed out."""
 
@@ -191,6 +199,7 @@ __all__ = [
     "CatalogUnavailable",
     "Credential",
     "ModelCatalog",
+    "ModelNotInstalled",
     "ModelParameterBadResponse",
     "ModelParameterResponse",
     "ModelParameterSource",

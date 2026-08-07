@@ -9,8 +9,8 @@ import pytest
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
-from url4_cloud.runner.config import ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.world_config import ModelSpec, WorldConfigError
 
 pytestmark = pytest.mark.asyncio
 
@@ -368,7 +368,7 @@ async def test_default_model_must_be_one_of_the_declared_models() -> None:
         default_model="anthropic/claude-haiku-4-5", models=(ModelSpec(id="openrouter/gpt-4o"),)
     )
     async with gw.client() as client:
-        with pytest.raises(RunnerConfigError, match="anthropic/claude-haiku-4-5"):
+        with pytest.raises(WorldConfigError, match="anthropic/claude-haiku-4-5"):
             await build_aigateway_world(cfg, client=client)
 
 
@@ -416,7 +416,7 @@ async def test_a_bad_default_model_is_rejected_before_any_client_is_created() ->
 
     with (
         mock.patch.object(httpx.AsyncClient, "__init__", _spy_init),
-        pytest.raises(RunnerConfigError, match="not/in-catalog"),
+        pytest.raises(WorldConfigError, match="not/in-catalog"),
     ):
         await build_aigateway_world(cfg)
 
@@ -424,7 +424,7 @@ async def test_a_bad_default_model_is_rejected_before_any_client_is_created() ->
 
 
 async def test_declaring_no_models_is_a_config_error() -> None:
-    with pytest.raises(RunnerConfigError, match="declares no models"):
+    with pytest.raises(WorldConfigError, match="declares no models"):
         await build_aigateway_world(AigatewayConfig(models=()))
 
 

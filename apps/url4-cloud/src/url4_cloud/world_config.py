@@ -1,4 +1,7 @@
-"""The run mode's declared world — `url4.toml`, read once at startup.
+"""The Engine's declared world — ``url4.toml``, read once at startup.
+
+Both the control plane and Runner consume this module. Discovery must project onto the exact
+configuration the Runner executes; a second partial TOML reader would let the two disagree.
 
 Endpoints are DECLARED, never discovered. A route path is exactly
 ``"/" + gateway_id``: no renaming and no synthesized aliases. Gateway ids are unique by
@@ -11,18 +14,21 @@ OpenRouter) and ``openrouter/anthropic/claude-opus-4.8`` into ``/anthropic/claud
 Aliases were also collision-dependent, so adding a model elsewhere in the catalog could
 silently REMOVE an alias an expression depended on.
 
-The file format mirrors ``url4 serve``'s (``url4.cli._serve``). ``[data]``, ``[commands]``,
+The file format mirrors ``url4 serve``'s (``url4.cli._serve``), one way stricter: a model id here
+must also be renderable as a URL4 expression path (see ``_MODEL_ID_RE``).
+
+``[data]``, ``[commands]``,
 ``[holdings]`` and ``[identities]`` are reserved here but not parsed yet — declaring one is a
 loud error rather than a silent no-op, so a config that looks like it works actually does.
 
-# AIDEV-NOTE: this loader deliberately duplicates ~120 lines of `_serve.py`'s tested parsing
-# rather than depending on it — `_serve` is a private CLI module in `packages/url4`, and the
-# Runner is the only other consumer today. Extract a shared public module when a THIRD
-# consumer appears; until then the duplication is cheaper than the coupling.
+# AIDEV-NOTE: this loader deliberately duplicates `_serve.py`'s tested parsing rather than
+# depending on it — `_serve` is a private CLI module in another package. Within URL4 Cloud this
+# module is the single authority shared by the App and Runner.
 """
 
 from __future__ import annotations
 
+import re
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -31,6 +37,7 @@ from pathlib import Path
 from url4_cloud import job_env
 
 DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
+
 """Where the declared world lives unless :data:`job_env.RUNNER_CONFIG` overrides it. Image-level
 wiring: the App never writes that variable — the file is baked into the image."""
 
@@ -38,9 +45,10 @@ _AIGATEWAY_KEYS = frozenset({"base_url", "default_route", "models", "allow_outbo
 _MODEL_KEYS = frozenset({"id", "web_tools"})
 _RESERVED_TABLES = frozenset({"data", "commands", "holdings", "identities"})
 _TOP_LEVEL_KEYS = frozenset({"aigateway"})
+_MODEL_ID_RE = re.compile(r"[A-Za-z0-9\-_.~]+(?:/[A-Za-z0-9\-_.~]+)*", re.ASCII)
 
 
-class RunnerConfigError(ValueError):
+class WorldConfigError(ValueError):
     """The Runner's configuration is unusable — raised at startup, before any run."""
 
 
@@ -76,7 +84,7 @@ class AigatewaySection:
 
 
 @dataclass(frozen=True, slots=True)
-class RunnerConfig:
+class WorldConfig:
     """The whole declared world. ``aigateway is None`` is a legitimate tokenless world."""
 
     aigateway: AigatewaySection | None = None
@@ -93,39 +101,48 @@ def routes_for(models: Sequence[ModelSpec]) -> dict[str, ModelSpec]:
     return {"/" + model.id: model for model in models}
 
 
-def load_config(env: Mapping[str, str]) -> RunnerConfig:
+def declared_model_ids(env: Mapping[str, str]) -> frozenset[str]:
+    """Return the model ids from the same fully validated world the Runner consumes."""
+
+    section = load_config(env).aigateway
+    if section is None:
+        return frozenset()
+    return frozenset(model.id for model in section.models)
+
+
+def load_config(env: Mapping[str, str]) -> WorldConfig:
     """Read and validate the declared world from ``env``'s config path."""
     path = Path(env.get(job_env.RUNNER_CONFIG, DEFAULT_CONFIG_PATH))
     try:
         with path.open("rb") as handle:
             raw = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise RunnerConfigError(f"cannot read runner config {str(path)!r}: {exc}") from exc
+        raise WorldConfigError(f"cannot read world config {str(path)!r}: {exc}") from exc
     return parse_config(raw, env)
 
 
-def parse_config(raw: Mapping[str, object], env: Mapping[str, str]) -> RunnerConfig:
-    """Validate a parsed TOML mapping into a :class:`RunnerConfig`. Fail-fast."""
+def parse_config(raw: Mapping[str, object], env: Mapping[str, str]) -> WorldConfig:
+    """Validate a parsed TOML mapping into a :class:`WorldConfig`. Fail-fast."""
     _reject_unsupported_tables(raw)
     table = raw.get("aigateway")
     if table is None:
-        return RunnerConfig()
+        return WorldConfig()
     if not isinstance(table, Mapping):
-        raise RunnerConfigError(f"[aigateway] must be a table, got {table!r}")
-    return RunnerConfig(aigateway=_parse_aigateway(table, env))
+        raise WorldConfigError(f"[aigateway] must be a table, got {table!r}")
+    return WorldConfig(aigateway=_parse_aigateway(table, env))
 
 
 def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
     declared = set(map(str, raw))
     reserved = sorted(declared & _RESERVED_TABLES)
     if reserved:
-        raise RunnerConfigError(
-            f"{reserved} is reserved in the runner config format but not supported yet — "
+        raise WorldConfigError(
+            f"{reserved} is reserved in the world config format but not supported yet — "
             "remove it, or land the endpoint kind that reads it"
         )
     unknown = sorted(declared - _TOP_LEVEL_KEYS - _RESERVED_TABLES)
     if unknown:
-        raise RunnerConfigError(
+        raise WorldConfigError(
             f"unknown top-level table(s) {unknown} (expected {sorted(_TOP_LEVEL_KEYS)})"
         )
 
@@ -133,7 +150,7 @@ def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
 def _parse_aigateway(table: Mapping[str, object], env: Mapping[str, str]) -> AigatewaySection:
     unknown = sorted(set(map(str, table)) - _AIGATEWAY_KEYS)
     if unknown:
-        raise RunnerConfigError(
+        raise WorldConfigError(
             f"[aigateway] has unknown key(s) {unknown} (expected {sorted(_AIGATEWAY_KEYS)})"
         )
     models = _models(table.get("models"))
@@ -164,7 +181,7 @@ def _apply_env(section: AigatewaySection, env: Mapping[str, str]) -> AigatewaySe
 def _require_declared(default_model: str, models: tuple[ModelSpec, ...]) -> None:
     ids = [model.id for model in models]
     if default_model not in ids:
-        raise RunnerConfigError(
+        raise WorldConfigError(
             f"default_route {'/' + default_model!r} is not a declared model — "
             f"declared: {sorted(ids)}"
         )
@@ -172,15 +189,15 @@ def _require_declared(default_model: str, models: tuple[ModelSpec, ...]) -> None
 
 def _models(value: object) -> tuple[ModelSpec, ...]:
     if not isinstance(value, list):
-        raise RunnerConfigError(f"[aigateway] models must be a list, got {value!r}")
+        raise WorldConfigError(f"[aigateway] models must be a list, got {value!r}")
     if not value:
-        raise RunnerConfigError("[aigateway] must declare at least one model")
+        raise WorldConfigError("[aigateway] must declare at least one model")
     models: list[ModelSpec] = []
     seen: set[str] = set()
     for entry in value:
         spec = _model_spec(entry)
         if spec.id in seen:
-            raise RunnerConfigError(f"[aigateway] declares duplicate model id {spec.id!r}")
+            raise WorldConfigError(f"[aigateway] declares duplicate model id {spec.id!r}")
         seen.add(spec.id)
         models.append(spec)
     return tuple(models)
@@ -197,7 +214,7 @@ def _model_spec(entry: object) -> ModelSpec:
         return _model_table(entry)
     if isinstance(entry, str):
         return ModelSpec(id=_model_id(entry))
-    raise RunnerConfigError(
+    raise WorldConfigError(
         f"[aigateway] model entry must be a table or an id string, got {entry!r}"
     )
 
@@ -205,15 +222,15 @@ def _model_spec(entry: object) -> ModelSpec:
 def _model_table(table: Mapping[str, object]) -> ModelSpec:
     unknown = sorted(set(map(str, table)) - _MODEL_KEYS)
     if unknown:
-        raise RunnerConfigError(
+        raise WorldConfigError(
             f"[[aigateway.models]] has unknown key(s) {unknown} (expected {sorted(_MODEL_KEYS)})"
         )
     raw_id = table.get("id")
     if raw_id is None:
-        raise RunnerConfigError("[[aigateway.models]] entry is missing its `id`")
+        raise WorldConfigError("[[aigateway.models]] entry is missing its `id`")
     web_tools = table.get("web_tools", False)
     if not isinstance(web_tools, bool):
-        raise RunnerConfigError(
+        raise WorldConfigError(
             f"[[aigateway.models]] web_tools must be a boolean, got {web_tools!r}"
         )
     return ModelSpec(id=_model_id(str(raw_id)), web_tools=web_tools)
@@ -221,10 +238,15 @@ def _model_table(table: Mapping[str, object]) -> ModelSpec:
 
 def _model_id(model: str) -> str:
     if not model:
-        raise RunnerConfigError("[aigateway] declares an empty model id")
+        raise WorldConfigError("[aigateway] declares an empty model id")
     if model.startswith("/"):
-        raise RunnerConfigError(
+        raise WorldConfigError(
             f"model id {model!r} must not start with '/' — the route path is derived as '/' + id"
+        )
+    if _MODEL_ID_RE.fullmatch(model) is None:
+        raise WorldConfigError(
+            f"model id {model!r} is not a valid URL4 expression path — each segment may contain "
+            "only ASCII letters, digits, '-', '_', '.', or '~'"
         )
     return model
 
@@ -244,7 +266,7 @@ def _bool(table: Mapping[str, object], key: str, *, default: bool) -> bool:
     if value is None:
         return default
     if not isinstance(value, bool):
-        raise RunnerConfigError(f"[aigateway] {key} must be a boolean, got {value!r}")
+        raise WorldConfigError(f"[aigateway] {key} must be a boolean, got {value!r}")
     return value
 
 
@@ -255,14 +277,15 @@ def _float(table: Mapping[str, object], key: str, default: float) -> float:
     try:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
-        raise RunnerConfigError(f"[aigateway] {key} must be a number, got {value!r}") from None
+        raise WorldConfigError(f"[aigateway] {key} must be a number, got {value!r}") from None
 
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
     "AigatewaySection",
-    "RunnerConfig",
-    "RunnerConfigError",
+    "WorldConfig",
+    "WorldConfigError",
+    "declared_model_ids",
     "load_config",
     "parse_config",
     "routes_for",

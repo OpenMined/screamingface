@@ -124,9 +124,12 @@ installed by the wheel, so in a checkout local mode falls back to the checkout's
 
 ## Model catalog — `GET /v1/models`
 
-Discover which models an expression can address, proxied from aigateway's own `/v1/models` and
-served from a per-caller cache. Design: `docs/spec/2026-07-26-url4-cloud-model-catalog-spec.md`
-· OME-625.
+Discover which models an expression can address: aigateway's own `/v1/models` for this caller,
+**intersected with the model routes this Engine declares** in `url4.toml`, served from a
+per-caller cache. Every id it returns is a route the Runner can actually execute — a model
+aigateway could serve directly but the Engine has not declared is omitted rather than advertised
+and then failing at render time. Retained model documents are aigateway's, unchanged.
+Design: `docs/spec/2026-07-26-url4-cloud-model-catalog-spec.md` · OME-625.
 
 The caller is the verified `X-User-Email` the mesh gateway injects. Deployed, Envoy always supplies
 it. Locally, aigateway runs with auth disabled and none is needed:
@@ -146,6 +149,13 @@ caller's identity and aigateway decides, including whether an absent identity is
 - **Enabled by `URL4_CLOUD_AIGATEWAY_BASE_URL`** — the same value the chart already sets as
   `config.aigatewayBaseUrl`. Unset ⇒ the endpoint answers `503`; everything else is a code default
   (see the `models_cache_*` fields in `config.py`).
+- **Also needs a readable declared world.** With a base URL set, the App reads `url4.toml` at boot
+  (the same file the Runner uses — see above; baked into the image, `URL4_RUNNER_CONFIG` overrides
+  the path). If it is missing or invalid, both catalog routes answer `503` and an `ERROR` is
+  logged naming the cause; runs, streaming and health are unaffected. Discovery never guesses,
+  and never advertises a route it cannot execute.
+- **`GET /v1/model-parameters` is bounded by the same set** — an undeclared model answers `404`
+  without contacting aigateway, so the listing and the detail cannot disagree.
 - Cache behaviour is observable at `/metrics` (`url4_cloud_catalog_*`).
 
 ## Per-run cache policy

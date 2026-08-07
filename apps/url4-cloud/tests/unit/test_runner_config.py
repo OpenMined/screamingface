@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 
 from url4_cloud import job_env
-from url4_cloud.runner.config import (
+from url4_cloud.world_config import (
     AigatewaySection,
     ModelSpec,
-    RunnerConfig,
-    RunnerConfigError,
+    WorldConfig,
+    WorldConfigError,
     load_config,
     parse_config,
     routes_for,
@@ -23,7 +23,7 @@ models = ["claude-haiku-4-5", "codex/gpt-5.5"]
 """
 
 
-def _parse(toml_text: str, env: dict[str, str] | None = None) -> RunnerConfig:
+def _parse(toml_text: str, env: dict[str, str] | None = None) -> WorldConfig:
     return parse_config(_toml(toml_text), env or {})
 
 
@@ -103,49 +103,49 @@ def test_absent_aigateway_table_is_a_valid_tokenless_world() -> None:
 
 
 def test_default_route_must_be_a_declared_model() -> None:
-    with pytest.raises(RunnerConfigError, match="not a declared model"):
+    with pytest.raises(WorldConfigError, match="not a declared model"):
         _parse(_MINIMAL.replace('"/claude-haiku-4-5"', '"/claude-opus-4-8"'))
 
 
 def test_empty_models_list_is_rejected() -> None:
-    with pytest.raises(RunnerConfigError, match="at least one model"):
+    with pytest.raises(WorldConfigError, match="at least one model"):
         _parse('[aigateway]\ndefault_route = "/x"\nmodels = []\n')
 
 
 def test_model_id_may_not_start_with_a_slash() -> None:
-    with pytest.raises(RunnerConfigError, match="must not start with"):
+    with pytest.raises(WorldConfigError, match="must not start with"):
         _parse('[aigateway]\ndefault_route = "/x"\nmodels = ["/x"]\n')
 
 
 def test_empty_model_id_is_rejected() -> None:
-    with pytest.raises(RunnerConfigError, match="empty"):
+    with pytest.raises(WorldConfigError, match="empty"):
         _parse('[aigateway]\ndefault_route = "/x"\nmodels = ["x", ""]\n')
 
 
 def test_duplicate_model_ids_are_rejected() -> None:
-    with pytest.raises(RunnerConfigError, match="duplicate"):
+    with pytest.raises(WorldConfigError, match="duplicate"):
         _parse('[aigateway]\ndefault_route = "/x"\nmodels = ["x", "x"]\n')
 
 
 def test_unknown_key_in_the_aigateway_table_is_rejected() -> None:
-    with pytest.raises(RunnerConfigError, match="unknown"):
+    with pytest.raises(WorldConfigError, match="unknown"):
         _parse(_MINIMAL + "modles = []\n")
 
 
 def test_reserved_tables_fail_loudly_rather_than_being_ignored() -> None:
     # `[data]`/`[commands]`/`[holdings]`/`[identities]` are reserved in the format but not
     # parsed yet — silently ignoring them would look like they worked.
-    with pytest.raises(RunnerConfigError, match="not supported yet"):
+    with pytest.raises(WorldConfigError, match="not supported yet"):
         _parse(_MINIMAL + '\n[data]\n"/corpus" = { value = "x" }\n')
 
 
 def test_unknown_top_level_table_is_rejected() -> None:
-    with pytest.raises(RunnerConfigError, match="unknown"):
+    with pytest.raises(WorldConfigError, match="unknown"):
         _parse(_MINIMAL + "\n[nonsense]\nx = 1\n")
 
 
 def test_models_must_be_a_list() -> None:
-    with pytest.raises(RunnerConfigError, match="list"):
+    with pytest.raises(WorldConfigError, match="list"):
         _parse('[aigateway]\ndefault_route = "/x"\nmodels = "x"\n')
 
 
@@ -190,28 +190,28 @@ def test_the_two_spellings_may_be_mixed() -> None:
 
 
 def test_a_route_table_without_an_id_is_rejected() -> None:
-    with pytest.raises(RunnerConfigError, match="missing its `id`"):
+    with pytest.raises(WorldConfigError, match="missing its `id`"):
         _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ web_tools = true }]\n')
 
 
 def test_unknown_key_on_a_route_table_is_rejected() -> None:
     # A typo'd capability must fail loudly, not read as "declared nothing".
-    with pytest.raises(RunnerConfigError, match="unknown key"):
+    with pytest.raises(WorldConfigError, match="unknown key"):
         _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ id = "a", web_tool = true }]\n')
 
 
 def test_non_boolean_web_tools_is_rejected() -> None:
-    with pytest.raises(RunnerConfigError, match="web_tools must be a boolean"):
+    with pytest.raises(WorldConfigError, match="web_tools must be a boolean"):
         _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ id = "a", web_tools = "yes" }]\n')
 
 
 def test_a_route_entry_of_the_wrong_type_is_rejected() -> None:
-    with pytest.raises(RunnerConfigError, match="table or an id string"):
+    with pytest.raises(WorldConfigError, match="table or an id string"):
         _parse('[aigateway]\ndefault_route = "/a"\nmodels = [1]\n')
 
 
 def test_duplicate_ids_are_rejected_across_both_spellings() -> None:
-    with pytest.raises(RunnerConfigError, match="duplicate"):
+    with pytest.raises(WorldConfigError, match="duplicate"):
         _parse('[aigateway]\ndefault_route = "/a"\nmodels = ["a", { id = "a" }]\n')
 
 
@@ -231,7 +231,7 @@ def test_env_overrides_the_default_model_when_it_is_declared() -> None:
 
 
 def test_env_default_model_must_still_be_declared() -> None:
-    with pytest.raises(RunnerConfigError, match="not a declared model"):
+    with pytest.raises(WorldConfigError, match="not a declared model"):
         _parse(_MINIMAL, {job_env.AIGATEWAY_MODEL: "not-declared"})
 
 
@@ -249,7 +249,7 @@ def test_load_config_reads_the_declared_path(tmp_path: Path) -> None:
 
 
 def test_missing_config_file_is_a_config_error(tmp_path: Path) -> None:
-    with pytest.raises(RunnerConfigError, match="cannot read"):
+    with pytest.raises(WorldConfigError, match="cannot read"):
         load_config({"URL4_RUNNER_CONFIG": str(tmp_path / "absent.toml")})
 
 
@@ -257,5 +257,5 @@ def test_malformed_toml_is_a_config_error(tmp_path: Path) -> None:
     path = tmp_path / "url4.toml"
     path.write_text("[aigateway\n", encoding="utf-8")
 
-    with pytest.raises(RunnerConfigError, match="cannot read"):
+    with pytest.raises(WorldConfigError, match="cannot read"):
         load_config({"URL4_RUNNER_CONFIG": str(path)})

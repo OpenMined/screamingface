@@ -8,6 +8,7 @@ tests substitute for the production ones built here from `Settings`.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
@@ -17,7 +18,7 @@ from url4.streaming.interfaces import EventConsumer, JobRunner
 from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.auth import Clock, install_problem_handlers
 from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
-from url4_cloud.catalog import build_catalog_service
+from url4_cloud.catalog import build_executable_catalog_service
 from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.catalog.port import ModelParameterSource
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
@@ -141,7 +142,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         logging.warning(
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
-    catalog = build_catalog_service(settings)
+    catalog = build_executable_catalog_service(settings, os.environ)
     connections = build_connections(settings)
     app = create_app(
         settings,

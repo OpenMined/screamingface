@@ -53,9 +53,9 @@ from url4_cloud.runner.cache_readback import (
     read_cache_outcome,
     requires_revalidation,
 )
-from url4_cloud.runner.config import ModelSpec
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import _RunState
+from url4_cloud.world_config import ModelSpec
 
 _MODEL = "anthropic/claude-haiku-4-5"
 

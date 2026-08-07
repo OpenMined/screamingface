@@ -56,10 +56,10 @@ WORKDIR /app/apps/url4-cloud
 # INVARIANT: same absolute layout as the builder — editable installs resolve through these paths.
 COPY --from=builder --chown=1000:1000 /app/packages/url4 /app/packages/url4
 COPY --from=builder --chown=1000:1000 /app/apps/url4-cloud /app/apps/url4-cloud
-# The DECLARED world the run mode evaluates against (`url4_cloud.runner.config`,
+# The DECLARED world both serving discovery and run mode consume (`url4_cloud.world_config`,
 # DEFAULT_CONFIG_PATH). Endpoints are declared here, never discovered from the gateway catalog —
 # the image decides what CAN exist. URL4_RUNNER_CONFIG overrides the path; a read-only rootfs is
-# fine, it is read once at boot. Unused by the serving mode.
+# fine, it is read once per process at boot.
 COPY --from=builder --chown=1000:1000 /app/apps/url4-cloud/url4.toml /etc/url4/url4.toml
 ENV PATH="/app/apps/url4-cloud/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

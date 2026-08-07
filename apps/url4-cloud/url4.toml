@@ -1,4 +1,5 @@
-# url4-cloud RUNNER — the declared world.
+# url4-cloud — the declared world, read by BOTH the Runner (what a run may address) and the App
+# (what `GET /v1/models` advertises). One file, so discovery cannot promise what execution refuses.
 #
 # Baked into the image at /etc/url4/url4.toml (see Dockerfile). The image decides what CAN
 # exist; env supplies only per-Job values (the token, and optional base_url / model overrides).

@@ -28,9 +28,9 @@ from url4.dag import run as url4_run
 from url4.observe import ModelResponse, NodeFinished, NodeStarted, ObservationEvent
 from url4.streaming.interfaces import Traced
 from url4.streaming.protocol import SpanData
-from url4_cloud.runner.config import ModelSpec
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import _RunState
+from url4_cloud.world_config import ModelSpec
 
 _MODEL = "anthropic/claude-haiku-4-5"
 
