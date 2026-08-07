@@ -2,7 +2,12 @@
 title: OME-712 — Engine benchmark foundation
 status: accepted
 created: 2026-08-06
+revised: 2026-08-07 (r2 — contract decisions forced by the branch review of the implementation)
 ticket: OME-712
+related:
+  - docs/plan/2026-08-06-OME-712-engine-benchmark-foundation.md
+  - docs/work/2026-08-06-OME-712-engine-benchmark-foundation.md
+  - docs/spec/2026-08-04-OME-712-url4-runtime-foundations.md
 ---
 
 # Engine benchmark foundation
@@ -25,7 +30,12 @@ explicit immutable asset root.
   deduplication mechanism.
 - `Url4Node.endpoint()` and `Url4Node.data()` remain authoritative for path validity and collisions.
 - Installation validates every definition at its full selection, renders it, and checks every
-  literal relative endpoint against the routes actually installed in the shared world.
+  literal relative reference against the routes actually installed in the shared world. A call and
+  a data reference both name a route, and the routes come from `endpoint()` and from `data()`.
+- A reference names a route only while each segment is literal. `/judge/$item` names no route
+  before the Runner substitutes the row, and installation does not check it. Installation also
+  does not fail on an iteration template that it cannot parse before substitution. These
+  references stay unchecked; installation must not reject a legal Benchmark.
 - Assets and routes are validated before the first model request. A broken definition fails the
   Runner world atomically; it is never omitted from discovery and never discovered half-working.
 - A non-empty registry requires a declared AI Gateway model world.
@@ -38,7 +48,11 @@ compatibility behavior for unreleased contracts.
 - `GET /v1/benchmarks` returns metadata only. Each item includes `id`, `variant`, `revision`, total
   `case_count`, and `href`; URL4 text is not duplicated into the list.
 - `GET /v1/benchmarks/{id}` returns one `screamingface.benchmark.v1` resource containing metadata,
-  total `case_count`, authoritative `selected_case_count`, and complete executable URL4 text.
+  total `case_count`, authoritative `selected_case_count`, `candidate_binding`, and complete
+  executable URL4 text.
+- `candidate_binding` names the source the client binds its Candidate expression under. The
+  protocol reads that name back as `$candidate`. A client must not infer the name, and the Engine
+  publishes one helper that builds the linked expression.
 - IDs are explicit and slash-qualified (`draco`, `draco/lite`, `draco/smoke`). There is no
   `default` alias.
 - An omitted `limit` selects all cases. A supplied limit is exact and valid only when
@@ -94,11 +108,27 @@ All four fields are required. `finish_reason` is a literal supported provider va
 `refusal` is literal non-empty provider text or null. No benchmark synthesizes a refusal and no
 soft-refusal classifier is applied.
 
-The Connector reports every model round trip through the existing observation stream and a small
-task-local outcome recorder. A typed `provider_refusal` is converted only at the Candidate seam
-into a normal envelope with an empty output plus its exact finish/refusal fields. Timeouts,
-transport errors, malformed responses, and all other failures still fail normally. Each scored
-Benchmark decides how a refusal affects its denominator and score.
+The Connector reports every model round trip through the existing observation stream. It reports
+one terminal outcome per model call to a small task-local recorder. A tool loop makes more than
+one round trip for one call, but only the round trip that returns content is terminal. A typed
+`provider_refusal` is converted only at the Candidate seam into a normal envelope with an empty
+output plus its exact finish/refusal fields. Timeouts, transport errors, malformed responses, and
+all other failures still fail normally. Each scored Benchmark decides how a refusal affects its
+denominator and score.
+
+Candidate URL4 composes freely, so one Candidate scope can record more than one terminal outcome.
+The recorder does not know which model call produced the returned text. Therefore the adapter
+applies this rule:
+
+- One recorded outcome describes the answer. The adapter reports it.
+- Two or more recorded outcomes that agree also describe the answer. The adapter reports them.
+- Two or more recorded outcomes that disagree describe different branches. The adapter reports
+  null for `finish_reason` and null for `refusal`, which this contract permits.
+
+The adapter must not report the most recent outcome. That rule gives one branch's fields to
+another branch's answer. It can also put a refusal beside a non-empty output, and this contract
+has no such shape. A Benchmark that needs the exact fields of each model call must invoke one
+Candidate for each model call.
 
 ## Ownership
 
@@ -118,7 +148,8 @@ Benchmark decides how a refusal affects its denominator and score.
 - DRACO/IFEval cases, prompts, judges, reducers, exact case-ID validation, and scoring.
 - public paginated case browsing (`{id,input}` only), which needs the first real benchmark-owned
   case-source interface.
-- SDK linking, decoding, report construction, and defensive selected-count verification.
+- SDK linking, decoding, report construction, and defensive selected-count verification. The
+  Engine publishes the binding name and one linking helper; the SDK that consumes them is deferred.
 - benchmark image, Helm, and workflow changes.
 - run budgets and paid notebook gates.
 
@@ -130,6 +161,9 @@ Benchmark decides how a refusal affects its denominator and score.
   fail before model spend.
 - nested Candidate calls inherit retrieval policy without task leakage.
 - Tavily search and fetch honor exclusions defensively.
-- output, `finish_reason`, and `refusal` survive Candidate Invocation.
+- output, `finish_reason`, and `refusal` survive Candidate Invocation for one model call, and a
+  tool loop stays one model call.
+- a Candidate never gives one branch's `finish_reason` or `refusal` to another branch's answer,
+  and never reports a refusal beside a non-empty output.
 - the whole URL4 Cloud gate passes with the URL4 Engine importer guard expanded only to the
   explicitly owned `benchmarks/` extension subtree.
