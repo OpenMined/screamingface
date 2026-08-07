@@ -21,10 +21,16 @@
 #
 # WHY: use a SEPARATE image layered on the base rather than a stage in the main Dockerfile:
 #
-#   - the default url4-cloud image stays dataset-free. Baking DRACO into it would put ~40
-#     rubrics per case into every deployment, including ones that never benchmark;
-#   - dataset revisions rebuild THIS image only, so benchmark releases do not force an
-#     engine release (and cannot silently change the engine a published score was produced by);
+#   - ISOLATION OF CONCERNS: benchmark assets grow as benchmarks are added, and they change for
+#     reasons that have nothing to do with the engine. Keeping them in their own artifact keeps
+#     the client-facing control-plane image lean and gives grading assets their own build inputs.
+#     NOTE: this does NOT keep assets out of deployments that never benchmark — the chart makes
+#     this image the ONLY Runner image, so every deployment pulls it;
+#   - dataset revisions rebuild THIS image only. CAVEAT: they do not yet ship independently —
+#     `_helpers.tpl` derives this image's tag from the control plane's, and the release lane
+#     builds it only inside a version-gated `url4-cloud-v*` release, so a benchmark-only change
+#     still rides an engine version bump. Independent benchmark versioning needs an explicit tag
+#     plus a control-plane/Runner compatibility check;
 #   - `datasets` (and its pyarrow tail) is installed in a build stage that is thrown away — the
 #     runtime image never carries it. `prepare.py` imports it through `importlib` for exactly
 #     this reason.
@@ -32,8 +38,10 @@
 # INVARIANT: build context is the REPO ROOT, like the base image — `prepare` runs from the
 # installed package, which path-depends on `packages/url4`.
 #
-# AIDEV-NOTE: datasets are welded to an image, so adding a benchmark means a
-# rebuild and anyone who can pull the image has the rubrics. The alternative is a mounted volume
+# AIDEV-NOTE: datasets are welded to an image, so adding a benchmark means a rebuild. Anyone who
+# can pull the image has the rubrics — accepted: DRACO's rubrics are PUBLIC (the upstream
+# `perplexity-ai/draco` dataset downloads without credentials, and each Case Result publishes its
+# graded criteria), so this image needs no registry secrecy. The alternative is a mounted volume
 # plus `URL4_RUNNER_CONFIG` pointing beside it — which needs a volume the Job spec does not have
 # today (read-only rootfs, one emptyDir at /tmp). Decide before this leaves experimentation.
 

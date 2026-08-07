@@ -100,9 +100,14 @@ def aggregate(
 ) -> dict[str, Any]:
     """Reduce the row array into a Candidate Result — one row per Case.
 
-    INVARIANT: a case that produced no verdicts is EXCLUDED from the mean and named in
-    ``failures`` — never scored 0.0. Scoring it zero would penalise the Candidate for a harness
-    failure, the same class of error as counting an unjudged criterion as UNMET.
+    INVARIANT: a case that produced no verdicts is never scored 0.0. Scoring it zero would
+    penalise the Candidate for a harness failure, the same class of error as counting an unjudged
+    criterion as UNMET. Instead the whole Candidate goes unscored: if ANY Case Result lacks a
+    numeric grade, the result carries ``score: None`` and empty ``metrics``, so a partial run can
+    never be mistaken for a complete one.
+
+    The Case-scoped failure is attached to its own Case Result. Candidate-level ``failures`` stays
+    empty by design — it is reserved for failures that cannot be attributed to a selected Case.
     """
     try:
         rows = json.loads(rows_json)
@@ -155,8 +160,8 @@ def aggregate(
             "normalized_score_sd": _mean_grade_metrics(scored, "normalized_score_sd"),
             "pass_rate": _mean_grade_metrics(scored, "pass_rate"),
             "pass_rate_sd": _mean_grade_metrics(scored, "pass_rate_sd"),
-            "accuracy": _mean_grade_metrics(scored, "accuracy"),
-            "accuracy_pass_rate": _mean_grade_metrics(scored, "accuracy_pass_rate"),
+            "accuracy": _mean_optional_grade_metrics(scored, "accuracy"),
+            "accuracy_pass_rate": _mean_optional_grade_metrics(scored, "accuracy_pass_rate"),
             "axis_scores": _mean_grade_metric_maps(scored, "axis_scores"),
             "axis_pass_rates": _mean_grade_metric_maps(scored, "axis_pass_rates"),
             "coverage": _mean_grade_metrics(scored, "coverage"),
@@ -408,6 +413,23 @@ def _mean_grades(cases: Sequence[Mapping[str, Any]], key: str) -> float:
 
 def _mean_grade_metrics(cases: Sequence[Mapping[str, Any]], key: str) -> float:
     return round(sum(float(_grade_metric(case, key)) for case in cases) / len(cases), 4)
+
+
+def _mean_optional_grade_metrics(cases: Sequence[Mapping[str, Any]], key: str) -> float | None:
+    """Mean over the Cases that reported ``key``, or ``None`` when none of them did.
+
+    A Case whose rubric has no Factual Accuracy axis reports ``None`` rather than 0.0, so it must
+    be skipped instead of dragging the Candidate mean toward zero. This mirrors how
+    :func:`_mean_grade_metric_maps` averages each axis over the Cases that carry it.
+    """
+    values = [
+        float(value)
+        for case in cases
+        if (value := _grade_metric(case, key)) is not None and not isinstance(value, bool)
+    ]
+    if not values:
+        return None
+    return round(sum(values) / len(values), 4)
 
 
 def _sum_grade_metrics(cases: Sequence[Mapping[str, Any]], key: str) -> int:

@@ -13,8 +13,10 @@ from url4_cloud.benchmarks.draco.errors import AggregateError
 def load_rubrics(directory: Path) -> dict[int, dict[str, Any]]:
     """Load ``<directory>/<case_id>.json`` for every rubric on disk.
 
-    The rubrics are private: they live only in the benchmark image and are never returned to a
-    client. Only the case id crosses the wire.
+    The rubrics ship in the benchmark image rather than the control plane so that grading assets
+    have their own build lifecycle — NOT because they are secret. The upstream dataset is public,
+    and each Case Result publishes the requirement text, weight, and axis of every graded
+    criterion (see ``case_results._checks``). Do not add a secrecy guarantee on top of this.
 
     INVARIANT: an absent or empty directory raises. Returning ``{}`` makes every case an
     "unknown case_id" failure, which reaches the client as a terminated-succeeded run carrying a

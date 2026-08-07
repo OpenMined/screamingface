@@ -39,16 +39,29 @@ artifacts. The client supplies only a Candidate expression and never receives ru
 - Case artifacts retain input, output, finish reason, Check metadata, accepted evidence, and
   rejected raw Judge output.
 
-## Asset and privacy contract
+## Asset contract
 
 - `cases.json`, per-Case criteria, and per-Case rubrics are generated from a pinned dataset
   revision during benchmark-image construction.
 - The Runner validates complete ordered Case/criteria/rubric alignment before registering any
   DRACO route or issuing a paid request.
-- Rubrics and weights exist only in the benchmark Runner image. Control-plane discovery exposes
-  metadata and executable URL4, never private grading assets.
+- Rubrics are PUBLIC. The upstream `perplexity-ai/draco` dataset downloads without credentials,
+  and each Case Result publishes the requirement text, weight, and axis of every graded criterion.
+  Grading assets ship in the benchmark Runner image for isolation of concerns — they change for
+  reasons unrelated to the engine and grow as Benchmarks are added — not as a secrecy boundary.
+  Control-plane discovery still exposes only metadata and executable URL4, because the control
+  plane has no reason to carry benchmark assets.
+- `cases.json` carries no rubric. That is a protocol boundary, not a secrecy one: the Candidate
+  must not be handed the criteria it is about to be graded against.
 - The benchmark image is version-coupled to the URL4 Cloud release and selected independently in
-  the Runner Job template.
+  the Runner Job template. A benchmark-only change therefore still rides an engine version bump;
+  independent Benchmark versioning needs an explicit tag plus a Runner compatibility check.
+
+## Not guaranteed
+
+- A Candidate Result is not an attestation. Nothing binds an executed expression to the published
+  protocol, so a submitted result document proves only its own internal consistency. Any consumer
+  that treats a score as verified must re-check it against the Engine's own run record.
 
 ## Fidelity disclosure
 

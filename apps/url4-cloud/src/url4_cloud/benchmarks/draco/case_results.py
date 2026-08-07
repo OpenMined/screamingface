@@ -134,8 +134,9 @@ def incomplete_case_result(
         "normalized_score_sd": 0.0,
         "pass_rate": 0.0,
         "pass_rate_sd": 0.0,
-        "accuracy": 0.0,
-        "accuracy_pass_rate": 0.0,
+        # Nothing was judged, so the Factual Accuracy axis was never observed — unknown, not zero.
+        "accuracy": None,
+        "accuracy_pass_rate": None,
         "axis_scores": {},
         "axis_pass_rates": {},
         "coverage": 0.0,

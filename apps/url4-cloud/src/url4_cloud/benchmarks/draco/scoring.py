@@ -146,12 +146,23 @@ def axis_pass_rates(rubric: Mapping[str, Any], verdicts: Mapping[str, bool]) -> 
     return {axis: (correct / total) if total else 0.0 for axis, (correct, total) in by_axis.items()}
 
 
-def _factual_axis_value(axes: Mapping[str, float]) -> float:
+def _factual_axis_value(axes: Mapping[str, float]) -> float | None:
+    """The Factual Accuracy axis value, or ``None`` when this rubric has no such axis.
+
+    INVARIANT: absence is NOT zero. A rubric without a Factual Accuracy section (lite and smoke
+    selections routinely have none) would otherwise publish ``accuracy: 0.0`` for a Candidate that
+    scored 1.0, which reads as "0% factually accurate" — the same absence-renders-as-zero error
+    this module refuses for ``score``.
+    """
     for axis, value in axes.items():
         normalized = str(axis).lower().replace("_", "-").replace(" ", "-")
         if normalized in {"factual-accuracy", "factualaccuracy"}:
             return float(value)
-    return 0.0
+    return None
+
+
+def _round_optional(value: float | None) -> float | None:
+    return None if value is None else round(value, 4)
 
 
 def _restrict(rubric: Mapping[str, Any], judged_ids: Sequence[str]) -> dict[str, Any]:
@@ -187,8 +198,9 @@ def score_case(
             "normalized_score_sd": 0.0,
             "pass_rate": 0.0,
             "pass_rate_sd": 0.0,
-            "accuracy": 0.0,
-            "accuracy_pass_rate": 0.0,
+            # No run was scored, so no axis was observed — unknown, not zero.
+            "accuracy": None,
+            "accuracy_pass_rate": None,
             "axis_scores": {},
             "axis_pass_rates": {},
             "coverage": 0.0,
@@ -212,8 +224,8 @@ def score_case(
         "normalized_score_sd": round(_stdev(norms), 4),
         "pass_rate": round(_avg(pass_rates), 4),
         "pass_rate_sd": round(_stdev(pass_rates), 4),
-        "accuracy": round(_factual_axis_value(axis_means), 4),
-        "accuracy_pass_rate": round(_factual_axis_value(axis_pass_means), 4),
+        "accuracy": _round_optional(_factual_axis_value(axis_means)),
+        "accuracy_pass_rate": _round_optional(_factual_axis_value(axis_pass_means)),
         "axis_scores": axis_means,
         "axis_pass_rates": axis_pass_means,
         "coverage": round(_avg(coverages), 4),

@@ -129,8 +129,10 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
                     "normalized_score_sd": 0.0,
                     "pass_rate": 1.0,
                     "pass_rate_sd": 0.0,
-                    "accuracy": 0.0,
-                    "accuracy_pass_rate": 0.0,
+                    # This rubric has no Factual Accuracy axis, so accuracy is unknown rather
+                    # than zero — a scored-1.0 Case must not report "0% factually accurate".
+                    "accuracy": None,
+                    "accuracy_pass_rate": None,
                     "axis_scores": {"correctness": 1.0},
                     "axis_pass_rates": {"correctness": 1.0},
                     "coverage": 1.0,

@@ -161,6 +161,30 @@ def test_score_case_means_the_runs_and_reports_the_spread() -> None:
     assert scored["n_runs"] == 2
 
 
+def test_a_rubric_without_a_factual_accuracy_axis_reports_unknown_not_zero() -> None:
+    """Absence must not render as 0.0 — that reads as "0% factually accurate" on a perfect run."""
+    rubric = {
+        "sections": [
+            {"id": "Presentation", "criteria": [{"id": "b1", "weight": 1, "requirement": "clear"}]}
+        ]
+    }
+
+    scored = scoring.score_case(rubric, [{"b1": True}])
+
+    assert scored["normalized_score"] == 1.0
+    assert scored["accuracy"] is None
+    assert scored["accuracy_pass_rate"] is None
+
+
+def test_a_case_missing_the_accuracy_axis_is_skipped_by_the_candidate_mean() -> None:
+    """A Case that never observed the axis must not drag the Candidate mean toward zero."""
+    with_axis = {"grade": {"metrics": {"accuracy": 0.8}}}
+    without_axis = {"grade": {"metrics": {"accuracy": None}}}
+
+    assert agg._mean_optional_grade_metrics([with_axis, without_axis], "accuracy") == 0.8
+    assert agg._mean_optional_grade_metrics([without_axis], "accuracy") is None
+
+
 def test_a_single_run_reports_zero_spread() -> None:
     scored = scoring.score_case(_RUBRIC, [{"a1": True, "a2": True, "a3": False, "b1": True}])
 

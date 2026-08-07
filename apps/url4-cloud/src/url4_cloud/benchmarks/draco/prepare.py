@@ -16,9 +16,10 @@ judges one criterion at a time, blind to its weight and to its siblings; a judge
 weight can infer how much a criterion is worth and bias toward the expensive ones. The weights
 therefore live ONLY in `rubrics/`, which `aggregate.py` reads after the judging is done.
 
-INVARIANT: `cases.json` carries NO rubric. The whole privacy boundary of the design is that the
-client receives case ids and inputs while the rubric stays in the image, so a Candidate cannot be
-tuned against the answer key. Adding the rubric column here would silently defeat it.
+INVARIANT: `cases.json` carries NO rubric. It is the Candidate-facing input, and a rubric column
+here would put the grading criteria straight into the prompt the Candidate answers. This is a
+protocol boundary, not a secrecy one: `perplexity-ai/draco` is a public dataset and each Case
+Result publishes its graded criteria, so nothing here is an undisclosed answer key.
 
 Dataset: `perplexity-ai/draco` (arXiv:2602.11685). Column mapping mirrors
 `screamingface-benchmarks/benchmarks_config/draco.yaml`:
