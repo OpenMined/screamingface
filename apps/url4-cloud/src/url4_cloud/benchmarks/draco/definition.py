@@ -280,11 +280,23 @@ def _build_protocol(
     return node
 
 
-def _install(node: Url4Node, assets: Path, _model_routes: frozenset[str]) -> None:
+def _install_canonical(node: Url4Node, assets: Path) -> None:
     # Lazy import keeps the resource-only control-plane path from loading filesystem runtime code.
-    from url4_cloud.benchmarks.draco.runtime import install
+    from url4_cloud.benchmarks.draco.runtime import install_canonical
 
-    install(node, assets / BENCHMARK_ID)
+    install_canonical(node, assets / BENCHMARK_ID)
+
+
+def _install_lite(node: Url4Node, assets: Path) -> None:
+    from url4_cloud.benchmarks.draco.runtime import install_lite
+
+    install_lite(node, assets / BENCHMARK_ID)
+
+
+def _install_smoke(node: Url4Node, assets: Path) -> None:
+    from url4_cloud.benchmarks.draco.runtime import install_smoke
+
+    install_smoke(node, assets / BENCHMARK_ID)
 
 
 DRACO = Benchmark(
@@ -295,7 +307,7 @@ DRACO = Benchmark(
     revision=REVISION,
     case_count=CASE_COUNT,
     build=_build,
-    install=_install,
+    install=_install_canonical,
 )
 
 DRACO_LITE = Benchmark(
@@ -309,7 +321,7 @@ DRACO_LITE = Benchmark(
     revision=LITE_REVISION,
     case_count=LITE_CASE_COUNT,
     build=_build_lite,
-    install=_install,
+    install=_install_lite,
     case_ids=LITE_CASE_IDS,
 )
 
@@ -324,7 +336,7 @@ DRACO_SMOKE = Benchmark(
     revision=SMOKE_REVISION,
     case_count=SMOKE_CASE_COUNT,
     build=_build_smoke,
-    install=_install,
+    install=_install_smoke,
     case_ids=(1,),
 )
 

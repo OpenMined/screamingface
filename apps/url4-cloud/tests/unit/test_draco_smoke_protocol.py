@@ -12,12 +12,13 @@ import json
 from pathlib import Path
 
 import pytest
+from benchmark_support import install_benchmarks
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from url4 import RelExpr, Text, render
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks import ASSETS_ENV, BENCHMARKS, install_benchmarks
+from url4_cloud.benchmarks import BENCHMARK_ASSETS_ENV, BENCHMARKS
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
@@ -34,7 +35,7 @@ from url4_cloud.rest.benchmarks import router
 
 
 def test_smoke_is_a_separate_noncanonical_benchmark() -> None:
-    assert BENCHMARKS["draco/smoke"] is DRACO_SMOKE
+    assert BENCHMARKS.get("draco/smoke") is DRACO_SMOKE
     assert DRACO_SMOKE.id == "draco/smoke"
     assert DRACO_SMOKE.variant == "smoke"
     assert DRACO_SMOKE.case_count == 1
@@ -96,8 +97,9 @@ def test_smoke_public_cases_expose_only_the_pinned_case(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _two_case_assets(tmp_path / "draco")
-    monkeypatch.setenv(ASSETS_ENV, str(tmp_path))
+    monkeypatch.setenv(BENCHMARK_ASSETS_ENV, str(tmp_path))
     app = FastAPI()
+    app.state.benchmarks = BENCHMARKS
     app.include_router(router)
 
     response = TestClient(app).get("/v1/benchmarks/draco/smoke/cases")

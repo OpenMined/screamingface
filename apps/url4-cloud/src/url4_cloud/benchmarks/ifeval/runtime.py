@@ -76,7 +76,13 @@ def _check(root: Path):
             return _feedback(request.context)
         try:
             case_id, attempt = _case_and_attempt(request.intent)
-            answer, finish_reason = decode_candidate_invocation(request.context)
+            answer, finish_reason, refusal = decode_candidate_invocation(request.context)
+            if refusal is not None:
+                raise ResolutionError(
+                    "Candidate refused the IFEval Case",
+                    code="provider_refusal",
+                    permanent=True,
+                )
             spec, verification, violations = _verification(root, case_id, answer)
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
@@ -233,7 +239,7 @@ def _select(request: Request) -> str:
         chosen = selected[judged]
     else:
         chosen = selected[pick] if pick is not None else attempts[0]
-    return encode_candidate_invocation(chosen["answer"], chosen["finish_reason"])
+    return encode_candidate_invocation(chosen["answer"], chosen["finish_reason"], None)
 
 
 def _resolve_candidate(model_routes: frozenset[str]):
@@ -356,7 +362,21 @@ def _member_record(request: Request) -> str:
 
     if request.intent != "record":
         raise _unsupported("IFEval member record", request.intent)
-    return _json(_attempt_member(_json_payload(request.context, "member record"), 0))
+    payload = _json_payload(request.context, "member record")
+    expected = {"key", "name", "kind", "expression", "check", "feedback"}
+    if set(payload) != expected:
+        raise _unavailable("member record has an invalid shape")
+    raw_check = payload.pop("check")
+    if isinstance(raw_check, str):
+        try:
+            raw_check = json.loads(raw_check)
+        except ValueError as exc:
+            raise _unavailable(f"member record check must be JSON: {exc}") from exc
+    if not isinstance(raw_check, dict) or raw_check.get("schema") != scoring.SCHEMA:
+        raise _unavailable("member record check must be an IFEval check record")
+    payload["answer"] = raw_check.get("answer")
+    payload["finish_reason"] = raw_check.get("finish_reason")
+    return _json(_attempt_member(payload, 0))
 
 
 def _member_answer(request: Request) -> str:

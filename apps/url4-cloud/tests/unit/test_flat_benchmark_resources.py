@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from url4 import build, render
-from url4_cloud.benchmarks import ASSETS_ENV, BENCHMARKS
+from url4_cloud.benchmarks import BENCHMARK_ASSETS_ENV, BENCHMARKS
 from url4_cloud.benchmarks.ifeval.iterative_correction import IFEVAL_SELF_CORRECTIVE
 from url4_cloud.rest.benchmarks import router
 
@@ -20,6 +20,7 @@ pytestmark = pytest.mark.anyio
 @pytest.fixture
 def client() -> TestClient:
     app = FastAPI()
+    app.state.benchmarks = BENCHMARKS
     app.include_router(router)
     return TestClient(app)
 
@@ -37,6 +38,7 @@ def test_slash_qualified_id_returns_one_flat_executable_benchmark(client: TestCl
         "description",
         "revision",
         "case_count",
+        "selected_case_count",
         "url4",
     }
     assert resource["schema"] == "screamingface.benchmark.v1"
@@ -53,7 +55,6 @@ def test_catalog_lists_every_executable_benchmark_as_one_flat_entry(client: Test
     assert response.status_code == 200
     catalog = response.json()
     assert catalog["object"] == "list"
-    assert catalog["default"] == "draco"
     assert {entry["id"] for entry in catalog["data"]} == {
         "draco",
         "draco/lite",
@@ -63,13 +64,16 @@ def test_catalog_lists_every_executable_benchmark_as_one_flat_entry(client: Test
         "ifeval/verifying-ensemble",
     }
     for entry in catalog["data"]:
-        benchmark = BENCHMARKS[entry["id"]]
+        benchmark = BENCHMARKS.get(entry["id"])
+        assert benchmark is not None
         assert entry == {
             "object": "benchmark",
             "id": benchmark.id,
             "variant": benchmark.variant,
             "title": benchmark.title,
             "description": benchmark.description,
+            "revision": benchmark.revision,
+            "case_count": benchmark.case_count,
             "href": f"/v1/benchmarks/{benchmark.id}",
         }
 
@@ -85,7 +89,7 @@ def test_slash_qualified_case_route_uses_shared_assets_and_selected_revision(
         json.dumps([{"id": 1, "input": "Describe tea without commas."}]),
         encoding="utf-8",
     )
-    monkeypatch.setenv(ASSETS_ENV, str(tmp_path))
+    monkeypatch.setenv(BENCHMARK_ASSETS_ENV, str(tmp_path))
 
     response = client.get("/v1/benchmarks/ifeval/self-corrective/cases")
 

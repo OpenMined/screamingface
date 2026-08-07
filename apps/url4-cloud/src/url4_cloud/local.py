@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
+from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -32,6 +33,7 @@ from url4_cloud import job_env
 from url4_cloud.adapters.inprocess import InProcessJobRunner
 from url4_cloud.adapters.memory import InMemoryEventStream
 from url4_cloud.app import create_app
+from url4_cloud.benchmarks import BENCHMARKS
 from url4_cloud.catalog import build_executable_catalog_service
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
@@ -119,7 +121,7 @@ def create_local_app(
     run_env = _with_runner_config(env if env is not None else os.environ)
     job_runner = InProcessJobRunner(
         stream,
-        build_executor,
+        partial(build_executor, benchmarks=BENCHMARKS),
         base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
@@ -134,6 +136,7 @@ def create_local_app(
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
+        benchmarks=BENCHMARKS,
     )
     app.router.on_shutdown.append(job_runner.aclose)
     if catalog is not None:

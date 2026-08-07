@@ -11,6 +11,7 @@ import os
 import signal
 from collections.abc import Coroutine, Mapping, Sequence
 from dataclasses import dataclass, fields
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -18,7 +19,8 @@ import httpx
 from url4.streaming.lifecycle import run
 from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
-from url4_cloud.benchmarks import assets_root
+from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
+from url4_cloud.benchmarks.candidate import install_candidate_invocation
 from url4_cloud.runner.config import (
     AigatewaySection,
     RunnerConfig,
@@ -85,6 +87,8 @@ def build_executor(
     *,
     client: httpx.AsyncClient | None = None,
     tavily_client: httpx.AsyncClient | None = None,
+    benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
+    benchmark_assets_root: Path | None = None,
 ) -> Url4Executor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -110,14 +114,21 @@ def build_executor(
             # WHY: a world with no [aigateway] table is a legitimate world, not necessarily an
             # empty one — a Job may declare only `[commands]` and/or `[data]` and never call a
             # model. With none of the three, the node denies everything undeclared, as always.
-            return (
-                build_local_world(
-                    resolved.commands,
-                    resolved.data,
-                    benchmark_assets=assets_root(env),
-                ),
-                None,
+            node = build_local_world(
+                resolved.commands,
+                resolved.data,
             )
+            install_candidate_invocation(node)
+            if len(benchmarks):
+                benchmarks.install(
+                    node,
+                    assets_root=(
+                        benchmark_assets_root
+                        if benchmark_assets_root is not None
+                        else assets_root(env)
+                    ),
+                )
+            return node, None
         # WHY no credential check here any more: aigateway runs `cloudflare_headers` when deployed
         # and `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to
         # demand. Identity is forwarded when present and simply absent locally, where every caller
@@ -132,8 +143,21 @@ def build_executor(
             tavily_client=tavily_client,
             commands=resolved.commands,
             data=resolved.data,
-            benchmark_assets=assets_root(env),
         )
+        try:
+            install_candidate_invocation(world.node)
+            if len(benchmarks):
+                benchmarks.install(
+                    world.node,
+                    assets_root=(
+                        benchmark_assets_root
+                        if benchmark_assets_root is not None
+                        else assets_root(env)
+                    ),
+                )
+        except Exception:
+            await world.aclose()
+            raise
         return world.node, world.aclose
 
     return Url4Executor(world_factory=_world)

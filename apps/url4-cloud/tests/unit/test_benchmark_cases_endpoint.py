@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from url4_cloud.benchmarks import ASSETS_ENV, DEFAULT_BENCHMARK_ID
+from url4_cloud.benchmarks import BENCHMARK_ASSETS_ENV, BENCHMARKS
 from url4_cloud.rest.benchmarks import router
 
 pytestmark = pytest.mark.anyio
@@ -42,7 +42,7 @@ def assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         {"id": index + 1, "input": f"ifeval prompt {index + 1}"} for index in range(IFEVAL_TOTAL)
     ]
     (ifeval_dir / "cases.json").write_text(json.dumps(ifeval_rows), encoding="utf-8")
-    monkeypatch.setenv(ASSETS_ENV, str(tmp_path))
+    monkeypatch.setenv(BENCHMARK_ASSETS_ENV, str(tmp_path))
     return tmp_path
 
 
@@ -51,6 +51,7 @@ def client(assets: Path) -> TestClient:
     from fastapi import FastAPI
 
     app = FastAPI()
+    app.state.benchmarks = BENCHMARKS
     app.include_router(router)
     return TestClient(app)
 
@@ -115,12 +116,8 @@ def test_out_of_bounds_paging_parameters_are_422(
     assert response.status_code == 422
 
 
-def test_default_alias_serves_the_default_benchmark(client: TestClient) -> None:
-    explicit = client.get(f"/v1/benchmarks/{DEFAULT_BENCHMARK_ID}/cases", params={"limit": 2})
-    default = client.get("/v1/benchmarks/default/cases", params={"limit": 2})
-
-    assert default.status_code == 200
-    assert default.json() == explicit.json()
+def test_default_alias_is_not_installed(client: TestClient) -> None:
+    assert client.get("/v1/benchmarks/default/cases").status_code == 404
 
 
 def test_ifeval_cases_are_served_through_the_same_generic_route(client: TestClient) -> None:

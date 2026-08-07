@@ -12,6 +12,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from benchmark_support import install_benchmarks
 
 from url4 import Node, RelExpr, build, expr, render, src, text
 from url4_cloud.benchmarks.draco.definition import DRACO_SMOKE, JUDGE_MODEL
@@ -107,8 +108,8 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
                 ),
             ),
             client=client,
-            benchmark_assets=tmp_path,
         )
+        install_benchmarks(world.node, tmp_path)
         try:
             result = await world.node.evaluate(_link(candidate, build(benchmark)))
         finally:

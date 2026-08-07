@@ -22,7 +22,7 @@ from url4_cloud.benchmarks.draco.definition import (
     SMOKE_CRITERION_EVALUATION_ROUTE,
 )
 from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
-from url4_cloud.benchmarks.draco.runtime import install
+from url4_cloud.benchmarks.draco.runtime import install_smoke
 from url4_cloud.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 
@@ -56,7 +56,7 @@ def test_every_draco_resource_builds_exact_criterion_and_case_evaluations() -> N
 @pytest.mark.asyncio
 async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Path) -> None:
     node = Url4Node("test")
-    install(node, tmp_path)
+    install_smoke(node, tmp_path)
     case = {
         "schema": CASE_SCHEMA,
         "case_id": 1,

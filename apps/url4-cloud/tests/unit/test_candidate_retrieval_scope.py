@@ -9,12 +9,14 @@ stronger experiment where synthesis or Grading can consult the live web.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import httpx
 import pytest
 
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
+from url4_cloud.benchmarks.candidate import install_candidate_invocation
 from url4_cloud.benchmarks.definition import candidate
 from url4_cloud.benchmarks.draco.definition import EXCLUDED_DOMAINS, JUDGE_MODEL, JUDGE_PARAMS
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
@@ -23,7 +25,24 @@ from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_VERIFYING_ENSEMBLE,
 )
 from url4_cloud.runner.config import ModelSpec
-from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.runner.connector import (
+    AigatewayConfig,
+    AigatewayWorld,
+)
+from url4_cloud.runner.connector import (
+    build_aigateway_world as _build_aigateway_world,
+)
+
+
+async def build_aigateway_world(
+    config: AigatewayConfig,
+    **kwargs: Any,
+) -> AigatewayWorld:
+    """Compose Candidate Invocation only in tests that exercise that extension."""
+
+    world = await _build_aigateway_world(config, **kwargs)
+    install_candidate_invocation(world.node)
+    return world
 
 
 def _link(candidate_expression, benchmark_expression) -> str:
@@ -242,7 +261,7 @@ async def test_draco_tavily_route_without_a_key_fails_before_model_spend(
         finally:
             await world.aclose()
 
-    assert exc_info.value.code == "web_retrieval_unavailable"
+    assert exc_info.value.code == "benchmark_retrieval_unavailable"
     assert exc_info.value.permanent is True
     assert gateway_bodies == []
 
@@ -287,7 +306,7 @@ async def test_explicit_tavily_retrieval_without_a_key_fails_even_without_exclus
         finally:
             await world.aclose()
 
-    assert exc_info.value.code == "web_retrieval_unavailable"
+    assert exc_info.value.code == "benchmark_retrieval_unavailable"
     assert exc_info.value.permanent is True
     assert gateway_bodies == []
 

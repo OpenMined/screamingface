@@ -8,11 +8,11 @@ import os
 from collections.abc import Mapping
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Path, Query
+from fastapi import APIRouter, Header, Path, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from url4_cloud.auth import PROBLEM_MEDIA_TYPE
-from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID, assets_root
+from url4_cloud.benchmarks import BenchmarkRegistry, assets_root
 from url4_cloud.rest.conditional import validator_matches
 
 router = APIRouter()
@@ -42,19 +42,8 @@ def _response(value: object, if_none_match: str | None) -> Response:
     return Response(content=body, media_type="application/json", headers=headers)
 
 
-def _catalog() -> list[dict[str, object]]:
-    entries: list[dict[str, object]] = []
-    for benchmark in sorted(BENCHMARKS.values(), key=lambda value: value.id):
-        entry: dict[str, object] = {
-            "object": "benchmark",
-            "id": benchmark.id,
-            "variant": benchmark.variant,
-            "title": benchmark.title,
-            "description": benchmark.description,
-            "href": f"/v1/benchmarks/{benchmark.id}",
-        }
-        entries.append(entry)
-    return entries
+def _registry(request: Request) -> BenchmarkRegistry:
+    return request.app.state.benchmarks
 
 
 @router.get(
@@ -63,14 +52,11 @@ def _catalog() -> list[dict[str, object]]:
     summary="List the installed Benchmarks",
 )
 async def list_benchmarks(
+    request: Request,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
     return _response(
-        {
-            "object": "list",
-            "default": DEFAULT_BENCHMARK_ID,
-            "data": _catalog(),
-        },
+        {"object": "list", "data": [benchmark.catalog_entry() for benchmark in _registry(request)]},
         if_none_match,
     )
 
@@ -85,15 +71,15 @@ class _CasesUnavailableError(Exception):
     summary="Read one page of a Benchmark's cases",
 )
 async def list_benchmark_cases(
-    benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
+    request: Request,
+    benchmark_id: Annotated[str, Path(description="An explicit installed Benchmark id.")],
     limit: Annotated[int, Query(ge=1, le=200, description="Page size.")] = 50,
     offset: Annotated[int, Query(ge=0, description="Cases to skip.")] = 0,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
     # FEATURE: benchmark researcher discovery (OME-723) — the SDK and the future web
     # frontend read real prompts through this one paginated contract before evaluating.
-    selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
-    benchmark = BENCHMARKS.get(selected_id)
+    benchmark = _registry(request).get(benchmark_id)
     if benchmark is None:
         return _problem(
             404,
@@ -117,7 +103,7 @@ async def list_benchmark_cases(
     return _response(
         {
             "object": "list",
-            "benchmark": selected_id,
+            "benchmark": benchmark_id,
             "revision": benchmark.revision,
             "total": len(rows),
             "limit": limit,
@@ -134,17 +120,23 @@ async def list_benchmark_cases(
     summary="Fetch one Engine-owned Benchmark expression",
 )
 async def get_benchmark(
-    benchmark_id: Annotated[str, Path(description="A catalog Benchmark id, or 'default'.")],
-    limit: Annotated[int | None, Query(ge=1, description="Maximum selected cases.")] = None,
+    request: Request,
+    benchmark_id: Annotated[str, Path(description="An explicit installed Benchmark id.")],
+    limit: Annotated[int | None, Query(ge=1, description="Exact selected case count.")] = None,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
-    selected_id = DEFAULT_BENCHMARK_ID if benchmark_id == "default" else benchmark_id
-    benchmark = BENCHMARKS.get(selected_id)
+    benchmark = _registry(request).get(benchmark_id)
     if benchmark is None:
         return _problem(
             404,
             "Unknown benchmark",
             f"no Benchmark is installed under {benchmark_id!r}",
+        )
+    if limit is not None and limit > benchmark.case_count:
+        return _problem(
+            422,
+            "Invalid benchmark selection",
+            f"limit must be between 1 and {benchmark.case_count} for {benchmark.id!r}",
         )
     return _response(benchmark.resource(limit), if_none_match)
 

@@ -11,12 +11,13 @@ import json
 from pathlib import Path
 
 import pytest
+from benchmark_support import install_benchmarks
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from url4 import RelExpr, Text, expr, render, src
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks import ASSETS_ENV, BENCHMARKS, install_benchmarks
+from url4_cloud.benchmarks import BENCHMARK_ASSETS_ENV, BENCHMARKS
 from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
@@ -71,7 +72,7 @@ def _assets(root: Path) -> None:
 
 
 def test_lite_is_a_separate_noncanonical_benchmark() -> None:
-    assert BENCHMARKS["draco/lite"] is DRACO_LITE
+    assert BENCHMARKS.get("draco/lite") is DRACO_LITE
     assert DRACO_LITE.id == "draco/lite"
     assert DRACO_LITE.variant == "lite"
     assert DRACO_LITE.case_count == 2
@@ -95,8 +96,9 @@ def test_lite_public_cases_expose_the_ordered_pinned_subset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _assets(tmp_path / "draco")
-    monkeypatch.setenv(ASSETS_ENV, str(tmp_path))
+    monkeypatch.setenv(BENCHMARK_ASSETS_ENV, str(tmp_path))
     app = FastAPI()
+    app.state.benchmarks = BENCHMARKS
     app.include_router(router)
 
     response = TestClient(app).get("/v1/benchmarks/draco/lite/cases")
@@ -150,7 +152,7 @@ async def test_lite_task_route_selects_criteria_across_axes(tmp_path: Path) -> N
 
     expression = expr(
         src(
-            Text(encode_candidate_invocation("Answer", "stop")),
+            Text(encode_candidate_invocation("Answer", "stop", None)),
             name="candidate_result",
             weight=0.0,
         ),

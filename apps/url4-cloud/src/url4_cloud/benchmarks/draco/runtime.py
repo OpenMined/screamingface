@@ -52,13 +52,8 @@ from url4_cloud.benchmarks.draco.definition import (
 from url4_cloud.benchmarks.draco.verdict import bind, binding_key
 
 
-def install(node: Url4Node, root: Path) -> None:
-    """Register every route referenced by the DRACO expression.
-
-    Providers read lazily so a general-purpose Runner can carry the installed definition without
-    requiring DRACO's private image assets until an expression actually selects DRACO.
-    """
-
+def install_canonical(node: Url4Node, root: Path) -> None:
+    """Register the routes referenced by canonical DRACO."""
     _install_protocol(
         node,
         root,
@@ -75,6 +70,10 @@ def install(node: Url4Node, root: Path) -> None:
         criterion_selection="all",
         case_ids=None,
     )
+
+
+def install_lite(node: Url4Node, root: Path) -> None:
+    """Register the routes referenced by DRACO Lite."""
     _install_protocol(
         node,
         root,
@@ -91,6 +90,10 @@ def install(node: Url4Node, root: Path) -> None:
         criterion_selection=LITE_CRITERION_SELECTION,
         case_ids=LITE_CASE_IDS,
     )
+
+
+def install_smoke(node: Url4Node, root: Path) -> None:
+    """Register the routes referenced by DRACO Smoke."""
     _install_protocol(
         node,
         root,
@@ -204,7 +207,13 @@ def _task_rows(
     def task_rows(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
-            output, finish_reason = decode_candidate_invocation(request.context)
+            output, finish_reason, refusal = decode_candidate_invocation(request.context)
+            if refusal is not None:
+                raise ResolutionError(
+                    "Candidate refused the DRACO Case",
+                    code="provider_refusal",
+                    permanent=True,
+                )
             raw_cases = _read(root / "cases.json", "DRACO cases")
             criteria = tasks.load_criteria(root / "criteria", case_id)
             rubric = _object(
@@ -395,4 +404,4 @@ def _unavailable(detail: str) -> ResolutionError:
     )
 
 
-__all__ = ["install"]
+__all__ = ["install_canonical", "install_lite", "install_smoke"]

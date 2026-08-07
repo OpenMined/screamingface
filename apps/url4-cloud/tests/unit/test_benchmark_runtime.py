@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from benchmark_support import install_benchmarks
 
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks import BENCHMARKS, install_benchmarks
+from url4_cloud.benchmarks import BENCHMARKS
 from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
@@ -56,8 +57,13 @@ async def test_registry_installs_all_versioned_draco_routes(tmp_path: Path) -> N
     assert json.loads(await node.fetch(CASES_ROUTE, relative=True))[0]["input"] == "Question"
     # WHY per-registry prefixes: the original draco-only assertion was structurally
     # incompatible with a second installed runtime (surfaced + relaxed in OME-719).
-    prefixes = tuple(f"/benchmarks/{benchmark_id}/" for benchmark_id in BENCHMARKS)
-    assert all(route.startswith(prefixes) for route in node.processor_routes())
+    prefixes = tuple(f"/benchmarks/{benchmark.id}/" for benchmark in BENCHMARKS)
+    benchmark_routes = (
+        route
+        for route in node.processor_routes()
+        if route.startswith("/benchmarks/") and route != "/benchmarks/candidate"
+    )
+    assert all(route.startswith(prefixes) for route in benchmark_routes)
 
 
 def _ifeval_assets(root: Path) -> None:
@@ -102,7 +108,7 @@ async def test_ifeval_check_route_grades_a_response(tmp_path: Path) -> None:
 
     record = await _ifeval_check(
         node,
-        encode_candidate_invocation("A sentence with no comma at all.", "stop"),
+        encode_candidate_invocation("A sentence with no comma at all.", "stop", None),
         "1",
     )
 
@@ -124,7 +130,7 @@ async def test_ifeval_check_intent_carries_an_optional_attempt(tmp_path: Path) -
 
     record = await _ifeval_check(
         node,
-        encode_candidate_invocation("A short comma-free answer.", "length"),
+        encode_candidate_invocation("A short comma-free answer.", "length", None),
         "2:2",
     )
 

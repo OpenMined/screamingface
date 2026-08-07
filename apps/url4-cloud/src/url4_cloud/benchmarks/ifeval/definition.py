@@ -96,13 +96,13 @@ def _build(case_count: int) -> Node:
     )
 
 
-def install_ifeval(node: Url4Node, assets: Path, model_routes: frozenset[str]) -> None:
+def install_ifeval(node: Url4Node, assets: Path) -> None:
     """Install the shared IFEval cases, verifier, and variant reducers."""
 
     # Lazy import keeps the resource-only control plane from loading verifier runtime deps.
     from url4_cloud.benchmarks.ifeval.runtime import install
 
-    install(node, assets / BENCHMARK_ID, model_routes)
+    install(node, assets / BENCHMARK_ID, frozenset(node.processor_routes()))
 
 
 IFEVAL = Benchmark(
@@ -120,6 +120,7 @@ IFEVAL = Benchmark(
     case_count=CASE_COUNT,
     build=_build,
     install=install_ifeval,
+    runtime="ifeval",
 )
 
 __all__ = ["IFEVAL", "install_ifeval"]

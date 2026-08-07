@@ -3,31 +3,40 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from url4 import Node, RelExpr, Text, expr, render, src, struct
+from url4 import Node, RelExpr, expr, render, src, struct, text
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_MESSAGE_ROLES,
     CANDIDATE_ROUTE,
 )
+from url4_cloud.retrieval_policy import normalize_excluded_domains
 
-type BenchmarkInstaller = Callable[[Url4Node, Path, frozenset[str]], None]
+type BenchmarkInstaller = Callable[[Url4Node, Path], None]
+
+_BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)*")
+_VARIANT = re.compile(r"[a-z0-9][a-z0-9._-]*")
+
+
+def _no_routes(
+    _node: Url4Node,
+    _assets_root: Path,
+) -> None:
+    """Default installer for a protocol that needs no private routes or assets."""
 
 
 @dataclass(frozen=True, slots=True)
 class Benchmark:
-    """Metadata plus ordinary Python that builds one Engine-owned URL4 expression.
+    """Immutable metadata plus one complete URL4 protocol builder.
 
-    A Benchmark author owns this definition plus its ``build`` and ``install`` functions. The
-    public resource, caching, validation, Candidate linkage, asset-root resolution, and execution
-    transport remain shared infrastructure.
-
-    Each definition returns one complete evaluation protocol. Alternative protocols are
-    separate Benchmark definitions that may share one installer.
+    ``build`` is pure: it specializes the protocol to an exact selected case count and returns a
+    structured URL4 node. ``install`` owns any private routes and validates immutable assets
+    against the explicitly injected root before a run can spend money.
     """
 
     id: str
@@ -37,121 +46,140 @@ class Benchmark:
     revision: str
     case_count: int
     build: Callable[[int], Node]
-    install: BenchmarkInstaller
+    install: BenchmarkInstaller = _no_routes
     case_ids: tuple[int, ...] | None = None
+    runtime: str | None = None
 
     def __post_init__(self) -> None:
-        if self.case_ids is None:
-            return
-        if len(self.case_ids) != self.case_count:
-            raise ValueError("Benchmark case_ids must match case_count")
-        if any(isinstance(case_id, bool) or case_id < 1 for case_id in self.case_ids):
-            raise ValueError("Benchmark case_ids must be positive integers")
-        if len(set(self.case_ids)) != len(self.case_ids):
-            raise ValueError("Benchmark case_ids must be unique")
+        _validate_metadata(self)
+        _validate_case_ids(self.case_ids, self.case_count)
+        if self.runtime is not None and _VARIANT.fullmatch(self.runtime) is None:
+            raise ValueError("Benchmark runtime must be one lowercase path segment")
 
-    def resource(self, limit: int | None) -> dict[str, object]:
-        """Build this Benchmark's flat executable public resource."""
+    def catalog_entry(self) -> dict[str, object]:
+        """Return metadata sufficient for one-request Benchmark discovery."""
 
-        selected = self.case_count if limit is None else min(limit, self.case_count)
-        if selected < 1:
-            raise ValueError("Benchmark case selection must not be empty")
-        expression = self.build(selected)
-        if not isinstance(expression, Node):
-            raise TypeError("Benchmark build must return a URL4 Node")
         return {
-            "schema": "screamingface.benchmark.v1",
+            "object": "benchmark",
+            **self._metadata(),
+            "href": f"/v1/benchmarks/{self.id}",
+        }
+
+    def _metadata(self) -> dict[str, object]:
+        return {
             "id": self.id,
             "variant": self.variant,
             "title": self.title,
             "description": self.description,
             "revision": self.revision,
             "case_count": self.case_count,
-            "url4": render(expression),
         }
+
+    def protocol(self, selected_case_count: int) -> Node:
+        """Build and type-check one exact selection without rendering it prematurely."""
+
+        if (
+            isinstance(selected_case_count, bool)
+            or not isinstance(selected_case_count, int)
+            or selected_case_count < 1
+            or selected_case_count > self.case_count
+        ):
+            raise ValueError(
+                f"Benchmark limit must be between 1 and {self.case_count}, "
+                f"got {selected_case_count!r}"
+            )
+        protocol = self.build(selected_case_count)
+        if not isinstance(protocol, Node):
+            raise TypeError("Benchmark build must return a URL4 Node")
+        return protocol
+
+    def resource(self, limit: int | None = None) -> dict[str, object]:
+        """Build one flat, independently executable public resource."""
+
+        selected = self.case_count if limit is None else limit
+        protocol = self.protocol(selected)
+        return {
+            "schema": "screamingface.benchmark.v1",
+            **self._metadata(),
+            "selected_case_count": selected,
+            "url4": render(protocol),
+        }
+
+
+def _validate_metadata(benchmark: Benchmark) -> None:
+    for name in ("title", "description", "revision"):
+        value = getattr(benchmark, name)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Benchmark {name} must be non-empty text")
+    if not isinstance(benchmark.id, str) or _BENCHMARK_ID.fullmatch(benchmark.id) is None:
+        raise ValueError("Benchmark id must contain lowercase slash-qualified path segments")
+    if not isinstance(benchmark.variant, str) or _VARIANT.fullmatch(benchmark.variant) is None:
+        raise ValueError("Benchmark variant must be one lowercase path segment")
+    if (
+        isinstance(benchmark.case_count, bool)
+        or not isinstance(benchmark.case_count, int)
+        or benchmark.case_count < 1
+    ):
+        raise ValueError("Benchmark case_count must be a positive integer")
+
+
+def _validate_case_ids(case_ids: tuple[int, ...] | None, case_count: int) -> None:
+    if case_ids is None:
+        return
+    if len(case_ids) != case_count:
+        raise ValueError("Benchmark case_ids must match case_count")
+    if any(not _is_positive_case_id(case_id) for case_id in case_ids):
+        raise ValueError("Benchmark case_ids must be positive integers")
+    if len(set(case_ids)) != len(case_ids):
+        raise ValueError("Benchmark case_ids must be unique")
+
+
+def _is_positive_case_id(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int) and value > 0
 
 
 def candidate(
     input: str,
     *,
     binding: str = "$candidate",
-    web_search: bool | None = None,
+    web_search: bool,
     web_search_exclude: Sequence[str] = (),
 ) -> Node:
-    """Invoke the structurally linked Candidate with one Benchmark-owned input.
-
-    Retrieval is Benchmark policy, not Candidate policy. These options are carried on the
-    ``/candidate`` call and applied task-locally while the linked Candidate is evaluated.
-    A Candidate call may explicitly narrow an enabled Benchmark policy—for example, Fusion
-    synthesis always pins retrieval off. The policy remains visible in the final URL4 and
-    IFEval explicitly disables it in the same Runner.
-    """
+    """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
 
     if not isinstance(input, str) or not input:
         raise ValueError("Candidate Invocation input must be non-empty URL4 context")
     if not isinstance(binding, str) or not binding.startswith("$"):
         raise ValueError("Candidate binding must be a URL4 structural reference")
-    params = _candidate_params(web_search, web_search_exclude)
+    if not isinstance(web_search, bool):
+        raise TypeError("web_search must be a boolean")
+    excluded = normalize_excluded_domains(web_search_exclude)
+    if not web_search and excluded:
+        raise ValueError("web_search_exclude requires web_search=true")
+
+    params: list[tuple[str, str]] = [("web_search", "true" if web_search else "false")]
+    if excluded:
+        params.append(("web_search_exclude", ":".join(excluded)))
     call = RelExpr(
         path=CANDIDATE_ROUTE,
         context=input,
-        intent=Text(binding),
+        intent=text(binding),
         params=tuple(params),
     )
-    if not params:
-        return call
-    # A parameterized call must be nested to round-trip through URL4's canonical renderer. A
-    # bare ``/candidate?...&q=(...)!intent`` currently renders but reparses as an intent-less
-    # call; the instrumental group gives the same call an unambiguous expression boundary.
+    # A parameterized relative call needs an expression boundary to round-trip canonically.
     return expr(
-        src(call, name="candidate_result", weight=0.0),
-        intent=Text("$candidate_result"),
+        src(call, name="candidate_invocation", weight=0.0),
+        intent=text("$candidate_invocation"),
     )
-
-
-def _candidate_params(
-    web_search: bool | None,
-    web_search_exclude: Sequence[str],
-) -> tuple[tuple[str, str], ...]:
-    excluded = _excluded_domains(web_search_exclude)
-    if web_search is False and excluded:
-        raise ValueError("web_search_exclude requires web_search to be enabled")
-    params: list[tuple[str, str]] = []
-    if web_search is not None:
-        params.append(("web_search", "true" if web_search else "false"))
-    if excluded:
-        params.append(("web_search_exclude", ":".join(excluded)))
-    return tuple(params)
-
-
-def _excluded_domains(values: Sequence[str]) -> tuple[str, ...]:
-    selected = tuple(values)
-    if any(not isinstance(domain, str) or not domain.strip() for domain in selected):
-        raise ValueError("web_search_exclude must contain non-empty domains")
-    if any(":" in domain or "," in domain for domain in selected):
-        raise ValueError("web_search_exclude domains cannot contain ':' or ','")
-    return selected
 
 
 def chat_input(messages: str | Sequence[Mapping[str, object]]) -> str:
-    """Carry native chat messages through URL4's string context boundary.
-
-    Pass ordinary Python message mappings when they are known while authoring. A string may carry
-    literal JSON or a URL4 reference whose resolved value is JSON. The versioned envelope lets the
-    Runner distinguish native turns from an ordinary text question.
-    """
+    """Carry native chat messages through URL4's string context boundary."""
 
     selected = messages if isinstance(messages, str) else _chat_json(messages)
     if not selected.strip():
         raise ValueError("Candidate chat messages must be non-empty JSON or a URL4 reference")
-    return render(
-        struct(
-            {
-                "schema": CANDIDATE_INPUT_SCHEMA,
-                "messages": selected,
-            }
-        )
-    )
+    return render(struct({"schema": CANDIDATE_INPUT_SCHEMA, "messages": selected}))
 
 
 def _chat_json(messages: object) -> str:

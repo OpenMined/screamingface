@@ -184,8 +184,10 @@ def _member_round(collection: Node, attempt: int) -> Node:
                             "name": "$item.name",
                             "kind": "$item.kind",
                             "expression": "$item.expression",
-                            "answer": f"${check}.answer",
-                            "finish_reason": f"${check}.finish_reason",
+                            # Carry the complete check record through the structured boundary.
+                            # Flattening its nullable finish_reason into text turns JSON null into
+                            # the string "null", which is not a provider finish reason.
+                            "check": f"${check}",
                             "feedback": f"${feedback}",
                         }
                     ),
@@ -388,6 +390,7 @@ IFEVAL_SELF_CORRECTIVE = Benchmark(
     case_count=CASE_COUNT,
     build=_build_solo,
     install=install_ifeval,
+    runtime="ifeval",
 )
 
 IFEVAL_VERIFYING_ENSEMBLE = Benchmark(
@@ -404,6 +407,7 @@ IFEVAL_VERIFYING_ENSEMBLE = Benchmark(
     case_count=CASE_COUNT,
     build=_build_members,
     install=install_ifeval,
+    runtime="ifeval",
 )
 
 __all__ = [

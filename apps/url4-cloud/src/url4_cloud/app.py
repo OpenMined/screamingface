@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from url4.streaming.interfaces import EventConsumer, JobRunner
 from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.auth import Clock, install_problem_handlers
+from url4_cloud.benchmarks import BENCHMARKS, EMPTY_BENCHMARKS, BenchmarkRegistry
 from url4_cloud.catalog import build_executable_catalog_service
 from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.catalog.port import ModelParameterSource
@@ -52,6 +53,7 @@ def create_app(  # noqa: PLR0915 - this is the explicit application composition 
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
+    benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -66,6 +68,7 @@ def create_app(  # noqa: PLR0915 - this is the explicit application composition 
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
     app.state.connections = connections
+    app.state.benchmarks = benchmarks
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
@@ -138,6 +141,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
+        benchmarks=BENCHMARKS,
     )
     app.router.on_shutdown.append(stream.close)
     if catalog is not None:

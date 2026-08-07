@@ -6,11 +6,11 @@ import json
 from pathlib import Path
 
 import pytest
+from benchmark_support import install_benchmarks
 
 from url4 import RelExpr, Text, build, expr, render, src, struct, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks import install_benchmarks
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_VERIFYING_ENSEMBLE,
     RESOLVE_CANDIDATE_ROUTE,

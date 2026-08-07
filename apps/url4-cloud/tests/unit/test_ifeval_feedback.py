@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 
 import pytest
+from benchmark_support import install_benchmarks
 
 from url4 import RelExpr, Text, expr, render, src
 from url4.peer.server import Request, Url4Node
-from url4_cloud.benchmarks import install_benchmarks
 from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE, IFEVAL
 from url4_cloud.benchmarks.ifeval.iterative_correction import IFEVAL_SELF_CORRECTIVE
 

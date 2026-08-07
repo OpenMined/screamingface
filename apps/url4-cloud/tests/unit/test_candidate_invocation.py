@@ -15,15 +15,50 @@ from url4 import Iteration, Node, RelExpr, build, expr, iterate, render, src, st
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import NodeFinished, ObservationEvent, Usage
+from url4_cloud.benchmarks import BENCHMARKS
+from url4_cloud.benchmarks.candidate import install_candidate_invocation
+from url4_cloud.benchmarks.contract import CANDIDATE_ROUTE
 from url4_cloud.benchmarks.definition import chat_input
 from url4_cloud.benchmarks.draco.definition import DRACO, EXCLUDED_DOMAINS, JUDGE_MODEL
-from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE, IFEVAL
+from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_SELF_CORRECTIVE,
     IFEVAL_VERIFYING_ENSEMBLE,
 )
 from url4_cloud.runner.config import CommandSpec, DataSpec, ModelSpec, RunnerConfigError
-from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.runner.connector import (
+    AigatewayConfig,
+    AigatewayWorld,
+)
+from url4_cloud.runner.connector import (
+    build_aigateway_world as _build_aigateway_world,
+)
+
+
+def _missing_judge(_request: object) -> str:
+    raise AssertionError("the test did not provide the DRACO Judge")
+
+
+async def build_aigateway_world(
+    config: AigatewayConfig,
+    *,
+    benchmark_assets: Path | None = None,
+    **kwargs: Any,
+) -> AigatewayWorld:
+    """Compose the Candidate/Benchmark extension in tests that exercise it."""
+
+    world = await _build_aigateway_world(config, **kwargs)
+    try:
+        install_candidate_invocation(world.node)
+        if benchmark_assets is not None:
+            judge_route = f"/{JUDGE_MODEL}"
+            if judge_route not in world.node.processor_routes():
+                world.node.endpoint(judge_route)(_missing_judge)
+            BENCHMARKS.install(world.node, assets_root=benchmark_assets)
+    except Exception:
+        await world.aclose()
+        raise
+    return world
 
 
 class _Recorder:
@@ -525,7 +560,7 @@ async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
         "ifeval/verifying-ensemble",
         1.0,
         [],
-    )
+    ), decoded
     assert decoded["metrics"]["pass_at_1"] == 0.0
     assert decoded["metrics"]["pass_at_2"] == 1.0
     # 9 member answers + 3 judge picks + 2 judge feedback authorings, all unrolled.
@@ -606,7 +641,8 @@ async def test_candidate_expression_runs_with_the_invocation_input() -> None:
         intent=text("Answer the request."),
     )
     benchmark = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context="What is 2 + 2?",
         intent=text("$candidate"),
     )
@@ -628,46 +664,19 @@ async def test_candidate_expression_runs_with_the_invocation_input() -> None:
         "schema": "screamingface.candidate-invocation.v1",
         "output": "candidate answer",
         "finish_reason": None,
+        "refusal": None,
     }
     assert len(requests) == 1
     assert "What is 2 + 2?" in json.dumps(requests[0]["messages"])
 
 
 @pytest.mark.asyncio
-async def test_candidate_cannot_read_a_private_benchmark_route(tmp_path: Path) -> None:
-    model = "provider/model"
-    _ifeval_assets(tmp_path / "ifeval")
-    candidate = RelExpr(
-        path=CHECK_ROUTE,
-        context="An answer supplied by the Candidate.",
-        intent=text("1"),
-    )
-    benchmark = RelExpr(
-        path="/candidate",
-        context="Private grading material must stay private.",
-        intent=text("$candidate"),
-    )
-    world = await build_aigateway_world(
-        AigatewayConfig(default_model=model, models=(ModelSpec(id=model),)),
-        benchmark_assets=tmp_path,
-    )
-
-    try:
-        with pytest.raises(ResolutionError) as exc_info:
-            await world.node.evaluate(_link(candidate, benchmark))
-    finally:
-        await world.aclose()
-
-    assert exc_info.value.code == "endpoint_not_found"
-    assert CHECK_ROUTE in str(exc_info.value)
-
-
-@pytest.mark.asyncio
-async def test_candidate_cannot_fetch_an_arbitrary_absolute_url() -> None:
+async def test_candidate_inherits_the_world_outbound_policy() -> None:
     model = "provider/model"
     candidate = build("https://private.example/rubric!read")
     benchmark = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context="Do not disclose private material.",
         intent=text("$candidate"),
     )
@@ -675,9 +684,6 @@ async def test_candidate_cannot_fetch_an_arbitrary_absolute_url() -> None:
         AigatewayConfig(
             default_model=model,
             models=(ModelSpec(id=model),),
-            # Orchestration retains ordinary URL4 outbound behavior; Candidate isolation is
-            # unconditional rather than inherited from this operator setting.
-            allow_outbound=True,
         )
     )
 
@@ -712,9 +718,15 @@ async def test_later_invocation_can_receive_an_earlier_candidate_answer() -> Non
         context="$input",
         intent=text("Answer the request."),
     )
-    first = RelExpr(path="/candidate", context="first question", intent=text("$candidate"))
+    first = RelExpr(
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
+        context="first question",
+        intent=text("$candidate"),
+    )
     second = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context="Continue from this answer: $first.output",
         intent=text("$candidate"),
     )
@@ -768,7 +780,8 @@ async def test_candidate_input_preserves_healthbench_style_native_chat_turns() -
         {"role": "user", "content": "About three weeks."},
     ]
     benchmark = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context=chat_input(turns),
         intent=text("$candidate"),
     )
@@ -803,7 +816,8 @@ async def test_invalid_native_chat_input_fails_before_a_model_request() -> None:
     model = "provider/model"
     candidate = RelExpr(path=f"/{model}", context="$input", intent=text("Answer."))
     benchmark = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context=chat_input("not-json"),
         intent=text("$candidate"),
     )
@@ -848,7 +862,8 @@ async def test_candidate_input_replays_medxpert_reasoning_as_an_assistant_turn()
     )
     question = "Which option is correct? A. Alpha B. Beta"
     first = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context=chat_input([{"role": "user", "content": question}]),
         intent=text("$candidate"),
     )
@@ -858,7 +873,8 @@ async def test_candidate_input_replays_medxpert_reasoning_as_an_assistant_turn()
         {"role": "user", "content": "Return only the answer letter."},
     ]
     second = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context=chat_input(second_turns),
         intent=text("$candidate"),
     )
@@ -899,11 +915,17 @@ def test_chat_input_rejects_malformed_python_messages_while_authoring() -> None:
 
 def _scicode_graph(model: str) -> tuple[Node, Node]:
     candidate = RelExpr(path=f"/{model}", context="$input", intent=text("generate"))
-    first = RelExpr(path="/candidate", context="Implement step 1.", intent=text("$candidate"))
+    first = RelExpr(
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
+        context="Implement step 1.",
+        intent=text("$candidate"),
+    )
     first_code = RelExpr(path="/extract", context="$first.output", intent=text("extract"))
     first_grade = RelExpr(path="/sandbox", context="$code_1", intent=text("grade step 1"))
     second = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context="Implement step 2 using prior code: $code_1. Prior grade: $grade_1.",
         intent=text("$candidate"),
     )
@@ -1020,7 +1042,8 @@ async def test_candidate_expression_can_be_a_nested_fusion_graph() -> None:
         intent=text("$synthesis"),
     )
     benchmark = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context="Explain why the sky is blue.",
         intent=text("$candidate"),
     )
@@ -1064,7 +1087,8 @@ async def test_nested_candidate_model_usage_reaches_the_outer_run_observer() -> 
         intent=text("Answer the request."),
     )
     benchmark = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context="question",
         intent=text("$candidate"),
     )
@@ -1098,7 +1122,8 @@ async def test_candidate_failure_keeps_its_typed_error_on_the_outer_span() -> No
         intent=text("Answer the request."),
     )
     benchmark = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context="question",
         intent=text("$candidate"),
     )
@@ -1129,7 +1154,8 @@ async def test_cancelling_the_outer_run_cancels_candidate_work() -> None:
     model = "provider/model"
     candidate = RelExpr(path=f"/{model}", context="$input", intent=text("wait"))
     benchmark = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
+        params=(("web_search", "false"),),
         context="question",
         intent=text("$candidate"),
     )
@@ -1183,13 +1209,13 @@ async def test_concurrent_candidate_invocations_keep_retrieval_policy_task_local
     model = "provider/model"
     candidate = RelExpr(path=f"/{model}", context="$input", intent=text("answer"))
     searching = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
         context="searching question",
         intent=text("$candidate"),
         params=(("web_search", "true"), ("web_search_exclude", "rubric.test")),
     )
     offline = RelExpr(
-        path="/candidate",
+        path=CANDIDATE_ROUTE,
         context="offline question",
         intent=text("$candidate"),
         params=(("web_search", "false"),),
@@ -1226,80 +1252,6 @@ async def test_concurrent_candidate_invocations_keep_retrieval_policy_task_local
 
 
 @pytest.mark.asyncio
-async def test_candidate_world_does_not_expose_candidate_invocation() -> None:
-    model = "provider/model"
-    candidate = RelExpr(
-        path="/candidate",
-        context="$input",
-        intent=text("nested candidate"),
-    )
-    benchmark = RelExpr(
-        path="/candidate",
-        context="question",
-        intent=text("$candidate"),
-    )
-    world = await build_aigateway_world(
-        AigatewayConfig(default_model=model, models=(ModelSpec(id=model),))
-    )
-    try:
-        with pytest.raises(ResolutionError) as exc_info:
-            await world.node.evaluate(_link(candidate, benchmark))
-    finally:
-        await world.aclose()
-
-    assert exc_info.value.code == "endpoint_not_found"
-    assert exc_info.value.permanent is True
-
-
-@pytest.mark.asyncio
-async def test_world_caps_total_candidate_invocations() -> None:
-    model = "provider/model"
-    candidate = RelExpr(path=f"/{model}", context="$input", intent=text("answer"))
-    first = RelExpr(path="/candidate", context="one", intent=text("$candidate"))
-    second = RelExpr(path="/candidate", context="$first two", intent=text("$candidate"))
-    third = RelExpr(path="/candidate", context="$second three", intent=text("$candidate"))
-    benchmark = expr(
-        src(first, name="first", weight=0.0),
-        src(second, name="second", weight=0.0),
-        src(third, name="third", weight=0.0),
-        intent=text("$third"),
-    )
-    requests: list[httpx.Request] = []
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(
-            200,
-            json={
-                "choices": [{"message": {"content": "answer"}}],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
-            },
-        )
-
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
-    ) as client:
-        world = await build_aigateway_world(
-            AigatewayConfig(
-                default_model=model,
-                models=(ModelSpec(id=model),),
-                candidate_max_invocations=2,
-            ),
-            client=client,
-        )
-
-        try:
-            with pytest.raises(ResolutionError) as exc_info:
-                await world.node.evaluate(_link(candidate, benchmark))
-        finally:
-            await world.aclose()
-
-    assert exc_info.value.code == "candidate_invocation_limit"
-    assert exc_info.value.permanent is True
-    assert len(requests) == 2
-
-
-@pytest.mark.asyncio
 async def test_top_level_benchmark_iteration_can_invoke_the_linked_candidate() -> None:
     model = "provider/model"
     candidate = RelExpr(path=f"/{model}", context="$input", intent=text("answer"))
@@ -1309,7 +1261,8 @@ async def test_top_level_benchmark_iteration_can_invoke_the_linked_candidate() -
             src("$item.question", name="question", weight=0.0),
             src(
                 RelExpr(
-                    path="/candidate",
+                    path=CANDIDATE_ROUTE,
+                    params=(("web_search", "false"),),
                     context="$question",
                     intent=text("$candidate"),
                 ),
@@ -1362,8 +1315,8 @@ async def test_top_level_benchmark_iteration_can_invoke_the_linked_candidate() -
     [
         (
             AigatewayConfig(
-                default_model="candidate",
-                models=(ModelSpec(id="candidate"),),
+                default_model="benchmarks/candidate",
+                models=(ModelSpec(id="benchmarks/candidate"),),
             ),
             (),
             (),
@@ -1373,7 +1326,7 @@ async def test_top_level_benchmark_iteration_can_invoke_the_linked_candidate() -
                 default_model="provider/model",
                 models=(ModelSpec(id="provider/model"),),
             ),
-            (CommandSpec(path="/candidate", argv=("echo",)),),
+            (CommandSpec(path=CANDIDATE_ROUTE, argv=("echo",)),),
             (),
         ),
         (
@@ -1382,7 +1335,7 @@ async def test_top_level_benchmark_iteration_can_invoke_the_linked_candidate() -
                 models=(ModelSpec(id="provider/model"),),
             ),
             (),
-            (DataSpec(path="/candidate", value="shadow"),),
+            (DataSpec(path=CANDIDATE_ROUTE, value="shadow"),),
         ),
     ],
 )
@@ -1391,5 +1344,5 @@ async def test_candidate_route_is_reserved_from_operator_configuration(
     commands: tuple[CommandSpec, ...],
     data: tuple[DataSpec, ...],
 ) -> None:
-    with pytest.raises(RunnerConfigError, match="'/candidate'.*reserved"):
+    with pytest.raises(RunnerConfigError, match="'/benchmarks/candidate'.*reserved"):
         await build_aigateway_world(config, commands=commands, data=data)

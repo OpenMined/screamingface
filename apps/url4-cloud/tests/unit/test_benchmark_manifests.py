@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from url4 import build, render
-from url4_cloud.benchmarks import BENCHMARKS, DEFAULT_BENCHMARK_ID
+from url4_cloud.benchmarks import BENCHMARKS
 from url4_cloud.benchmarks.draco.definition import REVISION, ROUTE_PREFIX
 from url4_cloud.benchmarks.ifeval.definition import (
     CASE_COUNT as IFEVAL_CASE_COUNT,
@@ -31,13 +31,13 @@ def client() -> TestClient:
     from fastapi import FastAPI
 
     app = FastAPI()
+    app.state.benchmarks = BENCHMARKS
     app.include_router(router)
     return TestClient(app)
 
 
 def test_every_benchmark_is_keyed_by_its_own_id() -> None:
-    for key, benchmark in BENCHMARKS.items():
-        assert benchmark.id == key
+    assert len({benchmark.id for benchmark in BENCHMARKS}) == len(BENCHMARKS)
 
 
 def test_the_registry_is_not_empty() -> None:
@@ -50,17 +50,19 @@ def test_listing_returns_stable_benchmark_links(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["object"] == "list"
-    assert body["default"] == DEFAULT_BENCHMARK_ID
     by_id = {entry["id"]: entry for entry in body["data"]}
-    assert set(by_id) == set(BENCHMARKS)
+    assert set(by_id) == {benchmark.id for benchmark in BENCHMARKS}
     for key, entry in by_id.items():
-        benchmark = BENCHMARKS[key]
+        benchmark = BENCHMARKS.get(key)
+        assert benchmark is not None
         expected: dict[str, object] = {
             "object": "benchmark",
             "id": key,
             "variant": benchmark.variant,
             "title": benchmark.title,
             "description": benchmark.description,
+            "revision": benchmark.revision,
+            "case_count": benchmark.case_count,
             "href": f"/v1/benchmarks/{key}",
         }
         assert entry == expected
@@ -89,6 +91,7 @@ def test_draco_resource_contains_one_complete_candidate_independent_url4(
         "description",
         "revision",
         "case_count",
+        "selected_case_count",
         "url4",
     }
     assert body["schema"] == "screamingface.benchmark.v1"
@@ -193,12 +196,8 @@ def test_limit_selects_cases_before_the_expression_is_returned(client: TestClien
     assert "iteration.slice=" not in complete["url4"]
 
 
-def test_default_alias_resolves_without_a_catalog_fetch(client: TestClient) -> None:
-    explicit = client.get(f"/v1/benchmarks/{DEFAULT_BENCHMARK_ID}?limit=1")
-    default = client.get("/v1/benchmarks/default?limit=1")
-
-    assert default.status_code == 200
-    assert default.json() == explicit.json()
+def test_default_alias_is_not_installed(client: TestClient) -> None:
+    assert client.get("/v1/benchmarks/default?limit=1").status_code == 404
 
 
 def test_resource_has_a_representation_specific_strong_etag(client: TestClient) -> None:

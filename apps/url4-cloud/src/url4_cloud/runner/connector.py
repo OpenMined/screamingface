@@ -10,9 +10,7 @@ import asyncio
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import NoReturn
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -33,17 +31,19 @@ from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
 from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
-from url4_cloud.benchmarks import DEFAULT_ASSETS_ROOT, install_benchmarks
 from url4_cloud.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_MESSAGE_ROLES,
     CANDIDATE_ROUTE,
 )
-from url4_cloud.runner.candidate import (
-    DEFAULT_CANDIDATE_MAX_INVOCATIONS,
-    apply_candidate_model_policy,
-    install_candidate_invocation,
-    record_candidate_finish_reason,
+from url4_cloud.model_outcomes import (
+    ModelOutcome,
+    bind_model_outcome,
+    record_model_outcome,
+)
+from url4_cloud.retrieval_policy import (
+    RetrievalPolicy,
+    current_retrieval_policy,
 )
 from url4_cloud.runner.config import (
     DEFAULT_WEB_TOOL_MAX_ITERATIONS,
@@ -230,7 +230,6 @@ class AigatewayConfig:
     # Per Runner job, not per nested Candidate evaluation. The Benchmark resource reports its
     # planned invocation count for inspection; this independent runtime bound remains authoritative
     # if a malformed or dynamically behaving expression exceeds that declaration.
-    candidate_max_invocations: int = DEFAULT_CANDIDATE_MAX_INVOCATIONS
 
 
 @dataclass
@@ -309,7 +308,8 @@ class _ModelEndpoint:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
         spec = self._routes[request.path]
-        params = apply_candidate_model_policy(request.params)
+        retrieval_policy = current_retrieval_policy()
+        params = _apply_retrieval_policy(request.params, retrieval_policy)
         return await _chat_completion_loop(
             http_client=self._http_client,
             cfg=self._cfg,
@@ -321,6 +321,7 @@ class _ModelEndpoint:
             tavily_api_key=self._tavily_api_key,
             identity_headers=self._identity_headers,
             policy=self._policy,
+            retrieval_policy=retrieval_policy,
         )
 
 
@@ -495,8 +496,6 @@ def _parse_policy(raw: str, path: str) -> tuple[str, ...]:
 def build_local_world(
     commands: Sequence[CommandSpec] = (),
     data: Sequence[DataSpec] = (),
-    *,
-    benchmark_assets: Path = DEFAULT_ASSETS_ROOT,
 ) -> Url4Node:
     """A world with declared routes and nothing else — no models, no outbound fetches.
 
@@ -508,18 +507,8 @@ def build_local_world(
     """
     _reject_candidate_route_claims((), commands, data)
     node = Url4Node("local", outbound=StaticIOLayer())
-    candidate_node = Url4Node("candidate", outbound=StaticIOLayer())
-    install_candidate_invocation(
-        node,
-        candidate_node,
-        max_invocations=DEFAULT_CANDIDATE_MAX_INVOCATIONS,
-        allowed_policy_params=_RUNNER_INTERPRETED_PARAMS,
-    )
-    install_benchmarks(node, benchmark_assets)
     register_commands(node, commands)
     register_data(node, data)
-    register_commands(candidate_node, commands)
-    register_data(candidate_node, data)
     return node
 
 
@@ -533,7 +522,6 @@ async def build_aigateway_world(
     identity_headers: Mapping[str, str] | None = None,
     commands: Sequence[CommandSpec] = (),
     data: Sequence[DataSpec] = (),
-    benchmark_assets: Path = DEFAULT_ASSETS_ROOT,
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
@@ -588,30 +576,13 @@ async def build_aigateway_world(
         default_processor="/" + cfg.default_model,
         outbound=None if cfg.allow_outbound else StaticIOLayer(),
     )
-    candidate_node = Url4Node(
-        "candidate",
-        default_processor="/" + cfg.default_model,
-        outbound=StaticIOLayer(),
-    )
-    # Engine-owned protocol routes are reserved before operator-declared routes. A model,
-    # command, or data route cannot silently shadow Candidate Invocation.
-    install_candidate_invocation(
-        node,
-        candidate_node,
-        max_invocations=cfg.candidate_max_invocations,
-        allowed_policy_params=_RUNNER_INTERPRETED_PARAMS,
-    )
     for path in routes:
         node.endpoint(path)(call_model)
-        candidate_node.endpoint(path)(call_model)
-    install_benchmarks(node, benchmark_assets, model_routes=routes)
     # INVARIANT: commands are registered AFTER the model routes, so a path claimed by both is
     # rejected by the engine here rather than silently shadowing a model. `config` already
     # rejects that pair with a better message; this is the backstop for a world built directly.
     register_commands(node, commands)
     register_data(node, data)
-    register_commands(candidate_node, commands)
-    register_data(candidate_node, data)
     return AigatewayWorld(
         node=node,
         _client=http_client,
@@ -633,9 +604,7 @@ def _report_response(choice: _Choice) -> None:
     Null-safe exactly like `_report_usage`: outside a run, or with no observer attached, the
     sink is absent and this is a no-op.
     """
-    # FEATURE: OME-319 — preserve the same provider signal in the terminal Case Result. This
-    # recorder is task-local to `/candidate`; Judge calls outside it remain ordinary span events.
-    record_candidate_finish_reason(choice.finish_reason)
+    record_model_outcome(choice.finish_reason, choice.refusal)
     sink = current_response_sink()
     if sink is None:
         return
@@ -715,8 +684,11 @@ def _raise_if_unusable(choice: _Choice) -> None:
     if choice.finish_reason == "content_filter" or choice.refusal is not None:
         # `permanent=True`: a refusal is deterministic, so a retry spends budget to be refused
         # again. This is the wire signal a client maps to a refusal-kind failure.
-        raise ResolutionError(
-            "provider refused the request", code="provider_refusal", permanent=True
+        raise bind_model_outcome(
+            ResolutionError(
+                "provider refused the request", code="provider_refusal", permanent=True
+            ),
+            ModelOutcome(choice.finish_reason, choice.refusal),
         )
     if not choice.tool_calls and choice.content is None:
         raise ResolutionError(
@@ -773,6 +745,25 @@ on an unknown field. A second allowlist here would be a copy of that contract, f
 from it — the same reason `register_commands` translates the engine's error instead of
 restating its rules.
 """
+
+
+def _apply_retrieval_policy(
+    params: Mapping[str, str],
+    policy: RetrievalPolicy | None,
+) -> dict[str, str]:
+    """Apply the active Benchmark ceiling without hiding a Candidate's narrower choice."""
+
+    selected = dict(params)
+    if policy is not None and not policy.web_search:
+        selected[WEB_SEARCH_PARAM] = "false"
+        selected.pop(WEB_SEARCH_EXCLUDE_PARAM, None)
+        selected.pop(WEB_SEARCH_POLICY_PARAM, None)
+    elif policy is not None and selected.get(WEB_SEARCH_PARAM) != "false":
+        selected[WEB_SEARCH_PARAM] = "true"
+        excluded = {*policy.excluded_domains, *_caller_exclusions(selected)}
+        if excluded:
+            selected[WEB_SEARCH_EXCLUDE_PARAM] = ":".join(sorted(excluded))
+    return selected
 
 
 def _wants_web_search(params: Mapping[str, str], spec: ModelSpec) -> bool:
@@ -904,7 +895,7 @@ async def _retrieval_exclusions(
     return (*await policy.resolve(path), *ad_hoc)
 
 
-async def _chat_completion_loop(  # noqa: PLR0912, PLR0915 - one auditable turn state machine
+async def _chat_completion_loop(  # noqa: C901, PLR0912, PLR0915 - auditable turn state machine
     *,
     http_client: httpx.AsyncClient,
     cfg: AigatewayConfig,
@@ -916,6 +907,7 @@ async def _chat_completion_loop(  # noqa: PLR0912, PLR0915 - one auditable turn 
     tavily_api_key: str | None,
     identity_headers: Mapping[str, str] | None = None,
     policy: RetrievalPolicyResolver | None = None,
+    retrieval_policy: RetrievalPolicy | None = None,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
@@ -934,12 +926,23 @@ async def _chat_completion_loop(  # noqa: PLR0912, PLR0915 - one auditable turn 
     # stay load-bearing: without the route's opt-in a configured key would silently change every
     # model's request payload, and without the client the model could call a tool nothing can
     # execute.
+    benchmark_retrieval = retrieval_policy is not None and params.get(WEB_SEARCH_PARAM) == "true"
+    if benchmark_retrieval and not (spec.web_tools or spec.native_web_search):
+        raise ResolutionError(
+            f"model route {spec.id!r} does not declare a web retrieval mechanism",
+            code="benchmark_retrieval_unavailable",
+            permanent=True,
+        )
     wants_search = _wants_web_search(params, spec)
     required_retrieval = _coerce_param(params.get(WEB_SEARCH_PARAM, "false")) is True
     if required_retrieval and spec.web_tools and (tavily_http is None or tavily_api_key is None):
         raise ResolutionError(
             f"web_search=true on /{spec.id} requires a configured Tavily connection",
-            code="web_retrieval_unavailable",
+            code=(
+                "benchmark_retrieval_unavailable"
+                if benchmark_retrieval
+                else "web_retrieval_unavailable"
+            ),
             permanent=True,
         )
     native = wants_search and spec.native_web_search
@@ -1104,15 +1107,21 @@ def _is_blocked(url: str, exclusions: Sequence[str]) -> bool:
     # enumerate a document's forms. The matcher keeps the path form for the ad-hoc case; anyone
     # using it inherits that trap.
     """
-    parsed = urlsplit(url if "//" in url else f"//{url}")
-    host = parsed.netloc.lower().split("@")[-1].split(":")[0].rstrip(".")
-    path = parsed.path.lower()
+    try:
+        parsed = httpx.URL(url if "://" in url else f"https://{url}")
+        host = parsed.raw_host.decode("ascii").lower().rstrip(".")
+        path = parsed.path.lower()
+    except (httpx.InvalidURL, UnicodeDecodeError):
+        return True
     for entry in exclusions:
         entry_host, _, entry_path = entry.strip().lower().lstrip("*.").partition("/")
-        entry_host = entry_host.rstrip(".")
-        if not entry_host:
+        try:
+            normalized_entry = (
+                httpx.URL(f"https://{entry_host.rstrip('.')}").raw_host.decode("ascii").lower()
+            )
+        except (httpx.InvalidURL, UnicodeDecodeError):
             continue
-        if host != entry_host and not host.endswith(f".{entry_host}"):
+        if host != normalized_entry and not host.endswith(f".{normalized_entry}"):
             continue
         if not entry_path or path.startswith(f"/{entry_path}"):
             return True
@@ -1250,7 +1259,7 @@ async def _tavily_extract(
         raise ValueError("web_fetch requires a non-empty 'url'")
     if _is_blocked(url, exclusions):
         return (
-            f"{url} was not fetched: the host is excluded by this run's retrieval policy. "
+            f"{url} was not fetched: blocked by Benchmark retrieval policy. "
             "Do not try to reach it by another URL — answer from other sources."
         )
     resp = await client.post(
