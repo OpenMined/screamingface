@@ -9,7 +9,7 @@ One image ships two modes, and the whole point of that shape is a rule about wha
     control plane   run mode                    Every concrete implementation, in the half that
     (serve)         (run)                       runs it — and the two halves stay disjoint.
 
-  Control plane: app · rest · ws · auth · catalog · config · metrics · ops · schemas
+  Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · schemas
                  adapters.k8s · adapters.factory    (FastAPI, uvicorn, the kubernetes client)
   Run mode:      runner.executor (the url4 engine) · runner.connector · runner.config
 
@@ -50,6 +50,7 @@ CONTROL_PLANE = {
     "auth",
     "catalog",
     "cli",
+    "connections",
     "config",
     "local",
     "metrics",
