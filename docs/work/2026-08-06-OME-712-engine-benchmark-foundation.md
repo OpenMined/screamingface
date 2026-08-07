@@ -37,6 +37,11 @@ or generic command/data changes.
   that disagreed. The Candidate reports an agreed outcome and reports null when branches differ.
 - Retrieval exclusions fail closed on any host this comparison cannot decide, including a
   percent-encoded one.
+- Install-time route validation covers relative data references and `data()` routes, not only
+  `RelExpr` calls against endpoints, and treats an iteration row template as unvalidatable rather
+  than as a route named `/judge` when it reads `/judge/$item`.
+- The Candidate binding is published: `candidate_binding` in every detail resource, plus
+  `link_candidate` as the one definition of how a client binds its Candidate to a protocol.
 
 ## Test plan
 
@@ -60,16 +65,17 @@ or generic command/data changes.
 
 ## Verification
 
-- Focused Benchmark foundation tests: 36 passed.
-- Full URL4 Cloud suite: 956 passed, 5 skipped, 96% coverage. Counts are measured after the
+- Focused Benchmark foundation tests: 41 passed.
+- Full URL4 Cloud suite: 961 passed, 5 skipped, 96% coverage. Counts are measured after the
   rebase onto `main`, so they include the cache-policy and connections work that landed there.
 - Ruff lint/format, Pyright, and Engine/control-plane layering: passed.
 - Two-axis branch review: Standards findings resolved in code; accepted spec passes with no
   missing, partial, incorrect, or out-of-scope behavior.
-- Open follow-ups from branch review, deliberately not fixed here: `_relative_endpoint_paths`
-  collects `RelExpr` paths only, so a relative source such as `(/cases)` escapes install-time
-  route validation, and `processor_routes()` excludes `data()` routes; the `$candidate` binding
-  convention is defined only by a test helper rather than by the published resource.
+- Open follow-up: `Url4Node` publishes no accessor for its data routes, so the registry reads the
+  table privately. An accessor belongs upstream in the URL4 engine, which is outside this
+  landing's boundary.
+- Open follow-up: installation does not verify that a protocol's free reference is the declared
+  Candidate binding, so a misspelled `$candiate` still fails at run time rather than at install.
 - Deliberate test-history exception: the inherited URL4 importer boundary test was updated because
   the accepted architecture explicitly makes `url4_cloud.benchmarks` an Engine-owned structured
   URL4 extension. No behavioral assertion was weakened; the boundary became path-specific.

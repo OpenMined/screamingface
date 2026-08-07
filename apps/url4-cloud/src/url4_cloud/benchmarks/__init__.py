@@ -1,6 +1,12 @@
 """Public definition and installation surface for Engine-owned Benchmarks."""
 
-from url4_cloud.benchmarks.definition import Benchmark, BenchmarkInstaller, candidate
+from url4_cloud.benchmarks.definition import (
+    CANDIDATE_REF,
+    Benchmark,
+    BenchmarkInstaller,
+    candidate,
+    link_candidate,
+)
 from url4_cloud.benchmarks.registry import (
     BENCHMARK_ASSETS_ENV,
     DEFAULT_BENCHMARK_ASSETS_ROOT,
@@ -11,6 +17,7 @@ from url4_cloud.benchmarks.registry import (
 
 __all__ = [
     "BENCHMARK_ASSETS_ENV",
+    "CANDIDATE_REF",
     "DEFAULT_BENCHMARK_ASSETS_ROOT",
     "Benchmark",
     "BenchmarkInstaller",
@@ -18,4 +25,5 @@ __all__ = [
     "EMPTY_BENCHMARKS",
     "assets_root",
     "candidate",
+    "link_candidate",
 ]

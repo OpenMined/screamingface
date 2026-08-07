@@ -6,6 +6,9 @@ import json
 from collections.abc import Mapping
 
 CANDIDATE_ROUTE = "/benchmarks/candidate"
+# The source name a client binds its Candidate expression under, so the protocol's `$candidate`
+# resolves. Published in every Benchmark resource: a client cannot be expected to infer it.
+CANDIDATE_BINDING = "candidate"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
 FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter"})
 
@@ -66,6 +69,7 @@ def _validate_candidate_invocation(
 
 
 __all__ = [
+    "CANDIDATE_BINDING",
     "CANDIDATE_INVOCATION_SCHEMA",
     "CANDIDATE_ROUTE",
     "FINISH_REASONS",

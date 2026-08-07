@@ -11,14 +11,24 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from url4 import Node, RelExpr, build, expr, render, src, text
+from url4 import Node, RelExpr, RelUrl, build, expr, iterate, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 from url4.streaming.interfaces import Completed
 from url4_cloud.app import create_app
-from url4_cloud.benchmarks import Benchmark, BenchmarkInstaller, BenchmarkRegistry, candidate
+from url4_cloud.benchmarks import (
+    Benchmark,
+    BenchmarkInstaller,
+    BenchmarkRegistry,
+    candidate,
+    link_candidate,
+)
 from url4_cloud.benchmarks.candidate import install_candidate_invocation
-from url4_cloud.benchmarks.contract import CANDIDATE_ROUTE, decode_candidate_invocation
+from url4_cloud.benchmarks.contract import (
+    CANDIDATE_BINDING,
+    CANDIDATE_ROUTE,
+    decode_candidate_invocation,
+)
 from url4_cloud.config import Settings
 from url4_cloud.model_outcomes import (
     ModelOutcome,
@@ -60,13 +70,9 @@ def _benchmark(
 
 
 def _link(candidate_expression: Node, benchmark_expression: Node) -> str:
-    return render(
-        expr(
-            src(text(render(candidate_expression)), name="candidate", weight=0.0),
-            benchmark_expression,
-            intent=text(""),
-        )
-    )
+    # The linking convention is published, not re-stated here — a client cannot import a helper
+    # that lives in a test file.
+    return link_candidate(candidate_expression, benchmark_expression)
 
 
 async def _get(
@@ -873,3 +879,95 @@ async def test_percent_encoded_hosts_cannot_evade_an_exclusion(url: str) -> None
     """httpx leaves the authority percent-encoded; a fetcher downstream may not."""
 
     assert _is_blocked(url, ("evil.com",)) is True
+
+
+async def test_missing_relative_source_route_fails_before_execution() -> None:
+    """A `(/cases)` data reference names a route just as a `/path!intent` call does."""
+
+    benchmark = _benchmark(
+        build_protocol=lambda _selected: expr(
+            src(RelUrl("/cases/missing"), name="cases", weight=0.0),
+            intent=text("summarize"),
+        )
+    )
+    node = Url4Node("test")
+    install_candidate_invocation(node)
+
+    with pytest.raises(ValueError, match="/cases/missing"):
+        BenchmarkRegistry((benchmark,)).install(node, assets_root=Path("/assets"))
+
+
+async def test_a_benchmark_may_serve_its_cases_from_a_data_route() -> None:
+    """`data()` routes are servable relative targets, so referencing one is not a missing route."""
+
+    def install(node: Url4Node, _root: Path) -> None:
+        node.data("/cases/example", '[{"id": "c1"}]', media_type="application/json")
+
+    benchmark = _benchmark(
+        install=install,
+        build_protocol=lambda _selected: expr(
+            src(RelUrl("/cases/example"), name="cases", weight=0.0),
+            intent=text("summarize"),
+        ),
+    )
+    node = Url4Node("test")
+    install_candidate_invocation(node)
+
+    BenchmarkRegistry((benchmark,)).install(node, assets_root=Path("/assets"))
+
+
+async def test_iteration_templates_do_not_invent_routes_from_placeholders() -> None:
+    """A row template names no route until `$item` is substituted, so it cannot be validated."""
+
+    def build_protocol(_selected: int) -> Node:
+        return iterate(
+            RelUrl("/cases/example"),
+            "(/judge/$item)!'grade'",
+            intent="'grade'",
+        )
+
+    def install(node: Url4Node, _root: Path) -> None:
+        node.data("/cases/example", '[{"id": "c1"}]', media_type="application/json")
+
+    node = Url4Node("test")
+    install_candidate_invocation(node)
+
+    BenchmarkRegistry((_benchmark(install=install, build_protocol=build_protocol),)).install(
+        node, assets_root=Path("/assets")
+    )
+
+
+async def test_detail_resource_publishes_the_candidate_binding() -> None:
+    """A client cannot link a Candidate it must learn the name of from a test helper."""
+
+    app = create_app(
+        Settings(jwt_secret="s"),
+        stream=InMemoryEventStream(),
+        benchmarks=BenchmarkRegistry((_benchmark(),)),
+    )
+
+    detail = (await _get(app, "/v1/benchmarks/example/smoke")).json()
+
+    assert detail["candidate_binding"] == CANDIDATE_BINDING
+    assert f"${CANDIDATE_BINDING}" in detail["url4"]
+
+
+async def test_the_published_linking_helper_executes_a_fetched_resource() -> None:
+    """`link_candidate` is the one definition of how a Candidate is bound to a protocol."""
+
+    requests: list[dict[str, object]] = []
+    benchmark = _benchmark()
+    client, world = await _world(BenchmarkRegistry((benchmark,)), requests)
+    candidate_expression = RelExpr(path="/provider/model", context="$input", intent=text("answer"))
+
+    protocol = benchmark.resource()["url4"]
+    assert isinstance(protocol, str)
+
+    try:
+        # Exactly what a client holds after a fetch: the resource's URL4 text, nothing else.
+        result = await world.node.evaluate(link_candidate(candidate_expression, protocol))
+    finally:
+        await world.aclose()
+        await client.aclose()
+
+    assert "Rayleigh scattering." in result.text

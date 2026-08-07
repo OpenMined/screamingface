@@ -7,10 +7,12 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from url4 import Node, RelExpr, expr, render, src, text
+from url4 import Node, RelExpr, build, expr, render, src, text
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks.contract import CANDIDATE_ROUTE
+from url4_cloud.benchmarks.contract import CANDIDATE_BINDING, CANDIDATE_ROUTE
 from url4_cloud.retrieval_policy import normalize_excluded_domains
+
+CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 
@@ -102,6 +104,7 @@ class Benchmark:
             "schema": "screamingface.benchmark.v1",
             **self._metadata(),
             "selected_case_count": selected,
+            "candidate_binding": CANDIDATE_BINDING,
             "url4": render(protocol),
         }
 
@@ -109,7 +112,7 @@ class Benchmark:
 def candidate(
     input: str,
     *,
-    binding: str = "$candidate",
+    binding: str = CANDIDATE_REF,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
 ) -> Node:
@@ -141,4 +144,30 @@ def candidate(
     )
 
 
-__all__ = ["Benchmark", "BenchmarkInstaller", "candidate"]
+def link_candidate(candidate_expression: Node | str, protocol: Node | str) -> str:
+    """Bind one Candidate expression to a fetched Benchmark protocol, ready to execute.
+
+    This is the executable half of the resource contract `candidate_binding` names: the Candidate
+    is carried as an inert text source under that name, which is what makes the protocol's
+    `$candidate` resolve. It weighs 0.0 because it contributes no content of its own — the
+    protocol decides where and how often the Candidate is invoked.
+    """
+
+    return render(
+        expr(
+            src(
+                text(_as_text(candidate_expression)),
+                name=CANDIDATE_BINDING,
+                weight=0.0,
+            ),
+            protocol if isinstance(protocol, Node) else build(protocol),
+            intent=text(""),
+        )
+    )
+
+
+def _as_text(value: Node | str) -> str:
+    return value if isinstance(value, str) else render(value)
+
+
+__all__ = ["CANDIDATE_REF", "Benchmark", "BenchmarkInstaller", "candidate", "link_candidate"]
