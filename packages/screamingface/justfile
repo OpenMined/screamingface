@@ -20,12 +20,24 @@ stack-up:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p {{rundir}}
-    test -x {{repo}}/apps/aigateway/.venv/bin/uvicorn || {
-        echo "AI Gateway environment missing; run: cd {{repo}}/apps/aigateway && uv sync"
+    # Each service runs from its own venv; sync is idempotent and near-instant
+    # when the lockfile is unchanged, so a fresh worktree just works. The first
+    # sync in a new worktree builds the venvs and can take a few minutes.
+    echo "syncing gateway venv ({{repo}}/apps/aigateway)…"
+    (cd {{repo}}/apps/aigateway && uv sync) || {
+        echo "AI Gateway environment failed to sync under {{repo}}/apps/aigateway"
         exit 1
     }
-    test -x {{engine_repo}}/apps/url4-cloud/.venv/bin/url4-cloud || {
-        echo "URL4 Cloud environment missing; run: cd {{engine_repo}}/apps/url4-cloud && uv sync"
+    # Apply pending gateway DB migrations — a fresh worktree has an empty SQLite DB
+    # and the server refuses to boot without its tables (e.g. secret_master_keys).
+    echo "migrating gateway database…"
+    (cd {{repo}}/apps/aigateway && .venv/bin/aigateway migrate) || {
+        echo "AI Gateway database migration failed"
+        exit 1
+    }
+    echo "syncing engine venv ({{engine_repo}}/apps/url4-cloud)…"
+    (cd {{engine_repo}}/apps/url4-cloud && uv sync) || {
+        echo "URL4 Cloud environment failed to sync under {{engine_repo}}/apps/url4-cloud"
         exit 1
     }
     if lsof -nP -iTCP:9105 -sTCP:LISTEN >/dev/null 2>&1; then
