@@ -18,6 +18,9 @@ _SPEC = {
     }
 }
 
+# The installed selection order (cases.json file order) — row N binds to _ORDER[N].
+_ORDER = [1]
+
 
 def _valid_record() -> dict[str, object]:
     return {
@@ -49,7 +52,7 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
         ]
     )
 
-    result = aggregate(payload, _SPEC, "ifeval")
+    result = aggregate(payload, _SPEC, "ifeval", _ORDER)
 
     assert result["score"] is None
     assert result["metrics"] == {}
@@ -80,7 +83,7 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
 def test_nested_verifier_record_is_not_discovered_as_grading() -> None:
     payload = json.dumps([{"candidate_text": json.dumps(_valid_record())}])
 
-    result = aggregate(payload, _SPEC, "ifeval")
+    result = aggregate(payload, _SPEC, "ifeval", _ORDER)
 
     assert result["score"] is None
     assert result["metrics"] == {}
@@ -91,7 +94,7 @@ def test_nested_verifier_record_is_not_discovered_as_grading() -> None:
 def test_bare_check_record_is_not_a_case_evaluation_envelope() -> None:
     payload = json.dumps([_valid_record()])
 
-    result = aggregate(payload, _SPEC, "ifeval")
+    result = aggregate(payload, _SPEC, "ifeval", _ORDER)
 
     assert result["score"] is None
     assert result["cases"][0]["grade"] is None
@@ -116,6 +119,7 @@ def test_corrective_collected_failure_returns_a_complete_unscored_result() -> No
         _SPEC,
         SELF_CORRECTIVE_ID,
         SELF_CORRECTIVE_REVISION,
+        _ORDER,
     )
 
     assert result["score"] is None
@@ -133,6 +137,7 @@ def test_corrective_nested_check_is_not_discovered_as_grading() -> None:
         _SPEC,
         SELF_CORRECTIVE_ID,
         SELF_CORRECTIVE_REVISION,
+        _ORDER,
     )
 
     assert result["score"] is None

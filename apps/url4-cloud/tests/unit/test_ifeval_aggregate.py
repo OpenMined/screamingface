@@ -37,6 +37,10 @@ _SPECS = {
     },
 }
 
+# The installed selection order (cases.json file order) — row N is graded against
+# _ORDER[N], never against sorted spec ids.
+_ORDER = [1, 2]
+
 
 def _record(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, object]:
     spec = _SPECS[case_id]
@@ -73,7 +77,7 @@ def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
         _evaluation(2, [True], [True]),
     )
 
-    result = aggregate(payload, _SPECS, "ifeval")
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER)
 
     # INVARIANT: `score` IS the paper's headline metric, prompt-level strict accuracy —
     # the leaderboard number must mean what arXiv:2311.07911 says it means.
@@ -99,6 +103,7 @@ def test_exact_case_evaluations_survive_the_collect_boundary() -> None:
         ),
         _SPECS,
         "ifeval",
+        _ORDER,
     )
 
     assert result["score"] == 1.0
@@ -118,7 +123,7 @@ def test_a_partial_failed_case_is_retained_without_a_partial_score() -> None:
         },
     )
 
-    result = aggregate(payload, _SPECS, "ifeval")
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER)
 
     assert result["score"] is None
     assert result["cases"][0]["grade"]["score"] == 1.0
@@ -134,7 +139,7 @@ def test_an_invalid_case_evaluation_is_retained_as_a_grading_failure() -> None:
         _evaluation(2, [True], [True]),
     )
 
-    result = aggregate(payload, _SPECS, "ifeval")
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER)
 
     assert result["score"] is None
     assert result["cases"][0]["failures"][0]["code"] == "invalid_case_evaluation"
@@ -143,7 +148,7 @@ def test_an_invalid_case_evaluation_is_retained_as_a_grading_failure() -> None:
 def test_every_failed_case_returns_null_instead_of_reporting_zero() -> None:
     # Scoring this would hand the client a plausible 0.0 from a misconfigured assets
     # path — draco's load_rubrics lesson.
-    result = aggregate(_rows("broken", "also broken"), _SPECS, "ifeval")
+    result = aggregate(_rows("broken", "also broken"), _SPECS, "ifeval", _ORDER)
 
     assert result["score"] is None
     assert [case["grade"] for case in result["cases"]] == [None, None]
@@ -157,7 +162,7 @@ def test_all_crash_result_retains_the_collected_inner_failure() -> None:
         }
     }
 
-    result = aggregate(_rows(failed), {1: _SPECS[1]}, "ifeval")
+    result = aggregate(_rows(failed), {1: _SPECS[1]}, "ifeval", [1])
 
     assert result["score"] is None
     assert result["cases"][0]["failures"][0]["message"] == "malformed aigateway response"
@@ -166,7 +171,7 @@ def test_all_crash_result_retains_the_collected_inner_failure() -> None:
 def test_metrics_are_flat_numbers_only() -> None:
     payload = _rows(_evaluation(2, [True], [True]))
 
-    result = aggregate(payload, {2: _SPECS[2]}, "ifeval")
+    result = aggregate(payload, {2: _SPECS[2]}, "ifeval", [2])
 
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())
 
@@ -180,7 +185,7 @@ def test_a_record_for_an_unknown_case_id_is_ignored() -> None:
     }
     payload = _rows(_evaluation(1, [True, True], [True, True]), stray_evaluation)
 
-    result = aggregate(payload, _SPECS, "ifeval")
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER)
 
     # The stray record cannot smuggle a score into a Case its check never ran for, and
     # the missing authentic grade cannot be recast as an incorrect answer.
@@ -190,9 +195,9 @@ def test_a_record_for_an_unknown_case_id_is_ignored() -> None:
 
 def test_non_array_payload_raises() -> None:
     with pytest.raises(AggregateError):
-        aggregate('{"not": "an array"}', _SPECS, "ifeval")
+        aggregate('{"not": "an array"}', _SPECS, "ifeval", _ORDER)
     with pytest.raises(AggregateError):
-        aggregate("not json at all", _SPECS, "ifeval")
+        aggregate("not json at all", _SPECS, "ifeval", _ORDER)
 
 
 def test_load_specs_raises_on_a_missing_or_empty_directory(tmp_path: Path) -> None:

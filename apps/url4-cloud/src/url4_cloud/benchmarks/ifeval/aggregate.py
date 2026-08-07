@@ -36,14 +36,23 @@ def aggregate(
     rows_json: str,
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
+    case_order: Sequence[int],
 ) -> dict[str, Any]:
-    """Reduce the row array into a `CandidateResult` — exactly one entry per row."""
+    """Reduce the row array into a `CandidateResult` — exactly one entry per row.
+
+    ``case_order`` is the installed selection order (``load_case_order``): case ids
+    are official IFEval keys, which are NOT sorted in case order, so the mapping from
+    collected row position to case id must come from ``cases.json`` — never from
+    ``sorted(specs)`` or ``index + 1``.
+    """
 
     rows = _rows(rows_json)
     case_results: list[dict[str, Any]] = []
     accepted: list[dict[str, Any]] = []
     recordless_cases: list[tuple[int, int]] = []
-    for index, (raw, case_id) in enumerate(zip(rows, _selected_case_ids(rows, specs), strict=True)):
+    for index, (raw, case_id) in enumerate(
+        zip(rows, _selected_case_ids(rows, specs, case_order), strict=True)
+    ):
         spec = specs[case_id]
         record = _first_valid_record(raw, case_id, spec)
         if record is None:
@@ -159,6 +168,7 @@ def aggregate_corrective(
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
     benchmark_revision: str,
+    case_order: Sequence[int],
     max_attempts: int = 3,
 ) -> dict[str, Any]:
     """Reduce corrective-chain rows — one scored entry per case, pass@attempt metrics.
@@ -172,14 +182,10 @@ def aggregate_corrective(
     case_results: list[dict[str, Any]] = []
     selected_records: list[dict[str, Any]] = []
     recordless_cases: list[tuple[int, int]] = []
-    for index, raw in enumerate(rows):
-        case_id = index + 1
-        spec = specs.get(case_id)
-        if spec is None:
-            raise AggregateError(
-                f"row {index} has no spec for case {case_id}; "
-                "the installed IFEval assets are incomplete"
-            )
+    for index, (raw, case_id) in enumerate(
+        zip(rows, _selected_case_ids(rows, specs, case_order), strict=True)
+    ):
+        spec = specs[case_id]
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
             recordless_cases.append((index, case_id))
@@ -332,6 +338,37 @@ def load_specs(directory: Path) -> dict[int, dict[str, Any]]:
     return specs
 
 
+def load_case_order(root: Path) -> list[int]:
+    """The installed selection order — ``cases.json``'s ids, in file order.
+
+    Case ids are official IFEval keys, which are NOT sorted in case order, so this
+    file is the only source of "which case is collected row N". Same fail-loud rule
+    as ``load_specs``: a missing or malformed ``cases.json`` raises before any
+    scoring.
+    """
+
+    path = root / "cases.json"
+    if not path.is_file():
+        raise AggregateError(
+            f"no cases.json under {str(root)!r}; the installed IFEval assets are incomplete"
+        )
+    try:
+        cases = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise AggregateError(f"cases.json is not JSON: {exc}") from None
+    if not isinstance(cases, list) or not cases:
+        raise AggregateError("cases.json must be a non-empty JSON array")
+    order: list[int] = []
+    for entry in cases:
+        case_id = _as_int(entry.get("id")) if isinstance(entry, Mapping) else None
+        if case_id is None:
+            raise AggregateError(f"cases.json entry without an int id: {entry!r}")
+        order.append(case_id)
+    if len(set(order)) != len(order):
+        raise AggregateError("cases.json carries duplicate case ids")
+    return order
+
+
 def _rows(rows_json: str) -> list[Any]:
     try:
         rows = json.loads(rows_json)
@@ -344,15 +381,31 @@ def _rows(rows_json: str) -> list[Any]:
     return rows
 
 
-def _selected_case_ids(rows: Sequence[Any], specs: Mapping[int, Mapping[str, Any]]) -> list[int]:
-    """The prefix of installed Cases selected by the Benchmark's `limit` slice."""
+def _selected_case_ids(
+    rows: Sequence[Any],
+    specs: Mapping[int, Mapping[str, Any]],
+    case_order: Sequence[int],
+) -> list[int]:
+    """The prefix of installed Cases selected by the Benchmark's `limit` slice.
 
-    case_ids = sorted(specs)
-    if len(rows) > len(case_ids):
+    The slice walks ``cases.json`` in file order, so the id for collected row N is
+    ``case_order[N]``. Ids are official keys — sorting them would grade rows against
+    the wrong specs.
+    """
+
+    if len(rows) > len(case_order):
         raise AggregateError(
-            f"reducer carried {len(rows)} rows but only {len(case_ids)} IFEval specs are installed"
+            f"reducer carried {len(rows)} rows but only {len(case_order)} IFEval cases "
+            "are installed"
         )
-    return case_ids[: len(rows)]
+    selected = list(case_order[: len(rows)])
+    missing = [case_id for case_id in selected if case_id not in specs]
+    if missing:
+        raise AggregateError(
+            f"cases.json selects case ids {missing} that have no installed instruction "
+            "spec; the installed IFEval assets are incomplete"
+        )
+    return selected
 
 
 def _first_valid_record(
@@ -478,4 +531,11 @@ def _as_int(value: Any) -> int | None:
         return None
 
 
-__all__ = ["SCHEMA", "AggregateError", "aggregate", "aggregate_corrective", "load_specs"]
+__all__ = [
+    "SCHEMA",
+    "AggregateError",
+    "aggregate",
+    "aggregate_corrective",
+    "load_case_order",
+    "load_specs",
+]

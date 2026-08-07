@@ -20,6 +20,9 @@ _SPECS = {
     2: {"prompt": "Use quotes.", "instruction_id_list": ["startend:quotation"]},
 }
 
+# The installed selection order (cases.json file order) — row N binds to _ORDER[N].
+_ORDER = [1, 2]
+
 
 def _record(case_id: int) -> dict[str, object]:
     return {
@@ -46,7 +49,7 @@ def test_swapped_known_case_records_cannot_publish_a_score() -> None:
 
     rows = json.dumps([_evaluation(2), _evaluation(1)])
 
-    result = aggregate(rows, _SPECS, "ifeval")
+    result = aggregate(rows, _SPECS, "ifeval", _ORDER)
 
     assert result["score"] is None
     assert [case["grade"] for case in result["cases"]] == [None, None]
@@ -54,7 +57,10 @@ def test_swapped_known_case_records_cannot_publish_a_score() -> None:
 
 @pytest.mark.parametrize(
     ("reducer", "extra"),
-    [(aggregate, ()), (aggregate_corrective, (SELF_CORRECTIVE_REVISION,))],
+    [
+        (aggregate, (_ORDER,)),
+        (aggregate_corrective, (SELF_CORRECTIVE_REVISION, _ORDER)),
+    ],
 )
 def test_zero_case_ifeval_payloads_fail_loudly(reducer, extra) -> None:
     """An empty Evaluation is an execution failure, never a plausible zero score."""
@@ -73,7 +79,7 @@ def test_truthy_text_cannot_impersonate_verifier_booleans() -> None:
         ]
     )
 
-    result = aggregate(rows, _SPECS, "ifeval")
+    result = aggregate(rows, _SPECS, "ifeval", _ORDER)
 
     assert result["score"] is None
     assert result["cases"][0]["grade"] is None
