@@ -62,14 +62,24 @@ class ExecutableCatalog:
     async def fetch(self, credential: Credential) -> ModelCatalog:
         catalog = await self._source.fetch(credential)
         data = catalog.body.get("data")
+        # WHY this one raises but a bad ENTRY does not: a `data` that is not a list cannot be
+        # projected at all, so there is no honest answer to give. A single malformed entry has
+        # one — omit it. Raising there would let one odd upstream document turn discovery into a
+        # 502 for every caller, and `CachedCatalog` serves stale-on-error, so a PERSISTENT
+        # oddity would degrade into an outage once `stale_max_s` elapsed.
         if not isinstance(data, list):
             raise CatalogBadResponse("catalog data is not a list")
-        for item in data:
-            if not isinstance(item, Mapping) or not isinstance(item.get("id"), str):
-                raise CatalogBadResponse("catalog model is missing a string id")
+        # INVARIANT: membership is the whole filter. An entry that is not a mapping, or whose id
+        # is absent or not a string, cannot equal a declared id — so the acceptance contract
+        # ("every id returned is a declared route") holds without a separate shape check, and an
+        # unknown future field on a RETAINED document still passes through untouched.
         body = {
             **catalog.body,
-            "data": [item for item in data if item.get("id") in self._model_ids],
+            "data": [
+                item
+                for item in data
+                if isinstance(item, Mapping) and item.get("id") in self._model_ids
+            ],
         }
         return ModelCatalog(body=body, etag=compute_etag(body))
 

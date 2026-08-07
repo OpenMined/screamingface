@@ -8,6 +8,7 @@ and profile-bound details onto the Engine's declared executable routes.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 
 import httpx
@@ -30,7 +31,9 @@ from url4_cloud.catalog.port import (
     compute_etag,
 )
 from url4_cloud.config import Settings
-from url4_cloud.world_config import declared_model_ids
+from url4_cloud.world_config import WorldConfigError, declared_model_ids
+
+logger = logging.getLogger(__name__)
 
 _UPSTREAM_TIMEOUT_S = 10.0
 
@@ -72,14 +75,37 @@ def build_executable_catalog_service(
     *,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
 ) -> ExecutableCatalog | None:
-    """Wire Gateway discovery through the Engine routes, validating them when configured."""
+    """Wire Gateway discovery through the Engine routes, validating them when configured.
+
+    Returns None — the same "not configured" signal :func:`build_catalog_service` gives, which
+    ``rest/catalog.py`` answers with 503 — when there is no Gateway base URL, or when the
+    declared world is unusable.
+
+    WHY an unusable world DEGRADES rather than raising: this runs inside the App's composition
+    root, so a raise here takes down run submission, streaming, connections and health along
+    with discovery — for a file whose only reader used to be the Runner. The failure is still
+    loud (an ERROR log naming the cause, and 503 on both catalog routes, never a silently empty
+    catalog), and it is still fail-FAST for execution: the Runner validates the same world at
+    Job start, where a bad route actually changes what runs. This mirrors the reasoning at
+    ``runner/main.py``'s ``_world`` — a bad config surfaces as a scoped failure, not as a
+    process that dies before it can report anything.
+    """
 
     if not settings.aigateway_base_url:
         return None
-    model_ids = declared_model_ids(env)
+    try:
+        model_ids = declared_model_ids(env)
+    except WorldConfigError:
+        # The cause is logged, not raised: `rest/catalog.py` turns None into the generic 503, so
+        # an unauthenticated caller never learns why this deployment's world is unusable.
+        logger.error("model discovery disabled: the declared world is unusable", exc_info=True)
+        return None
+    logger.info("model discovery projects onto %d declared route(s)", len(model_ids))
     source = build_catalog_service(settings, client_factory=client_factory)
-    assert source is not None
-    return ExecutableCatalog(source, model_ids)
+    # `source is None` cannot happen — it guards on the same base URL checked above — but the
+    # narrowing is expressed rather than asserted, so the two guards drifting apart degrades
+    # exactly like an unconfigured deployment instead of raising at import time under `-O`.
+    return None if source is None else ExecutableCatalog(source, model_ids)
 
 
 __all__ = [

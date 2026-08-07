@@ -48,6 +48,21 @@ segments containing only ASCII letters, digits, `-`, `_`, `.`, or `~`. Invalid i
 the Runner configuration is parsed. There is deliberately no aliasing, percent-encoding escape,
 or URL4 grammar extension.
 
+An unusable declared world — unreadable file, or any validation failure including an invalid id —
+**disables discovery; it does not stop the Engine.** The composition root wires no catalog
+service, both catalog routes answer the existing 503, and the cause is logged at ERROR. Run
+submission, streaming, connections and health are unaffected, and the Runner still refuses the
+same world at Job start.
+
+WHY not fail the process: the declared world reaches the control plane only to answer *what can
+this Engine execute*. Raising in the App's composition root would convert a discovery-scoped
+misconfiguration into a total outage of a control plane that was serving runs correctly — and it
+would do so for a file whose only reader, before r4, was the Runner. Degrading is also never
+contract-violating: the acceptance invariant is that every advertised id is executable, and
+advertising nothing satisfies it. Fail-fast is retained where it decides correctness — the
+Runner, at Job start, before a run can address a route that does not exist. A silently EMPTY
+catalog is separately prevented: an unusable world is 503 and an ERROR, never `data: []`.
+
 The raw AI Gateway adapter and its caller-keyed cache remain broad and unchanged. Projection is
 an Engine composition decorator after the cache, so provider/profile semantics stay in AI
 Gateway and deployment route policy stays in URL4 Cloud.

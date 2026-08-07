@@ -11,9 +11,9 @@ One image ships two modes, and the whole point of that shape is a rule about wha
 
   Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · schemas
                  adapters.k8s · adapters.factory    (FastAPI, uvicorn, the kubernetes client)
-  Run mode:      runner.executor (the url4 engine) · runner.connector · runner.config
+  Run mode:      runner.executor (the url4 engine) · runner.connector · runner.main
 
-  Shared leaves, importable by BOTH: job_env · subjects · adapters.jetstream
+  Shared leaves, importable by BOTH: job_env · subjects · adapters.jetstream · world_config
 
 WHY this rule outlived the package split it was born in: it used to be proved structurally — the
 two halves were separate distributions with separate images, so a cross-import could not even be

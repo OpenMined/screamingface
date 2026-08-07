@@ -9,9 +9,14 @@ Owns request-side concerns only (credential resolution, conditional-request/ETag
 ``CatalogError`` to RFC 9457 problems); the actual upstream fetch and per-credential caching live
 in ``url4_cloud.catalog.cache.CatalogService``.
 
-``GET /v1/models`` is the cached summary. ``GET /v1/model-parameters`` is an uncached,
-profile-bound detail proxy. Every response is private and varies by the identity inputs that can
+``GET /v1/models`` is the cached summary. ``GET /v1/model-parameters`` is the uncached,
+profile-bound detail. Every response is private and varies by the identity inputs that can
 change it.
+
+BOTH surfaces are bounded by the same declared execution world (``url4_cloud.world_config``):
+the summary omits models this Engine has not declared, and the detail refuses them with 404
+before any upstream request. Neither reshapes what it does return. When the declared world is
+unusable the composition root wires no service at all, and both answer 503.
 """
 
 from __future__ import annotations
@@ -72,10 +77,15 @@ _MODEL_PARAMETER_RESPONSES: dict[int | str, dict[str, object]] = {
     400: {"description": "The canonical model id is invalid."},
     401: {"description": "The selected profile requires authentication."},
     403: {"description": "The caller cannot access the selected profile."},
-    404: {"description": "The model or profile does not exist."},
+    404: {
+        "description": (
+            "The model is not installed on this Engine, or AI Gateway does not know the "
+            "model or profile."
+        )
+    },
     409: {"description": "The selected profile is not ready."},
     502: {"description": "AI Gateway returned an unusable contract."},
-    503: {"description": "AI Gateway is not configured."},
+    503: {"description": "AI Gateway is not configured, or the declared world is unusable."},
     504: {"description": "AI Gateway did not respond in time."},
 }
 
@@ -149,8 +159,11 @@ async def list_models(
     responses=_MODEL_PARAMETER_RESPONSES,
     openapi_extra=_MODEL_PARAMETER_OPENAPI,
     description=(
-        "Proxy AI Gateway's profile-bound parameter contract for one canonical model. "
-        "The body is AI Gateway's, verbatim, and is never cached by URL4 Cloud."
+        "Return AI Gateway's profile-bound parameter contract for one canonical model. "
+        "The body is AI Gateway's, verbatim, and is never cached by URL4 Cloud.\n\n"
+        "Bounded by the same declared execution world as ``GET /v1/models``: a model this "
+        "Engine has not declared answers 404 without contacting AI Gateway, so this surface "
+        "and the listing can never describe different execution capabilities."
     ),
 )
 async def model_parameters(

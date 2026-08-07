@@ -14,7 +14,10 @@ OpenRouter) and ``openrouter/anthropic/claude-opus-4.8`` into ``/anthropic/claud
 Aliases were also collision-dependent, so adding a model elsewhere in the catalog could
 silently REMOVE an alias an expression depended on.
 
-The file format mirrors ``url4 serve``'s (``url4.cli._serve``). ``[data]``, ``[commands]``,
+The file format mirrors ``url4 serve``'s (``url4.cli._serve``), one way stricter: a model id here
+must also be renderable as a URL4 expression path (see ``_MODEL_ID_RE``).
+
+``[data]``, ``[commands]``,
 ``[holdings]`` and ``[identities]`` are reserved here but not parsed yet — declaring one is a
 loud error rather than a silent no-op, so a config that looks like it works actually does.
 

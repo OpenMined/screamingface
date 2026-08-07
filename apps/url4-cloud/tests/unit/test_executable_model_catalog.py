@@ -8,6 +8,7 @@ at render time that the route is absent or cannot be expressed as URL4.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import httpx
@@ -27,7 +28,7 @@ from url4_cloud.catalog.port import (
 )
 from url4_cloud.config import Settings
 from url4_cloud.testing import InMemoryEventStream
-from url4_cloud.world_config import WorldConfigError
+from url4_cloud.world_config import WorldConfigError, declared_model_ids
 
 pytestmark = pytest.mark.asyncio
 
@@ -193,12 +194,39 @@ async def test_unconfigured_builder_stays_unconfigured() -> None:
     assert service is None
 
 
-async def test_configured_builder_fails_when_declared_routes_cannot_be_read() -> None:
-    with pytest.raises(WorldConfigError, match="cannot read world config"):
-        build_executable_catalog_service(
+async def test_unreadable_declared_world_disables_discovery_without_killing_the_app(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.ERROR, logger="url4_cloud.catalog"):
+        service = build_executable_catalog_service(
             Settings(aigateway_base_url="http://aigateway.test"),
             {job_env.RUNNER_CONFIG: "/missing/url4.toml"},
         )
+
+    # Scoped, not fatal: the App composes, and only the catalog routes report unavailable. The
+    # Runner still refuses the same world at Job start, where a bad route changes what runs.
+    assert service is None
+    assert "declared world is unusable" in caplog.text
+
+
+async def test_unusable_declared_world_serves_503_and_leaves_the_app_running() -> None:
+    app = create_app(
+        Settings(jwt_secret="executable-catalog-secret"),
+        stream=InMemoryEventStream(),
+        catalog=build_executable_catalog_service(
+            Settings(aigateway_base_url="http://aigateway.test"),
+            {job_env.RUNNER_CONFIG: "/missing/url4.toml"},
+        ),
+    )
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://engine.test"
+    ) as client:
+        models = await client.get("/v1/models")
+        health = await client.get("/healthz")
+
+    assert models.status_code == 503
+    assert health.status_code == 200
 
 
 async def test_configured_builder_accepts_the_valid_empty_engine_world(tmp_path: Path) -> None:
@@ -225,7 +253,7 @@ async def test_configured_builder_accepts_the_valid_empty_engine_world(tmp_path:
     await service.aclose()
 
 
-async def test_configured_builder_rejects_a_runner_invalid_model_capability(
+async def test_runner_invalid_model_capability_disables_discovery_and_still_fails_the_runner(
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "url4.toml"
@@ -233,12 +261,18 @@ async def test_configured_builder_rejects_a_runner_invalid_model_capability(
         '[aigateway]\ndefault_route = "model"\n'
         '[[aigateway.models]]\nid = "model"\nweb_tools = "yes"\n'
     )
+    env = {job_env.RUNNER_CONFIG: str(config)}
 
+    service = build_executable_catalog_service(
+        Settings(aigateway_base_url="http://aigateway.test"),
+        env,
+    )
+
+    # One world, two consequences: discovery advertises nothing rather than something it cannot
+    # execute, and the Runner — the authority on what a run may address — still refuses outright.
+    assert service is None
     with pytest.raises(WorldConfigError, match="web_tools must be a boolean"):
-        build_executable_catalog_service(
-            Settings(aigateway_base_url="http://aigateway.test"),
-            {job_env.RUNNER_CONFIG: str(config)},
-        )
+        declared_model_ids(env)
 
 
 async def test_malformed_gateway_catalog_cannot_bypass_the_projection() -> None:
@@ -248,16 +282,27 @@ async def test_malformed_gateway_catalog_cannot_bypass_the_projection() -> None:
         await catalog.fetch(Credential.derive())
 
 
-async def test_malformed_gateway_model_cannot_bypass_the_projection() -> None:
+async def test_malformed_gateway_model_is_omitted_without_failing_the_catalog() -> None:
     class _MalformedGatewayModel(_GatewayCatalog):
         async def fetch(self, credential: Credential) -> ModelCatalog:
-            body: dict[str, object] = {"object": "list", "data": [{"object": "model"}]}
+            body: dict[str, object] = {
+                "object": "list",
+                "data": [
+                    {"object": "model"},
+                    {"id": 7},
+                    "not-a-mapping",
+                    {"id": _DECLARED, "object": "model"},
+                ],
+            }
             return ModelCatalog(body=body, etag=compute_etag(body))
 
     catalog = ExecutableCatalog(_MalformedGatewayModel(), frozenset({_DECLARED}))
 
-    with pytest.raises(CatalogBadResponse, match="missing a string id"):
-        await catalog.fetch(Credential.derive())
+    result = await catalog.fetch(Credential.derive())
+
+    # An entry that cannot state a declared id cannot BE one — it is dropped, and one odd
+    # upstream document never denies every caller the models that are executable.
+    assert result.body["data"] == [{"id": _DECLARED, "object": "model"}]
 
 
 async def test_undeclared_model_details_fail_without_contacting_gateway() -> None:
