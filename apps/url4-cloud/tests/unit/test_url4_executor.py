@@ -500,30 +500,45 @@ def _imports_url4_engine(py_file: Path) -> bool:
     return False
 
 
-_ALLOWED_URL4_IMPORTERS = frozenset({"executor.py", "connector.py"})
+_ALLOWED_RUNNER_IMPORTERS = frozenset(
+    {
+        Path("url4_cloud/runner/executor.py"),
+        Path("url4_cloud/runner/connector.py"),
+    }
+)
 
 
-def test_only_url4_executor_module_imports_url4() -> None:
-    """The ENGINE (`url4.dag`, `url4.peer`, …) has exactly two importers in the whole app.
+def _may_import_url4_engine(py_file: Path) -> bool:
+    """Engine adapters and Engine-owned Benchmark extensions may speak URL4 directly."""
+
+    relative = py_file.relative_to(_SRC_ROOT)
+    return relative in _ALLOWED_RUNNER_IMPORTERS or relative.parts[:2] == (
+        "url4_cloud",
+        "benchmarks",
+    )
+
+
+def test_only_engine_extensions_import_url4() -> None:
+    """The URL4 ENGINE is confined to Runner adapters and Benchmark extensions.
 
     `url4.streaming` is exempt — it is the wire contract, which both halves speak. This scans
-    the whole distribution now rather than a separate runner tree: merging the two packages
-    means the control-plane modules are in scope too, so the guard covers strictly more code
-    than it did when it could only see the separate runner source tree.
+    the whole distribution. Benchmark definitions deliberately build structured URL4 and install
+    routes on the shared Runner node; no other control-plane or shared module may import it.
     """
     offenders = [
         py_file
         for py_file in _SRC_ROOT.rglob("*.py")
-        if _imports_url4_engine(py_file) and py_file.name not in _ALLOWED_URL4_IMPORTERS
+        if _imports_url4_engine(py_file) and not _may_import_url4_engine(py_file)
     ]
     assert offenders == []
 
     allowed = {
-        py_file.name
+        py_file.relative_to(_SRC_ROOT)
         for py_file in _SRC_ROOT.rglob("*.py")
-        if py_file.name in _ALLOWED_URL4_IMPORTERS and _imports_url4_engine(py_file)
+        if py_file.relative_to(_SRC_ROOT) in _ALLOWED_RUNNER_IMPORTERS
+        and _imports_url4_engine(py_file)
     }
-    assert allowed == _ALLOWED_URL4_IMPORTERS
+    assert allowed == _ALLOWED_RUNNER_IMPORTERS
 
 
 # --- per-span usage accumulation ---------------------------------------------------------

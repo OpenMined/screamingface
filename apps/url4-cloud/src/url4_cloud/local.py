@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
+from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -32,6 +33,7 @@ from url4_cloud import job_env
 from url4_cloud.adapters.inprocess import InProcessJobRunner
 from url4_cloud.adapters.memory import InMemoryEventStream
 from url4_cloud.app import create_app
+from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from url4_cloud.catalog import build_catalog_service
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
@@ -85,7 +87,10 @@ def _with_runner_config(env: Mapping[str, str]) -> Mapping[str, str]:
 
 
 def create_local_app(
-    settings: Settings | None = None, *, env: Mapping[str, str] | None = None
+    settings: Settings | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+    benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
 ) -> FastAPI:
     """Build the local-mode App: in-process runner, in-memory stream, real everything else.
 
@@ -109,7 +114,7 @@ def create_local_app(
 
     job_runner = InProcessJobRunner(
         stream,
-        build_executor,
+        partial(build_executor, benchmarks=benchmarks),
         base_env=_with_runner_config(env if env is not None else os.environ),
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
@@ -128,6 +133,7 @@ def create_local_app(
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
+        benchmarks=benchmarks,
     )
     app.router.on_shutdown.append(job_runner.aclose)
     if catalog is not None:
