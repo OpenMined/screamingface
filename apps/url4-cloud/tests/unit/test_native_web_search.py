@@ -27,6 +27,7 @@ import pytest
 from url4.core.errors import ResolutionError
 from url4_cloud.retrieval_policy import RetrievalPolicy, retrieval_scope
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.runner.web_tools import build_runtime
 from url4_cloud.world_config import ModelSpec, WorldConfigError, parse_config
 
 _NATIVE = "openrouter/anthropic/claude-opus-4.8"
@@ -204,3 +205,27 @@ def test_native_web_search_must_be_a_boolean() -> None:
 
     with pytest.raises(WorldConfigError, match="native_web_search must be a boolean"):
         parse_config(raw, {})
+
+
+@pytest.mark.asyncio
+async def test_a_default_on_search_route_still_honours_caller_exclusions() -> None:
+    """A `web_tools` route searches by DEFAULT, so a caller reaches the tool loop without ever
+    writing `web_search=true`. Their exclusion list must still bind: a silently ignored exclusion
+    is indistinguishable from an honoured one, which is the worst failure mode a privacy control
+    can have."""
+    client = httpx.AsyncClient(base_url="https://tavily.test")
+    try:
+        runtime = build_runtime(
+            spec=ModelSpec(id=_TAVILY, web_tools=True),
+            wants_search=True,
+            tavily_http=client,
+            tavily_api_key="key",
+            config=AigatewayConfig(),
+            policy=None,
+            params={"web_search_exclude": "evil.test"},
+        )
+    finally:
+        await client.aclose()
+
+    assert runtime is not None
+    assert runtime.excluded_domains == ("evil.test",)

@@ -113,8 +113,11 @@ def build_runtime(
         return None
     required = params.get(WEB_SEARCH_PARAM) == "true"
     if not required and policy is None:
+        # A route that declares web_tools searches by default, so the caller reaches here without
+        # writing `web_search=true`. Their exclusions still bind: an ignored exclusion list is the
+        # worst failure mode for a privacy control, because it looks like it was honoured.
         return (
-            WebToolRuntime(tavily_http, config, tavily_api_key, ())
+            WebToolRuntime(tavily_http, config, tavily_api_key, caller_exclusions(params))
             if tavily_http is not None and tavily_api_key is not None
             else None
         )
