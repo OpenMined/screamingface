@@ -33,9 +33,9 @@ from url4_cloud.adapters.k8s import K8sJobRunner
 from url4_cloud.app import create_app
 from url4_cloud.auth import JwtCodec
 from url4_cloud.config import Settings
-from url4_cloud.runner.config import ModelSpec
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.testing import InMemoryEventStream
+from url4_cloud.world_config import ModelSpec
 
 pytestmark = pytest.mark.asyncio
 

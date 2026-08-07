@@ -25,7 +25,7 @@ from url4_cloud.retrieval_policy import (
 )
 from url4_cloud.runner.cache import policy_to_body_field
 from url4_cloud.runner.cache_readback import CacheOutcome, read_cache_outcome, requires_revalidation
-from url4_cloud.runner.config import ModelSpec, RunnerConfigError, routes_for
+from url4_cloud.world_config import ModelSpec, WorldConfigError, routes_for
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
 
@@ -212,16 +212,16 @@ async def build_aigateway_world(
     gateway's own default — so this half never has to re-decide what silence means.
 
     Raises:
-        RunnerConfigError: no models are declared, or `default_model` is not among them.
+        WorldConfigError: no models are declared, or `default_model` is not among them.
     """
     if not cfg.models:
-        raise RunnerConfigError(
+        raise WorldConfigError(
             "aigateway declares no models — the runner's endpoints are declared in url4.toml, "
             "not discovered from the gateway catalog"
         )
     declared_ids = [model.id for model in cfg.models]
     if cfg.default_model not in declared_ids:
-        raise RunnerConfigError(
+        raise WorldConfigError(
             f"default_model {cfg.default_model!r} is not a declared model {declared_ids!r}"
         )
 

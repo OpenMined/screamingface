@@ -3,8 +3,7 @@
 FEATURE: model-catalog discovery.
 
 STORY: as a client about to compose a url4 expression, I ask url4-cloud which models I can address
-— and get back exactly what aigateway would have told me directly, without url4-cloud holding a
-credential of its own.
+and receive the caller-visible AI Gateway models installed in this Engine's declared world.
 
 Owns request-side concerns only (credential resolution, conditional-request/ETag handling, mapping
 ``CatalogError`` to RFC 9457 problems); the actual upstream fetch and per-credential caching live
@@ -87,13 +86,15 @@ _MODEL_PARAMETER_RESPONSES: dict[int | str, dict[str, object]] = {
     summary="List the models this caller can address",
     responses=_MODELS_RESPONSES,
     description=(
-        "Proxy aigateway's model listing for the caller's own identity, from a per-caller cache."
+        "List the caller-visible aigateway models installed as routes on this Engine, from a "
+        "per-caller cache."
         "\n\n"
         "The caller is the verified ``X-User-Email`` the mesh gateway injects, matching "
         "``GET /?q=``. url4-cloud verifies nothing and holds no credential of its own — aigateway "
         "decides, and refuses the request itself when its mode requires an identity that is "
         "absent. Locally, where aigateway runs with auth disabled, no identity is needed.\n\n"
-        "The body is aigateway's, verbatim. Responses are cached per caller, so "
+        "Retained model documents are aigateway's verbatim; models outside this Engine's "
+        "declared execution world are omitted. Responses are cached per caller, so "
         "``Cache-Control`` is ``private`` and ``ETag``/``If-None-Match`` are scoped to that "
         "caller's catalog."
     ),
@@ -107,13 +108,13 @@ async def list_models(
         str | None, Header(alias="If-None-Match", description="Conditional-request validator.")
     ] = None,
 ) -> Response:
-    """Proxy aigateway's model listing for the caller's own identity, from a per-caller cache.
+    """List caller-visible AI Gateway models installed in this Engine's execution world.
 
     The caller is the verified ``X-User-Email`` the mesh gateway injects, matching ``GET /?q=``.
     url4-cloud verifies nothing and holds no credential of its own — aigateway does.
 
-    The body is aigateway's, verbatim. Responses are cached per caller, so ``Cache-Control`` is
-    ``private`` and ``ETag``/``If-None-Match`` are scoped to that caller's catalog.
+    Retained documents are passed through unchanged. Responses are cached per caller, so
+    ``Cache-Control`` is ``private`` and ``ETag``/``If-None-Match`` are scoped to that caller.
     """
     service = _require_service(request)
     credential = _caller(x_profile, request.headers)

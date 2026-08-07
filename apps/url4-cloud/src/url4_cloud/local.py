@@ -34,7 +34,7 @@ from url4_cloud.adapters.inprocess import InProcessJobRunner
 from url4_cloud.adapters.memory import InMemoryEventStream
 from url4_cloud.app import create_app
 from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
-from url4_cloud.catalog import build_catalog_service
+from url4_cloud.catalog import build_executable_catalog_service
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
 
@@ -75,7 +75,7 @@ def _with_runner_config(env: Mapping[str, str]) -> Mapping[str, str]:
     Deliberately narrow: an explicit ``URL4_RUNNER_CONFIG`` always wins, and so does a real
     ``/etc/url4/url4.toml`` — this only fills a gap that exists nowhere but a source checkout.
     """
-    from url4_cloud.runner.config import DEFAULT_CONFIG_PATH
+    from url4_cloud.world_config import DEFAULT_CONFIG_PATH
 
     if job_env.RUNNER_CONFIG in env or Path(DEFAULT_CONFIG_PATH).is_file():
         return env
@@ -112,14 +112,15 @@ def create_local_app(
     # import (see the SCOPE NOTE in `check_layering.py`).
     from url4_cloud.runner.main import build_executor
 
+    run_env = _with_runner_config(env if env is not None else os.environ)
     job_runner = InProcessJobRunner(
         stream,
         partial(build_executor, benchmarks=benchmarks),
-        base_env=_with_runner_config(env if env is not None else os.environ),
+        base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
     )
-    catalog = build_catalog_service(settings)
+    catalog = build_executable_catalog_service(settings, run_env)
     connection_settings = settings
     if connection_settings.aigateway_base_url is None:
         connection_settings = connection_settings.model_copy(

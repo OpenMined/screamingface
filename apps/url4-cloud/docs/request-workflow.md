@@ -268,7 +268,7 @@ swallow — leaving the client staring at heartbeats forever.
 | mode dispatch | `url4_cloud/cli.py::main` — `serve` (default) / `run`, each imported lazily |
 | Runner lifecycle | `url4_cloud/runner/main.py::main`, `url4/streaming/lifecycle.py::run` |
 | url4 engine bridge | `url4_cloud/runner/executor.py::{Url4Executor,_Bridge,_RunState}` |
-| aigateway connector | `url4_cloud/runner/connector.py::{build_aigateway_world,_chat_completion_loop}`, `url4_cloud/runner/config.py::{load_config,routes_for}` |
+| aigateway connector | `url4_cloud/runner/connector.py::{build_aigateway_world,_chat_completion_loop}`, `url4_cloud/world_config.py::{load_config,routes_for}` |
 | aigateway chat | `aigateway/routes/chat.py::chat_completions` (+ `chat_dispatch.py`) |
 | stream ports + implementations | `url4/streaming/interfaces/stream.py` (the abstractions), `url4_cloud/adapters/jetstream.py::{JetStreamPublisher,JetStreamConsumer}` (JetStream, shared leaf), `url4_cloud/testing/memory_stream.py` (test double) |
 | the layering rule | `.claude/scripts/check_layering.py`, `url4_cloud/runner/__init__.py` |

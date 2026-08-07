@@ -19,9 +19,13 @@ from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
 from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
 from url4_cloud.benchmarks.candidate import install_candidate_invocation
-from url4_cloud.runner.config import RunnerConfig, RunnerConfigError, load_config
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world
+from url4_cloud.world_config import WorldConfig, WorldConfigError, load_config
+
+
+class RunnerConfigError(ValueError):
+    """The per-run Job environment is missing or malformed."""
 
 
 @dataclass(frozen=True)
@@ -56,7 +60,7 @@ def _deadline_from_env(environ: Mapping[str, str]) -> float | None:
 
 
 def params_from_env(environ: Mapping[str, str]) -> RunnerParams:
-    """Read the required per-run env vars, turning a missing one into ``RunnerConfigError``."""
+    """Read required per-run env vars, turning a missing one into ``RunnerConfigError``."""
     try:
         topic = environ[job_env.TOPIC]
         url4 = environ[job_env.EXPRESSION]
@@ -72,7 +76,7 @@ def params_from_env(environ: Mapping[str, str]) -> RunnerParams:
 
 def build_executor(
     env: Mapping[str, str],
-    config: RunnerConfig | None = None,
+    config: WorldConfig | None = None,
     *,
     client: httpx.AsyncClient | None = None,
     tavily_client: httpx.AsyncClient | None = None,
@@ -101,7 +105,7 @@ def build_executor(
         section = resolved.aigateway
         if section is None:
             if len(benchmarks):
-                raise RunnerConfigError(
+                raise WorldConfigError(
                     "installed Benchmarks require a declared aigateway model world"
                 )
             # WHY: a world with no [aigateway] table is a legitimate empty world; the node itself

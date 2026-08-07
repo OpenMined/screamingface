@@ -36,10 +36,10 @@ from url4_cloud.model_outcomes import (
     capture_model_outcomes,
     record_model_outcome,
 )
-from url4_cloud.runner.config import AigatewaySection, ModelSpec, RunnerConfig
 from url4_cloud.runner.connector import AigatewayConfig, _is_blocked, build_aigateway_world
 from url4_cloud.runner.main import build_executor
 from url4_cloud.testing import InMemoryEventStream
+from url4_cloud.world_config import AigatewaySection, ModelSpec, WorldConfig
 
 pytestmark = pytest.mark.asyncio
 
@@ -753,7 +753,7 @@ async def test_runner_composition_installs_benchmarks_with_the_injected_asset_ro
         transport=httpx.MockTransport(_response(requests)),
         base_url="http://aigateway.test",
     )
-    config = RunnerConfig(
+    config = WorldConfig(
         aigateway=AigatewaySection(
             base_url="http://aigateway.test",
             default_model="provider/model",

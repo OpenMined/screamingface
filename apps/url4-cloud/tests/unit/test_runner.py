@@ -28,10 +28,10 @@ from url4.streaming.protocol import (
 )
 from url4.streaming.protocol.taxonomy import CostBreakdown
 from url4_cloud import job_env
-from url4_cloud.runner.config import AigatewaySection, ModelSpec, RunnerConfig
 from url4_cloud.runner.executor import Url4Executor
 from url4_cloud.runner.main import RunnerConfigError, build_executor, params_from_env
 from url4_cloud.testing import InMemoryEventStream
+from url4_cloud.world_config import AigatewaySection, ModelSpec, WorldConfig
 
 TOPIC = "cap-topic"
 EXPR = "(@)!'hi'"
@@ -259,14 +259,14 @@ def test_params_from_env_missing_required_raises() -> None:
 _MODEL = "claude-haiku-4-5"
 
 
-def _declared(*models: str, web_tools: bool = False) -> RunnerConfig:
+def _declared(*models: str, web_tools: bool = False) -> WorldConfig:
     """A config declaring `models`, defaulting to the first — the Runner never discovers.
 
     `web_tools` is the per-route opt-in every declared route here shares; it defaults off,
     matching the shipped default, so a test that wants the tool loop must ask for it.
     """
     declared = models or (_MODEL,)
-    return RunnerConfig(
+    return WorldConfig(
         aigateway=AigatewaySection(
             base_url="http://aigateway.test",
             default_model=declared[0],
@@ -308,7 +308,7 @@ async def test_build_executor_returns_an_executor_over_the_aigateway_world() -> 
 
 @pytest.mark.asyncio
 async def test_a_config_with_no_aigateway_table_is_deny_by_default() -> None:
-    executor = build_executor({}, RunnerConfig())
+    executor = build_executor({}, WorldConfig())
 
     assert isinstance(executor, Url4Executor)
     with pytest.raises(ResolutionError):

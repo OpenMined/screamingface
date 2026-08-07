@@ -43,7 +43,7 @@ narrative) and `docs/protocol.md` (the wire contract).
 │                                                                               │
 │  runner/main.py  ◄── entrypoint (url4-cloud run)                              │
 │   ├─ params_from_env   ──► RunnerParams(topic,url4,nats)                      │
-│   └─ build_executor    ──► runner/config.py load_config (url4.toml)           │
+│   └─ build_executor    ──► world_config.py load_config (url4.toml)            │
 │         ├─ [aigateway] ► runner/connector.build_aigateway_world ─► Url4Executor│
 │         └─ no table    ► runner/executor.deny_by_default_world  ─► Url4Executor│
 │                                                                               │
@@ -131,9 +131,10 @@ narrative) and `docs/protocol.md` (the wire contract).
    └─────────────────────────────────────────────────────────────┘
 ```
 
-The run mode's own reading of `runner/config.py` is the only place the DECLARED model world
-enters: `url4.toml` ships in the image at `/etc/url4/url4.toml`, baked from
-`apps/url4-cloud/url4.toml` (it moved there with the merge — there is no `runner/` tree any more).
+`world_config.py` is the single parser for the DECLARED model world. The control plane uses it to
+project discovery and the run mode uses it to build routes, so the two cannot disagree.
+`url4.toml` ships in the image at `/etc/url4/url4.toml`, baked from
+`apps/url4-cloud/url4.toml`.
 
 ### Run-mode call sequence (one run)
 
@@ -194,7 +195,7 @@ runner/main.py::main()
 │ runner/connector.py   declared routes + credential → Url4Node │
 │                       (+ optional Tavily web tools)           │
 ├─ declared world ──────────────────────────────────────────────┤
-│ runner/config.py   parses url4.toml (/etc/url4/url4.toml)     │
+│ world_config.py    parses url4.toml (/etc/url4/url4.toml)     │
 ├─ boundary doc ────────────────────────────────────────────────┤
 │ runner/__init__.py   states the layering rule the gate proves │
 └───────────────────────────────────────────────────────────────┘
@@ -205,7 +206,7 @@ runner/main.py::main()
 | `runner/main.py` | `url4-cloud run` entrypoint: read env (names from `url4_cloud/job_env.py`) → wire `JetStreamPublisher` + executor → call `lifecycle.run` |
 | `runner/executor.py` | The **only** url4-engine adapter (`_Bridge` sync→async, `_RunState`, `Url4Executor`) |
 | `runner/connector.py` | Builds the `Url4Node` "world" of declared routes → aigateway chat (+ optional Tavily tools) |
-| `runner/config.py` | Parses `url4.toml` — the DECLARED model world, baked into the image at `/etc/url4/url4.toml` from the repo's `url4.toml` |
+| `world_config.py` | Parses `url4.toml` once for both control-plane discovery and Runner execution |
 | `runner/__init__.py` | No re-exports — it carries the layering rule (what this half may and may not import) |
 
 ### Control plane (`src/url4_cloud/`)

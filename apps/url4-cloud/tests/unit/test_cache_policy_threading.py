@@ -48,10 +48,10 @@ from url4_cloud.app import create_app
 from url4_cloud.auth import JwtCodec
 from url4_cloud.config import Settings
 from url4_cloud.runner.cache import policy_to_body_field
-from url4_cloud.runner.config import AigatewaySection, ModelSpec, RunnerConfig
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.main import build_executor
 from url4_cloud.testing import InMemoryEventStream
+from url4_cloud.world_config import AigatewaySection, ModelSpec, WorldConfig
 
 SECRET = "cache-threading-secret"
 WINDOW_S = 60
@@ -318,8 +318,8 @@ async def test_a_run_declaring_nothing_reaches_the_job_runner_already_resolved()
 # --- the run mode: the env reaches the connector ------------------------------------------------
 
 
-def _declared() -> RunnerConfig:
-    return RunnerConfig(
+def _declared() -> WorldConfig:
+    return WorldConfig(
         aigateway=AigatewaySection(
             base_url="http://aigateway.test",
             default_model=MODEL,
