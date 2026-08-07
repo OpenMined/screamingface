@@ -140,7 +140,7 @@ def test_ifeval_protocols_are_three_independently_executable_benchmarks(
         for benchmark_id in (
             "ifeval",
             "ifeval/self-corrective",
-            "ifeval/verifying-ensemble",
+            "ifeval/lanl-ensemble",
         )
     }
 
@@ -148,7 +148,7 @@ def test_ifeval_protocols_are_three_independently_executable_benchmarks(
     assert {resource["variant"] for resource in resources.values()} == {
         "canonical",
         "self-corrective",
-        "verifying-ensemble",
+        "lanl-ensemble",
     }
     assert len({resource["revision"] for resource in resources.values()}) == 3
     for resource in resources.values():
@@ -157,14 +157,13 @@ def test_ifeval_protocols_are_three_independently_executable_benchmarks(
         assert render(build(resource["url4"])) == resource["url4"]
     assert resources["ifeval"]["url4"].count("$candidate") > 0
     assert resources["ifeval/self-corrective"]["url4"].count("$candidate") > 0
-    memberwise = resources["ifeval/verifying-ensemble"]["url4"]
+    memberwise = resources["ifeval/lanl-ensemble"]["url4"]
     assert "$candidate_members" in memberwise
     assert "$candidate_synthesizer" in memberwise
     assert "$candidate_model_member_" not in memberwise
-    memberwise_description = resources["ifeval/verifying-ensemble"]["description"]
-    assert "inspired by" in memberwise_description
-    assert "all three attempts execute" in memberwise_description
-    assert "The LANL iterative-correction protocol" not in memberwise_description
+    memberwise_description = resources["ifeval/lanl-ensemble"]["description"]
+    assert "reproduction" in memberwise_description
+    assert "STOPS the case" in memberwise_description
 
 
 def test_ifeval_self_corrective_is_a_distinct_complete_variant(client: TestClient) -> None:

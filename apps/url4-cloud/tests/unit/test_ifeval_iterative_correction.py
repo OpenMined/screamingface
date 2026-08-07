@@ -49,6 +49,9 @@ _SPECS = {
     },
 }
 
+# The installed selection order (cases.json file order) — row N binds to _ORDER[N].
+_ORDER = [1, 2]
+
 
 def _record(case_id: int, attempt: int, strict: list[bool]) -> dict[str, object]:
     spec = _SPECS[case_id]
@@ -178,7 +181,9 @@ def test_selected_attempt_is_the_earliest_strict_pass() -> None:
         _evaluation(2, [True], [True], [True]),
     )
 
-    result = aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
+    result = aggregate_corrective(
+        payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
+    )
 
     assert result["schema"] == "screamingface.candidate-result.v1"
     assert result["benchmark_revision"] == SELF_CORRECTIVE_REVISION
@@ -201,7 +206,7 @@ def test_a_never_passing_case_scores_its_last_attempt() -> None:
     payload = _rows(_evaluation(1, [False, False], [True, False], [True, False]))
 
     result = aggregate_corrective(
-        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION
+        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, [1]
     )
 
     assert result["score"] == 0.0
@@ -221,7 +226,9 @@ def test_a_partial_failed_case_is_retained_without_a_partial_score() -> None:
         },
     )
 
-    result = aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
+    result = aggregate_corrective(
+        payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
+    )
 
     assert result["score"] is None
     assert result["cases"][0]["grade"]["score"] == 1.0
@@ -237,6 +244,7 @@ def test_every_failed_case_returns_null_instead_of_reporting_zero() -> None:
         _SPECS,
         SELF_CORRECTIVE_ID,
         SELF_CORRECTIVE_REVISION,
+        _ORDER,
     )
 
     assert result["score"] is None
@@ -256,6 +264,7 @@ def test_all_crash_result_retains_the_collected_inner_failure() -> None:
         {1: _SPECS[1]},
         SELF_CORRECTIVE_ID,
         SELF_CORRECTIVE_REVISION,
+        [1],
     )
 
     assert result["score"] is None
@@ -275,7 +284,9 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
         _evaluation(2, [True]),
     )
 
-    result = aggregate_corrective(payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
+    result = aggregate_corrective(
+        payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
+    )
 
     assert result["score"] is None
     assert result["cases"][0]["grade"] is None
@@ -294,7 +305,7 @@ def test_duplicate_attempt_numbers_make_the_case_unscored() -> None:
     )
 
     result = aggregate_corrective(
-        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION
+        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, [1]
     )
 
     assert result["score"] is None
@@ -305,7 +316,7 @@ def test_metrics_are_flat_numbers_only() -> None:
     payload = _rows(_evaluation(1, [True, True]))
 
     result = aggregate_corrective(
-        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION
+        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, [1]
     )
 
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())

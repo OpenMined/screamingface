@@ -60,7 +60,7 @@ def test_catalog_lists_every_executable_benchmark_as_one_flat_entry(client: Test
         "draco/smoke",
         "ifeval",
         "ifeval/self-corrective",
-        "ifeval/verifying-ensemble",
+        "ifeval/lanl-ensemble",
     }
     for entry in catalog["data"]:
         benchmark = BENCHMARKS[entry["id"]]

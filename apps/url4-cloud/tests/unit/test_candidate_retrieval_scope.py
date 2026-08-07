@@ -19,8 +19,8 @@ from url4_cloud.benchmarks.definition import candidate
 from url4_cloud.benchmarks.draco.definition import EXCLUDED_DOMAINS, JUDGE_MODEL, JUDGE_PARAMS
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    IFEVAL_LANL_ENSEMBLE,
     IFEVAL_SELF_CORRECTIVE,
-    IFEVAL_VERIFYING_ENSEMBLE,
 )
 from url4_cloud.runner.config import ModelSpec
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
@@ -445,7 +445,7 @@ async def test_malformed_tavily_success_payload_is_a_typed_retrieval_failure(
 
 @pytest.mark.parametrize(
     "benchmark",
-    (IFEVAL, IFEVAL_SELF_CORRECTIVE, IFEVAL_VERIFYING_ENSEMBLE),
+    (IFEVAL, IFEVAL_SELF_CORRECTIVE, IFEVAL_LANL_ENSEMBLE),
 )
 def test_every_ifeval_candidate_invocation_remains_retrieval_free(benchmark) -> None:
     """Retrieval-scope changes cannot alter canonical, corrective, or ensemble IFEval."""

@@ -13,7 +13,7 @@ from url4_cloud.benchmarks.ifeval.case_evaluation import CASE_EVALUATION_SCHEMA,
 from url4_cloud.benchmarks.ifeval.definition import CASE_EVALUATION_ROUTE, IFEVAL, ROUTE_PREFIX
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_SELF_CORRECTIVE,
-    IFEVAL_VERIFYING_ENSEMBLE,
+    IFEVAL_LANL_ENSEMBLE,
 )
 from url4_cloud.benchmarks.ifeval.runtime import install
 
@@ -73,8 +73,11 @@ def test_self_corrective_resource_packs_attempts_before_aggregation() -> None:
     assert url4.count(CASE_EVALUATION_ROUTE) == 1
 
 
-def test_verifying_ensemble_resource_packs_attempts_before_aggregation() -> None:
-    url4 = IFEVAL_VERIFYING_ENSEMBLE.resource(1)["url4"]
+def test_lanl_ensemble_resource_packs_attempts_before_aggregation() -> None:
+    from url4_cloud.benchmarks.ifeval.corrective_policy import LANL_ENVELOPE_ROUTE
+
+    url4 = IFEVAL_LANL_ENSEMBLE.resource(1)["url4"]
 
     assert isinstance(url4, str)
-    assert url4.count(CASE_EVALUATION_ROUTE) == 1
+    # The lanl-ensemble packs its gated attempt chain via its own envelope route.
+    assert url4.count(LANL_ENVELOPE_ROUTE) == 1

@@ -17,15 +17,13 @@ from url4_cloud.benchmarks.contract import (
 from url4_cloud.benchmarks.ifeval import aggregate as scoring
 from url4_cloud.benchmarks.ifeval import grading
 from url4_cloud.benchmarks.ifeval.case_evaluation import bind_case_evaluation
-from url4_cloud.benchmarks.ifeval.definition import (
-    AGGREGATE_ROUTE,
-    BENCHMARK_ID,
-    CASE_EVALUATION_ROUTE,
-    CASES_ROUTE,
-    CHECK_ROUTE,
-)
-from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    ENSEMBLE_AGGREGATE_ROUTE,
+from url4_cloud.benchmarks.ifeval.corrective_policy import (
+    LANL_AGGREGATE_ROUTE,
+    LANL_ENSEMBLE_ID,
+    LANL_ENSEMBLE_REVISION,
+    LANL_ENVELOPE_ROUTE,
+    LANL_GATE_ROUTE,
+    LANL_SELECT_ROUTE,
     MAX_ATTEMPTS,
     MAX_MEMBERS,
     MEMBER_ANSWER_ROUTE,
@@ -33,15 +31,17 @@ from url4_cloud.benchmarks.ifeval.iterative_correction import (
     MEMBER_RECORD_ROUTE,
     MIN_MEMBERS,
     RESOLVE_CANDIDATE_ROUTE,
-    SELECT_ROUTE,
     SELF_AGGREGATE_ROUTE,
     SELF_CORRECTIVE_ID,
     SELF_CORRECTIVE_REVISION,
-    VERIFYING_ENSEMBLE_ID,
-    VERIFYING_ENSEMBLE_REVISION,
 )
-
-
+from url4_cloud.benchmarks.ifeval.definition import (
+    AGGREGATE_ROUTE,
+    BENCHMARK_ID,
+    CASE_EVALUATION_ROUTE,
+    CASES_ROUTE,
+    CHECK_ROUTE,
+)
 def install(node: Url4Node, root: Path, model_routes: frozenset[str]) -> None:
     """Register the shared runtime for all installed IFEval Variants."""
 
@@ -52,13 +52,15 @@ def install(node: Url4Node, root: Path, model_routes: frozenset[str]) -> None:
     node.endpoint(SELF_AGGREGATE_ROUTE)(
         _aggregate_corrective(root, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION)
     )
-    node.endpoint(ENSEMBLE_AGGREGATE_ROUTE)(
-        _aggregate_corrective(root, VERIFYING_ENSEMBLE_ID, VERIFYING_ENSEMBLE_REVISION)
-    )
-    node.endpoint(SELECT_ROUTE)(_select)
     node.endpoint(RESOLVE_CANDIDATE_ROUTE)(_resolve_candidate(model_routes))
     node.endpoint(MEMBER_RECORD_ROUTE)(_member_record)
     node.endpoint(MEMBER_ANSWER_ROUTE)(_member_answer)
+    node.endpoint(LANL_AGGREGATE_ROUTE)(
+        _aggregate_corrective(root, LANL_ENSEMBLE_ID, LANL_ENSEMBLE_REVISION)
+    )
+    node.endpoint(LANL_GATE_ROUTE)(_lanl_gate(root))
+    node.endpoint(LANL_SELECT_ROUTE)(_lanl_select(root))
+    node.endpoint(LANL_ENVELOPE_ROUTE)(_lanl_envelope)
 
 
 def _cases(root: Path):
@@ -181,6 +183,7 @@ def _aggregate(root: Path):
                 request.context,
                 scoring.load_specs(root / "instructions"),
                 BENCHMARK_ID,
+                scoring.load_case_order(root),
             )
         except (OSError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
@@ -199,6 +202,7 @@ def _aggregate_corrective(root: Path, benchmark_id: str, benchmark_revision: str
                 scoring.load_specs(root / "instructions"),
                 benchmark_id,
                 benchmark_revision,
+                scoring.load_case_order(root),
                 max_attempts=MAX_ATTEMPTS,
             )
         except (OSError, ValueError) as exc:
@@ -208,39 +212,204 @@ def _aggregate_corrective(root: Path, benchmark_id: str, benchmark_revision: str
     return aggregate
 
 
-def _select(request: Request) -> str:
-    """Deterministically select one member answer, verbatim.
+def _lanl_intent(intent: str) -> tuple[str, int, int]:
+    kind, sep, rest = (intent or "").partition(":")
+    if not sep or kind not in {"continue", "tie"}:
+        raise _unsupported("lanl-ensemble gate", intent)
+    case_id, attempt = _case_and_attempt(rest)
+    return kind, case_id, attempt
 
-    The payload carries the runtime-sized member record array and the judge's reply.
 
-    Selection rules, in order:
-    1. Exactly one answer PASSED the checker -> that answer wins. The judge cannot
-       discard the only compliant draft.
-    2. Two or more answers PASSED -> the judge's letter chooses among them; a letter
-       naming a failing answer (or no valid letter) falls back to the first passer.
-    3. No answer PASSED -> the judge's letter stands, so this attempt's grading record
-       reflects the judged pick; without a valid letter the first answer stands.
+def _lanl_members(value: object, label: str) -> list[dict[str, Any]]:
+    raw = _json_array(value, label)
+    members = [_attempt_member(_member(item, index), index) for index, item in enumerate(raw)]
+    if not MIN_MEMBERS <= len(members) <= MAX_MEMBERS:
+        raise _unavailable(f"{label} must carry {MIN_MEMBERS}..{MAX_MEMBERS} member answers")
+    return members
+
+
+def _strict_satisfaction(root: Path, case_id: int, answer: str) -> float:
+    """The fraction of a case's strict checks the answer satisfies — the paper's
+    Best-of-N fallback metric for a case that never fully passes."""
+
+    spec = json.loads(
+        _read(root / "instructions" / f"{case_id}.json", f"IFEval case {case_id} spec")
+    )
+    grading.configure_nltk(root / "nltk_data")
+    result = grading.check_case(
+        instruction_id_list=spec["instruction_id_list"],
+        kwargs_list=spec["kwargs"],
+        prompt=spec["prompt"],
+        response=answer,
+    )
+    strict = result["strict"]
+    return sum(1 for value in strict if value) / len(strict)
+
+
+def _lanl_gate(root: Path):
+    """The lanl-ensemble's deterministic control flow, as 0-or-1-item collections.
+
+    `continue:<case>:<attempt>` — one payload iff the attempt had NO strict passer
+    and the attempt budget is not spent; empty means the case STOPPED (early exit).
+    `tie:<case>:<attempt>` — one payload naming the candidates a judge must pick
+    among: the passers when two or more passed, or (final attempt only) the
+    never-pass candidates tied on maximal strict satisfaction. Empty means no judge
+    call happens — a single passer, or a unique best, needs no tie-break.
+
+    INVARIANT: this endpoint is pure data → data. The semantics of its decisions are
+    LANL_FLOW, hashed into the Variant revision; the expression can only show THAT a
+    gate sits here, not what it decides.
+    """
+
+    def gate(request: Request) -> str:
+        kind, case_id, attempt = _lanl_intent(request.intent)
+        members = _lanl_members(request.context, "gate round")
+        passers = [member for member in members if member["feedback"] == "PASSED"]
+        if kind == "continue":
+            proceed = not passers and attempt < MAX_ATTEMPTS
+            payload = [{"case_id": case_id, "attempt": attempt + 1}] if proceed else []
+            return _json(payload)
+        if len(passers) >= 2:
+            pool = passers
+        elif not passers and attempt == MAX_ATTEMPTS:
+            scored = [
+                (member, _strict_satisfaction(root, case_id, member["answer"]))
+                for member in members
+            ]
+            best = max(score for _, score in scored)
+            tied = [member for member, score in scored if score == best]
+            pool = tied if len(tied) >= 2 else []
+        else:
+            pool = []
+        if not pool:
+            return _json([])
+        return _json(
+            [
+                {
+                    "case_id": case_id,
+                    "attempt": attempt,
+                    "candidates": [
+                        {"key": member["key"], "answer": member["answer"]} for member in pool
+                    ],
+                }
+            ]
+        )
+
+    return gate
+
+
+def _lanl_select(root: Path):
+    """Select the attempt's representative answer, verbatim, per LANL_FLOW.
+
+    Rules, in order:
+    1. Exactly one passer -> that answer; no judge involved.
+    2. Two or more passers -> the tie-break judge's letter chooses among the PASSERS;
+       an invalid or missing letter falls back to the first passer.
+    3. No passer -> maximal strict-satisfaction fraction; an exact tie defers to the
+       judge's letter among the tied, else the first tied answer stands.
 
     INVARIANT: the returned text is always a member's exact answer — selection can
     choose but never rewrite, so it cannot break a requirement a member satisfied.
     """
 
-    raw_members = _json_array(request.context, "selection members")
-    members = [_member(value, index) for index, value in enumerate(raw_members)]
-    attempts = [_attempt_member(member, index) for index, member in enumerate(members)]
-    if not MIN_MEMBERS <= len(attempts) <= MAX_MEMBERS:
-        raise _unavailable(
-            f"selection input must carry {MIN_MEMBERS}..{MAX_MEMBERS} member answers"
-        )
-    selected = {member["key"].upper(): member for member in attempts}
-    passers = [member["key"].lower() for member in attempts if member["feedback"] == "PASSED"]
-    pick = _judge_letter(request.intent, selected)
-    if passers:
-        judged = pick if pick is not None and pick.lower() in passers else passers[0].upper()
-        chosen = selected[judged]
-    else:
-        chosen = selected[pick] if pick is not None else attempts[0]
-    return encode_candidate_invocation(chosen["answer"], chosen["finish_reason"])
+    def select(request: Request) -> str:
+        case_id, _attempt = _case_and_attempt(request.intent)
+        payload = _json_payload(request.context, "lanl selection")
+        if set(payload) != {"round", "tie"}:
+            raise _unavailable("lanl selection payload must carry exactly round and tie")
+        members = _lanl_members(payload["round"], "selection round")
+        letter = _tie_letter(payload["tie"], members)
+        passers = [member for member in members if member["feedback"] == "PASSED"]
+        if len(passers) == 1:
+            chosen = passers[0]
+        elif passers:
+            chosen = _by_letter(passers, letter) or passers[0]
+        else:
+            scored = [
+                (member, _strict_satisfaction(root, case_id, member["answer"]))
+                for member in members
+            ]
+            best = max(score for _, score in scored)
+            tied = [member for member, score in scored if score == best]
+            chosen = tied[0] if len(tied) == 1 else (_by_letter(tied, letter) or tied[0])
+        return encode_candidate_invocation(chosen["answer"], chosen["finish_reason"])
+
+    return select
+
+
+def _tie_letter(value: object, members: list[dict[str, Any]]) -> str | None:
+    """The judge's letter from the 0-or-1-item tie-pick collection, if any."""
+
+    items = _json_array(value, "tie picks") if value not in (None, "") else []
+    if not items:
+        return None
+    reply = items[0]
+    if isinstance(reply, str):
+        try:
+            reply, _finish = decode_candidate_invocation(reply)
+        except ValueError:
+            pass  # a bare text reply is still a judge reply
+    selected = {member["key"].upper(): member for member in members}
+    return _judge_letter(reply, selected)
+
+
+def _by_letter(pool: list[dict[str, Any]], letter: str | None) -> dict[str, Any] | None:
+    if letter is None:
+        return None
+    for member in pool:
+        if member["key"].upper() == letter:
+            return member
+    return None
+
+
+def _lanl_envelope(request: Request) -> str:
+    """Pack the gated attempt chain into one authoritative per-Case envelope.
+
+    The expression hands over `{attempt_1: <check record>, next: <continuation>}`
+    where the continuation is an EMPTY array (the case stopped after attempt 1) or a
+    single `{check, next}` outcome — recursively. Skipping is structural: a skipped
+    attempt simply never appears, so executed attempts are always consecutive from 1
+    and `bind_case_evaluation`'s ordering contract holds unchanged.
+    """
+
+    try:
+        case_id = _positive_int(request.intent, "case id")
+        payload = _json_payload(request.context, "lanl case evaluation")
+        if set(payload) != {"attempt_1", "next"}:
+            raise ValueError("lanl case evaluation must carry exactly attempt_1 and next")
+        attempts = [_decoded_check(payload["attempt_1"], "attempt_1")]
+        next_value: object = payload["next"]
+        while True:
+            items = _json_array(next_value, "lanl continuation") if next_value != "" else []
+            if not items:
+                break
+            if len(items) != 1:
+                raise ValueError("lanl continuation must carry at most one outcome")
+            outcome = items[0]
+            if isinstance(outcome, str):
+                outcome = json.loads(outcome)
+            if not isinstance(outcome, dict) or not {"check"} <= set(outcome) <= {
+                "check",
+                "next",
+            }:
+                raise ValueError("lanl continuation outcome must carry check (and next)")
+            attempts.append(_decoded_check(outcome["check"], "continuation check"))
+            next_value = outcome.get("next", [])
+        result = bind_case_evaluation(case_id, attempts)
+    except (TypeError, ValueError) as exc:
+        raise _unavailable(str(exc)) from exc
+    return _json(result)
+
+
+def _decoded_check(value: object, label: str) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise ValueError(f"lanl {label} must be a JSON check record: {exc}") from None
+    if not isinstance(value, dict):
+        raise ValueError(f"lanl {label} must decode to an object")
+    return value
 
 
 def _resolve_candidate(model_routes: frozenset[str]):
@@ -269,7 +438,7 @@ def _resolved_members(
 ) -> list[dict[str, str]]:
     if not MIN_MEMBERS <= len(value) <= MAX_MEMBERS:
         raise _candidate_invalid(
-            f"verifying-ensemble requires {MIN_MEMBERS}..{MAX_MEMBERS} direct Model members"
+            f"lanl-ensemble requires {MIN_MEMBERS}..{MAX_MEMBERS} direct Model members"
         )
     expected = tuple(f"member_{index}" for index in range(1, len(value) + 1))
     if tuple(value) != expected:

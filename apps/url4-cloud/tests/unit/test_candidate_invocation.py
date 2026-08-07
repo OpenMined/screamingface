@@ -19,7 +19,7 @@ from url4_cloud.benchmarks.draco.definition import DRACO, EXCLUDED_DOMAINS, JUDG
 from url4_cloud.benchmarks.ifeval.definition import CHECK_ROUTE, IFEVAL
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_SELF_CORRECTIVE,
-    IFEVAL_VERIFYING_ENSEMBLE,
+    IFEVAL_LANL_ENSEMBLE,
 )
 from url4_cloud.runner.config import CommandSpec, DataSpec, ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
@@ -470,15 +470,21 @@ def _ensemble_responder(
 
 
 @pytest.mark.asyncio
+@pytest.mark.xfail(
+    reason="OME-765: url4 decode_envelope misparses a mid-list iterate source in a "
+    "bare map-row body, so the lanl-ensemble continuation cannot execute yet; the "
+    "core fix ships in its own url4 PR",
+    strict=True,
+)
 async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
     tmp_path: Path,
 ) -> None:
-    """The verifying-ensemble shape: per-member checks, judge-authored feedback, select."""
+    """The lanl-ensemble shape: per-member checks, gated feedback and retry, tie-break."""
 
     calls: list[str] = []
     requests: list[dict[str, object]] = []
 
-    resource = IFEVAL_VERIFYING_ENSEMBLE.resource(1)
+    resource = IFEVAL_LANL_ENSEMBLE.resource(1)
     benchmark_url4 = resource["url4"]
     assert isinstance(benchmark_url4, str)
     members = tuple(
@@ -521,27 +527,28 @@ async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
 
     decoded = json.loads(result.text)
     assert (decoded["benchmark_id"], decoded["score"], decoded["failures"]) == (
-        "ifeval/verifying-ensemble",
+        "ifeval/lanl-ensemble",
         1.0,
         [],
     )
     assert decoded["metrics"]["pass_at_1"] == 0.0
     assert decoded["metrics"]["pass_at_2"] == 1.0
-    # 9 member answers + 3 judge picks + 2 judge feedback authorings, all unrolled.
-    assert calls.count("provider/synth") == 5
-    assert len(calls) == 14
-    # Judge-authored feedback reaches every member on attempts two and three.
+    # Early exit: 3+3 member answers, 1 judge feedback (no-pass round 1), 1 judge
+    # tie-break (3 passers on round 2) — and NOTHING after the round-2 pass.
+    assert calls.count("provider/synth") == 2
+    assert len(calls) == 8
+    # Judge-authored feedback reaches every member on the one retry round only.
     assert (
         sum(
             request["model"] != "provider/synth" and "Judge feedback" in json.dumps(request)
             for request in requests
         )
-        == 6
+        == 3
     )
 
 
 @pytest.mark.asyncio
-async def test_verifying_ensemble_requires_a_synthesizer_before_any_paid_call(
+async def test_lanl_ensemble_requires_a_synthesizer_before_any_paid_call(
     tmp_path: Path,
 ) -> None:
     requests: list[httpx.Request] = []
@@ -559,7 +566,7 @@ async def test_verifying_ensemble_requires_a_synthesizer_before_any_paid_call(
         for index in range(1, 4)
     )
     _ifeval_assets(tmp_path / "ifeval")
-    benchmark_url4 = IFEVAL_VERIFYING_ENSEMBLE.resource(1)["url4"]
+    benchmark_url4 = IFEVAL_LANL_ENSEMBLE.resource(1)["url4"]
     assert isinstance(benchmark_url4, str)
 
     async with httpx.AsyncClient(

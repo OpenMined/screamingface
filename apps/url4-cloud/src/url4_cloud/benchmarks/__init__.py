@@ -8,8 +8,8 @@ from url4_cloud.benchmarks.definition import Benchmark, BenchmarkInstaller
 from url4_cloud.benchmarks.draco.definition import DRACO, DRACO_LITE, DRACO_SMOKE
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    IFEVAL_LANL_ENSEMBLE,
     IFEVAL_SELF_CORRECTIVE,
-    IFEVAL_VERIFYING_ENSEMBLE,
 )
 
 BENCHMARKS: dict[str, Benchmark] = {
@@ -18,7 +18,7 @@ BENCHMARKS: dict[str, Benchmark] = {
     DRACO_SMOKE.id: DRACO_SMOKE,
     IFEVAL.id: IFEVAL,
     IFEVAL_SELF_CORRECTIVE.id: IFEVAL_SELF_CORRECTIVE,
-    IFEVAL_VERIFYING_ENSEMBLE.id: IFEVAL_VERIFYING_ENSEMBLE,
+    IFEVAL_LANL_ENSEMBLE.id: IFEVAL_LANL_ENSEMBLE,
 }
 DEFAULT_BENCHMARK_ID = "draco"
 ASSETS_ENV = "URL4_BENCHMARK_ASSETS"

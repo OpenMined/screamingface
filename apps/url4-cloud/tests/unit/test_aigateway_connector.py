@@ -26,6 +26,12 @@ from url4_cloud.benchmarks.draco.definition import (
     TASKS_ROUTE,
     VERDICT_ROUTE,
 )
+from url4_cloud.benchmarks.ifeval.corrective_policy import (
+    LANL_AGGREGATE_ROUTE,
+    LANL_ENVELOPE_ROUTE,
+    LANL_GATE_ROUTE,
+    LANL_SELECT_ROUTE,
+)
 from url4_cloud.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE as IFEVAL_AGGREGATE_ROUTE,
 )
@@ -36,11 +42,9 @@ from url4_cloud.benchmarks.ifeval.definition import (
     CHECK_ROUTE as IFEVAL_CHECK_ROUTE,
 )
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    ENSEMBLE_AGGREGATE_ROUTE,
     MEMBER_ANSWER_ROUTE,
     MEMBER_RECORD_ROUTE,
     RESOLVE_CANDIDATE_ROUTE,
-    SELECT_ROUTE,
     SELF_AGGREGATE_ROUTE,
 )
 from url4_cloud.runner.config import ModelSpec, RunnerConfigError
@@ -73,11 +77,13 @@ _BENCHMARK_ROUTES = {
     IFEVAL_CASE_EVALUATION_ROUTE,
     IFEVAL_CHECK_ROUTE,
     SELF_AGGREGATE_ROUTE,
-    ENSEMBLE_AGGREGATE_ROUTE,
-    SELECT_ROUTE,
     RESOLVE_CANDIDATE_ROUTE,
     MEMBER_RECORD_ROUTE,
     MEMBER_ANSWER_ROUTE,
+    LANL_AGGREGATE_ROUTE,
+    LANL_GATE_ROUTE,
+    LANL_SELECT_ROUTE,
+    LANL_ENVELOPE_ROUTE,
 }
 
 

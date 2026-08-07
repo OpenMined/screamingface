@@ -1,4 +1,4 @@
-"""Candidate-shape resolution in the public verifying-ensemble URL4 artifact."""
+"""Candidate-shape resolution in the public lanl-ensemble URL4 artifact."""
 
 from __future__ import annotations
 
@@ -12,15 +12,15 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import install_benchmarks
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    IFEVAL_VERIFYING_ENSEMBLE,
+    IFEVAL_LANL_ENSEMBLE,
     RESOLVE_CANDIDATE_ROUTE,
 )
 
 
-def test_verifying_ensemble_prepares_one_semantic_member_collection() -> None:
+def test_lanl_ensemble_prepares_one_semantic_member_collection() -> None:
     """The protocol prepares members once without leaking that mechanism into their name."""
 
-    url4 = IFEVAL_VERIFYING_ENSEMBLE.resource(3)["url4"]
+    url4 = IFEVAL_LANL_ENSEMBLE.resource(3)["url4"]
 
     assert isinstance(url4, str)
     assert render(build(url4)) == url4
