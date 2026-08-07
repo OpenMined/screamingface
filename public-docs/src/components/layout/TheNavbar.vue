@@ -15,13 +15,13 @@ const { toggleTheme } = themeStore
 const products = [
   { name: 'Home', path: '/' },
   { name: 'SF Client', path: '/sf-client' },
-  { name: 'SDK', path: '/sdk' },
+  { name: 'Learn more', path: '/learn' },
 ]
 
 const currentProduct = computed(() => {
   const path = route.path
   if (path.startsWith('/sf-client')) return 'SF Client'
-  if (path.startsWith('/sdk')) return 'SDK'
+  if (path.startsWith('/learn')) return 'Learn more'
   return 'Home'
 })
 
@@ -48,95 +48,32 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <header class="sticky top-0 z-50 border-b border-border backdrop-blur-xl bg-background/80">
+  <header class="sticky top-0 z-50 border-b border-border bg-background">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <nav class="flex items-center justify-between h-16">
-        <!-- Logo -->
-        <RouterLink to="/" class="flex items-center gap-3 group">
-          <div
-            class="w-10 h-10 flex items-center justify-center transition-all duration-300 group-hover:scale-105"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 311 360" class="w-8 h-8">
-              <g clip-path="url(#clip0_navbar)">
-                <path
-                  d="M311.414 89.7878L155.518 179.998L-0.378906 89.7878L155.518 -0.422485L311.414 89.7878Z"
-                  fill="url(#paint0_navbar)"
-                />
-                <path
-                  d="M311.414 89.7878V270.208L155.518 360.423V179.998L311.414 89.7878Z"
-                  fill="url(#paint1_navbar)"
-                />
-                <path
-                  d="M155.518 179.998V360.423L-0.378906 270.208V89.7878L155.518 179.998Z"
-                  fill="url(#paint2_navbar)"
-                />
-              </g>
-              <defs>
-                <linearGradient
-                  id="paint0_navbar"
-                  x1="-0.378904"
-                  y1="89.7878"
-                  x2="311.414"
-                  y2="89.7878"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <stop stop-color="#DC7A6E" />
-                  <stop offset="0.251496" stop-color="#F6A464" />
-                  <stop offset="0.501247" stop-color="#FDC577" />
-                  <stop offset="0.753655" stop-color="#EFC381" />
-                  <stop offset="1" stop-color="#B9D599" />
-                </linearGradient>
-                <linearGradient
-                  id="paint1_navbar"
-                  x1="309.51"
-                  y1="89.7878"
-                  x2="155.275"
-                  y2="360.285"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <stop stop-color="#BFCD94" />
-                  <stop offset="0.245025" stop-color="#B2D69E" />
-                  <stop offset="0.504453" stop-color="#8DCCA6" />
-                  <stop offset="0.745734" stop-color="#5CB8B7" />
-                  <stop offset="1" stop-color="#4CA5B8" />
-                </linearGradient>
-                <linearGradient
-                  id="paint2_navbar"
-                  x1="-0.378906"
-                  y1="89.7878"
-                  x2="155.761"
-                  y2="360.282"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <stop stop-color="#D7686D" />
-                  <stop offset="0.225" stop-color="#C64B77" />
-                  <stop offset="0.485" stop-color="#A2638E" />
-                  <stop offset="0.703194" stop-color="#758AA8" />
-                  <stop offset="1" stop-color="#639EAF" />
-                </linearGradient>
-                <clipPath id="clip0_navbar">
-                  <rect width="311" height="360" fill="white" />
-                </clipPath>
-              </defs>
-            </svg>
-          </div>
-          <div class="flex flex-col">
-            <span class="text-sm font-semibold tracking-wider text-foreground">SCREAMINGFACE</span>
-            <span class="text-[10px] tracking-widest text-muted-foreground uppercase">Docs</span>
-          </div>
+        <!-- Brand — the 😱 mark is the shipped system emoji (never recoloured or redrawn). -->
+        <RouterLink to="/" class="flex items-center gap-2.5 group">
+          <span
+            class="text-[22px] leading-none transition-transform duration-200 group-hover:scale-105"
+            aria-hidden="true"
+          >😱</span>
+          <span class="flex items-baseline gap-2">
+            <span class="text-[15px] font-medium tracking-tight text-foreground">ScreamingFace</span>
+            <span class="font-mono text-[10px] tracking-[0.14em] uppercase text-muted-foreground">Docs</span>
+          </span>
         </RouterLink>
 
-        <!-- Product Navigation -->
-        <div class="hidden md:flex items-center gap-1">
+        <!-- Product Navigation — square underline tab, gold when active -->
+        <div class="hidden md:flex items-center gap-1 self-stretch">
           <RouterLink
             v-for="product in products"
             :key="product.path"
             :to="product.path"
             :class="[
-              'px-3 py-2 text-sm font-normal rounded-md transition-all duration-200',
+              'inline-flex items-center px-3 text-sm border-b-2 transition-colors duration-150',
               isActive(product.path)
-                ? 'text-sidebar-primary bg-sidebar-primary/10 border border-sidebar-primary/30'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                ? 'text-primary border-primary font-medium'
+                : 'text-muted-foreground border-transparent hover:text-foreground'
             ]"
           >
             {{ product.name }}
@@ -194,7 +131,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <!-- Theme Toggle -->
           <button
             @click="toggleTheme"
-            class="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            class="p-2 text-muted-foreground hover:text-foreground transition-colors"
             :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
           >
             <!-- Sun icon (shown in dark mode) -->
@@ -226,7 +163,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <!-- Roadmap link -->
           <!-- <RouterLink
             to="/roadmap"
-            class="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-md hover:border-sidebar-primary/50 transition-all duration-200"
+            class="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border hover:border-primary/50 transition-colors duration-200"
           >
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -239,7 +176,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             href="https://github.com/OpenMined"
             target="_blank"
             rel="noopener noreferrer"
-            class="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-md hover:border-sidebar-primary/50 transition-all duration-200"
+            class="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border hover:border-primary/50 transition-colors duration-200"
           >
             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
               <path

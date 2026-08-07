@@ -54,9 +54,24 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/guides/Url4Page.vue'),
     },
     {
-      path: '/sdk',
-      name: 'sdk',
-      component: () => import('@/pages/sdk/Index.vue'),
+      path: '/learn',
+      name: 'learn',
+      component: () => import('@/pages/learn/ArchitecturePage.vue'),
+    },
+    {
+      path: '/learn/url4',
+      name: 'learn-url4',
+      component: () => import('@/pages/learn/Url4Page.vue'),
+    },
+    {
+      path: '/learn/engine',
+      name: 'learn-engine',
+      component: () => import('@/pages/learn/EnginePage.vue'),
+    },
+    {
+      path: '/learn/url4-sdk',
+      name: 'learn-url4-sdk',
+      component: () => import('@/pages/learn/Url4SdkPage.vue'),
     },
   ],
   scrollBehavior() {

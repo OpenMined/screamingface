@@ -20,14 +20,14 @@ print(report.score, report.baseline, report.gain)`
 <template>
   <DocLayout
     title="Overview"
-    description="Compose an ensemble of frontier models, evaluate it against a benchmark, and see whether it beat its own best member."
+    description="Compose a fusion of frontier models, evaluate it against a benchmark, and see whether it beat its own best member."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      ScreamingFace is an open-source client for building <strong>model ensembles</strong> — several
-      frontier models answering the same question, combined into one answer — and measuring them
-      against real benchmarks. It runs locally, and every run is reproducible from a single
+      ScreamingFace is an open-source client for building <strong>fusions</strong> — several frontier
+      models answering the same question, combined into one — and measuring them against real
+      benchmarks. It runs locally, and every run reproduces from a single <code>url4</code>
       expression you can share.
     </p>
 
@@ -57,9 +57,9 @@ print(report.score, report.baseline, report.gain)`
     <CodeBlock :code="smallestExample" language="python" />
 
     <p>
-      <code>score</code> is the ensemble's accuracy, <code>baseline</code> is its strongest single
+      <code>score</code> is the fusion's accuracy, <code>baseline</code> is its strongest single
       member on the same cases, and <code>gain</code> is the difference between them. A positive
-      gain means the ensemble beat every model inside it.
+      gain means the fusion beat every model inside it.
     </p>
 
     <blockquote>
@@ -73,9 +73,9 @@ print(report.score, report.baseline, report.gain)`
 
     <p>
       The client talks only to the <strong>ScreamingFace Engine</strong> — never to model providers
-      directly. Each evaluation compiles to one <strong>URL4</strong> expression, and that
-      expression is the contract between them: the engine resolves it, and anyone holding it can
-      reproduce the run.
+      directly. Each evaluation compiles to one <strong>url4</strong> expression, and that expression
+      is the contract between them: the engine resolves it, and anyone holding it can reproduce the
+      run.
     </p>
   </DocLayout>
 </template>

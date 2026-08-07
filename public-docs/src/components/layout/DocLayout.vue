@@ -108,11 +108,8 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
         </button>
 
         <!-- Page header (skipped when no title/description — e.g. notebook pages) -->
-        <header v-if="title || description" class="mb-12 pb-8 border-b border-border/50">
-          <h1
-            v-if="title"
-            class="text-4xl sm:text-5xl font-normal tracking-tight text-foreground mb-4 bg-linear-to-r from-foreground via-foreground to-muted-foreground bg-clip-text"
-          >
+        <header v-if="title || description" class="mb-12 pb-8 border-b border-border">
+          <h1 v-if="title" class="text-4xl sm:text-5xl font-semibold tracking-tight text-foreground mb-4">
             {{ title }}
           </h1>
           <p
@@ -129,14 +126,11 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
         </div>
 
         <!-- Prev / Next navigation -->
-        <div
-          v-if="prevPage || nextPage"
-          class="flex justify-between items-center mt-16 pt-8 border-t border-border/50 gap-4"
-        >
+        <div v-if="prevPage || nextPage" class="flex justify-between items-center mt-16 pt-8 border-t border-border gap-4">
           <RouterLink
             v-if="prevPage"
             :to="prevPage.path"
-            class="flex items-center gap-2 px-4 py-3 rounded-lg border border-border/50 bg-card/30 hover:border-primary/40 hover:bg-card/60 transition-all group max-w-[45%]"
+            class="flex items-center gap-2 px-4 py-3 border border-border bg-card hover:border-primary/50 transition-colors group max-w-[45%]"
           >
             <span class="text-muted-foreground group-hover:text-primary transition-colors">←</span>
             <div class="text-right min-w-0">
@@ -153,7 +147,7 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
           <RouterLink
             v-if="nextPage"
             :to="nextPage.path"
-            class="flex items-center gap-2 px-4 py-3 rounded-lg border border-border/50 bg-card/30 hover:border-primary/40 hover:bg-card/60 transition-all group max-w-[45%] ml-auto"
+            class="flex items-center gap-2 px-4 py-3 border border-border bg-card hover:border-primary/50 transition-colors group max-w-[45%] ml-auto"
           >
             <div class="text-left min-w-0">
               <div class="text-xs text-muted-foreground mb-0.5">Next</div>
@@ -179,11 +173,11 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 .prose-content :deep(h2:not(.not-prose h2)) {
   font-family: var(--font-sans);
   font-size: 1.625rem;
-  font-weight: 400;
+  font-weight: var(--weight-semibold);
   margin-top: 3rem;
   margin-bottom: 1.25rem;
   padding-bottom: 0.625rem;
-  border-bottom: 2px solid oklch(0.35 0.05 280 / 0.4);
+  border-bottom: 1px solid var(--color-border);
   color: var(--color-foreground);
   letter-spacing: -0.025em;
 }
@@ -191,7 +185,7 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 .prose-content :deep(h3:not(.not-prose h3)) {
   font-family: var(--font-sans);
   font-size: 1.375rem;
-  font-weight: 400;
+  font-weight: var(--weight-semibold);
   margin-top: 2.25rem;
   margin-bottom: 0.875rem;
   color: var(--color-foreground);
@@ -201,7 +195,7 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 .prose-content :deep(h4:not(.not-prose h4)) {
   font-family: var(--font-sans);
   font-size: 1.125rem;
-  font-weight: 400;
+  font-weight: var(--weight-medium);
   margin-top: 1.75rem;
   margin-bottom: 0.625rem;
   color: var(--color-foreground);
@@ -238,18 +232,18 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 
 .prose-content :deep(code) {
   padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
+  border-radius: 0;
   background-color: var(--color-muted);
-  color: var(--color-primary);
+  color: var(--color-foreground);
   font-size: 0.875rem;
   font-family: var(--font-mono);
 }
 
 .prose-content :deep(pre:not(.not-prose pre)) {
   padding: 1rem;
-  border-radius: 0.75rem;
-  background-color: #18181b;
-  border: none;
+  border-radius: var(--radius-window);
+  background-color: var(--code-bg);
+  border: 1px solid var(--code-border);
   overflow-x: auto;
   margin-bottom: 1.5rem;
   font-family: var(--font-mono);
@@ -268,7 +262,7 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 .prose-content :deep(pre:not(.not-prose pre) code) {
   background-color: transparent;
   padding: 0;
-  color: #e4e4e7;
+  color: var(--code-fg);
   font-family: var(--font-mono);
 }
 
@@ -278,9 +272,9 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 }
 
 .prose-content :deep(blockquote:not(.not-prose blockquote)) {
-  border-left: 4px solid oklch(0.75 0.18 195 / 0.5);
+  border-left: 2px solid var(--color-primary);
   padding-left: 1rem;
-  font-style: italic;
+  font-style: normal;
   color: var(--color-muted-foreground);
   margin: 1.5rem 0;
 }
@@ -296,25 +290,25 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
   text-align: left;
   padding: 0.75rem;
   background-color: var(--color-muted);
-  font-weight: 400;
+  font-weight: var(--weight-semibold);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-foreground);
 }
 
 .prose-content :deep(td:not(.not-prose td)) {
   padding: 0.75rem;
-  border-bottom: 1px solid oklch(0.25 0.03 280 / 0.5);
+  border-bottom: 1px solid var(--color-border);
   color: var(--color-muted-foreground);
 }
 
 .prose-content :deep(a:not(.not-prose a)) {
-  color: var(--color-primary);
+  color: var(--accent-text-low);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .prose-content :deep(a:not(.not-prose a):hover) {
-  color: var(--color-accent);
+  color: var(--accent-text-high);
 }
 
 /* Reset prose link styles inside .not-prose, but preserve explicit text-color classes */

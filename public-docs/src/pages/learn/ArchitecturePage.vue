@@ -1,0 +1,165 @@
+<script setup lang="ts">
+import { RouterLink } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import DocLayout from '@/components/layout/DocLayout.vue'
+import { useThemeStore } from '@/stores/themeStore'
+import { learnNavigation as navigation } from '@/navigation/learn'
+
+const { isDark } = storeToRefs(useThemeStore())
+
+const GH = 'https://github.com/OpenMined/screamingface/tree/main'
+
+const localDiagram = (dark: boolean) =>
+  `/diagrams/screamingface-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
+const cloudDiagram = (dark: boolean) =>
+  `/diagrams/screamingface-request-architecture-cloud-${dark ? 'dark' : 'light'}.svg`
+
+const components = [
+  { name: 'url4 — the protocol', path: 'packages/url4' },
+  { name: 'Engine — the cloud service', path: 'apps/url4-cloud' },
+  { name: 'Engine — the DAG executor', path: 'packages/url4/src/url4/dag' },
+  { name: 'AI gateway', path: 'apps/aigateway' },
+  { name: 'Client — the Python library', path: 'packages/screamingface' },
+  { name: 'Studio — the desktop app', path: 'apps/screamingface-studio' },
+  { name: 'Leaderboard', path: 'apps/scoreboard' },
+]
+</script>
+
+<template>
+  <DocLayout
+    title="Architecture"
+    description="How the pieces fit — url4 the protocol, the Engine that runs it, and the surfaces you compose from — and where each one lives in the codebase."
+    :navigation="navigation"
+  >
+    <p>
+      ScreamingFace is a small stack built around one idea: describe an entire AI system as a single
+      <RouterLink to="/learn/url4"><strong>url4</strong></RouterLink> expression, run it behind a
+      trust boundary, and hand anyone that same expression to reproduce the result. This page shows
+      how the pieces fit and where each lives in the
+      <a :href="GH" target="_blank" rel="noopener">codebase</a>.
+    </p>
+
+    <h2>The layers</h2>
+
+    <ul>
+      <li>
+        <RouterLink to="/learn/url4"><strong>url4 — the protocol.</strong></RouterLink> A url4 string
+        names some sources and an intent, and compiles to a typed graph of operations that fans out
+        across models and reduces to one answer. It is the contract every other piece speaks.
+        <a :href="`${GH}/packages/url4`" target="_blank" rel="noopener"><code>packages/url4</code></a>.
+      </li>
+      <li>
+        <RouterLink to="/learn/engine"><strong>The Engine — runtime and trust boundary.</strong></RouterLink>
+        Resolves a url4 expression: it schedules the graph, fans each model call out to a provider,
+        and streams back tokens, cost, and the result. It owns the provider credentials, so the
+        client never sees them.
+        <a :href="`${GH}/apps/url4-cloud`" target="_blank" rel="noopener"><code>apps/url4-cloud</code></a>
+        with the executor in
+        <a :href="`${GH}/packages/url4/src/url4/dag`" target="_blank" rel="noopener"><code>packages/url4/…/dag</code></a>.
+      </li>
+      <li>
+        <strong>The AI gateway.</strong> A LiteLLM-based gateway the Engine calls to reach every
+        provider through one OpenAI-shaped endpoint. It stores provider credentials encrypted at
+        rest.
+        <a :href="`${GH}/apps/aigateway`" target="_blank" rel="noopener"><code>apps/aigateway</code></a>.
+      </li>
+      <li>
+        <RouterLink to="/sf-client"><strong>The Client.</strong></RouterLink> The Python library
+        researchers use — it composes fusions and benchmarks and talks only to an Engine, never to a
+        provider directly.
+        <a :href="`${GH}/packages/screamingface`" target="_blank" rel="noopener"><code>packages/screamingface</code></a>.
+      </li>
+      <li>
+        <strong>Studio.</strong> A desktop app over the same stack, for people who would rather click
+        than script.
+        <a :href="`${GH}/apps/screamingface-studio`" target="_blank" rel="noopener"><code>apps/screamingface-studio</code></a>.
+      </li>
+      <li>
+        <strong>The Leaderboard.</strong> Where verified, reproducible results are published.
+        <a :href="`${GH}/apps/scoreboard`" target="_blank" rel="noopener"><code>apps/scoreboard</code></a>.
+      </li>
+    </ul>
+
+    <h2>How a request flows</h2>
+
+    <p>
+      A run always follows the same path. The Client (or Studio) compiles what you built into a url4
+      expression and sends it to an Engine. The Engine resolves the expression as a graph —
+      independent nodes run in parallel — and fans each model call out through the AI gateway to the
+      provider. Usage and results stream back as the graph executes. Replay the same expression and
+      the whole system runs again.
+    </p>
+
+    <figure class="not-prose diagram">
+      <img :src="localDiagram(isDark)" alt="Local request flow: the client drives an Engine on your own machine, which fans model calls out through the AI gateway to the providers you hold keys for." />
+      <figcaption>
+        <strong>Local.</strong> The Client drives an Engine on your own machine; model calls fan out
+        through the gateway to the providers you hold keys for.
+      </figcaption>
+    </figure>
+
+    <figure class="not-prose diagram">
+      <img :src="cloudDiagram(isDark)" alt="Cloud request flow: a hosted Engine runs the same protocol; a control plane schedules the run and streams execution events back to the client." />
+      <figcaption>
+        <strong>Cloud.</strong> A hosted Engine runs the same protocol; a control plane schedules the
+        run and streams execution events back.
+      </figcaption>
+    </figure>
+
+    <h2>The trust boundary</h2>
+
+    <p>
+      Provider credentials live behind the Engine and gateway, never in the client. A key is handed
+      to the Engine once, stored encrypted (AES-256-GCM), and used to reach providers on your behalf
+      — the client keeps none. In an evaluation, benchmark prompts cross the boundary to the models;
+      the answer keys and grading stay engine-side, which is what makes a verified result mean
+      something. The credential store is the
+      <a :href="`${GH}/apps/aigateway`" target="_blank" rel="noopener">AI gateway</a>'s
+      encrypted <code>credential_blobs</code>; the master key
+      (<code>AIGATEWAY_SECRET_KEY</code>) is never stored with the data or logged.
+    </p>
+
+    <h2>Where the code lives</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>Path</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="c in components" :key="c.path">
+          <td>{{ c.name }}</td>
+          <td>
+            <a :href="`${GH}/${c.path}`" target="_blank" rel="noopener"><code>{{ c.path }}</code></a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </DocLayout>
+</template>
+
+<style scoped>
+.diagram {
+  margin: 1.75rem 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.diagram img {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: var(--space-6);
+}
+.diagram figcaption {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.diagram figcaption strong {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+</style>

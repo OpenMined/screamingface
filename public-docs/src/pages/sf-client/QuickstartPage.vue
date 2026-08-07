@@ -270,14 +270,14 @@ const evaluate = `report = draco.evaluate(candidates)`
 <template>
   <DocLayout
     title="Quickstart"
-    description="Run DRACO-Lite end to end and compare seven solo models against nine ensembles built from them."
+    description="Run DRACO-Lite end to end and compare seven solo models against nine fusions built from them."
     :navigation="navigation"
     :version="version"
   >
     <p>
       By the end you will have a scored comparison of <strong>16 candidates</strong> — seven single
-      models and nine Fusions built from those same models — on one DRACO case, with ten criteria
-      and one judge pass each. It runs as a single request and costs roughly 80–85 provider calls.
+      models and nine fusions built from those same models — on one DRACO case, with ten criteria
+      and one judge pass each. It runs as a single request of roughly 80–85 provider calls.
     </p>
 
     <blockquote>
@@ -318,9 +318,8 @@ const evaluate = `report = draco.evaluate(candidates)`
     <p>
       The engine holds the credentials, so it needs at least one provider connected before it can
       call a model. <code>sf.connect()</code> with no arguments renders a panel of every provider
-      this engine advertises. The example below shows connection using
-      <strong>OpenRouter</strong> API key and steps through the six states showing the whole auth
-      flow.
+      this engine advertises. The example below connects <strong>OpenRouter</strong> with an API key,
+      stepping through the six states of the whole auth flow.
     </p>
 
     <div class="not-prose">
@@ -400,9 +399,8 @@ const evaluate = `report = draco.evaluate(candidates)`
     </p>
 
     <p>
-      Providers that authenticate by OAuth rather than an API key namely Codex and Anthropic return
-      an
-      <code>OAuthFlow</code> instead, which you have to complete in a browser:
+      Providers that authenticate by OAuth rather than an API key — namely Codex and Anthropic —
+      return an <code>OAuthFlow</code> instead, which you complete in a browser:
     </p>
 
     <CodeBlock :code="connectOauth" language="python" />
@@ -425,7 +423,7 @@ const evaluate = `report = draco.evaluate(candidates)`
 
     <p>
       A <strong>candidate</strong> is anything that can answer a question. Every candidate gets the
-      same case, the same rubric, and the same judge, so single models and ensembles can be ranked
+      same case, the same rubric, and the same judge, so single models and fusions can be ranked
       against each other.
     </p>
 
@@ -471,7 +469,7 @@ const evaluate = `report = draco.evaluate(candidates)`
       </li>
       <li>
         <strong><code>opus-self-fusion</code></strong> — one model fused with a second sample of
-        itself at a higher temperature. Does ensembling help without adding a second model?
+        itself at a higher temperature. Does a fusion help without adding a second model?
       </li>
       <li>
         <strong><code>budget-trio</code></strong> — three cheaper models. Can they reach a frontier
@@ -483,8 +481,8 @@ const evaluate = `report = draco.evaluate(candidates)`
 
     <p>
       Benchmarks live on the engine, not in the client. Loading one fetches its
-      <strong>manifest</strong> along side the grader, the judge model, the aggregator, and the tool
-      policy. This allows the client to know how the run will be scored.
+      <strong>manifest</strong> — the grader, the judge model, the aggregator, and the tool policy —
+      so the client knows how the run will be scored before it starts.
     </p>
 
     <div class="not-prose">
@@ -625,7 +623,7 @@ const evaluate = `report = draco.evaluate(candidates)`
     </blockquote>
 
     <p>
-      A study reports a score per candidate but no <code>gain</code>: comparing an ensemble to
+      A study reports a score per candidate but no <code>gain</code>: comparing a fusion to
       <em>its own members</em> is a different question. For that, evaluate one candidate on its own
       — <code>draco.evaluate(budget_trio)</code> returns a <code>Report</code> with
       <code>score</code>, <code>baseline</code> (its strongest member), and <code>gain</code>.
