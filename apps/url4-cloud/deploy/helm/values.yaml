@@ -20,11 +20,9 @@
 # size one against.
 replicaCount: 1
 
-# ONE image, used two ways: the Deployment runs it as the control plane (`url4-cloud serve`),
-# and every Runner Job runs the SAME image in run mode (`url4-cloud run`) — see
-# `URL4_CLOUD_RUNNER_IMAGE` in configmap.yaml. There is no second `runner.image` block any more;
-# the two artifacts were merged, so they cannot drift out of version alignment. Build-time OCI
-# labels the image should carry are listed in README.md (org.opencontainers.image.*).
+# The control-plane image. Runner Jobs use the matching benchmark image configured under
+# `runner.image`; private grading assets therefore never reach the client-facing process.
+# Build-time OCI labels are listed in README.md (org.opencontainers.image.*).
 image:
   repository: ghcr.io/openmined/screamingface-url4-cloud
   tag: ""            # defaults to .Chart.AppVersion
@@ -260,9 +258,12 @@ runner:
   # Which JobRunner substrate the App schedules on (url4_cloud.config.RunnerBackend). `k8s` is the
   # point of this chart; `none` degrades the App to a token-minting NATS bridge that cannot run.
   backend: k8s
-  # NOTE: there is deliberately no `image` here any more. A Runner Job runs the App's OWN image
-  # (the `image:` block at the top of this file) in its run mode, so there is nothing left to
-  # configure separately — and nothing that can drift out of version alignment during an upgrade.
+  # Runner Jobs need benchmark datasets and private grading assets that the control plane must
+  # not carry. Empty values derive `<image.repository>-benchmark` with the control plane's
+  # resolved tag, keeping the two artifacts paired across mirrors and upgrades.
+  image:
+    repository: ""
+    tag: ""
   #
   # NOTE: there is deliberately no `command` here either. The Job's command is the mode switch
   # `["url4-cloud", "run"]`, pinned in code beside the Job spec that uses it

@@ -47,6 +47,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
+Runner Jobs use the benchmark image, which layers private grading assets onto the matching
+control-plane release. Deriving both repository and tag keeps mirrors and upgrades paired; an
+operator may override either value when their registry uses a different naming convention.
+*/}}
+{{- define "url4-cloud.runnerImage" -}}
+{{- $repo := .Values.runner.image.repository | default (printf "%s-benchmark" .Values.image.repository) -}}
+{{- $tag := .Values.runner.image.tag | default (default .Chart.AppVersion .Values.image.tag) -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+
+{{/*
 Where the App reaches NATS.
 
 WHY a helper and not a plain value: the previous default hardcoded `nats://url4-cloud-nats:4222`,

@@ -10,6 +10,7 @@ CANDIDATE_ROUTE = "/benchmarks/candidate"
 # resolves. Published in every Benchmark resource: a client cannot be expected to infer it.
 CANDIDATE_BINDING = "candidate"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
+CANDIDATE_RESULT_SCHEMA = "screamingface.candidate-result.v1"
 FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter"})
 
 
@@ -71,6 +72,7 @@ def _validate_candidate_invocation(
 __all__ = [
     "CANDIDATE_BINDING",
     "CANDIDATE_INVOCATION_SCHEMA",
+    "CANDIDATE_RESULT_SCHEMA",
     "CANDIDATE_ROUTE",
     "FINISH_REASONS",
     "decode_candidate_invocation",

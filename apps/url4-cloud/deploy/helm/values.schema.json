@@ -78,6 +78,20 @@
           ],
           "description": "Mirrors url4_cloud.config.RunnerBackend. `none` deploys an App that cannot schedule and answers 503 to every run."
         },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "description": "Empty derives `<image.repository>-benchmark`; override when the benchmark image uses another repository."
+            },
+            "tag": {
+              "type": "string",
+              "description": "Empty uses the control-plane image's resolved tag; override only for a staged rollout."
+            }
+          },
+          "additionalProperties": false
+        },
         "resources": {
           "type": "object"
         },

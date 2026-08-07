@@ -25,6 +25,8 @@
 [aigateway]
 base_url = "http://127.0.0.1:9105"
 default_route = "/claude-haiku-4-5"
+timeout_s = 600.0
+web_tool_max_iterations = 12
 
 # Absolute-URL sources (`https://…`) are a real url4 feature and a Url4Node world has always
 # been able to fetch them. Set false to hand the node a denying outbound layer instead.
@@ -98,14 +100,34 @@ id = "antigravity/gemini-3-flash"
 # web_tools: verified end-to-end through OpenRouter's OpenAI-shape tool calling.
 [[aigateway.models]]
 id = "openrouter/openai/gpt-5.5"
-web_tools = true
+native_web_search = true
 
 [[aigateway.models]]
 id = "openrouter/anthropic/claude-opus-4.8"
-web_tools = true
+native_web_search = true
 
 [[aigateway.models]]
 id = "openrouter/anthropic/claude-fable-5"
+native_web_search = true
+
+[[aigateway.models]]
+id = "openrouter/google/gemini-3.1-pro-preview"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/google/gemini-3-flash-preview"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/moonshotai/kimi-k2.6"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/deepseek/deepseek-v4-pro"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/qwen/qwen3.6-plus"
 web_tools = true
 
 # RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not

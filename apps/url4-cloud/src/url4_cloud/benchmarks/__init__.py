@@ -7,6 +7,7 @@ from url4_cloud.benchmarks.definition import (
     candidate,
     link_candidate,
 )
+from url4_cloud.benchmarks.draco.definition import DRACO, DRACO_LITE, DRACO_SMOKE
 from url4_cloud.benchmarks.registry import (
     BENCHMARK_ASSETS_ENV,
     DEFAULT_BENCHMARK_ASSETS_ROOT,
@@ -15,9 +16,12 @@ from url4_cloud.benchmarks.registry import (
     assets_root,
 )
 
+BENCHMARKS = BenchmarkRegistry((DRACO, DRACO_LITE, DRACO_SMOKE))
+
 __all__ = [
     "BENCHMARK_ASSETS_ENV",
     "CANDIDATE_REF",
+    "BENCHMARKS",
     "DEFAULT_BENCHMARK_ASSETS_ROOT",
     "Benchmark",
     "BenchmarkInstaller",
