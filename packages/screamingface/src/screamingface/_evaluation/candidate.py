@@ -261,19 +261,17 @@ class _CandidateCompiler:
             )
         synthesizer = _canonical_model(fusion.synthesizer)
         prompt = fusion.prompt or DEFAULT_SYNTHESIS_PROMPT
-        member_name_refs: list[str] = []
-        for index, member in enumerate(members, 1):
-            name_binding = f"{binding}_member_{index}_name"
-            # Keep labels out of raw URL4 syntax: public Recipe names may legitimately contain
-            # `$` or `)`, which must remain model-visible text rather than become interpolation
-            # or close the synthesis context.
-            self._sources.append(src(Text(_url4_text(member.name)), name=name_binding))
-            member_name_refs.append(f"${name_binding}")
+        member_names: list[str] = []
+        for member in members:
+            # Keep labels out of raw URL4 syntax. Names are user-visible text and may contain
+            # characters that would be problematic in an expression context, including `(` and `)`.
+            # Normalize them so label rendering remains readable without affecting URL4 parsing.
+            member_names.append(_context_text(member.name))
         self._sources.append(
             src(
                 RelExpr(
                     path=_model_route(synthesizer),
-                    context=_fusion_context(members, tuple(member_name_refs)),
+                    context=_fusion_context(members, tuple(member_names)),
                     intent=Text(_url4_text(prompt)),
                     params=_synthesis_params(fusion.params),
                 ),
@@ -317,14 +315,14 @@ class _CandidateCompiler:
 
 def _fusion_context(
     members: tuple[_ResolvedRecipe, ...],
-    member_name_refs: tuple[str, ...],
+    member_names: tuple[str, ...],
 ) -> str:
     line = "\u2028"
     section_separator = line * 2
     sections = [
-        f"=== Model {index} ({name_ref}) ==={line}{member.reference}"
-        for index, (member, name_ref) in enumerate(
-            zip(members, member_name_refs, strict=True),
+        f"=== Model {index} ({name}) ==={line}{member.reference}"
+        for index, (member, name) in enumerate(
+            zip(members, member_names, strict=True),
             1,
         )
     ]
@@ -333,6 +331,10 @@ def _fusion_context(
         f"Panel answers (one per model):{line}"
         f"{section_separator.join(sections)}"
     )
+
+
+def _context_text(value: str) -> str:
+    return _url4_text(value).replace("(", "（").replace(")", "）")
 
 
 def _synthesis_params(

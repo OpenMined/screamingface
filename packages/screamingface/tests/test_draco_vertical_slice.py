@@ -571,8 +571,10 @@ def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
     )
     assert "gemini-pro:" not in candidate_url4
     assert "claude-opus-4.8:" not in candidate_url4
-    assert "synthesis_1_member_1_name='gemini-pro'" in candidate_url4
-    assert "synthesis_1_member_2_name='claude-opus-4.8'" in candidate_url4
+    assert "=== Model 1 (gemini-pro)" in candidate_url4
+    assert "=== Model 2 (claude-opus-4.8)" in candidate_url4
+    assert "synthesis_1_member_1_name='" not in candidate_url4
+    assert "synthesis_1_member_2_name='" not in candidate_url4
 
 
 def test_compiler_deduplicates_equivalent_model_values_by_content() -> None:

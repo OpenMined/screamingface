@@ -21,11 +21,9 @@ def test_fusion_compiles_the_question_and_ordered_member_answers_as_text() -> No
     assert "payload={" not in compiled.url4
     assert "Question:\u2028$input\u2028\u2028Panel answers (one per model):" in compiled.url4
     assert (
-        "=== Model 1 ($synthesis_1_member_1_name) ===\u2028$model_1\u2028\u2028"
-        "=== Model 2 ($synthesis_1_member_2_name) ===\u2028$model_2"
+        "=== Model 1 (left） $$literal) ===\u2028$model_1\u2028\u2028"
+        "=== Model 2 (right) ===\u2028$model_2"
     ) in compiled.url4
     assert "Produce the unified prose answer now." not in compiled.url4
-    # Member labels are bound as values rather than spliced into URL4 syntax. This keeps an
-    # arbitrary valid public name readable without letting `)` or `$` change the expression.
-    assert "synthesis_1_member_1_name='left) $$literal'" in compiled.url4
-    assert "synthesis_1_member_2_name='right'" in compiled.url4
+    assert "synthesis_1_member_1_name='" not in compiled.url4
+    assert "synthesis_1_member_2_name='" not in compiled.url4
