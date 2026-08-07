@@ -1,8 +1,8 @@
 """The FastAPI composition root for the url4-cloud App.
 
-Builds the App instance: wires the REST, catalog, WS, and ops routers, installs auth/problem
-handlers and the metrics middleware, and assembles the injectable adapters (event stream, job
-runner, catalog service) that tests substitute for the production ones built here from `Settings`.
+Builds the App instance: wires the REST, model discovery, WS, and ops routers, installs
+auth/problem handlers and the metrics middleware, and assembles the injectable adapters that
+tests substitute for the production ones built here from `Settings`.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.auth import Clock, install_problem_handlers
 from url4_cloud.catalog import build_catalog_service
 from url4_cloud.catalog.cache import CatalogService
+from url4_cloud.catalog.port import ModelParameterSource
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.metrics import MetricsMiddleware, build_metrics, register_catalog_metrics
 from url4_cloud.ops import router as ops_router
@@ -45,6 +46,7 @@ def create_app(
     clock: Clock | None = None,
     interest: SubscriberGate | None = None,
     catalog: CatalogService | None = None,
+    model_parameters: ModelParameterSource | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -57,6 +59,7 @@ def create_app(
     app.state.stream = stream
     app.state.job_runner = job_runner
     app.state.catalog = catalog
+    app.state.model_parameters = model_parameters
     app.state.metrics = build_metrics()
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
@@ -118,7 +121,13 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
     catalog = build_catalog_service(settings)
-    app = create_app(settings, stream=stream, job_runner=job_runner, catalog=catalog)
+    app = create_app(
+        settings,
+        stream=stream,
+        job_runner=job_runner,
+        catalog=catalog,
+        model_parameters=catalog.model_parameter_source if catalog is not None else None,
+    )
     app.router.on_shutdown.append(stream.close)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)

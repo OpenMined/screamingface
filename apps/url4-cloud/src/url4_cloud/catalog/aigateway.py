@@ -1,14 +1,14 @@
-"""Concrete ``CatalogSource`` adapter for aigateway's ``/v1/models`` endpoint.
+"""AI Gateway adapter for model-list and profile-bound model-detail discovery.
 
-Implements the ``CatalogSource`` port (see ``catalog/port.py``) by forwarding a
-caller's credential to aigateway's model-listing endpoint and translating transport
-and validation failures into the ``CatalogError`` hierarchy.
+Implements both discovery ports in ``catalog/port.py`` with one HTTP client and one identity
+boundary. The model list is cached by its decorator; detailed parameter contracts deliberately
+pass through uncached.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Never
 
 import httpx
 
@@ -18,12 +18,18 @@ from url4_cloud.catalog.port import (
     CatalogUnavailable,
     Credential,
     ModelCatalog,
+    ModelParameterBadResponse,
+    ModelParameterResponse,
     compute_etag,
 )
 
 logger = logging.getLogger(__name__)
 
 _CATALOG_PATH = "/v1/models"
+_MODEL_PARAMETERS_PATH = "/v1/model-parameters"
+# WHY: these statuses describe caller-correctable identity, profile, or model choices. Preserve
+# their JSON verbatim; mask every server/transport failure behind the Engine's stable 502/504.
+_CALLER_CORRECTABLE_STATUSES = frozenset({400, 401, 403, 404, 409})
 
 # WHY: aigateway may refuse a credential with either 401 or 403; both are treated as
 # a bad credential (CatalogRejected, always surfaced as 401) rather than CatalogBadResponse.
@@ -31,7 +37,7 @@ _REJECTION_STATUSES = frozenset({401, 403})
 
 
 class AigatewayCatalogSource:
-    """Fetches and validates the model catalog from aigateway, per credential."""
+    """Fetch and minimally validate AI Gateway model discovery for one caller."""
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
@@ -43,38 +49,104 @@ class AigatewayCatalogSource:
         and malformed payloads map to ``CatalogBadResponse``; a timeout maps to
         ``CatalogUnavailable``.
         """
-        response = await self._get(credential)
+        response = await self._request(
+            _CATALOG_PATH,
+            credential,
+            label="catalog",
+            bad_response=CatalogBadResponse,
+        )
         if response.status_code in _REJECTION_STATUSES:
             logger.info("aigateway refused the catalog request (status=%d)", response.status_code)
             raise CatalogRejected(CatalogRejected.detail)
         if response.status_code >= 300:
             logger.warning("aigateway catalog returned status=%d", response.status_code)
             raise CatalogBadResponse(CatalogBadResponse.detail)
-        body = self._decode(response)
+        body = self._decode_object(response)
         _validate(body)
         return ModelCatalog(body=body, etag=compute_etag(body))
 
-    async def _get(self, credential: Credential) -> httpx.Response:
-        """Issue the upstream GET, translating transport failures to ``CatalogError``."""
+    async def fetch_model_parameters(
+        self,
+        credential: Credential,
+        model: str,
+    ) -> ModelParameterResponse:
+        """Fetch one detailed model contract for the caller's profile."""
+
+        response = await self._request(
+            _MODEL_PARAMETERS_PATH,
+            credential,
+            params={"model": model},
+            label="model-parameter",
+            bad_response=ModelParameterBadResponse,
+        )
+        body = self._decode_json(
+            response,
+            bad_response=ModelParameterBadResponse,
+            label="model-parameter",
+        )
+        if response.status_code in _CALLER_CORRECTABLE_STATUSES:
+            return ModelParameterResponse(status=response.status_code, content=response.content)
+        if response.status_code >= 300:
+            raise ModelParameterBadResponse(ModelParameterBadResponse.detail)
+        _validate_model_parameters(body, model)
+        return ModelParameterResponse(status=response.status_code, content=response.content)
+
+    async def _request(
+        self,
+        path: str,
+        credential: Credential,
+        *,
+        label: str,
+        bad_response: type[CatalogBadResponse],
+        params: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        """Issue one upstream GET and translate transport failures at the adapter boundary."""
+
         try:
-            return await self._client.get(_CATALOG_PATH, headers=_headers(credential))
+            return await self._client.get(path, params=params, headers=_headers(credential))
         except httpx.TimeoutException as exc:
-            logger.warning("aigateway catalog request timed out")
+            logger.warning("aigateway %s request timed out", label)
             raise CatalogUnavailable(CatalogUnavailable.detail) from exc
         except httpx.HTTPError as exc:
-            logger.warning("aigateway catalog request failed at the transport layer: %s", exc)
-            raise CatalogBadResponse(CatalogBadResponse.detail) from exc
+            logger.warning("aigateway %s request failed at the transport layer", label)
+            raise bad_response(bad_response.detail) from exc
 
-    def _decode(self, response: httpx.Response) -> dict[str, Any]:
-        """Parse the response body as a JSON object, raising ``CatalogBadResponse`` otherwise."""
+    def _decode_json(
+        self,
+        response: httpx.Response,
+        *,
+        bad_response: type[CatalogBadResponse] = CatalogBadResponse,
+        label: str = "catalog",
+    ) -> Any:
+        """Validate one upstream body as JSON without changing the bytes returned downstream."""
+
+        # INVARIANT: decoding is inspection only. The proxy returns ``response.content`` so
+        # unknown fields and valid numbers outside Python's finite float range survive unchanged.
         try:
-            body = response.json()
+            return response.json(parse_constant=_reject_non_json_constant)
         except ValueError as exc:
-            logger.warning("aigateway catalog response was not JSON")
-            raise CatalogBadResponse(CatalogBadResponse.detail) from exc
+            logger.warning("aigateway %s response was not JSON", label)
+            raise bad_response(bad_response.detail) from exc
+
+    def _decode_object(
+        self,
+        response: httpx.Response,
+        *,
+        bad_response: type[CatalogBadResponse] = CatalogBadResponse,
+        label: str = "catalog",
+    ) -> dict[str, Any]:
+        """Parse one upstream response as a JSON object, or raise its typed failure."""
+
+        body = self._decode_json(response, bad_response=bad_response, label=label)
         if not isinstance(body, dict):
-            raise CatalogBadResponse(CatalogBadResponse.detail)
+            raise bad_response(bad_response.detail)
         return body
+
+
+def _reject_non_json_constant(value: str) -> Never:
+    """Reject JavaScript constants that Python's permissive decoder otherwise accepts."""
+
+    raise ValueError(f"{value} is not valid JSON")
 
 
 def _headers(credential: Credential) -> dict[str, str]:
@@ -103,6 +175,25 @@ def _validate(body: dict[str, Any]) -> None:
     for entry in data:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
             raise CatalogBadResponse(CatalogBadResponse.detail)
+
+
+def _validate_model_parameters(body: object, model: str) -> None:
+    """Reject a success document that cannot describe the requested model."""
+
+    # INVARIANT: success must identify the exact requested model and contain every envelope the
+    # Client needs to preflight; unknown fields remain owned by AI Gateway and pass through.
+    selected = body.get("model") if isinstance(body, dict) else None
+    if (
+        not isinstance(body, dict)
+        or isinstance(body.get("schema_version"), bool)
+        or not isinstance(body.get("schema_version"), int)
+        or not isinstance(selected, dict)
+        or selected.get("id") != model
+        or not isinstance(body.get("parameters"), dict)
+        or not isinstance(body.get("tools"), dict)
+        or not isinstance(body.get("transport"), dict)
+    ):
+        raise ModelParameterBadResponse(ModelParameterBadResponse.detail)
 
 
 __all__ = ["AigatewayCatalogSource"]

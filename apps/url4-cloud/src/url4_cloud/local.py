@@ -114,7 +114,13 @@ def create_local_app(
         max_history=settings.local_max_run_history,
     )
     catalog = build_catalog_service(settings)
-    app = create_app(settings, stream=stream, job_runner=job_runner, catalog=catalog)
+    app = create_app(
+        settings,
+        stream=stream,
+        job_runner=job_runner,
+        catalog=catalog,
+        model_parameters=catalog.model_parameter_source if catalog is not None else None,
+    )
     app.router.on_shutdown.append(job_runner.aclose)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
