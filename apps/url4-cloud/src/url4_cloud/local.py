@@ -33,7 +33,8 @@ from url4_cloud import job_env
 from url4_cloud.adapters.inprocess import InProcessJobRunner
 from url4_cloud.adapters.memory import InMemoryEventStream
 from url4_cloud.app import create_app
-from url4_cloud.benchmarks import BENCHMARKS, BenchmarkRegistry
+from url4_cloud.benchmarks import BenchmarkRegistry
+from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.catalog import build_executable_catalog_service
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
@@ -90,7 +91,7 @@ def create_local_app(
     settings: Settings | None = None,
     *,
     env: Mapping[str, str] | None = None,
-    benchmarks: BenchmarkRegistry = BENCHMARKS,
+    benchmarks: BenchmarkRegistry = BUILTIN_BENCHMARKS,
 ) -> FastAPI:
     """Build the local-mode App: in-process runner, in-memory stream, real everything else.
 

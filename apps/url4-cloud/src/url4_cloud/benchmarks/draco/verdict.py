@@ -1,4 +1,8 @@
-"""DRACO's deterministic binding of a Judge reply to an Engine-known criterion."""
+"""DRACO's deterministic binding of a Judge reply to an Engine-known criterion.
+
+INVARIANT: Case, criterion, sequence, and producer identity come from Engine-owned URL4 bindings;
+the Judge supplies only the verdict payload and cannot relabel its Evidence.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from url4 import Node, RelExpr, Text, render
+from url4_cloud.benchmarks.draco.validation import require_text
 
 SCHEMA = "screamingface.criterion-verdict.v1"
 
@@ -56,7 +61,7 @@ def binding_key(value: str) -> tuple[int, int, str]:
         raise ValueError("criterion verdict case_id must be a positive integer")
     if sequence < 1:
         raise ValueError("criterion verdict sequence must be a positive integer")
-    return case_id, sequence, _text(criterion_id, "criterion_id")
+    return case_id, sequence, require_text(criterion_id, "criterion_id")
 
 
 def bind(
@@ -73,8 +78,8 @@ def bind(
         raise ValueError("case_id must be a positive integer")
     if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
         raise ValueError("sequence must be a positive integer")
-    selected_id = _text(criterion_id, "criterion_id")
-    selected_producer = _text(producer_id, "producer_id")
+    selected_id = require_text(criterion_id, "criterion_id")
+    selected_producer = require_text(producer_id, "producer_id")
     decoded = _decode_object(raw)
     reason = _invalid_reason(raw, decoded)
     if reason is not None:
@@ -169,12 +174,6 @@ def _invalid(
         "reason": reason,
         "raw_output": raw,
     }
-
-
-def _text(value: object, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{label} must be non-empty text")
-    return value
 
 
 __all__ = ["SCHEMA", "bind", "binding_key", "call"]

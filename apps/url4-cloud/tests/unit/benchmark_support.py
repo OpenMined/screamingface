@@ -4,7 +4,8 @@ from collections.abc import Collection, Iterable
 from pathlib import Path
 
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks import BENCHMARKS, Benchmark, BenchmarkRegistry
+from url4_cloud.benchmarks import Benchmark, BenchmarkRegistry
+from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.benchmarks.candidate import install_candidate_invocation
 from url4_cloud.benchmarks.draco.definition import JUDGE_MODEL
 
@@ -26,7 +27,7 @@ def install_benchmarks(
         if route not in node.processor_routes():
             node.endpoint(route)(_unused_model)
     install_candidate_invocation(node)
-    registry = BENCHMARKS if benchmarks is None else BenchmarkRegistry(benchmarks)
+    registry = BUILTIN_BENCHMARKS if benchmarks is None else BenchmarkRegistry(benchmarks)
     registry.install(node, assets_root=root)
 
 

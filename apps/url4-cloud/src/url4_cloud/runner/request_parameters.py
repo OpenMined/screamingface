@@ -1,4 +1,8 @@
-"""Validate URL4 model-call parameters and apply an active retrieval ceiling."""
+"""Validate URL4 model-call parameters and apply an active retrieval ceiling.
+
+INVARIANT: a nested call may narrow its active retrieval policy, but it cannot enable retrieval
+or remove excluded domains forbidden by its parent invocation.
+"""
 
 from __future__ import annotations
 

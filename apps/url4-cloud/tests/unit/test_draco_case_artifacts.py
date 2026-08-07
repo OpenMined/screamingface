@@ -16,8 +16,8 @@ from benchmark_support import install_benchmarks
 
 from url4 import Node, RelExpr, build, expr, render, src, text
 from url4_cloud.benchmarks.draco.definition import DRACO_SMOKE, JUDGE_MODEL
-from url4_cloud.world_config import ModelSpec
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.world_config import ModelSpec
 
 _QUESTION = "What is two plus two?"
 _ANSWER = "Four."

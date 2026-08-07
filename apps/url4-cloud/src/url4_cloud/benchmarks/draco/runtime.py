@@ -1,4 +1,8 @@
-"""Install DRACO's private assets and deterministic functions into one Runner world."""
+"""Install DRACO's private assets and deterministic functions into one Runner world.
+
+INVARIANT: a profile validates its complete selected Case/criteria/rubric set before any of its
+routes are registered, so an executable world can never expose a half-installed DRACO protocol.
+"""
 
 from __future__ import annotations
 

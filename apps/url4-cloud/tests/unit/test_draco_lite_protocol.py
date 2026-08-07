@@ -15,7 +15,7 @@ from benchmark_support import install_benchmarks
 
 from url4 import RelExpr, Text, expr, render, src
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks import BENCHMARKS
+from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
@@ -69,7 +69,7 @@ def _assets(root: Path) -> None:
 
 
 def test_lite_is_a_separate_noncanonical_benchmark() -> None:
-    assert BENCHMARKS.get("draco/lite") is DRACO_LITE
+    assert BUILTIN_BENCHMARKS.get("draco/lite") is DRACO_LITE
     assert DRACO_LITE.id == "draco/lite"
     assert DRACO_LITE.variant == "lite"
     assert DRACO_LITE.case_count == 2

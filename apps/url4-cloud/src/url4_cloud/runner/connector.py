@@ -23,7 +23,6 @@ from url4_cloud.retrieval_policy import (
 )
 from url4_cloud.runner.cache import policy_to_body_field
 from url4_cloud.runner.cache_readback import CacheOutcome, read_cache_outcome, requires_revalidation
-from url4_cloud.world_config import ModelSpec, WorldConfigError, routes_for
 from url4_cloud.runner.errors import RunnerRequestError
 from url4_cloud.runner.model_response import (
     Choice,
@@ -45,6 +44,7 @@ from url4_cloud.runner.web_tools import (
     build_runtime,
     truncate_tool_result,
 )
+from url4_cloud.world_config import ModelSpec, WorldConfigError, routes_for
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _truncate_tool_result = truncate_tool_result

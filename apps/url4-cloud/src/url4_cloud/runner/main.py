@@ -9,6 +9,7 @@ layering note in :mod:`url4_cloud.runner`.
 import asyncio
 import os
 from collections.abc import Mapping
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,7 +18,8 @@ import httpx
 from url4.streaming.lifecycle import run
 from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
-from url4_cloud.benchmarks import BENCHMARKS, EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
+from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
+from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.benchmarks.candidate import install_candidate_invocation
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world
@@ -138,7 +140,10 @@ def build_executor(
             tavily_client=tavily_client,
         )
         if len(benchmarks):
-            try:
+            # WHY: installation can fail through any concrete Benchmark adapter. AsyncExitStack
+            # guarantees the already-open model world closes without a catch-all exception clause.
+            async with AsyncExitStack() as cleanup:
+                cleanup.push_async_callback(world.aclose)
                 install_candidate_invocation(world.node)
                 benchmarks.install(
                     world.node,
@@ -148,9 +153,7 @@ def build_executor(
                         else assets_root(env)
                     ),
                 )
-            except Exception:
-                await world.aclose()
-                raise
+                cleanup.pop_all()
         return world.node, world.aclose
 
     return Url4Executor(world_factory=_world)
@@ -159,7 +162,7 @@ def build_executor(
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
     async def _main() -> None:
         params = params_from_env(os.environ)
-        executor = build_executor(os.environ, benchmarks=BENCHMARKS)
+        executor = build_executor(os.environ, benchmarks=BUILTIN_BENCHMARKS)
         traceparent = os.environ.get(job_env.TRACEPARENT)
         await run(
             JetStreamPublisher(params.nats_url),

@@ -16,7 +16,7 @@ from benchmark_support import install_benchmarks
 
 from url4 import RelExpr, Text, render
 from url4.peer.server import Url4Node
-from url4_cloud.benchmarks import BENCHMARKS
+from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
@@ -32,7 +32,7 @@ from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 
 
 def test_smoke_is_a_separate_noncanonical_benchmark() -> None:
-    assert BENCHMARKS.get("draco/smoke") is DRACO_SMOKE
+    assert BUILTIN_BENCHMARKS.get("draco/smoke") is DRACO_SMOKE
     assert DRACO_SMOKE.id == "draco/smoke"
     assert DRACO_SMOKE.variant == "smoke"
     assert DRACO_SMOKE.case_count == 1

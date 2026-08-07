@@ -1,4 +1,8 @@
-"""Prepare weight-free DRACO judge tasks at the case-to-criterion scope boundary."""
+"""Prepare weight-free DRACO judge tasks at the case-to-criterion scope boundary.
+
+INVARIANT: Judge inputs contain one criterion's public requirement and type, never its weight,
+axis score, sibling criteria, or private rubric structure.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,12 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+from url4_cloud.benchmarks.draco.validation import (
+    optional_integer,
+    require_positive_integer,
+    require_text,
+)
 
 
 class TasksError(ValueError):
@@ -76,31 +86,21 @@ def load_question(directory: Path, case_id: int) -> str:
 
 def positive_case_id(value: object) -> int:
     """Decode the case id carried in a Benchmark route intent."""
-    label = "case_id"
-    if isinstance(value, bool) or not isinstance(value, (int, str)):
-        raise TasksError(f"{label} must be a positive integer")
     try:
-        selected = int(value)
-    except ValueError:
-        raise TasksError(f"{label} must be a positive integer") from None
-    if selected < 1:
-        raise TasksError(f"{label} must be a positive integer")
-    return selected
+        return require_positive_integer(value, "case_id")
+    except ValueError as exc:
+        raise TasksError(str(exc)) from None
 
 
 def _case_id(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, (int, str)):
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
+    return optional_integer(value)
 
 
 def _text(value: object, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise TasksError(f"{label} must be non-empty text")
-    return value
+    try:
+        return require_text(value, label)
+    except ValueError as exc:
+        raise TasksError(str(exc)) from None
 
 
 __all__ = [

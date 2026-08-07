@@ -1,4 +1,8 @@
-"""Bounded Tavily-backed web tools for model routes that declare them."""
+"""Bounded Tavily-backed web tools for model routes that declare them.
+
+INVARIANT: exclusions are sent to Tavily and enforced again on returned search rows and direct
+fetch URLs; provider-side filtering is never the sole privacy guard.
+"""
 
 from __future__ import annotations
 
@@ -282,7 +286,11 @@ def _is_blocked(url: str, exclusions: Sequence[str]) -> bool:
         normalized_host = parsed.raw_host.decode("ascii").lower().rstrip(".")
     except (httpx.InvalidURL, UnicodeDecodeError):
         pass
-    if not normalized_host:
+    # Fail closed on a host this comparison cannot decide. An unparsed host is the obvious case;
+    # a percent-encoded one is the subtle one — httpx leaves the authority encoded, so `ev%69l.com`
+    # would not match `evil.com` here and would then be handed to a fetcher that decodes it. A
+    # real host never carries a literal `%`, so refusing one costs nothing.
+    if not normalized_host or "%" in normalized_host:
         return True
     return any(
         normalized_host == domain or normalized_host.endswith(f".{domain}") for domain in exclusions

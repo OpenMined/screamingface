@@ -7,6 +7,7 @@ from typing import Any
 
 from url4_cloud.benchmarks.draco.errors import AggregateError
 from url4_cloud.benchmarks.draco.scoring import flatten_criteria, score_case
+from url4_cloud.benchmarks.draco.validation import optional_integer
 from url4_cloud.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 COVERAGE_TARGET = 0.95
@@ -22,7 +23,7 @@ def group_runs(verdicts: Sequence[Mapping[str, Any]]) -> list[dict[str, bool]]:
     runs: list[dict[str, bool]] = []
     for verdict in verdicts:
         criterion_id = verdict.get("criterion_id") or verdict.get("id")
-        sequence = _as_int(verdict.get("sequence"))
+        sequence = optional_integer(verdict.get("sequence"))
         if criterion_id is None or sequence is None or sequence < 1:
             continue
         index = sequence - 1
@@ -44,10 +45,10 @@ def valid_verdicts(
         if (
             verdict.get("schema") != VERDICT_SCHEMA
             or verdict.get("valid") is not True
-            or _as_int(verdict.get("case_id")) != case_id
+            or optional_integer(verdict.get("case_id")) != case_id
             or str(criterion_id) not in expected
             or status not in {"MET", "UNMET"}
-            or (_as_int(verdict.get("sequence")) or 0) < 1
+            or (optional_integer(verdict.get("sequence")) or 0) < 1
             or verdict.get("producer_type") != "model"
             or not isinstance(verdict.get("producer_id"), str)
             or not isinstance(verdict.get("raw_output"), str)
@@ -250,7 +251,7 @@ def _checks(
     for criterion in selected:
         criterion_id = str(criterion["id"])
         record = by_id.get(criterion_id)
-        if record is None or _as_int(record.get("case_id")) != case_id:
+        if record is None or optional_integer(record.get("case_id")) != case_id:
             raise AggregateError(f"Case {case_id} has no Engine-bound Check {criterion_id!r}")
         checks.append(
             {
@@ -292,10 +293,3 @@ def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
     else:
         value["metadata"] = {"rejection_reason": record.get("reason", "invalid")}
     return value
-
-
-def _as_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None

@@ -26,8 +26,8 @@ import pytest
 
 from url4.core.errors import ResolutionError
 from url4_cloud.retrieval_policy import RetrievalPolicy, retrieval_scope
-from url4_cloud.world_config import ModelSpec, WorldConfigError, parse_config
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.world_config import ModelSpec, WorldConfigError, parse_config
 
 _NATIVE = "openrouter/anthropic/claude-opus-4.8"
 _TAVILY = "claude-opus-4-8"

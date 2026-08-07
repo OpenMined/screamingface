@@ -4,6 +4,9 @@ These formulas mirror ``screamingface-benchmarks/benchmarking/graders/rubric.py`
 (arXiv:2602.11685 §4.2). They are deliberately isolated from execution framing and
 aggregation so protocol math can be reviewed and tested without the URL4 payload
 machinery.
+
+INVARIANT: changes that make these formulas more intuitive but diverge from the pinned reference
+create a different benchmark and must not land as DRACO.
 """
 
 from __future__ import annotations

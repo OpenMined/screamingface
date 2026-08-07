@@ -54,6 +54,7 @@ from url4_cloud.benchmarks.draco.case_evaluation import decode_case_evaluation
 from url4_cloud.benchmarks.draco.definition import JUDGE_PASSES, REVISION
 from url4_cloud.benchmarks.draco.errors import AggregateError as AggregateError
 from url4_cloud.benchmarks.draco.scoring import flatten_criteria as flatten_criteria
+from url4_cloud.benchmarks.draco.validation import optional_integer
 
 COVERAGE_TARGET = case_results_module.COVERAGE_TARGET
 VERDICT_SCHEMA = case_results_module.VERDICT_SCHEMA
@@ -217,7 +218,7 @@ def _aggregate_rows(
             )
             continue
         case_record = row.case_records[0]
-        case_id = _as_int(case_record.get("case_id"))
+        case_id = optional_integer(case_record.get("case_id"))
         if case_id is None:  # pragma: no cover - sealed by _require_verifiable_mapping
             raise AssertionError("a scored DRACO row must carry its Engine-bound case_id")
         rubric = rubrics.get(case_id)
@@ -338,7 +339,8 @@ def _require_verifiable_mapping(rows: Sequence[_DecodedRow]) -> None:
                 f"found {len(case_records)}"
             )
         ids = [
-            _as_int(record.get("case_id")) for record in (*case_records, *check_records, *verdicts)
+            optional_integer(record.get("case_id"))
+            for record in (*case_records, *check_records, *verdicts)
         ]
         if any(case_id is None for case_id in ids):
             raise AggregateError(
@@ -376,7 +378,7 @@ def _validate_selected_cases(
     expected = list(selected_cases)
     ids: set[int] = set()
     for index, case in enumerate(expected):
-        case_id = _as_int(case.get("id")) if isinstance(case, Mapping) else None
+        case_id = optional_integer(case.get("id")) if isinstance(case, Mapping) else None
         input_value = case.get("input") if isinstance(case, Mapping) else None
         if case_id is None or case_id < 1 or not isinstance(input_value, str) or not input_value:
             raise AggregateError(f"selected Case {index} must carry a positive id and input text")
@@ -384,13 +386,6 @@ def _validate_selected_cases(
             raise AggregateError(f"selected Case sequence repeats case_id {case_id}")
         ids.add(case_id)
     return expected
-
-
-def _as_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _grade(case: Mapping[str, Any]) -> Mapping[str, Any]:

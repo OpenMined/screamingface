@@ -24,8 +24,8 @@ import httpx
 import pytest
 
 from url4.core.errors import ResolutionError
-from url4_cloud.world_config import ModelSpec
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.world_config import ModelSpec
 
 _MODEL = "openrouter/google/gemini-3.1-pro-preview"
 

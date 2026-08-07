@@ -1,4 +1,8 @@
-"""Exact DRACO framing between URL4 execution and benchmark Aggregation."""
+"""Exact DRACO framing between URL4 execution and benchmark Aggregation.
+
+INVARIANT: decoding accepts only the declared envelope and direct fields. It never searches
+recursively for plausible grading records because that could bind unrelated nested output.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,11 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
+from url4_cloud.benchmarks.draco.validation import (
+    has_text,
+    optional_integer,
+    require_positive_integer,
+)
 from url4_cloud.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 CRITERION_EVALUATION_SCHEMA = "screamingface.draco-criterion-evaluation.v1"
@@ -23,7 +32,7 @@ def bind_criterion_evaluation(
 ) -> dict[str, Any]:
     """Bind one Check and its ordered Judge Evidence to an Engine-known Case."""
 
-    selected_id = _positive_int(case_id)
+    selected_id = require_positive_integer(case_id, "DRACO Case id")
     case = dict(case_record) if case_record else None
     if case is not None and not _valid_case(case, selected_id):
         raise ValueError("DRACO Criterion evaluation carries an invalid Case record")
@@ -51,7 +60,7 @@ def bind_case_evaluation(
 ) -> dict[str, Any]:
     """Flatten ordered Criterion Evaluations into one authoritative Case Evaluation."""
 
-    selected_id = _positive_int(case_id)
+    selected_id = require_positive_integer(case_id, "DRACO Case id")
     selected = _mapping_sequence(criteria, "DRACO Criterion evaluations")
     cases: list[dict[str, Any]] = []
     checks: list[dict[str, Any]] = []
@@ -194,10 +203,10 @@ def _valid_case(value: Mapping[str, Any], case_id: int) -> bool:
     finish_reason = value.get("finish_reason")
     return (
         value.get("schema") == CASE_SCHEMA
-        and _optional_int(value.get("case_id")) == case_id
-        and _text(value.get("input"))
-        and _text(value.get("output"))
-        and (finish_reason is None or _text(finish_reason))
+        and optional_integer(value.get("case_id")) == case_id
+        and has_text(value.get("input"))
+        and has_text(value.get("output"))
+        and (finish_reason is None or has_text(finish_reason))
         and isinstance(value.get("metadata"), Mapping)
     )
 
@@ -205,10 +214,10 @@ def _valid_case(value: Mapping[str, Any], case_id: int) -> bool:
 def _valid_check(value: Mapping[str, Any], case_id: int) -> bool:
     return (
         value.get("schema") == CHECK_SCHEMA
-        and _optional_int(value.get("case_id")) == case_id
-        and _text(value.get("criterion_id"))
+        and optional_integer(value.get("case_id")) == case_id
+        and has_text(value.get("criterion_id"))
         and value.get("criterion_type") in {"positive", "negative"}
-        and _text(value.get("requirement"))
+        and has_text(value.get("requirement"))
     )
 
 
@@ -220,11 +229,11 @@ def _valid_evidence(
 ) -> bool:
     if not (
         value.get("schema") == VERDICT_SCHEMA
-        and _optional_int(value.get("case_id")) == case_id
+        and optional_integer(value.get("case_id")) == case_id
         and value.get("criterion_id") == criterion_id
-        and _optional_int(value.get("sequence")) == sequence
+        and optional_integer(value.get("sequence")) == sequence
         and value.get("producer_type") == "model"
-        and _text(value.get("producer_id"))
+        and has_text(value.get("producer_id"))
         and isinstance(value.get("raw_output"), str)
         and type(value.get("valid")) is bool
     ):
@@ -233,7 +242,7 @@ def _valid_evidence(
         return value.get("criterion_status") in {"MET", "UNMET"} and isinstance(
             value.get("explanation"), str
         )
-    return _text(value.get("reason"))
+    return has_text(value.get("reason"))
 
 
 def _root_object(value: Any) -> dict[str, Any] | None:
@@ -244,26 +253,6 @@ def _root_object(value: Any) -> dict[str, Any] | None:
         except ValueError:
             return None
     return dict(decoded) if isinstance(decoded, Mapping) else None
-
-
-def _positive_int(value: object) -> int:
-    selected = _optional_int(value)
-    if selected is None or selected < 1:
-        raise ValueError("DRACO Case id must be a positive integer")
-    return selected
-
-
-def _optional_int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int | str):
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
-def _text(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
 
 
 __all__ = [

@@ -5,6 +5,12 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
+from url4_cloud.benchmarks.draco.validation import (
+    optional_integer,
+    require_positive_integer,
+    require_text,
+)
+
 CASE_SCHEMA = "screamingface.draco-case-record.v1"
 CHECK_SCHEMA = "screamingface.draco-check-record.v1"
 _CRITERION_TYPES = frozenset({"positive", "negative"})
@@ -15,7 +21,7 @@ def bind_case(
 ) -> dict[str, object]:
     """Bind one Candidate output to the Engine-owned Case selected by ``case_id``."""
 
-    selected_id = _case_id(case_id)
+    selected_id = require_positive_integer(case_id, "case_id")
     if not isinstance(output, str) or not output.strip():
         raise ValueError("DRACO Candidate output must be non-empty text")
     try:
@@ -25,7 +31,7 @@ def bind_case(
     if not isinstance(cases, list):
         raise ValueError("DRACO cases must be a JSON array")
     for row in cases:
-        if not isinstance(row, Mapping) or _optional_case_id(row.get("id")) != selected_id:
+        if not isinstance(row, Mapping) or optional_integer(row.get("id")) != selected_id:
             continue
         input_value = row.get("input")
         if not isinstance(input_value, str) or not input_value.strip():
@@ -50,38 +56,16 @@ def bind_check(
 ) -> dict[str, object]:
     """Bind one public criterion description to Engine-known Case identity."""
 
-    selected_type = _text(criterion_type, "criterion_type")
+    selected_type = require_text(criterion_type, "criterion_type")
     if selected_type not in _CRITERION_TYPES:
         raise ValueError(f"unsupported DRACO criterion_type {selected_type!r}")
     return {
         "schema": CHECK_SCHEMA,
-        "case_id": _case_id(case_id),
-        "criterion_id": _text(criterion_id, "criterion_id"),
+        "case_id": require_positive_integer(case_id, "case_id"),
+        "criterion_id": require_text(criterion_id, "criterion_id"),
         "criterion_type": selected_type,
-        "requirement": _text(requirement, "criterion requirement"),
+        "requirement": require_text(requirement, "criterion requirement"),
     }
-
-
-def _case_id(value: object) -> int:
-    selected = _optional_case_id(value)
-    if selected is None or selected < 1:
-        raise ValueError("case_id must be a positive integer")
-    return selected
-
-
-def _optional_case_id(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, (int, str)):
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
-def _text(value: object, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{label} must be non-empty text")
-    return value
 
 
 __all__ = ["CASE_SCHEMA", "CHECK_SCHEMA", "bind_case", "bind_check"]
