@@ -29,7 +29,7 @@ Cache-Control: no-store              (HTTP, on GET /)
 
 ## 2. The upstream this depends on
 
-**aigateway PR #507 (`OME-305`) — WIP, assumed landing.** It replaces the v1 per-account cache
+**aigateway PR #507 (`OME-305`) — MERGED 2026-08-06 as `4f2a55ea`.** It replaces the v1 per-account cache
 with one **global, never-expiring, ON-by-default** cache whose control grammar is **closed to a
 single field, `use-cache`**.
 
@@ -285,7 +285,8 @@ and a discarded body, multiplied across a fan-out.
 
 1. `run_gates.py url4` and `run_gates.py url4-cloud` both green.
 2. Batch 2's property test passes — `cache` never carries a key other than `use-cache`.
-3. **End-to-end against a local aigateway built from #507**, with `requestCache.enabled: true`:
+3. **End-to-end against a local aigateway built from `origin/main`** (#507 having merged), with
+   `AIGW_REQUEST_CACHE_ENABLED=true`:
    - default run → participates; `miss`, then `hit` on an identical repeat
    - `Cache-Control: no-store` → `bypass` with reason **`opted_out`** (not `unsupported_control`
      — that distinction is the whole point of collapsing at the url4 edge)
@@ -296,9 +297,10 @@ and a discarded body, multiplied across a fan-out.
 
 ## Risks
 
-1. **#507 is WIP.** Its control grammar could still change; this plan is written against the
-   branch as read on 2026-08-05. Re-read `global_controls.py` before Batch 2 — that file alone
-   determines the mapping.
+1. ~~**#507 is WIP.** Its control grammar could still change~~ — **RETIRED 2026-08-07.** #507
+   merged as `4f2a55ea` and `global_controls.py` was re-read on `origin/main`: the grammar is
+   byte-equivalent to what this plan was written against, the sole change being a rename url4
+   never referenced (`LEGACY_CONTROL_FIELDS` → `UNSUPPORTED_CONTROL_FIELDS`). The mapping stands.
 2. **Touching a live wire type.** `AttachData` is protocol. Batch 1 test 1 is the guard.
 3. **`packages/url4` coverage gate is 95%**; small additions with error branches can dip it.
 4. **The closed grammar is a silent failure mode.** An extra control key costs every hit and

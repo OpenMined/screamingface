@@ -21,6 +21,7 @@ related:
 |---|---|---|
 | r1 | 2026-08-05 | First draft — located the change in url4-cloud's REST layer. |
 | r2 | 2026-08-05 | **Superseded r1's location.** Owner: protocol belongs in `packages/url4`; both HTTP header *and* protocol frame are carriers. Adds §3 D3/D4 and §5.2. |
+| **r9** | 2026-08-07 | **#507 landed.** The upstream contract §1.0 was written against is no longer assumed — it merged as `4f2a55ea`. §1.0 restated from *assumed* to *merged*, and re-verified against `origin/main` rather than the PR branch: the grammar is unchanged (only `LEGACY_CONTROL_FIELDS` → `UNSUPPORTED_CONTROL_FIELDS`, which url4 never referenced). §1.1's v1 citations pinned to `bc8399bc` (the pre-v2 tree) — `chat_dispatch.py:191` is unrelated code on `main` now. §7's header location corrected to `routes/chat_cache_stage.py`. |
 | **r8** | 2026-08-06 | **Corrections from the implementation review.** §4.1 said "exactly one field" while the type carries two (`participate`, `max_age`) — the plan superseded itself and the spec never caught up. §9.7 struck (unsatisfiable under v2). §9.10 restated as N/A. §5.2's "first attach wins" narrowed to what the code actually guarantees. |
 | **r7** | 2026-08-05 | **Owner locked the last four**: D3 extend `AttachData` · D4 header wins · D6 standard `Cache-Control` · D11 **honour `max-age`**. D11 carries two upstream blockers — §3.5. Spec is decision-complete. |
 | **r6** | 2026-08-05 | **Standards alignment.** Read-back prefers **`Cache-Status`** (RFC 9211) over the ad hoc `X-AIGW-Cache*`; **`Age`** (RFC 9111 §5.1) makes `max-age` honourable, so **D11 is reopened** (§3.5). Adds §2.2 with the registry evidence. |
@@ -28,15 +29,20 @@ related:
 | r4 | 2026-08-05 | ~~TTL/size knobs pinned explicitly in the chart~~ — **REVOKED by r5.** |
 | r3 | 2026-08-05 | **D1 LOCKED: caching is ON by default; only disabling is explicit.** That makes the aigateway **chart** part of the deliverable (D8 reversed) and makes this cross-app — see §2.1. Ensemble-determinism tradeoff (§8.2) accepted by the owner on the record. |
 
-**Nothing here is implemented.** Per CLAUDE.md rule 3, implementation starts only on explicit
-approval in plain words.
+**Status: implemented.** Approval was given in plain words on 2026-08-06 (CLAUDE.md rule 3) and
+the design landed as **PR #518** — `apps/url4-cloud` + `packages/url4`, gates green on both
+stacks. This spec is the design record; #518 is the implementation, and the plan's Verification
+section is the acceptance list.
 
-## 1.0 Upstream contract — aigateway v2 (PR #507), assumed
+## 1.0 Upstream contract — aigateway v2 (PR #507), MERGED
 
-This spec is written against **`OME-305` / PR #507 `feat(aigateway): add global exact-request
-cache`** — open, non-draft, +12152/-547 at time of writing. It is **assumed to land**; url4 must
-be ready for it. Everything below consumes that contract rather than the v1 one this spec
-originally targeted.
+This spec was written against **`OME-305` / PR #507 `feat(aigateway): add global exact-request
+cache`** while it was still open. **It merged on 2026-08-06 as `4f2a55ea`** — the contract below
+is no longer an assumption, and every claim in this section has been re-verified against
+`origin/main` rather than the PR branch. The one difference found is a rename url4 never
+referenced: `LEGACY_CONTROL_FIELDS` → `UNSUPPORTED_CONTROL_FIELDS`.
+
+Everything below consumes the v2 contract rather than the v1 one this spec originally targeted.
 
 **What v2 is**, from its own source:
 
@@ -69,13 +75,20 @@ richer is not merely unnecessary — it actively causes a bypass.
 aigateway has a complete response cache — keyed store, TTL, bypass reasons, response headers —
 and **url4 cannot reach any of it**.
 
-| # | fact | evidence |
+> **These are the v1 facts that motivated the spec, and their line references are pinned to
+> `bc8399bc` — the commit immediately before #507.** They are kept because they are the argument
+> for doing this work at all, not because they describe `main`. Facts 1, 2 and 5 were all
+> restructured by v2 (§1.0): caching is now ON by default rather than opt-in, and
+> `chat_dispatch.py:191` is unrelated error-handling code on `main` today. Facts 3, 4, 6 and 7 —
+> the url4 side — are unaffected and remain true.
+
+| # | fact (at `bc8399bc`, pre-v2) | evidence |
 |---|---|---|
 | 1 | Caching is **opt-in**; absent opt-in the request bypasses | `aigateway/routes/chat_dispatch.py:191` — `if not controls.use_cache: return None, "bypass", "not_requested"` |
 | 2 | Opt-in arrives as a `cache` object in the **request body**, popped before provider plugins | `aigateway/core/request_cache/keys.py:71-86` |
 | 3 | url4-cloud's outgoing body is **hardcoded** | `url4_cloud/runner/connector.py:337-339` — `json={"model": model, "messages": messages, **extra}`; `extra` is only `{tools, tool_choice}` |
 | 4 | Therefore **every url4 run bypasses today**, reason `not_requested` | 1 + 3 |
-| 5 | aigateway reports outcome in headers nothing reads | `chat_dispatch.py:218-226` sets `X-AIGW-Cache`, `X-AIGW-Cache-Reason`, `X-AIGW-Cache-Key` |
+| 5 | aigateway reports outcome in headers nothing reads | `chat_dispatch.py:218-226` sets `X-AIGW-Cache`, `X-AIGW-Cache-Reason`, `X-AIGW-Cache-Key`. **On `main` this moved to `routes/chat_cache_stage.py`** — names at `:43-46`, built by `global_cache_headers()` at `:353-375`, applied by `set_global_cache_headers()` at `:379`. `X-AIGW-Cache-Write` was added |
 | 6 | The url4 protocol has **no** cache vocabulary inbound | `packages/url4/.../protocol/unions.py:81` — `InboundFrame = StopEvent \| AttachEvent` |
 | 7 | …but it **already has** the reporting half | `packages/url4/.../protocol/taxonomy.py:19-42` — `cache_read_tokens`, `cache_creation_tokens`, `cache_read_usd`, `cache_creation_usd` |
 
@@ -198,7 +211,7 @@ choose. The OPEN items are the point of this review.
 | D5 | Scope | whole run — every leaf, every fan-out branch | 🟢 LOCKED (§1.2) |
 | D6 | Header name / intermediary participation | **standard `Cache-Control`**; intermediaries may participate (§3.4) | 🟢 LOCKED (owner, r7) |
 | D7 | Response headers read back and folded onto spans | mandatory, every variant | 🟢 LOCKED (§7) |
-| D8 | aigateway changes | **none — PR #507 does it all**, chart included. url4 depends on it landing (§1.0) | 🟢 LOCKED (r5 — reverts r3) |
+| D8 | aigateway changes | **none — PR #507 does it all**, chart included. **#507 merged 2026-08-06 (`4f2a55ea`), so this dependency is satisfied** (§1.0) | 🟢 LOCKED (r5 — reverts r3) |
 | D11 | `Cache-Control: max-age=N` | **honour it** — blocked upstream today; opt-out until then (§3.5) | 🟢 LOCKED (owner, r7) |
 | D9 | Protocol location | `packages/url4/.../streaming/protocol/` | 🟢 LOCKED (owner, r2) |
 | D10 | Both carriers supported | yes | 🟢 LOCKED (owner, r2) |
@@ -285,12 +298,13 @@ carries the same fact as the `ttl` parameter inside `Cache-Status`.
 | (c) Ignore the directive | The caller silently receives an arbitrarily old answer having explicitly asked not to. Rejected. |
 
 **LOCKED: (a) — honour `max-age`.** Two upstream blockers stand between that decision and a
-working implementation, both verified against #507's branch on 2026-08-05:
+working implementation. First verified against #507's branch on 2026-08-05; **both re-verified
+against `origin/main` on 2026-08-07, after #507 merged — both still stand:**
 
-| blocker | evidence |
+| blocker | evidence (on `main`) |
 |---|---|
-| **url4 cannot ASK for a bound.** v2's grammar is closed to `use-cache`; `{"cache": {"max-age": 60}}` returns `_refuse(BYPASS_UNSUPPORTED_CONTROL)` | `global_controls.py:79-83` |
-| **aigateway does not REPORT age.** No `Age` header, no `Cache-Status; ttl=` | #507 adds `CACHE_HEADER`/`REASON_HEADER`/`WRITE_HEADER`/`KEY_HEADER` and no age field |
+| **url4 cannot ASK for a bound.** v2's grammar is closed to `use-cache`; `{"cache": {"max-age": 60}}` returns `_refuse(BYPASS_UNSUPPORTED_CONTROL)` | `global_controls.py:72-76` — `if set(raw) - {USE_CACHE_FIELD}: … return _refuse(BYPASS_UNSUPPORTED_CONTROL)` (was `:79-83` on the PR branch) |
+| **aigateway does not REPORT age.** No `Age` header, no `Cache-Status; ttl=` | `git grep -E '"Age"\|Cache-Status' -- 'apps/aigateway/src/**/*.py'` returns **nothing**. The only cache headers are `CACHE_HEADER`/`REASON_HEADER`/`WRITE_HEADER`/`KEY_HEADER`, none carrying an age |
 
 So url4 can neither request a freshness bound nor measure one. **Until one of these changes,
 `max-age` degrades to opt-out** — the conservative direction, and observably so via
