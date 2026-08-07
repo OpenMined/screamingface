@@ -34,6 +34,12 @@ config:
   portalDir: /app/web/portal
   portalArtifactsDir: /app/web/artifacts
   forwardedAllowIps: "*"
+  # disabled (default) trusts the client-supplied submitted_by free text, matching
+  # today's behavior. cloudflare_headers requires and trusts the X-User-Email identity
+  # header the mesh gateway injects — only sound where this service is reachable
+  # exclusively through that mesh (OME-404).
+  authMode: disabled
+  allowedNetworks: ""
 
 cors:
   origins:
@@ -42,12 +48,6 @@ cors:
 database:
   existingSecret: scoreboard-db
   existingSecretKey: database-url
-
-# Optional — unset means SCOREBOARD_SUBMISSION_API_KEY is never set on the pod, so the
-# app-level write gate (OME-391 / C2) stays a no-op, matching today's default behavior.
-submissionApiKey:
-  existingSecret: ""
-  existingSecretKey: ""
 
 service:
   type: ClusterIP

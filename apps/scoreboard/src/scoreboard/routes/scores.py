@@ -1,23 +1,28 @@
 """Public score submission and score lookup routes.
 
-Reads are always public. Writes are open by default; setting
-SCOREBOARD_SUBMISSION_API_KEY gates POST /v1/scores behind a shared placeholder key
-(OME-391 / C2) until real per-submitter identity exists (OME-326). The
-verified_by_openmined response field is the trust-tier signal for consumers;
-submitted scores default to unverified regardless of the key.
+Reads are always public. Writes trust the client-supplied ``submitted_by`` free text by
+default (``auth_mode=disabled``); setting ``SCOREBOARD_AUTH_MODE=cloudflare_headers``
+requires and trusts the mesh-verified `X-User-Email` identity header instead (OME-404,
+following OME-326). The verified_by_openmined response field is a separate, independent
+trust-tier signal — submitted scores default to unverified regardless of how the submitter
+was identified.
 """
 
 from __future__ import annotations
 
-import hmac
 from decimal import Decimal
 from typing import Annotated, Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 from tortoise.exceptions import OperationalError
 
 from scoreboard.config import Settings
+from scoreboard.core.auth.cloudflare_identity import (
+    HEADER_USER_EMAIL,
+    identity_from_headers,
+    peer_in_networks,
+)
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
     FieldErrorDetail,
@@ -32,34 +37,47 @@ router = APIRouter(prefix="/v1", tags=["scores"])
 
 ACCURACY_TOLERANCE = Decimal("0.01")
 STORE_UNAVAILABLE_DETAIL = "score store unavailable"
-INVALID_API_KEY_DETAIL = "missing or invalid API key"
+UNTRUSTED_PEER_DETAIL = (
+    "This service accepts header identity only from the networks it was configured to trust."
+)
+MISSING_IDENTITY_DETAIL = (
+    f"Missing {HEADER_USER_EMAIL} — this service resolves the submitter from the identity "
+    "header the mesh gateway injects after verifying Cloudflare Access."
+)
 
 
-async def _require_submission_api_key(
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> None:
-    # AIDEV-NOTE: this whole function is a TEMPORARY stub (OME-391 / C2), scoped to
-    # be deleted once OME-326 (real per-user identity) ships. It intentionally does
-    # NOT distinguish submitters — one shared key, everyone looks identical to the
-    # server. When OME-326 lands: delete this function, its Depends() wiring below,
-    # submission_api_key off Settings, and swap in real per-request identity that
-    # also populates ScoreSubmission.submitted_by from something verified instead of
-    # self-reported free text.
-    # INVARIANT: SCOREBOARD_SUBMISSION_API_KEY unset means this is a no-op — every
-    # existing deployment/test keeps today's behavior until it's explicitly set
-    # (OME-391 / C2).
-    expected_key = cast(Settings, request.app.state.settings).submission_api_key
-    if expected_key is None:
-        return
+async def _resolve_submitter(request: Request, submission: ScoreSubmission) -> str | None:
+    """Who actually submitted this: client-supplied free text in ``disabled`` (dev/test)
+    mode, or the mesh-verified identity header in ``cloudflare_headers`` mode.
 
-    # WHY: compare_digest instead of != to avoid a timing side-channel on the key.
-    presented = authorization or ""
-    if not hmac.compare_digest(presented, f"Bearer {expected_key}"):
+    INVARIANT: no-identity is a 401, never a silent fallback to anonymous or to the
+    caller's own claim — a misconfigured mesh (Envoy bypassed, or not injecting) must not
+    turn into a service that lets a caller name themselves.
+
+    INVARIANT: the peer network is checked BEFORE the header is read, so an untrusted peer
+    is refused without its identity claim ever being consulted.
+
+    AIDEV-NOTE: deliberately a plain call at the top of `submit_score`, not a `Depends()` —
+    it needs the already-parsed `submission` body for the disabled-mode fallback. This means
+    a second authenticated route does NOT get this check for free the way aigateway's
+    `CurrentAccount` dependency generalizes; either extract the header/peer logic into a
+    proper `Depends()` at that point, or copy this call verbatim — don't add a route with a
+    write path and skip it silently.
+    """
+    settings = cast(Settings, request.app.state.settings)
+    if settings.auth_mode == "disabled":
+        return submission.submitted_by
+    if not peer_in_networks(
+        request.client.host if request.client is not None else None,
+        settings.allowed_networks,
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=UNTRUSTED_PEER_DETAIL)
+    email = identity_from_headers(request.headers)
+    if email is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=INVALID_API_KEY_DETAIL,
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=MISSING_IDENTITY_DETAIL
         )
+    return email
 
 
 SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -73,7 +91,11 @@ SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     status.HTTP_401_UNAUTHORIZED: {
         "model": MessageErrorResponse,
-        "description": "Missing or invalid submission API key.",
+        "description": "Missing X-User-Email identity header (cloudflare_headers mode only).",
+    },
+    status.HTTP_403_FORBIDDEN: {
+        "model": MessageErrorResponse,
+        "description": "Caller's peer network is not trusted to present identity headers.",
     },
     status.HTTP_404_NOT_FOUND: {
         "model": FieldErrorResponse,
@@ -104,7 +126,6 @@ def _field_error_detail(field: str, message: str) -> dict[str, str]:
     response_model=ScoreSchema,
     status_code=status.HTTP_201_CREATED,
     responses=SUBMIT_SCORE_RESPONSES,
-    dependencies=[Depends(_require_submission_api_key)],
 )
 async def submit_score(
     submission: ScoreSubmission,
@@ -112,7 +133,15 @@ async def submit_score(
     response: Response,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ScoreSchema:
-    """Create a score submission; gated by SCOREBOARD_SUBMISSION_API_KEY if set."""
+    """Create a score submission; submitter identity depends on SCOREBOARD_AUTH_MODE."""
+
+    # WHY resolved before any business-rule validation: the old shared-key gate ran as a
+    # FastAPI Depends(), so it always executed before this function's body — an
+    # unauthenticated/untrusted caller was rejected before ever learning anything about
+    # its payload. Keeping identity resolution first preserves that ordering now that it's
+    # a plain call instead of a dependency.
+    submitted_by = await _resolve_submitter(request, submission)
+    submission = submission.model_copy(update={"submitted_by": submitted_by})
 
     submitted_accuracy = Decimal(str(submission.accuracy))
     expected_accuracy = Decimal(submission.correct_questions) / Decimal(submission.total_questions)
