@@ -231,8 +231,10 @@ replaces its key only when it already uses API-key authentication. Changing auth
 requires an explicit disconnect, so setup never destroys a working connection as a side effect.
 
 In a deployed App these routes return `503` when `URL4_CLOUD_AIGATEWAY_BASE_URL` is unset. Local
-mode uses `http://127.0.0.1:9105` for connection operations unless explicitly overridden; this does
-not change the existing local model-catalog configuration.
+mode falls back to `URL4_CLOUD_LOCAL_AIGATEWAY_BASE_URL` (default `http://127.0.0.1:9105`) for
+connection operations; an explicit `URL4_CLOUD_AIGATEWAY_BASE_URL` still outranks it and points
+catalog and connections at one gateway. Neither changes the existing local model-catalog
+configuration — the catalog stays off until the shared field is set.
 
 Responses contain only the public provider name, supported methods, status, authentication method,
 and optional account label. AI Gateway account identifiers, credential locators, OAuth state, and

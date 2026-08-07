@@ -37,3 +37,31 @@ async def test_local_app_closes_its_connection_client_on_shutdown() -> None:
         assert not client.is_closed
 
     assert client.is_closed
+
+
+def test_the_local_gateway_address_is_configurable() -> None:
+    app = _app(local_aigateway_base_url="http://sidecar.test:9105")
+
+    assert isinstance(app.state.connections, AigatewayConnections)
+    assert str(app.state.connections._client.base_url) == "http://sidecar.test:9105"  # noqa: SLF001
+
+
+def test_an_explicit_aigateway_url_outranks_the_local_default() -> None:
+    """INVARIANT: one `URL4_CLOUD_AIGATEWAY_BASE_URL` still points the whole App at one gateway.
+
+    The local default is a fallback, not an override — a developer who states the shared field
+    must not have connections quietly diverge from the catalog onto a different address.
+    """
+    app = _app(
+        aigateway_base_url="http://gateway.test:9876",
+        local_aigateway_base_url="http://sidecar.test:9105",
+    )
+
+    assert isinstance(app.state.connections, AigatewayConnections)
+    assert str(app.state.connections._client.base_url) == "http://gateway.test:9876"  # noqa: SLF001
+
+
+def test_the_local_gateway_address_defaults_to_loopback() -> None:
+    """INVARIANT: loopback, like `LOCAL_HOST` — pinned against the literal, not the constant."""
+    assert Settings(jwt_secret="s" * 32).local_aigateway_base_url == "http://127.0.0.1:9105"
+    assert LOCAL_AIGATEWAY_BASE_URL == "http://127.0.0.1:9105"

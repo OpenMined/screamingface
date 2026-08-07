@@ -33,11 +33,7 @@ from url4_cloud.adapters.inprocess import InProcessJobRunner
 from url4_cloud.adapters.memory import InMemoryEventStream
 from url4_cloud.app import create_app
 from url4_cloud.catalog import build_catalog_service
-from url4_cloud.config import (
-    INSECURE_DEFAULT_JWT_SECRET,
-    LOCAL_AIGATEWAY_BASE_URL,
-    Settings,
-)
+from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.connections import build_connections
 
 _logger = logging.getLogger(__name__)
@@ -122,7 +118,7 @@ def create_local_app(
     connection_settings = settings
     if connection_settings.aigateway_base_url is None:
         connection_settings = connection_settings.model_copy(
-            update={"aigateway_base_url": LOCAL_AIGATEWAY_BASE_URL}
+            update={"aigateway_base_url": settings.local_aigateway_base_url}
         )
     connections = build_connections(connection_settings)
     app = create_app(

@@ -26,17 +26,10 @@ and bridges NATS but schedules nothing.
 # secret.
 INSECURE_DEFAULT_JWT_SECRET = "dev-insecure-change-me"
 
+# WHY a named module constant (not a bare literal) for the local gateway address: it is the
+# DEFAULT of `local_aigateway_base_url` below, and naming it lets a test pin the loopback value
+# without restating the literal — the same shape as INSECURE_DEFAULT_JWT_SECRET above.
 LOCAL_AIGATEWAY_BASE_URL = "http://127.0.0.1:9105"
-"""The AI Gateway address local-mode connection operations fall back to.
-
-WHY it lives beside `aigateway_base_url` rather than in `local.py`: it is a DEFAULT for that
-setting, not a property of how local mode is assembled, and stating it here keeps the field and
-its local fallback from drifting apart. An explicit `URL4_CLOUD_AIGATEWAY_BASE_URL` still wins —
-`create_local_app` only substitutes this when the setting is unset.
-
-INVARIANT: loopback, like `LOCAL_HOST`. Local mode is a single-process developer deployment, and
-the gateway it manages credentials through is the one running beside it.
-"""
 
 
 class Settings(BaseSettings):
@@ -140,6 +133,19 @@ class Settings(BaseSettings):
     # WHY bounded run history: `status()` answers from finished tasks, so they are retained past
     # completion — this caps how many, the way `ttlSecondsAfterFinished` caps retained Jobs.
     local_max_run_history: int = 1000
+    # WHY a SECOND gateway address rather than defaulting `aigateway_base_url` itself: that field
+    # is read by the model catalog too, where `None` is a meaningful state (the endpoint answers
+    # 503 "not configured"). Defaulting it to loopback would silently switch the local catalog on
+    # and point it at a gateway that may not be running. This field says the narrower thing —
+    # where local-mode CONNECTION operations go when nothing else was stated.
+    #
+    # INVARIANT: `aigateway_base_url` still wins. `create_local_app` substitutes this only when
+    # that field is unset, so one explicit `URL4_CLOUD_AIGATEWAY_BASE_URL` continues to point the
+    # whole App — catalog and connections alike — at one gateway.
+    #
+    # WHY loopback, like `LOCAL_HOST`: local mode is a single-process developer deployment, and
+    # the gateway it manages credentials through is the one running beside it.
+    local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
     # INVARIANT: a finished Job's NAME is the stateless single-use replay guard, so reclaiming
     # it re-opens replay for that topic — but only for as long as the token is still usable.
