@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -67,8 +67,22 @@ class _CandidateInvocation:
                 permanent=True,
             ) from exc
 
-        outcome = outcomes[-1] if outcomes else ModelOutcome(None, None)
-        return _encode_candidate_invocation(result.text, outcome)
+        return _encode_candidate_invocation(result.text, _terminal_outcome(outcomes))
+
+
+def _terminal_outcome(outcomes: Sequence[ModelOutcome]) -> ModelOutcome:
+    """Return the outcome that describes the returned answer, or state that none is known.
+
+    A Candidate composes ordinary URL4, so one scope may record several terminal outcomes while
+    the recorder cannot say which branch produced the text that came back. Taking the most recent
+    one attributes a sibling's fields to an unrelated answer, and can pair a non-empty output with
+    a refusal — a shape the contract does not admit. Unanimity is not ambiguity, so agreeing
+    branches still describe the answer; disagreeing ones report null, which the contract allows.
+    A benchmark that needs per-call fidelity must invoke one Candidate per model call.
+    """
+
+    distinct = set(outcomes)
+    return distinct.pop() if len(distinct) == 1 else ModelOutcome(None, None)
 
 
 def install_candidate_invocation(node: Url4Node) -> None:

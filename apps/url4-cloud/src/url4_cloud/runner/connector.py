@@ -291,7 +291,6 @@ def _report_response(choice: _Choice, cache: CacheOutcome) -> None:
     carries the tokens without the outcome states a cost that was never paid — an error in the
     direction that hides savings, and therefore one nobody reports.
     """
-    record_model_outcome(choice.finish_reason, choice.refusal)
     sink = current_response_sink()
     if sink is None:
         return
@@ -556,6 +555,11 @@ async def _chat_completion_loop(
         _raise_if_unusable(choice)
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
+            # Recorded HERE, not per round trip: a tool loop is several round trips serving ONE
+            # logical model call, and only this one is terminal. Publishing the intermediate
+            # `tool_calls` rounds too would leave a consumer unable to tell a call that progressed
+            # from two calls that disagreed (`_terminal_outcome` in `benchmarks/candidate.py`).
+            record_model_outcome(choice.finish_reason, choice.refusal)
             return content or ""
         # Cap the fan-out BEFORE dispatching: the model decides how many calls a turn carries, and
         # they all run concurrently. The dropped ones still get a tool message, because the API
@@ -733,7 +737,11 @@ def _is_blocked(url: str, exclusions: Sequence[str]) -> bool:
         normalized_host = parsed.raw_host.decode("ascii").lower().rstrip(".")
     except (httpx.InvalidURL, UnicodeDecodeError):
         pass
-    if not normalized_host:
+    # Fail closed on a host this comparison cannot decide. An unparsed host is the obvious case;
+    # a percent-encoded one is the subtle one — httpx leaves the authority encoded, so `ev%69l.com`
+    # would not match `evil.com` here and would then be handed to a fetcher that decodes it. A
+    # real host never carries a literal `%`, so refusing one costs nothing.
+    if not normalized_host or "%" in normalized_host:
         return True
     return any(
         normalized_host == domain or normalized_host.endswith(f".{domain}") for domain in exclusions

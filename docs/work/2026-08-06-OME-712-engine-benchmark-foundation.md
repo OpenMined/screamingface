@@ -32,6 +32,11 @@ or generic command/data changes.
 - Runner composition owns Candidate/Benchmark installation and immutable asset-root injection;
   Connector owns model routes only.
 - Startup validation for duplicate/missing routes and malformed full-selection protocols.
+- One terminal outcome per logical model call: the Connector records when its tool loop returns
+  content, not on each round trip, so a consumer can tell a call that progressed from two calls
+  that disagreed. The Candidate reports an agreed outcome and reports null when branches differ.
+- Retrieval exclusions fail closed on any host this comparison cannot decide, including a
+  percent-encoded one.
 
 ## Test plan
 
@@ -55,12 +60,16 @@ or generic command/data changes.
 
 ## Verification
 
-- Focused Benchmark foundation tests: 30 passed.
-- Affected Connector, finish-reason, REST, and Benchmark tests: 108 passed.
-- Full URL4 Cloud suite: 523 passed, 5 skipped, 95.85% coverage.
+- Focused Benchmark foundation tests: 36 passed.
+- Full URL4 Cloud suite: 956 passed, 5 skipped, 96% coverage. Counts are measured after the
+  rebase onto `main`, so they include the cache-policy and connections work that landed there.
 - Ruff lint/format, Pyright, and Engine/control-plane layering: passed.
 - Two-axis branch review: Standards findings resolved in code; accepted spec passes with no
   missing, partial, incorrect, or out-of-scope behavior.
+- Open follow-ups from branch review, deliberately not fixed here: `_relative_endpoint_paths`
+  collects `RelExpr` paths only, so a relative source such as `(/cases)` escapes install-time
+  route validation, and `processor_routes()` excludes `data()` routes; the `$candidate` binding
+  convention is defined only by a test helper rather than by the published resource.
 - Deliberate test-history exception: the inherited URL4 importer boundary test was updated because
   the accepted architecture explicitly makes `url4_cloud.benchmarks` an Engine-owned structured
   URL4 extension. No behavioral assertion was weakened; the boundary became path-specific.

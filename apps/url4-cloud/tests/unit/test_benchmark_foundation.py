@@ -27,7 +27,7 @@ from url4_cloud.model_outcomes import (
     record_model_outcome,
 )
 from url4_cloud.runner.config import AigatewaySection, ModelSpec, RunnerConfig
-from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.runner.connector import AigatewayConfig, _is_blocked, build_aigateway_world
 from url4_cloud.runner.main import build_executor
 from url4_cloud.testing import InMemoryEventStream
 
@@ -775,3 +775,101 @@ async def test_runner_composition_installs_benchmarks_with_the_injected_asset_ro
         "stop",
         None,
     )
+
+
+async def _two_branch_candidate(
+    fast_outcome: ModelOutcome,
+    slow_outcome: ModelOutcome,
+) -> tuple[str, str | None, str | None]:
+    """Run one Candidate whose scope records two outcomes, returning the FAST branch's text."""
+
+    # An explicit default processor: without one the node falls back to the FIRST registered
+    # endpoint, which would make the Candidate adapter itself reduce the group.
+    node = Url4Node("test", default_processor="/provider/fast")
+    install_candidate_invocation(node)
+
+    async def fast(_request: Request) -> str:
+        record_model_outcome(fast_outcome.finish_reason, fast_outcome.refusal)
+        return "fast answer"
+
+    async def slow(_request: Request) -> str:
+        # Finishes LAST, so a "most recent outcome" rule would attribute this branch's
+        # terminal fields to the answer produced by `fast`.
+        await asyncio.sleep(0.01)
+        record_model_outcome(slow_outcome.finish_reason, slow_outcome.refusal)
+        return "slow answer"
+
+    node.endpoint("/provider/fast")(fast)
+    node.endpoint("/provider/slow")(slow)
+
+    branches = expr(
+        src(
+            RelExpr(path="/provider/fast", context="$input", intent=text("a")),
+            name="a",
+            weight=0.0,
+        ),
+        src(
+            RelExpr(path="/provider/slow", context="$input", intent=text("b")),
+            name="b",
+            weight=0.0,
+        ),
+        # A pure structural reference: the answer is `fast`'s text and no further model call
+        # is made to produce it.
+        intent=text("$a"),
+    )
+
+    result = await node.evaluate(_candidate_call(branches, web_search=False))
+    return decode_candidate_invocation(result.text)
+
+
+async def test_divergent_sibling_outcomes_are_reported_as_unknown() -> None:
+    """A sibling's terminal fields are never attributed to another branch's answer."""
+
+    output, finish_reason, refusal = await _two_branch_candidate(
+        ModelOutcome("stop", None),
+        ModelOutcome("length", None),
+    )
+
+    assert output == "fast answer"
+    assert finish_reason is None
+    assert refusal is None
+
+
+async def test_a_tolerated_sibling_refusal_never_accompanies_an_answer() -> None:
+    """The contract has no shape for a non-empty output carrying a provider refusal."""
+
+    output, finish_reason, refusal = await _two_branch_candidate(
+        ModelOutcome("stop", None),
+        ModelOutcome("content_filter", "safety policy"),
+    )
+
+    assert output == "fast answer"
+    assert refusal is None
+    assert finish_reason is None
+
+
+async def test_agreeing_sibling_outcomes_are_still_reported() -> None:
+    """Unanimity is not ambiguity — an agreed outcome still describes the answer."""
+
+    output, finish_reason, refusal = await _two_branch_candidate(
+        ModelOutcome("stop", None),
+        ModelOutcome("stop", None),
+    )
+
+    assert output == "fast answer"
+    assert finish_reason == "stop"
+    assert refusal is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://ev%69l.com/page",
+        "https://evil%2ecom/page",
+        "https://sub.ev%69l.com/page",
+    ],
+)
+async def test_percent_encoded_hosts_cannot_evade_an_exclusion(url: str) -> None:
+    """httpx leaves the authority percent-encoded; a fetcher downstream may not."""
+
+    assert _is_blocked(url, ("evil.com",)) is True
