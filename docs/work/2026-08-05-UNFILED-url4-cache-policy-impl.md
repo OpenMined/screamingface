@@ -1,9 +1,9 @@
 ---
 ticket: UNFILED
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-08-05
-finished:
+finished: 2026-08-07
 ---
 
 # UNFILED — implement the url4 per-run cache policy
@@ -26,9 +26,10 @@ Implement the design approved in plain words by the owner on 2026-08-05.
 - **Spec:** `docs/spec/2026-08-05-url4-cache-policy-spec.md` (r7 — decision-complete)
 - **Plan:** `docs/plan/2026-08-05-url4-cache-policy.md` (r6 — 8 batches)
 
-Both live on branch `url4-cloud-cache-policy-spec` (PR #515), **not yet on `main`**. This branch
-is cut from `main` and carries code only, so the two PRs stay independent rather than stacked
-(the repo squash-merges; stacking has bitten before — see `feedback_no_stacked_prs_squash`).
+Both shipped as **PR #515, merged 2026-08-07 as `b113f41c`** (spec r9 / plan r7 — re-synced to
+the merged #507). This branch was cut from `main` and carries code only, so the two PRs stayed
+independent rather than stacked (the repo squash-merges; stacking has bitten before — see
+`feedback_no_stacked_prs_squash`). The file sets were disjoint, so neither blocked the other.
 
 ## Locked design
 
@@ -91,7 +92,8 @@ Plan §Verification, items 1-5. Notably:
 ## Known-inert
 
 `max-age` degrades to opt-out until aigateway either accepts a bound or reports `Age`. Both
-blockers verified on #507's branch; the honoured path is written and dormant.
+blockers verified on #507's branch, and **re-verified on merged `main` 2026-08-07 — both still
+stand**; the honoured path is written and dormant.
 
 ## Batch 7 — two design notes the owner should see
 
@@ -170,7 +172,70 @@ is the whole of D11's honouring half. Three batch-5 tests encoding the old behav
    with one sub-issue per landing. Executed as one unit only because MCP is unauthenticated.
 2. **Append-only exception** — owner-approved, documented above.
 3. **D11 shipped inert.** `max-age` degrades to opt-out; the honoured path is written and dormant.
-4. **End-to-end verification not run.** Plan Verification step 3 needs a local aigateway built
-   from #507. Every test here asserts against a mock transport, so the aigateway half of the
-   contract is verified by reading `global_controls.py`, not by execution. **Green gates are not
-   evidence this works end to end** — the plan says so and it remains true.
+4. ~~**End-to-end verification not run.**~~ — **RUN 2026-08-07, ALL CHECKS PASSED.** See below.
+
+## End-to-end verification — 2026-08-07, after #507 merged
+
+The gap this ledger flagged is closed. #507 merged as `4f2a55ea`, which made the run possible
+for the first time.
+
+**What made it an E2E rather than a restatement of the same belief.** The request bodies were
+not hand-written. They came out of url4-cloud's own production chain —
+`parse_cache_control()` → `resolve()` → `policy_to_body_field()` — and were POSTed over real
+HTTP to a real aigateway process running merged `main`. Had the reading of `global_controls.py`
+been wrong, these assertions fail; the mock suite would not have moved.
+
+**Harness** (scratchpad only, nothing tracked): a stub Ollama on `:11499` counting its own
+calls, and aigateway on `:9155` with `AIGW_REQUEST_CACHE_ENABLED=true`,
+`AIGATEWAY_AUTH_ENABLED=false`, `AIGW_OLLAMA_HOST` pointed at the stub, and an isolated sqlite
+(a shared DB would let a previous run's rows decide this run's hit/miss). Schema built the way
+`tests/conftest.py:184` does — `main.py` never creates tables; aerich does that out of band.
+
+| # | check | result |
+|---|---|---|
+| 1 | default body clears the control gate (`provider_projection`, **not** a caller-attributed reason) | ✅ |
+| 2 | `Cache-Control: no-store` → `bypass` / **`opted_out`** | ✅ |
+| 2 | `Cache-Control: no-cache` → `bypass` / **`opted_out`** | ✅ |
+| 3 | `max-age=60` and `max-age=0` → `bypass` / `opted_out` (D11 degrade) | ✅ |
+| 4 | **negative control** — raw `{"no-store":true}`, `{"ttl":60}`, `{"use-cache":true,"s-maxage":30}` → `unsupported_control` | ✅ |
+| 5 | a default run's egress body carries no `cache` key (spec §9.1) | ✅ |
+
+**Check 4 is what makes check 2 mean anything.** If the gateway answered `opted_out` for
+everything, check 2 would pass for the wrong reason. Sending the v1 vocabulary url4 deliberately
+no longer emits, and getting a *different* reason back, proves the distinction is real and that
+collapsing at the url4 edge buys something.
+
+### The one thing still not proven end to end, and why
+
+**`default → miss → hit` was not driven through url4.** Not a defect and not skipped for
+convenience — it is unreachable locally:
+
+- ollama inherits `CacheBypass(provider_projection)` from `ProviderPluginBase` and can never
+  produce a hit. Its `parameters.py:83-90` states this and names the conformance test enforcing it.
+- **anthropic and openrouter are the only providers implementing `global_cache_projection`**, and
+  both PIN their `api_base` deliberately (openrouter D7, "request-local api_base beats every
+  LiteLLM global/env fallback"). Neither is stubbable; a real miss needs a paid credential.
+
+**Why the residual risk is small.** url4's default egress body is byte-identical to a pre-#518
+body — it carries no `cache` field at all (check 5). So miss→hit is aigateway's own contract on a
+body url4 does not touch, and aigateway's suite covers it directly. Verified passing on merged
+`main` alongside this run:
+
+```
+test_repeated_bare_request_still_hits                        ← a BARE request repeated,
+test_a_second_account_hits_the_first_accounts_stored_response   the exact shape url4 sends
+test_a_different_profile_hits_the_same_global_entry
+test_a_profile_that_cannot_authenticate_still_gets_a_hit
+tests/unit/test_chat_global_cache_route.py                   ← 25 passed
+```
+
+### An ordering fact worth recording
+
+`global_plan.build_global_cache_plan` evaluates: `cache_enabled` → `participates_in_global_cache`
+→ **`controls.participate`** → projection. url4's opt-out is adjudicated at the third step, which
+is why the *same* provider returns `opted_out` for an opt-out and `provider_projection` for a
+default. Two different reasons from one provider is the evidence the control gate saw
+participation — the E2E leans on that rather than on a header taken at face value.
+
+`GATEWAY_REPORTS_AGE = False` re-verified on `main`: `git grep -E '"Age"|Cache-Status' --
+'apps/aigateway/src/**/*.py'` returns nothing. D11's honouring half stays correctly dormant.
