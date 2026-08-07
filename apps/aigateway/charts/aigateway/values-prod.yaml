@@ -22,6 +22,11 @@ config:
   # for a file that cannot know who the operators are — the console will report "admin API
   # disabled" rather than silently letting anyone in.
   adminEmails: []
+  # Production serves OpenRouter models when callers have provisioned per-account credentials. This
+  # is only the plugin availability gate; provider API keys remain in `credential_blobs`, not chart
+  # values.
+  openrouter:
+    enabled: true
   # Re-state the chart's default-on global response cache explicitly for production. Read the five
   # consequences documented on `config.requestCache` in `values.yaml`; the load-bearing ones are
   # that any two callers sending the identical request get the identical stored response, and that
