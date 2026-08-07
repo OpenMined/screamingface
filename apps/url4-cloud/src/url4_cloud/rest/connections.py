@@ -3,24 +3,52 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Path, Request
+from fastapi import APIRouter, Path, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, SecretStr
 
 from url4_cloud import job_env
-from url4_cloud.auth import ProblemException
+from url4_cloud.auth import PROBLEM_MEDIA_TYPE, ProblemException
 from url4_cloud.connections.port import (
+    AuthMethod,
     Caller,
     Connection,
     ConnectionError,
     Connections,
+    ConnectionStatus,
     OAuthAuthorization,
 )
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Connections"])
+
+class _SecretSafeRoute(APIRoute):
+    """Replace FastAPI's input-bearing validation errors at the credential boundary."""
+
+    def get_route_handler(
+        self,
+    ) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        route_handler = super().get_route_handler()
+
+        async def secret_safe_route_handler(request: Request) -> Response:
+            try:
+                return await route_handler(request)
+            except RequestValidationError:
+                logger.info("provider connection request validation failed")
+                raise ProblemException(
+                    status=422,
+                    title="Unprocessable Content",
+                    detail="the provider connection request is invalid",
+                ) from None
+
+        return secret_safe_route_handler
+
+
+router = APIRouter(tags=["Connections"], route_class=_SecretSafeRoute)
 
 
 class ApiKeyRequest(BaseModel):
@@ -31,25 +59,80 @@ class ApiKeyRequest(BaseModel):
     api_key: SecretStr
 
 
-def _serialize(connection: Connection) -> dict[str, object]:
+class ConnectionResponse(BaseModel):
+    """The complete secret-free connection projection exposed by the Engine."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    object: Literal["connection"] = "connection"
+    provider: str
+    display_name: str
+    auth_methods: tuple[AuthMethod, ...]
+    status: ConnectionStatus
+    auth_method: AuthMethod | None = None
+    account_label: str | None = None
+
+
+class ConnectionListResponse(BaseModel):
+    """Caller-scoped provider connections."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    object: Literal["list"] = "list"
+    data: tuple[ConnectionResponse, ...]
+
+
+class OAuthAuthorizationResponse(BaseModel):
+    """The public browser authorization fields returned to the Client."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    object: Literal["oauth_authorization"] = "oauth_authorization"
+    provider: str
+    authorize_url: str
+    expires_in: int
+
+
+_ERROR_DESCRIPTIONS = {
+    400: "The provider does not support the requested authentication method.",
+    401: "The caller or provider credential was rejected.",
+    404: "The provider is not available.",
+    409: "The Engine-managed connection state conflicts with this operation.",
+    422: "The request body is invalid.",
+    429: "Provider connection requests are rate limited.",
+    502: "AI Gateway returned an unusable response.",
+    503: "Provider connections or AI Gateway are unavailable.",
+    504: "AI Gateway did not respond in time.",
+}
+
+
+def _error_responses() -> dict[int | str, dict[str, Any]]:
     return {
-        "object": "connection",
-        "provider": connection.provider,
-        "display_name": connection.display_name,
-        "auth_methods": list(connection.auth_methods),
-        "status": connection.status,
-        "auth_method": connection.auth_method,
-        "account_label": connection.account_label,
+        status: {
+            "description": description,
+            "content": {PROBLEM_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}}},
+        }
+        for status, description in _ERROR_DESCRIPTIONS.items()
     }
 
 
-def _serialize_oauth(authorization: OAuthAuthorization) -> dict[str, object]:
-    return {
-        "object": "oauth_authorization",
-        "provider": authorization.provider,
-        "authorize_url": authorization.authorize_url,
-        "expires_in": authorization.expires_in,
-    }
+def _serialize(connection: Connection) -> ConnectionResponse:
+    return ConnectionResponse(
+        provider=connection.provider,
+        display_name=connection.display_name,
+        auth_methods=connection.auth_methods,
+        status=connection.status,
+        auth_method=connection.auth_method,
+        account_label=connection.account_label,
+    )
+
+
+def _serialize_oauth(authorization: OAuthAuthorization) -> OAuthAuthorizationResponse:
+    return OAuthAuthorizationResponse(
+        provider=authorization.provider,
+        authorize_url=authorization.authorize_url,
+        expires_in=authorization.expires_in,
+    )
 
 
 def _caller(request: Request) -> Caller:
@@ -72,28 +155,39 @@ def _problem(exc: ConnectionError) -> ProblemException:
     return ProblemException(status=exc.status, title=exc.title, detail=exc.detail)
 
 
+def _mark_private(response: Response) -> None:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "X-User-Email"
+
+
 @router.get(
     "/v1/connections",
     summary="List provider connections",
     description="Return the safe connection state exposed to the ScreamingFace Client.",
+    response_model=ConnectionListResponse,
+    responses=_error_responses(),
 )
-async def list_connections(request: Request) -> dict[str, object]:
+async def list_connections(request: Request, response: Response) -> ConnectionListResponse:
     try:
         rows = await _service(request).list(_caller(request))
     except ConnectionError as exc:
         raise _problem(exc) from exc
-    return {"object": "list", "data": [_serialize(row) for row in rows]}
+    _mark_private(response)
+    return ConnectionListResponse(data=tuple(_serialize(row) for row in rows))
 
 
 @router.put(
     "/v1/connections/{provider}",
     summary="Connect or replace a provider API key",
+    response_model=ConnectionResponse,
+    responses=_error_responses(),
 )
 async def connect_provider(
     request: Request,
     body: ApiKeyRequest,
+    response: Response,
     provider: Annotated[str, Path(min_length=1)],
-) -> dict[str, object]:
+) -> ConnectionResponse:
     try:
         connection = await _service(request).connect(
             _caller(request),
@@ -102,6 +196,7 @@ async def connect_provider(
         )
     except ConnectionError as exc:
         raise _problem(exc) from exc
+    _mark_private(response)
     return _serialize(connection)
 
 
@@ -109,31 +204,44 @@ async def connect_provider(
     "/v1/connections/{provider}/oauth",
     status_code=201,
     summary="Start provider OAuth authorization",
+    response_model=OAuthAuthorizationResponse,
+    responses=_error_responses(),
 )
 async def start_provider_oauth(
     request: Request,
+    response: Response,
     provider: Annotated[str, Path(min_length=1)],
-) -> dict[str, object]:
+) -> OAuthAuthorizationResponse:
     try:
         authorization = await _service(request).start_oauth(_caller(request), provider)
     except ConnectionError as exc:
         raise _problem(exc) from exc
+    _mark_private(response)
     return _serialize_oauth(authorization)
 
 
 @router.delete(
     "/v1/connections/{provider}",
     summary="Disconnect a provider",
+    response_model=ConnectionResponse,
+    responses=_error_responses(),
 )
 async def disconnect_provider(
     request: Request,
+    response: Response,
     provider: Annotated[str, Path(min_length=1)],
-) -> dict[str, object]:
+) -> ConnectionResponse:
     try:
         connection = await _service(request).disconnect(_caller(request), provider)
     except ConnectionError as exc:
         raise _problem(exc) from exc
+    _mark_private(response)
     return _serialize(connection)
 
 
-__all__ = ["router"]
+__all__ = [
+    "ConnectionListResponse",
+    "ConnectionResponse",
+    "OAuthAuthorizationResponse",
+    "router",
+]

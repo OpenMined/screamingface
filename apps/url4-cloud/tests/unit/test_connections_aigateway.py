@@ -10,7 +10,9 @@ from url4_cloud.connections.aigateway import AigatewayConnections
 from url4_cloud.connections.port import (
     Caller,
     Connection,
+    ConnectionAlreadyConnected,
     ConnectionBadResponse,
+    ConnectionConflict,
     ConnectionMethodUnsupported,
     ConnectionRejected,
     Connections,
@@ -78,6 +80,7 @@ def _row(
     auth_type: str = "api_key",
     label: str = "screamingface",
     provider: str = "openrouter",
+    account: object = None,
 ) -> dict[str, object]:
     return {
         "id": connection_id,
@@ -86,7 +89,7 @@ def _row(
         "label": label,
         "status": status,
         "auth_type": auth_type,
-        "account": None,
+        "account": account,
         "credential_locator": {"service": "must-not-leak", "account": "default"},
         "created_at": "2026-07-31T00:00:00Z",
         "last_used_at": None,
@@ -130,6 +133,47 @@ async def test_connected_state_is_sanitized_and_identity_is_forwarded() -> None:
     assert seen[0].headers["X-User-Email"] == "alice@example.com"
     assert "authorization" not in seen[0].headers
     assert "credential_locator" not in repr(connection)
+
+
+async def test_oauth_account_exposes_only_the_safe_display_label() -> None:
+    provider = _provider("anthropic", "Anthropic", ("oauth",))
+    row = _row(
+        provider="anthropic",
+        auth_type="oauth",
+        account={
+            "sub": "provider-account-id",
+            "email": " alice@example.com ",
+            "name": "Alice",
+            "raw": {"access_token": "must-not-leak"},
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _providers(provider) if request.url.path == "/v1/providers" else _list(row)
+        return httpx.Response(200, json=payload)
+
+    adapter, _ = _adapter(handler)
+
+    (connection,) = await adapter.list(Caller(IDENTITY))
+
+    assert connection.account_label == "alice@example.com"
+    assert "provider-account-id" not in repr(connection)
+    assert "must-not-leak" not in repr(connection)
+
+
+@pytest.mark.parametrize("account", ["alice@example.com", {"email": 7}, {"name": " "}])
+async def test_malformed_oauth_account_is_rejected(account: object) -> None:
+    provider = _provider("anthropic", "Anthropic", ("oauth",))
+    row = _row(provider="anthropic", auth_type="oauth", account=account)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _providers(provider) if request.url.path == "/v1/providers" else _list(row)
+        return httpx.Response(200, json=payload)
+
+    adapter, _ = _adapter(handler)
+
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.list(Caller())
 
 
 async def test_connect_creates_a_validated_connection_without_leaking_the_key() -> None:
@@ -213,24 +257,19 @@ async def test_start_oauth_rejects_an_unbounded_authorization_lifetime() -> None
         await adapter.start_oauth(Caller(), "anthropic")
 
 
-async def test_start_oauth_replaces_an_existing_managed_connection() -> None:
+async def test_start_oauth_rejects_a_malformed_authorization_url() -> None:
     provider = _provider("anthropic", "Anthropic", ("oauth",))
-    existing = _row(provider="anthropic", auth_type="oauth")
-    methods: list[str] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
+    def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/providers":
             return httpx.Response(200, json=_providers(provider))
         if request.method == "GET":
-            return httpx.Response(200, json=_list(existing))
-        methods.append(request.method)
-        if request.method == "DELETE":
-            return httpx.Response(204)
+            return httpx.Response(200, json=_list())
         return httpx.Response(
             201,
             json={
-                "connection_id": "00000000-0000-0000-0000-000000000002",
-                "authorize_url": "https://claude.example/authorize",
+                "connection_id": "00000000-0000-0000-0000-000000000001",
+                "authorize_url": "https://[malformed",
                 "state": "private",
                 "expires_in": 600,
             },
@@ -238,13 +277,83 @@ async def test_start_oauth_replaces_an_existing_managed_connection() -> None:
 
     adapter, _ = _adapter(handler)
 
-    await adapter.start_oauth(Caller(), "anthropic")
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.start_oauth(Caller(), "anthropic")
 
-    assert methods == ["DELETE", "POST"]
+
+@pytest.mark.parametrize(
+    "authorize_url",
+    ["https://provider.example:bad/authorize", "https://provider.example:99999/authorize"],
+)
+async def test_start_oauth_rejects_an_invalid_authorization_port(
+    authorize_url: str,
+) -> None:
+    provider = _provider("anthropic", "Anthropic", ("oauth",))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/providers":
+            return httpx.Response(200, json=_providers(provider))
+        if request.method == "GET":
+            return httpx.Response(200, json=_list())
+        return httpx.Response(
+            201,
+            json={
+                "connection_id": "00000000-0000-0000-0000-000000000001",
+                "authorize_url": authorize_url,
+                "state": "private",
+                "expires_in": 600,
+            },
+        )
+
+    adapter, _ = _adapter(handler)
+
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.start_oauth(Caller(), "anthropic")
 
 
-async def test_connect_replaces_the_single_existing_api_key_connection() -> None:
+async def test_start_oauth_requires_explicit_disconnect_of_a_managed_connection() -> None:
+    provider = _provider("anthropic", "Anthropic", ("oauth",))
+    existing = _row(provider="anthropic", auth_type="oauth")
+    methods: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/providers":
+            return httpx.Response(200, json=_providers(provider))
+        if request.method == "GET":
+            return httpx.Response(200, json=_list(existing))
+        methods.append(request.method)
+        raise AssertionError("OAuth replacement must not mutate a connected provider")
+
+    adapter, _ = _adapter(handler)
+
+    with pytest.raises(ConnectionAlreadyConnected):
+        await adapter.start_oauth(Caller(), "anthropic")
+
+    assert methods == []
+
+
+async def test_connect_does_not_adopt_a_single_unmanaged_api_key_connection() -> None:
     existing = _row(label="research")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return _get(request, existing)
+        assert request.method == "POST"
+        assert request.url.path == "/v1/oauth/connections/api-key"
+        assert json.loads(request.content) == {
+            "provider": "openrouter",
+            "label": "screamingface",
+            "api_key": SECRET,
+        }
+        return httpx.Response(201, json=_row())
+
+    adapter, _ = _adapter(handler)
+
+    assert (await adapter.connect(Caller(), "openrouter", SECRET)).status == "connected"
+
+
+async def test_connect_replaces_only_the_existing_managed_api_key_connection() -> None:
+    existing = _row()
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
@@ -259,6 +368,48 @@ async def test_connect_replaces_the_single_existing_api_key_connection() -> None
     assert (await adapter.connect(Caller(), "openrouter", SECRET)).status == "connected"
 
 
+async def test_connect_requires_disconnect_before_replacing_oauth_with_an_api_key() -> None:
+    provider = _provider("openrouter", "OpenRouter", ("api_key", "oauth"))
+    existing = _row(auth_type="oauth")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/providers":
+            return httpx.Response(200, json=_providers(provider))
+        if request.method == "GET":
+            return httpx.Response(200, json=_list(existing))
+        raise AssertionError("the API key must not leave the Engine before explicit disconnect")
+
+    adapter, seen = _adapter(handler)
+
+    with pytest.raises(ConnectionAlreadyConnected):
+        await adapter.connect(Caller(), "openrouter", SECRET)
+
+    assert all(SECRET not in request.content.decode(errors="ignore") for request in seen)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "status", "auth_type"),
+    [(202, "active", "api_key"), (201, "pending", "api_key"), (201, "active", "oauth")],
+)
+async def test_connect_rejects_an_incorrect_success_response(
+    status_code: int,
+    status: str,
+    auth_type: str,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return _get(request)
+        return httpx.Response(
+            status_code,
+            json=_row(status=status, auth_type=auth_type),
+        )
+
+    adapter, _ = _adapter(handler)
+
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.connect(Caller(), "openrouter", SECRET)
+
+
 async def test_multiple_unmanaged_rows_leave_the_automatic_row_disconnected() -> None:
     rows = [
         _row(connection_id="00000000-0000-0000-0000-000000000001", label="one"),
@@ -268,6 +419,43 @@ async def test_multiple_unmanaged_rows_leave_the_automatic_row_disconnected() ->
     adapter, _ = _adapter(lambda request: _get(request, *rows))
 
     assert await adapter.list(Caller()) == (_disconnected(),)
+
+
+async def test_managed_row_is_selected_without_mutating_unmanaged_rows() -> None:
+    rows = [
+        _row(connection_id="00000000-0000-0000-0000-000000000001", label="research"),
+        _row(connection_id="00000000-0000-0000-0000-000000000002"),
+    ]
+
+    adapter, _ = _adapter(lambda request: _get(request, *rows))
+
+    (connection,) = await adapter.list(Caller())
+    assert connection.status == "connected"
+
+
+async def test_multiple_managed_rows_are_a_conflict() -> None:
+    rows = [
+        _row(connection_id="00000000-0000-0000-0000-000000000001"),
+        _row(connection_id="00000000-0000-0000-0000-000000000002"),
+    ]
+    adapter, _ = _adapter(lambda request: _get(request, *rows))
+
+    with pytest.raises(ConnectionConflict):
+        await adapter.list(Caller())
+
+
+async def test_disconnect_never_deletes_an_unmanaged_connection() -> None:
+    existing = _row(label="research")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method != "GET":
+            raise AssertionError("disconnect must not mutate an unmanaged Gateway row")
+        return _get(request, existing)
+
+    adapter, seen = _adapter(handler)
+
+    assert (await adapter.disconnect(Caller(), "openrouter")).status == "not_connected"
+    assert all(request.method == "GET" for request in seen)
 
 
 async def test_disconnect_is_idempotent_and_removes_the_selected_connection() -> None:
@@ -285,6 +473,20 @@ async def test_disconnect_is_idempotent_and_removes_the_selected_connection() ->
     assert (await adapter.disconnect(Caller(), "openrouter")).status == "not_connected"
     assert (await adapter.disconnect(Caller(), "openrouter")).status == "not_connected"
     assert [request.method for request in seen].count("DELETE") == 1
+
+
+async def test_disconnect_is_idempotent_when_a_concurrent_delete_wins() -> None:
+    existing = _row()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return _get(request, existing)
+        return httpx.Response(404, json={"detail": {"code": "connection_not_found"}})
+
+    adapter, _ = _adapter(handler)
+
+    connection = await adapter.disconnect(Caller(), "openrouter")
+    assert connection.status == "not_connected"
 
 
 @pytest.mark.parametrize("status", [401, 403])
@@ -320,6 +522,22 @@ async def test_malformed_upstream_response_is_typed() -> None:
         return httpx.Response(200, json={"connections": [_row(status="x")]})
 
     adapter, _ = _adapter(handler)
+
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.list(Caller())
+
+
+async def test_non_string_provider_auth_method_is_typed() -> None:
+    malformed = _provider()
+    malformed["auth_methods"] = [{}]
+    adapter, _ = _adapter(lambda request: httpx.Response(200, json=_providers(malformed)))
+
+    with pytest.raises(ConnectionBadResponse):
+        await adapter.list(Caller())
+
+
+async def test_unhashable_connection_status_is_typed() -> None:
+    adapter, _ = _adapter(lambda request: _get(request, _row(status=[])))  # type: ignore[arg-type]
 
     with pytest.raises(ConnectionBadResponse):
         await adapter.list(Caller())

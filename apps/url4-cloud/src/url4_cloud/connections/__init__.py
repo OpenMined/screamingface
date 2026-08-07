@@ -11,6 +11,7 @@ from url4_cloud.connections.aigateway import AigatewayConnections
 from url4_cloud.connections.port import (
     Caller,
     Connection,
+    ConnectionAlreadyConnected,
     ConnectionBadResponse,
     ConnectionConflict,
     ConnectionError,
@@ -38,7 +39,7 @@ def build_connections(
     settings: _ConnectionSettings,
     *,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
-) -> AigatewayConnections | None:
+) -> Connections | None:
     """Build the AI Gateway adapter, or disable the endpoints when no upstream is configured."""
 
     if not settings.aigateway_base_url:
@@ -47,9 +48,9 @@ def build_connections(
 
 
 __all__ = [
-    "AigatewayConnections",
     "Caller",
     "Connection",
+    "ConnectionAlreadyConnected",
     "ConnectionBadResponse",
     "ConnectionConflict",
     "ConnectionError",

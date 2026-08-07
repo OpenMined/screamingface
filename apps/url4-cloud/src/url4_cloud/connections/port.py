@@ -88,11 +88,19 @@ class ConnectionMethodUnsupported(ConnectionError):
 
 
 class ConnectionConflict(ConnectionError):
-    """More than one upstream connection exists and none is the managed row."""
+    """AI Gateway connection state conflicts with the requested operation."""
 
     status = 409
     title = "Conflict"
-    detail = "multiple provider connections exist; choose one in AI Gateway"
+    detail = "provider connection state conflicts with this operation"
+
+
+class ConnectionAlreadyConnected(ConnectionError):
+    """Changing authentication methods requires an explicit disconnect."""
+
+    status = 409
+    title = "Conflict"
+    detail = "the provider is already connected; disconnect it before changing authentication"
 
 
 class ConnectionRateLimited(ConnectionError):
@@ -139,11 +147,14 @@ class Connections(Protocol):
 
     async def disconnect(self, caller: Caller, provider: str) -> Connection: ...
 
+    async def aclose(self) -> None: ...
+
 
 __all__ = [
     "AuthMethod",
     "Caller",
     "Connection",
+    "ConnectionAlreadyConnected",
     "ConnectionBadResponse",
     "ConnectionConflict",
     "ConnectionError",

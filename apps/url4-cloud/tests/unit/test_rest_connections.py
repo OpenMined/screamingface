@@ -11,6 +11,7 @@ from url4_cloud.connections.port import (
     AuthMethod,
     Caller,
     Connection,
+    ConnectionAlreadyConnected,
     ConnectionRejected,
     ConnectionStatus,
     OAuthAuthorization,
@@ -57,6 +58,9 @@ class FakeConnections:
             authorize_url="https://provider.example/authorize?state=private",
             expires_in=600,
         )
+
+    async def aclose(self) -> None:
+        return None
 
     @staticmethod
     def _connection(
@@ -110,6 +114,8 @@ async def test_list_returns_one_automatic_openrouter_row() -> None:
             }
         ],
     }
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["vary"] == "X-User-Email"
     assert service.calls[0][1].identity == {"X-User-Email": EMAIL}
 
 
@@ -178,6 +184,49 @@ async def test_invalid_keys_become_safe_rfc9457_problems() -> None:
     assert SECRET not in response.text
 
 
+async def test_malformed_key_body_cannot_echo_the_secret() -> None:
+    service = FakeConnections()
+
+    async with _client(_app(service)) as client:
+        response = await client.put(
+            "/v1/connections/openrouter",
+            json={"api_key": [SECRET]},
+        )
+
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json() == {
+        "type": "about:blank",
+        "title": "Unprocessable Content",
+        "status": 422,
+        "detail": "the provider connection request is invalid",
+    }
+    assert SECRET not in response.text
+    assert service.calls == []
+
+
+async def test_existing_connection_conflict_is_a_safe_problem() -> None:
+    service = FakeConnections()
+    service.error = ConnectionAlreadyConnected()
+
+    async with _client(_app(service)) as client:
+        response = await client.post("/v1/connections/openrouter/oauth")
+
+    assert response.status_code == 409
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["detail"] == (
+        "the provider is already connected; disconnect it before changing authentication"
+    )
+
+
+async def test_oauth_authorization_is_private_and_not_cacheable() -> None:
+    async with _client(_app(FakeConnections())) as client:
+        response = await client.post("/v1/connections/anthropic/oauth")
+
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["vary"] == "X-User-Email"
+
+
 async def test_unconfigured_connections_are_a_503() -> None:
     async with _client(_app(None)) as client:
         response = await client.get("/v1/connections")
@@ -186,9 +235,19 @@ async def test_unconfigured_connections_are_a_503() -> None:
 
 
 async def test_connection_routes_are_published_in_openapi() -> None:
-    paths = _app(FakeConnections()).openapi()["paths"]
+    schema = _app(FakeConnections()).openapi()
+    paths = schema["paths"]
 
     assert "/v1/connections" in paths
     assert "/v1/connections/{provider}" in paths
     assert set(paths["/v1/connections/{provider}"]) >= {"put", "delete"}
     assert "post" in paths["/v1/connections/{provider}/oauth"]
+    assert paths["/v1/connections"]["get"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/ConnectionListResponse"}
+    assert paths["/v1/connections/{provider}"]["put"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"] == {"$ref": "#/components/schemas/ConnectionResponse"}
+    assert paths["/v1/connections/{provider}"]["put"]["responses"]["422"]["content"][
+        "application/problem+json"
+    ]["schema"] == {"$ref": "#/components/schemas/Problem"}

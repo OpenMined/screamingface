@@ -6,7 +6,7 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -16,6 +16,7 @@ from url4_cloud.connections.port import (
     AuthMethod,
     Caller,
     Connection,
+    ConnectionAlreadyConnected,
     ConnectionBadResponse,
     ConnectionConflict,
     ConnectionMethodUnsupported,
@@ -33,6 +34,8 @@ logger = logging.getLogger(__name__)
 _PROVIDERS_PATH = "/v1/providers"
 _CONNECTIONS_PATH = "/v1/oauth/connections"
 _API_KEY_PATH = f"{_CONNECTIONS_PATH}/api-key"
+# Inter-service contract: assigning this label explicitly designates a row for ScreamingFace
+# management. Rows under every other label remain outside this adapter's public projection.
 _MANAGED_LABEL = "screamingface"
 _MAX_OAUTH_EXPIRES_IN_SECONDS = 30 * 60
 _PROVIDER_ID = re.compile(r"[a-z0-9][a-z0-9_-]*\Z", re.ASCII)
@@ -43,6 +46,19 @@ class _Provider:
     id: str
     display_name: str
     auth_methods: tuple[AuthMethod, ...]
+
+
+_UpstreamConnectionStatus = Literal["pending", "active", "expired", "revoked", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class _ConnectionRow:
+    id: UUID
+    provider: str
+    label: str
+    status: _UpstreamConnectionStatus
+    auth_type: AuthMethod
+    account_label: str | None
 
 
 class AigatewayConnections:
@@ -74,14 +90,26 @@ class AigatewayConnections:
                 caller,
                 json={"provider": provider, "label": _MANAGED_LABEL, "api_key": api_key},
             )
+            expected_status = 201
         else:
+            if selected.auth_type != "api_key":
+                raise ConnectionAlreadyConnected()
             response = await self._request(
                 "PUT",
-                f"{_CONNECTIONS_PATH}/{selected['id']}/api-key",
+                f"{_CONNECTIONS_PATH}/{selected.id}/api-key",
                 caller,
                 json={"api_key": api_key},
             )
-        return _public(_decode_row(response), selected_provider)
+            expected_status = 200
+        row = _decode_row(response)
+        if (
+            response.status_code != expected_status
+            or row.label != _MANAGED_LABEL
+            or row.auth_type != "api_key"
+            or row.status != "active"
+        ):
+            raise ConnectionBadResponse()
+        return _public(row, selected_provider)
 
     async def start_oauth(self, caller: Caller, provider: str) -> OAuthAuthorization:
         selected_provider = _provider(await self._providers(caller), provider)
@@ -90,11 +118,7 @@ class AigatewayConnections:
         rows = await self._rows(caller, provider=provider)
         selected = _select(rows, provider)
         if selected is not None:
-            await self._request(
-                "DELETE",
-                f"{_CONNECTIONS_PATH}/{selected['id']}",
-                caller,
-            )
+            raise ConnectionAlreadyConnected()
         response = await self._request(
             "POST",
             _CONNECTIONS_PATH,
@@ -109,7 +133,18 @@ class AigatewayConnections:
         selected = _select(rows, provider)
         if selected is None:
             return _disconnected(selected_provider)
-        await self._request("DELETE", f"{_CONNECTIONS_PATH}/{selected['id']}", caller)
+        try:
+            response = await self._request(
+                "DELETE",
+                f"{_CONNECTIONS_PATH}/{selected.id}",
+                caller,
+            )
+        except ConnectionNotFound:
+            # The caller-visible operation is idempotent. A concurrent disconnect may revoke the
+            # row after our list but before our delete; that already achieved the requested state.
+            return _disconnected(selected_provider)
+        if response.status_code != 204:
+            raise ConnectionBadResponse()
         return _disconnected(selected_provider)
 
     async def aclose(self) -> None:
@@ -117,6 +152,8 @@ class AigatewayConnections:
 
     async def _providers(self, caller: Caller) -> tuple[_Provider, ...]:
         response = await self._request("GET", _PROVIDERS_PATH, caller)
+        if response.status_code != 200:
+            raise ConnectionBadResponse()
         body = _decode_object(response)
         if body.get("object") != "list" or not isinstance(body.get("data"), list):
             raise ConnectionBadResponse()
@@ -126,13 +163,20 @@ class AigatewayConnections:
             raise ConnectionBadResponse()
         return providers
 
-    async def _rows(self, caller: Caller, *, provider: str | None = None) -> list[dict[str, Any]]:
+    async def _rows(
+        self,
+        caller: Caller,
+        *,
+        provider: str | None = None,
+    ) -> list[_ConnectionRow]:
         response = await self._request(
             "GET",
             _CONNECTIONS_PATH,
             caller,
             params={"provider": provider} if provider is not None else None,
         )
+        if response.status_code != 200:
+            raise ConnectionBadResponse()
         body = _decode_object(response)
         rows = body.get("connections")
         if not isinstance(rows, list):
@@ -175,15 +219,12 @@ def _provider(providers: tuple[_Provider, ...], provider: str) -> _Provider:
     return selected
 
 
-def _select(rows: list[dict[str, Any]], provider: str) -> dict[str, Any] | None:
-    matching = [row for row in rows if row["provider"] == provider]
-    managed = [row for row in matching if row["label"] == _MANAGED_LABEL]
+def _select(rows: list[_ConnectionRow], provider: str) -> _ConnectionRow | None:
+    managed = [row for row in rows if row.provider == provider and row.label == _MANAGED_LABEL]
     if len(managed) == 1:
         return managed[0]
     if len(managed) > 1:
         raise ConnectionConflict()
-    if len(matching) == 1:
-        return matching[0]
     return None
 
 
@@ -196,8 +237,8 @@ def _disconnected(provider: _Provider) -> Connection:
     )
 
 
-def _public(row: Mapping[str, Any], provider: _Provider) -> Connection:
-    if row["provider"] != provider.id:
+def _public(row: _ConnectionRow, provider: _Provider) -> Connection:
+    if row.provider != provider.id:
         raise ConnectionBadResponse()
     status = {
         "active": "connected",
@@ -205,10 +246,10 @@ def _public(row: Mapping[str, Any], provider: _Provider) -> Connection:
         "expired": "needs_reauth",
         "revoked": "needs_reauth",
         "error": "error",
-    }.get(row["status"])
+    }.get(row.status)
     if status is None:
         raise ConnectionBadResponse()
-    auth_method = row["auth_type"]
+    auth_method = row.auth_type
     if auth_method not in provider.auth_methods:
         raise ConnectionBadResponse()
     return Connection(
@@ -216,8 +257,8 @@ def _public(row: Mapping[str, Any], provider: _Provider) -> Connection:
         display_name=provider.display_name,
         auth_methods=provider.auth_methods,
         status=cast(ConnectionStatus, status),
-        auth_method=cast(AuthMethod, auth_method),
-        account_label=row.get("account") if auth_method == "oauth" else None,
+        auth_method=auth_method,
+        account_label=row.account_label if auth_method == "oauth" else None,
     )
 
 
@@ -238,8 +279,11 @@ def _validate_provider(value: object) -> _Provider:
         or not value["display_name"].strip()
         or not isinstance(methods, list)
         or not methods
-        or any(method not in {"api_key", "oauth"} for method in methods)
-        or len(methods) != len(set(methods))
+        or any(not isinstance(method, str) for method in methods)
+    ):
+        raise ConnectionBadResponse()
+    if any(method not in {"api_key", "oauth"} for method in methods) or len(methods) != len(
+        set(methods)
     ):
         raise ConnectionBadResponse()
     return _Provider(
@@ -249,7 +293,7 @@ def _validate_provider(value: object) -> _Provider:
     )
 
 
-def _decode_row(response: httpx.Response) -> dict[str, Any]:
+def _decode_row(response: httpx.Response) -> _ConnectionRow:
     return _validate_row(_decode_object(response))
 
 
@@ -284,7 +328,11 @@ def _decode_oauth_authorization(
 
 
 def _is_https_url(value: str) -> bool:
-    parts = urlsplit(value)
+    try:
+        parts = urlsplit(value)
+        _ = parts.port
+    except ValueError:
+        return False
     return (
         parts.scheme == "https"
         and bool(parts.hostname)
@@ -313,22 +361,51 @@ def _decode_object(response: httpx.Response) -> dict[str, Any]:
     return body
 
 
-def _validate_row(value: object) -> dict[str, Any]:
+def _validate_row(value: object) -> _ConnectionRow:
     if not isinstance(value, dict):
         raise ConnectionBadResponse()
-    required = {"id": str, "provider": str, "label": str, "status": str, "auth_type": str}
-    if any(
-        not isinstance(value.get(name), expected) for name, expected in required.items()
-    ) or not _is_uuid(value.get("id")):
+    connection_id = value.get("id")
+    provider = value.get("provider")
+    label = value.get("label")
+    status = value.get("status")
+    auth_type = value.get("auth_type")
+    if (
+        not isinstance(connection_id, str)
+        or not _is_uuid(connection_id)
+        or not isinstance(provider, str)
+        or _PROVIDER_ID.fullmatch(provider) is None
+        or not isinstance(label, str)
+        or not label.strip()
+        or not isinstance(status, str)
+        or status not in {"pending", "active", "expired", "revoked", "error"}
+        or not isinstance(auth_type, str)
+        or auth_type not in {"api_key", "oauth"}
+    ):
         raise ConnectionBadResponse()
-    return {
-        "id": value["id"],
-        "provider": value["provider"],
-        "label": value["label"],
-        "status": value["status"],
-        "auth_type": value["auth_type"],
-        "account": value.get("account") if isinstance(value.get("account"), str) else None,
-    }
+    return _ConnectionRow(
+        id=UUID(connection_id),
+        provider=provider,
+        label=label,
+        status=cast(_UpstreamConnectionStatus, status),
+        auth_type=cast(AuthMethod, auth_type),
+        account_label=_account_label(value.get("account")),
+    )
+
+
+def _account_label(value: object) -> str | None:
+    """Extract AI Gateway's safe display label without retaining raw account metadata."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ConnectionBadResponse()
+    for field in ("email", "name", "sub"):
+        candidate = value.get(field)
+        if candidate is None:
+            continue
+        if not isinstance(candidate, str) or not candidate.strip():
+            raise ConnectionBadResponse()
+        return candidate.strip()
+    return None
 
 
 def _raise_for_status(response: httpx.Response) -> None:

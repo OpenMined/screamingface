@@ -222,7 +222,7 @@ caller's identity and aigateway decides, including whether an absent identity is
 
 ## Provider connections — `/v1/connections`
 
-The SF Client connects provider credentials through this control-plane surface:
+The ScreamingFace Client connects provider credentials through this control-plane surface:
 
 ```text
 GET    /v1/connections
@@ -232,21 +232,31 @@ DELETE /v1/connections/{provider}
 ```
 
 The catalogue is derived from AI Gateway's enabled provider plugins and advertises each provider's
-supported authentication methods. `PUT` accepts `{"api_key": "..."}` for any provider that
-supports API-key authentication and asks AI Gateway to validate and store it; the App never
-persists or echoes the key. `POST .../oauth` starts OAuth only when the selected provider advertises
-that method and returns a sanitized authorization URL and lifetime. Provider-specific OAuth URLs,
-callback paths, scopes, and token exchange remain owned by AI Gateway. One OpenRouter key
-authorizes every enabled `openrouter/...` model
-route, but does not authorize direct routes owned by other providers. `GET` and mutation responses
-contain only the public provider name, supported methods, status, auth method, and optional account
-label. AI Gateway account IDs, credential locators, and upstream error bodies never cross this
-boundary.
+supported authentication methods. `PUT` accepts `{"api_key": "..."}` for a provider that supports
+API-key authentication; the Engine forwards the key and never persists or echoes it. One
+OpenRouter key authorizes every enabled `openrouter/...` model route but does not authorize direct
+routes owned by other providers. `POST .../oauth` starts OAuth only when the provider advertises
+that method and returns a sanitized authorization URL and bounded lifetime. Provider-specific
+URLs, callback paths, scopes, and token exchange remain owned by AI Gateway.
+
+The label `screamingface` is the explicit inter-service designation for the row this Engine
+manages. A row assigned that label through another Gateway surface is intentionally opted into
+Engine management; creator identity is not inferred. Rows under every other label are never
+adopted, replaced, reported, or deleted. API-key `PUT` creates the designated row when absent and
+replaces its key only when it already uses API-key authentication. Changing authentication methods
+requires an explicit disconnect, so setup never destroys a working connection as a side effect.
 
 As with model discovery, the App forwards only the verified `X-User-Email` identity. Local mode
 uses AI Gateway's anonymous account when authentication is disabled and automatically addresses
 it at `http://127.0.0.1:9105`. An ordinary deployed App returns `503` when
 `URL4_CLOUD_AIGATEWAY_BASE_URL` is unset.
+
+Responses contain only the public provider name, supported methods, status, authentication method,
+and optional account label. AI Gateway account identifiers, credential locators, OAuth state, and
+upstream error bodies never cross this boundary. The Engine does not forward `Authorization`.
+OAuth state is returned only as part of the provider-generated authorization URL, never as a
+separate response field. All successful connection responses are private and non-cacheable and
+vary by the verified identity header.
 
 For hosted provider OAuth, `AIGATEWAY_PUBLIC_URL` must identify AI Gateway's browser-reachable
 callback origin and the provider must allow that callback. Local plugins use their registered
