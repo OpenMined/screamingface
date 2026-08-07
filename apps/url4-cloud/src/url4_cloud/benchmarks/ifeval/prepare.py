@@ -18,6 +18,21 @@ INVARIANT — `cases.json` carries NO instruction ids or kwargs. The client rece
 ids and prompts while the machine-checkable constraints stay in the image, so a Candidate
 cannot be tuned against the answer key.
 
+INVARIANT — a case's public id IS the official IFEval ``key`` (unique ints, e.g. 2785),
+NOT a sequential index. Every per-case artifact joins directly to the official dataset
+and third-party IFEval results; consumers must never assume ids are 1..n or ascending
+in case order (the official keys are not sorted). The SELECTION order — what a
+``limit`` slice picks — is the row order of ``cases.json``, which is the official
+file's row order; ``aggregate.load_case_order`` reads it back.
+
+INVARIANT — rows are VERIFIED against the vendored official dataset
+(``vendor/data/input_data.jsonl``) and the official text WINS. The pinned HF snapshot
+diverges from the official harness data on exactly one row: key 2785, where the HF
+prompt says "at least one placeholder" while its own kwargs (and the official prompt)
+require 3. `build` patches that prompt to the official text and FAILS LOUDLY if the
+divergence set is ever anything other than {2785} — a new mismatch means the pin or
+the official file changed, which is a protocol event, not something to paper over.
+
 Dataset: HF `google/IFEval` (arXiv:2311.07911), 541 rows, single `train` split. Fields:
 ``key / prompt / instruction_id_list / kwargs`` with kwargs positionally parallel to the
 instruction ids.
@@ -38,6 +53,67 @@ from url4_cloud.benchmarks.ifeval.definition import CASE_COUNT, DATASET, DATASET
 
 class PrepareError(RuntimeError):
     """The dataset could not be turned into a declared world."""
+
+
+# The one known HF-vs-official divergence; see the module docstring. Any OTHER key in
+# the computed divergence set fails the build.
+KNOWN_DIVERGENT_KEYS = frozenset({2785})
+
+
+def official_rows() -> list[dict[str, Any]]:
+    """The vendored official dataset, in its file order — the authority rows are
+    verified and patched against."""
+
+    from importlib import resources
+
+    data = resources.files("url4_cloud.benchmarks.ifeval.vendor").joinpath("data/input_data.jsonl")
+    return [json.loads(line) for line in data.read_text("utf-8").splitlines() if line.strip()]
+
+
+def verify_against_official(
+    rows: Sequence[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[int]]:
+    """Return (rows with official-text patches applied, keys patched), or raise on
+    unknown drift.
+
+    Comparison is per official ``key`` over the graded surface: prompt,
+    instruction_id_list, and null-stripped kwargs. A row whose key the official file
+    does not know, a missing/duplicate key, or a divergence outside
+    KNOWN_DIVERGENT_KEYS is a loud failure.
+    """
+
+    by_key = {row["key"]: row for row in official_rows()}
+    seen: set[int] = set()
+    patched: list[dict[str, Any]] = []
+    divergent: set[int] = set()
+    for row in rows:
+        key = row.get("key")
+        if not isinstance(key, int):
+            raise PrepareError(f"row has a non-int official key: {key!r}")
+        if key in seen:
+            raise PrepareError(f"duplicate official key {key} in the dataset")
+        seen.add(key)
+        authority = by_key.get(key)
+        if authority is None:
+            raise PrepareError(f"key {key} is not in the official dataset")
+        if row.get("instruction_id_list") != authority["instruction_id_list"] or strip_nulls(
+            row.get("kwargs") or []
+        ) != strip_nulls(authority["kwargs"]):
+            raise PrepareError(
+                f"key {key}: instruction ids/kwargs diverge from the official dataset — "
+                "the HF pin or the vendored official file changed; audit before rebuilding"
+            )
+        if row.get("prompt") != authority["prompt"]:
+            divergent.add(key)
+            row = dict(row) | {"prompt": authority["prompt"]}
+        patched.append(row)
+    unknown = divergent - KNOWN_DIVERGENT_KEYS
+    if unknown:
+        raise PrepareError(
+            f"prompts diverge from the official dataset on unexpected keys {sorted(unknown)}; "
+            f"only {sorted(KNOWN_DIVERGENT_KEYS)} is a known, patched divergence"
+        )
+    return patched, divergent
 
 
 def load_rows(limit: int | None = None) -> list[dict[str, Any]]:
@@ -90,12 +166,13 @@ def build(
         raise PrepareError(
             f"expected {expected_count} IFEval cases, but the pinned dataset produced {len(rows)}"
         )
+    rows, patched_keys = verify_against_official(rows)
     instructions_dir = out / "instructions"
     instructions_dir.mkdir(parents=True, exist_ok=True)
 
     cases: list[dict[str, Any]] = []
-    for index, row in enumerate(rows):
-        case_id = index + 1  # 1-based and stable for a given dataset order
+    for row in rows:
+        case_id = row["key"]  # the official IFEval key — see the module invariant
         prompt = row.get("prompt")
         if not prompt:
             raise PrepareError(f"case {case_id}: empty 'prompt' column")
@@ -108,7 +185,7 @@ def build(
                 f"case {case_id}: kwargs must be positionally parallel to instruction_id_list"
             )
         spec = {
-            "key": row.get("key"),
+            "key": case_id,
             "prompt": prompt,
             "instruction_id_list": instruction_ids,
             "kwargs": strip_nulls(kwargs_list),
@@ -117,7 +194,7 @@ def build(
         cases.append({"id": case_id, "input": prompt})
 
     (out / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
-    return {"cases": len(cases), "out": str(out)}
+    return {"cases": len(cases), "patched_keys": sorted(patched_keys), "out": str(out)}
 
 
 def prepare_nltk(out: Path) -> dict[str, Any]:

@@ -16,7 +16,11 @@ DATASET_REVISION = "966cd89545d6b6acfd7638bc708b98261ca58e84"
 # The pip-installable, bug-fixed fork that inspect_evals pins — vendored under ./vendor.
 VERIFIER_REPOSITORY = "josejg/instruction_following_eval"
 VERIFIER_REVISION = "0c495b2f95155e8b10acb919ae283bfb4d5be6e2"
-PROTOCOL_REVISION = "ifeval-case-evaluation-v1"
+# v2: case ids ARE the official IFEval keys (join directly to the official dataset),
+# and prepare patches the pinned HF snapshot's one known divergence (key 2785's
+# prompt) to the official harness text. Both change the emitted assets, so both live
+# in the revision hash via this id.
+PROTOCOL_REVISION = "ifeval-official-identity-v2"
 CANDIDATE_WEB_SEARCH = False
 
 # The verifier code is the grading contract, so changing it changes the Benchmark revision.
@@ -103,7 +107,9 @@ IFEVAL = Benchmark(
     description=(
         "The canonical 541-prompt instruction-following benchmark "
         "(https://arxiv.org/abs/2311.07911), graded by deterministic strict and loose "
-        "verification. Each Case invokes the Candidate exactly once."
+        "verification. Each Case invokes the Candidate exactly once. Case ids are the "
+        "official IFEval keys; one pinned-dataset row (key 2785) is patched to the "
+        "official harness prompt, whose text matches its graded constraints."
     ),
     revision=REVISION,
     case_count=CASE_COUNT,
