@@ -2,12 +2,12 @@
 id: OME-672
 linear_url: https://linear.app/openmined/issue/OME-672
 parent: OME-666
-status: In Progress
+status: Done
 type: Task
 priority: P2
 labels: [repo, autonomous, agentic, task]
 created: 2026-08-08
-closed:
+closed: 2026-08-08
 ---
 
 # Add installation tutorial

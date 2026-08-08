@@ -1,9 +1,9 @@
 ---
 ticket: OME-672
 stack: repo
-status: in_progress
+status: done
 started: 2026-08-08
-finished:
+finished: 2026-08-08
 ---
 
 # OME-672 — Add installation tutorial
@@ -46,7 +46,30 @@ client, not how to reach an engine, not what a self-hosted stack needs.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
+- **Actual files:** 4 changed, +335 / −2.
+  - `public-docs/src/pages/sf-client/InstallationPage.vue` — the page
+  - `public-docs/src/components/ui/Note.vue` — new inline callout
+  - this ledger and the `docs/tasks` mirror
 - **Commits:**
-- **Gates:**
+  - `7f3e2f09` — feat(public-docs): write the Installation page
+- **Gates:** `oxlint` and `eslint` clean, run bare as CI does · `build` succeeds ·
+  `prettier --check` clean on the touched files. `public-docs` has no test suite.
+- **Verification:** every install command was executed in a throwaway venv before being written
+  down. `uv build` produces `screamingface-0.2.0-py3-none-any.whl`; it installs into a clean
+  Python 3.12 and imports 36 public names, resolving `url4` from PyPI. The `[notebook]` extra
+  resolves `ipywidgets 8.1.8`. The one-line git install works and pins `e387aefd`, the commit the
+  sidebar stamps — though it resolves `url4` from the same repository rather than PyPI, so the two
+  routes do not produce identical dependency sets.
 - **Deviations:**
+  - **Restructured from the parent's spec.** `OME-666` describes Installation as local-first, with
+    `sf.config(engine=…)` and port `4404`. Both are wrong against the current client, and hosted is
+    now the primary path, so the page leads with hosted and keeps self-hosting as section 3.
+  - **A `Note` component was added.** The source docs repeat the callout as inline Tailwind on each
+    use; here it is a component so the styling stays in one place.
+  - **The FAQ uses `Collapsible`**, following the pattern and the "Frequently Asked Questions"
+    heading used on eleven pages of `syft-space-hub-docs`.
+  - **Em-dashes were removed from this page only**, at the owner's request. The rest of the section
+    still uses them, so this page reads slightly differently from its neighbours.
+  - **`CodeBlock` does not respect the theme** — it is hardcoded `bg-zinc-900` and renders dark in
+    light mode. Left alone deliberately: it is shared with the Learn pages, which are owned
+    elsewhere, and terminal chrome staying dark is defensible.
