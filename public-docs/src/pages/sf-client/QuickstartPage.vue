@@ -318,8 +318,8 @@ const evaluate = `report = draco.evaluate(candidates)`
     <p>
       The engine holds the credentials, so it needs at least one provider connected before it can
       call a model. <code>sf.connect()</code> with no arguments renders a panel of every provider
-      this engine advertises. The example below connects <strong>OpenRouter</strong> with an API key,
-      stepping through the six states of the whole auth flow.
+      this engine advertises. The example below connects <strong>OpenRouter</strong> with an API
+      key, stepping through the six states of the whole auth flow.
     </p>
 
     <div class="not-prose">

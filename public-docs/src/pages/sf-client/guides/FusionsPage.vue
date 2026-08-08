@@ -48,9 +48,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     </p>
 
     <p>
-      This is the ensemble in ScreamingFace. It is worth stating plainly what it is <em>not</em>:
-      there is no vote, no averaging, no score-merging. Members produce candidate answers, and a
-      model decides.
+      It is worth stating plainly what a fusion is <em>not</em>: there is no vote, no averaging, no
+      score-merging. Members produce candidate answers, and a model decides.
     </p>
 
     <p>Like a Model, a Fusion is immutable and network-free — building one makes no request.</p>
@@ -94,7 +93,7 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
 
     <p>
       A Fusion needs <strong>at least two</strong> members and their names must be unique — one
-      member is not an ensemble, and two identically named ones could not be told apart in a report.
+      member is not a fusion, and two identically named ones could not be told apart in a report.
       Both raise immediately, at construction.
     </p>
 
@@ -130,7 +129,7 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     <h3>Nest a fusion</h3>
 
     <p>
-      A member may itself be a Fusion, so a pair can become a member of a larger ensemble. The inner
+      A member may itself be a Fusion, so a pair can become a member of a larger fusion. The inner
       Fusion appears under its own resolved name.
     </p>
 

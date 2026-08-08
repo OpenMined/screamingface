@@ -150,9 +150,9 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
     </div>
 
     <p>
-      A <code>CaseInfo</code> carries only its <code>id</code> and <code>input</code>. Grading
-      criteria, rubrics and answer keys never cross the engine boundary — you can read the exam
-      questions, not the marking scheme.
+      A <code>CaseInfo</code> carries only its <code>id</code> and <code>input</code>. Prompts cross
+      the boundary to the models; grading criteria, rubrics and answer keys do not — and that
+      separation is what makes a verified result meaningful rather than self-reported.
     </p>
 
     <h2>Links</h2>

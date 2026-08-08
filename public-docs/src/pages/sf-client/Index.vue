@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
+import { SF_ENGINE_URL } from '@/lib/engine'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-// The smallest complete run: configure an engine, compose a Fusion, evaluate it,
-// read the comparison. Every name here is part of the shipped public API.
+// The smallest complete run: name the engine, compose a Fusion, evaluate it
+// beside its own member, read both scores. Every name here is shipped API.
 const smallestExample = `import screamingface as sf
 
-sf.config(engine="http://127.0.0.1:4404")
-members = ["openrouter/openai/gpt-5.5", "openrouter/google/gemini-3-flash-preview"]
-fusion = sf.Fusion("pair", members=members, reducer=sf.reducers.MajorityVote())
-report = sf.benchmarks.load("gpqa@1").evaluate(fusion, first=10)
-print(report.score, report.baseline, report.gain)`
+sf.configure(engine_url="${SF_ENGINE_URL}")
+gpt = sf.Model("openrouter/openai/gpt-5.5")
+flash = sf.Model("openrouter/google/gemini-3-flash-preview")
+report = sf.evaluate([gpt, sf.Fusion([gpt, flash])], benchmark="ifeval", limit=3)
+{c.name: c.score for c in report.candidates}`
 </script>
 
 <template>
@@ -25,9 +26,9 @@ print(report.score, report.baseline, report.gain)`
     :version="version"
   >
     <p>
-      ScreamingFace is an open-source client for building <strong>fusions</strong> — several frontier
-      models answering the same question, combined into one — and measuring them against real
-      benchmarks. It runs locally, and every run reproduces from a single <code>url4</code>
+      ScreamingFace is an open-source client for building <strong>fusions</strong> — several
+      frontier models answering the same question, combined into one — and measuring them against
+      real benchmarks. It runs locally, and every run reproduces from a single <code>url4</code>
       expression you can share.
     </p>
 
@@ -57,9 +58,9 @@ print(report.score, report.baseline, report.gain)`
     <CodeBlock :code="smallestExample" language="python" />
 
     <p>
-      <code>score</code> is the fusion's accuracy, <code>baseline</code> is its strongest single
-      member on the same cases, and <code>gain</code> is the difference between them. A positive
-      gain means the fusion beat every model inside it.
+      <code>score</code> is each candidate's accuracy on the same cases, and higher is always
+      better. There is no separate baseline or gain — the comparison <em>is</em> putting the solo
+      model and the fusion in one run and reading both numbers.
     </p>
 
     <blockquote>
@@ -73,9 +74,9 @@ print(report.score, report.baseline, report.gain)`
 
     <p>
       The client talks only to the <strong>ScreamingFace Engine</strong> — never to model providers
-      directly. Each evaluation compiles to one <strong>url4</strong> expression, and that expression
-      is the contract between them: the engine resolves it, and anyone holding it can reproduce the
-      run.
+      directly. Each evaluation compiles to one <strong>url4</strong> expression, and that
+      expression is the contract between them: the engine resolves it, and anyone holding it can
+      reproduce the run.
     </p>
   </DocLayout>
 </template>

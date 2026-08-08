@@ -3,16 +3,23 @@ import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
+import { SF_ENGINE_URL } from '@/lib/engine'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-const panel = `import screamingface as sf
+const login = `import screamingface as sf
 
-sf.connect()`
+client = sf.Client(engine_url="${SF_ENGINE_URL}")
+client.login()          # opens Cloudflare Access in your browser
+client.authenticated    # True once the token arrives`
+
+const panel = `sf.connect()`
 
 const script = `sf.connect("openrouter", api_key="sk-or-v1-…")`
+
+const local = `sf.configure(engine_url="http://127.0.0.1:9108")`
 
 const readState = `sf.connections.list()`
 const readStateOut = `(Connection(provider='openrouter', display_name='OpenRouter',
@@ -25,11 +32,6 @@ const readOneOut = `Connection(provider='openrouter', display_name='OpenRouter',
            auth_method='api_key', account_label=None)`
 
 const remove = `sf.disconnect("openrouter")`
-
-const hosted = `client = sf.Client(engine_url="https://engine.example.com")
-client.login()          # opens Cloudflare Access in your browser
-client.authenticated    # True once the token arrives
-client.logout()`
 </script>
 
 <template>
@@ -47,19 +49,21 @@ client.logout()`
     </p>
 
     <p>
-      This is the first thing to do in a new environment. Without a connection the engine can list
-      benchmarks and models, but any evaluation fails: there is no credential to call a model with.
+      Two steps get you there: log in to the engine, then connect a provider. Without a connection
+      the engine can still list benchmarks and models, but any evaluation fails — there is no
+      credential to call a model with.
     </p>
 
     <h2>What you can do with it</h2>
 
     <ul>
+      <li>Log in to the engine, which sits behind Cloudflare Access.</li>
       <li>
         Connect a provider interactively from a notebook, or with an explicit key from a script.
       </li>
       <li>Read which providers this engine advertises, and the state of each.</li>
       <li>Remove a credential.</li>
-      <li>Log in to a hosted engine that sits behind Cloudflare Access.</li>
+      <li>Point the client at your own engine instead.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -80,6 +84,24 @@ client.logout()`
 
     <h2>How to</h2>
 
+    <h3>Log in to the engine</h3>
+
+    <p>
+      The engine is remote and sits behind <strong>Cloudflare Access</strong>. There is no token to
+      paste: <code>login()</code> prints a URL and opens it in your browser, then polls an encrypted
+      transfer service and decrypts the returned token locally. The token lives only in process
+      memory and is sent as <code>Cf-Access-Token</code>. <code>logout()</code> forgets it.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="1" :code="login" />
+    </div>
+
+    <p>
+      In a notebook you rarely call this directly — the panel below handles it. A protected engine
+      shows a login row first and loads provider rows only once login succeeds.
+    </p>
+
     <h3>Connect from a notebook</h3>
 
     <p>
@@ -91,7 +113,7 @@ client.logout()`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="1" :code="panel" />
+      <NbCell :count="2" :code="panel" />
     </div>
 
     <h3>Connect from a script</h3>
@@ -102,7 +124,7 @@ client.logout()`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="2" :code="script" />
+      <NbCell :count="3" :code="script" />
     </div>
 
     <p>
@@ -114,7 +136,7 @@ client.logout()`
     <h3>Read the current state</h3>
 
     <div class="not-prose">
-      <NbCell :count="3" :code="readState">
+      <NbCell :count="4" :code="readState">
         <NbTextOut :text="readStateOut" />
       </NbCell>
     </div>
@@ -126,7 +148,7 @@ client.logout()`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="4" :code="readOne">
+      <NbCell :count="5" :code="readOne">
         <NbTextOut :text="readOneOut" />
       </NbCell>
     </div>
@@ -134,7 +156,7 @@ client.logout()`
     <h3>Disconnect</h3>
 
     <div class="not-prose">
-      <NbCell :count="5" :code="remove" />
+      <NbCell :count="6" :code="remove" />
     </div>
 
     <p>
@@ -142,23 +164,16 @@ client.logout()`
       its <code>not_connected</code> state.
     </p>
 
-    <h3>A hosted engine</h3>
+    <h3>A local engine</h3>
 
     <p>
-      A remote engine may sit behind <strong>Cloudflare Access</strong>. There is no token to paste:
-      <code>login()</code> prints a URL and opens it in your browser, then polls an encrypted
-      transfer service and decrypts the returned token locally. The token lives only in process
-      memory and is sent as <code>Cf-Access-Token</code>.
+      If you run the engine yourself, point the client at it and skip the login step entirely — a
+      local engine advertises no Cloudflare Access, so the panel shows provider rows immediately.
     </p>
 
     <div class="not-prose">
-      <NbCell :count="6" :code="hosted" />
+      <NbCell :count="7" :code="local" />
     </div>
-
-    <p>
-      In a notebook the panel handles this for you: a protected engine shows a login row first and
-      only loads provider rows once login succeeds. A local engine never shows the row at all.
-    </p>
 
     <h2>What a connection carries</h2>
 

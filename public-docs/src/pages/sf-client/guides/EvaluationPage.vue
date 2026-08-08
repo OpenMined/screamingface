@@ -2,6 +2,7 @@
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
+import { SF_ENGINE_URL } from '@/lib/engine'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
@@ -51,13 +52,13 @@ const watch = `def observe(event: sf.Event) -> None:
 
 sf.evaluate(haiku, benchmark="ifeval", limit=1, on_event=observe, progress=False)`
 
-const clients = `client = sf.Client(engine_url="https://engine.example.com")
-report = client.evaluate(haiku, benchmark="ifeval", limit=3)
-client.close()
+const clients = `# once, at the top — every later sf.evaluate() call uses it
+sf.configure(engine_url="${SF_ENGINE_URL}")
 
-# or module-level, once, for every later call
-sf.configure(engine_url="https://engine.example.com")
-sf.close()`
+# or hold a client yourself
+client = sf.Client(engine_url="${SF_ENGINE_URL}")
+report = client.evaluate(haiku, benchmark="ifeval", limit=3)
+client.close()`
 </script>
 
 <template>
@@ -156,7 +157,7 @@ sf.close()`
     <p>
       Pass a list. Every candidate runs against the same pinned exam in the same call, which is what
       makes the comparison fair — and it is the only way to compare, because a report has no
-      "baseline" or "gain" field. You put the solo model and the ensemble in one run and read both
+      "baseline" or "gain" field. You put the solo model and the fusion in one run and read both
       scores.
     </p>
 
@@ -212,13 +213,18 @@ sf.close()`
       <NbCell :count="7" :code="watch" />
     </div>
 
-    <h3>Use an explicit client</h3>
+    <h3>Point at the engine</h3>
 
     <p>
-      The module-level functions share one lazily built client pointed at
-      <code>http://127.0.0.1:9108</code>. Construct your own to talk to a different engine, or call
-      <code>sf.configure()</code> once to repoint the shared one. <code>sf.AsyncClient</code> has
-      the same interface with <code>await</code>.
+      <code>sf.evaluate()</code> never asks where the engine is, so it falls back to your own
+      machine — <code>http://127.0.0.1:9108</code>. Against a hosted engine that fails, so name it
+      once with <code>sf.configure()</code> and every later call uses it.
+    </p>
+
+    <p>
+      Holding your own <code>sf.Client</code> is the alternative, and the only way to address two
+      engines from one process. <code>sf.AsyncClient</code> has the same interface with
+      <code>await</code>.
     </p>
 
     <div class="not-prose">

@@ -123,8 +123,8 @@ report.to_json()   # the same, as one string`
     <p>
       A solo model is one operation. A
       <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>
-      contributes one per member plus the synthesis step, so this is where you read an ensemble's
-      shape rather than inferring it from its name.
+      contributes one per member plus the synthesis step, so this is where you read a fusion's shape
+      rather than inferring it from its name.
     </p>
 
     <h3>Identify the run</h3>
