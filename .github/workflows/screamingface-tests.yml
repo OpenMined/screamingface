@@ -1,0 +1,71 @@
+name: ScreamingFace Tests
+
+on:
+  push:
+    paths:
+      - "docs/spec/fixtures/ome_400/**"
+      - "packages/screamingface/**"
+      - "packages/url4/**"
+      - ".github/workflows/screamingface-tests.yml"
+  pull_request:
+    paths:
+      - "docs/spec/fixtures/ome_400/**"
+      - "packages/screamingface/**"
+      - "packages/url4/**"
+      - ".github/workflows/screamingface-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: packages/screamingface
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Check the lockfile is current
+        run: uv lock --check
+
+      - name: Install dependencies
+        run: uv sync --extra notebook
+
+      - name: Lint
+        run: uv run ruff check --output-format=github
+
+      - name: Format
+        run: uv run ruff format --check
+
+      - name: Typecheck
+        run: uv run pyright
+
+      - name: Test and coverage
+        run: |
+          uv run pytest \
+            --tb=short \
+            --cov=screamingface \
+            --cov-report=term-missing \
+            --cov-fail-under=95 \
+            -v
+
+      - name: Verify deterministic notebooks
+        run: uv run --extra notebook python scripts/check_notebooks.py
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Verify distribution contents
+        run: uv run python scripts/check_distribution.py

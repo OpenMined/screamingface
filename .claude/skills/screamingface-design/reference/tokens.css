@@ -692,7 +692,10 @@
   --alpha-accent-60: rgba(236,159,63,0.60);
 }
 
-[data-theme="dark"][data-brand="marketing"] {
+/* both shapes: data-brand on the themed root itself, AND on a nested surface
+   (a marketing section inside a dark product page) — vars inherit from the scope */
+[data-theme="dark"][data-brand="marketing"],
+[data-theme="dark"] [data-brand="marketing"] {
   --accent-bg-subtle: #110e0c;
   --accent-component: #1c1712;
   --accent-component-hover: #26201b;

@@ -18,9 +18,11 @@ __pycache__/
 venv/
 .coverage
 coverage.xml
+results.xml
 
 # Jupyter
 .ipynb_checkpoints/
+.virtual_documents/
 
 # Local databases
 *.sqlite3

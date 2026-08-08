@@ -76,13 +76,15 @@ body {
 
 /* ---- type --------------------------------------------------------- */
 h1 {
-  font-family: var(--f-display); font-weight: var(--weight-semibold);
+  font-family: var(--f-display); font-weight: var(--weight-display); /* the documented serif-display weight (500) — semibold was a drift from the 2026-07-16 decision */
   font-size: var(--text-display); letter-spacing: var(--tracking-normal);
   line-height: var(--leading-tight); color: var(--ink); margin: 0 0 var(--space-4);
 }
-/* label role — the single treatment for every small caps label */
-.eyebrow, .kicker, thead th, .stage-head, .deltawrap .k, .stats .k, .logo-cell .cap, .rules h4, #gate .t {
-  font-family: var(--f-mono); font-weight: var(--weight-semibold);
+/* label role — the SINGLE treatment for every small caps label: mono · medium(500) ·
+   0.1em tracking · uppercase. One weight, one tracking — the scale table documents
+   label as Mono 500; anything heavier/looser is drift. (.kv dt joins the role too.) */
+.eyebrow, .kicker, thead th, .stage-head, .deltawrap .k, .stats .k, .logo-cell .cap, .rules h4, #gate .t, .kv dt {
+  font-family: var(--f-mono); font-weight: var(--weight-medium);
   font-size: var(--text-label); letter-spacing: var(--tracking-label);
   text-transform: uppercase; color: var(--ink-2);
 }
@@ -93,7 +95,9 @@ h2 { font-family: var(--f-sans); font-weight: var(--weight-semibold); font-size:
      line-height: var(--leading-tight); color: var(--ink);
      margin: var(--space-9) 0 var(--space-4); padding-bottom: var(--space-3);
      border-bottom: var(--border-hairline) solid var(--line); }
-h3 { font-family: var(--f-sans); font-weight: var(--weight-semibold); font-size: var(--text-title); margin: var(--space-7) 0 var(--space-3); color: var(--ink); }
+h3 { font-family: var(--f-sans); font-weight: var(--weight-semibold); font-size: var(--text-title);
+     line-height: var(--leading-tight); margin: var(--space-7) 0 var(--space-3); color: var(--ink); } /* headings never inherit body leading */
+h4 { font-family: var(--f-sans); font-weight: var(--weight-semibold); line-height: var(--leading-tight); }
 /* paired subsection specs (clear space | minimum size) — two columns for space use */
 .mark-specs { display: grid; grid-template-columns: 0.92fr 1.08fr; gap: var(--space-6) var(--space-8); align-items: start; }
 .mark-specs > section > :first-child { margin-top: 0; }
@@ -104,9 +108,9 @@ p { margin: 0 0 var(--space-4); }
 small, .small { font-size: var(--text-sm); }
 .meta { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-2); }
 /* .faint — de-emphasized supporting prose (section deks). Uses the SECONDARY text role
-   (--ink-2 = --text-2, APCA Lc 60 contracted), NOT --ink-3: that's neutral-8, a border/
-   decoration step never contracted for reading (~WCAG 2.0 on light). Text only ever uses
-   the two contracted text roles — --ink (Lc 90) or --ink-2 (Lc 60). */
+   (--ink-2 = --text-2, APCA Lc 75 contracted — raised from 60 on 2026-07-17), NOT --ink-3:
+   that's neutral-8, a border/decoration step never contracted for reading (~WCAG 2.0 on
+   light). Text only ever uses the two contracted text roles — --ink (Lc 90) or --ink-2 (Lc 75). */
 .faint { color: var(--ink-2); }
 .mono { font-family: var(--f-mono); }
 strong, b { font-weight: var(--weight-semibold); color: var(--ink); }
@@ -163,8 +167,8 @@ p, li, .desc, .note { text-wrap: pretty; }
    Mono keys, hairline-separated rows. (The terminal's .note-kv is its fixed-dark
    sibling; this is the page-surface version.) */
 .kv { display: grid; grid-template-columns: max-content 1fr; margin: 0 0 var(--space-5); }
-.kv dt { font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase;
-  letter-spacing: .06em; color: var(--ink-2); padding: var(--space-2) var(--space-5) var(--space-2) 0;
+/* type comes from the label role (see the caps-label rule above) — only layout here */
+.kv dt { padding: var(--space-2) var(--space-5) var(--space-2) 0;
   white-space: nowrap; align-self: baseline; }
 .kv dd { margin: 0; padding: var(--space-2) 0; font-size: var(--text-sm); color: var(--ink-2); }
 .kv dt, .kv dd { border-top: var(--border-hairline) solid var(--line); }
@@ -177,10 +181,11 @@ p, li, .desc, .note { text-wrap: pretty; }
 
 /* .note — the highlight box as a NATIVE macOS TERMINAL WINDOW.
    A floating surface: --shadow-window (the ONE sanctioned shadow) instead of an
-   outline, --radius-window corners, traffic-light dots left, centered mono title,
-   and a FIXED-DARK body — this audience's terminals are dark in any OS theme.
-   The window-edge hairline is rgba-white so the window separates on dark pages
-   exactly the way macOS does. Optional <span class="note-cmd"> renders a prompt line. */
+   outline, --radius-window corners, traffic-light dots left, centered mono title.
+   The body is an ELEVATED NEUTRAL that flips with the page theme (see the
+   `terminal` token group) — light near-white card, dark cool panel — reading as
+   a terminal via elevation + the crisp edge, not via a baked-dark fill.
+   Optional <span class="note-cmd"> renders a prompt line. */
 .note { position: relative; border: 1px solid var(--terminal-line); border-radius: var(--radius-window);
   overflow: hidden; background: var(--terminal-bg); color: var(--terminal-ink); box-shadow: var(--shadow-window);
   padding: var(--space-4) var(--space-5) var(--space-5); margin: 0 0 var(--space-5);
@@ -251,11 +256,19 @@ tr.sota td:first-child { box-shadow: inset var(--border-strong) 0 0 var(--gain);
    green pill can sit inside a gold-tinted winning row without the two competing.
    Absence of the pill = unverified — never a red/negative treatment; unverified is
    "not yet reproduced", not "wrong". */
-.badge-verified { display: inline-flex; align-items: center; gap: var(--space-1);
-  font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase;
-  letter-spacing: var(--tracking-label); padding: 2px var(--space-2);
+/* Anatomy = the .badge/.badge--ok recipe exactly, with the geometric ✓ (the .gl-check
+   glyph) drawn via ::before — markup is just <span class="badge-verified">verified</span>. */
+.badge-verified { display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--f-mono); font-size: var(--text-label); font-weight: var(--weight-medium);
+  text-transform: uppercase; letter-spacing: var(--tracking-label); padding: 1px var(--space-2);
+  line-height: var(--leading-body); border-radius: var(--radius-none);
   color: var(--success-text-low); background: color-mix(in oklch, var(--success-solid) 15%, transparent);
-  border: var(--border-hairline) solid color-mix(in oklch, var(--success-solid) 55%, transparent); border-radius: var(--radius-none); }
+  border: var(--border-hairline) solid color-mix(in oklch, var(--success-solid) 55%, transparent); }
+.badge-verified::before { content: ""; flex: 0 0 auto; width: 1.5cap; height: 1.5cap;
+  background: var(--success-text-low);
+  -webkit-mask: url(/assets/remix/System/check-line.svg) center / contain no-repeat;
+  mask: url(/assets/remix/System/check-line.svg) center / contain no-repeat; }
+[data-theme="dark"] .badge-verified::before { background: var(--success-solid); } /* lint-ok: icon-glyph — vivid solid on dark, matching .badge--ok .gl-check */
 
 /* ---- SOTA signature badge ----------------------------------------- */
 /* The WIN announcement — the one badge that earns motion. All-caps mono, the letter
@@ -317,6 +330,82 @@ tr.sota td:first-child { box-shadow: inset var(--border-strong) 0 0 var(--gain);
 .checkbox input:checked + .checkbox-box::after { content: ""; width: 9px; height: 9px; background: var(--accent-contrast-text);
   -webkit-mask: url(/assets/remix/System/check-line.svg) center / contain no-repeat; mask: url(/assets/remix/System/check-line.svg) center / contain no-repeat; }
 .checkbox input:focus-visible + .checkbox-box { border-color: var(--accent-solid); outline: var(--border-hairline) solid var(--accent-solid); outline-offset: 1px; }
+
+/* ---- field: the labeled inline control ----------------------------
+   PRODUCT register. A label + control sharing ONE underline, so the closed control
+   reads "benchmark: GPQA Diamond". Text-entry fields glow accent while editing.
+   The .dd (dropdown) variant is ONE clean click target: uniform hand cursor
+   (label, value, caret, underline — clicking anywhere opens via showPicker()),
+   the value right-aligned against the caret, width = widest option (no reflow),
+   and NO lingering focus underline after a mouse pick (accent = keyboard-only).
+   Proven on the SDK-widgets surface (browse · compose · run · leaderboard).
+   Markup: <span class="field dd"><span class="field-lbl">sort:</span><select>…</select></span>
+   (use <label class="field"> for text inputs so the label focuses the control). */
+.field { display: inline-flex; align-items: baseline; gap: var(--space-1); border-bottom: var(--border-hairline) solid var(--line-2); }
+.field:focus-within { border-color: var(--accent-solid); }           /* text entry: active while editing */
+.field-lbl { font-family: var(--f-sans); font-size: var(--text-sm); color: var(--ink-2); white-space: nowrap; padding-left: var(--space-1); }
+/* controls inside a field drop their own chrome — the FIELD owns the underline;
+   selects and inputs share an exact height so underlines land on one plane */
+.field select, .field input { background: transparent; border: 0; outline: none; border-radius: var(--radius-none);
+  font-size: var(--text-sm); color: var(--ink); line-height: var(--leading-snug);
+  height: 1.875rem; box-sizing: border-box; padding: 0 var(--space-1) var(--space-2) 0; min-width: 0;
+  text-align: right; }   /* values right-align: label hugs left, value hugs the underline's right edge, and numbers share a common edge */
+/* the dropdown VALUE is a UI word → sans medium; native width = widest option (constant,
+   no reflow on change); tight padding keeps the caret close to the text */
+.field select { font-family: var(--f-sans); font-weight: var(--weight-medium); cursor: pointer;
+  -webkit-appearance: none; appearance: none; padding-right: 1.6rem;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 55%, calc(100% - 7px) 55%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.field.dd, .field.dd .field-lbl, .field.dd select { cursor: pointer; }
+.field.dd:focus-within { border-color: var(--line-2); }              /* a mouse pick leaves no blue line ("unsaved") */
+.field.dd:has(select:focus-visible) { border-color: var(--accent-solid); }  /* keyboard focus still shows */
+
+/* ---- tabs: the segmented control ----------------------------------
+   PRODUCT register. Mono-medium segments in one hairline frame; quiet until
+   hovered; active = the primary-button pairing (accent fill + contract foreground).
+   Markup: <div class="tabs"><button class="tab on">reduce</button><button class="tab">loop</button></div> */
+.tabs { display: inline-flex; border: var(--border-hairline) solid var(--line-2); }
+.tab { font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer;
+  background: transparent; color: var(--ink-2);
+  border: 0; border-right: var(--border-hairline) solid var(--line-2); padding: var(--space-1) var(--space-4); }
+.tab:last-child { border-right: 0; }
+.tab:hover { background: var(--surface); color: var(--ink); }
+.tab.on, .tab.on:hover { background: var(--accent-solid); color: var(--accent-contrast-text); }
+
+/* ---- th-sort: the sortable column header --------------------------
+   PRODUCT register. The caps-label treatment + a pointer; the active sort column
+   goes accent with a JS-appended ↓/↑. Left-aligned (headers align with their
+   column's content — the system table convention). --static for a non-sortable
+   header that must match (label look, no pointer). */
+.th-sort { font-family: var(--f-mono); font-size: var(--text-label); font-weight: var(--weight-medium);
+  text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--ink-2); cursor: pointer; text-align: left; }
+.th-sort.active { color: var(--accent-text-low); }
+.th-sort--static { cursor: default; }
+
+/* ---- model-ico: the monochrome model/provider mark ----------------
+   A model logo rendered as a single-color mask so third-party marks sit inside the
+   system's ink ladder instead of shouting their own palette. Pass the logo as --m.
+   Default ink-2 (table rows); consumers step to --ink for emphasis or --ink-3 to recede.
+   Markup: <span class="model-ico" style="--m:url(/assets/model-logos/anthropic/icon.svg)"></span> */
+.model-ico { flex: 0 0 auto; width: 18px; height: 18px; background: var(--ink-2);
+  -webkit-mask: var(--m) center / contain no-repeat; mask: var(--m) center / contain no-repeat; }
+
+/* ---- score cell: number + comparable band -------------------------
+   PRODUCT register. A metric plus a fixed-width track so bands compare row-to-row
+   (never text over a band). Fills: default = grayscale (non-winners recede),
+   .grad = the flowing fusion gradient (THE WIN — the one hero moment),
+   .brand = a leading single model's brand color via --brand on the row.
+   Proven on the leaderboard + stats widgets.
+   Markup: <span class="score-cell"><span class="num">84.3</span>
+     <span class="score-track"><span class="score-fill grad" style="width:88%"></span></span></span> */
+.score-cell { display: flex; align-items: center; gap: var(--space-2); }
+.score-cell .num { flex: 0 0 34px; font-variant-numeric: tabular-nums; }
+.score-track { flex: 1 1 auto; height: 6px; background: var(--line); overflow: hidden; }
+.score-fill { display: block; height: 100%; background: var(--ink-2); }
+.score-fill.grad { background: var(--fusion-grad-flow) 0 0 / 200% 100%; animation: sf-flow 14s linear infinite; }
+.score-fill.brand { background: var(--brand, var(--accent-solid)); }
+@media (prefers-reduced-motion: reduce) { .score-fill.grad { animation: none; background: var(--fusion-grad); } }
 
 /* ---- swatches ----------------------------------------------------- */
 .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: var(--border-hairline); background: var(--line); border: var(--border-hairline) solid var(--line); }
@@ -435,7 +524,10 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
 
 /* ---- climb (direction A) ------------------------------------------ */
 .climb { font-family: var(--f-mono); font-size: var(--text-sm); margin: var(--space-2) 0 var(--space-4); }
-.climb .row { display: grid; grid-template-columns: 210px 1fr 52px; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
+/* the TRACK is the point, so the label yields to it: a minmax label compresses when the
+   container is narrow (a specimen cell, a sidebar) instead of pinning 210px and starving the
+   bar. Viewport media queries can't see container width — this can. */
+.climb .row { display: grid; grid-template-columns: minmax(64px, 190px) minmax(0, 1fr) 44px; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
 .climb .lbl { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.6s ease; }
 .climb .track { display: block; background: var(--surface); border: var(--border-hairline) solid var(--line); height: 18px; overflow: hidden; }
 .climb .fill { display: block; height: 100%; }
@@ -464,7 +556,11 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
 .deltawrap .cell.mid { display: flex; align-items: center; justify-content: center; border-left: var(--border-hairline) solid var(--line); border-right: var(--border-hairline) solid var(--line); background: var(--surface); font-size: var(--text-lead); color: var(--gain-text-low); }
 .deltawrap .k { display: block; }
 .deltawrap .big { font-size: var(--text-display); line-height: var(--leading-tight); margin: var(--space-2) 0 var(--space-1); font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
-.deltawrap .cell.before .big { color: var(--blind); }
+/* BEFORE is the no-signal state, not an error: it takes the neutral ink tier, matching how
+   .climb renders its baseline bar (--ink-3). It also reads better against the gold AFTER —
+   a warm pale red (the old raw --blind, i.e. danger-text-high) muddied warm-on-warm, and a
+   raw token was being used where a text role belongs. */
+.deltawrap .cell.before .big { color: var(--ink-2); }
 .deltawrap .cell.after .big { color: var(--gain-text-low); }
 @media (max-width: 620px) { .deltawrap { grid-template-columns: 1fr; } .deltawrap .cell.mid { border: 0; border-top: var(--border-hairline) solid var(--line); border-bottom: var(--border-hairline) solid var(--line); } }
 
@@ -481,13 +577,19 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
    outline, and ghost all use --border-hairline. Solid/ghost keep it (colored or transparent)
    so an outline button is never larger than a solid one (a border adds to an auto-width box
    even under border-box). Never give a solid button `border: none`. */
-.btn { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); padding: var(--space-2) var(--space-3); border: var(--border-hairline) solid var(--ink); background: var(--ink); color: var(--bg); text-decoration: none; cursor: pointer; border-radius: var(--radius-none); } /* lint-ok: inverse-on-ink — bg-on-ink is the scale's endpoint pairing, max contrast by construction */
+.btn { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); padding: var(--space-2) var(--space-4); border: var(--border-hairline) solid var(--ink); background: var(--ink); color: var(--bg); text-decoration: none; cursor: pointer; border-radius: var(--radius-none); } /* lint-ok: inverse-on-ink — bg-on-ink is the scale's endpoint pairing, max contrast by construction */
+.btn:hover { background: transparent; color: var(--ink); }        /* solid inverts to its own outline on hover */
+/* quiet variant: MUTED outline at rest (line-2, never full ink — a bright frame reads
+   as a primary), brighten on hover. Proven on the SDK widgets (reset · cancel · ×). */
+.btn.ghost { background: transparent; color: var(--ink-2); border-color: var(--line-2); }
+.btn.ghost:hover { background: var(--surface); color: var(--ink); border-color: var(--ink-2); }
 /* secondary — the ladder's outline tier: the LABEL matches the OUTLINE (both the family's
    text-low role), hover is the family's component tint (never a solid invert). Default
-   accent; add .gain for the gold/brand variant. */
+   accent only — gold is MARKETING-ONLY. (The marketing register's outline tier is already
+   gold by default, so no modifier is needed there; a `.gain` gold-on-product variant used to
+   exist and was retired — gold must not enter the product register.) */
 .btn--sec { display: inline-flex; align-items: center; gap: var(--space-2); --sec: var(--accent-text-low); --sec-h: var(--accent-component); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); background: none; color: var(--sec); border: var(--border-hairline) solid var(--sec); padding: var(--space-2) var(--space-4); text-decoration: none; cursor: pointer; border-radius: var(--radius-none); transition: background .12s; }
 .btn--sec:hover { background: var(--sec-h); }
-.btn--sec.gain { --sec: var(--gain-text-low); --sec-h: var(--gain-component); }
 /* primary action — the product register's filled-blue CTA. Accent-solid fill with
    the gate-solved contrast foreground; the one "loud" button, for the positive/
    forward action (connect, run, publish). Secondary/quiet actions use .btn.ghost. */
@@ -497,12 +599,27 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
    underlined text control, no box. The lightest rung below .btn.ghost. */
 .btn--link { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--accent-text-low); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .btn--link:hover { color: var(--accent-text-high); }
-/* small size — matches a compact input's height; on any button variant */
+/* THREE SIZES, on any variant, in either register — size is orthogonal to both.
+   One size grid across the family (no per-variant padding drift):
+     .sm     compact — matches an input's height (toolbars, table actions)
+     default the working size (forms, panels, product chrome)
+     .lg     the hero tier (marketing CTAs, page-level actions) */
 .btn.sm, .btn--sec.sm, .btn--primary.sm { font-size: var(--text-label); padding: var(--space-1) var(--space-3); }
+.btn.lg, .btn--sec.lg, .btn--primary.lg { font-size: var(--text-body); padding: var(--space-3) var(--space-6); }
+.btn--link.sm { font-size: var(--text-label); }
+.btn--link.lg { font-size: var(--text-body); }
+
+/* ---- the marketing register adaptation ----------------------------
+   [data-brand=marketing] flips the ACCENT alias to gold (tokens.css) — solids,
+   outlines, and links pick it up with no new classes. The TYPE flip lives here:
+   marketing actions speak SANS (the editorial voice — mono stays the instrument
+   for data). Size is NOT register's job — a marketing hero opts into .lg. */
+[data-brand="marketing"] .btn, [data-brand="marketing"] .btn--sec,
+[data-brand="marketing"] .btn--primary, [data-brand="marketing"] .btn--link { font-family: var(--f-sans); }
 
 /* ---- status badge ------------------------------------------------- */
 /* a small state pill; --ok = the success/connected green (sibling of .badge-verified) */
-.badge { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-label); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: var(--tracking-label); padding: 1px var(--space-2); border: var(--border-hairline) solid var(--line); border-radius: var(--radius-none); line-height: 1.6; }
+.badge { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--f-mono); font-size: var(--text-label); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: var(--tracking-label); padding: 1px var(--space-2); border: var(--border-hairline) solid var(--line); border-radius: var(--radius-none); line-height: var(--leading-body); }
 /* THE STATUS-THEME RECIPE (one look per color, everywhere): text = *-text-low ·
    glyph = *-solid (vivid) · border = 55% solid mix · tint bg = 15% solid mix.
    .badge--*, .markbox--*, .badge-verified, and the widgets' answer cards all follow it. */
@@ -519,15 +636,12 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
 .badge--bad .gl-x { background: var(--danger-text-low); -webkit-mask-image: url(/assets/remix/System/close-line.svg); mask-image: url(/assets/remix/System/close-line.svg); }
 [data-theme="dark"] .badge--ok .gl-check { background: var(--success-solid); }
 [data-theme="dark"] .badge--bad .gl-x { background: var(--danger-solid); }
-.btn:hover { background: transparent; color: var(--ink); }
-.btn.ghost { background: transparent; color: var(--ink); }
-.btn.ghost:hover { background: var(--surface); }
 
 /* ---- email signup (connected input + button) --------------------- */
 .signup { display: flex; justify-content: center; max-width: 440px; margin: var(--space-6) auto var(--space-2); }
 .signup input { flex: 1 1 auto; min-width: 0; font-family: var(--f-mono); font-size: var(--text-sm); padding: var(--space-3); background: var(--bg); border: var(--border-hairline) solid var(--line-2); border-right: 0; color: var(--ink); outline: none; border-radius: var(--radius-none); }
 .signup input::placeholder { color: var(--ink-2); }
-.signup input:focus { border-color: var(--ink); }
+.signup input:focus { border-color: var(--accent-solid); } /* focus is always the accent (the interaction ladder) */
 .signup .btn { padding: var(--space-3) var(--space-5); white-space: nowrap; }
 
 /* ---- footer ------------------------------------------------------- */
@@ -539,7 +653,7 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
 #gate .t { color: var(--ink-2); }
 #gate form { display: flex; gap: var(--space-2); }
 #gate input { font-family: var(--f-mono); font-size: var(--text-sm); padding: var(--space-2) var(--space-3); background: var(--bg); border: var(--border-hairline) solid var(--line-2); color: var(--ink); outline: none; width: 200px; border-radius: var(--radius-none); }
-#gate input:focus { border-color: var(--ink); }
+#gate input:focus { border-color: var(--accent-solid); }
 #gate input.err { border-color: var(--blind); }
 #gate button { font-family: var(--f-mono); font-size: var(--text-sm); padding: var(--space-2) var(--space-4); background: var(--ink); color: var(--bg); border: var(--border-hairline) solid var(--ink); cursor: pointer; border-radius: var(--radius-none); } /* lint-ok: inverse-on-ink */
 #gate .e { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--blind); height: 14px; }
@@ -553,5 +667,5 @@ body.locked { overflow: hidden; }
   .rail { height: auto; flex-wrap: wrap; padding: var(--space-2) var(--space-4); gap: var(--space-1) var(--space-3); }
   .rail .crumbs { flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
   .rail .spacer { display: none; }
-  .climb .row { grid-template-columns: 124px 1fr 44px; }
+  .climb .row { grid-template-columns: minmax(56px, 124px) minmax(0, 1fr) 40px; }
 }

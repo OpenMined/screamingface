@@ -28,6 +28,18 @@ stacks:
       - uv run ruff format --check
       - uv run pyright
       - uv run pytest --cov=url4 --cov-fail-under=95 -q
+  - name: screamingface
+    root: packages/screamingface
+    skill: sdlc-python
+    test_globs: ["tests/**"]
+    gates:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run pyright
+      - uv run pytest --cov=screamingface --cov-fail-under=95 -q
+      - uv run --extra notebook python scripts/check_notebooks.py
+      - uv build
+      - uv run python scripts/check_distribution.py
   - name: url4-cloud
     root: apps/url4-cloud
     skill: sdlc-python

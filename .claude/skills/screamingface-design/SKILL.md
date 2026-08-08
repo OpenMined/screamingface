@@ -142,19 +142,38 @@ disambiguates `0` from `O` in run IDs and receipts.
 Reach for these before inventing anything; all live in `reference/style.css`.
 
 - **Buttons** — `.btn` base, then `.btn--primary` (accent-solid fill, contrast text), `.btn--sec`
-  (accent outline, transparent fill), `.btn--link` (underline, no box), plain `.btn` (ink fill).
-  `.sm` matches input height.
+  (accent outline, transparent fill), `.btn--link` (underline, no box), plain `.btn` (ink fill,
+  inverts to outline on hover), `.ghost` (muted outline at rest, brightens on hover). Sizes are
+  orthogonal to variant: `.sm` matches input height, default is the working size, `.lg` is the
+  marketing-hero tier. **There is no gold button variant** — `.btn--sec.gain` was retired; gold
+  never enters the product register. In the marketing register (`[data-brand="marketing"]`),
+  buttons flip to sans (Plex Sans) — mono stays the data instrument, not the marketing-CTA voice.
 - **`table` + `th`/`td`** — hairline rows, tabular figures. The SOTA row takes `--gain` (gold) —
-  **leaderboards only**; an admin table has no SOTA row.
-- **`.badge`** — `.badge--ok` / `.badge--bad`, plus `.badge-verified` (green ✓, trust) and
-  `.badge-sota` (gold, leaderboard only).
+  **leaderboards only**; an admin table has no SOTA row. **`.th-sort`** is the sortable column
+  header: caps-label look + pointer, active sort column goes accent; `.th-sort--static` for a
+  non-sortable header that must match.
+- **`.badge`** — `.badge--ok` / `.badge--bad`, plus `.badge-verified` (green ✓ drawn via a masked
+  glyph, trust) and `.badge-sota` (gold, leaderboard only).
 - **`.markbox`** — row-level ✓/✗ square, 16px (`.sm` 14px), `--ok`/`--bad` variants.
 - **`.checkbox` / `.checkbox-box`** — the one toggle: drawn square, accent fill + geometric check.
 - **`.status`** — inline square signal; the off-state word drops to a whisper tone.
 - **`.kicker`** — mono, uppercase, 0.14em tracking, `--gain-text-low`.
 - **`.note`** — callout with a strong left rule.
-- **`.lead`, `.meta`, `.mono`, `.faint`, `.eyebrow`, `.kv`** — text roles.
+- **`.lead`, `.meta`, `.mono`, `.faint`, `.eyebrow`, `.kv`** — text roles. All caps-label elements
+  (`.eyebrow`, `.kicker`, `thead th`, `.kv dt`, …) share one treatment: mono, weight 500, one
+  tracking — never heavier or looser.
 - **`.rail` / `.masthead`** — sticky 44px (`--rail-h`) mono header.
+- **`.field` / `.field.dd`** — the labeled inline control (product register): a label + control
+  sharing one underline (e.g. `sort: GPQA Diamond ▾`). Text entry glows accent while editing; the
+  `.dd` dropdown variant is one click target with no lingering focus underline after a mouse pick
+  (accent means keyboard-only there).
+- **`.tabs` / `.tab`** — segmented control, mono-medium segments in one hairline frame; active tab
+  is the primary-button pairing (accent fill + contrast text).
+- **`.model-ico`** — a model/provider logo masked to a single color (`--ink-2` default) so
+  third-party marks sit inside the system's ink ladder instead of shouting their own palette.
+- **`.score-cell` / `.score-track` / `.score-fill`** — metric + comparison band for leaderboard
+  rows. Fill defaults to grayscale; `.grad` is the one sanctioned fusion-gradient fill (the win —
+  use once, on the leading row); `.brand` steps to a model's own brand color.
 
 Leaderboard-only, do not reach for on a product surface: `.stats`, `.climb`, `.deltawrap`,
 `.badge-sota`, `.o-mark`, `.fusion-flow`, `.logo-*`.
