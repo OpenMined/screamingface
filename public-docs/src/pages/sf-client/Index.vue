@@ -26,8 +26,8 @@ report = sf.evaluate([gpt, sf.Fusion([gpt, flash])], benchmark="ifeval", limit=3
     :version="version"
   >
     <p>
-      ScreamingFace is an open-source client for building <strong>fusions</strong> — several
-      frontier models answering the same question, combined into one — and measuring them against
+      ScreamingFace is an open-source client for building <strong>fusions</strong>, meaning several
+      frontier models answering the same question and combined into one, then measuring them against
       real benchmarks. It runs locally, and every run reproduces from a single <code>url4</code>
       expression you can share.
     </p>
@@ -36,8 +36,8 @@ report = sf.evaluate([gpt, sf.Fusion([gpt, flash])], benchmark="ifeval", limit=3
 
     <p>
       On <strong>DRACO</strong>, a 100-task deep-research benchmark, the strongest fusion scored
-      <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model —
-      <strong>+8.4 points</strong>. Five separate fusions beat every individual model, so it is not
+      <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model, a gain of
+      <strong>8.4 points</strong>. Five separate fusions beat every individual model, so it is not
       one lucky pairing, and a fusion of three cheaper models reached 58.5%, ahead of Claude Opus
       4.8 alone at 51.8%.
     </p>
@@ -59,8 +59,8 @@ report = sf.evaluate([gpt, sf.Fusion([gpt, flash])], benchmark="ifeval", limit=3
 
     <p>
       <code>score</code> is each candidate's accuracy on the same cases, and higher is always
-      better. There is no separate baseline or gain — the comparison <em>is</em> putting the solo
-      model and the fusion in one run and reading both numbers.
+      better. There is no separate baseline or gain field, because the comparison <em>is</em>
+      putting the solo model and the fusion in one run and reading both numbers.
     </p>
 
     <blockquote>
@@ -73,7 +73,7 @@ report = sf.evaluate([gpt, sf.Fusion([gpt, flash])], benchmark="ifeval", limit=3
     <h2>How it works</h2>
 
     <p>
-      The client talks only to the <strong>ScreamingFace Engine</strong> — never to model providers
+      The client talks only to the <strong>ScreamingFace Engine</strong>, never to model providers
       directly. Each evaluation compiles to one <strong>url4</strong> expression, and that
       expression is the contract between them: the engine resolves it, and anyone holding it can
       reproduce the run.

@@ -51,8 +51,8 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
 
     <p>
       A Model is <strong>immutable and network-free</strong>. Constructing one makes no request and
-      needs no connection — it is a value describing what to ask for. Nothing happens until you pass
-      it to an evaluation.
+      needs no connection, because it is only a value describing what to ask for. Nothing happens
+      until you pass it to an evaluation.
     </p>
 
     <h2>What you can do with it</h2>
@@ -68,15 +68,15 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
 
     <ul>
       <li>
-        <code>sf.Model(model, *, name=None, prompt=None, params=None)</code> — select a route,
+        <code>sf.Model(model, *, name=None, prompt=None, params=None)</code>: select a route,
         optionally with answer policy
       </li>
       <li>
-        <code>sf.models.list()</code> — routes this engine can reach, as <code>sf.ModelInfo</code>
+        <code>sf.models.list()</code>: routes this engine can reach, as <code>sf.ModelInfo</code>
       </li>
       <li>
-        <code>.name</code> · <code>.model</code> · <code>.prompt</code> · <code>.params</code> —
-        read back what a Model resolved to
+        <code>.name</code> · <code>.model</code> · <code>.prompt</code> · <code>.params</code>: read
+        back what a Model resolved to
       </li>
     </ul>
 
@@ -96,9 +96,10 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
     <h3>Name an independent sample</h3>
 
     <p>
-      Two Models on the same route with the same policy are the <em>same</em> candidate — the engine
-      deduplicates them by content inside one compiled graph. An explicit <code>name</code> is how
-      you say you meant two independent samples, and it is the name the report uses.
+      Two Models on the same route with the same policy are the <em>same</em> candidate, because the
+      engine deduplicates them by content inside one compiled graph. An explicit
+      <code>name</code> is how you say you meant two independent samples, and it is the name the
+      report uses.
     </p>
 
     <div class="not-prose">
@@ -131,8 +132,9 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
 
     <p>
       Two things to note. The catalogue spans <strong>every provider the engine knows</strong>, not
-      only the ones you have connected — a route you have no credential for will fail at evaluation,
-      not here. And ID shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
+      only the ones you have connected, so a route you have no credential for will fail at
+      evaluation rather than here. And ID shapes differ per provider:
+      <code>anthropic/claude-opus-4-8</code> against
       <code>openrouter/anthropic/claude-opus-4.8</code>. Copy the <code>id</code> rather than
       retyping it.
     </p>
@@ -145,7 +147,7 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
           href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook — <code>00_quickstart.ipynb</code></a
+          >Companion notebook: <code>00_quickstart.ipynb</code></a
         >
       </li>
     </ul>

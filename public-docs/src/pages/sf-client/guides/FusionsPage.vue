@@ -41,8 +41,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     :version="version"
   >
     <p>
-      A <strong>Fusion</strong> asks several members the same question and then has one more model —
-      the <strong>synthesizer</strong> — read their answers and produce a single final one. That
+      A <strong>Fusion</strong> asks several members the same question and then has one more model,
+      the <strong>synthesizer</strong>, read their answers and produce a single final one. That
       final answer is what the benchmark grades, so a Fusion competes in exactly the same column as
       a solo <RouterLink to="/sf-client/guides/models">Model</RouterLink>.
     </p>
@@ -52,7 +52,7 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
       score-merging. Members produce candidate answers, and a model decides.
     </p>
 
-    <p>Like a Model, a Fusion is immutable and network-free — building one makes no request.</p>
+    <p>Like a Model, a Fusion is immutable and network-free, so building one makes no request.</p>
 
     <h2>What you can do with it</h2>
 
@@ -67,14 +67,14 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
 
     <ul>
       <li>
-        <code>sf.Fusion(members, *, name=None, synthesizer=None, prompt=None, params=None)</code> —
+        <code>sf.Fusion(members, *, name=None, synthesizer=None, prompt=None, params=None)</code>:
         combine members behind a synthesizer
       </li>
       <li>
         <code>.name</code> · <code>.members</code> · <code>.synthesizer</code> ·
-        <code>.prompt</code> · <code>.params</code> — read back the resolved shape
+        <code>.prompt</code> · <code>.params</code>: read back the resolved shape
       </li>
-      <li><code>sf.Recipe</code> — the shared base type of every candidate kind</li>
+      <li><code>sf.Recipe</code>: the shared base type of every candidate kind</li>
     </ul>
 
     <h2>How to</h2>
@@ -92,7 +92,7 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     </div>
 
     <p>
-      A Fusion needs <strong>at least two</strong> members and their names must be unique — one
+      A Fusion needs <strong>at least two</strong> members and their names must be unique: one
       member is not a fusion, and two identically named ones could not be told apart in a report.
       Both raise immediately, at construction.
     </p>
@@ -111,8 +111,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     <h3>Choose the synthesizer</h3>
 
     <p>
-      The synthesizer is a <strong>model route string</strong>, not a Model object — it is the
-      engine that resolves it. Swapping it is the main lever a Fusion has: the same members with a
+      The synthesizer is a <strong>model route string</strong>, not a Model object, because the
+      engine resolves it. Swapping it is the main lever a Fusion has: the same members with a
       stronger synthesizer is a different candidate, and worth measuring as one.
     </p>
 
@@ -122,8 +122,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
 
     <p>
       <code>prompt</code> and <code>params</code> work the same way here as on a Model, but they
-      apply to the <em>synthesis</em> step — how the final answer is written, not how members
-      answer. Give a member its own prompt by setting it on that Model.
+      apply to the <em>synthesis</em> step, governing how the final answer is written rather than
+      how members answer. Give a member its own prompt by setting it on that Model.
     </p>
 
     <h3>Nest a fusion</h3>
@@ -138,8 +138,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     </div>
 
     <p>
-      Members must be Models or Fusions. A corrective ensemble cannot be a member — it grades its
-      own members' raw drafts, which a surrounding synthesizer would have already replaced.
+      Members must be Models or Fusions. A corrective ensemble cannot be a member, because it grades
+      its own members' raw drafts, which a surrounding synthesizer would have already replaced.
     </p>
 
     <h2>Links</h2>
@@ -150,7 +150,7 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
           href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook — <code>00_quickstart.ipynb</code></a
+          >Companion notebook: <code>00_quickstart.ipynb</code></a
         >
       </li>
     </ul>
