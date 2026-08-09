@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
@@ -121,7 +122,11 @@ def _case(case_id: int, score: float | None) -> sf.CaseResult:
     )
 
 
-def _candidate_result(*, score: float | None = 0.5) -> sf.CandidateResult:
+def _candidate_result(
+    *,
+    score: float | None = 0.5,
+    case_scores: tuple[float | None, ...] = (1.0, 0.0),
+) -> sf.CandidateResult:
     return sf.CandidateResult(
         benchmark=sf.BenchmarkInfo(
             id="draco",
@@ -141,7 +146,7 @@ def _candidate_result(*, score: float | None = 0.5) -> sf.CandidateResult:
         ),
         score=score,
         metrics={} if score is None else {"accuracy": score},
-        cases=(_case(1, 1.0), _case(2, 0.0)),
+        cases=tuple(_case(index, value) for index, value in enumerate(case_scores, start=1)),
         members=(
             sf.MemberResult(
                 operation_id="op-a",
@@ -515,3 +520,268 @@ def test_get_rejects_invalid_query_values(benchmark_id: str, top: object) -> Non
 
     with client, pytest.raises((TypeError, ValueError)):
         client.leaderboards.get(benchmark_id, top=top)  # type: ignore[arg-type]
+
+
+def _invalid_list_payloads() -> tuple[object, ...]:
+    duplicate_list = _list_response()
+    duplicate_list["benchmarks"] = [_benchmark(), _benchmark()]
+
+    invalid_info = _list_response()
+    cast(list[dict[str, object]], invalid_info["benchmarks"])[0]["created_at"] = "not-a-date"
+
+    return [], duplicate_list, invalid_info
+
+
+def _invalid_board_payloads() -> tuple[object, ...]:
+    invalid_entries = _get_response()
+    invalid_entries["entries"] = "not-an-array"
+
+    invalid_entry_rank = _get_response()
+    cast(list[dict[str, object]], invalid_entry_rank["entries"])[0]["rank"] = True
+
+    nonconsecutive_entry_rank = _get_response()
+    cast(list[dict[str, object]], nonconsecutive_entry_rank["entries"])[0]["rank"] = 2
+
+    invalid_entry_accuracy = _get_response()
+    cast(list[dict[str, object]], invalid_entry_accuracy["entries"])[0]["accuracy"] = True
+
+    invalid_entry_verification = _get_response()
+    cast(list[dict[str, object]], invalid_entry_verification["entries"])[0][
+        "verified_by_openmined"
+    ] = "yes"
+
+    invalid_baseline_metadata = _get_response()
+    cast(list[dict[str, object]], invalid_baseline_metadata["baselines"])[0]["metadata"] = []
+
+    invalid_baseline_id = _get_response()
+    cast(list[dict[str, object]], invalid_baseline_id["baselines"])[0]["id"] = "not-a-uuid"
+
+    return (
+        invalid_entries,
+        invalid_entry_rank,
+        nonconsecutive_entry_rank,
+        invalid_entry_accuracy,
+        invalid_entry_verification,
+        invalid_baseline_metadata,
+        invalid_baseline_id,
+    )
+
+
+def _invalid_score_payloads() -> tuple[object, ...]:
+    invalid_score_metadata = _score_response()
+    invalid_score_metadata["metadata"] = []
+
+    invalid_score_id = _score_response()
+    invalid_score_id["id"] = "not-a-uuid"
+
+    invalid_score_timestamp = _score_response()
+    invalid_score_timestamp["submitted_at"] = "2026-08-08T12:30:00"
+
+    invalid_score_text = _score_response()
+    invalid_score_text["benchmark_id"] = " "
+
+    return invalid_score_metadata, invalid_score_id, invalid_score_timestamp, invalid_score_text
+
+
+def test_scoreboard_rejects_malformed_wire_values_at_the_http_seam() -> None:
+    cases = (
+        *(("list", payload) for payload in _invalid_list_payloads()),
+        *(("get", payload) for payload in _invalid_board_payloads()),
+        *(("score", payload) for payload in _invalid_score_payloads()),
+    )
+
+    for operation, payload in cases:
+        client = _sync_client(lambda _, value=payload: httpx.Response(200, json=value))
+        with client, pytest.raises(sf.LeaderboardError) as exc_info:
+            if operation == "list":
+                client.leaderboards.list()
+            elif operation == "get":
+                client.leaderboards.get("draco")
+            else:
+                client.leaderboards.get_score(SCORE_ID)
+
+        assert exc_info.value.code == "invalid_leaderboard"
+        assert exc_info.value.permanent is True
+
+
+def test_scoreboard_submission_validates_the_complete_accuracy_contract() -> None:
+    client = _sync_client(lambda _: pytest.fail("invalid result reached the Scoreboard"))
+
+    invalid: tuple[tuple[object, str], ...] = (
+        (object(), "sf.CandidateResult"),
+        (_candidate_result(score=1.1), "between 0 and 1"),
+        (_candidate_result(case_scores=(0.5, 0.0)), "binary"),
+        (_candidate_result(score=0.0), "must match"),
+    )
+
+    with client:
+        for candidate, message in invalid:
+            with pytest.raises((TypeError, ValueError), match=message):
+                client.leaderboards.submit(cast(Any, candidate))
+
+
+@pytest.mark.asyncio
+async def test_async_scoreboard_network_failures_are_typed() -> None:
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline", request=request)
+
+    async with _async_client(unreachable) as client:
+        with pytest.raises(sf.LeaderboardError) as exc_info:
+            await client.leaderboards.list()
+
+    assert exc_info.value.code == "scoreboard_unreachable"
+    assert exc_info.value.retryable is True
+
+
+@pytest.mark.parametrize("score_id", [cast(Any, object()), "not-a-uuid"])
+def test_get_score_rejects_invalid_identifiers(score_id: object) -> None:
+    client = _sync_client(lambda _: pytest.fail("invalid id reached the Scoreboard"))
+
+    with client, pytest.raises((TypeError, ValueError)):
+        client.leaderboards.get_score(cast(Any, score_id))
+
+
+def test_public_leaderboard_values_defend_their_invariants() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = (
+            _score_response() if request.url.path.startswith("/v1/scores/") else _get_response()
+        )
+        return httpx.Response(200, json=payload)
+
+    with _sync_client(handler) as client:
+        board = client.leaderboards.get("draco")
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    info = board.benchmark
+    entry = board.entries[0]
+    baseline = board.baselines[0]
+    naive = datetime(2026, 8, 8, 12, 30)
+    invalid: tuple[tuple[Callable[[], object], type[Exception], str], ...] = (
+        (lambda: replace(info, id=cast(Any, 1)), TypeError, "must be a string"),
+        (lambda: replace(info, display_name=" "), ValueError, "must be non-empty"),
+        (lambda: replace(info, created_at=naive), ValueError, "timezone-aware"),
+        (lambda: replace(entry, rank=0), ValueError, "positive integer"),
+        (lambda: replace(entry, accuracy=float("nan")), ValueError, "between 0 and 1"),
+        (
+            lambda: replace(entry, ran_with_providers=cast(Any, "openrouter")),
+            TypeError,
+            "must be a sequence",
+        ),
+        (
+            lambda: replace(entry, ran_with_providers=("openrouter", "openrouter")),
+            ValueError,
+            "must not contain duplicates",
+        ),
+        (
+            lambda: replace(entry, verified_by_openmined=cast(Any, 1)),
+            TypeError,
+            "must be a boolean",
+        ),
+        (lambda: replace(score, id=cast(Any, SCORE_ID)), TypeError, "must be a UUID"),
+        (
+            lambda: replace(score, correct_questions=score.total_questions + 1),
+            ValueError,
+            "cannot exceed",
+        ),
+        (
+            lambda: replace(score, correct_questions=-1),
+            ValueError,
+            "non-negative integer",
+        ),
+        (lambda: replace(score, ran_at_local=naive), ValueError, "timezone-aware"),
+        (
+            lambda: replace(score, verified_by_openmined=cast(Any, "yes")),
+            TypeError,
+            "must be a boolean",
+        ),
+        (lambda: replace(baseline, id=cast(Any, BASELINE_ID)), TypeError, "must be a UUID"),
+        (lambda: replace(baseline, source_url="file:///tmp/result"), ValueError, r"HTTP\(S\)"),
+        (
+            lambda: replace(board, benchmark=cast(Any, "draco")),
+            TypeError,
+            "must be LeaderboardInfo",
+        ),
+        (
+            lambda: replace(board, entries=cast(Any, "entries")),
+            TypeError,
+            "must be a sequence",
+        ),
+        (
+            lambda: replace(board, entries=cast(Any, (info,))),
+            TypeError,
+            "invalid value",
+        ),
+        (
+            lambda: replace(board, entries=(entry, entry)),
+            ValueError,
+            "ranks must be consecutive",
+        ),
+        (
+            lambda: replace(
+                board,
+                baselines=(replace(baseline, benchmark_id="other"),),
+            ),
+            ValueError,
+            "benchmark_id must match",
+        ),
+    )
+
+    for factory, error, message in invalid:
+        with pytest.raises(error, match=message):
+            factory()
+
+
+def test_empty_and_unforkable_leaderboards_have_complete_widget_states() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/benchmarks":
+            return httpx.Response(200, json={"benchmarks": []})
+        payload = _get_response()
+        payload["entries"] = []
+        payload["baselines"] = []
+        return httpx.Response(200, json=payload)
+
+    with _sync_client(handler) as client:
+        catalog = client.leaderboards.list()
+        empty_board = client.leaderboards.get("draco")
+
+    assert catalog == ()
+    assert catalog == catalog
+    assert catalog != []
+    assert tuple(catalog) == ()
+    assert "No Leaderboards are registered" in cast(Any, catalog)._repr_html_()
+    assert "No scores have been published" in cast(Any, empty_board)._repr_html_()
+    assert repr(empty_board) == "Leaderboard('draco', entries=0, baselines=0)"
+
+    invalid_entry = sf.LeaderboardEntry(
+        rank=1,
+        spec_id="external/candidate",
+        accuracy=0.5,
+        total_questions=2,
+        ran_with_providers=("external",),
+        submitted_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
+        submitted_by=None,
+        verified_by_openmined=False,
+        url4=sf.Url4("(@)!'not a ScreamingFace candidate'"),
+    )
+    board = sf.Leaderboard(
+        benchmark=sf.LeaderboardInfo(
+            id="draco",
+            display_name="DRACO",
+            description=None,
+            dataset_url=None,
+            created_at=datetime(2026, 8, 1, 10, tzinfo=UTC),
+        ),
+        entries=(invalid_entry,),
+        baselines=(),
+    )
+    html = cast(Any, board)._repr_html_()
+
+    assert "sf-lb__score-fill--accent" in html
+    assert "<span class='sf-lb__action' role='cell'>—</span>" in html
+
+    forkable_entry = replace(invalid_entry, url4=sf.Url4(_linked_url4()))
+    forkable_board = replace(board, entries=(forkable_entry,))
+    forkable_html = cast(Any, forkable_board)._repr_html_()
+
+    assert "<span class='sf-lb__chip'>verified</span>" not in forkable_html
+    assert ">fork</button>" in forkable_html
