@@ -39,4 +39,18 @@ export const sfClientNavigation: NavEntry[] = [
       { title: 'Reproduce & share (URL4)', path: '/sf-client/guides/reproduce-and-share' },
     ],
   },
+  {
+    title: 'API Reference',
+    children: [
+      {
+        title: 'Core classes',
+        children: [
+          { title: 'Recipes', path: '/sf-client/api/recipes' },
+          { title: 'Benchmarks', path: '/sf-client/api/benchmarks' },
+          { title: 'Reports', path: '/sf-client/api/reports' },
+          { title: 'Clients', path: '/sf-client/api/clients' },
+        ],
+      },
+    ],
+  },
 ]
