@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -359,6 +360,30 @@ def test_report_json_marks_unavailable_usage_fields_as_null() -> None:
         "reasoning_tokens": None,
         "cost_usd": None,
     }
+
+
+def test_report_export_writes_the_complete_json_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    value = report(candidate("opus"), candidate("gpt"))
+    monkeypatch.chdir(tmp_path)
+
+    default_path = value.export()
+    nested_path = value.export(tmp_path / "runs" / "draco.JSON")
+    default_path.write_text("stale", encoding="utf-8")
+    repeated_path = value.export()
+
+    assert default_path == Path("report.json")
+    assert repeated_path == default_path
+    assert default_path.read_text(encoding="utf-8") == value.to_json()
+    assert nested_path == tmp_path / "runs" / "draco.JSON"
+    assert nested_path.read_text(encoding="utf-8") == value.to_json()
+
+
+def test_report_export_rejects_jsonl_for_one_aggregate_report(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"\.json file"):
+        report(candidate("opus")).export(tmp_path / "report.jsonl")
 
 
 def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:

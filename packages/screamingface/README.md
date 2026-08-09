@@ -286,7 +286,14 @@ report.started_at
 report.completed_at
 report.to_dict()
 report.to_json()
+artifact_path = report.export()  # Path("report.json")
+report.export("runs/draco.json")
 ```
+
+`Report.export(...)` writes the exact complete JSON document returned by `to_json()`, creates
+parent directories, replaces an existing selected file for deterministic reruns, and returns its
+`Path`. A Report remains one JSON document even when it contains multiple Candidates; JSONL is
+reserved for a future collection of independent Reports.
 
 Each entry in `CandidateResult.operations` is a public immutable `sf.OperationInfo` value.
 

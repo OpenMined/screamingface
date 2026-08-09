@@ -160,9 +160,11 @@ report = sf.evaluate(candidate, benchmark=BENCHMARK_ID, limit=1)"""
 
 The Report renders score, pass rate, coverage, cost and tokens, with every Case and the
 Judge's per-criterion reasoning underneath. **&darr; report.json** downloads the portable
-artifact — the same value `report.to_json()` returns."""
+artifact — the same complete JSON document `report.export()` writes to the notebook's working
+directory."""
         ),
         nbformat.v4.new_code_cell("report"),
+        nbformat.v4.new_code_cell("artifact_path = report.export()\nartifact_path"),
         nbformat.v4.new_markdown_cell(
             """## 5 · Publish and retrieve
 

@@ -8,6 +8,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
+from os import PathLike
+from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
@@ -294,6 +296,20 @@ class Report:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
+
+    def export(self, path: str | PathLike[str] = "report.json") -> Path:
+        """Write the complete Report JSON document and return its selected path.
+
+        Parent directories are created as needed. An existing file is replaced so repeated
+        notebook runs deterministically leave one current artifact.
+        """
+
+        selected = Path(path)
+        if selected.suffix.lower() != ".json":
+            raise ValueError("Report export path must be a .json file")
+        selected.parent.mkdir(parents=True, exist_ok=True)
+        selected.write_text(self.to_json(), encoding="utf-8")
+        return selected
 
     def __repr__(self) -> str:
         candidates = ", ".join(repr(candidate.name) for candidate in self.candidates)

@@ -38,6 +38,7 @@ _STORY_MARKERS = (
     ".failures",
     ".usage",
     ".to_json()",
+    "report.export()",
     "sf.ScreamingFaceError",
 )
 
