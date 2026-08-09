@@ -39,7 +39,7 @@ report.to_json()   # the same, as one string`
   >
     <p>
       Every candidate result carries a <code>url4</code> string: the complete expression the engine
-      executed. Not a summary of it, not a log of it — the plan itself, the thing that ran. Your
+      executed. Not a summary of it, not a log of it, but the plan itself, the thing that ran. Your
       candidate, the benchmark's routes, the retry prompts, and the pinned protocol revision, all in
       one line of text you can read, diff, and send to someone.
     </p>
@@ -61,15 +61,15 @@ report.to_json()   # the same, as one string`
     <h2>Main APIs</h2>
 
     <ul>
-      <li><code>CandidateResult.url4</code> — the expression that executed</li>
+      <li><code>CandidateResult.url4</code>: the expression that executed</li>
       <li>
-        <code>CandidateResult.operations</code> — the same plan as an
+        <code>CandidateResult.operations</code>: the same plan as an
         <code>sf.OperationInfo</code> DAG
       </li>
-      <li><code>CandidateResult.run_id</code> — the engine's identifier for this run</li>
-      <li><code>Report.benchmark.revision</code> — the pinned protocol the run used</li>
+      <li><code>CandidateResult.run_id</code>: the engine's identifier for this run</li>
+      <li><code>Report.benchmark.revision</code>: the pinned protocol the run used</li>
       <li>
-        <code>Report.to_dict()</code> · <code>Report.to_json()</code> — the whole report, serialised
+        <code>Report.to_dict()</code> · <code>Report.to_json()</code>: the whole report, serialised
       </li>
     </ul>
 
@@ -84,7 +84,7 @@ report.to_json()   # the same, as one string`
     <p>
       Fourteen hundred characters for a three-case run of one model. That length is the point: it
       spells out the resolved answer prompt, the generation parameters, every benchmark route, and
-      the retry chain — including everything the SDK filled in on your behalf.
+      the retry chain, including everything the SDK filled in on your behalf.
     </p>
 
     <h3>Audit it without reading all of it</h3>
@@ -97,7 +97,7 @@ report.to_json()   # the same, as one string`
 
     <p>
       Three candidate slots and three checker calls, from a run over three cases with IFEval's
-      corrective method — the retry chain is <em>unrolled</em> into the expression rather than being
+      corrective method. The retry chain is <em>unrolled</em> into the expression rather than being
       a loop the engine hides. Every attempt is visible before anything executes, which is also why
       every attempt is paid for even when the first one passes.
     </p>
@@ -111,7 +111,7 @@ report.to_json()   # the same, as one string`
     <h3>Inspect the operation graph</h3>
 
     <p>
-      <code>operations</code> is the same plan as structured data — a directed acyclic graph of
+      <code>operations</code> is the same plan as structured data: a directed acyclic graph of
       <code>OperationInfo</code> values, each with an <code>id</code>, a <code>kind</code>, a
       <code>label</code> and its <code>depends_on</code> edges.
     </p>
@@ -140,7 +140,7 @@ report.to_json()   # the same, as one string`
     </div>
 
     <p>
-      The dict carries a <code>schema</code> field — <code>screamingface.report.v1</code> — so a
+      The dict carries a <code>schema</code> field, <code>screamingface.report.v1</code>, so a
       consumer can tell what shape it is reading. Every candidate's <code>url4</code>, scores,
       metrics, usage and the pinned benchmark revision travel with it.
     </p>
@@ -149,8 +149,8 @@ report.to_json()   # the same, as one string`
 
     <p>
       A URL4 pins the run's <strong>definition</strong>, not its outputs. Re-executing the same
-      expression asks the same models the same questions under the same protocol — and models are
-      not deterministic, so the scores will move. What is reproducible is the experiment, not the
+      expression asks the same models the same questions under the same protocol, and models are not
+      deterministic, so the scores will move. What is reproducible is the experiment, not the
       number.
     </p>
 
@@ -168,7 +168,7 @@ report.to_json()   # the same, as one string`
           href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/07_ifeval_e2e.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook — <code>07_ifeval_e2e.ipynb</code></a
+          >Companion notebook: <code>07_ifeval_e2e.ipynb</code></a
         >, which prints a full expression
       </li>
     </ul>

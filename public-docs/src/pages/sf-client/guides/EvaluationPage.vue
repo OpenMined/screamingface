@@ -52,7 +52,7 @@ const watch = `def observe(event: sf.Event) -> None:
 
 sf.evaluate(haiku, benchmark="ifeval", limit=1, on_event=observe, progress=False)`
 
-const clients = `# once, at the top — every later sf.evaluate() call uses it
+const clients = `# once, at the top: every later sf.evaluate() call uses it
 sf.configure(engine_url="${SF_ENGINE_URL}")
 
 # or hold a client yourself
@@ -75,8 +75,8 @@ client.close()`
     </p>
 
     <p>
-      Everything expensive is on the far side of this call. Validation happens first and entirely —
-      an unknown benchmark, an unreachable route, a malformed candidate all fail
+      Everything expensive is on the far side of this call. Validation happens first and entirely,
+      so an unknown benchmark, an unreachable route, a malformed candidate all fail
       <strong>before the first paid request</strong>.
     </p>
 
@@ -97,15 +97,14 @@ client.close()`
         <code
           >sf.evaluate(candidates, *, benchmark, limit=None, method=None, on_event=None,
           progress=None)</code
-        >
-        — run candidates against a benchmark, returns <code>sf.Report</code>
+        >: run candidates against a benchmark, returns <code>sf.Report</code>
       </li>
       <li>
-        <code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code> — the
+        <code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code>: the
         same call on an explicit client
       </li>
-      <li><code>sf.configure(engine_url=…)</code> — repoint the shared client</li>
-      <li><code>sf.close()</code> — release the shared client</li>
+      <li><code>sf.configure(engine_url=…)</code>: repoint the shared client</li>
+      <li><code>sf.close()</code>: release the shared client</li>
     </ul>
 
     <h2>How to</h2>
@@ -113,7 +112,7 @@ client.close()`
     <h3>Evaluate one candidate</h3>
 
     <p>
-      The benchmark id is <strong>required</strong> — there is no default and no implicit choice.
+      The benchmark id is <strong>required</strong>, with no default and no implicit choice.
       <code>limit</code> caps the case count, and it is your main cost control.
     </p>
 
@@ -129,7 +128,8 @@ client.close()`
     <h3>Read the score</h3>
 
     <p>
-      Scores live on candidates, not on the report — a report may hold several. With one candidate,
+      Scores live on candidates, not on the report, because a report may hold several. With one
+      candidate,
       <code>.only</code> is the direct way to it.
     </p>
 
@@ -156,7 +156,7 @@ client.close()`
 
     <p>
       Pass a list. Every candidate runs against the same pinned exam in the same call, which is what
-      makes the comparison fair — and it is the only way to compare, because a report has no
+      makes the comparison fair, and it is the only way to compare, because a report has no
       "baseline" or "gain" field. You put the solo model and the fusion in one run and read both
       scores.
     </p>
@@ -183,9 +183,9 @@ client.close()`
 
     <p>
       An honest result: identical scores, <strong>3.2× the output tokens</strong>. On this slice the
-      retry loop bought nothing — <code>corrected_cases</code> above is <code>0.0</code>, meaning no
-      case failed first and passed later. That is what a three-case sample of a capable model looks
-      like, and it is the reason to run more cases before concluding anything.
+      retry loop bought nothing, since <code>corrected_cases</code> above is <code>0.0</code>,
+      meaning no case failed first and passed later. That is what a three-case sample of a capable
+      model looks like, and it is the reason to run more cases before concluding anything.
     </p>
 
     <h3>Read what it cost</h3>
@@ -196,7 +196,7 @@ client.close()`
 
     <p>
       <code>cost_usd</code> is <code>Decimal('0')</code> here because this engine has no pricing
-      data — a zero means "not reported", not "free". Token counts are the reliable measure. Any
+      data, so a zero means "not reported", not "free". Token counts are the reliable measure. Any
       field is <code>None</code> if even one candidate run failed to report it, rather than being
       silently summed as a partial total.
     </p>
@@ -217,7 +217,7 @@ client.close()`
 
     <p>
       <code>sf.evaluate()</code> never asks where the engine is, so it falls back to your own
-      machine — <code>http://127.0.0.1:9108</code>. Against a hosted engine that fails, so name it
+      machine at <code>http://127.0.0.1:9108</code>. Against a hosted engine that fails, so name it
       once with <code>sf.configure()</code> and every later call uses it.
     </p>
 
@@ -234,7 +234,7 @@ client.close()`
     <h2>When it fails</h2>
 
     <p>
-      <code>PlanningError</code> means the run never started — change the candidate, benchmark or
+      <code>PlanningError</code> means the run never started, so change the candidate, benchmark or
       configuration. <code>ExecutionError</code> means it reached the engine and ended without a
       valid report. <code>EngineUnavailableError</code> means the engine was not reachable at all.
       Each carries a stable <code>code</code> and a <code>hint</code>.
@@ -248,7 +248,7 @@ client.close()`
           href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/05_draco_e2e.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook — <code>05_draco_e2e.ipynb</code></a
+          >Companion notebook: <code>05_draco_e2e.ipynb</code></a
         >
       </li>
     </ul>

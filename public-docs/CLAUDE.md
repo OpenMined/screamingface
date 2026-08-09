@@ -59,7 +59,15 @@ There is no automated test setup in this project.
 | `/sf-client/guides/benchmarks` | `src/pages/sf-client/guides/BenchmarksPage.vue` |
 | `/sf-client/guides/running-an-evaluation` | `src/pages/sf-client/guides/EvaluationPage.vue` |
 | `/sf-client/guides/reproduce-and-share` | `src/pages/sf-client/guides/Url4Page.vue` |
+| `/sf-client/api/recipes` | `src/pages/sf-client/api/RecipesPage.vue` |
+| `/sf-client/api/benchmarks` | `src/pages/sf-client/api/BenchmarksPage.vue` |
+| `/sf-client/api/reports` | `src/pages/sf-client/api/ReportsPage.vue` |
+| `/sf-client/api/clients` | `src/pages/sf-client/api/ClientsPage.vue` |
 | `/sdk` | `src/pages/sdk/Index.vue` |
+
+Note that `BenchmarksPage.vue` exists twice — under `guides/` (how to choose a
+benchmark) and under `api/` (the `Benchmark` type). The route names
+disambiguate them.
 
 ### NotebookViewer
 
@@ -100,7 +108,7 @@ export const sfClientNavigation: NavEntry[] = [
 
 | File | Export | Used by | Entries |
 |---|---|---|---|
-| `src/navigation/sf-client.ts` | `sfClientNavigation`, `sfClientVersion` | All `/sf-client/*` pages | Overview, then **Get Started** and **User Guides** (with a nested **Compose** group) |
+| `src/navigation/sf-client.ts` | `sfClientNavigation`, `sfClientVersion` | All `/sf-client/*` pages | Overview, then **Get Started**, **User Guides** (with a nested **Compose** group) and **API Reference** (with a nested **Core classes** group) |
 | `src/navigation/sdk.ts` | `sdkNavigation` | All `/sdk/*` pages | **Getting Started**: Overview |
 
 **Versioning.** `sf-client.ts` also exports `sfClientVersion`

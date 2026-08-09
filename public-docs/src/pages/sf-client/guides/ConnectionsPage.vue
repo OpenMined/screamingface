@@ -43,14 +43,14 @@ const remove = `sf.disconnect("openrouter")`
   >
     <p>
       A <strong>connection</strong> is a provider credential the engine holds on your behalf. The
-      client never talks to OpenRouter, Anthropic or any other provider directly — it sends your key
+      client never talks to OpenRouter, Anthropic or any other provider directly. It sends your key
       to the engine once, the engine passes it to AI Gateway to validate and store encrypted, and
       every later model call is dispatched there. Your notebook keeps no copy.
     </p>
 
     <p>
       Two steps get you there: log in to the engine, then connect a provider. Without a connection
-      the engine can still list benchmarks and models, but any evaluation fails — there is no
+      the engine can still list benchmarks and models, but any evaluation fails, because there is no
       credential to call a model with.
     </p>
 
@@ -69,15 +69,15 @@ const remove = `sf.disconnect("openrouter")`
     <h2>Main APIs</h2>
 
     <ul>
-      <li><code>sf.connect()</code> — open the interactive provider panel</li>
-      <li><code>sf.connect(provider, api_key=…)</code> — connect one provider directly</li>
-      <li><code>sf.connections.list()</code> — every provider this engine advertises</li>
-      <li><code>sf.connections.get(provider)</code> — one provider's current state</li>
-      <li><code>sf.disconnect(provider)</code> — remove a stored credential</li>
-      <li><code>sf.Connection</code> — the sanitised provider-state value</li>
-      <li><code>sf.ConnectionPanel</code> — the widget <code>sf.connect()</code> returns</li>
+      <li><code>sf.connect()</code>: open the interactive provider panel</li>
+      <li><code>sf.connect(provider, api_key=…)</code>: connect one provider directly</li>
+      <li><code>sf.connections.list()</code>: every provider this engine advertises</li>
+      <li><code>sf.connections.get(provider)</code>: one provider's current state</li>
+      <li><code>sf.disconnect(provider)</code>: remove a stored credential</li>
+      <li><code>sf.Connection</code>: the sanitised provider-state value</li>
+      <li><code>sf.ConnectionPanel</code>: the widget <code>sf.connect()</code> returns</li>
       <li>
-        <code>sf.Client.login()</code> · <code>sf.Client.logout()</code> — Cloudflare Access on a
+        <code>sf.Client.login()</code> · <code>sf.Client.logout()</code>: Cloudflare Access on a
         hosted engine
       </li>
     </ul>
@@ -98,14 +98,14 @@ const remove = `sf.disconnect("openrouter")`
     </div>
 
     <p>
-      In a notebook you rarely call this directly — the panel below handles it. A protected engine
-      shows a login row first and loads provider rows only once login succeeds.
+      In a notebook you rarely call this directly, since the panel below handles it. A protected
+      engine shows a login row first and loads provider rows only once login succeeds.
     </p>
 
     <h3>Connect from a notebook</h3>
 
     <p>
-      Called with no arguments, <code>sf.connect()</code> returns a <code>ConnectionPanel</code> — a
+      Called with no arguments, <code>sf.connect()</code> returns a <code>ConnectionPanel</code>, a
       live widget listing every provider the engine advertises, with a field for each one's
       supported auth method. The
       <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> steps through the whole
@@ -130,7 +130,7 @@ const remove = `sf.disconnect("openrouter")`
     <p>
       The two arguments go together. <code>sf.connect("openrouter")</code> without a key raises
       <code>ValueError</code>, and passing <code>api_key=</code> without a provider raises
-      <code>TypeError</code> — there is no partial form that silently does nothing.
+      <code>TypeError</code>. There is no partial form that silently does nothing.
     </p>
 
     <h3>Read the current state</h3>
@@ -142,9 +142,9 @@ const remove = `sf.disconnect("openrouter")`
     </div>
 
     <p>
-      Note the trailing comma — <code>list()</code> returns a <strong>tuple</strong>, not a list,
-      and this engine advertises exactly one provider. Fetch a single one by name when you only care
-      about its state:
+      Note the trailing comma, because <code>list()</code> returns a <strong>tuple</strong>, not a
+      list, and this engine advertises exactly one provider. Fetch a single one by name when you
+      only care about its state:
     </p>
 
     <div class="not-prose">
@@ -167,8 +167,9 @@ const remove = `sf.disconnect("openrouter")`
     <h3>A local engine</h3>
 
     <p>
-      If you run the engine yourself, point the client at it and skip the login step entirely — a
-      local engine advertises no Cloudflare Access, so the panel shows provider rows immediately.
+      If you run the engine yourself, point the client at it and skip the login step entirely,
+      because a local engine advertises no Cloudflare Access, so the panel shows provider rows
+      immediately.
     </p>
 
     <div class="not-prose">
@@ -178,22 +179,22 @@ const remove = `sf.disconnect("openrouter")`
     <h2>What a connection carries</h2>
 
     <p>
-      Every <code>Connection</code> is sanitised — the public provider name, its supported methods,
+      Every <code>Connection</code> is sanitised to the public provider name, its supported methods,
       and its state. AI Gateway account IDs, credential locators and upstream error bodies never
       cross this boundary.
     </p>
 
     <ul>
       <li>
-        <code>status</code> — one of <code>not_connected</code>, <code>pending</code>,
+        <code>status</code>: one of <code>not_connected</code>, <code>pending</code>,
         <code>connected</code>, <code>needs_reauth</code>, <code>error</code>
       </li>
       <li>
-        <code>auth_methods</code> — what the provider supports. The current engine advertises
+        <code>auth_methods</code>: what the provider supports. The current engine advertises
         <code>('api_key',)</code> for OpenRouter
       </li>
-      <li><code>auth_method</code> — which one is in use, or <code>None</code></li>
-      <li><code>account_label</code> — an optional display label</li>
+      <li><code>auth_method</code>: which one is in use, or <code>None</code></li>
+      <li><code>account_label</code>: an optional display label</li>
     </ul>
 
     <h2>When it fails</h2>
@@ -214,7 +215,7 @@ const remove = `sf.disconnect("openrouter")`
           href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook — <code>00_quickstart.ipynb</code></a
+          >Companion notebook: <code>00_quickstart.ipynb</code></a
         >
       </li>
     </ul>

@@ -60,7 +60,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
 
     <ul>
       <li>List the benchmarks this engine publishes.</li>
-      <li>Read one's identity card — size, revision, and what it actually measures.</li>
+      <li>Read one's identity card: size, revision, and what it actually measures.</li>
       <li>Page its real prompts before spending anything.</li>
       <li>Select a protocol variant with <code>method</code>.</li>
     </ul>
@@ -68,18 +68,18 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
     <h2>Main APIs</h2>
 
     <ul>
-      <li><code>sf.benchmarks.list()</code> — every benchmark this engine publishes</li>
+      <li><code>sf.benchmarks.list()</code>: every benchmark this engine publishes</li>
       <li>
-        <code>sf.benchmarks.get(id, *, method=None)</code> — one benchmark's identity card, for a
+        <code>sf.benchmarks.get(id, *, method=None)</code>: one benchmark's identity card, for a
         chosen protocol
       </li>
       <li>
-        <code>sf.Benchmark</code> — that card: <code>.id</code> <code>.title</code>
+        <code>sf.Benchmark</code>, that card: <code>.id</code> <code>.title</code>
         <code>.description</code> <code>.revision</code> <code>.case_count</code>
         <code>.cases(limit, offset)</code>
       </li>
-      <li><code>sf.BenchmarkInfo</code> — the pinned subset a report carries</li>
-      <li><code>sf.CaseInfo</code> — one case's <code>id</code> and <code>input</code></li>
+      <li><code>sf.BenchmarkInfo</code>: the pinned subset a report carries</li>
+      <li><code>sf.CaseInfo</code>: one case's <code>id</code> and <code>input</code></li>
     </ul>
 
     <p>
@@ -100,7 +100,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
       Two benchmarks, and they differ in what grading costs. <strong>DRACO</strong> is 100
       deep-research tasks graded by a judge model
       (<code>openrouter/google/gemini-3.1-pro-preview</code>) with five independent passes per
-      criterion — the grading itself is the expensive part. <strong>IFEval</strong> is 541
+      criterion, so the grading itself is the expensive part. <strong>IFEval</strong> is 541
       instruction-following prompts checked by a deterministic verifier, so its grading is
       <strong>free</strong>: only the answers cost anything.
     </p>
@@ -120,8 +120,8 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
     <h3>Select a method</h3>
 
     <p>
-      Some benchmarks publish more than one protocol. IFEval's default is <code>corrective</code> —
-      a bounded three-attempt retry chain fed by the verifier's complaints.
+      Some benchmarks publish more than one protocol. IFEval's default is <code>corrective</code>, a
+      bounded three-attempt retry chain fed by the verifier's complaints.
       <code>single_pass</code> is one answer, one check, and it is the only variant comparable to
       published IFEval numbers.
     </p>
@@ -131,7 +131,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
     </div>
 
     <p>
-      Notice the revisions differ. A method is not a flag on one exam — it is a
+      Notice the revisions differ. A method is not a flag on one exam, but a
       <strong>different pinned protocol</strong>, with a different cost and a score that means
       something different. Comparing a corrective score against a single-pass one is a mistake the
       revisions let you catch.
@@ -141,8 +141,8 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
 
     <p>
       <code>cases()</code> pages the real prompts, 50 at a time by default. For IFEval this is worth
-      doing: each prompt carries its own constraints in its text — "300+ words", "no commas",
-      "highlight three sections" — which is exactly what makes it machine-checkable.
+      doing: each prompt carries its own constraints in its text, such as "300+ words", "no commas"
+      or "highlight three sections", which is exactly what makes it machine-checkable.
     </p>
 
     <div class="not-prose">
@@ -151,7 +151,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
 
     <p>
       A <code>CaseInfo</code> carries only its <code>id</code> and <code>input</code>. Prompts cross
-      the boundary to the models; grading criteria, rubrics and answer keys do not — and that
+      the boundary to the models; grading criteria, rubrics and answer keys do not, and that
       separation is what makes a verified result meaningful rather than self-reported.
     </p>
 
@@ -163,7 +163,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
           href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/07_ifeval_e2e.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook — <code>07_ifeval_e2e.ipynb</code></a
+          >Companion notebook: <code>07_ifeval_e2e.ipynb</code></a
         >
       </li>
     </ul>
