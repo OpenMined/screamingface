@@ -2,12 +2,12 @@
 id: OME-670
 linear_url: https://linear.app/openmined/issue/OME-670
 parent: OME-666
-status: In Progress
+status: Done
 type: Task
 priority: P2
 labels: [repo, autonomous, agentic, task]
 created: 2026-08-08
-closed:
+closed: 2026-08-09
 ---
 
 # Generate API reference for core classes
@@ -41,6 +41,10 @@ Modules, top-level functions, errors, warnings and event types belong to `OME-67
 own list is half-dead too (`sf.graders`, `sf.aggregators`, `sf.reducers`, `sf.tools` do not exist,
 and `sf.config` is `sf.configure`), so it gains `sf.events`, `sf.errors` and `sf.warnings`, which
 no ticket specified.
+
+A prose pass over the Overview and the six user guides was folded into this ticket at the owner's
+direction, so the whole SF Client section reads consistently. `QuickstartPage.vue` is excluded: its
+samples still target the pre-`OME-605` API and are due a rewrite that will cover its copy too.
 
 Branch `callis/ome-670-generate-api-reference-for-core-classes` is cut from the epic branch
 `callis/ome-666-documentation-for-screamingface-client-v1`; its PR targets that branch, not `main`.

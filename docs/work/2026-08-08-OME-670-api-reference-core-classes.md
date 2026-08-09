@@ -1,9 +1,9 @@
 ---
 ticket: OME-670
 stack: repo
-status: in_progress
+status: done
 started: 2026-08-08
-finished:
+finished: 2026-08-09
 ---
 
 # OME-670 — API reference for core classes
@@ -56,7 +56,26 @@ names; the class-shaped ones are eighteen.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
+- **Actual files:** as planned, plus a prose pass over
+  `public-docs/src/pages/sf-client/Index.vue` and the six pages under
+  `public-docs/src/pages/sf-client/guides/`.
 - **Commits:**
-- **Gates:**
+  - `757baff0` — the four API reference pages, nav group, routes, `public-docs/CLAUDE.md`
+  - `0c0d45c9` — prose pass over the guides and Overview
+- **Gates:** `npx oxlint .`, `npx eslint .`, `npm run build` and
+  `prettier --check` all green. Sidebar nesting and long-repr wrapping confirmed
+  visually by the owner at three levels of navigation depth.
 - **Deviations:**
+  - The `OME-666` spec named six core classes, two of which do not exist
+    (`sf.Case` is `CaseInfo`; `sf.StudyReport` was merged into `Report`). The
+    page set follows `__all__` at `e387aefd` instead: eighteen class-shaped
+    names across four pages.
+  - `sf.MAX_ATTEMPTS` is exported from `corrective.py` but not re-exported at
+    package level, so the retry cap is stated as prose rather than referenced.
+  - Union types in tables use non-breaking spaces so a type cannot break across
+    lines.
+  - The prose pass over the guides and Overview was added to this ticket at the
+    owner's direction rather than filed separately. `QuickstartPage.vue` was
+    excluded: its samples still target the pre-`OME-605` API and are due a
+    rewrite that will cover its copy too.
+  - Work happened in the shared checkout rather than a per-unit worktree.
