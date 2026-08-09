@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import threading
@@ -16,6 +17,7 @@ from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
+from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import Candidate
 
 BENCHMARK_URL4 = render(
@@ -44,6 +46,38 @@ BENCHMARK = {
     "case_count": 1,
     "url4": BENCHMARK_URL4,
 }
+
+CANDIDATE_URL4 = render(
+    expr(
+        src(
+            RelExpr(path="/provider/opus", context="$input", intent=text("Answer.")),
+            name="model_1",
+            weight=0.0,
+        ),
+        intent=text("$model_1"),
+    )
+)
+REPLAY_URL4 = render(
+    expr(
+        src(text(CANDIDATE_URL4), name="candidate", weight=0.0),
+        src("fixture", name="result", weight=0.0),
+        intent=text("$result"),
+    )
+)
+FUSION_CANDIDATE_URL4 = compile_candidate(
+    sf.Fusion(
+        [sf.Model("provider/opus"), sf.Model("provider/sonnet")],
+        synthesizer="provider/synthesizer",
+    )
+).url4
+assert FUSION_CANDIDATE_URL4 is not None
+FUSION_REPLAY_URL4 = render(
+    expr(
+        src(text(FUSION_CANDIDATE_URL4), name="candidate", weight=0.0),
+        src("fixture", name="result", weight=0.0),
+        intent=text("$result"),
+    )
+)
 
 
 def _model_row(model: str) -> dict[str, object]:
@@ -131,6 +165,145 @@ class _InterruptibleTransport:
 
     def close(self) -> None:
         self.release.set()
+
+
+class _ReplayTransport:
+    def __init__(self) -> None:
+        self.candidate: Candidate | None = None
+
+    def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
+        del on_event
+        self.candidate = candidate
+        now = datetime.now(UTC)
+        return _RunOutcome(
+            run_id="replay-run",
+            started_at=now,
+            completed_at=now,
+            result_body=json.dumps(
+                {
+                    "schema": "screamingface.candidate-result.v1",
+                    "benchmark_id": "draco/smoke",
+                    "benchmark_revision": "fixture-revision",
+                    "case_count": 1,
+                    "score": 1.0,
+                    "metrics": {},
+                    "cases": [
+                        {
+                            "case_id": 1,
+                            "input": "Fixture question",
+                            "output": "Fixture answer",
+                            "finish_reason": "stop",
+                            "grade": {
+                                "method": "fixture",
+                                "score": 1.0,
+                                "metrics": {},
+                                "checks": [],
+                            },
+                            "failures": [],
+                            "metadata": {},
+                        }
+                    ],
+                    "failures": [],
+                }
+            ),
+            media_type="application/json",
+            root_usage=None,
+        )
+
+    def cancel_active(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+class _AsyncReplayTransport(_ReplayTransport):
+    async def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
+        return super().run(candidate, on_event)
+
+    async def close(self) -> None:
+        pass
+
+
+def test_evaluate_replays_a_complete_url4_without_recompiling_it() -> None:
+    transport = _ReplayTransport()
+
+    with sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    ) as client:
+        report = client.evaluate(REPLAY_URL4, progress=False)
+
+    assert transport.candidate is not None
+    assert transport.candidate.url4 == REPLAY_URL4
+    assert report.benchmark == sf.BenchmarkInfo(
+        id="draco/smoke",
+        revision="fixture-revision",
+        case_count=1,
+    )
+    assert report.candidates.only.name == "opus"
+    assert report.candidates.only.kind == "model"
+    assert report.candidates.only.models == ("provider/opus",)
+    assert report.candidates.only.url4 == REPLAY_URL4
+
+
+def test_evaluate_url4_reconstructs_the_embedded_fusion_projection() -> None:
+    transport = _ReplayTransport()
+
+    with sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    ) as client:
+        report = client.evaluate(FUSION_REPLAY_URL4, progress=False)
+
+    candidate = report.candidates.only
+    assert candidate.name == "opus+sonnet"
+    assert candidate.kind == "fusion"
+    assert candidate.models == (
+        "provider/opus",
+        "provider/sonnet",
+        "provider/synthesizer",
+    )
+    assert [member.name for member in candidate.members] == ["opus", "sonnet"]
+    assert [operation.kind for operation in candidate.operations] == [
+        "model",
+        "model",
+        "synthesis",
+    ]
+
+
+@pytest.mark.parametrize("options", [{"benchmark": "draco/smoke"}, {"limit": 1}])
+def test_evaluate_url4_rejects_recompilation_options(options: dict[str, object]) -> None:
+    transport = _ReplayTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(TypeError, match="must not be passed"):
+        client.evaluate(REPLAY_URL4, progress=False, **options)  # type: ignore[call-overload]
+
+    assert transport.candidate is None
+
+
+@pytest.mark.asyncio
+async def test_async_evaluate_replays_the_same_complete_url4() -> None:
+    transport = _AsyncReplayTransport()
+    client = sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    )
+
+    report = await client.evaluate(REPLAY_URL4, progress=False)
+    await client.aclose()
+
+    assert transport.candidate is not None
+    assert transport.candidate.url4 == REPLAY_URL4
+    assert report.candidates.only.url4 == REPLAY_URL4
 
 
 def test_evaluate_rejects_an_unavailable_model_before_execution() -> None:

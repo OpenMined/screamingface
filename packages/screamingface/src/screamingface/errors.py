@@ -101,6 +101,35 @@ class ProviderConnectionError(_DiagnosticError):
         )
 
 
+class LeaderboardError(_DiagnosticError):
+    """A public Scoreboard operation could not be completed safely."""
+
+    _default_code: str = "leaderboard_failed"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        scoreboard_url: str | None = None,
+        code: str | None = None,
+        status: int | None = None,
+        permanent: bool | None = None,
+        details: object = None,
+        hint: str | None = None,
+    ) -> None:
+        self.scoreboard_url: str | None = scoreboard_url
+        if hint is None and code == "scoreboard_unreachable":
+            hint = _scoreboard_hint(scoreboard_url)
+        super().__init__(
+            message,
+            code=code,
+            status=status,
+            permanent=permanent,
+            details=details,
+            hint=hint,
+        )
+
+
 class EngineUnavailableError(_DiagnosticError):
     """The configured SF Engine could not be reached."""
 
@@ -135,10 +164,23 @@ def _engine_hint(engine_url: str) -> str:
     )
 
 
+def _scoreboard_hint(scoreboard_url: str | None) -> str:
+    hostname = urlsplit(scoreboard_url).hostname if scoreboard_url is not None else None
+    if hostname in {"localhost", "127.0.0.1", "::1"}:
+        return (
+            "Start the local stack with `just stack-up`, or configure a different `scoreboard_url`."
+        )
+    return (
+        "Check that the configured Scoreboard is reachable, "
+        "or configure a different `scoreboard_url`."
+    )
+
+
 __all__ = [
     "AuthenticationError",
     "EngineUnavailableError",
     "ExecutionError",
+    "LeaderboardError",
     "PlanningError",
     "ProviderConnectionError",
     "ScreamingFaceError",

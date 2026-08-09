@@ -30,6 +30,7 @@ from screamingface.report import BenchmarkInfo, CandidateResult, Report
 _START = datetime(2026, 8, 7, 17, 28, 8, tzinfo=UTC)
 _END = datetime(2026, 8, 7, 17, 28, 28, tzinfo=UTC)
 _METRICS = {"pass_rate": 0.5, "coverage": 1.0, "verdicts_expected": 1, "verdicts_accepted": 1}
+_BENCHMARK = BenchmarkInfo("draco/smoke", "74c94830e8de6afd", 1)
 
 
 def case(*, checks: tuple[Check, ...] = (), score: float | None = 0.0) -> CaseResult:
@@ -48,6 +49,7 @@ def candidate(
     name: str, score: float | None, *, cases: tuple[CaseResult, ...] = ()
 ) -> CandidateResult:
     return CandidateResult(
+        benchmark=_BENCHMARK,
         run_id=f"run-{name}",
         started_at=_START,
         completed_at=_END,
@@ -74,7 +76,7 @@ def body(html: str) -> str:
 
 def report(*candidates: CandidateResult) -> Report:
     return Report(
-        benchmark=BenchmarkInfo("draco/smoke", "74c94830e8de6afd", 1),
+        benchmark=_BENCHMARK,
         case_count=1,
         candidates=list(candidates),
     )

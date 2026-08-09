@@ -59,6 +59,7 @@ def candidate(
     score: float | None = 0.5,
 ) -> sf.CandidateResult:
     return sf.CandidateResult(
+        benchmark=benchmark(),
         run_id=f"run-{name}",
         started_at=NOW,
         completed_at=NOW + timedelta(milliseconds=20),
@@ -100,6 +101,7 @@ def test_report_values_cover_members_and_collections() -> None:
 
 def test_candidate_metrics_preserve_json_compatible_values() -> None:
     result = sf.CandidateResult(
+        benchmark=benchmark(),
         run_id="run-candidate",
         started_at=NOW,
         completed_at=NOW + timedelta(milliseconds=20),
@@ -167,6 +169,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
         ),
         (
             lambda: sf.CandidateResult(
+                benchmark=benchmark(),
                 run_id="run",
                 started_at=NOW,
                 completed_at=NOW,
@@ -186,6 +189,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
         ),
         (
             lambda: sf.CandidateResult(
+                benchmark=benchmark(),
                 run_id="run",
                 started_at=NOW,
                 completed_at=NOW,
@@ -205,6 +209,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
         ),
         (
             lambda: sf.CandidateResult(
+                benchmark=benchmark(),
                 run_id="run",
                 started_at=NOW,
                 completed_at=NOW,
@@ -224,6 +229,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
         ),
         (
             lambda: sf.CandidateResult(
+                benchmark=benchmark(),
                 run_id="run",
                 started_at=NOW,
                 completed_at=NOW,
@@ -243,6 +249,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
         ),
         (
             lambda: sf.CandidateResult(
+                benchmark=benchmark(),
                 run_id="run",
                 started_at=NOW,
                 completed_at=NOW,
@@ -356,6 +363,7 @@ def test_report_values_reject_invalid_state(factory: Any, message: str) -> None:
 def test_candidate_rejects_invalid_timestamps() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         sf.CandidateResult(
+            benchmark=benchmark(),
             run_id="run",
             started_at=datetime(2026, 1, 1),
             completed_at=NOW,
@@ -373,6 +381,7 @@ def test_candidate_rejects_invalid_timestamps() -> None:
         )
     with pytest.raises(ValueError, match="cannot precede"):
         sf.CandidateResult(
+            benchmark=benchmark(),
             run_id="run",
             started_at=NOW,
             completed_at=NOW - timedelta(seconds=1),
@@ -404,6 +413,7 @@ def test_fusion_member_operation_ids_must_be_unique() -> None:
 
     with pytest.raises(ValueError, match="operation IDs must be unique"):
         sf.CandidateResult(
+            benchmark=benchmark(),
             run_id="run",
             started_at=NOW,
             completed_at=NOW,
@@ -431,6 +441,7 @@ def test_candidate_result_rejects_unknown_operation_references() -> None:
     )
     with pytest.raises(ValueError, match="unknown Operation ID 'op_missing'"):
         sf.CandidateResult(
+            benchmark=benchmark(),
             run_id="run",
             started_at=NOW,
             completed_at=NOW,
@@ -449,6 +460,7 @@ def test_candidate_result_rejects_unknown_operation_references() -> None:
 
     with pytest.raises(ValueError, match="unknown Operation ID 'op_missing'"):
         sf.CandidateResult(
+            benchmark=benchmark(),
             run_id="run",
             started_at=NOW,
             completed_at=NOW,

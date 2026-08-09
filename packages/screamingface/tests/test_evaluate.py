@@ -8,19 +8,26 @@ import pytest
 import screamingface as sf
 
 
-def test_benchmark_is_a_required_keyword() -> None:
+def test_benchmark_is_required_when_evaluating_recipes() -> None:
     candidate = sf.Model("provider/model")
 
     inspect.signature(sf.evaluate).bind(candidate, benchmark="draco")
     inspect.signature(sf.Client.evaluate).bind(object(), candidate, benchmark="draco")
     inspect.signature(sf.AsyncClient.evaluate).bind(object(), candidate, benchmark="draco")
-    for evaluate, arguments in (
-        (sf.evaluate, (candidate,)),
-        (sf.Client.evaluate, (object(), candidate)),
-        (sf.AsyncClient.evaluate, (object(), candidate)),
-    ):
-        with pytest.raises(TypeError):
-            inspect.signature(evaluate).bind(*arguments)
+
+    with sf.Client() as client:
+        with pytest.raises(TypeError, match="benchmark is required"):
+            client.evaluate(candidate)  # type: ignore[call-overload]
+
+
+@pytest.mark.asyncio
+async def test_benchmark_is_required_when_evaluating_recipes_async() -> None:
+    client = sf.AsyncClient()
+
+    with pytest.raises(TypeError, match="benchmark is required"):
+        await client.evaluate(sf.Model("provider/model"))  # type: ignore[call-overload]
+
+    await client.aclose()
 
 
 def test_benchmark_override_is_keyword_only() -> None:

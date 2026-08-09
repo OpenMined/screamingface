@@ -41,6 +41,22 @@ Benchmark selection. All no-spend validation finishes before the first paid Run 
 requires a Benchmark Runner image containing the expression's referenced data, grading, and
 Aggregation routes.
 
+A complete evaluation URL4 is already linked to its Benchmark and can be evaluated directly. The
+Client validates the embedded Candidate projection, executes that exact expression, and recovers
+the pinned Benchmark identity from the Engine result:
+
+```python
+score = sf.leaderboards.get_score(score_id)
+editable_python = score.url4.to_python()
+replayed_report = sf.evaluate(score.url4)
+```
+
+`Url4.to_python()` is local and no-spend: it produces an editable `sf.Model` or `sf.Fusion` plus
+the recovered Benchmark call. Raw URL4 evaluation does not accept `benchmark=` or `limit=`
+because either would imply
+recompiling an already-complete expression. Replay starts a new, potentially paid Run; identical
+URL4 does not guarantee identical model output.
+
 The installed `draco` definition always refers to the complete official 100-task Benchmark;
 `limit=1` merely runs one Case. Grading uses five independent Judge passes per criterion. The
 current executable Judge is `openrouter/google/gemini-3.1-pro-preview`, Google's official
@@ -117,23 +133,28 @@ pip install screamingface
 
 Python 3.12 or newer is required.
 
-## Engine configuration
+## Client configuration
 
 The module-level interface constructs one process-wide Client lazily against the hosted development
-Engine. Configure it explicitly when selecting another Engine:
+Engine and public Scoreboard. Configure either origin explicitly when selecting local or alternate
+deployments:
 
 ```python
 import screamingface as sf
 
-sf.configure(engine_url="http://127.0.0.1:9108")
+sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)
 report = sf.evaluate(candidates, benchmark="draco", limit=1)
 sf.close()
 ```
 
 `sf.configure(...)` replaces and closes any existing default Client. `sf.close()` releases the
 default Client and clears it so the next module-level operation can construct a fresh one. Setting
-`SCREAMINGFACE_ENGINE_URL` before the first operation remains supported for environment-driven
-configuration.
+`SCREAMINGFACE_ENGINE_URL` and `SCREAMINGFACE_SCOREBOARD_URL` may be set before the first operation
+for environment-driven configuration. The hosted development Scoreboard defaults to
+`https://leaderboard.dev.screamingface.ai`.
 
 The Client hides Benchmark fetching, URL4 compilation, REST/WebSocket transport, Event replay,
 and Report decoding behind `sf.evaluate(...)`.
@@ -222,8 +243,9 @@ The Engine catalogue remains authoritative about which methods each provider sup
 
 Local and hosted Engines use the same Client contract. Local mode may run the URL4 executor
 in-process with an in-memory event bus; hosted mode may use the REST/WebSocket control plane with
-NATS and scheduled workers. From the Client's perspective only `engine_url` changes. Generic URL4
-execution remains benchmark-agnostic; installed Engine definitions own Benchmark semantics.
+NATS and scheduled workers. Engine execution is selected through `engine_url`; public Leaderboard
+discovery is configured independently through `scoreboard_url`. Generic URL4 execution remains
+benchmark-agnostic; installed Engine definitions own Benchmark semantics.
 
 ## Progress and Reports
 
@@ -298,18 +320,16 @@ when the Benchmark provides them. This warning does not discard the Report.
 Researcher or SF App
         ↓
 ScreamingFace Python Client
-  Recipe authoring · URL4 compilation · Events · Reports
-        ↓  REST + WebSocket
-SF Engine
-  URL4 execution · Benchmarks · grading · aggregation · Tools
-        ↓
-AI Gateway
-  provider credentials · model dispatch
+  Recipe authoring · URL4 compilation · Events · Reports · Leaderboard reads
+        ├─ REST + WebSocket → SF Engine → AI Gateway
+        └─ public HTTPS GET → Scoreboard
 ```
 
-The Client calls only its configured SF Engine. It never calls AI Gateway, model providers,
-Tavily, or Benchmark datasets directly. Local and hosted Engines expose the same Client-visible
-contract; in-memory channels, NATS, workers, and deployment topology are Engine details.
+Evaluation, discovery, and provider-connection operations call the configured SF Engine.
+Leaderboard discovery calls the configured public Scoreboard. The Client never calls AI Gateway,
+model providers, Tavily, or Benchmark datasets directly. Local and hosted Engines expose the same
+Client-visible contract; in-memory channels, NATS, workers, and deployment topology are Engine
+details.
 
 Models and Fusions are immutable, Client-independent, and network-free. Models select routes and
 optional answer policy; Fusions declare topology and optional synthesis policy. The SDK resolves
@@ -329,6 +349,14 @@ An Engine implementing the provisional catalogue contract exposes typed discover
 models = sf.models.list()
 gpt_details = sf.models.get("openrouter/openai/gpt-5.5")
 benchmarks = sf.benchmarks.list()
+boards = sf.leaderboards.list()
+draco_board = sf.leaderboards.get("draco", top=50)
+
+# After evaluating an accuracy Benchmark whose Scoreboard accepts submissions:
+submission = sf.leaderboards.submit(report.candidates.only)
+same_submission = sf.leaderboards.get_score(submission.id)
+editable_python = same_submission.url4.to_python()
+replayed_report = sf.evaluate(same_submission.url4)
 ```
 
 Explicit Clients provide the same interface through `client.models.list()` and
@@ -336,6 +364,19 @@ Explicit Clients provide the same interface through `client.models.list()` and
 same names with `await`. `ModelInfo` rows are lightweight summaries containing the supported
 parameter and tool names. `ModelDetails` is the profile-specific contract for one Model, including
 typed parameter schemas, gateway policy, provider evidence, tools, transport, and freshness.
+
+`sf.leaderboards` uses the separate public Scoreboard: `list()` returns its registered benchmark
+summaries, while `get(benchmark_id, top=...)` returns one immutable `Leaderboard` containing ranked
+best-per-spec entries and imported single-Model baselines. `submit(candidate_result)` publishes an
+already-evaluated, binary accuracy result without asking the caller to repeat its Benchmark, URL4,
+models, counts, or run identity; `get_score(id)` retrieves the resulting immutable
+`LeaderboardScore`. Its `.url4` property is a string-compatible `Url4` value:
+`.to_python()` produces an editable fork, while passing the value to `sf.evaluate(...)` replays it
+through the configured Engine. A Scoreboard deployment may
+keep writes closed, in which case `submit()` raises a typed `LeaderboardError`. Explicit Clients
+expose the same interface at `client.leaderboards`; asynchronous Clients use `await`. The
+Scoreboard is the deployed data system, while a Leaderboard is the ranked domain resource returned
+to callers.
 
 Explicit Candidate parameters are preflighted against those details before execution. The SDK
 fetches one detail document per distinct Model with explicit overrides on an operation the selected

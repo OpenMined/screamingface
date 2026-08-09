@@ -6,7 +6,7 @@ import os
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, overload
 
-from screamingface.client import DEFAULT_ENGINE_URL, Client
+from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Client
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -30,16 +30,24 @@ def default_client() -> Client:
     with _lock:
         if _client is None:
             _client = Client(
-                engine_url=os.environ.get("SCREAMINGFACE_ENGINE_URL", DEFAULT_ENGINE_URL)
+                engine_url=os.environ.get("SCREAMINGFACE_ENGINE_URL", DEFAULT_ENGINE_URL),
+                scoreboard_url=os.environ.get(
+                    "SCREAMINGFACE_SCOREBOARD_URL",
+                    DEFAULT_SCOREBOARD_URL,
+                ),
             )
     return _client
 
 
-def configure(*, engine_url: str) -> Client:
+def configure(
+    *,
+    engine_url: str = DEFAULT_ENGINE_URL,
+    scoreboard_url: str = DEFAULT_SCOREBOARD_URL,
+) -> Client:
     """Replace the process-wide Client used by module-level convenience functions."""
 
     global _client
-    replacement = Client(engine_url=engine_url)
+    replacement = Client(engine_url=engine_url, scoreboard_url=scoreboard_url)
     with _lock:
         previous = _client
         _client = replacement
@@ -59,6 +67,18 @@ def close() -> None:
         previous.close()
 
 
+@overload
+def evaluate(
+    candidates: str,
+    *,
+    benchmark: None = None,
+    limit: None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+) -> Report: ...
+
+
+@overload
 def evaluate(
     candidates: Recipe | Sequence[Recipe],
     *,
@@ -66,10 +86,29 @@ def evaluate(
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
-) -> Report:
-    """Evaluate Candidates through the lazily constructed default Client."""
+) -> Report: ...
 
-    return default_client().evaluate(
+
+def evaluate(
+    candidates: Recipe | Sequence[Recipe] | str,
+    *,
+    benchmark: str | None = None,
+    limit: int | None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+) -> Report:
+    """Evaluate Recipes or a complete URL4 through the lazy default Client."""
+
+    client = default_client()
+    if isinstance(candidates, str):
+        if benchmark is not None:
+            raise TypeError("benchmark must not be passed when evaluating a complete URL4")
+        if limit is not None:
+            raise TypeError("limit must not be passed when evaluating a complete URL4")
+        return client.evaluate(candidates, on_event=on_event, progress=progress)
+    if benchmark is None:
+        raise TypeError("benchmark is required when evaluating Recipes")
+    return client.evaluate(
         candidates,
         benchmark=benchmark,
         limit=limit,

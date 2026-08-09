@@ -25,6 +25,7 @@ from screamingface._report_primitives import (
 from screamingface.case_result import CaseGrade, CaseResult, Check, Evidence, EvidenceProducer
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
+from screamingface.url4 import Url4
 
 type RecipeKind = Literal["model", "fusion"]
 
@@ -91,12 +92,13 @@ class MemberResult:
 class CandidateResult:
     """One independently executed Candidate outcome; a higher score is always better."""
 
+    benchmark: BenchmarkInfo
     run_id: str
     started_at: datetime
     completed_at: datetime
     name: str
     kind: RecipeKind
-    url4: str
+    url4: Url4
     models: tuple[str, ...]
     operations: tuple[OperationInfo, ...]
     score: float | None
@@ -109,6 +111,7 @@ class CandidateResult:
     def __init__(
         self,
         *,
+        benchmark: BenchmarkInfo,
         run_id: str,
         started_at: datetime,
         completed_at: datetime,
@@ -124,6 +127,8 @@ class CandidateResult:
         failures: Sequence[Failure],
         usage: Usage,
     ) -> None:
+        if not isinstance(benchmark, BenchmarkInfo):
+            raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
         selected_score = _optional_number(score, "Candidate score")
         metric_items = _metrics(metrics)
         if selected_score is None and metric_items:
@@ -148,12 +153,13 @@ class CandidateResult:
             label="Candidate",
         )
         values = {
+            "benchmark": benchmark,
             "run_id": _nonblank(run_id, "Candidate run_id"),
             "started_at": start,
             "completed_at": end,
             "name": _nonblank(name, "Candidate name"),
             "kind": selected_kind,
-            "url4": _canonical_url4(url4, "Candidate"),
+            "url4": Url4(_canonical_url4(url4, "Candidate")),
             "models": selected_models,
             "operations": selected_operations,
             "score": selected_score,
@@ -176,6 +182,7 @@ class CandidateResult:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "benchmark": self.benchmark._result_dict(len(self.cases)),
             "run_id": self.run_id,
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),
@@ -227,6 +234,8 @@ class Report:
         benchmark._result_dict(case_count)
         selected_candidates = _CandidateResults(candidates)
         for candidate in selected_candidates:
+            if candidate.benchmark != benchmark:
+                raise ValueError("every Candidate Result must belong to the Report Benchmark")
             if len(candidate.cases) != case_count:
                 raise ValueError(
                     "every Candidate Result must contain the Report's selected Case count"

@@ -1,4 +1,4 @@
-# ScreamingFace local dev stack — gateway (:9105) + engine (:9108) — plus notebooks.
+# ScreamingFace local dev stack — gateway (:9105) + scoreboard (:9106) + engine (:9108) — plus notebooks.
 # just stack-up | stack-down | stack-status | stack-logs | stack-prepare | jupyter
 
 assets := "/tmp/screamingface-benchmark-assets"  # datasets for url4-cloud benchmarks
@@ -18,7 +18,7 @@ jupyter:
     uv sync --extra notebook
     uv run jupyter lab examples
 
-# Start AI Gateway (:9105) and url4-cloud engine (:9108) in the background
+# Start AI Gateway (:9105), scoreboard (:9106), and url4-cloud engine (:9108) in the background
 stack-up:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -28,10 +28,19 @@ stack-up:
         echo "AI Gateway environment missing; run: cd {{repo}}/apps/aigateway && uv sync"
         exit 1
     }
+    test -x {{repo}}/apps/scoreboard/.venv/bin/uvicorn || {
+        echo "Scoreboard environment missing; run: cd {{repo}}/apps/scoreboard && uv sync && uv run tortoise migrate"
+        exit 1
+    }
     test -x {{engine_repo}}/apps/url4-cloud/.venv/bin/url4-cloud || {
         echo "URL4 Cloud environment missing; run: cd {{engine_repo}}/apps/url4-cloud && uv sync"
         exit 1
     }
+    (
+        cd {{repo}}/apps/scoreboard
+        .venv/bin/python -m scoreboard.seed --benchmarks-json \
+            '[{"id":"draco/smoke","display_name":"DRACO Smoke","description":"Local end-to-end development protocol"}]'
+    )
     if lsof -nP -iTCP:9105 -sTCP:LISTEN >/dev/null 2>&1; then
         echo "gateway   :9105 already running"
     else
@@ -42,21 +51,43 @@ stack-up:
         # OPENROUTER_ENABLED is REQUIRED too: the provider plugin defaults to disabled,
         # Without it the Gateway catalog contains no openrouter/* models. The Engine projects
         # that caller-visible catalog onto its declared routes; it does not fabricate providers.
-        (cd {{repo}}/apps/aigateway && AIGATEWAY_AUTH_ENABLED=false AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1 \
-            AIGW_OPENROUTER_ENABLED=true \
-            nohup .venv/bin/uvicorn aigateway.main:app --port 9105 \
-            >{{rundir}}/aigateway.log 2>&1 & echo $! >{{rundir}}/aigateway.pid)
+        (
+            cd {{repo}}/apps/aigateway
+            AIGATEWAY_AUTH_ENABLED=false AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1 \
+                AIGW_OPENROUTER_ENABLED=true \
+                nohup .venv/bin/uvicorn aigateway.main:app --port 9105 \
+                >{{rundir}}/aigateway.log 2>&1 &
+            echo $! >{{rundir}}/aigateway.pid
+        )
         echo "gateway   :9105 starting  (log: {{rundir}}/aigateway.log)"
+    fi
+    if lsof -nP -iTCP:9106 -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "scoreboard :9106 already running"
+    else
+        (
+            cd {{repo}}/apps/scoreboard
+            nohup .venv/bin/uvicorn scoreboard.main:app --port 9106 \
+                >{{rundir}}/scoreboard.log 2>&1 &
+            echo $! >{{rundir}}/scoreboard.pid
+        )
+        echo "scoreboard :9106 starting  (log: {{rundir}}/scoreboard.log)"
     fi
     if lsof -nP -iTCP:9108 -sTCP:LISTEN >/dev/null 2>&1; then
         echo "engine    :9108 already running"
     else
-        (cd {{engine_repo}}/apps/url4-cloud && URL4_BENCHMARK_ASSETS={{assets}} nohup .venv/bin/url4-cloud serve --local \
-            >{{rundir}}/url4-cloud.log 2>&1 & echo $! >{{rundir}}/url4-cloud.pid)
+        (
+            cd {{engine_repo}}/apps/url4-cloud
+            URL4_BENCHMARK_ASSETS={{assets}} \
+                URL4_CLOUD_AIGATEWAY_BASE_URL=http://127.0.0.1:9105 \
+                nohup .venv/bin/url4-cloud serve --local \
+                >{{rundir}}/url4-cloud.log 2>&1 &
+            echo $! >{{rundir}}/url4-cloud.pid
+        )
         echo "engine    :9108 starting  (log: {{rundir}}/url4-cloud.log, assets: {{assets}})"
     fi
     for attempt in {1..20}; do
         if lsof -nP -iTCP:9105 -sTCP:LISTEN >/dev/null 2>&1 && \
+           lsof -nP -iTCP:9106 -sTCP:LISTEN >/dev/null 2>&1 && \
            lsof -nP -iTCP:9108 -sTCP:LISTEN >/dev/null 2>&1; then
             just stack-status
             exit 0
@@ -67,11 +98,11 @@ stack-up:
     echo "Local stack failed to become ready; inspect: just stack-logs"
     exit 1
 
-# Stop both services
+# Stop all services
 stack-down:
     #!/usr/bin/env bash
     set -u
-    for name in aigateway url4-cloud; do
+    for name in aigateway scoreboard url4-cloud; do
         pidfile={{rundir}}/$name.pid
         if [ -f "$pidfile" ]; then
             IFS= read -r pid < "$pidfile"
@@ -82,7 +113,7 @@ stack-down:
                 *)
                     command=$(ps -p "$pid" -o command= 2>/dev/null || true)
                     case "$name:$command" in
-                        aigateway:*uvicorn*aigateway.main:app*|url4-cloud:*url4-cloud*serve*)
+                        aigateway:*uvicorn*aigateway.main:app*|scoreboard:*uvicorn*scoreboard.main:app*|url4-cloud:*url4-cloud*serve*)
                             if kill "$pid" 2>/dev/null; then
                                 echo "$name stopped"
                             fi
@@ -103,7 +134,7 @@ stack-down:
 # Show what is listening
 stack-status:
     #!/usr/bin/env bash
-    for entry in "gateway:9105" "engine:9108"; do
+    for entry in "gateway:9105" "scoreboard:9106" "engine:9108"; do
         name=${entry%%:*}; port=${entry##*:}
         if lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1; then
             echo "$name   :$port UP"
@@ -112,9 +143,9 @@ stack-status:
         fi
     done
 
-# Tail both service logs
+# Tail all service logs
 stack-logs:
-    tail -n 40 -f {{rundir}}/aigateway.log {{rundir}}/url4-cloud.log
+    tail -n 40 -f {{rundir}}/aigateway.log {{rundir}}/scoreboard.log {{rundir}}/url4-cloud.log
 
 # One-time: download pinned DRACO assets into {{assets}}
 stack-prepare:

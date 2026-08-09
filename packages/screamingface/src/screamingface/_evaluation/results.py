@@ -8,7 +8,8 @@ from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from screamingface._core.ports import _RunOutcome
-from screamingface._evaluation.model import Candidate, _Evaluation
+from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
+from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError
 from screamingface.report import (
     CandidateResult,
@@ -39,6 +40,37 @@ def report_from_outcomes(
         case_count=evaluation.case_count,
         candidates=candidates,
     )
+
+
+def report_from_url4_outcome(candidate: Candidate, outcome: _RunOutcome) -> Report:
+    """Decode an opaque replay after its result identifies the pinned Benchmark."""
+
+    try:
+        payload = json.loads(outcome.result_body)
+    except json.JSONDecodeError as exc:
+        raise ExecutionError("SF Engine Candidate result must be JSON") from exc
+    value = _mapping(payload, "Candidate result")
+    if value.get("schema") != "screamingface.candidate-result.v1":
+        raise ExecutionError("SF Engine Candidate result schema is unsupported")
+    benchmark_id = _text(value.get("benchmark_id"), "Candidate benchmark_id")
+    benchmark_revision = _text(
+        value.get("benchmark_revision"),
+        "Candidate benchmark_revision",
+    )
+    case_count = _positive_integer(value.get("case_count"), "Candidate case_count")
+    benchmark = BenchmarkInfo(
+        id=benchmark_id,
+        revision=benchmark_revision,
+        case_count=case_count,
+    )
+    evaluation = _compiled_evaluation(
+        benchmark=benchmark,
+        limit=None,
+        case_count=case_count,
+        candidates=(candidate,),
+        required_models=candidate.models,
+    )
+    return report_from_outcomes(evaluation, ((candidate, outcome),))
 
 
 def _candidate_result(
@@ -83,6 +115,7 @@ def _candidate_result(
             raise ExecutionError("SF Engine Candidate result has the wrong number of Cases")
         failures = _failures(_required(value, "failures", "Candidate result"), "Candidate failures")
         return CandidateResult(
+            benchmark=evaluation.benchmark,
             run_id=outcome.run_id,
             started_at=outcome.started_at,
             completed_at=outcome.completed_at,

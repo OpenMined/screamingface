@@ -42,6 +42,12 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "evaluate",
         "Failure",
         "Fusion",
+        "Leaderboard",
+        "LeaderboardBaseline",
+        "LeaderboardEntry",
+        "LeaderboardError",
+        "LeaderboardInfo",
+        "LeaderboardScore",
         "MemberResult",
         "Model",
         "OperationInfo",
@@ -51,8 +57,10 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "Report",
         "ScreamingFaceError",
         "Usage",
+        "Url4",
         "benchmarks",
         "events",
+        "leaderboards",
         "models",
     }
     for removed in (
@@ -79,6 +87,7 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         assert not hasattr(sf, removed)
     assert sf.models.__all__ == ["get", "list"]
     assert sf.benchmarks.__all__ == ["get", "list"]
+    assert sf.leaderboards.__all__ == ["get", "get_score", "list", "submit"]
     assert sf.connections.__all__ == [
         "AsyncOAuthFlow",
         "Connection",
@@ -104,14 +113,14 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
 
 def test_module_evaluate_delegates_to_the_lazy_default_client(monkeypatch: Any) -> None:
     sentinel = object()
-    calls: list[tuple[object, str, int | None]] = []
+    calls: list[tuple[object, str | None, int | None]] = []
 
     class FakeClient:
         def evaluate(
             self,
             candidates: object,
             *,
-            benchmark: str,
+            benchmark: str | None = None,
             limit: int | None = None,
             **_: object,
         ) -> object:
@@ -125,6 +134,11 @@ def test_module_evaluate_delegates_to_the_lazy_default_client(monkeypatch: Any) 
 
     assert result is sentinel
     assert calls == [(candidates, "draco", 1)]
+
+    result = sf.evaluate("(candidate:0.0:'recipe')!'done'", progress=False)
+
+    assert result is sentinel
+    assert calls[-1] == ("(candidate:0.0:'recipe')!'done'", None, None)
 
 
 def test_default_client_is_lazy_and_reads_environment_once(
@@ -158,13 +172,20 @@ def test_default_client_lazily_selects_the_hosted_engine_without_an_override(
 
 def test_default_client_can_be_reconfigured_and_closed() -> None:
     _default_client.close()
-    first = sf.configure(engine_url="https://first.example")
+    first = sf.configure(
+        engine_url="https://first.example",
+        scoreboard_url="https://first-scoreboard.example",
+    )
 
-    second = sf.configure(engine_url="https://second.example")
+    second = sf.configure(
+        engine_url="https://second.example",
+        scoreboard_url="https://second-scoreboard.example",
+    )
 
     assert first.closed is True
     assert second is _default_client.default_client()
     assert second.engine_url == "https://second.example"
+    assert second.scoreboard_url == "https://second-scoreboard.example"
 
     sf.close()
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, overload
 
@@ -13,6 +13,7 @@ from screamingface._client_connections import (
     _connect_sync,
     _engine_origin,
     _require_secure_connection_origin,
+    _scoreboard_origin,
 )
 
 if TYPE_CHECKING:
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
     from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
     from screamingface._engine.connections import AsyncConnections, Connections
+    from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
     from screamingface.report import Report
 
 DEFAULT_ENGINE_URL = "https://fusion.dev.screamingface.ai"
+DEFAULT_SCOREBOARD_URL = "https://leaderboard.dev.screamingface.ai"
 
 
 class Client:
@@ -39,7 +42,9 @@ class Client:
         self,
         *,
         engine_url: str = DEFAULT_ENGINE_URL,
+        scoreboard_url: str = DEFAULT_SCOREBOARD_URL,
         http_transport: httpx.BaseTransport | None = None,
+        scoreboard_transport: httpx.BaseTransport | None = None,
         run_transport: SyncRunTransport | None = None,
     ) -> None:
         import httpx
@@ -49,8 +54,10 @@ class Client:
         from screamingface._engine.catalog import Benchmarks, Models
         from screamingface._engine.connections import Connections
         from screamingface._engine.transport import Url4CloudTransport
+        from screamingface._scoreboard.leaderboards import Leaderboards
 
         self._engine_url = _engine_origin(engine_url)
+        self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._auth = _default_caller_auth(self._engine_url)
@@ -59,6 +66,11 @@ class Client:
             timeout=30.0,
             auth=self._auth,
             transport=http_transport,
+        )
+        self._scoreboard_http = httpx.Client(
+            base_url=self._scoreboard_url,
+            timeout=30.0,
+            transport=scoreboard_transport,
         )
         self._transport: SyncRunTransport = (
             run_transport
@@ -69,10 +81,18 @@ class Client:
         self.benchmarks: Benchmarks = Benchmarks(self._http_get, self._engine_url)
         self._benchmark_resources = BenchmarkResources(self._http)
         self.connections: Connections = Connections(self._http_request, self._engine_url)
+        self.leaderboards: Leaderboards = Leaderboards(
+            self._scoreboard_request,
+            self._scoreboard_url,
+        )
 
     @property
     def engine_url(self) -> str:
         return self._engine_url
+
+    @property
+    def scoreboard_url(self) -> str:
+        return self._scoreboard_url
 
     @property
     def closed(self) -> bool:
@@ -128,9 +148,24 @@ class Client:
             try:
                 self._http.close()
             finally:
-                self._auth.close()
-                self._closed = True
+                try:
+                    self._scoreboard_http.close()
+                finally:
+                    self._auth.close()
+                    self._closed = True
 
+    @overload
+    def evaluate(
+        self,
+        candidates: str,
+        *,
+        benchmark: None = None,
+        limit: None = None,
+        on_event: Callable[[Event], None] | None = None,
+        progress: bool | None = None,
+    ) -> Report: ...
+
+    @overload
     def evaluate(
         self,
         candidates: Recipe | Sequence[Recipe],
@@ -139,12 +174,33 @@ class Client:
         limit: int | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
+    ) -> Report: ...
+
+    def evaluate(
+        self,
+        candidates: Recipe | Sequence[Recipe] | str,
+        *,
+        benchmark: str | None = None,
+        limit: int | None = None,
+        on_event: Callable[[Event], None] | None = None,
+        progress: bool | None = None,
     ) -> Report:
-        """Evaluate one or more Candidates against an Engine-owned Benchmark."""
+        """Evaluate Recipes, or replay one complete evaluation URL4 unchanged."""
 
         from screamingface._evaluation.runner import evaluate_sync
+        from screamingface._evaluation.url4 import evaluate_url4_sync
 
         self._require_open()
+        if isinstance(candidates, str):
+            _raw_url4_options(benchmark, limit)
+            return evaluate_url4_sync(
+                self._transport,
+                candidates,
+                on_event,
+                progress,
+            )
+        if benchmark is None:
+            raise TypeError("benchmark is required when evaluating Recipes")
         return evaluate_sync(
             self._benchmark_resources.load,
             self._transport,
@@ -239,6 +295,24 @@ class Client:
         self._require_open()
         return self._http.request(method, path, json=json)
 
+    def _scoreboard_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+        json: Any = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> httpx.Response:
+        self._require_open()
+        return self._scoreboard_http.request(
+            method,
+            path,
+            params=params,
+            json=json,
+            headers=headers,
+        )
+
 
 class AsyncClient:
     """An asynchronous Client with the same domain interface and result types."""
@@ -247,7 +321,9 @@ class AsyncClient:
         self,
         *,
         engine_url: str = DEFAULT_ENGINE_URL,
+        scoreboard_url: str = DEFAULT_SCOREBOARD_URL,
         http_transport: httpx.AsyncBaseTransport | None = None,
+        scoreboard_transport: httpx.AsyncBaseTransport | None = None,
         run_transport: AsyncRunTransport | None = None,
     ) -> None:
         import httpx
@@ -257,8 +333,10 @@ class AsyncClient:
         from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels
         from screamingface._engine.connections import AsyncConnections
         from screamingface._engine.transport import AsyncUrl4CloudTransport
+        from screamingface._scoreboard.leaderboards import AsyncLeaderboards
 
         self._engine_url = _engine_origin(engine_url)
+        self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._auth = _default_caller_auth(self._engine_url)
@@ -267,6 +345,11 @@ class AsyncClient:
             timeout=30.0,
             auth=self._auth,
             transport=http_transport,
+        )
+        self._scoreboard_http = httpx.AsyncClient(
+            base_url=self._scoreboard_url,
+            timeout=30.0,
+            transport=scoreboard_transport,
         )
         self._transport: AsyncRunTransport = (
             run_transport
@@ -277,10 +360,18 @@ class AsyncClient:
         self.benchmarks: AsyncBenchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
         self._benchmark_resources = AsyncBenchmarkResources(self._http)
         self.connections: AsyncConnections = AsyncConnections(self._http_request, self._engine_url)
+        self.leaderboards: AsyncLeaderboards = AsyncLeaderboards(
+            self._scoreboard_request,
+            self._scoreboard_url,
+        )
 
     @property
     def engine_url(self) -> str:
         return self._engine_url
+
+    @property
+    def scoreboard_url(self) -> str:
+        return self._scoreboard_url
 
     @property
     def closed(self) -> bool:
@@ -336,9 +427,24 @@ class AsyncClient:
             try:
                 await self._http.aclose()
             finally:
-                await asyncio.to_thread(self._auth.close)
-                self._closed = True
+                try:
+                    await self._scoreboard_http.aclose()
+                finally:
+                    await asyncio.to_thread(self._auth.close)
+                    self._closed = True
 
+    @overload
+    async def evaluate(
+        self,
+        candidates: str,
+        *,
+        benchmark: None = None,
+        limit: None = None,
+        on_event: Callable[[Event], None | Awaitable[None]] | None = None,
+        progress: bool | None = None,
+    ) -> Report: ...
+
+    @overload
     async def evaluate(
         self,
         candidates: Recipe | Sequence[Recipe],
@@ -347,12 +453,33 @@ class AsyncClient:
         limit: int | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
+    ) -> Report: ...
+
+    async def evaluate(
+        self,
+        candidates: Recipe | Sequence[Recipe] | str,
+        *,
+        benchmark: str | None = None,
+        limit: int | None = None,
+        on_event: Callable[[Event], None | Awaitable[None]] | None = None,
+        progress: bool | None = None,
     ) -> Report:
-        """Asynchronously evaluate Candidates against an Engine-owned Benchmark."""
+        """Asynchronously evaluate Recipes, or replay one complete evaluation URL4."""
 
         from screamingface._evaluation.runner import evaluate_async
+        from screamingface._evaluation.url4 import evaluate_url4_async
 
         self._require_open()
+        if isinstance(candidates, str):
+            _raw_url4_options(benchmark, limit)
+            return await evaluate_url4_async(
+                self._transport,
+                candidates,
+                on_event,
+                progress,
+            )
+        if benchmark is None:
+            raise TypeError("benchmark is required when evaluating Recipes")
         return await evaluate_async(
             self._benchmark_resources.load,
             self._transport,
@@ -432,5 +559,30 @@ class AsyncClient:
         self._require_open()
         return await self._http.request(method, path, json=json)
 
+    async def _scoreboard_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+        json: Any = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> httpx.Response:
+        self._require_open()
+        return await self._scoreboard_http.request(
+            method,
+            path,
+            params=params,
+            json=json,
+            headers=headers,
+        )
 
-__all__ = ["AsyncClient", "Client", "DEFAULT_ENGINE_URL"]
+
+def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
+    if benchmark is not None:
+        raise TypeError("benchmark must not be passed when evaluating a complete URL4")
+    if limit is not None:
+        raise TypeError("limit must not be passed when evaluating a complete URL4")
+
+
+__all__ = ["AsyncClient", "Client", "DEFAULT_ENGINE_URL", "DEFAULT_SCOREBOARD_URL"]

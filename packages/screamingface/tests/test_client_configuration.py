@@ -11,13 +11,18 @@ def test_client_uses_the_hosted_engine_by_default_without_opening_network_resour
     client = sf.Client()
 
     assert client.engine_url == "https://fusion.dev.screamingface.ai"
+    assert client.scoreboard_url == "https://leaderboard.dev.screamingface.ai"
     assert client.closed is False
 
 
 def test_client_normalizes_one_engine_origin() -> None:
-    client = sf.Client(engine_url=" https://demo.example:8443/ ")
+    client = sf.Client(
+        engine_url=" https://demo.example:8443/ ",
+        scoreboard_url=" https://scores.example:9443/ ",
+    )
 
     assert client.engine_url == "https://demo.example:8443"
+    assert client.scoreboard_url == "https://scores.example:9443"
 
 
 def test_client_exposes_automatic_caller_authentication_without_an_auth_selector(
@@ -134,6 +139,22 @@ async def test_async_client_auth_helpers_match_the_sync_lifecycle(
 def test_client_rejects_non_origin_engine_urls(value: str) -> None:
     with pytest.raises(ValueError, match="HTTP\\(S\\) origin"):
         sf.Client(engine_url=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "scoreboard.example",
+        "ftp://scoreboard.example",
+        "https://scoreboard.example/api",
+        "https://scoreboard.example?q=1",
+        "https://user:secret@scoreboard.example",
+    ],
+)
+def test_client_rejects_non_origin_scoreboard_urls(value: str) -> None:
+    with pytest.raises(ValueError, match="scoreboard_url"):
+        sf.Client(scoreboard_url=value)
 
 
 def test_client_constructor_is_keyword_only() -> None:

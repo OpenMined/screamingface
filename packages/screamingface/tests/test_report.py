@@ -25,6 +25,14 @@ def case_results() -> tuple[sf.CaseResult, ...]:
     )
 
 
+def benchmark() -> sf.BenchmarkInfo:
+    return sf.BenchmarkInfo(
+        id="draco@1",
+        revision="fixture-revision",
+        case_count=100,
+    )
+
+
 def candidate(
     name: str,
     *,
@@ -35,6 +43,7 @@ def candidate(
 ) -> sf.CandidateResult:
     metrics = {} if score is None else {"coverage": 1.0}
     return sf.CandidateResult(
+        benchmark=benchmark(),
         run_id=f"run_{name}",
         started_at=datetime(2026, 7, 25, 16, 0, tzinfo=UTC),
         completed_at=datetime(2026, 7, 25, 16, 0, 1, 200000, tzinfo=UTC),
@@ -67,11 +76,7 @@ def candidate(
 
 def report(*candidates: sf.CandidateResult) -> sf.Report:
     return sf.Report(
-        benchmark=sf.BenchmarkInfo(
-            id="draco@1",
-            revision="fixture-revision",
-            case_count=100,
-        ),
+        benchmark=benchmark(),
         case_count=2,
         candidates=candidates,
     )
@@ -125,6 +130,7 @@ def test_only_returns_the_single_candidate() -> None:
 def test_candidate_result_preserves_its_operation_map_in_portable_json() -> None:
     opus = candidate("opus")
 
+    assert isinstance(opus.url4, sf.Url4)
     assert tuple(operation.id for operation in opus.operations) == (
         "op_opus",
         "op_opus_aggregate",
@@ -153,6 +159,7 @@ def test_candidate_result_rejects_a_non_url4_workflow() -> None:
 def test_report_derives_study_timing_and_complete_usage_from_candidate_runs() -> None:
     opus = candidate("opus")
     gpt = sf.CandidateResult(
+        benchmark=benchmark(),
         run_id="run_gpt",
         started_at=datetime(2026, 7, 25, 15, 59, 59, tzinfo=UTC),
         completed_at=datetime(2026, 7, 25, 16, 0, 3, tzinfo=UTC),
@@ -247,6 +254,7 @@ def test_scored_fusion_preserves_partial_member_failure_evidence() -> None:
         case_id="case-2",
     )
     value = sf.CandidateResult(
+        benchmark=benchmark(),
         run_id="run_frontier_pair",
         started_at=datetime(2026, 7, 25, 16, 0, tzinfo=UTC),
         completed_at=datetime(2026, 7, 25, 16, 0, 2, tzinfo=UTC),
@@ -356,6 +364,7 @@ def test_report_json_marks_unavailable_usage_fields_as_null() -> None:
 def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:
     value = candidate("opus")
     inconsistent = sf.CandidateResult(
+        benchmark=value.benchmark,
         run_id=value.run_id,
         started_at=value.started_at,
         completed_at=value.completed_at,

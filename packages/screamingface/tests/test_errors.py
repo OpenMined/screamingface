@@ -32,6 +32,12 @@ import screamingface as sf
             status=401,
             permanent=True,
         ),
+        sf.LeaderboardError(
+            "The Scoreboard response was invalid",
+            scoreboard_url="https://scoreboard.example",
+            code="invalid_leaderboard",
+            permanent=True,
+        ),
     ],
 )
 def test_every_handled_error_has_concise_ipython_rendering(
@@ -80,6 +86,7 @@ def test_public_error_categories_have_stable_fallback_codes() -> None:
     assert sf.PlanningError("failed").code == "planning_failed"
     assert sf.ExecutionError("failed").code == "execution_failed"
     assert sf.ProviderConnectionError("failed").code == "provider_connection_failed"
+    assert sf.LeaderboardError("failed").code == "leaderboard_failed"
 
 
 def test_programmer_errors_keep_normal_python_tracebacks() -> None:

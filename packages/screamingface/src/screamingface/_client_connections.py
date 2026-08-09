@@ -39,8 +39,16 @@ class _AuthListeners:
 
 
 def _engine_origin(value: Any) -> str:
+    return _http_origin(value, "engine_url")
+
+
+def _scoreboard_origin(value: Any) -> str:
+    return _http_origin(value, "scoreboard_url")
+
+
+def _http_origin(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ValueError("engine_url must be an HTTP(S) origin")
+        raise ValueError(f"{name} must be an HTTP(S) origin")
     parts = urlsplit(value.strip())
     if (
         parts.scheme not in {"http", "https"}
@@ -51,7 +59,7 @@ def _engine_origin(value: Any) -> str:
         or parts.username is not None
         or parts.password is not None
     ):
-        raise ValueError("engine_url must be an HTTP(S) origin without credentials or a path")
+        raise ValueError(f"{name} must be an HTTP(S) origin without credentials or a path")
     return urlunsplit((parts.scheme, parts.netloc, "", "", ""))
 
 

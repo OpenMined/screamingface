@@ -99,19 +99,41 @@ def _string_assignment(name: str, parts: tuple[str, ...]) -> str:
 
 
 def _quickstart() -> NotebookNode:
-    """Three widgets end to end: connect, evaluate, read the Report."""
+    """Complete local flow from public discovery through score replay."""
 
     return _notebook(
         nbformat.v4.new_markdown_cell(
             """# ScreamingFace quickstart
 
-Three steps: connect a provider, run a Benchmark, read the Report. Each renders an
-interactive widget — the wider API surface is covered in `01_client_tour.ipynb`."""
+Six steps: inspect the public Leaderboards, connect a provider, run a Benchmark, read the
+Report, publish its Candidate Result, and replay its URL4. The wider interface is covered in
+`01_client_tour.ipynb`."""
         ),
         _local_stack_cell(),
-        nbformat.v4.new_code_cell("import screamingface as sf"),
+        nbformat.v4.new_code_cell(
+            '''import screamingface as sf
+
+sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)
+
+BENCHMARK_ID = "draco/smoke"'''
+        ),
         nbformat.v4.new_markdown_cell(
-            """## 1 · Connect
+            """## 1 · Leaderboards
+
+Leaderboard discovery reads from the Scoreboard and does not require a provider connection.
+`just stack-up` registers the local `draco/smoke` development Leaderboard, so discovery,
+evaluation, and publication use the same Benchmark id. Both values render as interactive,
+brand-system notebook widgets."""
+        ),
+        nbformat.v4.new_code_cell("leaderboards = sf.leaderboards.list()\nleaderboards"),
+        nbformat.v4.new_code_cell(
+            "leaderboard = sf.leaderboards.get(BENCHMARK_ID, top=10)\nleaderboard"
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 2 · Connect
 
 `sf.connect()` renders the Engine-backed provider panel. A key entered here goes to the SF
 Engine for AI Gateway validation and encrypted storage; the notebook never retains it. On a
@@ -119,32 +141,80 @@ hosted Engine the panel asks for Cloudflare Access login first."""
         ),
         nbformat.v4.new_code_cell("sf.connect()"),
         nbformat.v4.new_markdown_cell(
-            """## 2 · Evaluate
+            """## 3 · Evaluate
 
 `draco/smoke` keeps DRACO's execution structure but reduces it to one pinned Case, one
 criterion, and one Judge pass. It makes two paid calls — one Candidate answer, one Judge
 grade — so the score is diagnostic and **not comparable** to canonical DRACO.
 
-Execution is off by default: **Run All** spends nothing until you set `RUN_EVALUATION = True`
-deliberately. While it runs, the live panel shows progress, model calls, tokens and cost."""
+Running this cell makes those two inexpensive calls. While it runs, the live panel shows
+progress, model calls, tokens and cost."""
         ),
         nbformat.v4.new_code_cell(
-            """RUN_EVALUATION = False
+            """candidate = sf.Model("openrouter/google/gemini-3-flash-preview")
 
-candidate = sf.Model("openrouter/google/gemini-3-flash-preview")
-
-report = sf.evaluate(candidate, benchmark="draco/smoke", limit=1) if RUN_EVALUATION else None"""
+report = sf.evaluate(candidate, benchmark=BENCHMARK_ID, limit=1)"""
         ),
         nbformat.v4.new_markdown_cell(
-            """## 3 · Report
+            """## 4 · Report
 
 The Report renders score, pass rate, coverage, cost and tokens, with every Case and the
 Judge's per-criterion reasoning underneath. **&darr; report.json** downloads the portable
 artifact — the same value `report.to_json()` returns."""
         ),
+        nbformat.v4.new_code_cell("report"),
+        nbformat.v4.new_markdown_cell(
+            """## 5 · Publish and retrieve
+
+Publication accepts the evaluated `CandidateResult` directly. It derives the Benchmark id,
+compiled URL4, models, accuracy counts, timestamps, and idempotency key from that immutable
+result. Publication is independently opt-in so **Run All** never changes the Scoreboard.
+
+The local Scoreboard accepts writes without login. Hosted deployments may require an
+edge-verified identity or keep score submission closed."""
+        ),
         nbformat.v4.new_code_cell(
-            "report if report is not None else "
-            '"Set RUN_EVALUATION = True to spend and see the Report."'
+            """PUBLISH_RESULT = False
+
+submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH_RESULT else None
+submission if submission is not None else ("Set PUBLISH_RESULT = True to publish this result.")"""
+        ),
+        nbformat.v4.new_code_cell(
+            "published_score = sf.leaderboards.get_score(submission.id) if submission is not None "
+            "else None\npublished_score"
+        ),
+        nbformat.v4.new_code_cell(
+            """updated_leaderboard = (
+    sf.leaderboards.get(BENCHMARK_ID, top=10) if submission is not None else leaderboard
+)
+updated_leaderboard"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 6 · Fork or replay the submitted URL4
+
+`published_score.url4` is the raw evaluation expression stored by the Scoreboard. Its
+`.to_python()` method returns an editable Model/Fusion and evaluation cell without spending.
+Passing the URL4 itself to `sf.evaluate(...)` instead executes that exact, already
+Benchmark-linked expression and returns a normal `Report`; do not pass `benchmark=` or `limit=`
+again.
+
+Replay is a fresh paid Evaluation and model output may differ, so it has its own opt-in guard."""
+        ),
+        nbformat.v4.new_code_cell(
+            "fork_python = published_score.url4.to_python() if published_score is not None "
+            "else None\n"
+            'print(fork_python) if fork_python is not None else "Publish a score to generate '
+            'its Python fork."'
+        ),
+        nbformat.v4.new_code_cell(
+            """REPLAY_RESULT = False
+
+replayed_report = (
+    sf.evaluate(published_score.url4) if REPLAY_RESULT and published_score is not None else None
+)
+replayed_report if replayed_report is not None else (
+    "Set REPLAY_RESULT = True after publishing to run the stored URL4 again."
+)"""
         ),
     )
 

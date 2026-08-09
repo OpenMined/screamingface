@@ -481,7 +481,7 @@ def test_evaluate_rejects_invalid_benchmark_ids(benchmark: object) -> None:
             )
 
 
-def test_evaluate_does_not_accept_an_imported_url4() -> None:
+def test_evaluate_url4_does_not_accept_a_second_benchmark() -> None:
     with sf.Client() as client:
-        with pytest.raises(TypeError, match="candidates"):
+        with pytest.raises(TypeError, match="benchmark must not be passed"):
             client.evaluate(cast(Any, "(@)!'hello'"), benchmark="draco")
