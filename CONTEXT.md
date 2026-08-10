@@ -22,6 +22,20 @@ _Avoid_: Method, mode, option
 A Model or Fusion submitted to a Benchmark for evaluation.
 _Avoid_: Ensemble when referring to both Models and Fusions
 
+**Candidate Result**:
+The outcome of evaluating one Candidate against one Benchmark, including its score, Candidate
+URL4, Case Results, failures, usage, and available provenance.
+_Avoid_: Score when referring to the complete outcome
+
+**Report**:
+The ordered, lossless record of every Candidate Result accounted for by one completed Evaluation.
+_Avoid_: Result when referring to the complete multi-Candidate record
+
+**Partial Report**:
+The recoverable Candidate Results from an Evaluation that ended before every requested Candidate
+could be accounted for.
+_Avoid_: Report when completeness matters
+
 **Candidate Invocation**:
 One request by a Benchmark for a Candidate answer; a Case may require multiple ordered Candidate Invocations.
 _Avoid_: Model call, because a Candidate may be a Fusion
@@ -78,6 +92,60 @@ _Avoid_: Candidate Model, user-selected Judge
 A Model submitted as part of a Candidate, including a Fusion member or synthesizer. Changing it
 changes the Candidate rather than the Benchmark.
 _Avoid_: Benchmark dependency, pinned Judge
+
+**Fusion Synthesizer**:
+The Candidate-owned Model configured for a Fusion's synthesizer role. A whole-Candidate invocation
+uses its Candidate-owned prompt to produce the final answer. A structural Benchmark may instead
+invoke its route and parameters under Benchmark-owned selection or coaching instructions; that
+adaptation does not make it a Benchmark-owned grading Judge.
+_Avoid_: Fusion member, grading Judge
+
+**Cost Estimate**:
+A versioned, conservative pre-spend projection of an Evaluation's USD cost. Dynamic control flow
+may require a range or maximum rather than one exact amount.
+_Avoid_: Quote, guaranteed cost
+
+**Evaluation Budget**:
+The optional maximum USD cost authorized for one complete Evaluation, including every Candidate,
+Benchmark-owned Model call, and retry. It is enforced by the Engine before model dispatch.
+_Avoid_: Per-Candidate budget, token limit
+
+**Unpriced Evaluation**:
+An Evaluation containing at least one required model call for which the Engine cannot provide a
+versioned USD price. It may execute without an Evaluation Budget, but its Report cannot claim a
+complete USD cost.
+_Avoid_: Free Evaluation
+
+**Provider Connection**:
+An Engine-managed association that authorizes a researcher to use one model provider. It is
+distinct from authenticating the researcher to a hosted Engine.
+_Avoid_: Engine login, caller authentication
+
+**Caller Authentication**:
+The process by which a researcher proves one identity to configured ScreamingFace services.
+Different service origins may require separate credentials for that same identity.
+_Avoid_: Provider Connection, provider authentication
+
+**Scoreboard**:
+The deployed system that accepts and stores public Scores and produces Leaderboards.
+_Avoid_: Leaderboard when referring to the system or service
+
+**Leaderboard**:
+The ranked view of comparable entries for one Benchmark.
+_Avoid_: Scoreboard, board
+
+**Leaderboard Score**:
+One persisted Scoreboard record containing a Candidate's measured score, identity, provenance,
+verification state, and Candidate URL4.
+_Avoid_: Leaderboard Submission
+
+**Score Submission**:
+The request to create a Leaderboard Score from one evaluated Candidate Result.
+_Avoid_: Leaderboard Score when referring specifically to the write request
+
+**Leaderboard Entry**:
+The ranked projection of a Leaderboard Score shown on a Leaderboard.
+_Avoid_: Score Submission
 
 **Aggregation**:
 The phase that combines Case grades into a Candidate’s Benchmark metrics.
