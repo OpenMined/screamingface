@@ -265,3 +265,128 @@ def test_one_native_member_collection_binding_handles_every_supported_fusion_siz
         # Each executable member appears exactly once; the collection carries only a URL4 ref.
         assert linked.url4.count(f"provider/member-{index}") == 1
     assert render(build(linked.url4)) == linked.url4
+
+
+# --- Source-position Candidate references -------------------------------------------------
+#
+# FEATURE: a Benchmark may name the Candidate anywhere URL4 allows a reference.
+# STORY: as a Benchmark author, I write "($candidate)!'go'" and the SDK links my exam the
+# same way it links "!'$candidate'" — the surface position I chose is not a contract.
+#
+# INVARIANT: the linker must see a reference in SOURCE position, where URL4 parses it into a
+# VarRef and strips the "$" sigil, exactly as it sees one embedded in Text. A reference the
+# walk cannot see is either rejected as "does not invoke the Candidate" or — far worse —
+# silently emitted UNRESOLVED into an artifact the Engine has already been paid to run.
+
+_SOURCE_POSITION_WHOLE_BENCHMARK = "(answer:0.0:($candidate)!'go')!'$answer'"
+
+
+def test_a_source_position_candidate_reference_is_linked_like_a_text_reference() -> None:
+    model = sf.Model("provider/a")
+    value = _compiled(model)
+
+    linked = link_candidate(value.url4, _SOURCE_POSITION_WHOLE_BENCHMARK)
+
+    assert linked.uses_whole_candidate is True
+    parsed = build(linked.url4)
+    assert isinstance(parsed, Expression)
+    binding = next(
+        source
+        for source in parsed.sources
+        if isinstance(source, Source) and source.name == "candidate"
+    )
+    assert isinstance(binding.value, Text)
+    assert "provider/a" in binding.value.value
+    assert render(build(linked.url4)) == linked.url4
+
+
+def test_a_source_position_member_reference_never_emits_an_unresolved_binding() -> None:
+    """The silent-poison case: today this raises nothing and ships a broken artifact."""
+
+    fusion = sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")], name="pair")
+    value = _compiled(fusion)
+    benchmark = "($candidate_member_2, y='use $candidate_member_1')!'go'"
+
+    linked = link_candidate(value.url4, benchmark, value.member_expressions)
+
+    assert linked.member_indices == (1, 2)
+    # INVARIANT: every $candidate* reference in the shipped artifact resolves to a binding
+    # the linker emitted. An unresolved one only fails once the Run is under way and paid.
+    parsed = build(linked.url4)
+    assert isinstance(parsed, Expression)
+    bound = {
+        source.name
+        for source in parsed.sources
+        if isinstance(source, Source) and source.name is not None
+    }
+    assert {"candidate_member_1", "candidate_member_2"} <= bound
+
+
+def test_a_partial_source_position_member_reference_does_not_report_a_wrong_arity() -> None:
+    fusion = sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")], name="pair")
+    value = _compiled(fusion)
+    benchmark = "(x=$candidate_member_1)!'use $candidate_member_2'"
+
+    linked = link_candidate(value.url4, benchmark, value.member_expressions)
+
+    assert linked.member_indices == (1, 2)
+
+
+@pytest.mark.parametrize(
+    ("benchmark", "whole", "synthesizer", "indices"),
+    [
+        ("(answer:0.0:($candidate)!'go')!'$answer'", True, False, ()),
+        # A field path selects on the resolved value; it is not part of the reference name.
+        (
+            "(a:0.0:($candidate_member_1.answers)!'go', b:0.0:($candidate_member_2)!'go')!'$a $b'",
+            False,
+            False,
+            (1, 2),
+        ),
+        ("(answer:0.0:($candidate_synthesizer)!'go')!'$answer'", False, True, ()),
+        ("(answer:0.0:($candidate_members)!'go')!'$answer'", False, False, (1, 2)),
+    ],
+)
+def test_source_position_reference_variants_are_detected(
+    benchmark: str,
+    whole: bool,
+    synthesizer: bool,
+    indices: tuple[int, ...],
+) -> None:
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        name="pair",
+        synthesizer="provider/j",
+    )
+    value = _compiled(fusion)
+    assert value.synthesizer is not None
+
+    linked = link_candidate(
+        value.url4,
+        benchmark,
+        value.member_expressions,
+        value.synthesizer.url4,
+    )
+
+    assert linked.uses_whole_candidate is whole
+    assert linked.uses_synthesizer is synthesizer
+    if indices:
+        assert linked.member_indices == indices
+
+
+def test_a_source_position_plumbing_name_is_still_not_a_candidate_reference() -> None:
+    # INVARIANT: the trailing-lookahead guard against "$candidate_result" must survive the
+    # VarRef path too — teaching the walk a new shape must not teach it a new false positive.
+    with pytest.raises(PlanningError) as caught:
+        link_candidate("/a/b!'q'", "(answer:0.0:($candidate_result)!'go')!'$answer'")
+
+    assert caught.value.code == "invalid_benchmark_resource"
+
+
+def test_an_escaped_candidate_reference_is_a_literal_not_an_invocation() -> None:
+    # "$$" is the URL4 escape for a literal "$" — _template_literal relies on it to keep a
+    # user-facing member name literal, so the matcher must not read it back as a reference.
+    with pytest.raises(PlanningError) as caught:
+        link_candidate("/a/b!'q'", "(answer:0.0:/bench/x(q)!'cost is $$candidate')!'$answer'")
+
+    assert caught.value.code == "invalid_benchmark_resource"

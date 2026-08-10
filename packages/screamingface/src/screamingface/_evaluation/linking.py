@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 
-from url4 import Iteration, Text, build, expr, render, src, struct, text
+from url4 import Iteration, Text, VarRef, build, expr, render, src, struct, text
 
 from screamingface._evaluation.candidate import _MemberExpression
 from screamingface.errors import PlanningError
@@ -80,12 +81,43 @@ def link_candidate(
         benchmark,
         intent=text(""),
     )
+    rendered = render(linked)
+    _require_every_reference_bound(rendered, requirements)
     return _LinkedCandidate(
-        url4=render(linked),
+        url4=rendered,
         uses_whole_candidate=requirements.whole_candidate,
         uses_synthesizer=requirements.synthesizer,
         member_indices=requirements.member_indices,
     )
+
+
+def _require_every_reference_bound(rendered: str, requirements: _BindingRequirements) -> None:
+    """Refuse to ship a linked artifact that still names something nothing binds.
+
+    INVARIANT: every ``$candidate*`` reference in the shipped artifact resolves to a binding
+    emitted above. This is checked on the RENDERED surface rather than the parsed tree on
+    purpose: ``_requirements`` reasons over an AST where a reference has several shapes and
+    the node set can grow upstream, while ``render`` collapses them all into one form. The
+    check is therefore representation-independent — it closes the whole class of
+    walker-blindness bugs rather than the one shape that motivated it, and it turns a
+    mid-Run failure into a plan-time one, before the Candidate has been paid for.
+    """
+
+    bound = {f"$candidate_member_{index}" for index in requirements.member_indices}
+    if requirements.whole_candidate:
+        bound.add(_WHOLE_CANDIDATE)
+    if requirements.synthesizer:
+        bound.add(_SYNTHESIZER)
+    if requirements.member_collection:
+        bound.add(_MEMBERS)
+    unresolved = _candidate_references(rendered) - bound
+    if unresolved:
+        names = ", ".join(sorted(unresolved))
+        raise PlanningError(
+            f"Benchmark URL4 references {names}, which this Candidate does not bind",
+            code="candidate_shape_mismatch",
+            permanent=True,
+        )
 
 
 def _requirements(benchmark: object, member_count: int) -> _BindingRequirements:
@@ -193,15 +225,42 @@ def _synthesizer_bindings(uses_synthesizer: bool, expression: str | None) -> lis
 
 
 def _text_references(value: object) -> set[str]:
-    """Collect exact URL4 Text references from the parsed Benchmark tree."""
+    """Collect exact URL4 Candidate references from the parsed Benchmark tree."""
+
+    if isinstance(value, Text | str | VarRef):
+        return _reference_site(value)
+    return _nested_references(value)
+
+
+def _reference_site(value: Text | str | VarRef) -> set[str]:
+    """Read the references a single leaf node carries."""
+
+    if isinstance(value, Text):
+        return _candidate_references(value.value)
+    if isinstance(value, VarRef):
+        # WHY: a reference SITE is either a VarRef or a "$name" embedded in Text. URL4 parses
+        # a reference in SOURCE position into a VarRef and strips the "$" sigil, so the name
+        # arrives as a bare string the matcher can never recognise — this puts the sigil back.
+        # A binding SITE (Binding.name) is also a bare string, but one the parser cannot
+        # prefix, which is exactly why the matcher keys on the sigil and ignores it.
+        # INVARIANT: path segments select fields on the RESOLVED value and are never part of
+        # the reference name — "$candidate_member_1.answers" names member 1, not "…_1.answers".
+        return _candidate_references(f"${value.name}") | _text_references(value.path)
+    return _candidate_references(value)
+
+
+def _nested_references(value: object) -> set[str]:
+    """Walk whatever children a non-leaf node exposes."""
 
     references: set[str] = set()
-    if isinstance(value, Text):
-        references.update(_candidate_references(value.value))
-    elif isinstance(value, str):
-        references.update(_candidate_references(value))
-    elif isinstance(value, tuple | list):
+    if isinstance(value, tuple | list):
         for item in value:
+            references.update(_text_references(item))
+    elif isinstance(value, Mapping):
+        # Source.weight and Source.budgets may hold a mapping, which halts an
+        # attribute-only walk.
+        for key, item in value.items():
+            references.update(_text_references(key))
             references.update(_text_references(item))
     elif is_dataclass(value) and not isinstance(value, type):
         for field in fields(value):
@@ -214,9 +273,13 @@ def _candidate_references(value: str) -> set[str]:
     # "$candidate" (e.g. the "$candidate_result" plumbing binding) from matching as a
     # bare whole-Candidate reference — that false positive made the linker bind the
     # full Candidate expression as dead text on exams that never invoke it.
+    # INVARIANT: the leading lookbehind keeps an ESCAPED "$$candidate" literal from matching.
+    # "$$" is URL4's escape for a literal "$", and _template_literal depends on it to keep a
+    # user-facing member name literal — reading the escape back as a reference would both
+    # invent an invocation the Benchmark never wrote and break the unresolved-reference check.
     return set(
         re.findall(
-            r"\$candidate(?:_member_[1-9][0-9]*|_members|_synthesizer)?(?![A-Za-z0-9_])",
+            r"(?<!\$)\$candidate(?:_member_[1-9][0-9]*|_members|_synthesizer)?(?![A-Za-z0-9_])",
             value,
         )
     )
