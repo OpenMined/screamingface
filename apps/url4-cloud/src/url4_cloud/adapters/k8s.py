@@ -22,6 +22,8 @@ from url4_cloud.ports import IdentityAwareJobRunner
 
 _CONFLICT = 409
 _NOT_FOUND = 404
+# Slack on top of the run deadline and the drain grace, covering the delete round trip itself.
+_TEARDOWN_MARGIN_S = 30
 
 RUNNER_LABELS = {
     "app.kubernetes.io/name": "url4-runner",
@@ -256,6 +258,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
             {"name": job_env.TOPIC, "value": topic},
             {"name": job_env.EXPRESSION, "value": url4},
             {"name": job_env.JOB_DEADLINE_S, "value": str(deadline_s)},
+            {"name": job_env.STREAM_GRACE_S, "value": str(job_env.DEFAULT_STREAM_GRACE_S)},
         ]
         forwarded_traceparent = valid_traceparent(traceparent)
         if forwarded_traceparent is not None:
@@ -330,7 +333,14 @@ class K8sJobRunner(IdentityAwareJobRunner):
             container["resources"] = {k: dict(v) for k, v in self._resources.items()}
         spec: dict[str, object] = {
             "backoffLimit": 0,
-            "activeDeadlineSeconds": deadline_s,
+            # WHY this is NOT `deadline_s`: the run self-terminates at `JOB_DEADLINE_S`, publishes
+            # its terminal frame, then waits out `STREAM_GRACE_S` before deleting its own stream.
+            # Setting the pod's hard deadline to the same value SIGKILLed it mid-wait, so every
+            # timed-out run leaked a stream holding a full `max_bytes` reservation — the long runs
+            # with the fullest streams. The pod has to outlive the teardown it is asked to do.
+            "activeDeadlineSeconds": (
+                deadline_s + int(job_env.DEFAULT_STREAM_GRACE_S) + _TEARDOWN_MARGIN_S
+            ),
             "template": {
                 "metadata": {"labels": RUNNER_LABELS},
                 "spec": {
