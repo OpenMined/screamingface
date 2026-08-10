@@ -412,6 +412,8 @@ or introduce a separate discovery operation.
   Candidate and Case inspection.
 - [`examples/06_draco_full_e2e.ipynb`](examples/06_draco_full_e2e.ipynb): the complete seven-solo,
   nine-Fusion canonical DRACO experiment and audit workflow, with execution disabled by default.
+- [`examples/07_ifeval_e2e.ipynb`](examples/07_ifeval_e2e.ipynb): canonical deterministic
+  IFEval, bounded self-correction, and the LANL early-exit Fusion protocol.
 - [`examples/09_demo.ipynb`](examples/09_demo.ipynb): a curated, executed presentation that
   reproduces and scales a published DRACO result using the current public API.
 

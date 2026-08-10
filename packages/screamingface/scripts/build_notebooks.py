@@ -47,6 +47,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "01_client_tour.ipynb": _client_tour(),
         "05_draco_lite_e2e.ipynb": _draco_lite_e2e(),
         "06_draco_full_e2e.ipynb": _draco_full_e2e(),
+        "07_ifeval_e2e.ipynb": _ifeval_e2e(),
     }
 
 
@@ -475,6 +476,119 @@ The asynchronous API mirrors discovery, connections, authentication, and evaluat
         ),
         nbformat.v4.new_markdown_cell("## 10. Close the explicit Client"),
         nbformat.v4.new_code_cell("client.close()\nclient.closed"),
+    )
+
+
+def _ifeval_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell(
+            """# IFEval: canonical, self-corrective, and LANL ensemble
+
+IFEval contains 541 instruction-following prompts with deterministic checks for requirements such
+as word counts, required sections, and forbidden punctuation. Grading uses the vendored official
+verifier and makes no grading-model calls.
+
+This notebook compares three independently revisioned Engine protocols:
+
+- `ifeval` invokes the complete Candidate once and grades its final answer.
+- `ifeval/self-corrective` gives deterministic failure feedback to the complete Candidate for up
+  to three attempts.
+- `ifeval/lanl-ensemble` invokes each direct Fusion member, stops when a member passes, and uses
+  the configured synthesizer route only for benchmark-owned coaching or exact tie-breaking.
+
+Every evaluation cell below performs paid Candidate calls. Start with `limit=1`, inspect the
+Reports, and increase the selection deliberately."""
+        ),
+        _local_stack_cell(),
+        nbformat.v4.new_code_cell(
+            """import screamingface as sf
+
+sf.connect()"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## Define Candidate-owned answer and synthesis policy
+
+An explicit synthesizer `sf.Model` makes its whole-Fusion prompt and generation parameters
+visible. The LANL protocol keeps that Model's route and parameters but replaces the ordinary
+blending prompt with its own revisioned coaching and selection instructions."""
+        ),
+        nbformat.v4.new_code_cell(
+            """ANSWER_PROMPT = (
+    "Answer the request accurately and completely. "
+    "Follow every instruction and formatting constraint in the request."
+)
+SYNTHESIS_PROMPT = (
+    "Produce one final answer to the original request from the panel drafts. "
+    "Preserve every instruction and formatting constraint."
+)
+
+haiku = sf.Model(
+    "openrouter/anthropic/claude-haiku-4.5",
+    prompt=ANSWER_PROMPT,
+    params={"max_tokens": 4096},
+)
+gemini = sf.Model(
+    "openrouter/google/gemini-3-flash-preview",
+    prompt=ANSWER_PROMPT,
+    params={"max_tokens": 4096},
+)
+kimi = sf.Model(
+    "openrouter/moonshotai/kimi-k2.6",
+    prompt=ANSWER_PROMPT,
+    params={"max_tokens": 4096},
+)
+panel = sf.Fusion(
+    [haiku, gemini],
+    name="haiku+gemini",
+    synthesizer=sf.Model(
+        "openrouter/moonshotai/kimi-k2.6",
+        prompt=SYNTHESIS_PROMPT,
+        params={"max_tokens": 4096},
+    ),
+)
+[kimi, panel]"""
+        ),
+        nbformat.v4.new_markdown_cell("## 1. Canonical solo baseline"),
+        nbformat.v4.new_code_cell(
+            """canonical_solo = sf.evaluate(kimi, benchmark="ifeval", limit=1)
+canonical_solo"""
+        ),
+        nbformat.v4.new_markdown_cell("## 2. Canonical whole-Fusion synthesis"),
+        nbformat.v4.new_code_cell(
+            """canonical_fusion = sf.evaluate(panel, benchmark="ifeval", limit=1)
+canonical_fusion"""
+        ),
+        nbformat.v4.new_markdown_cell("## 3. Self-corrective Candidate"),
+        nbformat.v4.new_code_cell(
+            """self_corrective = sf.evaluate(
+    sf.Model(
+        "openrouter/moonshotai/kimi-k2.6",
+        prompt=ANSWER_PROMPT,
+        params={"max_tokens": 16384},
+    ),
+    benchmark="ifeval/self-corrective",
+    limit=1,
+)
+self_corrective"""
+        ),
+        nbformat.v4.new_markdown_cell("## 4. LANL early-exit ensemble"),
+        nbformat.v4.new_code_cell(
+            """lanl_ensemble = sf.evaluate(
+    panel,
+    benchmark="ifeval/lanl-ensemble",
+    limit=1,
+)
+lanl_ensemble"""
+        ),
+        nbformat.v4.new_markdown_cell("## Compare complete portable artifacts"),
+        nbformat.v4.new_code_cell(
+            """{
+    "canonical_solo": canonical_solo.to_dict(),
+    "canonical_fusion": canonical_fusion.to_dict(),
+    "self_corrective": self_corrective.to_dict(),
+    "lanl_ensemble": lanl_ensemble.to_dict(),
+}"""
+        ),
     )
 
 

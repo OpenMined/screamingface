@@ -147,6 +147,7 @@ stack-status:
 stack-logs:
     tail -n 40 -f {{rundir}}/aigateway.log {{rundir}}/scoreboard.log {{rundir}}/url4-cloud.log
 
-# One-time: download pinned DRACO assets into {{assets}}
+# One-time: download pinned benchmark assets into {{assets}}
 stack-prepare:
     cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare --out {{assets}}/draco
+    cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare --out {{assets}}/ifeval
