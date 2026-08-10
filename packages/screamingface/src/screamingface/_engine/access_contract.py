@@ -8,6 +8,7 @@ import json
 import re
 import threading
 import webbrowser
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
@@ -20,6 +21,33 @@ from screamingface.errors import AuthenticationError
 _MAX_TRANSFER_BYTES = 1_000_000
 _REFRESH_SKEW_SECONDS = 30.0
 _VALID_AUDIENCE = re.compile(r"[A-Za-z0-9_-]{16,256}\Z")
+# Cloudflare Access challenges an unauthenticated caller with a 302 to its login origin, and
+# refuses a policy-blocked one with 401/403. It does not challenge with 301/303/307/308, and
+# a 2xx is never a challenge — widening this set would add false-positive surface to the very
+# check that exists to remove it.
+_ACCESS_CHALLENGE_STATUSES = frozenset({302, 401, 403})
+
+
+def _challenge_audience(status_code: int, headers: Mapping[str, str]) -> str | None:
+    """The Access audience from a CHALLENGE response, or None if this is not one.
+
+    Takes the status and headers rather than a response object so that both ``httpx`` and
+    ``websockets`` responses reach the same predicate — the two used to disagree, and the
+    HTTP side did not check the status at all.
+    """
+
+    if status_code not in _ACCESS_CHALLENGE_STATUSES:
+        return None
+    audience = headers.get("cf-access-aud")
+    if audience is None:
+        location = headers.get("location")
+        if location:
+            values = parse_qs(urlsplit(location).query).get("kid", [])
+            audience = values[0] if len(values) == 1 else None
+    if audience is None:
+        return None
+    audience = audience.strip()
+    return audience if _VALID_AUDIENCE.fullmatch(audience) else None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -29,16 +57,9 @@ class _AccessToken:
 
 
 def _access_audience(response: httpx.Response) -> str | None:
-    audience = response.headers.get("cf-access-aud")
-    if audience is None:
-        location = response.headers.get("location")
-        if location:
-            values = parse_qs(urlsplit(location).query).get("kid", [])
-            audience = values[0] if len(values) == 1 else None
-    if audience is None:
-        return None
-    audience = audience.strip()
-    return audience if _VALID_AUDIENCE.fullmatch(audience) else None
+    """The ``httpx``-shaped adapter over :func:`_challenge_audience`."""
+
+    return _challenge_audience(response.status_code, response.headers)
 
 
 def _raise_if_cancelled(cancel: threading.Event) -> None:

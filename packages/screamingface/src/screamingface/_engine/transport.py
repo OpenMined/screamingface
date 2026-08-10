@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from typing import Protocol
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from websockets.asyncio import client as async_ws
@@ -20,6 +20,8 @@ from websockets.sync.connection import Connection as SyncConnection
 from websockets.typing import Subprotocol
 
 from screamingface._core.ports import _RunOutcome
+from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine.access_contract import _challenge_audience
 from screamingface._engine.auth import _default_caller_auth, _TransportAuth
 from screamingface._engine.run_lifecycle import _Lifecycle
 from screamingface._evaluation.model import Candidate
@@ -271,7 +273,7 @@ def _event_stream_timeout() -> ExecutionError:
 
 def _mint_sync(http: httpx.Client) -> str:
     try:
-        response = http.post("/token")
+        response = http.post("/token", extensions={_REPLAY_SAFE: True})
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
             "Could not reach the SF Engine capability endpoint",
@@ -282,7 +284,7 @@ def _mint_sync(http: httpx.Client) -> str:
 
 async def _mint_async(http: httpx.AsyncClient) -> str:
     try:
-        response = await http.post("/token")
+        response = await http.post("/token", extensions={_REPLAY_SAFE: True})
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
             "Could not reach the SF Engine capability endpoint",
@@ -332,6 +334,7 @@ def _stop_sync(http: httpx.Client, token: str) -> None:
         response = http.delete(
             "/",
             headers={"URL4-Capability": token},
+            extensions={_REPLAY_SAFE: True},
         )
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
@@ -431,13 +434,11 @@ def _http_origin(http: httpx.Client | httpx.AsyncClient) -> str:
 
 
 def _is_access_websocket_rejection(error: InvalidStatus) -> bool:
+    # WHY: one predicate for all three call sites. This path used to accept a Location
+    # carrying TWO kid parameters while the HTTP path required exactly one, and skipped the
+    # audience-format check entirely.
     response = error.response
-    if response.status_code not in {302, 401, 403}:
-        return False
-    if response.headers.get("cf-access-aud"):
-        return True
-    location = response.headers.get("location")
-    return bool(location and parse_qs(urlsplit(location).query).get("kid"))
+    return _challenge_audience(response.status_code, response.headers) is not None
 
 
 def _require_subprotocol(selected: str | None) -> None:

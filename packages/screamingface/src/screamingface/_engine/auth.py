@@ -13,6 +13,7 @@ from urllib.parse import quote
 import httpx
 from nacl.public import PrivateKey
 
+from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.access_contract import (
     _REFRESH_SKEW_SECONDS,
     _access_audience,
@@ -194,6 +195,7 @@ class _CloudflareAccessAuth(_TransportAuth):
             return
         response.read()
         self._authenticate_after_redirect(audience, generation, _DEFAULT_LOGIN_TIMEOUT)
+        _require_replay_safe(request, response)
         self._set_access_token(request)
         yield request
 
@@ -214,6 +216,7 @@ class _CloudflareAccessAuth(_TransportAuth):
             generation,
             _DEFAULT_LOGIN_TIMEOUT,
         )
+        _require_replay_safe(request, response)
         self._set_access_token(request)
         yield request
 
@@ -433,6 +436,26 @@ class _CloudflareAccessAuth(_TransportAuth):
     def _require_open(self) -> None:
         if self._closed:
             raise RuntimeError("ScreamingFace caller authentication is closed")
+
+
+def _require_replay_safe(request: httpx.Request, response: httpx.Response) -> None:
+    """Refuse to re-send a request the caller did not declare safe to repeat.
+
+    WHY: the session is now repaired, so the caller's NEXT request carries a token — but
+    this one may have already started billable work. ``GET /?q=`` starts a Run despite being
+    a GET, and any generic layer that assumes GETs are replayable can double-fire it. Making
+    replay an explicit, default-deny property of the request keeps that decision at the call
+    site that knows the answer, rather than inferring it from a vendor's status code.
+    """
+
+    if request.extensions.get(_REPLAY_SAFE, False):
+        return
+    raise _auth_error(
+        "Cloudflare Access re-authentication completed; reissue the request",
+        code="access_reauthenticated",
+        status=response.status_code,
+        permanent=False,
+    )
 
 
 def _default_caller_auth(engine_url: str) -> _CloudflareAccessAuth:

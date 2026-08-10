@@ -22,6 +22,7 @@ from websockets.exceptions import InvalidStatus
 from websockets.http11 import Response
 
 import screamingface as sf
+from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.auth import (
     _access_audience,
     _access_authorization_url,
@@ -196,7 +197,7 @@ def test_protected_request_starts_login_and_retries_with_access_header() -> None
 
     auth = fixture.auth()
     with httpx.Client(transport=httpx.MockTransport(application), auth=auth) as client:
-        response = client.get(f"{_ENGINE}/v1/models")
+        response = client.get(f"{_ENGINE}/v1/models", extensions={_REPLAY_SAFE: True})
 
     assert response.json() == {"ok": True}
     assert headers == [None, fixture.application_tokens[0]]
@@ -215,7 +216,8 @@ async def test_async_protected_request_uses_the_same_login_flow() -> None:
 
     auth = fixture.auth()
     async with httpx.AsyncClient(transport=httpx.MockTransport(application), auth=auth) as client:
-        assert (await client.get(f"{_ENGINE}/v1/models")).status_code == 200
+        response = await client.get(f"{_ENGINE}/v1/models", extensions={_REPLAY_SAFE: True})
+        assert response.status_code == 200
 
     assert headers == [None, fixture.application_tokens[0]]
     assert await auth.websocket_headers_async() == {
@@ -304,7 +306,7 @@ def test_server_rejected_unexpired_token_starts_one_fresh_login() -> None:
         return httpx.Response(200) if token == second else fixture.redirect()
 
     with httpx.Client(transport=httpx.MockTransport(application), auth=auth) as client:
-        response = client.get(f"{_ENGINE}/v1/models")
+        response = client.get(f"{_ENGINE}/v1/models", extensions={_REPLAY_SAFE: True})
 
     assert response.status_code == 200
     assert headers == [first, second]
@@ -891,3 +893,132 @@ async def test_async_websocket_access_rejection_has_the_same_retry(
 
     assert calls == 2
     assert auth.reauthentications == 1
+
+
+# --- Challenge detection and request replay -----------------------------------------------
+#
+# FEATURE: the Client repairs an expired Cloudflare Access session mid-flight.
+# STORY: as a researcher on a corporate network, an expired session prompts one browser
+# login — and never silently starts my paid Evaluation a second time.
+#
+# AIDEV-NOTE: these are contract tests of the predicate, not reproductions of a field
+# incident. Whether a real Cloudflare edge ever stamps cf-access-aud on a 2xx is unverified;
+# the point is that the Client must not depend on the answer.
+
+_START_QUERY = {"q": "(@)!'hello'"}
+
+
+def _counting_engine(response: httpx.Response) -> tuple[httpx.MockTransport, list[httpx.Request]]:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return response
+
+    return httpx.MockTransport(handler), seen
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Location": f"/?topic=run_1&kid={_AUDIENCE}", "Preference-Applied": "respond-async"},
+        {"cf-access-aud": _AUDIENCE, "Location": "/?topic=run_1"},
+    ],
+)
+def test_an_accepted_async_start_is_never_read_as_an_access_challenge(
+    headers: dict[str, str],
+) -> None:
+    # INVARIANT: 202 is the SUCCESS of an asynchronous Run start. Reading it as a challenge
+    # opens a browser the researcher did not ask for and re-sends a request that starts paid
+    # work — the one request in this Client that must never be repeated.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    transport, seen = _counting_engine(httpx.Response(202, headers=headers))
+
+    with closing(auth), httpx.Client(transport=transport, auth=auth, base_url=_ENGINE) as client:
+        response = client.get("/", params=_START_QUERY)
+
+    assert response.status_code == 202
+    assert len(seen) == 1
+    assert fixture.browser_urls == []
+
+
+@pytest.mark.parametrize(
+    ("status", "is_challenge"),
+    [
+        (302, True),
+        (401, True),
+        (403, True),
+        (200, False),
+        (202, False),
+        (204, False),
+        (301, False),
+        (303, False),
+        (304, False),
+        (307, False),
+        (308, False),
+        (400, False),
+        (404, False),
+        (428, False),
+        (429, False),
+        (500, False),
+        (503, False),
+    ],
+)
+def test_challenge_detection_is_gated_on_the_challenge_statuses(
+    status: int,
+    is_challenge: bool,
+) -> None:
+    expected = _AUDIENCE if is_challenge else None
+
+    by_header = _access_audience(httpx.Response(status, headers={"cf-access-aud": _AUDIENCE}))
+    by_location = _access_audience(
+        httpx.Response(status, headers={"location": f"/login?kid={_AUDIENCE}"})
+    )
+
+    assert by_header == expected
+    assert by_location == expected
+
+
+def test_an_unmarked_request_is_reauthenticated_but_never_replayed() -> None:
+    # INVARIANT: replay safety is a property of the REQUEST, not of the response status.
+    # Default-deny means a future call site is safe by construction: forgetting the marker
+    # costs an extra round trip, never an extra paid Run.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    transport, seen = _counting_engine(fixture.redirect())
+
+    with httpx.Client(transport=transport, auth=auth, base_url=_ENGINE) as client:
+        with pytest.raises(sf.AuthenticationError) as caught:
+            client.get("/", params=_START_QUERY)
+
+        assert caught.value.code == "access_reauthenticated"
+        assert caught.value.permanent is False
+        assert len(seen) == 1
+        # The login still happened, so the caller's next request already carries the token.
+        assert len(fixture.browser_urls) == 1
+        assert auth.authenticated is True
+    auth.close()
+
+
+def test_a_replay_safe_request_still_retries_after_a_login() -> None:
+    from screamingface._engine.auth import _REPLAY_SAFE
+
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    responses = [fixture.redirect(), httpx.Response(200, json={"token": "capability"})]
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return responses[min(len(seen) - 1, len(responses) - 1)]
+
+    with (
+        closing(auth),
+        httpx.Client(transport=httpx.MockTransport(handler), auth=auth, base_url=_ENGINE) as client,
+    ):
+        response = client.post("/token", extensions={_REPLAY_SAFE: True})
+
+    assert response.status_code == 200
+    assert len(seen) == 2
+    assert len(fixture.browser_urls) == 1

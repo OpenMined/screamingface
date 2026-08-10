@@ -15,6 +15,7 @@ from screamingface._client_connections import (
     _require_secure_connection_origin,
     _scoreboard_origin,
 )
+from screamingface._core.wire import _REPLAY_SAFE
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -283,7 +284,7 @@ class Client:
 
     def _http_get(self, path: str) -> httpx.Response:
         self._require_open()
-        return self._http.get(path)
+        return self._http.get(path, extensions={_REPLAY_SAFE: True})
 
     def _http_request(
         self,
@@ -293,7 +294,7 @@ class Client:
         json: Any = None,
     ) -> httpx.Response:
         self._require_open()
-        return self._http.request(method, path, json=json)
+        return self._http.request(method, path, json=json, extensions={_REPLAY_SAFE: True})
 
     def _scoreboard_request(
         self,
@@ -547,7 +548,7 @@ class AsyncClient:
 
     async def _http_get(self, path: str) -> httpx.Response:
         self._require_open()
-        return await self._http.get(path)
+        return await self._http.get(path, extensions={_REPLAY_SAFE: True})
 
     async def _http_request(
         self,
@@ -557,7 +558,7 @@ class AsyncClient:
         json: Any = None,
     ) -> httpx.Response:
         self._require_open()
-        return await self._http.request(method, path, json=json)
+        return await self._http.request(method, path, json=json, extensions={_REPLAY_SAFE: True})
 
     async def _scoreboard_request(
         self,

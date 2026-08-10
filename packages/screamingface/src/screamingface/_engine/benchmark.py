@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 import httpx
 
+from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._evaluation.benchmark import (
     _BenchmarkResource,
     _decode_benchmark_resource,
@@ -29,6 +30,7 @@ class BenchmarkResources:
             response = self._http.get(
                 f"/v1/benchmarks/{_benchmark_path(benchmark_id)}",
                 params=_query(limit),
+                extensions={_REPLAY_SAFE: True},
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -59,6 +61,7 @@ class AsyncBenchmarkResources:
             response = await self._http.get(
                 f"/v1/benchmarks/{_benchmark_path(benchmark_id)}",
                 params=_query(limit),
+                extensions={_REPLAY_SAFE: True},
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
