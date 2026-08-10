@@ -13,6 +13,12 @@ INVARIANT — verdict vectors must be IDENTICAL, not close. A single flipped boo
 different exam. The four global metrics must match the reference formulas exactly,
 modulo our aggregate's presentational round(…, 4).
 
+Carve-out (owner decision 2026-08-10): keys 1122 (`letter: '#'`) and 1129
+(`letter: '!'`) are EXCLUDED from parity — the official checker replaces their
+non-a-z dataset letters with random ones, and we deliberately honor the literal
+kwargs instead (grading._pinned_nonalpha_letter; RED coverage in
+test_ifeval_grading.py). Parity is proven on the remaining 539 rows.
+
 Determinism: the official checker is deliberately random when a constraint kwarg is
 absent/invalid (the "Non-ASCII Roulette", LANL appendix A.4; e.g. an invalid
 `letter` draws random.choice(ascii_letters) at vendor/instructions.py:1391). Ours
@@ -102,9 +108,21 @@ def _responses_for(row: dict) -> tuple[str, ...]:
     return (row["prompt"], *_CANNED_RESPONSES)
 
 
+# WHY excluded from parity: the only two dataset rows whose letter_frequency letter the
+# official checker replaces with random.choice(ascii_letters). We honor the literal
+# dataset letter instead (see grading._pinned_nonalpha_letter) — a deliberate, documented
+# divergence, so parity is proven over the other 539 rows and the divergent behavior is
+# pinned by its own tests in test_ifeval_grading.py.
+_HONORED_NONALPHA_LETTER_KEYS = frozenset({1122, 1129})
+
+
+def _parity_rows() -> list[dict]:
+    return [row for row in _official_rows() if row["key"] not in _HONORED_NONALPHA_LETTER_KEYS]
+
+
 def test_verdict_vectors_match_the_official_fork_on_every_official_row() -> None:
     mismatches: list[str] = []
-    for row in _official_rows():
+    for row in _parity_rows():
         for response in _responses_for(row):
             ours = check_case(
                 instruction_id_list=row["instruction_id_list"],
@@ -129,7 +147,9 @@ def test_verdict_vectors_match_the_official_fork_on_every_official_row() -> None
 def test_global_metrics_match_the_official_formulas() -> None:
     # One deterministic response per row, drawn round-robin from the corpus so the
     # metric means mix passes and failures rather than degenerating to 0.0.
-    rows = _official_rows()
+    # Parity rows only: the two honored non-a-z letter rows grade differently by
+    # design, so both sides of the formula comparison must exclude them.
+    rows = _parity_rows()
     responses = [_responses_for(row)[index % 5] for index, row in enumerate(rows)]
 
     reference = official.evaluate_instruction_following(rows, responses)
