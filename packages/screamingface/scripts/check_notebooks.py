@@ -42,10 +42,15 @@ _STORY_MARKERS = (
     "sf.ScreamingFaceError",
 )
 
-# The presentation notebook is intentionally hand-authored and carries real executed outputs plus
+# The presentation notebooks are intentionally hand-authored and carry real executed outputs plus
 # embedded artwork. The deterministic builder owns the instructional notebooks; this explicit set
 # keeps the public directory closed to accidental additions without rewriting presentation state.
-_CURATED_NOTEBOOKS = frozenset({"09_demo.ipynb"})
+# AIDEV-NOTE: "09_demo_v2.ipynb" is the earlier draft of the same demo, kept deliberately. It is
+# NOT a newer revision despite the name — it predates 09_demo.ipynb and still calls the
+# pre-release surface (sf.reducers, Fusion(members=..., reducer=...), benchmarks.load,
+# draco.evaluate), none of which exist on the shipped package. Do not run it as an example, and
+# do not treat it as the reference demo.
+_CURATED_NOTEBOOKS = frozenset({"09_demo.ipynb", "09_demo_v2.ipynb"})
 
 
 def main() -> None:
