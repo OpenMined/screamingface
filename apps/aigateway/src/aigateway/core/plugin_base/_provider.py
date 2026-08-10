@@ -21,11 +21,16 @@ that could drift apart. Inheritance resolves them with none.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from ..api_key_validation import ApiKeyValidator
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
+from ..usage_accounting import (
+    CacheReference,
+    ProviderUsageAccountingEvidence,
+    UsageAccountingStrategy,
+)
 from ._ports import (
     CredentialStrategy,
     ModelEntry,
@@ -295,6 +300,77 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     def should_mark_profile_error_on_dispatch_status(self, _status_code: int) -> bool:
         """Whether a provider dispatch failure means stored profile auth is unusable."""
         return False
+
+    def usage_accounting_strategy(self) -> UsageAccountingStrategy:
+        """How (or whether) this provider's generation sends can be accounted (OME-303).
+
+        FEATURE: per-provider-attempt usage accounting. Declaring a strategy is what makes
+        the gateway inject its observed LiteLLM handler for this provider's dispatch.
+
+        WHY this lives on the DISPATCH surface and not on ``_contract.py``: it is a
+        BEHAVIOUR-ENABLING switch, not a description. The published model-parameter
+        contract is a read-only report; if it owned this, a provider could publish a
+        capability that disagrees with the transport it actually dispatches through —
+        and the response would then claim ``complete`` accounting for sends nothing
+        observed. A read-only report may later be DERIVED from this method.
+
+        INVARIANT: the default is ``unsupported``, and unsupported is SAFE. A negotiated
+        request to an unsupported provider renders ``accounting_not_supported``, never
+        ``complete`` with zero observed attempts — the second would assert the provider was
+        never called, which is false.
+
+        A provider may declare ``litellm_async_http_v1`` only once it has a cardinality
+        test proving one generation send produces exactly one record under success AND
+        under LiteLLM's hidden retry.
+        """
+        return UsageAccountingStrategy.unsupported()
+
+    def normalize_chat_usage_accounting(
+        self,
+        *,
+        request_body: Mapping[str, Any],
+        raw_response: Mapping[str, Any] | None,
+        final_response: Mapping[str, Any] | None,
+        failed: bool = False,
+    ) -> ProviderUsageAccountingEvidence:
+        """Normalize ONE observed attempt's response evidence into the neutral schema.
+
+        INVARIANT: PURE. No I/O, no clock, no credential access, no collector access. It
+        receives bounded, already-sanitized evidence and returns a value object; it
+        cannot add, drop or reorder attempt records, and it does not decide the
+        call's outcome — core owns that classification so it stays provider-neutral.
+
+        INVARIANT: prefer ``raw_response``. ``final_response`` is LiteLLM's converted
+        shape, whose ``Usage`` model ZERO-FILLS absent token fields — so a ``0`` read
+        from it is indistinguishable from a provider that reported nothing. Use it only
+        when the field was explicitly present and raw evidence is unavailable, and label
+        it ``source="provider_converted_response"``.
+
+        INVARIANT: ``direct_cost`` is provider-AUTHORED money only. AIGateway does not
+        publish rate-card estimates; Engine owns pricing.
+        """
+        return ProviderUsageAccountingEvidence.unsupported()
+
+    def cache_reference_from_cached_response(
+        self, cached_response: Mapping[str, Any]
+    ) -> CacheReference | None:
+        """Historical evidence for the cached final response, if safely recoverable.
+
+        A cache hit performs no provider dispatch. The returned evidence describes only
+        the response stored after the original successful attempt; it does not prove that
+        request's retry cost and is not a counterfactual estimate of a fresh request.
+
+        INVARIANT: this is NOT current spend or savings. ``incurred_in_current_request``
+        is structurally false and ``coverage`` names the limited historical evidence.
+
+        WHY a provider hook rather than core reading ``usage.cost`` itself: the unit and
+        the source label are provider facts. Core inventing ``"usage.cost"`` for every
+        provider would eventually attach an OpenRouter-shaped source string to a
+        provider that means something else by it.
+
+        Default: ``None``. A provider mapper may opt in only with bounded evidence.
+        """
+        return None
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         """Dispatch a normalized OpenAI-compatible chat completion request."""

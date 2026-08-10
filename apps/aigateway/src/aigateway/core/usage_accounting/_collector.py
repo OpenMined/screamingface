@@ -1,0 +1,444 @@
+"""The request-scoped accounting collector and its ``ContextVar`` binding (OME-303 U2).
+
+FEATURE: per-provider-call usage accounting — the half that counts.
+
+INVARIANT (plan §12 stop condition): one observed send is one record, and no observed
+send may disappear. Everything else in this file exists to keep that true across
+LiteLLM's hidden resend, the gateway's own overload retry, and HTTP redirect chains —
+three mechanisms that all look like "the request hook fired again".
+
+INVARIANT: the collector is REQUEST-SCOPED while the LiteLLM handler that feeds it is
+APP-LIFETIME and shared by every concurrent caller. The ``ContextVar`` is the only thing
+standing between one caller's sends and another caller's records, which is why
+``bound_collector`` is a token-restoring context manager and never a bare ``set()``.
+
+AIDEV-NOTE: the collector is deliberately synchronous and allocation-cheap. It is driven
+from httpx event hooks on the request path, so anything that can block or raise here
+lands inside an observed provider attempt whose billing outcome is unknown.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import Any
+
+from ..http_status import valid_http_status
+from ._classify import FAILURE_CODES, outcome_for_status
+from ._types import (
+    CallOutcome,
+    CaptureStatus,
+    DirectCost,
+    PricingContext,
+    ProviderCallRecord,
+    ProviderUsageAccountingEvidence,
+)
+
+__all__ = [
+    "RequestAccountingCollector",
+    "active_collector",
+    "bound_collector",
+]
+
+# A bound on how much of one provider body we keep as evidence. Raw bodies are held only
+# long enough for a mapper to read ``usage`` out of them.
+MAX_RAW_EVIDENCE_BYTES = 256 * 1024
+
+
+def _bounded_utf8(value: str | None, *, max_bytes: int) -> str | None:
+    """Keep a provider string only when it fits the public-contract bound."""
+    if value is None or not value or len(value.encode("utf-8")) > max_bytes:
+        return None
+    return value
+
+
+def _safe_failure_code(outcome: CallOutcome, failure_code: str) -> str:
+    if failure_code in FAILURE_CODES:
+        return failure_code
+    return {
+        "provider_error": "provider_status_error",
+        "transport_error": "transport_error",
+        "conversion_error": "response_conversion_failed",
+        "succeeded": "no_response_observed",
+        "indeterminate": "no_response_observed",
+    }[outcome]
+
+
+def new_gateway_call_id() -> str:
+    """Mint a response-local correlation id.
+
+    Exposed separately so a request with an UNSUPPORTED provider can still get an id to
+    log and render without constructing a collector it will never record into.
+    """
+    return f"call_{uuid.uuid4().hex}"
+
+
+@dataclass
+class _PendingSend:
+    """One admitted send, mutable while it is still resolving."""
+
+    attempt_id: str
+    sequence: int
+    dispatch_index: int
+    attempt_index: int
+    started_at: float
+    # Held so the correlation key (``id(request)``) cannot be recycled onto a later
+    # object while this send is still open.
+    request_ref: Any
+    redirect_hop_count: int = 0
+    resolved: bool = False
+    http_status: int | None = None
+    latency_ms: int | None = None
+    outcome: CallOutcome = "indeterminate"
+    failure_code: str | None = None
+    raw_evidence: dict[str, Any] | None = None
+    evidence: ProviderUsageAccountingEvidence | None = None
+    # Set when a redirect response was seen for THIS send, so the next admission is
+    # recognised as a hop of the same generation call rather than a new one.
+    awaiting_redirect_hop: bool = False
+    # The URL the observed redirect actually pointed at, when the observer could resolve
+    # it. Folding is gated on the next admission MATCHING this, so that a resend of the
+    # original request cannot be absorbed as a hop. ``None`` means "no URL information",
+    # which folds — see ``_continues_redirect``.
+    expected_redirect_target: str | None = None
+
+
+@dataclass
+class RequestAccountingCollector:
+    """Per-request record of every observed provider send.
+
+    ``dispatch_index`` counts gateway/plugin dispatch attempts (an overload retry is a
+    new dispatch). ``attempt_index`` counts transport admissions inside one
+    dispatch (LiteLLM's hidden resend is a new attempt). Engine needs both to tell the
+    two apart from a flat sequence — plan §12 makes conflating them a stop condition.
+    """
+
+    provider: str
+    requested_model: str | None
+    transport: str
+    gateway_call_id: str = field(default_factory=lambda: new_gateway_call_id())
+
+    _sends: list[_PendingSend] = field(default_factory=list, init=False)
+    _by_request: dict[int, _PendingSend] = field(default_factory=dict, init=False)
+    _dispatch_index: int = field(default=0, init=False)
+    _sends_in_dispatch: int = field(default=0, init=False)
+    _incomplete: bool = field(default=False, init=False)
+
+    # ---- dispatch lifecycle -------------------------------------------------
+
+    def begin_dispatch(self) -> int:
+        """Open a new gateway/plugin dispatch attempt and return its one-based index."""
+        self._dispatch_index += 1
+        self._sends_in_dispatch = 0
+        return self._dispatch_index
+
+    @property
+    def dispatched(self) -> bool:
+        return self._dispatch_index > 0
+
+    def mark_incomplete(self) -> None:
+        """Record that some evidence could not be captured.
+
+        Called by the hooks' own failure paths. Once set it never clears: a collector
+        that missed something cannot later prove it did not.
+        """
+        self._incomplete = True
+
+    # ---- transport observation (driven from the httpx hooks) ----------------
+
+    def on_send_admitted(self, request: object) -> None:
+        """A send was admitted to the local transport pipeline.
+
+        When the previous send for this dispatch is awaiting a redirect hop AND this
+            admission is going to that hop's target, this is that hop: it continues the SAME
+            generation record. Otherwise it is a new observed attempt.
+
+        INVARIANT: an admission that is NOT the promised hop is never folded. LiteLLM
+        resends the ORIGINAL request when httpx fails to follow a redirect (a malformed
+        ``Location`` becomes ``RemoteProtocolError``, which
+        ``AsyncHTTPHandler.post`` retries once), and folding that resend would delete a
+        real observed send while the request still reported ``capture_status=complete``.
+        """
+        open_send = self._open_redirecting_send()
+        if open_send is not None:
+            if self._continues_redirect(open_send, request):
+                open_send.redirect_hop_count += 1
+                open_send.awaiting_redirect_hop = False
+                open_send.expected_redirect_target = None
+                # Re-key so the hop's own response resolves the same record.
+                self._by_request[id(request)] = open_send
+                open_send.request_ref = request
+                return
+            # Somewhere else entirely: the promised hop never happened. Disarm the fold
+            # and record this admission on its own below. The redirect's own target was
+            # never observed, so the request can no longer claim complete evidence.
+            open_send.awaiting_redirect_hop = False
+            open_send.expected_redirect_target = None
+            self._finalize_send_failure(
+                open_send, outcome="transport_error", failure_code="transport_error"
+            )
+        self._finalize_previous_unresolved_send()
+        self._sends_in_dispatch += 1
+        send = _PendingSend(
+            attempt_id=f"attempt_{uuid.uuid4().hex}",
+            sequence=len(self._sends) + 1,
+            dispatch_index=max(self._dispatch_index, 1),
+            attempt_index=self._sends_in_dispatch,
+            started_at=time.monotonic(),
+            request_ref=request,
+        )
+        self._sends.append(send)
+        self._by_request[id(request)] = send
+
+    def on_redirect_observed(self, request: object, *, target: str | None = None) -> None:
+        """The response for ``request`` was a redirect the transport will follow.
+
+        INVARIANT (§3.4): a redirect chain is ONE generation call. httpx fires the
+        request hook once per hop, so without this the hop count would become the
+        observed-attempt count and inflate ``observed_new_attempts``.
+
+        ``target`` is the resolved absolute URL the redirect points at, when the observer
+        could work it out. Pass it whenever it is known: it is what lets the next
+        admission be checked against the hop that was actually promised. Callers with no
+        URL information may omit it, and then any next admission folds as before.
+        """
+        send = self._by_request.get(id(request))
+        if send is None or send.resolved:
+            return
+        send.awaiting_redirect_hop = True
+        send.expected_redirect_target = target
+
+    def on_response_completed(
+        self,
+        request: object,
+        *,
+        status: object,
+        raw_evidence: dict[str, Any] | None,
+        body_completed: bool = True,
+    ) -> None:
+        """A response arrived for ``request``.
+
+        ``latency_ms`` is measured to here, which is why the response hook reads the
+        body before calling this: measuring at headers would be time-to-headers wearing
+        the name of provider latency.
+
+        INVARIANT (§3.4): when ``body_completed`` is False the body was never read — an
+        oversized or unexpectedly streaming response — so ``latency_ms`` stays ``None``
+        rather than silently reporting time-to-headers under the name of provider
+        latency.
+        """
+        send = self._by_request.get(id(request))
+        if send is None or send.resolved:
+            # A callback for a send this collector never admitted. Ignoring it is the
+            # only safe answer — inventing a record would fabricate provider work.
+            return
+        send.resolved = True
+        send.awaiting_redirect_hop = False
+        send.http_status = valid_http_status(status)
+        if body_completed:
+            send.latency_ms = max(0, int((time.monotonic() - send.started_at) * 1000))
+        else:
+            self._incomplete = True
+        send.outcome = outcome_for_status(status)
+        if send.outcome == "provider_error":
+            send.failure_code = "provider_status_error"
+        send.raw_evidence = raw_evidence
+
+    def on_send_failed(self, request: object, *, outcome: CallOutcome, failure_code: str) -> None:
+        """The send failed locally before a usable response body."""
+        send = self._by_request.get(id(request))
+        if send is None or send.resolved:
+            return
+        self._finalize_send_failure(send, outcome=outcome, failure_code=failure_code)
+
+    def finalize_last_open_failure(self, *, outcome: CallOutcome, failure_code: str) -> bool:
+        """Finalize the last admitted send after dispatch escapes with no response hook."""
+        for send in reversed(self._sends):
+            if not send.resolved:
+                self._finalize_send_failure(send, outcome=outcome, failure_code=failure_code)
+                return True
+        return False
+
+    def mark_last_succeeded_provider_error(self) -> None:
+        """Correct an HTTP-200 body that provider-specific validation rejected."""
+        for send in reversed(self._sends):
+            if send.outcome == "succeeded":
+                send.outcome = "provider_error"
+                send.failure_code = "provider_status_error"
+                return
+
+    # ---- evidence ------------------------------------------------------------
+
+    def open_records(self) -> tuple[tuple[str, dict[str, Any] | None, bool], ...]:
+        """``(attempt_id, raw_evidence, succeeded)`` for every observed send.
+
+        The seam feeds this to the provider's pure mapper. Handing over the raw evidence
+        rather than the collector keeps a mapper structurally unable to add, drop or
+        reorder records.
+        """
+        return tuple(
+            (send.attempt_id, send.raw_evidence, send.outcome == "succeeded")
+            for send in self._sends
+        )
+
+    def apply_evidence(self, attempt_id: str, evidence: ProviderUsageAccountingEvidence) -> None:
+        """Attach a provider mapper's normalized evidence to one record."""
+        for send in self._sends:
+            if send.attempt_id != attempt_id:
+                continue
+            send.evidence = evidence
+            return
+
+    def mark_conversion_failed(self, outcome: CallOutcome, failure_code: str) -> None:
+        """Downgrade the last succeeded send after local conversion of it failed.
+
+        INVARIANT: the provider already answered — and was very likely billed — so the
+        record stays, and only its outcome changes. Dropping it would under-report
+        real spend.
+        """
+        for send in reversed(self._sends):
+            if send.outcome == "succeeded":
+                send.outcome = outcome
+                send.failure_code = _safe_failure_code(outcome, failure_code)
+                return
+
+    # ---- results -------------------------------------------------------------
+
+    def records(self) -> tuple[ProviderCallRecord, ...]:
+        return tuple(self._record(send) for send in self._sends)
+
+    def _record(self, send: _PendingSend) -> ProviderCallRecord:
+        evidence = send.evidence
+        return ProviderCallRecord(
+            attempt_id=send.attempt_id,
+            sequence=send.sequence,
+            dispatch_index=send.dispatch_index,
+            attempt_index=send.attempt_index,
+            provider=self.provider,
+            transport=self.transport,
+            outcome=send.outcome,
+            requested_model=_bounded_utf8(self.requested_model, max_bytes=512),
+            response_model=(
+                _bounded_utf8(evidence.response_model, max_bytes=512)
+                if evidence is not None
+                else None
+            ),
+            provider_response_id=(
+                _bounded_utf8(evidence.provider_response_id, max_bytes=256)
+                if evidence is not None
+                else None
+            ),
+            http_status=send.http_status,
+            latency_ms=send.latency_ms,
+            usage=(
+                evidence.usage if evidence is not None else ProviderUsageAccountingEvidence().usage
+            ),
+            pricing_context=(
+                evidence.pricing_context if evidence is not None else PricingContext()
+            ),
+            direct_cost=(
+                evidence.direct_cost if evidence is not None else DirectCost.unavailable()
+            ),
+            provider_extensions=(evidence.provider_extensions if evidence is not None else ()),
+            redirect_hop_count=send.redirect_hop_count,
+            failure_code=send.failure_code,
+        )
+
+    def status(self) -> CaptureStatus:
+        """The request-level accounting status.
+
+        ``accounting_not_supported`` is NOT decided here: it is a property of the
+        provider's declared strategy, which the renderer owns. This method answers only
+        "given what was observed, how good is this record set".
+        """
+        if not self.dispatched:
+            return "not_applicable"
+        if not self._sends:
+            # §9.22: dispatched but nothing observed. Never `complete` — that would
+            # claim the provider was asked for nothing.
+            return "partial"
+        if self._incomplete or not all(send.resolved for send in self._sends):
+            return "partial"
+        return "complete"
+
+    def _open_redirecting_send(self) -> _PendingSend | None:
+        """The most recent send that saw a redirect and expects its following hop."""
+        if not self._sends:
+            return None
+        last = self._sends[-1]
+        return last if last.awaiting_redirect_hop and not last.resolved else None
+
+    def _finalize_previous_unresolved_send(self) -> None:
+        if not self._sends:
+            return
+        previous = self._sends[-1]
+        if previous.resolved:
+            return
+        self._finalize_send_failure(
+            previous, outcome="transport_error", failure_code="transport_error"
+        )
+
+    @staticmethod
+    def _finalize_send_failure(
+        send: _PendingSend, *, outcome: CallOutcome, failure_code: str
+    ) -> None:
+        send.resolved = True
+        send.awaiting_redirect_hop = False
+        send.outcome = outcome
+        send.failure_code = _safe_failure_code(outcome, failure_code)
+
+    @staticmethod
+    def _continues_redirect(open_send: _PendingSend, request: object) -> bool:
+        """Whether ``request`` is the hop ``open_send``'s redirect promised.
+
+        Compared as STRINGS so this module stays stdlib-only — it is imported by callers
+        that must not pull in the HTTP stack, so URL semantics belong to the observer that
+        already has httpx and resolves the target.
+
+        WHY unknown information folds rather than splits: with no target recorded there is
+        nothing to contradict, and refusing to fold would break the redirect collapse
+        §3.4 requires. The safety asymmetry is deliberate — a target that drifts produces
+        an extra VISIBLE record (honest over-reporting), never a vanished send.
+
+        AIDEV-NOTE: a provider that self-redirects (``Location`` equal to the request URL)
+        is genuinely indistinguishable from a resend of that same URL at this seam, and
+        folds. That direction is chosen on purpose: inflating ``attempts`` on every
+        legitimate self-redirect is a plan §12 stop condition, and this residual case
+        needs evidence the transport does not give the hooks.
+        """
+        target = open_send.expected_redirect_target
+        if target is None:
+            return True
+        url = getattr(request, "url", None)
+        if url is None:
+            return True
+        return str(url) == target
+
+
+_ACTIVE: ContextVar[RequestAccountingCollector | None] = ContextVar(
+    "aigw_usage_accounting_collector", default=None
+)
+
+
+def active_collector() -> RequestAccountingCollector | None:
+    """The collector for the request running on this context, if any."""
+    return _ACTIVE.get()
+
+
+@contextmanager
+def bound_collector(collector: RequestAccountingCollector) -> Iterator[RequestAccountingCollector]:
+    """Bind ``collector`` for the duration of the block, then restore the previous value.
+
+    WHY token-restoring and not ``set(None)`` on exit: FastAPI runs handlers in a task
+    whose context can be entered more than once, and clearing to ``None`` would erase an
+    outer binding rather than restore it.
+    """
+    token = _ACTIVE.set(collector)
+    try:
+        yield collector
+    finally:
+        _ACTIVE.reset(token)

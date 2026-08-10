@@ -15,7 +15,8 @@ from __future__ import annotations
 import json
 import logging
 import math
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from fastapi import HTTPException, Request
 
@@ -25,6 +26,7 @@ from ..core.http_status import valid_http_error_status
 from ..core.oauth.models import OAuthConnection
 from ..core.profile_models import AuthType, Profile
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
+from .chat_accounting import note_conversion_failure
 from .chat_credentials import (
     _invalidate_profile_session,
     _mark_profile_error_fresh,
@@ -143,6 +145,8 @@ async def _dispatch_with_backpressure(
     plugin: Any,
     provider: str,
     body: dict[str, Any],
+    *,
+    on_dispatch: Callable[[], None] | None = None,
 ) -> Any:
     """Run ``plugin.chat_completion`` under the gateway's backpressure stack:
     a per-provider concurrency slot wrapping the overload-retry loop.
@@ -150,11 +154,24 @@ async def _dispatch_with_backpressure(
     The slot is held across retries so a provider's concurrent-pressure
     ceiling includes backoff time — preventing the thundering-herd quota
     re-exhaustion that pure reactive retry could not solve.
+
+    ``on_dispatch`` (OME-303) fires once per ATTEMPT, immediately before the plugin is
+    invoked. That is what lets a gateway overload retry be told apart from LiteLLM's own
+    hidden in-``post()`` resend: the former bumps ``dispatch_index``, the latter only
+    ``attempt_index``. Conflating the two is a plan §12 stop condition, so the hook
+    belongs here — inside the retry loop — and not at the call site, which cannot see
+    individual attempts.
     """
     settings = request.app.state.settings
+
+    def _attempt() -> Any:
+        if on_dispatch is not None:
+            on_dispatch()
+        return plugin.chat_completion(body)
+
     async with provider_slot(request.app, provider, effective_provider_limit(settings, provider)):
         return await with_overload_retry(
-            lambda: plugin.chat_completion(body),
+            _attempt,
             policy=RetryPolicy.from_settings(settings),
         )
 
@@ -214,6 +231,33 @@ def _litellm_http_exception(exc: Exception) -> HTTPException:
         detail={"code": code, "message": _PROVIDER_ERROR_MESSAGE[code]},
         headers=_retry_after_headers(exc),
     )
+
+
+def convert_provider_response(provider_response: Any, session: Any = None) -> Any:
+    """Render the provider's response object to a plain JSON-able body.
+
+    OME-303 §9.20: when this fails the provider ANSWERED — and very likely billed — but
+    the gateway could not render its answer. That is neither a provider error nor a
+    transport error, and the distinction is what stops Engine from being told the
+    provider rejected work it actually performed, which would under-count real spend.
+    The classification itself is core-owned and provider-neutral.
+
+    WHY this raises directly instead of going through ``_safe_dispatch_failure_response``:
+    that path exists to flip a profile or OAuth connection to ERROR when a status means
+    the stored credential is bad. A conversion failure says nothing about the credential
+    — the call authenticated and succeeded — so marking the profile would disable a
+    working connection because of a gateway-side bug.
+    """
+    dumpable = cast(Any, provider_response)
+    if not hasattr(dumpable, "model_dump"):
+        return provider_response
+    try:
+        return dumpable.model_dump()
+    except Exception as failure:
+        # INVARIANT: type only. The exception text is provider-influenced.
+        logger.error("provider response conversion failed type=%s", type(failure).__name__)
+        note_conversion_failure(session)
+        raise _unknown_provider_exception() from None
 
 
 def _unknown_provider_exception() -> HTTPException:

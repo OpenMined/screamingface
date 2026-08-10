@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screamingface.ai/schemas/aigw-usage-accounting-v1.json",
+  "title": "AIGateway usage accounting v1 metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["usage_accounting", "request_economics"],
+  "properties": {
+    "usage_accounting": {"$ref": "#/$defs/usage_accounting"},
+    "request_economics": {"$ref": "#/$defs/request_economics"}
+  },
+  "$defs": {
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "nullable_count": {
+      "oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]
+    },
+    "cache_write_ttl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ttl_seconds", "tokens"],
+      "properties": {
+        "ttl_seconds": {"$ref": "#/$defs/count"},
+        "tokens": {"$ref": "#/$defs/count"}
+      }
+    },
+    "input_usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "uncached", "cache_read", "cache_write", "cache_write_by_ttl"],
+      "properties": {
+        "total": {"$ref": "#/$defs/nullable_count"},
+        "uncached": {"$ref": "#/$defs/nullable_count"},
+        "cache_read": {"$ref": "#/$defs/nullable_count"},
+        "cache_write": {"$ref": "#/$defs/nullable_count"},
+        "cache_write_by_ttl": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/cache_write_ttl"}
+        }
+      }
+    },
+    "output_usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "reasoning"],
+      "properties": {
+        "total": {"$ref": "#/$defs/nullable_count"},
+        "reasoning": {"$ref": "#/$defs/nullable_count"}
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "input", "output"],
+      "properties": {
+        "status": {"enum": ["complete", "partial", "unavailable"]},
+        "source": {
+          "enum": [
+            "provider_raw_response",
+            "provider_converted_response",
+            "cached_converted_response"
+          ]
+        },
+        "input": {"$ref": "#/$defs/input_usage"},
+        "output": {"$ref": "#/$defs/output_usage"}
+      }
+    },
+    "direct_cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "amount", "unit", "source"],
+      "properties": {
+        "status": {"enum": ["reported", "absent", "unavailable", "invalid", "unit_unknown"]},
+        "amount": {
+          "oneOf": [
+            {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,17}[1-9])?$", "maxLength": 64},
+            {"type": "null"}
+          ]
+        },
+        "unit": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[ -~]{1,64}$"},
+            {"type": "null"}
+          ]
+        },
+        "source": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[ -~]{1,128}$"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "reported"}}},
+          "then": {
+            "properties": {
+              "amount": {"type": "string"},
+              "unit": {"type": "string"},
+              "source": {"type": "string"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"enum": ["absent", "unavailable", "invalid"]}}},
+          "then": {
+            "properties": {
+              "amount": {"type": "null"},
+              "unit": {"type": "null"},
+              "source": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "unit_unknown"}}},
+          "then": {
+            "properties": {
+              "amount": {"type": "string"},
+              "unit": {"type": "null"},
+              "source": {"type": "string"}
+            }
+          }
+        }
+      ]
+    },
+    "pricing_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_tier", "backend"],
+      "properties": {
+        "service_tier": {
+          "oneOf": [{"enum": ["standard", "priority", "batch"]}, {"type": "null"}]
+        },
+        "backend": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[ -~]{1,64}$"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "extension_fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "value", "unit", "source"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[ -~]{1,64}$"},
+        "kind": {"enum": ["integer", "decimal", "boolean", "enum"]},
+        "value": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "string", "maxLength": 64}, {"type": "boolean"}]},
+        "unit": {
+          "oneOf": [{"type": "string", "pattern": "^[ -~]{1,64}$"}, {"type": "null"}]
+        },
+        "source": {"type": "string", "pattern": "^[ -~]{1,128}$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "integer"}}},
+          "then": {"properties": {"value": {"$ref": "#/$defs/count"}}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "decimal"}}},
+          "then": {"properties": {"value": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,17}[1-9])?$"}}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "boolean"}}},
+          "then": {"properties": {"value": {"type": "boolean"}}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "enum"}}},
+          "then": {"properties": {"value": {"type": "string", "pattern": "^[ -~]{1,64}$"}}}
+        }
+      ]
+    },
+    "provider_extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "facts", "truncated"],
+      "properties": {
+        "namespace": {"type": "string", "pattern": "^[ -~]{1,64}$"},
+        "facts": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/extension_fact"}
+        },
+        "truncated": {"type": "boolean"}
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "attempt_id", "sequence", "dispatch_index", "attempt_index",
+        "provider", "requested_model", "response_model", "provider_response_id",
+        "transport", "outcome", "http_status", "latency_ms", "usage",
+        "pricing_context", "direct_cost", "provider_extensions",
+        "provider_extensions_truncated", "redirect_hop_count", "failure_code"
+      ],
+      "properties": {
+        "schema": {"const": "aigw.provider_attempt.v1"},
+        "attempt_id": {"type": "string", "pattern": "^attempt_[0-9a-f]{32}$"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "dispatch_index": {"type": "integer", "minimum": 1},
+        "attempt_index": {"type": "integer", "minimum": 1},
+        "provider": {"type": "string", "minLength": 1, "maxLength": 64},
+        "requested_model": {"oneOf": [{"type": "string", "maxLength": 512}, {"type": "null"}]},
+        "response_model": {"oneOf": [{"type": "string", "maxLength": 512}, {"type": "null"}]},
+        "provider_response_id": {"oneOf": [{"type": "string", "maxLength": 256}, {"type": "null"}]},
+        "transport": {"enum": ["litellm_async_http_v1", "provider_owned_http_v1", "provider_owned_process_v1"]},
+        "outcome": {"enum": ["succeeded", "provider_error", "transport_error", "conversion_error", "indeterminate"]},
+        "http_status": {"oneOf": [{"type": "integer", "minimum": 100, "maximum": 599}, {"type": "null"}]},
+        "latency_ms": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "usage": {"$ref": "#/$defs/usage"},
+        "pricing_context": {"$ref": "#/$defs/pricing_context"},
+        "direct_cost": {"$ref": "#/$defs/direct_cost"},
+        "provider_extensions": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {"$ref": "#/$defs/provider_extension"}
+        },
+        "provider_extensions_truncated": {"type": "boolean"},
+        "redirect_hop_count": {"type": "integer", "minimum": 0, "maximum": 255},
+        "failure_code": {"oneOf": [{"type": "string", "maxLength": 128}, {"type": "null"}]}
+      }
+    },
+    "cache_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "coverage", "incurred_in_current_request", "usage", "direct_cost"],
+      "properties": {
+        "kind": {"const": "cached_final_response"},
+        "coverage": {"const": "final_successful_response_only"},
+        "incurred_in_current_request": {"const": false},
+        "usage": {"$ref": "#/$defs/usage"},
+        "direct_cost": {"$ref": "#/$defs/direct_cost"}
+      }
+    },
+    "usage_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "capture_status", "gateway_call_id", "cache", "observed_attempts", "rendered_attempts", "omitted_attempts", "attempts"],
+      "properties": {
+        "schema": {"const": "aigw.chat_usage_accounting.v1"},
+        "capture_status": {"enum": ["complete", "partial", "accounting_not_supported", "not_applicable"]},
+        "gateway_call_id": {"type": "string", "pattern": "^call_[0-9a-f]{32}$"},
+        "cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reference"],
+          "properties": {
+            "status": {"enum": ["hit", "miss", "bypass"]},
+            "reference": {"oneOf": [{"$ref": "#/$defs/cache_reference"}, {"type": "null"}]}
+          }
+        },
+        "observed_attempts": {"$ref": "#/$defs/count"},
+        "rendered_attempts": {"type": "integer", "minimum": 0, "maximum": 64},
+        "omitted_attempts": {"$ref": "#/$defs/count"},
+        "attempts": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/attempt"}}
+      }
+    },
+    "cost_subtotal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount", "unit", "source"],
+      "properties": {
+        "amount": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,17}[1-9])?$", "maxLength": 64},
+        "unit": {"type": "string", "pattern": "^[ -~]{1,64}$"},
+        "source": {"type": "string", "pattern": "^[ -~]{1,128}$"}
+      }
+    },
+    "request_economics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "observed_new_attempts", "direct_cost_status", "known_direct_cost_subtotals"],
+      "properties": {
+        "schema": {"const": "aigw.request_economics.v1"},
+        "observed_new_attempts": {"$ref": "#/$defs/count"},
+        "direct_cost_status": {"enum": ["complete", "partial", "unavailable", "not_applicable"]},
+        "known_direct_cost_subtotals": {"type": "array", "items": {"$ref": "#/$defs/cost_subtotal"}}
+      }
+    }
+  }
+}

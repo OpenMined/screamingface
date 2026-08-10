@@ -224,3 +224,21 @@ def test_chat_openrouter_stream_rejected_before_dispatch(
     assert detail["code"] == "streaming_not_supported"
     assert detail["provider"] == "openrouter"
     dispatched.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_plugin_model_dump_failure_is_marked_as_local_conversion_error() -> None:
+    class _BrokenResponse:
+        def model_dump(self) -> dict[str, Any]:
+            raise ValueError("provider-controlled secret")
+
+    async def acompletion(**_kwargs: Any) -> _BrokenResponse:
+        return _BrokenResponse()
+
+    with patch("litellm.acompletion", acompletion), pytest.raises(HTTPException) as excinfo:
+        await _plugin(enabled=True).chat_completion(
+            {"model": "openrouter/anthropic/claude-fable-5", "api_key": "sk-test"}
+        )
+    assert excinfo.value.status_code == 502
+    assert getattr(excinfo.value, "aigw_response_conversion_error", False) is True
+    assert "provider-controlled secret" not in str(excinfo.value.detail)

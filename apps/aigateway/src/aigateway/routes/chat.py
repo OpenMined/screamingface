@@ -11,7 +11,7 @@ attribution). This module keeps only the router and the request orchestration.
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
@@ -39,6 +39,19 @@ from ..core.parameter_projection import (
 from ..core.registry import ProviderRegistry
 from ..core.request_cache.global_controls import parse_global_cache_controls
 from ..core.request_hardening import chat_body_shape_error, strip_dispatch_controls
+from .chat_accounting import (
+    accounting_handler,
+    attach_hit_metadata,
+    attach_success_metadata,
+    begin_accounting,
+    bound_dispatch,
+    dispatch_body_with_accounting,
+    finalize_provider_evidence,
+    note_conversion_failure,
+    note_dispatch_failure,
+    safe_request_view,
+    streaming_rejection,
+)
 from .chat_cache_stage import (
     defaults_unreadable_bypass,
     global_cache_headers,
@@ -58,11 +71,140 @@ from .chat_dispatch import (
     _safe_dispatch_failure_response,
     _stream,
     _unknown_provider_exception,
+    convert_provider_response,
 )
 from .chat_profile_defaults import _parameter_rejection_exception, profile_defaults_for_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def _dispatch_and_finalize_accounting(
+    request: Request,
+    *,
+    plugin: Any,
+    provider: str,
+    body: dict[str, Any],
+    accounting: Any,
+    account_id: str,
+    profile_name: str,
+    profile: Any,
+    connection: Any,
+    credential_name: str | None,
+    auth_type: Any,
+) -> Any:
+    """Dispatch once through the provider and finalize any observed accounting evidence."""
+    accounting_request_view = safe_request_view(body)
+    dispatch_body = dispatch_body_with_accounting(body, accounting, accounting_handler(request))
+    on_dispatch = accounting.note_dispatch if accounting is not None else None
+    try:
+        with bound_dispatch(accounting):
+            provider_response = await _dispatch_with_backpressure(
+                request, plugin, provider, dispatch_body, on_dispatch=on_dispatch
+            )
+    except HTTPException as exc:
+        if getattr(exc, "aigw_response_conversion_error", False):
+            note_conversion_failure(accounting)
+        else:
+            note_dispatch_failure(
+                accounting,
+                exc,
+                provider_error_after_response=bool(getattr(exc, "aigw_provider_body_error", False)),
+            )
+        finalize_provider_evidence(
+            accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
+        )
+        raise await _safe_dispatch_failure_response(
+            request,
+            exc,
+            plugin=plugin,
+            provider=provider,
+            account_id=account_id,
+            profile_name=profile_name,
+            profile=profile,
+            connection=connection,
+            credential_name=credential_name,
+            auth_type=auth_type,
+        ) from None
+    except (
+        RateLimitError,
+        UnsupportedParamsError,
+        BadRequestError,
+        AuthenticationError,
+        PermissionDeniedError,
+        NotFoundError,
+        UnprocessableEntityError,
+        InternalServerError,
+        APIError,
+        APIConnectionError,
+        ServiceUnavailableError,
+        Timeout,
+    ) as exc:
+        note_dispatch_failure(accounting, exc)
+        finalize_provider_evidence(
+            accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
+        )
+        raise await _safe_dispatch_failure_response(
+            request,
+            _litellm_http_exception(exc),
+            plugin=plugin,
+            provider=provider,
+            account_id=account_id,
+            profile_name=profile_name,
+            profile=profile,
+            connection=connection,
+            credential_name=credential_name,
+            auth_type=auth_type,
+        ) from None
+    except Exception as exc:
+        # WHY (OME-428 third-review blocker B): the two branches above enumerate
+        # the curated HTTPException and the KNOWN litellm exception families. Any
+        # OTHER escape (a RuntimeError, a ValueError, a new litellm type, a
+        # malformed-conversion error) must still render a sanitized status — never
+        # an uncontrolled ASGI 500 whose traceback leaks the raw provider
+        # message/prompt.
+        # INVARIANT: an unclassified exception always yields a fixed sanitized
+        # 502 `provider_error`; arbitrary attributes/chains are not trusted and
+        # cannot trigger credential invalidation.
+        logger.error(
+            "unhandled dispatch error type=%s provider=%s account=%s profile=%s",
+            type(exc).__name__,
+            provider,
+            account_id,
+            profile_name,
+        )
+        note_dispatch_failure(accounting, exc)
+        finalize_provider_evidence(
+            accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
+        )
+        raise await _safe_dispatch_failure_response(
+            request,
+            _unknown_provider_exception(),
+            plugin=plugin,
+            provider=provider,
+            account_id=account_id,
+            profile_name=profile_name,
+            profile=profile,
+            connection=connection,
+            credential_name=credential_name,
+            auth_type=auth_type,
+        ) from None
+
+    try:
+        result = convert_provider_response(provider_response, accounting)
+    except HTTPException:
+        finalize_provider_evidence(
+            accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
+        )
+        raise
+
+    finalize_provider_evidence(
+        accounting,
+        plugin=plugin,
+        request_body=accounting_request_view,
+        final_response=result if isinstance(result, dict) else None,
+    )
+    return result
 
 
 @router.post("/v1/chat/completions")
@@ -115,6 +257,17 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # Stripping first is what makes it neither.
     body = plugin.strip_provider_dispatch_controls(body)
 
+    # OME-303: open the accounting session BEFORE the cache stage, so a HIT can render
+    # metadata too. This reads only a request HEADER and the provider's declared
+    # strategy — it does not touch `body`, so it cannot reach provider parameter
+    # validation and cannot enter the OME-305 effective request/cache key. A negotiated
+    # and a non-negotiated request with identical bodies key identically.
+    accounting = begin_accounting(request, plugin=plugin, provider=provider, model=model)
+    if accounting is not None and body.get("stream"):
+        # §3.3: refuse before ANY provider dispatch and before handler injection.
+        # Accounting a stream would mean reading the SSE body the caller is waiting on.
+        raise streaming_rejection()
+
     # ==================================================================
     # STAGE 1 — the global cache, BEFORE any CREDENTIAL is resolved.
     # ==================================================================
@@ -154,6 +307,8 @@ async def chat_completions(request: Request, response: Response, current: Curren
         cache_outcome = await look_up_global_cache(
             request, body=body, plugin=plugin, controls=cache_controls
         )
+    if accounting is not None:
+        accounting.cache_status = cache_outcome.status
     if cache_outcome.is_hit and cache_outcome.response is not None:
         # ACCEPTED CONSEQUENCE (decision 2): a hit skips the auth-mode-specific
         # parameter validation a miss would run. Deliberate and approved — the
@@ -166,7 +321,11 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # the caller's body WITH their profile defaults applied, so a stored default
         # that changes what the provider is asked also changes the key.
         set_global_cache_headers(response, cache_outcome)
-        return cache_outcome.response
+        # OME-303: a hit dispatched nothing, so `attempts` is empty and
+        # `observed_new_attempts` is 0. Limited cached-final-response evidence is
+        # explicitly not current spend. Metadata goes on a COPY:
+        # `cache_outcome.response` is the store's replayed row.
+        return attach_hit_metadata(cache_outcome.response, accounting, plugin=plugin)
 
     # ==================================================================
     # STAGE 2 — a miss or a bypass: resolve identity and dispatch.
@@ -302,78 +461,22 @@ async def chat_completions(request: Request, response: Response, current: Curren
             headers=global_cache_headers(cache_outcome),
         )
 
-    try:
-        provider_response = await _dispatch_with_backpressure(request, plugin, provider, body)
-    except HTTPException as exc:
-        raise await _safe_dispatch_failure_response(
-            request,
-            exc,
-            plugin=plugin,
-            provider=provider,
-            account_id=account_id,
-            profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
-        ) from None
-    except (
-        RateLimitError,
-        UnsupportedParamsError,
-        BadRequestError,
-        AuthenticationError,
-        PermissionDeniedError,
-        NotFoundError,
-        UnprocessableEntityError,
-        InternalServerError,
-        APIError,
-        APIConnectionError,
-        ServiceUnavailableError,
-        Timeout,
-    ) as exc:
-        raise await _safe_dispatch_failure_response(
-            request,
-            _litellm_http_exception(exc),
-            plugin=plugin,
-            provider=provider,
-            account_id=account_id,
-            profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
-        ) from None
-    except Exception as exc:
-        # WHY (OME-428 third-review blocker B): the two branches above enumerate
-        # the curated HTTPException and the KNOWN litellm exception families. Any
-        # OTHER escape (a RuntimeError, a ValueError, a new litellm type, a
-        # malformed-conversion error) must still render a sanitized status — never
-        # an uncontrolled ASGI 500 whose traceback leaks the raw provider
-        # message/prompt.
-        # INVARIANT: an unclassified exception always yields a fixed sanitized
-        # 502 `provider_error`; arbitrary attributes/chains are not trusted and
-        # cannot trigger credential invalidation.
-        logger.error(
-            "unhandled dispatch error type=%s provider=%s account=%s profile=%s",
-            type(exc).__name__,
-            provider,
-            account_id,
-            profile_name,
-        )
-        raise await _safe_dispatch_failure_response(
-            request,
-            _unknown_provider_exception(),
-            plugin=plugin,
-            provider=provider,
-            account_id=account_id,
-            profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
-        ) from None
-    dumpable = cast(Any, provider_response)
-    result = dumpable.model_dump() if hasattr(dumpable, "model_dump") else provider_response
+    # OME-303: inject the gateway's observed LiteLLM client for a negotiated request
+    # whose provider declared `litellm_async_http_v1`; then normalize each observed
+    # send's OWN raw provider evidence before success OR error metadata can render.
+    result = await _dispatch_and_finalize_accounting(
+        request,
+        plugin=plugin,
+        provider=provider,
+        body=body,
+        accounting=accounting,
+        account_id=account_id,
+        profile_name=profile_name,
+        profile=profile,
+        connection=connection,
+        credential_name=credential_name,
+        auth_type=auth_type,
+    )
 
     # STAGE 3 — fill the global entry this request missed on.
     # INVARIANT: only a MISS on an eligible request writes (``should_store``). A
@@ -386,4 +489,10 @@ async def chat_completions(request: Request, response: Response, current: Curren
     if cache_outcome.should_store:
         write_status = await store_global_response(request, outcome=cache_outcome, result=result)
     set_global_cache_headers(response, cache_outcome, write_status=write_status)
-    return result
+    # OME-303 INVARIANT (§6): metadata is attached to a COPY, and STRICTLY AFTER the
+    # store above. The cache row must stay provider-compatible for every future replay,
+    # and `store_global_response` measures `response_size_bytes` against what it is
+    # handed — attaching first could push an otherwise cacheable response over the cap.
+    if not isinstance(result, dict):
+        return result
+    return attach_success_metadata(result, accounting, cache_status=cache_outcome.status)

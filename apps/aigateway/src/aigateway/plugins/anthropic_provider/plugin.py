@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
@@ -16,11 +16,17 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 from aigateway.core.standard_parameters import tool_parameter_observations
+from aigateway.core.usage_accounting import (
+    CacheReference,
+    ProviderUsageAccountingEvidence,
+    UsageAccountingStrategy,
+)
 
 from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import (
+    apply_anthropic_dispatch_controls,
     chat_completion,
     chat_completion_stream,
     claude_code_attribution_revision,
@@ -29,10 +35,12 @@ from .discovery import STATIC_SOURCE, anthropic_static_param_observations
 from .parameters import anthropic_chat_parameter_rules, anthropic_chat_parameter_tools
 from .settings import AnthropicPluginSettings
 from .thinking import raise_on_thinking_conflict
+from .usage_accounting import (
+    cache_reference_from_cached,
+    normalize_anthropic_usage_accounting,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
@@ -239,8 +247,34 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
             "prepared": prepared,
         }
 
+    def usage_accounting_strategy(self) -> UsageAccountingStrategy:
+        # OME-303 §5.2: anthropic dispatches through litellm's AnthropicChatCompletion,
+        # which uses the shared AsyncHTTPHandler and honours an injected client — so the
+        # gateway's observed handler sees every generation send.
+        return UsageAccountingStrategy.litellm_async_http_v1()
+
+    def normalize_chat_usage_accounting(
+        self,
+        *,
+        request_body: Mapping[str, Any],
+        raw_response: Mapping[str, Any] | None,
+        final_response: Mapping[str, Any] | None,
+        failed: bool = False,
+    ) -> ProviderUsageAccountingEvidence:
+        return normalize_anthropic_usage_accounting(
+            request_body=request_body,
+            raw_response=raw_response,
+            final_response=final_response,
+            failed=failed,
+        )
+
+    def cache_reference_from_cached_response(
+        self, cached_response: Mapping[str, Any]
+    ) -> CacheReference | None:
+        return cache_reference_from_cached(cached_response)
+
     async def chat_completion(self, body: dict[str, Any]) -> Any:
-        return await chat_completion(body)
+        return await chat_completion(apply_anthropic_dispatch_controls(body))
 
     async def chat_completion_stream(self, body: dict[str, Any]) -> AsyncIterator[Any]:
         stream = await chat_completion_stream(body)

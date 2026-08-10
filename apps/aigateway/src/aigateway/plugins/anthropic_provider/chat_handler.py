@@ -68,6 +68,30 @@ def claude_code_attribution_revision() -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 
+def apply_anthropic_dispatch_controls(body: dict[str, Any]) -> dict[str, Any]:
+    """Pin the gateway-owned LiteLLM dispatch controls for Anthropic (OME-303 §4.3).
+
+    FEATURE: per-provider-call usage accounting.
+
+    WHY this exists as an explicit injection rather than a reliance on defaults: the
+    accounting contract states how many provider calls a request made, so LiteLLM's
+    OUTER retry cardinality must be pinned by the gateway rather than inherited from
+    whatever ``litellm.num_retries`` happens to be in this process. OpenRouter already
+    has such an injection site in its own ``chat_completion``; Anthropic had none.
+
+    INVARIANT: this does NOT disable the resend inside ``AsyncHTTPHandler.post()``.
+    That one is invisible to callers and is exactly why the send observer exists — see
+    ``core.usage_accounting._handler``.
+
+    INVARIANT: a fresh dict. The caller's body is also the body the request cache keyed,
+    and mutating it here would let a dispatch control leak backwards into that identity.
+    """
+    out = dict(body)
+    out["num_retries"] = 0
+    out["max_retries"] = 0
+    return out
+
+
 def _prepared_body(body: dict[str, Any]) -> dict[str, Any]:
     if uses_claude_code_attribution(body.get("api_key")):
         return prepare_claude_code_body(body)

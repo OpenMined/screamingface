@@ -23,3 +23,19 @@ def valid_http_error_status(value: object) -> int | None:
     if type(value) is int and 400 <= value <= 599:
         return value
     return None
+
+
+def valid_http_status(value: object) -> int | None:
+    """Return ``value`` when it is any real HTTP status (100-599), else None.
+
+    The same strictness as ``valid_http_error_status`` (see its INVARIANT) over the
+    full status range, for callers that must also accept success and redirect codes.
+
+    # WHY a sibling rather than a parameter on the function above: that function's
+    # name is its contract at ~40 call sites which all mean "is this an ERROR status".
+    # Widening its range behind a default would silently admit a 200 at every one of
+    # them. OME-303 observes real transport responses, so it needs 2xx and 3xx too.
+    """
+    if type(value) is int and 100 <= value <= 599:
+        return value
+    return None

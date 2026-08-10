@@ -6,11 +6,14 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from typing import cast
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings
 from .core.api_key_validation_service import ApiKeyValidationService
@@ -36,6 +39,7 @@ from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.secrets.factory import build_secret_store, set_active_secret_store
+from .core.usage_accounting._handler import build_accounting_handler
 from .db import close_db, init_db
 from .routes import (
     accounts,
@@ -50,6 +54,7 @@ from .routes import (
     oauth_connections,
     providers,
 )
+from .routes.chat_accounting import accounting_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -200,8 +205,24 @@ async def _lifespan(app):
                         plugin.custom_llm_provider,
                     )
 
+        # OME-303 U3: ONE app-lifetime observed LiteLLM handler. App-lifetime, not
+        # per-request, so connection pooling and the default aiohttp transport are
+        # preserved — a handler per call would trade production transport behaviour for
+        # accounting, which plan §12 makes a stop condition.
+        app.state.usage_accounting_handler = build_accounting_handler()
+
         yield
     finally:
+        # §9.12: closed explicitly here rather than left to __del__, which is not
+        # guaranteed to run and cannot await. An unclosed handler leaks its connection
+        # pool across TestClient lifecycles and across a reload in dev.
+        handler = getattr(app.state, "usage_accounting_handler", None)
+        if handler is not None:
+            try:
+                await handler.close()
+            except Exception:
+                logger.warning("usage accounting handler did not close cleanly")
+            app.state.usage_accounting_handler = None
         await auth.close_loopback_callbacks(app)
         # Clear the process-wide active store so it does not leak across app
         # instances (e.g. multiple TestClient lifecycles in one process).
@@ -219,6 +240,27 @@ async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONRe
     errors = exc.errors() if isinstance(exc, RequestValidationError) else []
     cleaned = [{k: v for k, v in err.items() if k != "input"} for err in errors]
     return JSONResponse(status_code=422, content=jsonable_encoder({"detail": cleaned}))
+
+
+async def _accounted_http_exception(request: Request, exc: Exception) -> Response:
+    """Render ``_aigw`` beside ``detail`` for a NEGOTIATED caller's safe terminal error.
+
+    FEATURE (OME-303 §7 U7): a request that opted into accounting gets its evidence back
+    even when the request fails — that is precisely when "did this cost me anything?"
+    matters most.
+
+    INVARIANT: a strict no-op for everyone else. Without an accounting session on
+    ``request.state`` this delegates to Starlette's own handler, so every non-negotiated
+    error — on this route and on every other route in the app — keeps its exact current
+    shape. This is registered app-wide rather than wrapped around the chat route because
+    safe terminal errors are raised from many places, several of them long before
+    dispatch.
+    """
+    if isinstance(exc, StarletteHTTPException):
+        accounted = accounting_error_response(request, cast(HTTPException, exc))
+        if accounted is not None:
+            return accounted
+    return await http_exception_handler(request, cast(StarletteHTTPException, exc))
 
 
 async def _profile_index_conflict(_request: Request, _exc: Exception) -> JSONResponse:
@@ -290,6 +332,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
     app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
+    app.add_exception_handler(StarletteHTTPException, _accounted_http_exception)
     app.state.settings = settings
     # Only the `disabled` mode makes every caller anonymous, so only it needs the loopback guard.
     # `cloudflare_headers` authenticates from the injected header and is meant to be reached over

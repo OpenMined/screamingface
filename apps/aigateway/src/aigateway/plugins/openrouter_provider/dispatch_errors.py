@@ -92,6 +92,26 @@ def _unexpected_routing_policy_error() -> _UnexpectedRoutingPolicyError:
     )
 
 
+class _EmbeddedProviderBodyError(NonRetryableProviderError):
+    """A provider-authored HTTP-200 body that failed OpenRouter validation."""
+
+    aigw_provider_body_error = True
+
+
+class _ResponseConversionError(HTTPException):
+    """A local failure serializing an already-completed provider response."""
+
+    aigw_non_retryable = True
+    aigw_response_conversion_error = True
+
+
+def _response_conversion_exception() -> HTTPException:
+    return _ResponseConversionError(
+        status_code=502,
+        detail={"code": "provider_error", "message": "OpenRouter response conversion failed"},
+    )
+
+
 def _embedded_error_exception(status: int | None) -> HTTPException:
     """Sanitized gateway error for an embedded provider failure.
 
@@ -114,7 +134,7 @@ def _embedded_error_exception(status: int | None) -> HTTPException:
         code = "rate_limited"
     elif resolved >= 500 and status is not None:
         code = "provider_unavailable"
-    return NonRetryableProviderError(
+    return _EmbeddedProviderBodyError(
         status_code=resolved,
         detail={"code": code, "message": "OpenRouter reported a provider error"},
     )
