@@ -27,16 +27,14 @@ const fusionSig = `sf.Fusion(
     members: Sequence[Recipe],
     *,
     name: str | None = None,
-    synthesizer: str | None = None,
-    prompt: str | None = None,
-    params: Mapping[str, str | int | float | bool] | None = None,
+    reducer: Reducer | None = None,
 )`
 
 const fusionRun = `opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5", name="gpt-hot")
 
-sf.Fusion([opus, gpt], synthesizer="openrouter/openai/gpt-5.5")`
-const fusionRunOut = `Fusion(['claude-opus-4.8', 'gpt-hot'], synthesizer='openrouter/openai/gpt-5.5')`
+sf.Fusion([opus, gpt], reducer=sf.reducers.Model(model="openrouter/openai/gpt-5.5"))`
+const fusionRunOut = `Fusion(['claude-opus-4.8', 'gpt-hot'], reducer=Model(model='openrouter/openai/gpt-5.5'))`
 
 const correctiveSig = `sf.CorrectiveEnsemble(
     members: Sequence[Model],
@@ -62,7 +60,7 @@ const identityOut = `False`
     <p>
       A recipe describes how to produce one answer, and is what a benchmark grades. This page covers
       <code>Model</code> for a single model route, <code>Fusion</code> for several members combined
-      by a synthesizer, <code>CorrectiveEnsemble</code> for members that check their own drafts
+      by a reducer, <code>CorrectiveEnsemble</code> for members that check their own drafts
       against the benchmark's verifier, and <code>Recipe</code>, the abstract type the other three
       satisfy.
     </p>
@@ -201,8 +199,8 @@ const identityOut = `False`
     <h2>Fusion</h2>
 
     <p>
-      A <code>Fusion</code> combines two or more members: each answers, then a synthesizer model
-      reads their answers and writes the final one. That final answer is what the benchmark grades.
+      A <code>Fusion</code> combines two or more members: each answers, then a reducer combines
+      their answers into the final one. That final answer is what the benchmark grades.
       See the <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> for the
       reasoning behind the design.
     </p>
@@ -237,25 +235,14 @@ const identityOut = `False`
           </td>
         </tr>
         <tr>
-          <td><code>synthesizer</code></td>
-          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td><code>reducer</code></td>
+          <td><code>Reducer&nbsp;|&nbsp;None</code></td>
           <td>
-            The route of the model that writes the final answer. Defaults to
-            <code>openrouter/anthropic/claude-haiku-4.5</code>.
+            How the members are combined, an <code>sf.reducers</code> value.
+            <code>Model(model,&nbsp;prompt=…,&nbsp;params=…)</code> has a model write the final
+            answer; <code>MajorityVote()</code> picks by agreement, with no extra model call.
+            Defaults to a model reducer.
           </td>
-        </tr>
-        <tr>
-          <td><code>prompt</code></td>
-          <td><code>str&nbsp;|&nbsp;None</code></td>
-          <td>
-            The instruction for the synthesis turn, not for the members. When omitted the SDK
-            supplies its own default synthesis prompt.
-          </td>
-        </tr>
-        <tr>
-          <td><code>params</code></td>
-          <td><code>Mapping&nbsp;|&nbsp;None</code></td>
-          <td>Generation overrides for the synthesis turn. Same value rules as on a Model.</td>
         </tr>
       </tbody>
     </table>
@@ -263,8 +250,8 @@ const identityOut = `False`
     <h3>Attributes</h3>
 
     <p>
-      <code>members</code> is a <code>tuple</code> in the order you gave it. <code>name</code>,
-      <code>synthesizer</code>, <code>prompt</code> and <code>params</code> read back as on a Model.
+      <code>members</code> is a <code>tuple</code> in the order you gave it. <code>name</code> and
+      <code>reducer</code> read back the resolved shape.
     </p>
 
     <h3>Raises</h3>
@@ -333,7 +320,7 @@ const identityOut = `False`
           <td><code>Sequence[Model]</code></td>
           <td>
             Two to four Models. <code>Fusion</code> is rejected, because the verifier grades each
-            member's raw draft and a synthesizer would hide those drafts.
+            member's raw draft and a reducer would hide those drafts.
           </td>
         </tr>
         <tr>

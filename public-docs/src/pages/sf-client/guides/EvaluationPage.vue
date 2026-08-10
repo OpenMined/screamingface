@@ -82,6 +82,72 @@ client.close()`
       <strong>before the first paid request</strong>.
     </p>
 
+    <figure class="not-prose" style="margin: var(--space-8) 0">
+      <svg
+        viewBox="0 0 680 200"
+        role="img"
+        aria-label="Candidates and a benchmark go into the engine, which runs every candidate on every case and grades them behind the trust boundary, returning one report."
+        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+      >
+        <defs>
+          <marker
+            id="ev-arrow"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#ev-arrow)">
+          <path d="M164 66 C 206 66, 206 100, 246 100" />
+          <path d="M164 140 C 206 140, 206 100, 246 100" />
+          <path d="M450 100 H534" />
+        </g>
+        <g style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1">
+          <rect x="20" y="42" width="144" height="48" />
+          <rect x="20" y="116" width="144" height="48" />
+          <rect x="538" y="76" width="124" height="48" />
+        </g>
+        <rect
+          x="250"
+          y="62"
+          width="200"
+          height="76"
+          style="fill: none; stroke: var(--accent); stroke-width: 1.5"
+        />
+        <g text-anchor="middle" style="fill: var(--text)">
+          <text x="92" y="62">candidates</text>
+          <text x="92" y="136">benchmark</text>
+          <text x="350" y="96">engine</text>
+          <text x="600" y="96">report</text>
+        </g>
+        <g text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          <text x="92" y="78">models &amp; fusions</text>
+          <text x="92" y="152">cases + rubric</text>
+          <text x="350" y="114">run + grade</text>
+          <text x="350" y="158">answer keys + grading stay here</text>
+          <text x="600" y="112">score per candidate</text>
+        </g>
+      </svg>
+      <figcaption
+        style="
+          font-family: var(--f-mono);
+          font-size: var(--text-label);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--text-2);
+          margin-top: var(--space-3);
+        "
+      >
+        One call runs every candidate on the same cases, grades them behind the trust boundary, and
+        returns one report.
+      </figcaption>
+    </figure>
+
     <h2>What you can do with it</h2>
 
     <ul>
@@ -123,7 +189,7 @@ client.close()`
 
     <h2>How to</h2>
 
-    <h3>Evaluate one candidate</h3>
+    <h3>1 · Evaluate one candidate</h3>
 
     <p>
       The benchmark id is <strong>required</strong>: there is no default and no implicit choice.
@@ -139,7 +205,7 @@ client.close()`
       <code>ok</code> is <code>True</code> only when no candidate and no member recorded a failure.
     </p>
 
-    <h3>Read the score</h3>
+    <h3>2 · Read the score</h3>
 
     <p>
       Scores live on candidates, not on the report: a report may hold several. With one candidate,
@@ -165,7 +231,7 @@ client.close()`
       <NbCell :count="3" :code="metrics"><NbTextOut :text="metricsOut" /></NbCell>
     </div>
 
-    <h3>Evaluate several at once</h3>
+    <h3>3 · Evaluate several at once</h3>
 
     <p>
       Pass a list. Every candidate runs against the same pinned exam in the same call, which is what
@@ -183,7 +249,7 @@ client.close()`
       is graded by five judge passes, so even <code>limit=1</code> is a real spend.
     </p>
 
-    <h3>Compare two protocols</h3>
+    <h3>4 · Compare two protocols</h3>
 
     <p>
       Because a <code>method</code> is a different pinned protocol, comparing them is two runs. This
@@ -201,7 +267,7 @@ client.close()`
       like, and it is the reason to run more cases before concluding anything.
     </p>
 
-    <h3>Read what it cost</h3>
+    <h3>5 · Read what it cost</h3>
 
     <div class="not-prose">
       <NbCell :count="6" :code="usage"><NbTextOut :text="usageOut" /></NbCell>
@@ -214,7 +280,7 @@ client.close()`
       silently summed as a partial total.
     </p>
 
-    <h3>Watch a run</h3>
+    <h3>6 · Watch a run</h3>
 
     <p>
       <code>on_event</code> receives typed events in sequence as the run executes, and
@@ -226,7 +292,7 @@ client.close()`
       <NbCell :count="7" :code="watch" />
     </div>
 
-    <h3>Point at the engine</h3>
+    <h3>7 · Point at the engine</h3>
 
     <p>
       <code>sf.evaluate()</code> never asks where the engine is, so it falls back to your own

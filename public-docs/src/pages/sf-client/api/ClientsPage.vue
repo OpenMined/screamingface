@@ -333,7 +333,7 @@ const panelOut = `ConnectionPanel(engine='http://127.0.0.1:9108', openrouter=con
           <td><code>status</code></td>
           <td><code>str</code></td>
           <td>
-            One of <code>not_connected</code>, <code>pending</code>, <code>connected</code>,
+            One of <code>disconnected</code>, <code>pending</code>, <code>connected</code>,
             <code>needs_reauth</code> or <code>error</code>.
           </td>
         </tr>

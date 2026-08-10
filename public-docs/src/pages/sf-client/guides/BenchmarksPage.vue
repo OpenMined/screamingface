@@ -39,7 +39,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
 <template>
   <DocLayout
     title="Benchmarks"
-    description="Discover Engine-owned benchmarks and read their cases before spending."
+    description="Discover available benchmarks and read their cases before spending."
     :navigation="navigation"
     :version="version"
   >
@@ -107,7 +107,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
 
     <h2>How to</h2>
 
-    <h3>See what this engine publishes</h3>
+    <h3>1 · See what this engine publishes</h3>
 
     <div class="not-prose">
       <NbCell :count="1" :code="listing"><NbTextOut :text="listingOut" /></NbCell>
@@ -122,7 +122,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
       <strong>free</strong>: only the answers cost anything.
     </p>
 
-    <h3>Read the identity card</h3>
+    <h3>2 · Read the identity card</h3>
 
     <div class="not-prose">
       <NbCell :count="2" :code="card"><NbTextOut :text="cardOut" /></NbCell>
@@ -134,7 +134,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
       name later points at a newer snapshot, your report still names the revision it actually ran.
     </p>
 
-    <h3>Select a method</h3>
+    <h3>3 · Select a method</h3>
 
     <p>
       Some benchmarks publish more than one protocol. IFEval's default is <code>corrective</code>: a
@@ -154,7 +154,7 @@ const casesOut = `1 | Write a 300+ word summary of the wikipedia page "https://e
       revisions let you catch.
     </p>
 
-    <h3>Read the cases before you spend</h3>
+    <h3>4 · Read the cases before you spend</h3>
 
     <p>
       <code>cases()</code> pages the real prompts, 50 at a time by default. For IFEval this is worth

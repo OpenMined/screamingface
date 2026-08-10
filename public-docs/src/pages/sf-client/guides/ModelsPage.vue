@@ -97,7 +97,7 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
 
     <h2>How to</h2>
 
-    <h3>Select a route</h3>
+    <h3>1 · Select a route</h3>
 
     <p>
       The route is the only required argument. The Model's <code>name</code> is inferred from its
@@ -108,7 +108,7 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
       <NbCell :count="1" :code="basic"><NbTextOut :text="basicOut" /></NbCell>
     </div>
 
-    <h3>Name an independent sample</h3>
+    <h3>2 · Name an independent sample</h3>
 
     <p>
       Two Models on the same route with the same policy are the <em>same</em> candidate:
@@ -121,7 +121,7 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
       <NbCell :count="2" :code="named"><NbTextOut :text="namedOut" /></NbCell>
     </div>
 
-    <h3>Override the answer policy</h3>
+    <h3>3 · Override the answer policy</h3>
 
     <p>
       The SDK supplies a general answer prompt, so a bare Model works. When an experiment needs
@@ -136,11 +136,11 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
       These are <strong>candidate-owned</strong> settings: they change how your candidate answers,
       and they can never touch benchmark-owned cases, judge models, grading or aggregation. That
       separation is what keeps two candidates comparable on the same benchmark. Whatever you set is
-      resolved and embedded in the run's <RouterLink to="/learn/url4">URL4</RouterLink>, so a report
+      resolved and embedded in the run's <RouterLink to="/learn/url4">url4</RouterLink>, so a report
       records the policy that actually ran.
     </p>
 
-    <h3>See what the engine can reach</h3>
+    <h3>4 · See what the engine can reach</h3>
 
     <div class="not-prose">
       <NbCell :count="4" :code="listing"><NbTextOut :text="listingOut" /></NbCell>

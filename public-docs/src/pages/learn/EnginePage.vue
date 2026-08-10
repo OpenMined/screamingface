@@ -8,9 +8,9 @@ const GH_TREE = 'https://github.com/OpenMined/screamingface/tree/main'
 
 const point = `import screamingface as sf
 
-sf.config(engine="http://127.0.0.1:4404")   # the Client talks only to an Engine`
+sf.configure(engine_url="http://127.0.0.1:9108")   # the Client talks only to an Engine`
 
-const health = `curl http://127.0.0.1:4404/healthz`
+const health = `curl http://127.0.0.1:9108/healthz`
 </script>
 
 <template>
@@ -82,7 +82,7 @@ const health = `curl http://127.0.0.1:4404/healthz`
 
     <p>
       Point the Client at an Engine with one call. The Client's local default is
-      <code>http://127.0.0.1:4404</code>, so you can omit the argument while working locally:
+      <code>http://127.0.0.1:9108</code>, so you can omit the argument while working locally:
     </p>
 
     <CodeBlock :code="point" language="python" />

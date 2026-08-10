@@ -14,13 +14,13 @@ const { toggleTheme } = themeStore
 // section you introduce (see src/navigation/ for the matching sidebar data).
 const products = [
   { name: 'Home', path: '/' },
-  { name: 'SF Client', path: '/sf-client' },
+  { name: 'ScreamingFace Client', path: '/sf-client' },
   { name: 'Learn more', path: '/learn' },
 ]
 
 const currentProduct = computed(() => {
   const path = route.path
-  if (path.startsWith('/sf-client')) return 'SF Client'
+  if (path.startsWith('/sf-client')) return 'ScreamingFace Client'
   if (path.startsWith('/learn')) return 'Learn more'
   return 'Home'
 })

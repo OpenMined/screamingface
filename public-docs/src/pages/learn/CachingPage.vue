@@ -51,6 +51,12 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       run.
     </p>
 
+    <p>
+      The shared cache also propagates to <strong>local</strong> engines: entries from the hosted
+      cache are uploaded into your local cache, so a run the community has already paid for is a
+      cache hit on your own machine too, even when you run everything yourself.
+    </p>
+
     <h2>Where the compute comes from</h2>
 
     <p>There are two ways to run, and they differ only in who supplies the compute.</p>
@@ -65,6 +71,113 @@ import { learnNavigation as navigation } from '@/navigation/learn'
         provide subsidized compute to chosen cohorts so that verifying and exploring stays cheap.
       </li>
     </ul>
+
+    <figure class="not-prose" style="margin: var(--space-8) 0">
+      <svg
+        viewBox="0 0 680 258"
+        role="img"
+        aria-label="The client points at one engine. A local engine runs on your machine with its own cache; a hosted engine we operate carries the shared community cache."
+        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+      >
+        <defs>
+          <marker
+            id="cc-arrow"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+          <marker
+            id="cc-arrow-a"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--accent)" />
+          </marker>
+        </defs>
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#cc-arrow)">
+          <path d="M326 54 C 220 68, 152 86, 141 104" />
+          <path d="M354 54 C 460 68, 528 86, 539 104" />
+          <path d="M140 162 V190" />
+          <path d="M540 162 V190" />
+        </g>
+        <g style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1">
+          <rect x="290" y="14" width="100" height="40" />
+          <rect x="40" y="106" width="200" height="54" />
+          <rect x="80" y="192" width="120" height="42" />
+          <rect x="440" y="106" width="200" height="54" />
+        </g>
+        <rect
+          x="446"
+          y="192"
+          width="188"
+          height="42"
+          style="fill: none; stroke: var(--accent); stroke-width: 1.5"
+        />
+        <g
+          text-anchor="middle"
+          style="
+            fill: var(--text-2);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          "
+        >
+          <text x="140" y="98">local</text>
+          <text x="540" y="98">hosted</text>
+        </g>
+        <g text-anchor="middle" style="fill: var(--text)">
+          <text x="340" y="39">client</text>
+          <text x="140" y="130">local engine</text>
+          <text x="540" y="130">hosted engine</text>
+          <text x="140" y="218">your cache</text>
+          <text x="540" y="218">shared community cache</text>
+        </g>
+        <g text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          <text x="140" y="147">your machine · your keys</text>
+          <text x="540" y="147">we run it · subsidized</text>
+        </g>
+        <path
+          d="M444 214 H210"
+          style="stroke: var(--accent); stroke-width: 1.25; fill: none; stroke-dasharray: 5 3"
+          marker-end="url(#cc-arrow-a)"
+        />
+        <text
+          x="327"
+          y="205"
+          text-anchor="middle"
+          style="
+            fill: var(--accent);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          "
+        >
+          propagates to local
+        </text>
+      </svg>
+      <figcaption
+        style="
+          font-family: var(--f-mono);
+          font-size: var(--text-label);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--text-2);
+          margin-top: var(--space-3);
+        "
+      >
+        Same protocol, two engines; the hosted engine's shared community cache propagates into your
+        local cache, so prior runs stay cache hits on your own machine.
+      </figcaption>
+    </figure>
 
     <p>
       The client code is identical either way; only the engine URL changes. The

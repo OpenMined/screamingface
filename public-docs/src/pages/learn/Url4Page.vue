@@ -22,11 +22,11 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
 <template>
   <DocLayout
     title="url4"
-    description="The open, lowercase expression that packages sources and an intent into one line, so a fusion runs, reproduces, and can be reused like a model call."
+    description="The grammar and protocol that packages sources and an intent into one line, so a fusion runs, reproduces, and can be reused like a model call."
     :navigation="navigation"
   >
     <p>
-      <strong>url4</strong> is a small grammar for saying <em>given these sources, do this</em>. It
+      <strong>url4</strong> is a grammar and a protocol for saying <em>given these sources, do this</em>. It
       packages a set of sources, an intent, and the metadata to run them into a single line of text:
       <code>(data)!intent</code>. That line is also an <strong>address</strong>: hand it to the
       <RouterLink to="/learn/engine">Engine</RouterLink> and it resolves. So everything you build in
@@ -36,8 +36,6 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
       exactly like a single model. That reuse is the point: a Fusion you like is not a one-off, its
       url4 is a callable, reproducible artifact you can drop into any workflow.
     </p>
-
-    <p>Like <code>http</code>, it is always written lowercase.</p>
 
     <h2>Two layers</h2>
 

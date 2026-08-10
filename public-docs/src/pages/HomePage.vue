@@ -46,8 +46,7 @@ const GITHUB = 'https://github.com/OpenMined'
       <p class="lead">
         ScreamingFace is an open toolkit for composing model <em>fusions</em> that outperform any
         single model. Push the frontier together, in the open, while every result stays trivial to
-        reproduce for everyone. These docs cover the Python client: install it, run the quickstart,
-        and read how a run is put together.
+        reproduce for everyone.
       </p>
 
       <div class="actions">
@@ -96,7 +95,7 @@ const GITHUB = 'https://github.com/OpenMined'
         <div class="def">
           <dt><RouterLink to="/learn/url4"><code>url4</code></RouterLink></dt>
           <dd>
-            The one-line, lowercase expression that describes a fusion and its benchmark run, and
+            A grammar and protocol: one line that describes a fusion and its benchmark run, and
             reproduces it. It is also an address the engine resolves, so anyone holding the
             <code>url4</code> can rerun the result or call the fusion like a single model.
           </dd>

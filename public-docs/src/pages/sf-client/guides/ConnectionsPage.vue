@@ -48,7 +48,7 @@ const panelProviders: Provider[] = [
 <template>
   <DocLayout
     title="Connections"
-    description="Connect a model provider through the SF Engine, and log in to a hosted engine."
+    description="Connect a model provider through the engine, and log in to a hosted one."
     :navigation="navigation"
     :version="version"
   >
@@ -116,7 +116,7 @@ const panelProviders: Provider[] = [
           <td><code>sf.disconnect(provider)</code></td>
           <td>
             Removes a stored credential; repeated calls are harmless and return the provider back in
-            its <code>not_connected</code> state.
+            its <code>disconnected</code> state.
           </td>
         </tr>
         <tr>
@@ -187,7 +187,7 @@ const panelProviders: Provider[] = [
 
     <div class="not-prose">
       <NbCell :count="3" :code="panel">
-        <ProviderConnections :providers="panelProviders" engine-url="http://127.0.0.1:4404" />
+        <ProviderConnections :providers="panelProviders" engine-url="http://127.0.0.1:9108" />
       </NbCell>
     </div>
 
@@ -236,7 +236,7 @@ const panelProviders: Provider[] = [
 
     <p>
       Repeated calls are harmless. The returned <code>Connection</code> shows the provider back in
-      its <code>not_connected</code> state.
+      its <code>disconnected</code> state.
     </p>
 
     <h2>What a connection carries</h2>
@@ -249,7 +249,7 @@ const panelProviders: Provider[] = [
 
     <ul>
       <li>
-        <code>status</code>: one of <code>not_connected</code>, <code>pending</code>,
+        <code>status</code>: one of <code>disconnected</code>, <code>pending</code>,
         <code>connected</code>, <code>needs_reauth</code>, <code>error</code>
       </li>
       <li>

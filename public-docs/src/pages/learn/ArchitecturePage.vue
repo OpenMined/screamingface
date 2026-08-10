@@ -20,7 +20,7 @@ const components = [
   { name: 'Engine: the DAG executor', path: 'packages/url4/src/url4/dag' },
   { name: 'AI gateway', path: 'apps/aigateway' },
   { name: 'Client: the Python library', path: 'packages/screamingface' },
-  { name: 'Studio: the desktop app', path: 'apps/screamingface-studio' },
+  // Studio hidden for now: { name: 'Studio: the desktop app', path: 'apps/screamingface-studio' },
   { name: 'Leaderboard', path: 'apps/scoreboard' },
 ]
 </script>
@@ -44,12 +44,10 @@ const components = [
     <ul>
       <li>
         <RouterLink to="/learn/url4"><strong>url4: the protocol.</strong></RouterLink> A url4 string
-        names some models and what you want done, and compiles to a graph of operations: it sends
-        the question to each model and combines the answers into one. It is the shared language every
-        other piece speaks.
-        <a :href="`${GH}/packages/url4`" target="_blank" rel="noopener"
-          ><code>packages/url4</code></a
-        >.
+        names some sources and an intent, and compiles to a typed graph of operations: it can fetch
+        data, call models or run code, fan those out, and reduce the results to one answer. A source
+        can itself be another url4, so the format is recursive and composes into arbitrarily large
+        pipelines.
       </li>
       <li>
         <RouterLink to="/learn/engine"
@@ -58,53 +56,45 @@ const components = [
         Runs a url4 expression: it schedules the graph, sends each model call out to a provider, and
         streams back tokens, cost, and the result. It holds the provider credentials, so the client
         never sees them.
-        <a :href="`${GH}/apps/url4-cloud`" target="_blank" rel="noopener"
-          ><code>apps/url4-cloud</code></a
-        >
-        with the executor in
-        <a :href="`${GH}/packages/url4/src/url4/dag`" target="_blank" rel="noopener"
-          ><code>packages/url4/…/dag</code></a
-        >.
       </li>
       <li>
-        <strong>The AI gateway.</strong> A LiteLLM-based gateway the Engine calls to reach every
-        provider through one OpenAI-shaped endpoint. It stores provider credentials encrypted at
-        rest.
-        <a :href="`${GH}/apps/aigateway`" target="_blank" rel="noopener"
-          ><code>apps/aigateway</code></a
-        >.
+        <RouterLink to="/learn/ai-gateway"><strong>The AI gateway.</strong></RouterLink> A
+        LiteLLM-based gateway the Engine calls to reach every provider through one OpenAI-shaped
+        endpoint. It stores provider credentials encrypted at rest.
       </li>
       <li>
         <RouterLink to="/sf-client"><strong>The Client.</strong></RouterLink> The Python library
         researchers use. It composes fusions and benchmarks and talks only to an Engine, never to a
         provider directly.
-        <a :href="`${GH}/packages/screamingface`" target="_blank" rel="noopener"
-          ><code>packages/screamingface</code></a
-        >.
       </li>
+      <!-- Studio is hidden for now.
       <li>
         <strong>Studio.</strong> A desktop app over the same stack, for people who would rather
         click than script.
-        <a :href="`${GH}/apps/screamingface-studio`" target="_blank" rel="noopener"
-          ><code>apps/screamingface-studio</code></a
-        >.
       </li>
+      -->
       <li>
-        <strong>The Leaderboard.</strong> Where verified, reproducible results are published.
-        <a :href="`${GH}/apps/scoreboard`" target="_blank" rel="noopener"
-          ><code>apps/scoreboard</code></a
-        >.
+        <a href="https://leaderboard.screamingface.ai" target="_blank" rel="noopener"
+          ><strong>The Leaderboard.</strong></a
+        >
+        Where verified, reproducible results are published.
       </li>
     </ul>
 
     <h2>How a request flows</h2>
 
     <p>
-      A run always follows the same path. The Client (or Studio) compiles what you built into a url4
-      expression and sends it to an Engine. The Engine runs the expression as a graph, with
-      independent nodes running in parallel, and sends each model call out through the AI gateway to
-      the provider. Usage and results stream back as the graph runs. Replay the same expression and
-      the whole system runs again.
+      A run always follows the same path. The Client compiles what you built into a url4 expression
+      and sends it to an Engine. The Engine runs the expression as a graph, with independent nodes
+      running in parallel, and sends each model call out through the AI gateway to the provider.
+      Usage and results stream back as the graph runs. Replay the same expression and the whole
+      system runs again.
+    </p>
+
+    <p>
+      There are two ways to run, and only the engine URL changes. A <strong>local</strong> Engine
+      runs on your own machine, on your own keys, with its own cache, and nothing on the local path
+      takes a cut.
     </p>
 
     <figure class="not-prose diagram">
@@ -117,6 +107,13 @@ const components = [
         through the gateway to the providers you hold keys for.
       </figcaption>
     </figure>
+
+    <p>
+      A <strong>hosted</strong> Engine, one we operate, runs the identical protocol but adds the
+      <RouterLink to="/learn/caching">shared community cache</RouterLink> and subsidized compute for
+      chosen cohorts, so reproducing or building on a published run is usually a cache hit rather
+      than a fresh spend.
+    </p>
 
     <figure class="not-prose diagram">
       <img

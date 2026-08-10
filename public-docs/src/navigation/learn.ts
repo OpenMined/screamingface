@@ -9,9 +9,10 @@ export const learnNavigation: NavEntry[] = [
     title: 'Concepts',
     children: [
       { title: 'url4', path: '/learn/url4' },
-      { title: 'ScreamingFace Engine', path: '/learn/engine' },
       { title: 'url4 SDK', path: '/learn/url4-sdk' },
+      { title: 'ScreamingFace Engine', path: '/learn/engine' },
       { title: 'Caching and compute', path: '/learn/caching' },
+      { title: 'AI gateway', path: '/learn/ai-gateway' },
     ],
   },
 ]

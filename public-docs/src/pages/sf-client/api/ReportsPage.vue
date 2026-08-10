@@ -237,7 +237,7 @@ const benchOut = `BenchmarkInfo(id='ifeval', revision='047f1de449639c61', case_c
           <td><code>str</code></td>
           <td>
             The complete expression that executed. See the
-            <RouterLink to="/sf-client/guides/reproduce-and-share">URL4 guide</RouterLink>.
+            <RouterLink to="/sf-client/guides/reproduce-and-share">url4 guide</RouterLink>.
           </td>
         </tr>
         <tr>

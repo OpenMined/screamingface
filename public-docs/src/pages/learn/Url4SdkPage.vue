@@ -40,7 +40,7 @@ print(result.request)   # the canonical url4 that actually ran`
 const serve = `from url4 import Url4Node
 
 node = Url4Node("demo")
-node.serve(port=4404)   # an HTTP node other expressions can call`
+node.serve(port=9108)   # an HTTP node other expressions can call`
 
 const cli = `url4 eval "(https://a, https://b)!'summarize both'"
 url4 serve`

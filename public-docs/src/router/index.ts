@@ -98,6 +98,11 @@ const router = createRouter({
       name: 'learn-caching',
       component: () => import('@/pages/learn/CachingPage.vue'),
     },
+    {
+      path: '/learn/ai-gateway',
+      name: 'learn-ai-gateway',
+      component: () => import('@/pages/learn/GatewayPage.vue'),
+    },
   ],
   scrollBehavior() {
     return { top: 0 }

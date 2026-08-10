@@ -52,5 +52,5 @@
 <line x1="160" y1="470" x2="190" y2="470" stroke="#585d67" stroke-width="1.4" stroke-dasharray="5 4"/>
 <text x="198" y="474" font-size="10" fill="#8b909a">response</text>
 <rect x="288" y="464" width="10" height="12" fill="#c9821f"/>
-<text x="304" y="474" font-size="10" fill="#8b909a">the engine — what we build · subsidized compute, funded by OpenMined · no keys of your own needed</text>
+<text x="304" y="474" font-size="10" fill="#8b909a">the engine — what we build · subsidized compute · no keys of your own needed</text>
 </svg>

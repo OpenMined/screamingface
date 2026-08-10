@@ -209,7 +209,7 @@ const publishedDraco = [
 
 const configure = `import screamingface as sf
 
-sf.config(engine="http://127.0.0.1:4404")`
+sf.configure(engine_url="http://127.0.0.1:9108")`
 
 const connect = `sf.connect()`
 
@@ -297,16 +297,16 @@ const evaluate = `report = draco.evaluate(candidates)`
     </div>
 
     <p>
-      That is the whole of setup. <code>sf.config()</code> validates and stores the URL without a
+      That is the whole of setup. <code>sf.configure()</code> validates and stores the URL without a
       network request, so a wrong address fails later, not here. It defaults to
-      <code>http://127.0.0.1:4404</code> (the local engine), so you can omit the argument while
+      <code>http://127.0.0.1:9108</code> (the local engine), so you can omit the argument while
       working locally.
     </p>
 
     <p>
       <strong>If the engine is not running</strong>, the first call that needs it raises
       <code>EngineConnectionError</code>. A health check with
-      <code>curl http://127.0.0.1:4404/healthz</code> can validate it before going further. A remote
+      <code>curl http://127.0.0.1:9108/healthz</code> can validate it before going further. A remote
       engine must be served over HTTPS. Provider credentials are refused over plain HTTP outside
       loopback.
     </p>
@@ -328,7 +328,7 @@ const evaluate = `report = draco.evaluate(candidates)`
               :providers="step.providers"
               :forms="step.forms"
               :busy="step.providers.some((p) => p.status === 'pending') ? ['openrouter'] : []"
-              engine-url="http://127.0.0.1:4404"
+              engine-url="http://127.0.0.1:9108"
             >
               <strong>Note:</strong> Dataset access is separate and <code>HF_TOKEN</code> belongs in
               the engine <code>.env</code> file, not in a provider connection.
