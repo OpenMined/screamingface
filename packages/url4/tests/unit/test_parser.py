@@ -7,11 +7,15 @@ import pytest
 from url4.core.errors import ParseError
 from url4.core.nodes import Binding, Expression, Iteration, RelUrl, Text, Url
 from url4.core.parser import (
+    GroupEnvelope,
+    IterationEnvelope,
     Parser,
+    decode_envelope,
     split_collection_iteration,
     split_expr_params,
     split_foreach_annotations,
     split_intent,
+    split_top_level_commas,
     strip_one_paren_layer,
 )
 
@@ -140,6 +144,51 @@ def test_split_collection_iteration_absent() -> None:
 )
 def test_strip_one_paren_layer(expr: str, expected: str | None) -> None:
     assert strip_one_paren_layer(expr) == expected
+
+
+# `OME-765` — a map-row body is a source LIST; a mid-list iterate must never
+# promote the whole row to reduce-over-iteration. The guard is grammar-derived:
+# a real `(src*(body)[!peri];iteration.*)!reducer` cannot carry a depth-0 comma
+# outside the `*(body)` span (collection commas sit in parens, the per-row
+# intent is quoted, directive values are comma-free tokens).
+_LANL_ROW_BODY = (
+    "(question:0.0:$item.input, case_id:0.0:$item.id, "
+    "member_round_1:0.0:$members*(answer:0.0:/ans($question)!'a')!'$rec'"
+    ";iteration.concurrency=4;iteration.on_error=fail, "
+    "tie_gate_1:0.0:/gate($member_round_1)!'tie', "
+    "check_1:0.0:/check($selection_1)!'grade')!'$check_1'"
+)
+
+
+def test_decode_map_row_body_with_mid_list_iterate_is_group() -> None:
+    # The engine's map-row spawn wrapper: `(bare source list)!intent`. The list's
+    # middle source is an iterate carrying its own `;iteration.*` chain — before
+    # the guard, the reduce-over-iteration probe stripped the paren layer and fed
+    # the sibling steps into the directive parser (the LANL `score: None` bug).
+    env = decode_envelope(_LANL_ROW_BODY, require_intent=False)
+    assert isinstance(env, GroupEnvelope)
+    assert env.intent == "'$check_1'"
+    # All five siblings survive as sources of ONE group.
+    inner = strip_one_paren_layer(env.source_expr)
+    assert inner is not None
+    assert len(split_top_level_commas(inner)) == 5
+
+
+def test_decode_reduce_over_iteration_still_binds() -> None:
+    # The guard must not touch the real reduce shape (`OME-501`/`OME-508` routes).
+    env = decode_envelope("(/data*(x!'p')!'peri';iteration.on_error=fail)!/reduce(all)")
+    assert isinstance(env, IterationEnvelope)
+    assert env.collection == "/data"
+    assert env.reducer == "/reduce(all)"
+    assert env.directives.on_error == "fail"
+
+
+def test_decode_reduce_over_iteration_with_paren_collection_commas() -> None:
+    # Collection commas at depth >= 1 must not trip the guard (§5.3.11 inline
+    # collections are a legal reduce-over-iteration collection).
+    env = decode_envelope("((a, b, c)*(x!'p')!'peri')!/reduce(all)")
+    assert isinstance(env, IterationEnvelope)
+    assert env.collection == "(a, b, c)"
 
 
 def test_split_expr_params_directives() -> None:

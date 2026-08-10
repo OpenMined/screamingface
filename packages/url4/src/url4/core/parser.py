@@ -341,7 +341,11 @@ def _decode_iteration(
     # (``(name:w:src*(body)…)!intent``) is NOT this shape — per §5.3.10 the
     # descriptor attributes the iteration as a source of the enclosing
     # expression, so the group route (the grammar) must handle it.
-    if raw_intent is not None and (inner := strip_one_paren_layer(source_expr)) is not None:
+    if (
+        raw_intent is not None
+        and (inner := strip_one_paren_layer(source_expr)) is not None
+        and not _is_source_list(inner)
+    ):
         inner_clean, _, inner_directives = split_expr_params(inner)
         inner_src, per_row_intent, _ = split_intent(inner_clean)
         collection, body = split_collection_iteration(inner_src)
@@ -354,6 +358,34 @@ def _decode_iteration(
     if collection is not None and body is not None:
         return IterationEnvelope(collection, body, raw_intent, None, directives)
     return None
+
+
+def _is_source_list(inner: str) -> bool:
+    """True when a paren layer's interior is a source LIST, never a single
+    reduce-over-iteration expression (`OME-765`).
+
+    Think of it as the comma alibi: a real ``src*(body)[!peri];iteration.*``
+    interior has NO room for a depth-0 comma outside the ``*(body)`` span —
+    a collection's commas sit inside parens (depth >= 1), the per-row intent
+    is quoted, and directive values are comma-free tokens by grammar. So a
+    depth-0 comma before the ``*(`` or after the body's closing ``)`` proves
+    the interior is a comma-separated source list whose MIDDLE source happens
+    to be an iterate (the engine's map-row spawn wrapper ``(row body)!intent``
+    is exactly this shape), and the reduce-over-iteration probe must not strip
+    the protective parens and re-read it as one iteration.
+
+    Worked example — the LANL row body interior:
+    ``q:…, m:0.0:$members*(…)!'$rec';iteration.on_error=fail, gate:…`` —
+    the span head ``q:…, m:0.0:$members`` carries depth-0 commas → list; the
+    probe pre-guard eats the whole misparse (before it, the sibling steps
+    landed inside ``iteration.on_error`` and the run died per row).
+
+    No depth-0 ``*(`` at all → not this probe's problem → False.
+    """
+    head, tail = _split_at_iteration_body(inner)
+    if head is None:
+        return False
+    return len(split_top_level_commas(head)) > 1 or len(split_top_level_commas(tail)) > 1
 
 
 def _is_descriptored(collection: str) -> bool:

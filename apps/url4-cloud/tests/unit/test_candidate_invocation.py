@@ -470,12 +470,6 @@ def _ensemble_responder(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason="OME-765: url4 decode_envelope misparses a mid-list iterate source in a "
-    "bare map-row body, so the lanl-ensemble continuation cannot execute yet; the "
-    "core fix ships in its own url4 PR",
-    strict=True,
-)
 async def test_member_shaped_corrective_runs_member_checks_retries_and_judging(
     tmp_path: Path,
 ) -> None:
