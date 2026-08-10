@@ -411,3 +411,52 @@ def test_the_flow_contract_is_hashed_into_the_revision() -> None:
     assert "stop" in LANL_FLOW and "tie-break" in LANL_FLOW
     assert "reproduction" in IFEVAL_LANL_ENSEMBLE.description
     assert "verbatim" in IFEVAL_LANL_ENSEMBLE.description
+
+
+# --- (4) persisted judge feedback --------------------------------------------------
+# FEATURE: the correction loop's only model-authored step leaves a trace.
+# STORY: as a researcher whose correction round failed, I read what the judge actually
+# told the members — not just the deterministic verdicts before and after.
+
+
+@pytest.mark.asyncio
+async def test_the_envelope_stamps_judge_feedback_onto_the_judged_attempt(
+    tmp_path: Path,
+) -> None:
+    # INVARIANT: judge feedback precedes the attempt it coached — attempt N's record
+    # carries the feedback authored after attempt N-1 failed; attempt 1 has none.
+    chain = {
+        "attempt_1": json.dumps(_check_record(1)),
+        "next": [
+            {
+                "check": json.dumps(_check_record(2)),
+                "judge": "Add the missing exclamation marks!",
+                "next": [],
+            }
+        ],
+    }
+    result = await _envelope(tmp_path, chain)
+    attempts = result["attempts"]
+    assert attempts[0].get("judge_feedback") is None
+    assert attempts[1]["judge_feedback"] == "Add the missing exclamation marks!"
+
+
+@pytest.mark.asyncio
+async def test_a_non_text_judge_feedback_is_rejected(tmp_path: Path) -> None:
+    from url4.core.errors import ResolutionError
+
+    chain = {
+        "attempt_1": json.dumps(_check_record(1)),
+        "next": [{"check": json.dumps(_check_record(2)), "judge": 5}],
+    }
+    with pytest.raises(ResolutionError, match="judge"):
+        await _envelope(tmp_path, chain)
+
+
+def test_the_expression_persists_judge_feedback_in_every_gated_outcome() -> None:
+    # WHY: judge_feedback_N used to be interpolated into the retry prompt and DROPPED —
+    # the outcome struct must now carry it so the envelope can persist it per round.
+    resource = IFEVAL_LANL_ENSEMBLE.resource(1)
+    url4 = resource["url4"]
+    assert isinstance(url4, str)
+    assert url4.count("judge: '$judge_feedback_") == MAX_ATTEMPTS - 1

@@ -310,6 +310,9 @@ def _corrective_case(
                 "output": record["answer"],
                 "finish_reason": record["finish_reason"],
                 "feedback": list(record["violations"]),
+                # The judge's actual coaching for THIS attempt (authored after the
+                # previous round failed); None for attempt 1 and judge-free flows.
+                "judge_feedback": record.get("judge_feedback"),
             }
             for attempt, record in sorted(records.items())
         ],

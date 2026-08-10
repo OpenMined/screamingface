@@ -42,6 +42,8 @@ from url4_cloud.benchmarks.ifeval.definition import (
     CASES_ROUTE,
     CHECK_ROUTE,
 )
+
+
 def install(node: Url4Node, root: Path, model_routes: frozenset[str]) -> None:
     """Register the shared runtime for all installed IFEval Variants."""
 
@@ -385,20 +387,35 @@ def _lanl_envelope(request: Request) -> str:
                 break
             if len(items) != 1:
                 raise ValueError("lanl continuation must carry at most one outcome")
-            outcome = items[0]
-            if isinstance(outcome, str):
-                outcome = json.loads(outcome)
-            if not isinstance(outcome, dict) or not {"check"} <= set(outcome) <= {
-                "check",
-                "next",
-            }:
-                raise ValueError("lanl continuation outcome must carry check (and next)")
-            attempts.append(_decoded_check(outcome["check"], "continuation check"))
-            next_value = outcome.get("next", [])
+            record, next_value = _continuation_outcome(items[0])
+            attempts.append(record)
         result = bind_case_evaluation(case_id, attempts)
     except (TypeError, ValueError) as exc:
         raise _unavailable(str(exc)) from exc
     return _json(result)
+
+
+def _continuation_outcome(outcome: object) -> tuple[dict[str, Any], object]:
+    """Decode one gated outcome into (stamped check record, next continuation)."""
+
+    if isinstance(outcome, str):
+        outcome = json.loads(outcome)
+    if not isinstance(outcome, dict) or not {"check"} <= set(outcome) <= {
+        "check",
+        "judge",
+        "next",
+    }:
+        raise ValueError("lanl continuation outcome must carry check (and judge/next)")
+    record = _decoded_check(outcome["check"], "continuation check")
+    if "judge" in outcome:
+        judge = outcome["judge"]
+        if not isinstance(judge, str):
+            raise ValueError("lanl continuation judge feedback must be text")
+        # WHY stamped here: the judge's words are shared by the whole round, and this
+        # envelope is the only place that sees both the feedback and the attempt it
+        # coached — persisting it closes the correction loop's one blind spot.
+        record["judge_feedback"] = judge
+    return record, outcome.get("next", [])
 
 
 def _decoded_check(value: object, label: str) -> dict[str, Any]:

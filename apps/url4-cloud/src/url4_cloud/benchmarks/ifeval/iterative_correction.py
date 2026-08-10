@@ -359,7 +359,11 @@ def _attempt_sources(attempt: int) -> list:
             src(
                 RelExpr(
                     path=LANL_SELECT_ROUTE,
-                    context=_structured_context(
+                    # WHY _endpoint_payload: the select endpoint _json_payload()s its
+                    # context, so it must arrive as a bare JSON object — the named
+                    # `payload=` wrapper resolves to a labeled section ("payload: {…}"),
+                    # which is model-prompt formatting, not JSON.
+                    context=_endpoint_payload(
                         {
                             "round": f"$member_round_{attempt}",
                             "tie": f"$tie_pick_{attempt}",
@@ -443,12 +447,17 @@ def _gated_continuation(attempt: int) -> tuple:
     ]
     # Stage 3 — this attempt's tie-break/select/re-check.
     body.extend(_attempt_sources(attempt))
-    # Stage 4 — recurse into the next gated attempt, then emit the {check, next} outcome.
+    # Stage 4 — recurse into the next gated attempt, then emit the outcome. The judge's
+    # feedback rides along so the envelope can persist WHAT the members were told —
+    # without it the only model-authored step of the loop leaves no trace.
+    judge_binding = f"$judge_feedback_{attempt - 1}.output"
     if attempt < MAX_ATTEMPTS:
         body.extend(_gated_continuation(attempt + 1))
-        out = struct({"check": f"$check_{attempt}", "next": f"$next_{attempt}"})
+        out = struct(
+            {"check": f"$check_{attempt}", "judge": judge_binding, "next": f"$next_{attempt}"}
+        )
     else:
-        out = struct({"check": f"$check_{attempt}"})
+        out = struct({"check": f"$check_{attempt}", "judge": judge_binding})
     body.append(src(out, name=f"outcome_{attempt}", weight=0.0))
     continuation = iterate(
         ref(gate_name),
@@ -511,7 +520,9 @@ def _build_lanl(case_count: int) -> Node:
         src(
             RelExpr(
                 path=LANL_ENVELOPE_ROUTE,
-                context=_structured_context({"attempt_1": "$check_1", "next": "$next_1"}),
+                # WHY _endpoint_payload: the envelope route _json_payload()s its
+                # context — same bare-JSON contract as the select endpoint above.
+                context=_endpoint_payload({"attempt_1": "$check_1", "next": "$next_1"}),
                 intent=Text("$case_id"),
             ),
             name="case_evaluation",

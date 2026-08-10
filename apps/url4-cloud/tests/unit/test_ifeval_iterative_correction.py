@@ -320,3 +320,22 @@ def test_metrics_are_flat_numbers_only() -> None:
     )
 
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())
+
+
+def test_attempt_metadata_exposes_persisted_judge_feedback() -> None:
+    # FEATURE: judge-feedback trace. The envelope stamps `judge_feedback` onto the
+    # attempt it coached; aggregation must surface it per attempt — null when no judge
+    # ran before that attempt (always attempt 1, and every self-corrective attempt).
+    records = [
+        _record(1, 1, [True, False]),
+        {**_record(1, 2, [True, True]), "judge_feedback": "Name the failed requirement."},
+    ]
+    payload = _rows(bind_case_evaluation(1, records))
+
+    result = aggregate_corrective(
+        payload, {1: _SPECS[1]}, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, [1]
+    )
+
+    attempts = result["cases"][0]["metadata"]["attempts"]
+    assert attempts[0]["judge_feedback"] is None
+    assert attempts[1]["judge_feedback"] == "Name the failed requirement."
