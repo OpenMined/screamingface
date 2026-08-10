@@ -51,6 +51,7 @@ class ProtocolState:
         "missing_location",
         "start_error",
         "start_auth_error",
+        "stream_failed",
     ] = "success"
 
     def mint_token(self) -> str:
@@ -256,6 +257,7 @@ class _Handler(BaseHTTPRequestHandler):
             "http_stop": lambda: self._stream_http_stop(token),
             "disconnect": self._stream_disconnect,
             "gap": self._stream_gap,
+            "stream_failed": self._stream_failed,
         }
         handler = handlers.get(mode)
         if handler is not None:
@@ -303,6 +305,13 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.state.inbound_events.append(event)
         for frame in frames[2:]:
             _send_server_text_frame(self.wfile, json.dumps(frame))
+
+    def _stream_failed(self) -> None:
+        for _ in range(4):
+            _send_server_text_frame(self.wfile, json.dumps(_stream_failed()))
+            event = self._receive_event()
+            if event is not None:
+                self.server.state.inbound_events.append(event)
 
 
 def _read_client_text_frame(stream: Any) -> str:
@@ -441,6 +450,17 @@ def _advisory_error() -> dict[str, object]:
     }
 
 
+def _stream_failed() -> dict[str, object]:
+    frame = _advisory_error()
+    frame["id"] = "stream_failed"
+    frame["data"] = {
+        "code": "stream_failed",
+        "message": "the topic subscription failed (ServerError); re-attach to resume",
+        "ref_id": None,
+    }
+    return frame
+
+
 def _authorization_scheme(headers: Any) -> str | None:
     value = headers.get("Authorization")
     if value:
@@ -466,6 +486,7 @@ def protocol_server(
         "missing_location",
         "start_error",
         "start_auth_error",
+        "stream_failed",
     ] = "success",
 ) -> Iterator[ProtocolServer]:
     state = ProtocolState(mode=mode)

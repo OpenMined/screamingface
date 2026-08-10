@@ -65,7 +65,11 @@ def evaluate_sync(
     _validate_required_models(evaluation, catalog.models)
     preflight_sync(tuple(evaluation.candidates), load_model_details)
     observer = _sync_event_observer(on_event, progress, len(evaluation.candidates), benchmark)
-    outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
+    try:
+        outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
+    except BaseException:
+        _close_event_observer(observer)
+        raise
     return report_from_outcomes(evaluation, outcomes)
 
 
@@ -93,7 +97,11 @@ async def evaluate_async(
     _validate_required_models(evaluation, catalog.models)
     await preflight_async(tuple(evaluation.candidates), load_model_details)
     observer = _async_event_observer(on_event, progress, len(evaluation.candidates), benchmark)
-    outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
+    try:
+        outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
+    except BaseException:
+        _close_event_observer(observer)
+        raise
     return report_from_outcomes(evaluation, outcomes)
 
 
@@ -115,16 +123,7 @@ def _sync_event_observer(
     builtin = _progress_observer(progress, total_candidates=total_candidates, benchmark=benchmark)
     if builtin is None and callback is None:
         return None
-    lock = Lock()
-
-    def observe(event: Event) -> None:
-        with lock:
-            if builtin is not None:
-                _observe_progress(builtin, event)
-            if callback is not None:
-                callback(event)
-
-    return observe
+    return _SyncEventObserver(builtin, callback)
 
 
 def _async_event_observer(
@@ -138,18 +137,66 @@ def _async_event_observer(
     builtin = _progress_observer(progress, total_candidates=total_candidates, benchmark=benchmark)
     if builtin is None and callback is None:
         return None
-    lock = asyncio.Lock()
+    return _AsyncEventObserver(builtin, callback)
 
-    async def observe(event: Event) -> None:
-        async with lock:
-            if builtin is not None:
-                _observe_progress(builtin, event)
-            if callback is not None:
-                returned = callback(event)
+
+class _SyncEventObserver:
+    def __init__(
+        self,
+        builtin: Callable[[Event], None] | None,
+        callback: Callable[[Event], None] | None,
+    ) -> None:
+        self._builtin = builtin
+        self._callback = callback
+        self._lock = Lock()
+
+    def __call__(self, event: Event) -> None:
+        with self._lock:
+            if self._builtin is not None:
+                _observe_progress(self._builtin, event)
+            if self._callback is not None:
+                self._callback(event)
+
+    def close(self) -> None:
+        _close_progress(self._builtin)
+
+
+class _AsyncEventObserver:
+    def __init__(
+        self,
+        builtin: Callable[[Event], None] | None,
+        callback: Callable[[Event], None | Awaitable[None]] | None,
+    ) -> None:
+        self._builtin = builtin
+        self._callback = callback
+        self._lock = asyncio.Lock()
+
+    async def __call__(self, event: Event) -> None:
+        async with self._lock:
+            if self._builtin is not None:
+                _observe_progress(self._builtin, event)
+            if self._callback is not None:
+                returned = self._callback(event)
                 if inspect.isawaitable(returned):
                     await returned
 
-    return observe
+    def close(self) -> None:
+        _close_progress(self._builtin)
+
+
+def _close_event_observer(observer: object) -> None:
+    if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
+        observer.close()
+
+
+def _close_progress(observer: object) -> None:
+    close = getattr(observer, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception:
+        _logger.exception("ScreamingFace progress cleanup failed")
 
 
 def _observe_progress(observer: Callable[[Event], None], event: Event) -> None:

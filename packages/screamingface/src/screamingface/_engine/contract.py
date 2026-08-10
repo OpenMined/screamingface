@@ -18,6 +18,7 @@ from screamingface.report import Usage as AccountingUsage
 
 _LOG = logging.getLogger(__name__)
 _MAX_CONSECUTIVE_REPLAY_REQUESTS = 3
+_MAX_STREAM_REATTACH_REQUESTS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,7 @@ class _RunState:
         self._last_sequence = 0
         self._event_ids: set[str] = set()
         self._consecutive_replay_requests = 0
+        self._stream_reattach_requests = 0
 
     def accept(self, raw: str | bytes) -> _Accepted:
         payload = _payload(raw)
@@ -77,7 +79,17 @@ class _RunState:
         data = _object(payload.get("data"), f"{label} data")
         self._observe_run(_common_envelope(payload)["run_id"])
         if event_type == "ai.url4.error":
-            _advisory_error(data)
+            code, message = _advisory_error(data)
+            if code == "stream_failed":
+                self._stream_reattach_requests += 1
+                if self._stream_reattach_requests > _MAX_STREAM_REATTACH_REQUESTS:
+                    raise ExecutionError(
+                        message,
+                        code="event_stream_failed",
+                        permanent=False,
+                        details=data,
+                    )
+                return _Accepted(replay_from=self._last_sequence + 1)
         return _Accepted()
 
     def _accept_sequence(self, payload: Mapping[str, object]) -> _Accepted | None:
@@ -176,10 +188,11 @@ class _RunState:
         )
 
 
-def _advisory_error(data: Mapping[str, object]) -> None:
-    _text(data, "code")
-    _text(data, "message")
+def _advisory_error(data: Mapping[str, object]) -> tuple[str, str]:
+    code = _text(data, "code")
+    message = _text(data, "message")
     _optional_text(data.get("ref_id"), "error ref_id")
+    return code, message
 
 
 def _payload(raw: str | bytes) -> dict[str, object]:

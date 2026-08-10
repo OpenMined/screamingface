@@ -30,12 +30,21 @@ def evaluate_url4_sync(
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
-    from screamingface._evaluation.runner import _evaluation_options, _sync_event_observer
+    from screamingface._evaluation.runner import (
+        _close_event_observer,
+        _evaluation_options,
+        _sync_event_observer,
+    )
 
     _evaluation_options(on_event, progress)
     candidate = _candidate_from_url4(url4)
     observer = _sync_event_observer(on_event, progress, 1, "URL4 replay")
-    return report_from_url4_outcome(candidate, transport.run(candidate, observer))
+    try:
+        outcome = transport.run(candidate, observer)
+    except BaseException:
+        _close_event_observer(observer)
+        raise
+    return report_from_url4_outcome(candidate, outcome)
 
 
 async def evaluate_url4_async(
@@ -46,12 +55,21 @@ async def evaluate_url4_async(
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
-    from screamingface._evaluation.runner import _async_event_observer, _evaluation_options
+    from screamingface._evaluation.runner import (
+        _async_event_observer,
+        _close_event_observer,
+        _evaluation_options,
+    )
 
     _evaluation_options(on_event, progress)
     candidate = _candidate_from_url4(url4)
     observer = _async_event_observer(on_event, progress, 1, "URL4 replay")
-    return report_from_url4_outcome(candidate, await transport.run(candidate, observer))
+    try:
+        outcome = await transport.run(candidate, observer)
+    except BaseException:
+        _close_event_observer(observer)
+        raise
+    return report_from_url4_outcome(candidate, outcome)
 
 
 def _candidate_from_url4(value: str) -> Candidate:

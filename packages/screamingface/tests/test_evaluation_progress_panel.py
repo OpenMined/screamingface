@@ -209,6 +209,16 @@ def test_a_finished_run_reports_the_span_it_took_not_the_wall_clock() -> None:
     assert "12.0s" in view._render()
 
 
+def test_closing_a_failed_evaluation_stops_the_notebook_ticker() -> None:
+    from screamingface._ui.evaluation_view import _NotebookEvaluationView
+
+    view = _NotebookEvaluationView(1, "GPQA", tick=False)
+
+    view.close()
+
+    assert view._done.is_set()
+
+
 def test_live_figure_formatters_cover_large_small_and_long_running_values() -> None:
     """The panel stays compact without hiding sub-cent cost or long elapsed time."""
 

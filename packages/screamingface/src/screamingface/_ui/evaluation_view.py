@@ -275,6 +275,12 @@ class _NotebookEvaluationView:
         if finished:
             self._done.set()
 
+    def close(self) -> None:
+        """Stop repainting and remove a live panel whose Evaluation raised."""
+
+        self._done.set()
+        self._html.close()
+
     def _render(self) -> str:
         # A finished run reports the span it actually took; a live one reports wall clock.
         elapsed = None if self._progress.finished else self._clock() - self._started

@@ -9,7 +9,11 @@ import pytest
 
 import screamingface as sf
 from screamingface._evaluation.progress import _message, _progress_observer
-from screamingface._evaluation.runner import _async_event_observer, _sync_event_observer
+from screamingface._evaluation.runner import (
+    _async_event_observer,
+    _close_event_observer,
+    _sync_event_observer,
+)
 
 
 def envelope() -> dict[str, Any]:
@@ -145,6 +149,30 @@ def test_sync_builtin_progress_failure_does_not_block_the_caller_observer(
     assert observed == ["started"]
 
 
+def test_sync_evaluation_failure_closes_live_builtin_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Progress:
+        closed = False
+
+        def __call__(self, _event: sf.Event) -> None:
+            pass
+
+        def close(self) -> None:
+            self.closed = True
+
+    progress = Progress()
+    monkeypatch.setattr(
+        "screamingface._evaluation.progress._progress_observer",
+        lambda requested, **_: progress,
+    )
+    observer = _sync_event_observer(None, True)
+
+    _close_event_observer(observer)
+
+    assert progress.closed is True
+
+
 @pytest.mark.asyncio
 async def test_async_evaluate_combines_builtin_and_async_caller_observers(
     monkeypatch: pytest.MonkeyPatch,
@@ -189,3 +217,28 @@ async def test_async_builtin_progress_failure_does_not_block_the_caller_observer
     await callback(sf.events.Started(**envelope(), url4="(@)!'hello'"))
 
     assert observed == ["started"]
+
+
+@pytest.mark.asyncio
+async def test_async_evaluation_failure_closes_live_builtin_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Progress:
+        closed = False
+
+        def __call__(self, _event: sf.Event) -> None:
+            pass
+
+        def close(self) -> None:
+            self.closed = True
+
+    progress = Progress()
+    monkeypatch.setattr(
+        "screamingface._evaluation.progress._progress_observer",
+        lambda requested, **_: progress,
+    )
+    observer = _async_event_observer(None, True)
+
+    _close_event_observer(observer)
+
+    assert progress.closed is True

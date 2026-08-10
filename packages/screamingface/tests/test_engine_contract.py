@@ -412,6 +412,28 @@ def test_state_rejects_duplicate_root_events_and_consumes_protocol_nacks() -> No
     assert isinstance(started.event, sf.events.Started)
 
 
+def test_stream_failure_requests_bounded_reattach_then_surfaces_the_error() -> None:
+    state = _RunState(URL4)
+    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+    data = {
+        "code": "stream_failed",
+        "message": "the topic subscription failed (ServerError); re-attach to resume",
+        "ref_id": None,
+    }
+
+    for _ in range(3):
+        accepted = state.accept(frame("ai.url4.error", data, sequence=None))
+        assert accepted.replay_from == 2
+
+    with pytest.raises(sf.ExecutionError) as caught:
+        state.accept(frame("ai.url4.error", data, sequence=None))
+
+    assert caught.value.code == "event_stream_failed"
+    assert caught.value.permanent is False
+    assert caught.value.details == data
+    assert str(caught.value) == data["message"]
+
+
 def test_equal_looking_child_started_event_does_not_replace_root_identity() -> None:
     state = _RunState(URL4)
     root = state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))

@@ -409,6 +409,48 @@ def test_advisory_error_is_consumed_without_terminating_the_run() -> None:
     assert seen == ["started", "usage", "terminated"]
 
 
+def test_stream_failure_reattaches_then_fails_instead_of_hanging() -> None:
+    with protocol_server(mode="stream_failed") as engine:
+        with pytest.raises(sf.ExecutionError) as caught:
+            _run(engine.url)
+
+    assert caught.value.code == "event_stream_failed"
+    assert caught.value.permanent is False
+    assert caught.value.details == {
+        "code": "stream_failed",
+        "message": "the topic subscription failed (ServerError); re-attach to resume",
+        "ref_id": None,
+    }
+    assert [event["type"] for event in engine.state.inbound_events] == [
+        "ai.url4.attach",
+        "ai.url4.attach",
+        "ai.url4.attach",
+        "ai.url4.attach",
+        "ai.url4.stop",
+    ]
+    assert [event["data"] for event in engine.state.inbound_events[1:4]] == [
+        {"from_sequence": 1},
+        {"from_sequence": 1},
+        {"from_sequence": 1},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_async_stream_failure_has_the_same_bounded_behavior() -> None:
+    with protocol_server(mode="stream_failed") as engine:
+        with pytest.raises(sf.ExecutionError) as caught:
+            await _arun(engine.url)
+
+    assert caught.value.code == "event_stream_failed"
+    assert [event["type"] for event in engine.state.inbound_events] == [
+        "ai.url4.attach",
+        "ai.url4.attach",
+        "ai.url4.attach",
+        "ai.url4.attach",
+        "ai.url4.stop",
+    ]
+
+
 @pytest.mark.parametrize("error", [OSError("observer failed"), TimeoutError("observer timed out")])
 def test_transport_preserves_disconnect_shaped_callback_exceptions(
     error: BaseException,
