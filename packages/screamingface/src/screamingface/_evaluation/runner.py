@@ -64,7 +64,14 @@ def evaluate_sync(
     catalog = load_models()
     _validate_required_models(evaluation, catalog.models)
     preflight_sync(tuple(evaluation.candidates), load_model_details)
-    observer = _sync_event_observer(on_event, progress, len(evaluation.candidates), benchmark)
+    observer = _sync_event_observer(
+        on_event,
+        progress,
+        len(evaluation.candidates),
+        benchmark,
+        candidate_models=_candidate_model_ids(tuple(evaluation.candidates)),
+        candidate_urls=tuple(candidate.url4 for candidate in evaluation.candidates),
+    )
     try:
         outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
     except BaseException:
@@ -96,7 +103,14 @@ async def evaluate_async(
     catalog = await load_models()
     _validate_required_models(evaluation, catalog.models)
     await preflight_async(tuple(evaluation.candidates), load_model_details)
-    observer = _async_event_observer(on_event, progress, len(evaluation.candidates), benchmark)
+    observer = _async_event_observer(
+        on_event,
+        progress,
+        len(evaluation.candidates),
+        benchmark,
+        candidate_models=_candidate_model_ids(tuple(evaluation.candidates)),
+        candidate_urls=tuple(candidate.url4 for candidate in evaluation.candidates),
+    )
     try:
         outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
     except BaseException:
@@ -117,10 +131,18 @@ def _sync_event_observer(
     progress: bool | None,
     total_candidates: int | None = None,
     benchmark: str | None = None,
+    candidate_models: tuple[str, ...] = (),
+    candidate_urls: tuple[str, ...] = (),
 ) -> Callable[[Event], None] | None:
     from screamingface._evaluation.progress import _progress_observer
 
-    builtin = _progress_observer(progress, total_candidates=total_candidates, benchmark=benchmark)
+    builtin = _progress_observer(
+        progress,
+        total_candidates=total_candidates,
+        benchmark=benchmark,
+        candidate_models=candidate_models,
+        candidate_urls=candidate_urls,
+    )
     if builtin is None and callback is None:
         return None
     return _SyncEventObserver(builtin, callback)
@@ -131,10 +153,18 @@ def _async_event_observer(
     progress: bool | None,
     total_candidates: int | None = None,
     benchmark: str | None = None,
+    candidate_models: tuple[str, ...] = (),
+    candidate_urls: tuple[str, ...] = (),
 ) -> Callable[[Event], Awaitable[None]] | None:
     from screamingface._evaluation.progress import _progress_observer
 
-    builtin = _progress_observer(progress, total_candidates=total_candidates, benchmark=benchmark)
+    builtin = _progress_observer(
+        progress,
+        total_candidates=total_candidates,
+        benchmark=benchmark,
+        candidate_models=candidate_models,
+        candidate_urls=candidate_urls,
+    )
     if builtin is None and callback is None:
         return None
     return _AsyncEventObserver(builtin, callback)
@@ -187,6 +217,10 @@ class _AsyncEventObserver:
 def _close_event_observer(observer: object) -> None:
     if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
         observer.close()
+
+
+def _candidate_model_ids(candidates: tuple[Candidate, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(model for candidate in candidates for model in candidate.models))
 
 
 def _close_progress(observer: object) -> None:

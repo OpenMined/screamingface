@@ -247,3 +247,130 @@ def test_panel_surfaces_failed_calls_and_subcent_cost() -> None:
     assert "1 · 1 failed" in html
     assert "2.0M / 250" in html
     assert "$0.0050" in html
+
+
+def test_phase_progress_distinguishes_candidate_work_from_benchmark_grading() -> None:
+    candidate_model = "openrouter/anthropic/claude-opus-4.8"
+    progress = _EvaluationProgress(
+        total_candidates=1,
+        candidate_models=frozenset({candidate_model}),
+    )
+
+    assert "Starting evaluation" in evaluation_panel_html(progress, "DRACO smoke")
+
+    progress.observe(sf.events.Started(**envelope(1), url4="(@)!'hi'"))
+    assert progress.activity == "Running candidate"
+
+    progress.observe(model_span(2, request_model=candidate_model))
+    assert progress.activity == "Running candidate · 1 model call completed"
+
+    progress.observe(
+        model_span(
+            3,
+            request_model="openrouter/google/gemini-3.1-pro-preview",
+        )
+    )
+    assert progress.activity == "Grading benchmark · 1 model call completed"
+
+    progress.observe(sf.events.Terminated(**envelope(4), status="succeeded"))
+    html = evaluation_panel_html(progress, "DRACO smoke")
+
+    assert progress.activity == "Evaluation finished"
+    assert "phase · Evaluation finished" in html
+    assert "evaluation finished" in html
+
+
+def test_evaluation_only_says_finished_after_every_candidate_terminates() -> None:
+    progress = _EvaluationProgress(total_candidates=2)
+
+    progress.observe(sf.events.Terminated(**envelope(1, run_id="run_1"), status="succeeded"))
+
+    assert progress.activity == "Running candidates · 1/2 finished"
+    assert all(text != "evaluation finished" for _, _, text in progress.feed)
+
+    progress.observe(sf.events.Terminated(**envelope(2, run_id="run_2"), status="succeeded"))
+
+    assert progress.activity == "Evaluation finished"
+    assert progress.feed[0][2] == "evaluation finished"
+
+
+def test_parallel_candidate_starts_create_one_evaluation_start_entry() -> None:
+    progress = _EvaluationProgress(total_candidates=2)
+
+    progress.observe(sf.events.Started(**envelope(1, run_id="run_1"), url4="(@)!'one'"))
+    progress.observe(sf.events.Started(**envelope(1, run_id="run_2"), url4="(@)!'two'"))
+
+    assert [text for _, _, text in progress.feed] == ["evaluation started"]
+
+
+def test_live_feed_uses_arrival_time_when_engine_event_timestamps_do_not_advance() -> None:
+    from screamingface._ui.evaluation_view import _NotebookEvaluationView
+
+    now = [100.0]
+    view = _NotebookEvaluationView(2, "DRACO lite", clock=lambda: now[0], tick=False)
+    view(sf.events.Started(**envelope(1, run_id="run_1"), url4="(@)!'one'"))
+
+    now[0] += 14
+    view(sf.events.Terminated(**envelope(2, run_id="run_1"), status="succeeded"))
+
+    assert "0:14" in view._html.value
+    assert "candidate 1/2 finished" in view._html.value
+
+
+def test_determinate_progress_is_static_and_unavailable_metrics_are_not_zero() -> None:
+    progress = _EvaluationProgress(total_candidates=2)
+    progress.observe(sf.events.Terminated(**envelope(1), status="succeeded"))
+
+    html = evaluation_panel_html(progress)
+
+    assert "width:50.0%" in html
+    assert "sf-eval__fill--live" not in html
+    assert "<div class='sf-eval__stat-v'>—</div>" in html
+
+
+def test_nested_url4_termination_does_not_complete_a_candidate() -> None:
+    candidate_url4 = "(@)!'candidate'"
+    progress = _EvaluationProgress(
+        total_candidates=1,
+        candidate_urls=frozenset({candidate_url4}),
+    )
+    progress.observe(sf.events.Started(**envelope(1), url4=candidate_url4))
+    nested = envelope(2, run_id="run_1")
+    nested["source"] = "/trace/run_1/node/nested"
+
+    progress.observe(
+        sf.events.Terminated(
+            **nested,
+            status="succeeded",
+        )
+    )
+
+    assert progress.completed == 0
+    assert progress.fraction == 0.0
+
+    progress.observe(sf.events.Terminated(**envelope(3), status="succeeded"))
+
+    assert progress.completed == 1
+    assert progress.finished is True
+
+
+def test_candidate_completion_surfaces_the_engine_cache_summary() -> None:
+    candidate_url4 = "(@)!'candidate'"
+    progress = _EvaluationProgress(
+        total_candidates=2,
+        candidate_urls=frozenset({candidate_url4}),
+    )
+    progress.observe(sf.events.Started(**envelope(1), url4=candidate_url4))
+    progress.observe(
+        sf.events.Log(
+            **envelope(2),
+            severity_number=9,
+            severity_text="INFO",
+            body="gateway response cache: 21 hit, 0 miss, 0 bypass",
+            attributes={"cache.hits": 21, "cache.misses": 0, "cache.bypasses": 0},
+        )
+    )
+
+    progress.observe(sf.events.Terminated(**envelope(3), status="succeeded"))
+
+    assert progress.feed[0][2] == "candidate 1/2 finished · cache: 21 hits"

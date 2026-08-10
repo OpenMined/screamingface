@@ -10,7 +10,7 @@ from html import escape
 from typing import Any
 
 from screamingface._ui.evaluation_state import _EvaluationProgress
-from screamingface._ui.style import FUSION_GRADIENT, FUSION_GRADIENT_FLOW, STYLE
+from screamingface._ui.style import FUSION_GRADIENT, STYLE
 from screamingface.events import Event
 
 _STYLE = (
@@ -22,15 +22,9 @@ _STYLE = (
 /* the track is a well; the fill carries the fusion gradient — square, no radius */
 .sf-eval__track{{position:relative;height:8px;background:var(--sf-line);overflow:hidden;
   margin-top:14px}}
-/* a RUNNING fill flows: the palindrome ramp tiled at 200% and scrolled, so the bar is
-   visibly working even while a single model call holds the percentage still for minutes */
 .sf-eval__fill{{display:block;height:100%;background-repeat:no-repeat;
-  background-position:right center;background-image:{FUSION_GRADIENT};
+  background-position:center;background-size:100% 100%;background-image:{FUSION_GRADIENT};
   transition:width .35s ease-out}}
-.sf-eval__fill--live{{background-image:{FUSION_GRADIENT_FLOW};background-size:200% 100%;
-  background-position:0 0;animation:sf-flow 9s linear infinite}}
-@keyframes sf-flow{{from{{background-position:0 0}}to{{background-position:-200% 0}}}}
-@media(prefers-reduced-motion:reduce){{.sf-eval__fill--live{{animation:none}}}}
 /* unknown denominator: never fake a fraction — sweep a short band to show liveness */
 .sf-eval__fill--sweep{{width:38%;background-size:100% 100%;
   animation:sf-eval-sweep 1.5s ease-in-out infinite}}
@@ -98,6 +92,7 @@ def evaluation_panel_html(
         f"{_head_html(progress, benchmark)}"
         f"{_bar_html(progress)}"
         f"{_meta_html(progress, elapsed)}"
+        f"{_activity_html(progress)}"
         f"{_stats_html(progress)}"
         f"{_feed_html(progress)}"
         f"{_error_html(progress)}</div>"
@@ -111,21 +106,14 @@ def _head_html(progress: _EvaluationProgress, benchmark: str | None) -> str:
 
 
 def _bar_html(progress: _EvaluationProgress) -> str:
-    live = progress.running
-    track = "sf-eval__track" + (" sf-eval__track--live" if live else "")
+    track = "sf-eval__track"
     fraction = progress.fraction
     if fraction is None:
         # No honest denominator — show liveness, not a made-up percentage.
         fill = "<span class='sf-eval__fill sf-eval__fill--sweep'></span>"
         return f"<div class='{track}'>{fill}</div>"
     percent = fraction * 100
-    # Size the gradient to the whole track so the ramp reads consistently at any width.
-    width = 0.0 if percent <= 0 else max(percent, 1.5)
-    size = "100%" if percent <= 0 else f"{10000 / max(percent, 1.5):.1f}%"
-    # A finished bar is a static receipt; a running one flows.
-    classes = "sf-eval__fill" + (" sf-eval__fill--live" if live else "")
-    style = f"width:{width:.1f}%" if live else f"width:{width:.1f}%;background-size:{size} 100%"
-    fill = f"<span class='{classes}' style='{style}'></span>"
+    fill = f"<span class='sf-eval__fill' style='width:{percent:.1f}%'></span>"
     return f"<div class='{track}'>{fill}</div>"
 
 
@@ -151,8 +139,13 @@ def _candidate_text(progress: _EvaluationProgress) -> str:
     return f"{progress.completed}/{total} {noun}"
 
 
+def _activity_html(progress: _EvaluationProgress) -> str:
+    activity = progress.activity or "Starting evaluation"
+    return f"<div class='sf-eval__act'>phase · {escape(activity)}</div>"
+
+
 def _stats_html(progress: _EvaluationProgress) -> str:
-    calls = f"{progress.model_calls:,}"
+    calls = "—" if progress.model_calls == 0 else f"{progress.model_calls:,}"
     if progress.failed_calls:
         calls = f"{calls} · {progress.failed_calls} failed"
     # The direction lives in the label so the figures stay on one line at panel width.
@@ -244,13 +237,19 @@ class _NotebookEvaluationView:
         self,
         total_candidates: int | None = None,
         benchmark: str | None = None,
+        candidate_models: tuple[str, ...] = (),
+        candidate_urls: tuple[str, ...] = (),
         *,
         clock: Callable[[], float] | None = None,
         tick: bool = True,
     ) -> None:
         import ipywidgets as widgets  # noqa: PLC0415 - optional notebook extra
 
-        self._progress = _EvaluationProgress(total_candidates=total_candidates)
+        self._progress = _EvaluationProgress(
+            total_candidates=total_candidates,
+            candidate_models=frozenset(candidate_models),
+            candidate_urls=frozenset(candidate_urls),
+        )
         self._benchmark = benchmark
         self._clock = time.monotonic if clock is None else clock
         self._started = self._clock()
@@ -269,7 +268,7 @@ class _NotebookEvaluationView:
 
     def __call__(self, event: Event) -> None:
         with self._lock:
-            self._progress.observe(event)
+            self._progress.observe(event, elapsed_seconds=self._clock() - self._started)
             finished = self._progress.finished
             self._html.value = self._render()
         if finished:

@@ -19,6 +19,8 @@ def _progress_observer(
     stream: TextIO | None = None,
     total_candidates: int | None = None,
     benchmark: str | None = None,
+    candidate_models: tuple[str, ...] = (),
+    candidate_urls: tuple[str, ...] = (),
 ) -> Callable[[Event], None] | None:
     selected_stream = sys.stderr if stream is None else stream
     in_notebook = _in_notebook()
@@ -27,13 +29,19 @@ def _progress_observer(
     if requested is None and not (in_notebook or selected_stream.isatty()):
         return None
     # In a notebook the live panel is preferred; text remains the fallback everywhere.
-    rich = _notebook_observer(total_candidates, benchmark) if in_notebook else None
+    rich = (
+        _notebook_observer(total_candidates, benchmark, candidate_models, candidate_urls)
+        if in_notebook
+        else None
+    )
     return _ProgressObserver(selected_stream) if rich is None else rich
 
 
 def _notebook_observer(
     total_candidates: int | None,
     benchmark: str | None,
+    candidate_models: tuple[str, ...],
+    candidate_urls: tuple[str, ...],
 ) -> Callable[[Event], None] | None:
     """The live panel, or None when it cannot be built (text progress then carries it).
 
@@ -45,7 +53,12 @@ def _notebook_observer(
     try:
         from screamingface._ui.evaluation_view import _NotebookEvaluationView
 
-        return _NotebookEvaluationView(total_candidates, benchmark)
+        return _NotebookEvaluationView(
+            total_candidates,
+            benchmark,
+            candidate_models,
+            candidate_urls,
+        )
     except Exception:
         _logger.debug("Rich notebook progress unavailable; using text progress", exc_info=True)
         return None
@@ -65,14 +78,20 @@ class _ProgressObserver:
 def _message(event: Event) -> str | None:
     message: str | None = None
     if isinstance(event, Started):
-        message = "Run started"
+        message = "Evaluation started"
     elif isinstance(event, Log):
         message = event.body or None
     elif isinstance(event, Span):
         message = _model_message(event)
     elif isinstance(event, Terminated):
-        message = f"Run {event.status.replace('_', ' ')}"
+        message = _termination_message(event.status)
     return message
+
+
+def _termination_message(status: str) -> str:
+    if status == "succeeded":
+        return "Evaluation finished"
+    return f"Evaluation {status.replace('_', ' ')}"
 
 
 def _model_message(event: Span) -> str | None:

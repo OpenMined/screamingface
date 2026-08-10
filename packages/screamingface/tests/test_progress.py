@@ -35,7 +35,7 @@ def test_progress_can_be_disabled_or_forced() -> None:
 
     observer(sf.events.Started(**envelope(), url4="(@)!'hello'"))
 
-    assert stream.getvalue() == "ScreamingFace · Run started\n"
+    assert stream.getvalue() == "ScreamingFace · Evaluation started\n"
 
 
 def test_progress_defaults_on_inside_a_notebook(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,8 +61,14 @@ def test_progress_messages_cover_meaningful_lifecycle_events() -> None:
     )
 
     assert _message(log) == "Grading case 1"
-    assert _message(terminated) == "Run timed out"
+    assert _message(terminated) == "Evaluation timed out"
     assert _message(usage) is None
+
+
+def test_successful_evaluation_uses_finished_as_its_public_terminal_wording() -> None:
+    terminated = sf.events.Terminated(**envelope(), status="succeeded")
+
+    assert _message(terminated) == "Evaluation finished"
 
 
 def test_progress_neutralizes_terminal_controls_and_multiline_log_spoofing() -> None:
@@ -242,3 +248,31 @@ async def test_async_evaluation_failure_closes_live_builtin_progress(
     _close_event_observer(observer)
 
     assert progress.closed is True
+
+
+def test_candidate_model_identity_reaches_builtin_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: dict[str, object] = {}
+
+    def progress_observer(requested: bool | None, **context: object):
+        received.update(context)
+        return lambda _event: None
+
+    monkeypatch.setattr(
+        "screamingface._evaluation.progress._progress_observer",
+        progress_observer,
+    )
+
+    observer = _sync_event_observer(
+        None,
+        True,
+        total_candidates=1,
+        benchmark="draco/smoke",
+        candidate_models=("openrouter/anthropic/claude-opus-4.8",),
+        candidate_urls=("(@)!'candidate'",),
+    )
+
+    assert observer is not None
+    assert received["candidate_models"] == ("openrouter/anthropic/claude-opus-4.8",)
+    assert received["candidate_urls"] == ("(@)!'candidate'",)

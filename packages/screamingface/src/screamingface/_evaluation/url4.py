@@ -38,7 +38,14 @@ def evaluate_url4_sync(
 
     _evaluation_options(on_event, progress)
     candidate = _candidate_from_url4(url4)
-    observer = _sync_event_observer(on_event, progress, 1, "URL4 replay")
+    observer = _sync_event_observer(
+        on_event,
+        progress,
+        1,
+        "URL4 replay",
+        candidate_models=candidate.models,
+        candidate_urls=(candidate.url4,),
+    )
     try:
         outcome = transport.run(candidate, observer)
     except BaseException:
@@ -63,7 +70,14 @@ async def evaluate_url4_async(
 
     _evaluation_options(on_event, progress)
     candidate = _candidate_from_url4(url4)
-    observer = _async_event_observer(on_event, progress, 1, "URL4 replay")
+    observer = _async_event_observer(
+        on_event,
+        progress,
+        1,
+        "URL4 replay",
+        candidate_models=candidate.models,
+        candidate_urls=(candidate.url4,),
+    )
     try:
         outcome = await transport.run(candidate, observer)
     except BaseException:
