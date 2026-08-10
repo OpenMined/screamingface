@@ -33,6 +33,12 @@ type AsyncEventCallback = Callable[[Event], None | Awaitable[None]]
 _SUBPROTOCOL = Subprotocol("cloudevents.json")
 _ATTACH_RETRY_DELAYS = (0.0, 0.01, 0.02, 0.04, 0.08, 0.16, 0.32)
 _EVENT_RECEIVE_TIMEOUT_SECONDS = 120.0
+# WHY: stopping happens while the caller is already interrupting. Inheriting the 30s client
+# timeout would block Ctrl-C for half a minute per orphaned capability, and a user who waits
+# that long presses Ctrl-C again — losing the very stop this exists to deliver.
+_STOP_TIMEOUT_SECONDS = 5.0
+# The Engine answers a stop for a Run it has already finished with one of these.
+_ALREADY_STOPPED_STATUSES = frozenset({404, 409, 410})
 
 
 class _SyncSender(Protocol):
@@ -160,13 +166,44 @@ class Url4CloudTransport:
 
 
 class AsyncUrl4CloudTransport:
-    """Asynchronous adapter with the same lifecycle semantics."""
+    """Asynchronous adapter with the same lifecycle semantics.
+
+    INVARIANT: one instance is driven by exactly one event loop — ``httpx.AsyncClient`` is
+    loop-bound after first use — so ``_active_tokens`` needs no lock. Every read and write of
+    it happens with no ``await`` in between, which makes the region atomic already; an
+    ``asyncio.Lock`` would introduce the suspension points it is meant to protect against.
+    AIDEV-NOTE: the asymmetry with the synchronous twin's ``threading.Lock`` is deliberate.
+    That one is genuinely required, because a thread pool drives it.
+    """
 
     def __init__(self, engine_url: str, caller_auth: _TransportAuth | None = None) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
         self._http = httpx.AsyncClient(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
+        self._active_tokens: set[str] = set()
+
+    async def cancel_active(self) -> None:
+        """Stop every Run currently owned by this asynchronous Client."""
+
+        tokens = tuple(self._active_tokens)
+        if not tokens:
+            return
+        # Retiring them here bounds the registry: a cancelled Run deliberately leaves its
+        # capability behind, and this sweep is what owns clearing it.
+        self._active_tokens.clear()
+        results = await asyncio.gather(
+            *(_stop_async(self._http, token) for token in tokens),
+            return_exceptions=True,
+        )
+        errors = [result for result in results if isinstance(result, Exception)]
+        # INVARIANT: a CancelledError returned by gather is not an ordinary stop failure and
+        # must not be reported as one — re-raise it so the interruption keeps propagating.
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, Exception):
+                raise result
+        if errors:
+            raise ExceptionGroup("Could not stop every active SF Engine Run", errors)
 
     async def run(
         self,
@@ -174,34 +211,57 @@ class AsyncUrl4CloudTransport:
         on_event: AsyncEventCallback | None,
     ) -> _RunOutcome:
         token = await _mint_async(self._http)
-        lifecycle = _Lifecycle(candidate)
+        self._active_tokens.add(token)
+        cancelled = False
         try:
-            for attempt in range(2):
-                try:
-                    async with async_ws.connect(
-                        _websocket_url(self._engine_url, token),
-                        subprotocols=[_SUBPROTOCOL],
-                        additional_headers=await self._caller_auth.websocket_headers_async(),
-                        open_timeout=30,
-                        close_timeout=10,
-                    ) as websocket:
-                        return await self._run_connected(
-                            websocket,
-                            lifecycle,
-                            token,
-                            candidate,
-                            on_event,
-                        )
-                except InvalidStatus as exc:
-                    if attempt != 0 or not _is_access_websocket_rejection(exc):
-                        raise
-                    await self._caller_auth.reauthenticate_async()
-            raise AssertionError("WebSocket authentication retry loop exhausted")
+            return await self._connected_run(token, candidate, on_event)
+        # WHY: a cancelled Run keeps its capability registered so the Evaluation's sweep can
+        # still stop it. asyncio.gather cancels its children and only re-raises once they have
+        # all unwound, so by the time the sweep runs every Run here has already finished its
+        # own cleanup — retiring the capability on this path would hand the sweep an empty
+        # registry and silently orphan paid work. The sweep clears what it stops.
+        # AIDEV-NOTE: the synchronous twin does not need this. Its sibling worker threads are
+        # still mid-Run when the sweep reads the registry.
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
         except _ObserverRaised as exc:
             _copy_notes(exc, exc.original)
             raise exc.original
         except (WebSocketException, OSError, TimeoutError) as exc:
             raise _disconnected() from exc
+        finally:
+            if not cancelled:
+                self._active_tokens.discard(token)
+
+    async def _connected_run(
+        self,
+        token: str,
+        candidate: Candidate,
+        on_event: AsyncEventCallback | None,
+    ) -> _RunOutcome:
+        lifecycle = _Lifecycle(candidate)
+        for attempt in range(2):
+            try:
+                async with async_ws.connect(
+                    _websocket_url(self._engine_url, token),
+                    subprotocols=[_SUBPROTOCOL],
+                    additional_headers=await self._caller_auth.websocket_headers_async(),
+                    open_timeout=30,
+                    close_timeout=10,
+                ) as websocket:
+                    return await self._run_connected(
+                        websocket,
+                        lifecycle,
+                        token,
+                        candidate,
+                        on_event,
+                    )
+            except InvalidStatus as exc:
+                if attempt != 0 or not _is_access_websocket_rejection(exc):
+                    raise
+                await self._caller_auth.reauthenticate_async()
+        raise AssertionError("WebSocket authentication retry loop exhausted")
 
     async def _run_connected(
         self,
@@ -335,12 +395,42 @@ def _stop_sync(http: httpx.Client, token: str) -> None:
             "/",
             headers={"URL4-Capability": token},
             extensions={_REPLAY_SAFE: True},
+            timeout=_STOP_TIMEOUT_SECONDS,
         )
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
             "Could not stop the SF Engine Run",
             engine_url=_http_origin(http),
         ) from exc
+    _require_stopped(response)
+
+
+async def _stop_async(http: httpx.AsyncClient, token: str) -> None:
+    try:
+        response = await http.delete(
+            "/",
+            headers={"URL4-Capability": token},
+            extensions={_REPLAY_SAFE: True},
+            timeout=_STOP_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        raise EngineUnavailableError(
+            "Could not stop the SF Engine Run",
+            engine_url=_http_origin(http),
+        ) from exc
+    _require_stopped(response)
+
+
+def _require_stopped(response: httpx.Response) -> None:
+    """Treat an already-finished Run as a stopped Run.
+
+    WHY: the in-band ai.url4.stop frame usually wins the race, so this REST fallback
+    routinely arrives after the Run is already gone. "It is not running" is the outcome the
+    caller asked for, not an error worth attaching to their interruption.
+    """
+
+    if response.status_code in _ALREADY_STOPPED_STATUSES:
+        return
     _require_success(response, "stop the Run")
 
 

@@ -228,6 +228,9 @@ class _AsyncFakeTransport:
     async def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         return _FakeTransport().run(candidate, on_event)
 
+    async def cancel_active(self) -> None:
+        pass
+
     async def close(self) -> None:
         self.closed = True
 

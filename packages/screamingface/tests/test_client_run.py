@@ -221,6 +221,9 @@ class _AsyncReplayTransport(_ReplayTransport):
     async def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         return super().run(candidate, on_event)
 
+    async def cancel_active(self) -> None:
+        pass
+
     async def close(self) -> None:
         pass
 
@@ -475,3 +478,40 @@ async def test_async_evaluate_reports_the_same_unreachable_execution_transport()
 
     assert caught.value.retryable is True
     assert caught.value.engine_url == "http://127.0.0.1:1"
+
+
+@pytest.mark.asyncio
+async def test_async_concurrent_cancellation_deletes_every_active_engine_capability() -> None:
+    """The asynchronous sibling of the synchronous interrupt test above.
+
+    INVARIANT: an interrupted Evaluation must leave no Run billing. The in-band ai.url4.stop
+    frame is dispatched from a task that is already being cancelled and cannot be sent at all
+    when the socket is what failed, so the REST capability delete is the real guarantee.
+    """
+
+    import asyncio
+
+    with protocol_server(mode="http_stop") as engine:
+        client = sf.AsyncClient(
+            engine_url=engine.url,
+            http_transport=httpx.MockTransport(_engine),
+        )
+        task = asyncio.create_task(
+            client.evaluate(
+                [
+                    sf.Model("provider/opus", name="left"),
+                    sf.Model("provider/opus", name="right"),
+                ],
+                benchmark="draco",
+                progress=False,
+            )
+        )
+        started = await asyncio.to_thread(engine.state.two_started.wait, 5)
+        assert started is True
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await client.aclose()
+
+    assert len(engine.state.minted_tokens) == 2
+    assert sorted(engine.state.deleted_tokens) == sorted(engine.state.minted_tokens)

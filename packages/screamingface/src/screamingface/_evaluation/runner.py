@@ -297,7 +297,14 @@ async def _run_candidates_async(
     tasks = tuple(asyncio.create_task(run(candidate)) for candidate in candidates)
     try:
         outcomes = await asyncio.gather(*tasks)
-    except BaseException:
+    except BaseException as exc:
+        # INVARIANT: sweep BEFORE cancelling the siblings, exactly as the synchronous path
+        # does. Each Run discards its own capability on the way out, so cancelling first
+        # empties the registry and makes this fallback a guaranteed no-op.
+        try:
+            await transport.cancel_active()
+        except Exception as cancel_error:  # noqa: BLE001 - preserve the original interruption
+            exc.add_note(f"Stopping active SF Engine runs also failed: {cancel_error}")
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

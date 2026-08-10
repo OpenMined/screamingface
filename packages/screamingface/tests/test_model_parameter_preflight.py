@@ -134,6 +134,9 @@ class _AsyncForbiddenTransport:
         self.called = True
         raise AssertionError("parameter preflight must fail before execution")
 
+    async def cancel_active(self) -> None:
+        pass
+
     async def close(self) -> None:
         pass
 
@@ -144,6 +147,9 @@ class _AsyncReachedTransport:
     async def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise RuntimeError("execution reached")
+
+    async def cancel_active(self) -> None:
+        pass
 
     async def close(self) -> None:
         pass
