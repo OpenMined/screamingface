@@ -556,3 +556,154 @@ def test_decoder_scalar_helpers_reject_invalid_wire_values() -> None:
     for call in invalid_calls:
         with pytest.raises(sf.ExecutionError):
             call()
+
+
+# --- Out-of-band advisory notices ---------------------------------------------------------
+#
+# FEATURE: the control plane may warn an attached client about its own Run.
+# STORY: as a researcher whose cache directive was overridden, I am told so, and the Run I
+# am paying for keeps going.
+#
+# INVARIANT: only frames that mutate no _RunState may arrive unsequenced. Gap detection,
+# event-id de-duplication, and the replay-order guarantee all live on the sequenced path.
+
+
+def _null_sequenced_log(body: str = "cache policy fixed by first attach") -> str:
+    """The verbatim wire shape of url4_cloud.notices.warn through url4's encoder.
+
+    The sequence keys are PRESENT and null rather than omitted, because ``encode`` does not
+    pass ``exclude_none``. A hand-written fixture would assume otherwise.
+    """
+
+    return json.dumps(
+        {
+            "specversion": "1.0",
+            "id": "notice_1",
+            "source": "/trace/run_1",
+            "subject": "run_1",
+            "time": "2026-07-25T16:00:00Z",
+            "datacontenttype": "application/json",
+            "dataschema": None,
+            "sequence": None,
+            "sequencetype": None,
+            "traceparent": None,
+            "tracestate": None,
+            "type": "ai.url4.log",
+            "data": {
+                "severity_number": 13,
+                "severity_text": "WARN",
+                "body": body,
+                "attributes": {"cache.declared": "not stated"},
+            },
+        }
+    )
+
+
+def test_an_unsequenced_advisory_log_is_kept_out_of_the_ordered_stream(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    state = _RunState(URL4)
+
+    with caplog.at_level(logging.WARNING, logger="screamingface._engine.contract"):
+        accepted = state.accept(_null_sequenced_log())
+
+    assert accepted.event is None
+    assert accepted.outcome is None
+    assert accepted.replay_from is None
+    # The notice reaches a human: it cannot become a public Event, because Event.sequence is
+    # a mandatory positive integer and inventing one would pollute replay order.
+    assert "cache policy fixed by first attach" in caplog.text
+    # INVARIANT: an advisory frame must not disturb the sequence cursor. A following
+    # sequence=1 frame is still the next contiguous Event, not a gap needing replay.
+    following = state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+    assert isinstance(following.event, sf.events.Started)
+    assert following.replay_from is None
+
+
+def test_an_advisory_log_with_omitted_sequence_keys_is_also_unsequenced() -> None:
+    state = _RunState(URL4)
+
+    accepted = state.accept(
+        frame(
+            "ai.url4.log",
+            {"severity_number": 13, "severity_text": "WARN", "body": "notice"},
+            sequence=None,
+        )
+    )
+
+    assert accepted.event is None
+
+
+def test_an_advisory_log_that_carries_a_sequence_keeps_the_ordered_path() -> None:
+    state = _RunState(URL4)
+
+    accepted = state.accept(
+        frame(
+            "ai.url4.log",
+            {"severity_number": 9, "severity_text": "INFO", "body": "ordered"},
+            sequence=1,
+        )
+    )
+
+    assert isinstance(accepted.event, sf.events.Log)
+    assert accepted.event.sequence == 1
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (lambda data: data.__setitem__("severity_text", "TRACE"), "severity_text"),
+        (lambda data: data.__setitem__("attributes", {"nested": {}}), "non-scalar"),
+    ],
+)
+def test_an_unsequenced_advisory_log_is_still_validated(
+    mutate: Callable[[dict[str, Any]], None],
+    expected: str,
+) -> None:
+    # INVARIANT: dropped from the Event stream is not the same as unvalidated. A malformed
+    # advisory frame is still a broken Engine contract and must surface.
+    payload = cast(dict[str, Any], json.loads(_null_sequenced_log()))
+    mutate(cast(dict[str, Any], payload["data"]))
+
+    with pytest.raises(sf.ExecutionError, match=expected):
+        _RunState(URL4).accept(json.dumps(payload))
+
+
+def test_an_unsequenced_advisory_log_still_validates_its_run_envelope() -> None:
+    state = _RunState(URL4)
+    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+    payload = cast(dict[str, Any], json.loads(_null_sequenced_log()))
+    payload["subject"] = "run_2"
+
+    with pytest.raises(sf.ExecutionError, match="changed run subject"):
+        state.accept(json.dumps(payload))
+
+
+def test_a_sequenced_frame_missing_only_its_sequencetype_is_still_rejected() -> None:
+    # INVARIANT: the discriminator is the presence of "sequence" ALONE. Keying on both fields
+    # would reclassify this frame as advisory and silently skip the started handler.
+    payload = cast(dict[str, Any], json.loads(frame("ai.url4.started", {"url4": URL4}, sequence=1)))
+    del payload["sequencetype"]
+
+    with pytest.raises(sf.ExecutionError, match="Integer semantics"):
+        _RunState(URL4).accept(json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    ("event_type", "data"),
+    [
+        ("ai.url4.started", {"url4": URL4}),
+        ("ai.url4.result", {"body": "{}", "media_type": "application/json"}),
+        ("ai.url4.terminated", {"status": "succeeded", "error": None}),
+        ("ai.url4.span", {"name": "n", "gen_ai.operation.name": "chat"}),
+    ],
+)
+def test_unsequenced_lifecycle_frames_are_still_rejected(
+    event_type: str,
+    data: dict[str, object],
+) -> None:
+    # INVARIANT: a lifecycle frame may never travel out of band. An unsequenced terminated
+    # would build an outcome from a stream never checked for gaps; an unsequenced cost.usage
+    # would corrupt the billing total the user reads in their Report.
+    with pytest.raises(sf.ExecutionError, match="sequence"):
+        _RunState(URL4).accept(frame(event_type, data, sequence=None))

@@ -40,6 +40,7 @@ class ProtocolState:
         "success",
         "advisory_error",
         "heartbeat",
+        "unsequenced_log",
         "http_stop",
         "delayed_attach",
         "stop",
@@ -273,6 +274,8 @@ class _Handler(BaseHTTPRequestHandler):
             _send_server_text_frame(self.wfile, json.dumps(_heartbeat()))
         elif mode == "advisory_error":
             _send_server_text_frame(self.wfile, json.dumps(_advisory_error()))
+        elif mode == "unsequenced_log":
+            _send_server_text_frame(self.wfile, json.dumps(_unsequenced_log()))
         for frame in _run_frames():
             _send_server_text_frame(self.wfile, json.dumps(frame))
 
@@ -433,6 +436,38 @@ def _heartbeat() -> dict[str, object]:
     }
 
 
+def _unsequenced_log() -> dict[str, object]:
+    """An out-of-band control-plane notice, in the shape url4-cloud really emits.
+
+    Reproduced from ``url4_cloud.notices.warn`` through ``url4.streaming.codec.encode``:
+    both emitters (the re-attach cache-policy warning in ``ws/bridge.py`` and the
+    cache-control override in ``rest/routes.py``) bypass the broker sequencer, and ``encode``
+    does not pass ``exclude_none`` — so the sequence keys are PRESENT and null rather than
+    omitted, which a hand-written fixture would get wrong.
+    """
+
+    return {
+        "specversion": "1.0",
+        "id": "notice_1",
+        "source": "/trace/run_1",
+        "subject": "run_1",
+        "time": datetime.now(UTC).isoformat(),
+        "datacontenttype": "application/json",
+        "dataschema": None,
+        "sequence": None,
+        "sequencetype": None,
+        "traceparent": None,
+        "tracestate": None,
+        "type": "ai.url4.log",
+        "data": {
+            "severity_number": 13,
+            "severity_text": "WARN",
+            "body": "the run's cache policy is fixed by its first attach",
+            "attributes": {"cache.declared": "not stated", "cache.effective": "not stated"},
+        },
+    }
+
+
 def _advisory_error() -> dict[str, object]:
     return {
         "specversion": "1.0",
@@ -475,6 +510,7 @@ def protocol_server(
         "success",
         "advisory_error",
         "heartbeat",
+        "unsequenced_log",
         "http_stop",
         "delayed_attach",
         "stop",

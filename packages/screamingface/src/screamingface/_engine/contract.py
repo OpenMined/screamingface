@@ -19,6 +19,20 @@ from screamingface.report import Usage as AccountingUsage
 _LOG = logging.getLogger(__name__)
 _MAX_CONSECUTIVE_REPLAY_REQUESTS = 3
 _MAX_STREAM_REATTACH_REQUESTS = 3
+# Frames the control plane emits outside the broker's sequencer, so they never carry one.
+_UNSEQUENCED_TYPES = frozenset({"ai.url4.heartbeat", "ai.url4.error"})
+# Frames that MAY arrive either way: the broker stamps a sequence on the ones it relays, but
+# url4-cloud also injects notices out of band (a re-attach cache-policy warning, a
+# cache-control override) which bypass it entirely.
+# INVARIANT: only frames that mutate no _RunState may appear in either set. Gap detection,
+# event-id de-duplication, and the replay-order guarantee all live on the sequenced path, so
+# an unsequenced terminated would build an outcome from a stream never checked for gaps, and
+# an unsequenced cost.usage would corrupt the billing total the user reads in their Report.
+# AIDEV-NOTE: keying on the ABSENCE of a field is a tolerant-reader shim — "out of band by
+# design" and "the broker dropped the sequence" are indistinguishable on the wire. The
+# durable fix is a distinct server-side CloudEvent type for advisory notices.
+_ADVISORY_TYPES = frozenset({"ai.url4.log"})
+_UNSEQUENCED_LABELS = {"ai.url4.heartbeat": "heartbeat"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +61,13 @@ class _RunState:
     def accept(self, raw: str | bytes) -> _Accepted:
         payload = _payload(raw)
         event_type = _text(payload, "type")
-        if event_type in {"ai.url4.heartbeat", "ai.url4.error"}:
+        # INVARIANT: the discriminator is the presence of "sequence" ALONE. "sequencetype"
+        # annotates "sequence"; with no sequence it annotates nothing. Keying on both fields
+        # would reclassify a sequenced frame whose sequencetype is missing as advisory and
+        # silently skip its handler, instead of rejecting a malformed envelope.
+        if event_type in _UNSEQUENCED_TYPES or (
+            event_type in _ADVISORY_TYPES and payload.get("sequence") is None
+        ):
             return self._accept_unsequenced(payload, event_type)
         sequence_result = self._accept_sequence(payload)
         if sequence_result is not None:
@@ -75,7 +95,7 @@ class _RunState:
         payload: Mapping[str, object],
         event_type: str,
     ) -> _Accepted:
-        label = "heartbeat" if event_type == "ai.url4.heartbeat" else "ai.url4.error"
+        label = _UNSEQUENCED_LABELS.get(event_type, event_type)
         data = _object(payload.get("data"), f"{label} data")
         self._observe_run(_common_envelope(payload)["run_id"])
         if event_type == "ai.url4.error":
@@ -90,6 +110,8 @@ class _RunState:
                         details=data,
                     )
                 return _Accepted(replay_from=self._last_sequence + 1)
+        elif event_type == "ai.url4.log":
+            _advisory_log(data)
         return _Accepted()
 
     def _accept_sequence(self, payload: Mapping[str, object]) -> _Accepted | None:
@@ -193,6 +215,21 @@ def _advisory_error(data: Mapping[str, object]) -> tuple[str, str]:
     message = _text(data, "message")
     _optional_text(data.get("ref_id"), "error ref_id")
     return code, message
+
+
+def _advisory_log(data: Mapping[str, object]) -> None:
+    """Validate an out-of-band notice and surface it without inventing a sequence.
+
+    WHY: the notice cannot become a public Event — ``events.Event.sequence`` is a mandatory
+    positive integer, and inventing one would pollute the replay order the sequence defines.
+    Dropping it silently is worse than the crash it replaces, though: the server sends these
+    precisely so a caller learns its declaration was overridden. Logging keeps that promise.
+    """
+
+    _severity(_text(data, "severity_text"))
+    _integer(data.get("severity_number"), "log severity_number")
+    _log_attributes(data.get("attributes", {}))
+    _LOG.warning("SF Engine notice: %s", _raw_text(data, "body"))
 
 
 def _payload(raw: str | bytes) -> dict[str, object]:

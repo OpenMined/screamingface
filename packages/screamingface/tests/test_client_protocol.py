@@ -478,3 +478,24 @@ async def test_async_transport_preserves_disconnect_shaped_callback_exceptions(
             await _arun(engine.url, fail)
 
     assert caught.value is error
+
+
+def test_an_out_of_band_notice_does_not_kill_a_paid_run() -> None:
+    # STORY: as a researcher whose cache directive was overridden, the Engine tells me so and
+    # the Run I am paying for keeps going. Before this, the notice aborted the Run outright.
+    seen: list[str] = []
+    with protocol_server(mode="unsequenced_log") as engine:
+        outcome = _run(engine.url, lambda event: seen.append(event.kind))
+
+    assert outcome.result_body == "[test] done"
+    assert seen == ["started", "usage", "terminated"]
+
+
+@pytest.mark.asyncio
+async def test_an_out_of_band_notice_does_not_kill_a_paid_async_run() -> None:
+    seen: list[str] = []
+    with protocol_server(mode="unsequenced_log") as engine:
+        outcome = await _arun(engine.url, lambda event: seen.append(event.kind))
+
+    assert outcome.result_body == "[test] done"
+    assert seen == ["started", "usage", "terminated"]
