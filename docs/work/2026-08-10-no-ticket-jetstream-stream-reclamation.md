@@ -64,7 +64,8 @@ Failing first, in this order:
     module's stated purpose rather than hand-formatting the prefix at the call site.
   - `apps/url4-cloud/tests/unit/test_jetstream_reclamation.py` (11 tests) — new.
   - `apps/url4-cloud/tests/unit/test_runner_stream_reclamation.py` (7 tests) — new.
-- **Commits:** not yet committed — awaiting owner go-ahead.
+- **Commits:** `a78cab5d` — fix(url4-cloud): reclaim JetStream streams so runs stop failing
+  with 10047. (This ledger's own sha lands in the follow-up doc commit; the branch squash-merges.)
 - **Gates:** `run_gates.py url4-cloud` → ALL GATES GREEN (append-only check, ruff check, ruff
   format --check, pyright, check_layering, pytest with `--cov-fail-under=80`). 18 new tests
   pass; no pre-existing test modified (confirmed by the append-only gate).
