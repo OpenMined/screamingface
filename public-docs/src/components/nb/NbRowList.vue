@@ -15,7 +15,7 @@ function fire(row: NbRow) {
   emit('action', row)
 }
 
-// A secret value is shown as dots — the row never renders the real characters.
+// A secret value is shown as dots: the row never renders the real characters.
 function shown(form: NonNullable<NbRow['form']>) {
   return form.secret && form.value ? '•'.repeat(form.value.length) : (form.value ?? '')
 }

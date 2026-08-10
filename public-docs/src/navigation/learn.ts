@@ -11,6 +11,7 @@ export const learnNavigation: NavEntry[] = [
       { title: 'url4', path: '/learn/url4' },
       { title: 'ScreamingFace Engine', path: '/learn/engine' },
       { title: 'url4 SDK', path: '/learn/url4-sdk' },
+      { title: 'Caching and compute', path: '/learn/caching' },
     ],
   },
 ]

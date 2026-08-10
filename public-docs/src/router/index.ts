@@ -93,6 +93,11 @@ const router = createRouter({
       name: 'learn-url4-sdk',
       component: () => import('@/pages/learn/Url4SdkPage.vue'),
     },
+    {
+      path: '/learn/caching',
+      name: 'learn-caching',
+      component: () => import('@/pages/learn/CachingPage.vue'),
+    },
   ],
   scrollBehavior() {
     return { top: 0 }

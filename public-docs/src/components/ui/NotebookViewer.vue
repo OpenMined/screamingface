@@ -49,7 +49,7 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const attr = hrefIdx >= 0 ? token?.attrs?.[hrefIdx] : undefined
   // WHY the typeof guard: markdown-it 15 ships its own typings (14 had none, so
   // @types/markdown-it supplied them) and widens a token attribute to
-  // `[name: string, value: string | number]` — attrSet/attrJoin genuinely accept numbers.
+  // `[name: string, value: string | number]`, and attrSet/attrJoin genuinely accept numbers.
   // An href is a string in every path we produce, but a numeric value cannot be a notebook
   // link, so narrowing to string and otherwise not matching is the honest read rather than
   // a cast that asserts something the type no longer guarantees.
@@ -62,7 +62,7 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
       attr[1] = route
     } else {
       stripDepth++
-      return '' // no page yet — drop the anchor, keep the label text
+      return '' // no page yet, drop the anchor, keep the label text
     }
   }
   return defaultLinkOpen(tokens, idx, options, env, self)
@@ -138,7 +138,7 @@ async function copyCell(id: number, code: string) {
     clearTimeout(copyTimer)
     copyTimer = setTimeout(() => (copiedId.value = null), 1500)
   } catch {
-    /* clipboard unavailable — ignore */
+    /* clipboard unavailable, ignore */
   }
 }
 
@@ -265,7 +265,9 @@ function onClick(e: MouseEvent) {
   font-size: 0.75rem;
   padding: 0.15rem 0.5rem;
   border-radius: 0.35rem;
-  transition: color 0.15s ease, background 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
 }
 .nb-copy:hover {
   color: #e4e4e7;
@@ -319,20 +321,20 @@ function onClick(e: MouseEvent) {
   border-radius: 0.35rem;
 }
 /* Rich widget / repr HTML ships its OWN inline light styling (fixed brand ink on
-   a white surface — see the SDK's html.py / wv.py) and does NOT adapt to dark
+   a white surface, see the SDK's html.py / wv.py) and does NOT adapt to dark
    mode. So this frame is deliberately theme-INDEPENDENT: a themed token would
    flip dark in dark mode and hide the widget's fixed-dark text. The fixed light
    surface below matches the content it wraps, framing it as an embedded preview. */
 .nb {
   /* Intentionally NOT flipping theme tokens: the widget content is fixed-light. */
   --nb-preview-surface: #ffffff;
-  --nb-preview-ink: #16181d; /* brand ink — matches the widget's own palette */
+  --nb-preview-ink: #16181d; /* brand ink: matches the widget's own palette */
 }
 .nb-out-html {
   overflow-x: auto;
   background: var(--nb-preview-surface);
   /* Base color so widget text that INHERITS its color (rather than setting its
-     own) is dark on the white card — otherwise it inherits the page's light
+     own) is dark on the white card, otherwise it inherits the page's light
      dark-mode foreground and becomes white-on-white. */
   color: var(--nb-preview-ink);
   border: 1px solid var(--border);

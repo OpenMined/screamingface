@@ -6,7 +6,7 @@
  *   src/style.css, so panels sit correctly on the page in either mode.
  *
  *   Brand (accent, info, danger, success, cell chrome) carries its own
- *   light/dark pair, matching the SDK's own notebook cards — the gold accent is
+ *   light/dark pair, matching the SDK's own notebook cards. The gold accent is
  *   the signal that a panel is ScreamingFace output, so it must not drift to the
  *   site's primary purple. Dark values mirror the SDK's --sf-gain / --sf-blind.
  *
@@ -14,7 +14,7 @@
  * the existing theme toggle.
  */
 :root {
-  /* Structural — follows the site theme */
+  /* Structural: follows the site theme */
   --nb-ink: var(--color-foreground);
   --nb-soft: color-mix(in oklab, var(--color-foreground) 75%, var(--color-muted-foreground));
   --nb-muted: var(--color-muted-foreground);
@@ -26,7 +26,7 @@
   --nb-mono: var(--font-mono);
   --nb-pad: 20px;
 
-  /* Brand — light */
+  /* Brand: light */
   --nb-accent: #b07b12;
   --nb-on-accent: #ffffff;
   --nb-danger: #b3261e;
@@ -46,7 +46,7 @@
 }
 
 .dark {
-  /* Brand — dark. Structural tokens need no override; they follow the theme. */
+  /* Brand: dark. Structural tokens need no override; they follow the theme. */
   --nb-accent: #e0a23c;
   --nb-on-accent: #1a1408;
   --nb-danger: #f0726f;

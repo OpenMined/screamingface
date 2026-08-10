@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
@@ -71,12 +72,13 @@ client.close()`
     <p>
       <code>sf.evaluate()</code> is the one call that spends money. You hand it candidates and a
       benchmark id; it compiles each candidate against that benchmark's pinned protocol, runs them
-      concurrently on the engine, and returns a single <code>Report</code>.
+      concurrently on <RouterLink to="/learn/engine">the engine</RouterLink>, and returns a single
+      <code>Report</code>.
     </p>
 
     <p>
-      Everything expensive is on the far side of this call. Validation happens first and entirely,
-      so an unknown benchmark, an unreachable route, a malformed candidate all fail
+      Everything expensive is on the far side of this call. Validation happens first and entirely.
+      An unknown benchmark, an unreachable route, a malformed candidate all fail
       <strong>before the first paid request</strong>.
     </p>
 
@@ -92,27 +94,39 @@ client.close()`
 
     <h2>Main APIs</h2>
 
-    <ul>
-      <li>
-        <code
-          >sf.evaluate(candidates, *, benchmark, limit=None, method=None, on_event=None,
-          progress=None)</code
-        >: run candidates against a benchmark, returns <code>sf.Report</code>
-      </li>
-      <li>
-        <code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code>: the
-        same call on an explicit client
-      </li>
-      <li><code>sf.configure(engine_url=…)</code>: repoint the shared client</li>
-      <li><code>sf.close()</code>: release the shared client</li>
-    </ul>
+    <table>
+      <thead>
+        <tr>
+          <th>API</th>
+          <th>What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>sf.evaluate(candidates, *, benchmark, limit=None, method=None, on_event=None, progress=None)</code></td>
+          <td>Runs one or many candidates against a benchmark's pinned protocol concurrently and returns a single <code>sf.Report</code>, validating fully before the first paid request.</td>
+        </tr>
+        <tr>
+          <td><code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code></td>
+          <td>The same call on an explicit client you hold yourself, synchronously or with <code>await</code>, which is the only way to address two engines from one process.</td>
+        </tr>
+        <tr>
+          <td><code>sf.configure(engine_url=…)</code></td>
+          <td>Repoints the shared client once so every later <code>sf.evaluate()</code> call uses that engine.</td>
+        </tr>
+        <tr>
+          <td><code>sf.close()</code></td>
+          <td>Releases the shared client.</td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>How to</h2>
 
     <h3>Evaluate one candidate</h3>
 
     <p>
-      The benchmark id is <strong>required</strong>, with no default and no implicit choice.
+      The benchmark id is <strong>required</strong>: there is no default and no implicit choice.
       <code>limit</code> caps the case count, and it is your main cost control.
     </p>
 
@@ -128,8 +142,7 @@ client.close()`
     <h3>Read the score</h3>
 
     <p>
-      Scores live on candidates, not on the report, because a report may hold several. With one
-      candidate,
+      Scores live on candidates, not on the report: a report may hold several. With one candidate,
       <code>.only</code> is the direct way to it.
     </p>
 
@@ -183,9 +196,9 @@ client.close()`
 
     <p>
       An honest result: identical scores, <strong>3.2× the output tokens</strong>. On this slice the
-      retry loop bought nothing, since <code>corrected_cases</code> above is <code>0.0</code>,
-      meaning no case failed first and passed later. That is what a three-case sample of a capable
-      model looks like, and it is the reason to run more cases before concluding anything.
+      retry loop bought nothing: <code>corrected_cases</code> above is <code>0.0</code>, meaning no
+      case failed first and passed later. That is what a three-case sample of a capable model looks
+      like, and it is the reason to run more cases before concluding anything.
     </p>
 
     <h3>Read what it cost</h3>
@@ -196,7 +209,7 @@ client.close()`
 
     <p>
       <code>cost_usd</code> is <code>Decimal('0')</code> here because this engine has no pricing
-      data, so a zero means "not reported", not "free". Token counts are the reliable measure. Any
+      data: a zero means "not reported", not "free". Token counts are the reliable measure. Any
       field is <code>None</code> if even one candidate run failed to report it, rather than being
       silently summed as a partial total.
     </p>
@@ -217,7 +230,7 @@ client.close()`
 
     <p>
       <code>sf.evaluate()</code> never asks where the engine is, so it falls back to your own
-      machine at <code>http://127.0.0.1:9108</code>. Against a hosted engine that fails, so name it
+      machine: <code>http://127.0.0.1:9108</code>. Against a hosted engine that fails, so name it
       once with <code>sf.configure()</code> and every later call uses it.
     </p>
 
@@ -234,7 +247,7 @@ client.close()`
     <h2>When it fails</h2>
 
     <p>
-      <code>PlanningError</code> means the run never started, so change the candidate, benchmark or
+      <code>PlanningError</code> means the run never started: change the candidate, benchmark or
       configuration. <code>ExecutionError</code> means it reached the engine and ended without a
       valid report. <code>EngineUnavailableError</code> means the engine was not reachable at all.
       Each carries a stable <code>code</code> and a <code>hint</code>.

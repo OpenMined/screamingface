@@ -52,7 +52,7 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
       score-merging. Members produce candidate answers, and a model decides.
     </p>
 
-    <p>Like a Model, a Fusion is immutable and network-free, so building one makes no request.</p>
+    <p>Like a Model, a Fusion is immutable: building one makes no request.</p>
 
     <h2>What you can do with it</h2>
 
@@ -65,25 +65,45 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
 
     <h2>Main APIs</h2>
 
-    <ul>
-      <li>
-        <code>sf.Fusion(members, *, name=None, synthesizer=None, prompt=None, params=None)</code>:
-        combine members behind a synthesizer
-      </li>
-      <li>
-        <code>.name</code> · <code>.members</code> · <code>.synthesizer</code> ·
-        <code>.prompt</code> · <code>.params</code>: read back the resolved shape
-      </li>
-      <li><code>sf.Recipe</code>: the shared base type of every candidate kind</li>
-    </ul>
+    <table>
+      <thead>
+        <tr>
+          <th>API</th>
+          <th>What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <code>sf.Fusion(members, *, name=None, synthesizer=None, prompt=None, params=None)</code>
+          </td>
+          <td>
+            Combines at least two members behind a synthesizer that reads their answers and produces
+            the single final answer the benchmark grades.
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <code>.name</code> · <code>.members</code> · <code>.synthesizer</code> ·
+            <code>.prompt</code> · <code>.params</code>
+          </td>
+          <td>Read back the resolved shape, including the members and the resolved name.</td>
+        </tr>
+        <tr>
+          <td><code>sf.Recipe</code></td>
+          <td>The shared base type of every candidate kind.</td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>How to</h2>
 
     <h3>Combine two models</h3>
 
     <p>
-      Members come first and positionally. Nothing else is required: the engine declares a default
-      synthesizer (<code>openrouter/anthropic/claude-haiku-4.5</code>) and the SDK supplies a
+      Members come first and positionally. Nothing else is required:
+      <RouterLink to="/learn/engine">the engine</RouterLink> declares a default synthesizer
+      (<code>openrouter/anthropic/claude-haiku-4.5</code>) and the SDK supplies a
       constraint-aware synthesis prompt, so a two-line Fusion is complete.
     </p>
 
@@ -111,9 +131,9 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     <h3>Choose the synthesizer</h3>
 
     <p>
-      The synthesizer is a <strong>model route string</strong>, not a Model object, because the
-      engine resolves it. Swapping it is the main lever a Fusion has: the same members with a
-      stronger synthesizer is a different candidate, and worth measuring as one.
+      The synthesizer is a <strong>model route string</strong>, not a Model object: it is the engine
+      that resolves it. Swapping it is the main lever a Fusion has: the same members with a stronger
+      synthesizer is a different candidate, and worth measuring as one.
     </p>
 
     <div class="not-prose">
@@ -122,8 +142,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
 
     <p>
       <code>prompt</code> and <code>params</code> work the same way here as on a Model, but they
-      apply to the <em>synthesis</em> step, governing how the final answer is written rather than
-      how members answer. Give a member its own prompt by setting it on that Model.
+      apply to the <em>synthesis</em> step: how the final answer is written, not how members answer.
+      Give a member its own prompt by setting it on that Model.
     </p>
 
     <h3>Nest a fusion</h3>
@@ -138,8 +158,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     </div>
 
     <p>
-      Members must be Models or Fusions. A corrective ensemble cannot be a member, because it grades
-      its own members' raw drafts, which a surrounding synthesizer would have already replaced.
+      Members must be Models or Fusions. A corrective ensemble cannot be a member: it grades its own
+      members' raw drafts, which a surrounding synthesizer would have already replaced.
     </p>
 
     <h2>Links</h2>

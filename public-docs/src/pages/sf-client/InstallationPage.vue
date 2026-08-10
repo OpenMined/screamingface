@@ -11,16 +11,8 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-const SOURCE =
-  'git+https://github.com/OpenMined/screamingface' +
-  '@OME-605-screamingface-client-v1#subdirectory=packages/screamingface'
-
 const pypiNotebook = `!pip install "screamingface[notebook]"`
 const pypiTerminal = `uv pip install "screamingface[notebook]"`
-
-const sourceNotebook = `!pip install "screamingface[notebook] @ ${SOURCE}"`
-const sourceTerminal = `uv venv --python 3.12
-uv pip install "screamingface[notebook] @ ${SOURCE}"`
 
 const verify = `import screamingface as sf
 
@@ -64,21 +56,28 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
 <template>
   <DocLayout
     title="Installation"
-    description="Install the client, and point it at an engine: hosted, or one you run yourself."
+    description="Install the client, and point it at an engine you run yourself, or a hosted one."
     :navigation="navigation"
     :version="version"
   >
-    <p>
-      Two things are needed to successfully complete the installation: the <strong>client</strong>,
-      a Python library, and an <strong>engine</strong>, which does the work. The client never calls
-      a model provider itself, so it always needs an engine to talk to.
-    </p>
+    <p>Installing has two parts:</p>
 
-    <p>
-      You can reach a <strong>hosted</strong> engine that someone else runs, or run a
-      <strong>self-hosted</strong> one yourself. The first takes a few lines while the second is
-      described in the rest of this page.
-    </p>
+    <ul>
+      <li>
+        The <strong>client</strong>, a Python library. It never calls a model provider itself, so it
+        always needs an engine to talk to.
+      </li>
+      <li>
+        An <RouterLink to="/learn/engine"><strong>engine</strong></RouterLink>, which does the work.
+        There are two ways to get one:
+        <ul>
+          <li><strong>Option A</strong> runs one on your own machine, on your own keys.</li>
+          <li><strong>Option B</strong> points at a hosted engine someone else runs.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <p>The client code is the same either way, so pick whichever you prefer.</p>
 
     <h2>1 · Install the client</h2>
 
@@ -92,25 +91,18 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
 
     <CodeBlock :code="pypiTerminal" language="bash" />
 
-    <blockquote>
-      <strong>Not on PyPI yet.</strong> Until it is published, install from source instead. The
-      commands below are the same, with the repository as the package's origin.
-    </blockquote>
-
-    <p>In a notebook:</p>
-
-    <div class="not-prose">
-      <NbCell :count="1" :code="sourceNotebook" />
-    </div>
-
-    <p>From a terminal:</p>
-
-    <CodeBlock :code="sourceTerminal" language="bash" />
+    <p>
+      Prefer to install from source? Install it the same way from the
+      <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener"
+        >source repository</a
+      >.
+    </p>
 
     <p>
       The <code>[notebook]</code> extra pulls ipywidgets and jupyterlab, which is what makes
       <code>sf.connect()</code> render a live panel instead of static text. Drop it if you are
-      writing scripts. Everything else, including <code>url4</code>, resolves automatically.
+      writing scripts. Everything else, including
+      <RouterLink to="/learn/url4"><code>url4</code></RouterLink>, resolves automatically.
     </p>
 
     <p>A quick check that it worked:</p>
@@ -119,11 +111,63 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
       <NbCell :count="2" :code="verify" />
     </div>
 
-    <h2>2 · Reach a hosted engine</h2>
+    <h2>2 · Configure your engine</h2>
+
+    <p>Choose one of the two options below.</p>
+
+    <h3>Option A: Run your own engine</h3>
 
     <p>
-      Name the engine once and every later call uses it. Without this the client looks on your own
-      machine, finds nothing, and fails.
+      The local path runs everything on your machine, on your own keys, with no account and no
+      login. Clone the
+      <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener"
+        >repository</a
+      >, start two small services, and point the client at them.
+    </p>
+
+    <h4>AI Gateway</h4>
+
+    <p>Holds your provider keys. One command starts it:</p>
+
+    <CodeBlock :code="gateway" language="bash" />
+
+    <h4>Benchmark assets</h4>
+
+    <p>
+      The Engine reads datasets from disk rather than downloading them at runtime, so a run cannot
+      silently use a different revision than you expect. Prepare them once:
+    </p>
+
+    <Note>
+      On macOS, if this fails with <code>CERTIFICATE_VERIFY_FAILED</code>, the one-line fix is in
+      the FAQ below.
+    </Note>
+
+    <CodeBlock :code="assets" language="bash" />
+
+    <h4>The Engine</h4>
+
+    <p>Executes runs, serving on <code>127.0.0.1:9108</code>, loopback only.</p>
+
+    <CodeBlock :code="engine" language="bash" />
+
+    <h4>Point the client at it</h4>
+
+    <div class="not-prose">
+      <NbCell :count="1" :code="localPoint" />
+    </div>
+
+    <p>No login step: a local engine advertises no Cloudflare Access.</p>
+
+    <h4>Check it works</h4>
+
+    <CodeBlock :code="health" language="bash" />
+
+    <h3>Option B: Reach a hosted engine</h3>
+
+    <p>
+      Prefer not to run anything yourself? Point the client at a hosted engine instead. Name it once
+      and every later call uses it.
     </p>
 
     <div class="not-prose">
@@ -131,7 +175,7 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
     </div>
 
     <p>
-      A hosted engine sits behind Cloudflare Access. There is no token to paste.
+      A hosted engine sits behind Cloudflare Access. There is no token to paste:
       <code>login()</code> opens your browser and collects it.
     </p>
 
@@ -152,56 +196,6 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
       That is the whole hosted path. Go and run the
       <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink>.
     </p>
-
-    <h2>3 · Run your own engine</h2>
-
-    <p>
-      Self-hosting means running two services: <strong>AI Gateway</strong>, which holds provider
-      credentials, and the <strong>Engine</strong>, which executes runs. Both live in the
-      repository, so start from a checkout.
-    </p>
-
-    <h3>AI Gateway</h3>
-
-    <p>
-      A fresh install has no database schema, so migrate before the first start, otherwise it
-      crashes on boot. Two environment variables matter: local mode expects anonymous callers, and
-      the OpenRouter plugin ships <strong>disabled</strong>, so a valid key is refused until you
-      turn it on.
-    </p>
-
-    <CodeBlock :code="gateway" language="bash" />
-
-    <h3>Benchmark assets</h3>
-
-    <p>
-      The Engine never downloads datasets at runtime. That is deliberate: a run cannot silently
-      execute against a different revision of a benchmark than you think. Prepare them once:
-    </p>
-
-    <Note>
-      On macOS this download often fails TLS verification, because the system Python ships without a
-      CA bundle. If you see <code>CERTIFICATE_VERIFY_FAILED</code>, the fix is in the FAQ below.
-    </Note>
-
-    <CodeBlock :code="assets" language="bash" />
-
-    <h3>The Engine</h3>
-
-    <CodeBlock :code="engine" language="bash" />
-
-    <p>
-      It serves on <code>127.0.0.1:9108</code>, loopback only. Point the client at it, and skip the
-      login step. A local engine advertises no Cloudflare Access.
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="1" :code="localPoint" />
-    </div>
-
-    <h2>Check it works</h2>
-
-    <CodeBlock :code="health" language="bash" />
 
     <h2>Frequently Asked Questions</h2>
 
@@ -233,8 +227,8 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
 
     <Collapsible title="Do I have to run my own engine?">
       <p>
-        No. Reaching a hosted one is the shorter path, and everything in section 3 exists for people
-        who want the whole stack inside their own walls.
+        No. Option B points at a hosted engine and skips the local setup entirely. Option A exists
+        for people who want the whole stack on their own machine.
       </p>
     </Collapsible>
   </DocLayout>

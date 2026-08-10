@@ -11,7 +11,7 @@ const install = `pip install url4`
 
 const roundtrip = `import url4
 
-# Parse a url4 string into a syntax tree, and render it back — losslessly.
+# Parse a url4 string into a syntax tree, and render it back, losslessly.
 node = url4.build("(https://a, https://b)!'summarize both'")
 assert url4.render(node) == "(https://a, https://b)!'summarize both'"
 
@@ -30,7 +30,7 @@ print(url4.render(expr))   # a canonical url4 string`
 
 const run = `import url4
 
-# A StaticIOLayer returns fixed content per source — ideal for tests.
+# A StaticIOLayer returns fixed content per source, ideal for tests.
 io = url4.StaticIOLayer({"https://a": "alpha", "https://b": "beta"})
 
 result = url4.evaluate_sync("(https://a, https://b)!'summarize both'", io=io)
@@ -65,7 +65,7 @@ url4 serve`
     <p>
       <code>build</code> parses a url4 string into a frozen syntax tree; <code>render</code> turns a
       tree back into canonical text. The two are exact inverses, so an expression survives a
-      round-trip unchanged — that guarantee is what makes url4 a reliable audit trail.
+      round-trip unchanged. That guarantee is what makes url4 a reliable audit trail.
       <code>walk</code> traverses the tree.
     </p>
 
@@ -75,9 +75,10 @@ url4 serve`
 
     <p>
       When you would rather not assemble strings, the builder API constructs the same tree directly.
-      <code>src</code> makes a source (with optional name, weight, budgets), <code>expr</code> groups
-      sources under an intent, and <code>iterate</code> / <code>reduce</code> express map-and-reduce.
-      <code>ref</code> and <code>text</code> build references and literals.
+      <code>src</code> makes a source (with optional name, weight, budgets),
+      <code>expr</code> groups sources under an intent, and <code>iterate</code> /
+      <code>reduce</code> express map-and-reduce. <code>ref</code> and <code>text</code> build
+      references and literals.
     </p>
 
     <CodeBlock :code="build" language="python" />
@@ -85,26 +86,27 @@ url4 serve`
     <h2>Execute</h2>
 
     <p>
-      Execution needs an <strong>I/O layer</strong> — the port that resolves a source to content.
-      <code>StaticIOLayer</code> returns fixed values (ideal for tests); <code>HttpIOLayer</code>
-      fetches over the network. <code>evaluate_sync</code> runs an expression in one call and returns
-      a result carrying both the answer and the canonical request that produced it. For async use,
-      <code>url4.Client</code> runs expressions inside an event loop.
+      Execution needs an <strong>I/O layer</strong>: the piece that resolves a source to content.
+      <code>StaticIOLayer</code> returns fixed values (ideal for tests);
+      <code>HttpIOLayer</code> fetches over the network. <code>evaluate_sync</code> runs an
+      expression in one call and returns a result carrying both the answer and the canonical request
+      that produced it. For async use, <code>url4.Client</code> runs expressions inside an event
+      loop.
     </p>
 
     <CodeBlock :code="run" language="python" />
 
     <p>
-      A url4 node can also be served over HTTP, so other expressions can call it as a source — this
+      A url4 node can also be served over HTTP, so other expressions can call it as a source. This
       is the same shape the <RouterLink to="/learn/engine">Engine</RouterLink> exposes:
     </p>
 
     <CodeBlock :code="serve" language="python" />
 
     <p>
-      Parsing and execution raise typed errors — <code>ParseError</code> for malformed text,
+      Parsing and execution raise typed errors: <code>ParseError</code> for malformed text,
       <code>ScopeError</code> for an unresolved reference, <code>CycleError</code> for a circular
-      dependency, and <code>RenderError</code> when a tree cannot round-trip — all subclasses of
+      dependency, and <code>RenderError</code> when a tree cannot round-trip, all subclasses of
       <code>Url4Error</code>.
     </p>
 
@@ -113,7 +115,7 @@ url4 serve`
     <CodeBlock :code="cli" language="bash" />
 
     <blockquote>
-      <strong>url4 SDK vs the ScreamingFace Client.</strong> This library is the low-level protocol —
+      <strong>url4 SDK vs the ScreamingFace Client.</strong> This library is the low-level protocol:
       parse, build, and run url4. The
       <RouterLink to="/sf-client">ScreamingFace Client</RouterLink> (<code>screamingface</code>) is
       the research-facing layer on top: it composes fusions and benchmarks, drives an Engine, and
@@ -125,17 +127,23 @@ url4 serve`
 
     <ul>
       <li>
-        <a :href="`${GH_TREE}/packages/url4`" target="_blank" rel="noopener"><code>packages/url4</code></a>
-        — the package, with its
+        <a :href="`${GH_TREE}/packages/url4`" target="_blank" rel="noopener"
+          ><code>packages/url4</code></a
+        >: the package, with its
         <a :href="`${GH_BLOB}/packages/url4/README.md`" target="_blank" rel="noopener">README</a>.
       </li>
       <li>
-        <a :href="`${GH_BLOB}/packages/url4/src/url4/core/builders.py`" target="_blank" rel="noopener"><code>src/url4/core/builders.py</code></a>
-        — the Python builder API.
+        <a
+          :href="`${GH_BLOB}/packages/url4/src/url4/core/builders.py`"
+          target="_blank"
+          rel="noopener"
+          ><code>src/url4/core/builders.py</code></a
+        >: the Python builder API.
       </li>
       <li>
-        <a :href="`${GH_TREE}/packages/url4/examples`" target="_blank" rel="noopener"><code>packages/url4/examples</code></a>
-        — runnable examples.
+        <a :href="`${GH_TREE}/packages/url4/examples`" target="_blank" rel="noopener"
+          ><code>packages/url4/examples</code></a
+        >: runnable examples.
       </li>
     </ul>
   </DocLayout>

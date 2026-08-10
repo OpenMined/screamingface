@@ -19,17 +19,13 @@ const { activeLang } = storeToRefs(codeLangStore)
 const { highlight } = useHighlight()
 const { copied, copy: copyText } = useCopy()
 
-const activeTab = computed(() =>
-  props.tabs.find(t => t.lang === activeLang.value) ?? null
-)
+const activeTab = computed(() => props.tabs.find((t) => t.lang === activeLang.value) ?? null)
 
 const highlightedCode = computed(() =>
-  activeTab.value ? highlight(activeTab.value.code, activeTab.value.lang) : ''
+  activeTab.value ? highlight(activeTab.value.code, activeTab.value.lang) : '',
 )
 
-const lineCount = computed(() =>
-  activeTab.value ? activeTab.value.code.split('\n').length : 0
-)
+const lineCount = computed(() => (activeTab.value ? activeTab.value.code.split('\n').length : 0))
 
 function selectLang(lang: string) {
   activeLang.value = lang
@@ -41,7 +37,9 @@ function copy() {
 </script>
 
 <template>
-  <div class="not-prose rounded-xl overflow-hidden border border-zinc-700 bg-zinc-900 font-mono text-sm mb-6 shadow-sm">
+  <div
+    class="not-prose rounded-xl overflow-hidden border border-zinc-700 bg-zinc-900 font-mono text-sm mb-6 shadow-sm"
+  >
     <!-- Header: language tabs + copy button -->
     <div class="flex items-center justify-between border-b border-zinc-700">
       <div class="flex">
@@ -53,7 +51,7 @@ function copy() {
             'px-4 py-2.5 text-xs transition-colors border-b-2 -mb-px',
             activeLang === tab.lang
               ? 'text-zinc-100 border-indigo-500'
-              : 'text-zinc-500 border-transparent hover:text-zinc-300'
+              : 'text-zinc-500 border-transparent hover:text-zinc-300',
           ]"
         >
           {{ tab.label }}
@@ -71,18 +69,26 @@ function copy() {
     </div>
 
     <!-- N/A state -->
-    <div v-if="!activeTab" class="px-6 py-8 text-center text-zinc-600 text-xs uppercase tracking-widest">
+    <div
+      v-if="!activeTab"
+      class="px-6 py-8 text-center text-zinc-600 text-xs uppercase tracking-widest"
+    >
       Not available in {{ activeLang }}
     </div>
 
     <!-- Code with line numbers -->
     <div v-else class="flex text-sm py-4 overflow-x-auto">
       <!-- Line numbers -->
-      <div class="select-none shrink-0 text-right text-zinc-600 text-xs leading-6 pl-4 pr-3 border-r border-zinc-700/50">
+      <div
+        class="select-none shrink-0 text-right text-zinc-600 text-xs leading-6 pl-4 pr-3 border-r border-zinc-700/50"
+      >
         <div v-for="i in lineCount" :key="i" class="leading-6">{{ i }}</div>
       </div>
       <!-- Code -->
-      <pre class="flex-1 m-0 pl-4! pr-6! leading-6 text-zinc-100 bg-transparent overflow-x-auto" v-html="highlightedCode" />
+      <pre
+        class="flex-1 m-0 pl-4! pr-6! leading-6 text-zinc-100 bg-transparent overflow-x-auto"
+        v-html="highlightedCode"
+      />
     </div>
   </div>
 </template>

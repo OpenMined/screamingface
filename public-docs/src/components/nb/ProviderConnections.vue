@@ -66,7 +66,7 @@ const rows = computed<NbRow[]>(() =>
 function onAction(row: NbRow) {
   const p = props.providers.find((x) => x.id === row.id)
   if (!p) return
-  // Branch rather than computing the event name — a union of names does not
+  // Branch rather than computing the event name: a union of names does not
   // narrow against the typed emit overloads.
   if (p.status === 'connected') emit('disconnect', p)
   else emit('connect', p)

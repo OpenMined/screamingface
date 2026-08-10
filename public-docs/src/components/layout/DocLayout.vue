@@ -54,7 +54,7 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
     />
 
     <!-- Sidebar: one element, two layouts. Off-canvas below lg, a static
-         column above it — so the drawer reuses NavTree rather than copying it. -->
+         column above it, so the drawer reuses NavTree rather than copying it. -->
     <aside
       :class="[
         'w-64 flex flex-col border-r border-border/50 bg-sidebar',
@@ -107,9 +107,12 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
           Menu
         </button>
 
-        <!-- Page header (skipped when no title/description — e.g. notebook pages) -->
+        <!-- Page header (skipped when no title/description, e.g. notebook pages) -->
         <header v-if="title || description" class="mb-12 pb-8 border-b border-border">
-          <h1 v-if="title" class="text-4xl sm:text-5xl font-semibold tracking-tight text-foreground mb-4">
+          <h1
+            v-if="title"
+            class="text-4xl sm:text-5xl font-semibold tracking-tight text-foreground mb-4"
+          >
             {{ title }}
           </h1>
           <p
@@ -126,7 +129,10 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
         </div>
 
         <!-- Prev / Next navigation -->
-        <div v-if="prevPage || nextPage" class="flex justify-between items-center mt-16 pt-8 border-t border-border gap-4">
+        <div
+          v-if="prevPage || nextPage"
+          class="flex justify-between items-center mt-16 pt-8 border-t border-border gap-4"
+        >
           <RouterLink
             v-if="prevPage"
             :to="prevPage.path"

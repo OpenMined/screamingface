@@ -31,7 +31,7 @@ const isActive = (productPath: string) => {
 }
 
 // The product link row collapses below md, so the current-product label becomes
-// the only way to reach another section — it has to be a control, not text.
+// the only way to reach another section, so it has to be a control, not text.
 const productsOpen = ref(false)
 watch(
   () => route.path,
@@ -51,19 +51,24 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   <header class="sticky top-0 z-50 border-b border-border bg-background">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <nav class="flex items-center justify-between h-16">
-        <!-- Brand — the 😱 mark is the shipped system emoji (never recoloured or redrawn). -->
+        <!-- Brand: the 😱 mark is the shipped system emoji (never recoloured or redrawn). -->
         <RouterLink to="/" class="flex items-center gap-2.5 group">
           <span
             class="text-[22px] leading-none transition-transform duration-200 group-hover:scale-105"
             aria-hidden="true"
-          >😱</span>
+            >😱</span
+          >
           <span class="flex items-baseline gap-2">
-            <span class="text-[15px] font-medium tracking-tight text-foreground">ScreamingFace</span>
-            <span class="font-mono text-[10px] tracking-[0.14em] uppercase text-muted-foreground">Docs</span>
+            <span class="text-[15px] font-medium tracking-tight text-foreground"
+              >ScreamingFace</span
+            >
+            <span class="font-mono text-[10px] tracking-[0.14em] uppercase text-muted-foreground"
+              >Docs</span
+            >
           </span>
         </RouterLink>
 
-        <!-- Product Navigation — square underline tab, gold when active -->
+        <!-- Product Navigation: square underline tab, gold when active -->
         <div class="hidden md:flex items-center gap-1 self-stretch">
           <RouterLink
             v-for="product in products"
@@ -73,7 +78,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               'inline-flex items-center px-3 text-sm border-b-2 transition-colors duration-150',
               isActive(product.path)
                 ? 'text-primary border-primary font-medium'
-                : 'text-muted-foreground border-transparent hover:text-foreground'
+                : 'text-muted-foreground border-transparent hover:text-foreground',
             ]"
           >
             {{ product.name }}

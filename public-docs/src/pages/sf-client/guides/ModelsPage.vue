@@ -50,9 +50,9 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
     </p>
 
     <p>
-      A Model is <strong>immutable and network-free</strong>. Constructing one makes no request and
-      needs no connection, because it is only a value describing what to ask for. Nothing happens
-      until you pass it to an evaluation.
+      A Model is <strong>immutable</strong>. Constructing one makes no request and needs no
+      connection: it is a value describing what to ask for. Nothing happens until you pass it to an
+      evaluation.
     </p>
 
     <h2>What you can do with it</h2>
@@ -66,19 +66,34 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
 
     <h2>Main APIs</h2>
 
-    <ul>
-      <li>
-        <code>sf.Model(model, *, name=None, prompt=None, params=None)</code>: select a route,
-        optionally with answer policy
-      </li>
-      <li>
-        <code>sf.models.list()</code>: routes this engine can reach, as <code>sf.ModelInfo</code>
-      </li>
-      <li>
-        <code>.name</code> · <code>.model</code> · <code>.prompt</code> · <code>.params</code>: read
-        back what a Model resolved to
-      </li>
-    </ul>
+    <table>
+      <thead>
+        <tr>
+          <th>API</th>
+          <th>What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>sf.Model(model, *, name=None, prompt=None, params=None)</code></td>
+          <td>
+            Selects one model route as the smallest thing you can evaluate, optionally overriding
+            its answer policy with a prompt and generation parameters.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.models.list()</code></td>
+          <td>
+            Lists the routes this engine can reach as <code>sf.ModelInfo</code> values, spanning
+            every provider the engine knows.
+          </td>
+        </tr>
+        <tr>
+          <td><code>.name</code> · <code>.model</code> · <code>.prompt</code> · <code>.params</code></td>
+          <td>Read back what a Model resolved to, including its inferred or explicit name.</td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>How to</h2>
 
@@ -96,10 +111,10 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
     <h3>Name an independent sample</h3>
 
     <p>
-      Two Models on the same route with the same policy are the <em>same</em> candidate, because the
-      engine deduplicates them by content inside one compiled graph. An explicit
-      <code>name</code> is how you say you meant two independent samples, and it is the name the
-      report uses.
+      Two Models on the same route with the same policy are the <em>same</em> candidate:
+      <RouterLink to="/learn/engine">the engine</RouterLink> deduplicates them by content inside one
+      compiled graph. An explicit <code>name</code> is how
+      you say you meant two independent samples, and it is the name the report uses.
     </p>
 
     <div class="not-prose">
@@ -121,7 +136,8 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
       These are <strong>candidate-owned</strong> settings: they change how your candidate answers,
       and they can never touch benchmark-owned cases, judge models, grading or aggregation. That
       separation is what keeps two candidates comparable on the same benchmark. Whatever you set is
-      resolved and embedded in the run's URL4, so a report records the policy that actually ran.
+      resolved and embedded in the run's <RouterLink to="/learn/url4">URL4</RouterLink>, so a report
+      records the policy that actually ran.
     </p>
 
     <h3>See what the engine can reach</h3>
@@ -132,9 +148,8 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
 
     <p>
       Two things to note. The catalogue spans <strong>every provider the engine knows</strong>, not
-      only the ones you have connected, so a route you have no credential for will fail at
-      evaluation rather than here. And ID shapes differ per provider:
-      <code>anthropic/claude-opus-4-8</code> against
+      only the ones you have connected: a route you have no credential for will fail at evaluation,
+      not here. And ID shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
       <code>openrouter/anthropic/claude-opus-4.8</code>. Copy the <code>id</code> rather than
       retyping it.
     </p>

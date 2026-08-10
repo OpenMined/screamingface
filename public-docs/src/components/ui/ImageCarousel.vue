@@ -16,15 +16,22 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const { currentIndex, next, prev, goTo, startAutoAdvance, stopAutoAdvance, handleManualNavigation } =
-  useCarousel(() => props.images.length)
+const {
+  currentIndex,
+  next,
+  prev,
+  goTo,
+  startAutoAdvance,
+  stopAutoAdvance,
+  handleManualNavigation,
+} = useCarousel(() => props.images.length)
 
 const currentMedia = computed(() => props.images[currentIndex.value])
 </script>
 
 <template>
-  <div 
-    v-if="currentMedia" 
+  <div
+    v-if="currentMedia"
     class="relative rounded-xl overflow-hidden border border-border bg-card/50"
     @mouseenter="stopAutoAdvance"
     @mouseleave="startAutoAdvance"
@@ -50,7 +57,7 @@ const currentMedia = computed(() => props.images[currentIndex.value])
           class="w-full h-full object-cover"
         />
       </Transition>
-      
+
       <!-- Navigation arrows -->
       <button
         v-if="images.length > 1"
@@ -69,14 +76,14 @@ const currentMedia = computed(() => props.images[currentIndex.value])
         <ChevronRight class="w-5 h-5" />
       </button>
     </div>
-    
+
     <!-- Caption and dots -->
     <div class="p-3 flex items-center justify-between gap-4">
       <p v-if="currentMedia.caption" class="text-sm text-muted-foreground">
         {{ currentMedia.caption }}
       </p>
       <div v-else class="flex-1"></div>
-      
+
       <!-- Dot indicators -->
       <div v-if="images.length > 1" class="flex items-center gap-1.5">
         <button
@@ -85,7 +92,9 @@ const currentMedia = computed(() => props.images[currentIndex.value])
           @click="handleManualNavigation(() => goTo(index))"
           :class="[
             'w-2 h-2 rounded-full transition-colors',
-            index === currentIndex ? 'bg-primary' : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+            index === currentIndex
+              ? 'bg-primary'
+              : 'bg-muted-foreground/30 hover:bg-muted-foreground/50',
           ]"
           :aria-label="`Go to image ${index + 1}`"
         />

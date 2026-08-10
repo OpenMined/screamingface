@@ -3,6 +3,8 @@ import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
+import ProviderConnections from '@/components/nb/ProviderConnections.vue'
+import type { Provider } from '@/components/nb/ProviderConnections.vue'
 import { SF_ENGINE_URL } from '@/lib/engine'
 import {
   sfClientNavigation as navigation,
@@ -32,6 +34,15 @@ const readOneOut = `Connection(provider='openrouter', display_name='OpenRouter',
            auth_method='api_key', account_label=None)`
 
 const remove = `sf.disconnect("openrouter")`
+
+const panelProviders: Provider[] = [
+  { id: 'codex', name: 'OpenAI Codex', status: 'disconnected' },
+  { id: 'gemini', name: 'Google Gemini', status: 'disconnected' },
+  { id: 'anthropic', name: 'Anthropic', status: 'disconnected' },
+  { id: 'openrouter', name: 'OpenRouter', status: 'connected' },
+  { id: 'huggingface', name: 'Hugging Face', status: 'disconnected' },
+  { id: 'tavily', name: 'Tavily', status: 'disconnected' },
+]
 </script>
 
 <template>
@@ -42,53 +53,104 @@ const remove = `sf.disconnect("openrouter")`
     :version="version"
   >
     <p>
-      A <strong>connection</strong> is a provider credential the engine holds on your behalf. The
+      A <strong>connection</strong> is a provider credential
+      <RouterLink to="/learn/engine">the engine</RouterLink> holds on your behalf. The
       client never talks to OpenRouter, Anthropic or any other provider directly. It sends your key
       to the engine once, the engine passes it to AI Gateway to validate and store encrypted, and
       every later model call is dispatched there. Your notebook keeps no copy.
     </p>
 
     <p>
-      Two steps get you there: log in to the engine, then connect a provider. Without a connection
-      the engine can still list benchmarks and models, but any evaluation fails, because there is no
+      Two steps get you there: configure the engine, then connect a provider. Without a connection
+      the engine can still list benchmarks and models, but any evaluation fails: there is no
       credential to call a model with.
     </p>
 
     <h2>What you can do with it</h2>
 
     <ul>
-      <li>Log in to the engine, which sits behind Cloudflare Access.</li>
+      <li>Login to the engine, or point the client at your own engine instead.</li>
       <li>
         Connect a provider interactively from a notebook, or with an explicit key from a script.
       </li>
       <li>Read which providers this engine advertises, and the state of each.</li>
       <li>Remove a credential.</li>
-      <li>Point the client at your own engine instead.</li>
     </ul>
 
     <h2>Main APIs</h2>
 
-    <ul>
-      <li><code>sf.connect()</code>: open the interactive provider panel</li>
-      <li><code>sf.connect(provider, api_key=…)</code>: connect one provider directly</li>
-      <li><code>sf.connections.list()</code>: every provider this engine advertises</li>
-      <li><code>sf.connections.get(provider)</code>: one provider's current state</li>
-      <li><code>sf.disconnect(provider)</code>: remove a stored credential</li>
-      <li><code>sf.Connection</code>: the sanitised provider-state value</li>
-      <li><code>sf.ConnectionPanel</code>: the widget <code>sf.connect()</code> returns</li>
-      <li>
-        <code>sf.Client.login()</code> · <code>sf.Client.logout()</code>: Cloudflare Access on a
-        hosted engine
-      </li>
-    </ul>
+    <table>
+      <thead>
+        <tr>
+          <th>API</th>
+          <th>What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>sf.connect()</code></td>
+          <td>
+            Called with no arguments, returns a <code>ConnectionPanel</code> widget listing every
+            provider the engine advertises.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.connect(provider, api_key=…)</code></td>
+          <td>
+            Connects one provider directly and returns the resulting <code>Connection</code> instead
+            of a widget.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.connections.list()</code></td>
+          <td>
+            Returns a tuple of every provider this engine advertises, one <code>Connection</code>
+            each.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.connections.get(provider)</code></td>
+          <td>Fetches a single provider by name, returning its current state as a <code>Connection</code>.</td>
+        </tr>
+        <tr>
+          <td><code>sf.disconnect(provider)</code></td>
+          <td>
+            Removes a stored credential; repeated calls are harmless and return the provider back in
+            its <code>not_connected</code> state.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.Connection</code></td>
+          <td>
+            The sanitised provider-state value, carrying the public provider name, its supported
+            methods, and its state.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.ConnectionPanel</code></td>
+          <td>The live widget that <code>sf.connect()</code> returns when called with no arguments.</td>
+        </tr>
+        <tr>
+          <td><code>sf.Client.login()</code> · <code>sf.Client.logout()</code></td>
+          <td>
+            Log in to and out of a hosted engine behind Cloudflare Access; <code>login()</code>
+            opens a URL in your browser and holds the token in process memory only.
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>How to</h2>
 
-    <h3>Log in to the engine</h3>
+    <h3>1 · Configure engine</h3>
+
+    <p>Point the client at an engine. There are two ways, depending on where it runs.</p>
+
+    <h4>Hosted engine</h4>
 
     <p>
-      The engine is remote and sits behind <strong>Cloudflare Access</strong>. There is no token to
-      paste: <code>login()</code> prints a URL and opens it in your browser, then polls an encrypted
+      A hosted engine sits behind <strong>Cloudflare Access</strong>. There is no token to paste:
+      <code>login()</code> prints a URL and opens it in your browser, then polls an encrypted
       transfer service and decrypts the returned token locally. The token lives only in process
       memory and is sent as <code>Cf-Access-Token</code>. <code>logout()</code> forgets it.
     </p>
@@ -98,14 +160,25 @@ const remove = `sf.disconnect("openrouter")`
     </div>
 
     <p>
-      In a notebook you rarely call this directly, since the panel below handles it. A protected
-      engine shows a login row first and loads provider rows only once login succeeds.
+      In a notebook you rarely call this directly: the panel below handles it. A protected engine
+      shows a login row first and loads provider rows only once login succeeds.
     </p>
 
-    <h3>Connect from a notebook</h3>
+    <h4>Local engine</h4>
 
     <p>
-      Called with no arguments, <code>sf.connect()</code> returns a <code>ConnectionPanel</code>, a
+      If you run the engine yourself, point the client at it and skip the login step entirely: a
+      local engine advertises no Cloudflare Access, so the panel shows provider rows immediately.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="2" :code="local" />
+    </div>
+
+    <h3>2 · Connect from a notebook</h3>
+
+    <p>
+      Called with no arguments, <code>sf.connect()</code> returns a <code>ConnectionPanel</code>: a
       live widget listing every provider the engine advertises, with a field for each one's
       supported auth method. The
       <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> steps through the whole
@@ -113,10 +186,12 @@ const remove = `sf.disconnect("openrouter")`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="2" :code="panel" />
+      <NbCell :count="3" :code="panel">
+        <ProviderConnections :providers="panelProviders" engine-url="http://127.0.0.1:4404" />
+      </NbCell>
     </div>
 
-    <h3>Connect from a script</h3>
+    <h3>3 · Connect from a script</h3>
 
     <p>
       With a provider and a key, the same function connects directly and returns the resulting
@@ -124,39 +199,39 @@ const remove = `sf.disconnect("openrouter")`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="3" :code="script" />
+      <NbCell :count="4" :code="script" />
     </div>
 
     <p>
       The two arguments go together. <code>sf.connect("openrouter")</code> without a key raises
       <code>ValueError</code>, and passing <code>api_key=</code> without a provider raises
-      <code>TypeError</code>. There is no partial form that silently does nothing.
+      <code>TypeError</code>: there is no partial form that silently does nothing.
     </p>
 
-    <h3>Read the current state</h3>
+    <h3>4 · Read the current state</h3>
 
     <div class="not-prose">
-      <NbCell :count="4" :code="readState">
+      <NbCell :count="5" :code="readState">
         <NbTextOut :text="readStateOut" />
       </NbCell>
     </div>
 
     <p>
-      Note the trailing comma, because <code>list()</code> returns a <strong>tuple</strong>, not a
-      list, and this engine advertises exactly one provider. Fetch a single one by name when you
-      only care about its state:
+      Note the trailing comma: <code>list()</code> returns a <strong>tuple</strong>, not a list, and
+      this engine advertises exactly one provider. Fetch a single one by name when you only care
+      about its state:
     </p>
 
     <div class="not-prose">
-      <NbCell :count="5" :code="readOne">
+      <NbCell :count="6" :code="readOne">
         <NbTextOut :text="readOneOut" />
       </NbCell>
     </div>
 
-    <h3>Disconnect</h3>
+    <h3>5 · Disconnect</h3>
 
     <div class="not-prose">
-      <NbCell :count="6" :code="remove" />
+      <NbCell :count="7" :code="remove" />
     </div>
 
     <p>
@@ -164,22 +239,10 @@ const remove = `sf.disconnect("openrouter")`
       its <code>not_connected</code> state.
     </p>
 
-    <h3>A local engine</h3>
-
-    <p>
-      If you run the engine yourself, point the client at it and skip the login step entirely,
-      because a local engine advertises no Cloudflare Access, so the panel shows provider rows
-      immediately.
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="7" :code="local" />
-    </div>
-
     <h2>What a connection carries</h2>
 
     <p>
-      Every <code>Connection</code> is sanitised to the public provider name, its supported methods,
+      Every <code>Connection</code> is sanitised: the public provider name, its supported methods,
       and its state. AI Gateway account IDs, credential locators and upstream error bodies never
       cross this boundary.
     </p>

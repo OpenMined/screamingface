@@ -44,10 +44,10 @@ const GITHUB = 'https://github.com/OpenMined'
         <span class="hero__title-2">Reproduce every run from one line.</span>
       </h1>
       <p class="lead">
-        ScreamingFace is an open toolkit for composing model <em>fusions</em>, running them against
-        benchmarks, and reproducing any result from a single <code>url4</code> expression. These
-        docs cover the Python client: install it, run the quickstart, and read how a run is put
-        together.
+        ScreamingFace is an open toolkit for composing model <em>fusions</em> that outperform any
+        single model. Push the frontier together, in the open, while every result stays trivial to
+        reproduce for everyone. These docs cover the Python client: install it, run the quickstart,
+        and read how a run is put together.
       </p>
 
       <div class="actions">
@@ -59,7 +59,8 @@ const GITHUB = 'https://github.com/OpenMined'
 
       <div class="term" role="img" aria-label="Install the client with pip install screamingface">
         <div class="term__bar">
-          <span class="term__dot"></span><span class="term__dot"></span><span class="term__dot"></span>
+          <span class="term__dot"></span><span class="term__dot"></span
+          ><span class="term__dot"></span>
           <span class="term__name">shell</span>
         </div>
         <pre class="term__body"><span class="term__prompt">$</span> pip install screamingface</pre>
@@ -84,19 +85,27 @@ const GITHUB = 'https://github.com/OpenMined'
 
     <!-- ============ VOCABULARY ============ -->
     <section class="vocab band">
-      <p class="kicker">A couple of terms</p>
+      <p class="kicker">A few terms</p>
       <dl class="defs">
         <div class="def">
           <dt><code>fusion</code></dt>
           <dd>
-            A composed AI system built from many models — the artifact you build, run, and share.
+            A composed AI system built from many models: the artifact you build, run, and share.
           </dd>
         </div>
         <div class="def">
-          <dt><code>url4</code></dt>
+          <dt><RouterLink to="/learn/url4"><code>url4</code></RouterLink></dt>
           <dd>
-            The one-line, lowercase expression that describes a fusion and its benchmark run — and
-            reproduces it. Anyone holding the <code>url4</code> can rerun the result.
+            The one-line, lowercase expression that describes a fusion and its benchmark run, and
+            reproduces it. It is also an address the engine resolves, so anyone holding the
+            <code>url4</code> can rerun the result or call the fusion like a single model.
+          </dd>
+        </div>
+        <div class="def">
+          <dt><RouterLink to="/learn/engine"><code>engine</code></RouterLink></dt>
+          <dd>
+            The runtime that executes a fusion. You point the client at one you run locally, or a
+            hosted one.
           </dd>
         </div>
       </dl>
@@ -108,7 +117,6 @@ const GITHUB = 'https://github.com/OpenMined'
         <span class="foot__mark" aria-hidden="true">😱</span>
         <span>
           <span class="foot__name">ScreamingFace</span>
-          <span class="foot__note">Launched by OpenMined</span>
         </span>
       </div>
       <nav class="foot__links">
@@ -195,7 +203,10 @@ em {
   border: 1px solid transparent;
   border-radius: var(--radius-none);
   text-decoration: none;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 .btn--primary {
   background: var(--accent-solid);

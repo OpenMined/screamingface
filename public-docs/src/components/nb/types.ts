@@ -23,7 +23,7 @@ export interface NbRowForm {
   focused?: boolean
 }
 
-/** A row in a NbRowList — providers, models, datasets, anything addressable. */
+/** A row in a NbRowList: providers, models, datasets, anything addressable. */
 export interface NbRow {
   id: string
   label: string

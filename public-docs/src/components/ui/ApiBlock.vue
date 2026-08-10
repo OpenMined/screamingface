@@ -37,22 +37,22 @@ const copyCode = () => copy(fullCode.value)
     <!-- Header with method, endpoint, and copy button -->
     <div class="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-700">
       <div class="flex items-center gap-3 overflow-x-auto">
-        <span 
-          :class="[
-            'px-2.5 py-1 rounded text-xs font-bold border',
-            methodColor
-          ]"
-        >
+        <span :class="['px-2.5 py-1 rounded text-xs font-bold border', methodColor]">
           {{ method }}
         </span>
         <code class="text-zinc-100 text-sm font-mono">{{ endpoint }}</code>
       </div>
-      <button 
+      <button
         @click="copyCode"
         class="flex-shrink-0 ml-4 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
       >
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+          />
         </svg>
         {{ copied ? 'Copied!' : 'Copy' }}
       </button>

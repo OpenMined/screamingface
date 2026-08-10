@@ -38,15 +38,19 @@ report.to_json()   # the same, as one string`
     :version="version"
   >
     <p>
-      Every candidate result carries a <code>url4</code> string: the complete expression the engine
-      executed. Not a summary of it, not a log of it, but the plan itself, the thing that ran. Your
+      Every candidate result carries a <RouterLink to="/learn/url4"><code>url4</code></RouterLink>
+      string: the complete expression <RouterLink to="/learn/engine">the engine</RouterLink>
+      executed. Not a summary of it, not a log of it: the plan itself, the thing that ran. Your
       candidate, the benchmark's routes, the retry prompts, and the pinned protocol revision, all in
       one line of text you can read, diff, and send to someone.
     </p>
 
     <p>
       This is what makes a result auditable. A score on its own is a claim; a score with its URL4
-      shows exactly what produced it.
+      shows exactly what produced it. And because the expression is also an address the engine
+      resolves, that same string reruns the evaluation, or calls the fusion like a single model, in
+      any workflow you drop it into. See <RouterLink to="/learn/url4">url4</RouterLink> for the
+      protocol itself.
     </p>
 
     <h2>What you can do with it</h2>
@@ -60,18 +64,45 @@ report.to_json()   # the same, as one string`
 
     <h2>Main APIs</h2>
 
-    <ul>
-      <li><code>CandidateResult.url4</code>: the expression that executed</li>
-      <li>
-        <code>CandidateResult.operations</code>: the same plan as an
-        <code>sf.OperationInfo</code> DAG
-      </li>
-      <li><code>CandidateResult.run_id</code>: the engine's identifier for this run</li>
-      <li><code>Report.benchmark.revision</code>: the pinned protocol the run used</li>
-      <li>
-        <code>Report.to_dict()</code> · <code>Report.to_json()</code>: the whole report, serialised
-      </li>
-    </ul>
+    <table>
+      <thead>
+        <tr>
+          <th>API</th>
+          <th>What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CandidateResult.url4</code></td>
+          <td>
+            The complete expression the engine executed, a string you can read, diff, and rerun.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CandidateResult.operations</code></td>
+          <td>
+            The same plan as structured data: a DAG of <code>sf.OperationInfo</code> values, each
+            with an <code>id</code>, <code>kind</code>, <code>label</code> and
+            <code>depends_on</code> edges.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CandidateResult.run_id</code></td>
+          <td>The engine's identifier for this run.</td>
+        </tr>
+        <tr>
+          <td><code>Report.benchmark.revision</code></td>
+          <td>The pinned protocol revision the run used, which appears inside the URL4's routes.</td>
+        </tr>
+        <tr>
+          <td><code>Report.to_dict()</code> · <code>Report.to_json()</code></td>
+          <td>
+            Serialise the whole report, as a dict or one JSON string, carrying schema
+            <code>screamingface.report.v1</code>.
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>How to</h2>
 
@@ -97,7 +128,7 @@ report.to_json()   # the same, as one string`
 
     <p>
       Three candidate slots and three checker calls, from a run over three cases with IFEval's
-      corrective method. The retry chain is <em>unrolled</em> into the expression rather than being
+      corrective method: the retry chain is <em>unrolled</em> into the expression rather than being
       a loop the engine hides. Every attempt is visible before anything executes, which is also why
       every attempt is paid for even when the first one passes.
     </p>

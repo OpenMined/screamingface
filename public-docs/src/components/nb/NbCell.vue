@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * A notebook cell: an input code block and the output it produced, sharing one
- * execution count. The panels in this folder are notebook *output* — this is the
+ * execution count. The panels in this folder are notebook *output*. This is the
  * chrome that makes them read that way on a docs page.
  *
  * Geometry and colours are lifted from the kit's reference mockup
@@ -50,7 +50,7 @@ const highlighted = computed(() => highlight(props.code, props.lang))
       </div>
     </div>
 
-    <!-- Output. Omitted when the cell produced none — an assignment or a
+    <!-- Output. Omitted when the cell produced none: an assignment or a
          configuration call is a normal output-free cell. -->
     <div v-if="$slots.default" class="nbc__row">
       <div class="nbc__rail" />
