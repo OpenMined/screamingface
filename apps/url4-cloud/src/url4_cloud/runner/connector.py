@@ -6,8 +6,10 @@ resolves and runs an expression against.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import NoReturn
 
 import httpx
 
@@ -16,6 +18,7 @@ from url4.io.static import StaticIOLayer
 from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
+from url4_cloud.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from url4_cloud.model_outcomes import bind_model_outcome, record_model_outcome
 from url4_cloud.retrieval_policy import (
     RetrievalPolicy,
@@ -466,8 +469,69 @@ def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
     if intent:
         messages.append({"role": "system", "content": intent})
-    messages.append({"role": "user", "content": context or ""})
+    native = _native_messages(context)
+    if native is None:
+        messages.append({"role": "user", "content": context or ""})
+    else:
+        messages.extend(native)
     return messages
+
+
+def _native_messages(context: str | None) -> list[dict[str, str]] | None:
+    envelope = _candidate_input_envelope(context)
+    if envelope is None:
+        return None
+    return _candidate_messages(envelope["messages"])
+
+
+def _candidate_input_envelope(context: str | None) -> dict[str, object] | None:
+    value = _json_object(context)
+    if value is None:
+        return None
+    schema = value.get("schema")
+    if schema == CANDIDATE_INPUT_SCHEMA:
+        if set(value) != {"schema", "messages"}:
+            _invalid_candidate_input("the chat envelope must contain only schema and messages")
+        return value
+    if isinstance(schema, str) and schema.startswith("screamingface.candidate-input."):
+        _invalid_candidate_input(f"unsupported schema {schema!r}")
+    return None
+
+
+def _json_object(context: str | None) -> dict[str, object] | None:
+    if not context:
+        return None
+    try:
+        value = json.loads(context)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _candidate_messages(raw_messages: object) -> list[dict[str, str]]:
+    if not isinstance(raw_messages, list) or not raw_messages:
+        _invalid_candidate_input("messages must be a non-empty array")
+    return [_candidate_message(index, value) for index, value in enumerate(raw_messages)]
+
+
+def _candidate_message(index: int, value: object) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != {"role", "content"}:
+        _invalid_candidate_input(f"message {index} must contain exactly role and content")
+    role = value.get("role")
+    content = value.get("content")
+    if not isinstance(role, str) or role not in CANDIDATE_MESSAGE_ROLES:
+        _invalid_candidate_input(f"message {index} has unsupported role {role!r}")
+    if not isinstance(content, str):
+        _invalid_candidate_input(f"message {index} content must be text")
+    return {"role": role, "content": content}
+
+
+def _invalid_candidate_input(detail: str) -> NoReturn:
+    raise ResolutionError(
+        f"invalid Candidate chat input: {detail}",
+        code="invalid_candidate_input",
+        permanent=True,
+    )
 
 
 def _headers(
