@@ -18,7 +18,7 @@ requires-python = ">=3.12"
 dependencies = [
     # --- serving mode only ---
     "fastapi>=0.141.1",
-    "uvicorn[standard]>=0.52.0",
+    "uvicorn[standard]>=0.52.1",
     "pyjwt>=2.10.1",
     "kubernetes>=31.0.0",
     "prometheus-client>=0.21.0",
