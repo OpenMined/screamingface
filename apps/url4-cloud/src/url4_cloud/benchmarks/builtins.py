@@ -1,6 +1,10 @@
 """Concrete Benchmarks selected by the URL4 Cloud deployment."""
 
 from url4_cloud.benchmarks.draco.definition import DRACO, DRACO_LITE, DRACO_SMOKE
+from url4_cloud.benchmarks.healthbench.definition import (
+    HEALTHBENCH_SMOKE,
+    HEALTHBENCH_WORST30,
+)
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 from url4_cloud.benchmarks.ifeval.iterative_correction import (
     IFEVAL_LANL_ENSEMBLE,
@@ -18,6 +22,8 @@ BUILTIN_BENCHMARKS = BenchmarkRegistry(
         IFEVAL,
         IFEVAL_LANL_ENSEMBLE,
         IFEVAL_SELF_CORRECTIVE,
+        HEALTHBENCH_SMOKE,
+        HEALTHBENCH_WORST30,
     )
 )
 
