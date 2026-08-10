@@ -58,4 +58,14 @@ async def test_runner_job_env_is_exactly_what_the_app_set() -> None:
     )
 
     names = {e["name"] for e in _pod_spec(api)["containers"][0]["env"]}
-    assert names == {job_env.TOPIC, job_env.EXPRESSION, job_env.JOB_DEADLINE_S}
+    # STREAM_GRACE_S joined this set on 2026-08-10 (owner-approved): the App must write it
+    # BECAUSE it also widens `activeDeadlineSeconds` to cover the same wait, and two independently
+    # configured values would silently disagree — a grace longer than the deadline slack is a pod
+    # SIGKILLed mid-teardown. It is per-run by that argument, not deploy-time, so the invariant
+    # this test protects is unchanged and the assertion stays exact.
+    assert names == {
+        job_env.TOPIC,
+        job_env.EXPRESSION,
+        job_env.JOB_DEADLINE_S,
+        job_env.STREAM_GRACE_S,
+    }

@@ -94,7 +94,13 @@ async def test_schedule_builds_a_run_once_named_spec() -> None:
     assert manifest["metadata"]["name"] == name
     spec = manifest["spec"]
     assert spec["backoffLimit"] == 0
-    assert spec["activeDeadlineSeconds"] == 57600
+    # CONTRACT CHANGE (owner-approved 2026-08-10): this asserted `== 57600`, pinning
+    # `activeDeadlineSeconds == JOB_DEADLINE_S`. That equality was the defect: the run
+    # self-terminates at its own deadline, then waits out the drain grace before deleting its
+    # stream, so an identical pod deadline SIGKILLed it mid-teardown and every timed-out run
+    # leaked a stream. The run keeps its full requested budget; the POD outlives it by the
+    # teardown allowance.
+    assert spec["activeDeadlineSeconds"] > 57600 + job_env.DEFAULT_STREAM_GRACE_S
     pod = spec["template"]["spec"]
     assert pod["restartPolicy"] == "Never"
     container = pod["containers"][0]
@@ -378,3 +384,24 @@ async def test_stop_deletes_the_pod_too_not_just_the_job() -> None:
     await runner.stop(TOPIC)
 
     assert api.delete_policies == ["Background"]
+
+
+async def test_the_pod_outlives_its_own_stream_reclamation() -> None:
+    """REGRESSION: `activeDeadlineSeconds` used to equal `JOB_DEADLINE_S` exactly.
+
+    The runner self-terminates at its own deadline, publishes `Terminated(timed_out)`, then waits
+    out the drain grace before deleting its stream. With both deadlines identical, k8s killed the
+    pod during that wait, so EVERY timed-out run leaked a stream holding a full `max_bytes`
+    reservation — the long runs with the fullest streams, and exactly what the reclamation exists
+    to prevent. The Job's hard deadline must leave room for the teardown it is supposed to allow.
+    """
+    api = FakeBatchV1()
+    runner = K8sJobRunner(api, image="runner:test")
+    name = await runner.schedule(TOPIC, "/m('x')!'go'", 60)
+
+    spec = api.jobs[name]["spec"]
+    env = {e["name"]: e["value"] for e in spec["template"]["spec"]["containers"][0]["env"]}
+    grace = float(env[job_env.STREAM_GRACE_S])
+
+    assert float(env[job_env.JOB_DEADLINE_S]) == 60
+    assert spec["activeDeadlineSeconds"] > 60 + grace
