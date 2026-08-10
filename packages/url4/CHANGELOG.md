@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/OpenMined/screamingface/compare/url4-v1.3.0...url4-v1.4.0) (2026-08-10)
+
+
+### Features
+
+* **url4:** per-run cache policy for the aigateway global response cache ([#518](https://github.com/OpenMined/screamingface/issues/518)) ([245e0a4](https://github.com/OpenMined/screamingface/commit/245e0a478d0c4d7635a90cf06a50b5b2ddf37d93))
+
 ## [1.3.0](https://github.com/OpenMined/screamingface/compare/url4-v1.2.0...url4-v1.3.0) (2026-08-06)
 
 
