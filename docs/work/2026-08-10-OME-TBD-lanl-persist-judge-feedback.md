@@ -1,9 +1,9 @@
 ---
 ticket: OME-TBD  # Linear waived by owner 2026-08-10 (workspace issue quota); backfill when possible
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-08-10
-finished:
+finished: 2026-08-10
 ---
 
 # OME-TBD — Persist the lanl-ensemble judge's corrective feedback in the case trace
@@ -66,8 +66,7 @@ confusion had to be inferred from downstream artifacts). Owner approved persisti
     judge rejected, expression carries the binding), 1 in
     `test_ifeval_iterative_correction.py` (aggregate exposes judge_feedback). All RED
     first, all GREEN after; no prior test modified.
-- **Commits:** none yet — awaiting owner review (same review-first instruction as the
-  grading unit).
+- **Commits:** fce496dd — feat(url4-cloud): persist the lanl-ensemble judge's feedback in the case trace
 - **Gates:** suite 988 passed / 5 skipped; coverage 93.01% (≥80); ruff check+format and
   pyright clean on all touched files.
 - **Deviations:** Linear ticket waived by owner (quota); backfill later. Live proof of a

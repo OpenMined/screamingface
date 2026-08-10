@@ -1,9 +1,9 @@
 ---
 ticket: OME-TBD  # Linear filing blocked 2026-08-10: workspace free-issue limit reached (owner action). Backfill the id and rename this file when filed.
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-08-10
-finished:
+finished: 2026-08-10
 ---
 
 # OME-TBD — Honor non-alphabetic letter_frequency kwargs the official IFEval verifier randomizes
@@ -67,7 +67,7 @@ the override lives in `grading.py` only, documented in-code.
   - `apps/url4-cloud/tests/unit/test_ifeval_golden_parity.py` — AMENDED (decision-driven,
     owner to review): keys 1122/1129 carved out of the 541-row parity proof via
     `_parity_rows()`; docstring documents why. Parity now proven on 539 rows.
-- **Commits:** none — owner requested review of the working tree before any commit.
+- **Commits:** a4a2e896 — fix(url4-cloud): grade IFEval letter_frequency '#'/'!' kwargs literally
 - **Gates:** full suite 984 passed / 5 skipped; coverage 93.01% (≥80); ruff check+format
   clean on changed files; pyright 0 errors; layering OK. Full `run_gates.py url4-cloud`
   blocked by pre-existing branch state: append-only gate flags this branch's in-flight
