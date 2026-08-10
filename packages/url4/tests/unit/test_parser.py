@@ -7,11 +7,15 @@ import pytest
 from url4.core.errors import ParseError
 from url4.core.nodes import Binding, Expression, Iteration, RelUrl, Text, Url
 from url4.core.parser import (
+    GroupEnvelope,
+    IterationEnvelope,
     Parser,
+    decode_envelope,
     split_collection_iteration,
     split_expr_params,
     split_foreach_annotations,
     split_intent,
+    split_top_level_commas,
     strip_one_paren_layer,
 )
 
@@ -140,6 +144,38 @@ def test_split_collection_iteration_absent() -> None:
 )
 def test_strip_one_paren_layer(expr: str, expected: str | None) -> None:
     assert strip_one_paren_layer(expr) == expected
+
+
+_LANL_ROW_BODY = (
+    "(question:0.0:$item.input, case_id:0.0:$item.id, "
+    "member_round_1:0.0:$members*(answer:0.0:/ans($question)!'a')!'$rec'"
+    ";iteration.concurrency=4;iteration.on_error=fail, "
+    "tie_gate_1:0.0:/gate($member_round_1)!'tie', "
+    "check_1:0.0:/check($selection_1)!'grade')!'$check_1'"
+)
+
+
+def test_decode_map_row_body_with_mid_list_iterate_is_group() -> None:
+    envelope = decode_envelope(_LANL_ROW_BODY, require_intent=False)
+    assert isinstance(envelope, GroupEnvelope)
+    assert envelope.intent == "'$check_1'"
+    inner = strip_one_paren_layer(envelope.source_expr)
+    assert inner is not None
+    assert len(split_top_level_commas(inner)) == 5
+
+
+def test_decode_reduce_over_iteration_still_binds() -> None:
+    envelope = decode_envelope("(/data*(x!'p')!'peri';iteration.on_error=fail)!/reduce(all)")
+    assert isinstance(envelope, IterationEnvelope)
+    assert envelope.collection == "/data"
+    assert envelope.reducer == "/reduce(all)"
+    assert envelope.directives.on_error == "fail"
+
+
+def test_decode_reduce_over_iteration_with_paren_collection_commas() -> None:
+    envelope = decode_envelope("((a, b, c)*(x!'p')!'peri')!/reduce(all)")
+    assert isinstance(envelope, IterationEnvelope)
+    assert envelope.collection == "(a, b, c)"
 
 
 def test_split_expr_params_directives() -> None:

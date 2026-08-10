@@ -298,7 +298,7 @@ text path and the AST path agree on which names an iteration rebinds for itself.
 
 def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, Iteration)
-    collection = _lower_collection(node.collection, registry)
+    collection = _lower_collection(node.collection, edges, registry)
     map_node = MapNode(
         body=node.body,
         intent=node.intent,
@@ -346,7 +346,7 @@ def _body_ref_edges(body: str, intent: str | None, edges: Edges) -> dict[str, Da
     return wired
 
 
-def _lower_collection(node: Node, registry: LoweringRegistry) -> DagNode:
+def _lower_collection(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     """Lower an iteration's collection source (spec §5.3.7 / §5.3.11).
 
     A bare parenthesized group ``(e1, …)`` — an :class:`~url4.core.nodes.Expression`
@@ -356,11 +356,13 @@ def _lower_collection(node: Node, registry: LoweringRegistry) -> DagNode:
     iterate (§5.3.11). Everything else (a fetched URI / relative-expression /
     holdings ref, or a *processed* group ``(a, b)!x`` whose merged result may
     itself be a collection body) resolves to text the :class:`MapNode` parses by
-    content type (§5.3.7)."""
+    content type (§5.3.7). Enclosing sibling bindings remain available in collection
+    position, so ``$gate*(body)`` resolves the same way as a sibling reference in a body.
+    """
     if isinstance(node, Expression) and node.intent is None and not node.broadcast:
         slots = [_slot_from_ast(source, registry) for source in node.sources]
         return _inline_collection(slots)
-    return registry.lower(node, {})
+    return registry.lower(node, edges)
 
 
 def _inline_collection(slots: list[_Slot]) -> DagNode:
