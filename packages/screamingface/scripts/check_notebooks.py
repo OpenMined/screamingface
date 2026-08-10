@@ -42,15 +42,21 @@ _STORY_MARKERS = (
     "sf.ScreamingFaceError",
 )
 
+# The presentation notebook is intentionally hand-authored and carries real executed outputs plus
+# embedded artwork. The deterministic builder owns the instructional notebooks; this explicit set
+# keeps the public directory closed to accidental additions without rewriting presentation state.
+_CURATED_NOTEBOOKS = frozenset({"09_demo.ipynb"})
+
 
 def main() -> None:
     root = Path(__file__).parents[1]
     mismatches: list[str] = []
     expected_notebooks = notebooks()
     actual_names = {path.name for path in (root / "examples").glob("*.ipynb")}
-    if actual_names != set(expected_notebooks):
-        missing = sorted(set(expected_notebooks) - actual_names)
-        unexpected = sorted(actual_names - set(expected_notebooks))
+    expected_names = set(expected_notebooks) | _CURATED_NOTEBOOKS
+    if actual_names != expected_names:
+        missing = sorted(expected_names - actual_names)
+        unexpected = sorted(actual_names - expected_names)
         raise SystemExit(f"notebook set mismatch: missing={missing}, unexpected={unexpected}")
     for notebook_name, expected in expected_notebooks.items():
         actual = nbformat.read(root / "examples" / notebook_name, as_version=4)

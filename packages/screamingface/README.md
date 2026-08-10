@@ -412,8 +412,11 @@ or introduce a separate discovery operation.
   Candidate and Case inspection.
 - [`examples/06_draco_full_e2e.ipynb`](examples/06_draco_full_e2e.ipynb): the complete seven-solo,
   nine-Fusion canonical DRACO experiment and audit workflow, with execution disabled by default.
+- [`examples/09_demo.ipynb`](examples/09_demo.ipynb): a curated, executed presentation that
+  reproduces and scales a published DRACO result using the current public API.
 
-The notebooks are deterministic outputs of `scripts/build_notebooks.py`.
+The instructional notebooks are deterministic outputs of `scripts/build_notebooks.py`;
+`09_demo.ipynb` is deliberately curated because it retains presentation outputs and artwork.
 
 ## Development
 
