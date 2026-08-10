@@ -18,6 +18,7 @@
 
 # Shared libraries (url4 SDK and friends land here)
 /packages/                       @sergio-bershadsky @HupBaHa
+/packages/screamingface/         @sergio-bershadsky @HupBaHa
 
 # CI / release configuration → both leads (flag changes in the PR body)
 /.github/                        @sergio-bershadsky @HupBaHa

@@ -1,0 +1,96 @@
+name: Release screamingface
+
+# Publishes the ScreamingFace Client SDK to PyPI when release-please pushes a
+# `screamingface-v*` tag.
+#
+# Auth is PyPI Trusted Publishing (OIDC) — no stored token. Before the first real
+# publish an owner must, one time:
+#   1. reserve the `screamingface` project on PyPI and add a Trusted Publisher →
+#      owner/repo: OpenMined/screamingface, workflow: release-screamingface.yml,
+#      environment: pypi
+#   2. create the `pypi` GitHub Environment (optionally with required reviewers)
+# Until then verify+build still run (packaging is validated); only publish fails.
+#
+# AIDEV-NOTE: the name `screamingface` is NOT yet reserved on PyPI. Reserve it before
+# announcing the package, or the first tag will build cleanly and fail at the publish step.
+
+on:
+  push:
+    tags: ["screamingface-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. screamingface-v0.1.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#screamingface-v}"
+          MANIFEST=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' packages/screamingface/pyproject.toml)
+          if [ "$MANIFEST" != "$VERSION" ]; then
+            echo "::error::tag $TAG implies version $VERSION but packages/screamingface/pyproject.toml reports $MANIFEST"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/screamingface
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Build sdist + wheel
+        run: uv build --out-dir dist
+      - name: Verify distribution contents
+        # The same gate the test workflow runs: asserts py.typed, the Apache-2.0 LICENSE,
+        # and that no test or application code leaked into the wheel.
+        run: uv run python scripts/check_distribution.py
+      - name: Validate metadata (twine check)
+        run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: screamingface-dist
+          path: packages/screamingface/dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/screamingface
+    permissions:
+      id-token: write # OIDC token for PyPI Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: screamingface-dist
+          path: dist/
+      - name: Publish to PyPI
+        # Trusted Publishing (OIDC) + PEP 740 attestations (on by default).
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

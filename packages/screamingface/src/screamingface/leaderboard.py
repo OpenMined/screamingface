@@ -1,0 +1,276 @@
+"""Immutable public values returned by Scoreboard leaderboard discovery."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from urllib.parse import urlsplit
+from uuid import UUID
+
+from screamingface._immutable_json import freeze_mapping
+from screamingface.url4 import Url4
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardInfo:
+    """One benchmark registered with the public Scoreboard."""
+
+    id: str
+    display_name: str
+    description: str | None
+    dataset_url: str | None
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _text(self.id, "Leaderboard id"))
+        object.__setattr__(
+            self,
+            "display_name",
+            _text(self.display_name, "Leaderboard display_name"),
+        )
+        for name in ("description", "dataset_url"):
+            object.__setattr__(
+                self, name, _optional_text(getattr(self, name), f"Leaderboard {name}")
+            )
+        _aware_datetime(self.created_at, "Leaderboard created_at")
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardEntry:
+    """One best-per-spec ranked result on a Leaderboard."""
+
+    rank: int
+    spec_id: str
+    accuracy: float
+    total_questions: int
+    ran_with_providers: tuple[str, ...]
+    submitted_at: datetime
+    submitted_by: str | None
+    verified_by_openmined: bool
+    url4: Url4
+
+    def __post_init__(self) -> None:
+        _positive_int(self.rank, "Leaderboard rank")
+        object.__setattr__(self, "spec_id", _text(self.spec_id, "Leaderboard spec_id"))
+        _accuracy(self.accuracy, "Leaderboard accuracy")
+        _positive_int(self.total_questions, "Leaderboard total_questions")
+        object.__setattr__(
+            self,
+            "ran_with_providers",
+            _names(self.ran_with_providers, "Leaderboard ran_with_providers"),
+        )
+        _aware_datetime(self.submitted_at, "Leaderboard submitted_at")
+        object.__setattr__(
+            self,
+            "submitted_by",
+            _optional_text(self.submitted_by, "Leaderboard submitted_by"),
+        )
+        if not isinstance(self.verified_by_openmined, bool):
+            raise TypeError("Leaderboard verified_by_openmined must be a boolean")
+        object.__setattr__(
+            self,
+            "url4",
+            Url4(_text(self.url4, "Leaderboard url4")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardScore:
+    """One persisted candidate score returned by the public Scoreboard."""
+
+    id: UUID
+    version: int
+    benchmark_id: str
+    spec_id: str
+    url4: Url4
+    submitted_by: str | None
+    submitted_at: datetime
+    accuracy: float
+    total_questions: int
+    correct_questions: int
+    ran_with_providers: tuple[str, ...]
+    ran_at_local: datetime | None
+    client_name: str | None
+    client_version: str | None
+    client_platform: str | None
+    verified_by_openmined: bool
+    metadata: Mapping[str, object] | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, UUID):
+            raise TypeError("Leaderboard score id must be a UUID")
+        _positive_int(self.version, "Leaderboard score version")
+        for name in ("benchmark_id", "spec_id"):
+            object.__setattr__(
+                self,
+                name,
+                _text(getattr(self, name), f"Leaderboard score {name}"),
+            )
+        object.__setattr__(
+            self,
+            "url4",
+            Url4(_text(self.url4, "Leaderboard score url4")),
+        )
+        for name in ("submitted_by", "client_name", "client_version", "client_platform"):
+            object.__setattr__(
+                self,
+                name,
+                _optional_text(getattr(self, name), f"Leaderboard score {name}"),
+            )
+        _aware_datetime(self.submitted_at, "Leaderboard score submitted_at")
+        _accuracy(self.accuracy, "Leaderboard score accuracy")
+        _positive_int(self.total_questions, "Leaderboard score total_questions")
+        _nonnegative_int(self.correct_questions, "Leaderboard score correct_questions")
+        if self.correct_questions > self.total_questions:
+            raise ValueError("Leaderboard score correct_questions cannot exceed total_questions")
+        object.__setattr__(
+            self,
+            "ran_with_providers",
+            _names(self.ran_with_providers, "Leaderboard score ran_with_providers"),
+        )
+        if self.ran_at_local is not None:
+            _aware_datetime(self.ran_at_local, "Leaderboard score ran_at_local")
+        if not isinstance(self.verified_by_openmined, bool):
+            raise TypeError("Leaderboard score verified_by_openmined must be a boolean")
+        if self.metadata is not None:
+            object.__setattr__(
+                self,
+                "metadata",
+                freeze_mapping(self.metadata, "Leaderboard score metadata"),
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardBaseline:
+    """One imported single-Model baseline shown alongside community entries."""
+
+    id: UUID
+    benchmark_id: str
+    model_name: str
+    accuracy: float
+    source: str
+    source_url: str | None
+    imported_at: datetime
+    metadata: Mapping[str, object] | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, UUID):
+            raise TypeError("Leaderboard baseline id must be a UUID")
+        for name in ("benchmark_id", "model_name", "source"):
+            object.__setattr__(
+                self,
+                name,
+                _text(getattr(self, name), f"Leaderboard baseline {name}"),
+            )
+        _accuracy(self.accuracy, "Leaderboard baseline accuracy")
+        if self.source_url is not None:
+            selected = _text(self.source_url, "Leaderboard baseline source_url")
+            parts = urlsplit(selected)
+            if parts.scheme not in {"http", "https"} or not parts.netloc:
+                raise ValueError("Leaderboard baseline source_url must be HTTP(S)")
+            object.__setattr__(self, "source_url", selected)
+        _aware_datetime(self.imported_at, "Leaderboard baseline imported_at")
+        if self.metadata is not None:
+            object.__setattr__(
+                self,
+                "metadata",
+                freeze_mapping(self.metadata, "Leaderboard baseline metadata"),
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class Leaderboard:
+    """One benchmark's ranked entries and imported baselines."""
+
+    benchmark: LeaderboardInfo
+    entries: tuple[LeaderboardEntry, ...]
+    baselines: tuple[LeaderboardBaseline, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.benchmark, LeaderboardInfo):
+            raise TypeError("Leaderboard benchmark must be LeaderboardInfo")
+        entries = _instances(self.entries, LeaderboardEntry, "Leaderboard entries")
+        baselines = _instances(self.baselines, LeaderboardBaseline, "Leaderboard baselines")
+        if tuple(entry.rank for entry in entries) != tuple(range(1, len(entries) + 1)):
+            raise ValueError("Leaderboard entry ranks must be consecutive from 1")
+        if any(baseline.benchmark_id != self.benchmark.id for baseline in baselines):
+            raise ValueError("Leaderboard baseline benchmark_id must match its Leaderboard")
+        object.__setattr__(self, "entries", entries)
+        object.__setattr__(self, "baselines", baselines)
+
+    def __repr__(self) -> str:
+        return (
+            f"Leaderboard({self.benchmark.id!r}, entries={len(self.entries)}, "
+            f"baselines={len(self.baselines)})"
+        )
+
+    def _repr_html_(self) -> str:
+        from screamingface._ui.leaderboard_view import leaderboard_html
+
+        return leaderboard_html(self)
+
+
+def _text(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string")
+    if not value.strip():
+        raise ValueError(f"{label} must be non-empty")
+    return value.strip()
+
+
+def _optional_text(value: object, label: str) -> str | None:
+    return None if value is None else _text(value, label)
+
+
+def _positive_int(value: object, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{label} must be a positive integer")
+
+
+def _nonnegative_int(value: object, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+
+
+def _accuracy(value: object, label: str) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or not 0 <= value <= 1
+    ):
+        raise ValueError(f"{label} must be a finite number between 0 and 1")
+
+
+def _aware_datetime(value: object, label: str) -> None:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{label} must be timezone-aware")
+
+
+def _names(values: object, label: str) -> tuple[str, ...]:
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise TypeError(f"{label} must be a sequence")
+    selected = tuple(_text(value, label) for value in values)
+    if len(set(selected)) != len(selected):
+        raise ValueError(f"{label} must not contain duplicates")
+    return selected
+
+
+def _instances[T](values: object, kind: type[T], label: str) -> tuple[T, ...]:
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise TypeError(f"{label} must be a sequence")
+    selected = tuple(values)
+    if any(not isinstance(value, kind) for value in selected):
+        raise TypeError(f"{label} contain an invalid value")
+    return selected
+
+
+__all__ = [
+    "Leaderboard",
+    "LeaderboardBaseline",
+    "LeaderboardEntry",
+    "LeaderboardInfo",
+    "LeaderboardScore",
+]

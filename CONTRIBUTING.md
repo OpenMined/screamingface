@@ -35,6 +35,7 @@ manifest, lockfile, tests, and README. The stack name is what the tooling takes.
 | `scoreboard` | `apps/scoreboard` | Public benchmark scoreboard + demo portal (service, port 9106) |
 | `url4-cloud` | `apps/url4-cloud` | Single-process REST + WebSocket url4 execution app (service, port 9108) |
 | `url4` | `packages/url4` | url4 expression protocol — grammar, parser, AST, interpreter (library) |
+| `screamingface` | `packages/screamingface` | Public Python Client SDK for Engine-owned benchmark evaluation (library) |
 
 Every stack but `aigateway-ui` is Python + uv; `aigateway-ui` is TypeScript + npm. The runner
 below takes either — it reads each stack's gate list from the card rather than assuming a
@@ -66,6 +67,10 @@ uv run scoreboard
 # url4 — a library, not a service
 cd packages/url4
 uv sync
+
+# screamingface — Client SDK + deterministic example notebooks
+cd packages/screamingface
+uv sync --extra notebook
 ```
 
 ## Tests, lint, typecheck
@@ -73,7 +78,7 @@ uv sync
 **One command per stack — the gates CI runs, in CI's order, plus one CI doesn't:**
 
 ```bash
-uv run .claude/scripts/run_gates.py <stack>   # aigateway | aigateway-ui | scoreboard | url4 | url4-cloud
+uv run .claude/scripts/run_gates.py <stack>   # aigateway | aigateway-ui | scoreboard | url4 | url4-cloud | screamingface
 ```
 
 It resolves the stack from [`.claude/sdlc.local.md`](.claude/sdlc.local.md), runs its gates
@@ -91,6 +96,9 @@ ALL GATES GREEN
 Coverage floors differ by stack (`url4` is 95, the services are 80) — another reason to use
 the runner rather than reconstructing the command by hand.
 
+The `screamingface` lane also regenerates/checks notebooks, builds the wheel and sdist, and
+verifies their contents. These are part of its CI contract, not optional documentation checks.
+
 `aigateway-ui` runs a different gate list for the same reasons, and the runner knows it:
 
 ```
@@ -106,12 +114,13 @@ being edited or deleted, so a change can't quietly weaken the suite it inherited
 genuinely must change an existing test, that's a deliberate call to raise in review, not a gate
 to route around — `--skip-append-only` exists for that conversation, and skipping it belongs in
 your PR description. Everything else matches CI step for step
-(`aigateway-tests.yml`, `scoreboard-tests.yml`, `url4-tests.yml`).
+(`aigateway-tests.yml`, `scoreboard-tests.yml`, `url4-tests.yml`, `url4-cloud-tests.yml`,
+`screamingface-tests.yml`).
 
 An unknown stack fails fast and tells you the real ones:
 
 ```
-CONFIG ERROR: stack 'docs' not in .claude/sdlc.local.md (has: aigateway, scoreboard, url4)
+CONFIG ERROR: stack 'docs' not in .claude/sdlc.local.md (has: aigateway, scoreboard, url4, screamingface, url4-cloud, aigateway-ui)
 ```
 
 Docs-only changes (`README`, `CONTRIBUTING`, `docs/`) have no stack and no CI — there is
@@ -124,6 +133,8 @@ Stack-specific:
   gateway request/refresh path.
 - Never import `litellm-enterprise` — the aigateway gates run
   `scripts/check_no_enterprise.py` as a guard.
+- `packages/screamingface` notebooks are generated artifacts. Edit their builder cells, then run
+  `scripts/check_notebooks.py`; do not commit kernel state, outputs, or hand-edited notebook drift.
 
 ## Git workflow
 
@@ -173,6 +184,7 @@ conventional commits → PR. The agent contract is documented in
 | `apps/aigateway-ui` | release-please manages the release PR; merging it tags `aigateway-ui-v*`, which builds the multi-arch GHCR image + Helm chart (`release-aigateway-ui.yml`). Unlike aigateway it is **not** mirrored to the public `sf-installer` repo — the console is internal operator tooling, not part of a product install. |
 | `apps/scoreboard` | manual tag `scoreboard-v*` triggers `release-scoreboard.yml` (GHCR image + Helm chart). |
 | `packages/url4` | tag `url4-v*` triggers `release-url4.yml` — verify + build + `twine check`, then publish via PyPI Trusted Publishing. The publish step needs a one-time owner setup (PyPI project + Trusted Publisher + the `pypi` GitHub Environment); until that lands, verify and build still run and only publish fails. See the workflow header. |
+| `packages/screamingface` | tag `screamingface-v*` triggers `release-screamingface.yml` — verify + build + distribution check + `twine check`, then publish via PyPI Trusted Publishing. Needs the same one-time owner setup as url4 (PyPI project + Trusted Publisher + the `pypi` GitHub Environment); the `screamingface` name is **not reserved on PyPI yet**. Until that lands, verify and build still run and only publish fails. |
 
 ## Reference
 
@@ -186,4 +198,5 @@ conventional commits → PR. The agent contract is documented in
 - **Scoreboard internals:** [`apps/scoreboard/README.md`](apps/scoreboard/README.md) (portal,
   public artifacts)
 - **url4 SDK:** [`packages/url4/README.md`](packages/url4/README.md)
+- **ScreamingFace Client SDK:** [`packages/screamingface/README.md`](packages/screamingface/README.md)
 - **Legacy reference:** `git checkout legacy-monorepo-2026-07-08`

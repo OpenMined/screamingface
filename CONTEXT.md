@@ -1,0 +1,152 @@
+# ScreamingFace
+
+ScreamingFace evaluates candidate Models and Fusions against reproducible research benchmarks.
+
+## Language
+
+**Evaluation**:
+The complete process of evaluating one or more Candidates against one Benchmark.
+_Avoid_: Run, execution
+
+**Benchmark**:
+One independently identified and revisioned Engine-owned evaluation protocol comprising Cases,
+Candidate Invocations, Grading, and Aggregation.
+_Avoid_: Test, dataset, family
+
+**Benchmark Variant**:
+An alternative Benchmark protocol related to a canonical default Benchmark. A Variant has its
+own identity and revision even when it shares Cases or Grading material with the default.
+_Avoid_: Method, mode, option
+
+**Candidate**:
+A Model or Fusion submitted to a Benchmark for evaluation.
+_Avoid_: Ensemble when referring to both Models and Fusions
+
+**Candidate Result**:
+The outcome of evaluating one Candidate against one Benchmark, including its score, Candidate
+URL4, Case Results, failures, usage, and available provenance.
+_Avoid_: Score when referring to the complete outcome
+
+**Report**:
+The ordered, lossless record of every Candidate Result accounted for by one completed Evaluation.
+_Avoid_: Result when referring to the complete multi-Candidate record
+
+**Partial Report**:
+The recoverable Candidate Results from an Evaluation that ended before every requested Candidate
+could be accounted for.
+_Avoid_: Report when completeness matters
+
+**Candidate Invocation**:
+One request by a Benchmark for a Candidate answer; a Case may require multiple ordered Candidate Invocations.
+_Avoid_: Model call, because a Candidate may be a Fusion
+
+**Case**:
+One Benchmark item containing an input, its grading material, and optional metadata.
+_Avoid_: Row, sample
+
+**Case Result**:
+The completed record of one Case for one Candidate: its exact input and output, Case Grade,
+failures, and non-secret Benchmark metadata.
+_Avoid_: Artifact, row result
+
+**Case Grade**:
+The Benchmark-produced score, metrics, and ordered Checks for one Case. A failed Case may have no
+Case Grade.
+_Avoid_: Result when referring specifically to grading
+
+**Check**:
+One named grading requirement inspected within a Case Grade, together with the Evidence used to
+evaluate it. A DRACO rubric criterion and an IFEval instruction constraint are both Checks.
+_Avoid_: Criterion when speaking across Benchmarks
+
+**Evidence**:
+One ordered, attributable observation used by a Check, including its normalized outcome and exact
+raw output when one exists. Evidence may be produced by a Judge or a deterministic verifier.
+_Avoid_: Verdict when speaking across Benchmarks
+
+**Rubric**:
+The Case-owned criteria used to grade a Candidate answer.
+_Avoid_: Reference when the grading material is specifically a rubric
+
+**Load**:
+The phase that obtains the Benchmark Cases selected for an Evaluation.
+
+**Run**:
+The phase in which a Candidate produces an answer for each loaded Case.
+_Avoid_: Generation when naming the public lifecycle stage
+
+**Grading**:
+The phase that judges a Candidate answer against its Case Rubric and produces a Case grade.
+_Avoid_: Judging
+
+**Judge**:
+A Model called within Grading to produce evidence or verdicts; it is not an Evaluation phase.
+_Avoid_: Judge stage
+
+**Benchmark-owned Model**:
+A Model fixed by the Benchmark protocol, such as DRACO's grading Judge. Changing it changes the
+Benchmark revision.
+_Avoid_: Candidate Model, user-selected Judge
+
+**Candidate-owned Model**:
+A Model submitted as part of a Candidate, including a Fusion member or synthesizer. Changing it
+changes the Candidate rather than the Benchmark.
+_Avoid_: Benchmark dependency, pinned Judge
+
+**Fusion Synthesizer**:
+The Candidate-owned Model configured for a Fusion's synthesizer role. A whole-Candidate invocation
+uses its Candidate-owned prompt to produce the final answer. A structural Benchmark may instead
+invoke its route and parameters under Benchmark-owned selection or coaching instructions; that
+adaptation does not make it a Benchmark-owned grading Judge.
+_Avoid_: Fusion member, grading Judge
+
+**Cost Estimate**:
+A versioned, conservative pre-spend projection of an Evaluation's USD cost. Dynamic control flow
+may require a range or maximum rather than one exact amount.
+_Avoid_: Quote, guaranteed cost
+
+**Evaluation Budget**:
+The optional maximum USD cost authorized for one complete Evaluation, including every Candidate,
+Benchmark-owned Model call, and retry. It is enforced by the Engine before model dispatch.
+_Avoid_: Per-Candidate budget, token limit
+
+**Unpriced Evaluation**:
+An Evaluation containing at least one required model call for which the Engine cannot provide a
+versioned USD price. It may execute without an Evaluation Budget, but its Report cannot claim a
+complete USD cost.
+_Avoid_: Free Evaluation
+
+**Provider Connection**:
+An Engine-managed association that authorizes a researcher to use one model provider. It is
+distinct from authenticating the researcher to a hosted Engine.
+_Avoid_: Engine login, caller authentication
+
+**Caller Authentication**:
+The process by which a researcher proves one identity to configured ScreamingFace services.
+Different service origins may require separate credentials for that same identity.
+_Avoid_: Provider Connection, provider authentication
+
+**Scoreboard**:
+The deployed system that accepts and stores public Scores and produces Leaderboards.
+_Avoid_: Leaderboard when referring to the system or service
+
+**Leaderboard**:
+The ranked view of comparable entries for one Benchmark.
+_Avoid_: Scoreboard, board
+
+**Leaderboard Score**:
+One persisted Scoreboard record containing a Candidate's measured score, identity, provenance,
+verification state, and Candidate URL4.
+_Avoid_: Leaderboard Submission
+
+**Score Submission**:
+The request to create a Leaderboard Score from one evaluated Candidate Result.
+_Avoid_: Leaderboard Score when referring specifically to the write request
+
+**Leaderboard Entry**:
+The ranked projection of a Leaderboard Score shown on a Leaderboard.
+_Avoid_: Score Submission
+
+**Aggregation**:
+The phase that combines Case grades into a Candidate’s Benchmark metrics.
+_Avoid_: Reduction
