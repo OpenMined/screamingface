@@ -7,8 +7,9 @@ layering note in :mod:`url4_cloud.runner`.
 """
 
 import asyncio
+import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,9 +26,71 @@ from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world
 from url4_cloud.world_config import WorldConfig, WorldConfigError, load_config
 
+logger = logging.getLogger(__name__)
+
 
 class RunnerConfigError(ValueError):
     """The per-run Job environment is missing or malformed."""
+
+
+def stream_grace_s(env: Mapping[str, str]) -> float:
+    """The drain grace before a finished run's stream is reclaimed.
+
+    INVARIANT: never raises. A typo in this env var must not take down every Job at teardown —
+    the cost of the default being wrong is a slightly late reclamation, the cost of raising is
+    a leaked stream on every run.
+    """
+    raw = env.get(job_env.STREAM_GRACE_S)
+    if raw is None:
+        return job_env.DEFAULT_STREAM_GRACE_S
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("ignoring unparseable %s=%r", job_env.STREAM_GRACE_S, raw)
+        return job_env.DEFAULT_STREAM_GRACE_S
+
+
+async def run_and_reclaim(
+    publisher: JetStreamPublisher,
+    topic: str,
+    run_once: Callable[[], Awaitable[None]],
+    *,
+    grace_s: float = job_env.DEFAULT_STREAM_GRACE_S,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """Drive one run, then reclaim its stream.
+
+    WHY the runner owns this: `DELETE /` is the only other path that reclaims a stream, and it
+    needs a capability token — those expire `iat_window_s` (60s) after minting and cannot be
+    re-issued for an existing topic, so any run longer than a minute could never tear its own
+    stream down. Every such run leaked a stream holding a full `max_bytes` reservation until the
+    store was full and every new run failed with 10047.
+
+    INVARIANT: the reclamation is in a `finally`. A run that raised is precisely the run whose
+    stream would otherwise be left behind.
+    """
+    try:
+        await run_once()
+    finally:
+        # WHY the delay: `delete_stream` destroys the stream AND its consumers. Deleting the
+        # instant the terminal frame is published races a client that has not drained yet, which
+        # would never see the terminal frame and would hang until its own timeout.
+        await sleep(grace_s)
+        try:
+            await publisher.delete_stream(topic)
+        except Exception:
+            # INVARIANT: nothing here may escape. Teardown is best-effort by design and
+            # `_sweep_orphans` is the stated backstop, so the cost of swallowing is a late
+            # reclamation. The cost of raising is far worse in BOTH directions: on the success
+            # path it reports a run that published `Terminated(succeeded)` as a Failed Job, and
+            # on the failure path a raise inside `finally` SUPERSEDES the exception already
+            # propagating, erasing the real cause of the failure from the Job's logs.
+            #
+            # WHY not `except APIError`: `delete_stream` connects lazily, so it also raises
+            # `NoServersError`, `ConnectionClosedError` and `nats.errors.TimeoutError` — none of
+            # which are `APIError`. A broker blip is exactly when reclamation fails, so the
+            # narrow clause missed the cases that actually happen.
+            logger.warning("could not reclaim stream for topic %s", topic, exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -164,13 +227,19 @@ def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
         params = params_from_env(os.environ)
         executor = build_executor(os.environ, benchmarks=BUILTIN_BENCHMARKS)
         traceparent = os.environ.get(job_env.TRACEPARENT)
-        await run(
-            JetStreamPublisher(params.nats_url),
-            executor,
+        publisher = JetStreamPublisher(params.nats_url)
+        await run_and_reclaim(
+            publisher,
             params.topic,
-            params.url4,
-            traceparent=traceparent,
-            deadline_s=params.deadline_s,
+            lambda: run(
+                publisher,
+                executor,
+                params.topic,
+                params.url4,
+                traceparent=traceparent,
+                deadline_s=params.deadline_s,
+            ),
+            grace_s=stream_grace_s(os.environ),
         )
 
     asyncio.run(_main())

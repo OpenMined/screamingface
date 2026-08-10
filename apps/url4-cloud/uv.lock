@@ -2367,7 +2367,7 @@ notebook = [{ name = "graphviz", specifier = ">=0.21" }]
 
 [[package]]
 name = "url4-cloud"
-version = "1.1.0"
+version = "1.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

@@ -9,7 +9,7 @@
 # once the two distributions became one, so it is gone. The image is built from `Dockerfile`.
 [project]
 name = "url4-cloud"
-version = "1.1.0"
+version = "1.2.0"
 description = "url4-cloud — the control plane (REST + WebSocket, schedules Runner Jobs) and the url4 run mode those Jobs execute."
 requires-python = ">=3.12"
 # Merging the former `url4-cloud-runner` distribution in cost NO new dependency: its deps

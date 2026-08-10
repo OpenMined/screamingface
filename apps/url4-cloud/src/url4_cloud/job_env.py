@@ -180,6 +180,19 @@ TAVILY_API_KEY = "TAVILY_API_KEY"
 """Injected from the Tavily Secret by `envFrom`, so the Secret's KEY must be this exact name.
 Absent => web tools stay off."""
 
+STREAM_GRACE_S = "URL4_CLOUD_STREAM_GRACE_S"
+"""How long the Runner waits after its run ends before deleting the run's stream, so a client
+still draining the final frames is not cut off.
+
+WHY the App writes it rather than Helm: the App must ALSO widen the Job's
+``activeDeadlineSeconds`` to cover this wait, and two independently-set values would silently
+disagree — a grace longer than the deadline slack is a pod SIGKILLed mid-teardown, which is the
+leak this whole mechanism exists to close. One writer, one source of truth."""
+
+DEFAULT_STREAM_GRACE_S = 60.0
+"""Fallback for an unset :data:`STREAM_GRACE_S`, matching ``iat_window_s`` — the widest window in
+which any client can still hold a valid ticket and be attached to the run."""
+
 RUNNER_CONFIG = "URL4_RUNNER_CONFIG"
 """Path to the declared world (:mod:`url4_cloud.world_config`). Baked into the image; the App
 never writes it."""
@@ -211,6 +224,7 @@ WRITTEN_BY_APP = frozenset(
         TOPIC,
         EXPRESSION,
         JOB_DEADLINE_S,
+        STREAM_GRACE_S,
         TRACEPARENT,
         AIGATEWAY_PROFILE,
         CACHE_PARTICIPATE,
@@ -233,6 +247,7 @@ __all__ = [
     "CACHE_MAX_AGE_S",
     "CACHE_PARTICIPATE",
     "DEFAULT_NATS_URL",
+    "DEFAULT_STREAM_GRACE_S",
     "DEPLOY_TIME",
     "EXPRESSION",
     "IDENTITY_HEADER_ENV",
@@ -240,6 +255,7 @@ __all__ = [
     "NATS_URL",
     "REQUIRED",
     "RUNNER_CONFIG",
+    "STREAM_GRACE_S",
     "SECRET",
     "TAVILY_API_KEY",
     "TOPIC",

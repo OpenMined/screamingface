@@ -20,4 +20,18 @@ def stream_for(topic: str) -> str:
     return f"{PREFIX}_{topic}"
 
 
-__all__ = ["stream_for", "subject_for"]
+def owns_stream(stream_name: str) -> bool:
+    """Whether a stream on the broker is one of ours.
+
+    INVARIANT: the NATS store may be shared with other workloads. Reclamation enumerates every
+    stream the broker holds, so this is what keeps a sweep from deleting a stranger's data.
+    """
+    return stream_name.startswith(f"{PREFIX}_")
+
+
+def topic_of(stream_name: str) -> str:
+    """Inverse of :func:`stream_for`. Callers must check :func:`owns_stream` first."""
+    return stream_name.removeprefix(f"{PREFIX}_")
+
+
+__all__ = ["owns_stream", "stream_for", "subject_for", "topic_of"]
