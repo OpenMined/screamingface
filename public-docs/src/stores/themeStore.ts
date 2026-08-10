@@ -6,9 +6,7 @@ import { defineStore } from 'pinia'
 // flash of the wrong theme. Changes are persisted back to localStorage.
 export const useThemeStore = defineStore('theme', () => {
   const isDark = ref(
-    typeof window !== 'undefined'
-      ? document.documentElement.classList.contains('dark')
-      : true,
+    typeof window !== 'undefined' ? document.documentElement.classList.contains('dark') : true,
   )
 
   const theme = computed(() => (isDark.value ? 'dark' : 'light'))

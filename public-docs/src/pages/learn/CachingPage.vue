@@ -1,0 +1,187 @@
+<script setup lang="ts">
+import { RouterLink } from 'vue-router'
+import DocLayout from '@/components/layout/DocLayout.vue'
+import { learnNavigation as navigation } from '@/navigation/learn'
+</script>
+
+<template>
+  <DocLayout
+    title="Caching and compute"
+    description="Why runs, and especially reruns, stay cheap: call-level caching, a shared community cache, and where the compute comes from."
+    :navigation="navigation"
+  >
+    <p>
+      Evaluating a fusion means many model calls, and calls cost money and time. ScreamingFace keeps
+      that cost low in two ways: it caches every call, and it gives you a choice of where the
+      compute comes from.
+    </p>
+
+    <h2>Every call is cached</h2>
+
+    <p>
+      When the <RouterLink to="/learn/engine">engine</RouterLink> calls a model, it stores the
+      response keyed by the exact request. Reuse the same model in another candidate, or run the
+      same evaluation again, and the stored response is served instead of paying for it twice.
+    </p>
+
+    <ul>
+      <li>
+        <strong>Within a run:</strong> a model shared across several candidates is computed once, so
+        a fusion that reuses its members is far cheaper than the number of candidates suggests.
+      </li>
+      <li>
+        <strong>Across runs:</strong> re-running an evaluation only pays for calls that are new. If
+        a run fails partway, restarting it charges you only for the work that had not completed.
+      </li>
+    </ul>
+
+    <h2>The shared community cache</h2>
+
+    <p>
+      A hosted engine's cache is shared across the community. If anyone has already run the same
+      model configuration against a benchmark, that call is a cache hit for you as well, at no cost.
+      Verifying a published result, or building on someone else's fusion, usually costs a fraction
+      of the original run, because the expensive part has already been paid for once.
+    </p>
+
+    <p>
+      This is what makes reproduction practical. A published result carries its
+      <RouterLink to="/learn/url4">url4</RouterLink>, and re-running that url4 mostly lands on
+      cached calls, so checking the work takes minutes and pennies rather than repeating the whole
+      run.
+    </p>
+
+    <p>
+      The shared cache also propagates to <strong>local</strong> engines: entries from the hosted
+      cache are uploaded into your local cache, so a run the community has already paid for is a
+      cache hit on your own machine too, even when you run everything yourself.
+    </p>
+
+    <h2>Where the compute comes from</h2>
+
+    <p>There are two ways to run, and they differ only in who supplies the compute.</p>
+
+    <ul>
+      <li>
+        <strong>Local.</strong> Run the engine on your own machine with your own provider keys. You
+        pay your providers directly, and there is no middleman on the local path.
+      </li>
+      <li>
+        <strong>Hosted.</strong> Use an engine we operate. It carries the shared cache, and we
+        provide subsidized compute to chosen cohorts so that verifying and exploring stays cheap.
+      </li>
+    </ul>
+
+    <figure class="not-prose" style="margin: var(--space-8) 0">
+      <svg
+        viewBox="0 0 680 258"
+        role="img"
+        aria-label="The client points at one engine. A local engine runs on your machine with its own cache; a hosted engine we operate carries the shared community cache."
+        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+      >
+        <defs>
+          <marker
+            id="cc-arrow"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+          <marker
+            id="cc-arrow-a"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--accent)" />
+          </marker>
+        </defs>
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#cc-arrow)">
+          <path d="M326 54 C 220 68, 152 86, 141 104" />
+          <path d="M354 54 C 460 68, 528 86, 539 104" />
+          <path d="M140 162 V190" />
+          <path d="M540 162 V190" />
+        </g>
+        <g style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1">
+          <rect x="290" y="14" width="100" height="40" />
+          <rect x="40" y="106" width="200" height="54" />
+          <rect x="80" y="192" width="120" height="42" />
+          <rect x="440" y="106" width="200" height="54" />
+        </g>
+        <rect
+          x="446"
+          y="192"
+          width="188"
+          height="42"
+          style="fill: none; stroke: var(--accent); stroke-width: 1.5"
+        />
+        <g
+          text-anchor="middle"
+          style="
+            fill: var(--text-2);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          "
+        >
+          <text x="140" y="98">local</text>
+          <text x="540" y="98">hosted</text>
+        </g>
+        <g text-anchor="middle" style="fill: var(--text)">
+          <text x="340" y="39">client</text>
+          <text x="140" y="130">local engine</text>
+          <text x="540" y="130">hosted engine</text>
+          <text x="140" y="218">your cache</text>
+          <text x="540" y="218">shared community cache</text>
+        </g>
+        <g text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          <text x="140" y="147">your machine · your keys</text>
+          <text x="540" y="147">we run it · subsidized</text>
+        </g>
+        <path
+          d="M444 214 H210"
+          style="stroke: var(--accent); stroke-width: 1.25; fill: none; stroke-dasharray: 5 3"
+          marker-end="url(#cc-arrow-a)"
+        />
+        <text
+          x="327"
+          y="205"
+          text-anchor="middle"
+          style="
+            fill: var(--accent);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          "
+        >
+          propagates to local
+        </text>
+      </svg>
+      <figcaption
+        style="
+          font-family: var(--f-mono);
+          font-size: var(--text-label);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--text-2);
+          margin-top: var(--space-3);
+        "
+      >
+        Same protocol, two engines; the hosted engine's shared community cache propagates into your
+        local cache, so prior runs stay cache hits on your own machine.
+      </figcaption>
+    </figure>
+
+    <p>
+      The client code is identical either way; only the engine URL changes. The
+      <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through both.
+    </p>
+  </DocLayout>
+</template>

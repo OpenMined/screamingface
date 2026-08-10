@@ -54,5 +54,13 @@ export function useCarousel(
     if (resumeTimer) clearTimeout(resumeTimer)
   })
 
-  return { currentIndex, next, prev, goTo, startAutoAdvance, stopAutoAdvance, handleManualNavigation }
+  return {
+    currentIndex,
+    next,
+    prev,
+    goTo,
+    startAutoAdvance,
+    stopAutoAdvance,
+    handleManualNavigation,
+  }
 }

@@ -1,0 +1,64 @@
+/*
+ * Tokens for the notebook-style panels in this folder.
+ *
+ * Two groups:
+ *   Structural (ink, line, surface, fill, fonts) maps onto the site theme in
+ *   src/style.css, so panels sit correctly on the page in either mode.
+ *
+ *   Brand (accent, info, danger, success, cell chrome) carries its own
+ *   light/dark pair, matching the SDK's own notebook cards. The gold accent is
+ *   the signal that a panel is ScreamingFace output, so it must not drift to the
+ *   site's primary purple. Dark values mirror the SDK's --sf-gain / --sf-blind.
+ *
+ * The .dark selector is the same one src/style.css uses, so both groups follow
+ * the existing theme toggle.
+ */
+:root {
+  /* Structural: follows the site theme */
+  --nb-ink: var(--color-foreground);
+  --nb-soft: color-mix(in oklab, var(--color-foreground) 75%, var(--color-muted-foreground));
+  --nb-muted: var(--color-muted-foreground);
+  --nb-line: var(--color-border);
+  --nb-hairline: color-mix(in oklab, var(--color-border) 50%, transparent);
+  --nb-fill: var(--color-muted);
+  --nb-surface: var(--color-card);
+  --nb-sans: var(--font-sans);
+  --nb-mono: var(--font-mono);
+  --nb-pad: 20px;
+
+  /* Brand: light */
+  --nb-accent: #b07b12;
+  --nb-on-accent: #ffffff;
+  --nb-danger: #b3261e;
+  --nb-info: #0b62c4;
+  --nb-success: #1a7f37;
+  --nb-cell-border: #4c9aff;
+  --nb-cell-rail: #1976d2;
+
+  /* Syntax on a light code cell. The shared prism theme targets the site's dark
+     code blocks, so its near-white punctuation is invisible here. */
+  --nb-syn-plain: #111111;
+  --nb-syn-keyword: #1a7f37;
+  --nb-syn-function: #0b62c4;
+  --nb-syn-string: #b3261e;
+  --nb-syn-number: #6f42c1;
+  --nb-syn-comment: #8a8a8a;
+}
+
+.dark {
+  /* Brand: dark. Structural tokens need no override; they follow the theme. */
+  --nb-accent: #e0a23c;
+  --nb-on-accent: #1a1408;
+  --nb-danger: #f0726f;
+  --nb-info: #6ba8ff;
+  --nb-success: #46a758;
+  --nb-cell-border: #2f5f96;
+  --nb-cell-rail: #4c9aff;
+
+  --nb-syn-plain: #e8eaed;
+  --nb-syn-keyword: #7ee787;
+  --nb-syn-function: #79c0ff;
+  --nb-syn-string: #ffa198;
+  --nb-syn-number: #d2a8ff;
+  --nb-syn-comment: #8b949e;
+}

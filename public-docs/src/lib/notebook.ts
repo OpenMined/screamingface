@@ -1,7 +1,7 @@
 // Minimal Jupyter nbformat v4 model + pure helpers for rendering a notebook.
 // Kept dependency-free and reactivity-free (pure functions): notebooks are
 // imported statically as `?raw` text, so there is nothing reactive to wrap in a
-// composable — the parse belongs here in `lib/`, alongside `cn`.
+// composable. The parse belongs here in `lib/`, alongside `cn`.
 
 export interface NbOutput {
   output_type: 'execute_result' | 'display_data' | 'stream' | 'error'
@@ -62,7 +62,7 @@ export function notebookLanguage(nb: Notebook): string {
 
 // Maps a notebook basename (as written in inter-notebook markdown links, e.g.
 // `[02_models](02_models.ipynb)`) to the docs route that renders it. Notebooks
-// not listed here have no page yet — their links are rendered as plain text
+// not listed here have no page yet, so their links are rendered as plain text
 // rather than a dead `*.ipynb` href. Extend as more notebooks get wired in.
 export const NOTEBOOK_ROUTES: Record<string, string> = {
   '00_overview': '/sf-client',
@@ -71,7 +71,7 @@ export const NOTEBOOK_ROUTES: Record<string, string> = {
 
 // Remove a single leading `# Heading` line from a markdown source. Used to drop
 // the notebook's own H1 on the first cell, since the docs page header already
-// renders the title — while keeping the rest of that cell (lead, callouts, list).
+// renders the title, while keeping the rest of that cell (lead, callouts, list).
 export function stripLeadingHeading(src: string): string {
   return src.replace(/^\s*#\s+[^\n]*\n+/, '')
 }
@@ -83,14 +83,17 @@ export function normalizeOutput(out: NbOutput): NormalizedOutput {
     return { kind: 'text', text: joinSource(out.text), stream: out.name }
   }
   if (out.output_type === 'error') {
-    const text = (out.traceback && out.traceback.length)
-      ? out.traceback.join('\n')
-      : `${out.ename ?? 'Error'}: ${out.evalue ?? ''}`
+    const text =
+      out.traceback && out.traceback.length
+        ? out.traceback.join('\n')
+        : `${out.ename ?? 'Error'}: ${out.evalue ?? ''}`
     return { kind: 'error', text }
   }
   const data = out.data ?? {}
-  if (data['image/png']) return { kind: 'image', mime: 'image/png', data: joinSource(data['image/png']) }
-  if (data['image/jpeg']) return { kind: 'image', mime: 'image/jpeg', data: joinSource(data['image/jpeg']) }
+  if (data['image/png'])
+    return { kind: 'image', mime: 'image/png', data: joinSource(data['image/png']) }
+  if (data['image/jpeg'])
+    return { kind: 'image', mime: 'image/jpeg', data: joinSource(data['image/jpeg']) }
   if (data['text/html']) return { kind: 'html', html: joinSource(data['text/html']) }
   if (data['text/plain']) return { kind: 'text', text: joinSource(data['text/plain']) }
   return { kind: 'text', text: '' }

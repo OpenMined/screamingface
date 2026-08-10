@@ -8,12 +8,9 @@ import 'prismjs/components/prism-yaml'
 import '@/assets/prism-theme.css'
 
 // Central Prism setup. To support another language, add its
-// `prismjs/components/prism-<lang>` import above — every code block picks it up.
+// `prismjs/components/prism-<lang>` import above, and every code block picks it up.
 function escapeHtml(str: string) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 export function useHighlight() {
