@@ -182,12 +182,14 @@ def _render_fusion(
         )
         if explicit_name != inferred_name:
             lines.append(f"{prefix}    name={explicit_name!r},")
-    lines.append(f"{prefix}    synthesizer={call.model!r},")
+    lines.append(f"{prefix}    synthesizer=sf.Model(")
+    lines.append(f"{prefix}        {call.model!r},")
     if call.prompt != DEFAULT_SYNTHESIS_PROMPT:
-        lines.append(f"{prefix}    prompt={call.prompt!r},")
+        lines.append(f"{prefix}        prompt={call.prompt!r},")
     params = _editable_params(call)
     if params:
-        lines.append(f"{prefix}    params={params!r},")
+        lines.append(f"{prefix}        params={params!r},")
+    lines.append(f"{prefix}    ),")
     lines.append(f"{prefix})")
     return lines
 

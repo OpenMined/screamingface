@@ -371,9 +371,11 @@ reviewer = sf.Model(
 panel = sf.Fusion(
     [writer, reviewer],
     name="reviewed-answer",
-    synthesizer=MODEL_ID,
-    prompt="Produce one accurate final answer from the panel responses.",
-    params={"max_tokens": 4096, "temperature": 0.0},
+    synthesizer=sf.Model(
+        MODEL_ID,
+        prompt="Produce one accurate final answer from the panel responses.",
+        params={"max_tokens": 4096, "temperature": 0.0},
+    ),
 )
 [writer, panel]"""
         ),
@@ -711,23 +713,29 @@ generated answer and spend; cross-harness scores therefore are not assumed ident
             """fable_plus_gpt = sf.Fusion(
     [fable, gpt],
     name="fable_plus_gpt",
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )
 frontier_trio = sf.Fusion(
     [opus, gpt, gemini_pro],
     name="frontier_trio",
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )
 opus_plus_gpt = sf.Fusion(
     [opus, gpt],
     name="opus_plus_gpt",
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )
 opus_self_fusion = sf.Fusion(
     [
@@ -745,44 +753,56 @@ opus_self_fusion = sf.Fusion(
         ),
     ],
     name="opus_self_fusion",
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )
 budget_trio = sf.Fusion(
     [gemini_flash, kimi, deepseek],
     name="budget_trio",
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )
 beat_runner_up = sf.Fusion(
     [opus, gpt, deepseek],
     name="beat_runner_up",
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )
 pareto_cross = sf.Fusion(
     [deepseek, kimi, gpt],
     name="pareto_cross",
-    synthesizer="openrouter/deepseek/deepseek-v4-pro",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/deepseek/deepseek-v4-pro",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )
 pareto_lean = sf.Fusion(
     [deepseek, kimi],
     name="pareto_lean",
-    synthesizer="openrouter/deepseek/deepseek-v4-pro",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/deepseek/deepseek-v4-pro",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )
 best_open_source = sf.Fusion(
     [deepseek, kimi, qwen],
     name="best_open_source",
-    synthesizer="openrouter/deepseek/deepseek-v4-pro",
-    prompt=DRACO_SYNTHESIS_PROMPT,
-    params=DRACO_PARAMS,
+    synthesizer=sf.Model(
+        "openrouter/deepseek/deepseek-v4-pro",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params=DRACO_PARAMS,
+    ),
 )"""
         ),
         nbformat.v4.new_markdown_cell("## 4. Arm the canonical run explicitly"),

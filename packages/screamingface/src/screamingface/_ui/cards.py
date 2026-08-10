@@ -39,14 +39,13 @@ def fusion_card_html(fusion: Fusion) -> str:
 
     members = "".join(_member_detail(member) for member in fusion.members)
     synthesis = ""
-    if fusion.synthesizer is not None or fusion.prompt is not None or fusion.params:
+    if fusion.synthesizer is not None:
         fields = ""
-        if fusion.synthesizer is not None:
-            fields += _field("synthesizer", _mono(fusion.synthesizer), wide=True)
-        if fusion.prompt is not None:
-            fields += _field("prompt", escape(fusion.prompt), wide=True)
-        if fusion.params:
-            fields += _field("params", _params(fusion.params), wide=True)
+        fields += _field("synthesizer", _mono(fusion.synthesizer.model), wide=True)
+        if fusion.synthesizer.prompt is not None:
+            fields += _field("prompt", escape(fusion.synthesizer.prompt), wide=True)
+        if fusion.synthesizer.params:
+            fields += _field("params", _params(fusion.synthesizer.params), wide=True)
         synthesis = _section("synthesis", f"<div class='sf-card__grid'>{fields}</div>")
     return (
         f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace fusion'>"

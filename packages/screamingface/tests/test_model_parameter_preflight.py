@@ -249,13 +249,12 @@ def test_deduplicated_operation_retains_an_explicit_default_override() -> None:
     assert detail_models == ["provider/opus"]
 
 
-def test_fusion_params_are_preflighted_against_its_synthesizer() -> None:
+def test_synthesizer_params_are_preflighted_against_its_model() -> None:
     detail_models: list[str] = []
     transport = _ReachedTransport()
     candidate = sf.Fusion(
         [sf.Model("provider/opus", name="first"), sf.Model("provider/opus", name="second")],
-        synthesizer="provider/synth",
-        params={"temperature": 0.4},
+        synthesizer=sf.Model("provider/synth", params={"temperature": 0.4}),
     )
     client = sf.Client(
         engine_url="https://engine.example",
@@ -275,8 +274,7 @@ def test_member_only_benchmark_does_not_fetch_unused_parameter_contracts() -> No
     transport = _ReachedTransport()
     candidate = sf.Fusion(
         [sf.Model("provider/opus"), sf.Model("provider/other")],
-        synthesizer="provider/synth",
-        params={"top_k": 40},
+        synthesizer=sf.Model("provider/synth", params={"top_k": 40}),
     )
     client = sf.Client(
         engine_url="https://engine.example",
@@ -301,8 +299,7 @@ async def test_async_member_only_benchmark_does_not_fetch_unused_parameter_contr
     transport = _AsyncReachedTransport()
     candidate = sf.Fusion(
         [sf.Model("provider/opus"), sf.Model("provider/other")],
-        synthesizer="provider/synth",
-        params={"top_k": 40},
+        synthesizer=sf.Model("provider/synth", params={"top_k": 40}),
     )
     client = sf.AsyncClient(
         engine_url="https://engine.example",
@@ -332,8 +329,7 @@ def test_structural_synthesizer_is_preflighted_when_whole_fusion_is_incomplete()
     candidate = sf.Fusion(
         [incomplete, sf.Model("provider/third")],
         name="outer",
-        synthesizer="provider/synth",
-        params={"top_k": 40},
+        synthesizer=sf.Model("provider/synth", params={"top_k": 40}),
     )
     client = sf.Client(
         engine_url="https://engine.example",

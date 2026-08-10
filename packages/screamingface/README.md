@@ -94,9 +94,11 @@ careful = sf.Model(
 
 constraint_aware = sf.Fusion(
     [opus, gpt],
-    synthesizer="openrouter/openai/gpt-5.5",
-    prompt="Produce one final answer that preserves every constraint in the original request.",
-    params={"reasoning_effort": "high"},
+    synthesizer=sf.Model(
+        "openrouter/openai/gpt-5.5",
+        prompt="Produce one final answer that preserves every constraint in the original request.",
+        params={"reasoning_effort": "high"},
+    ),
 )
 ```
 

@@ -81,9 +81,11 @@ def test_fusion_url4_recovers_editable_topology_names_and_policy() -> None:
                 sf.Model("provider/b", name="right"),
             ],
             name="panel",
-            synthesizer="provider/synthesizer",
-            prompt="Blend the answers",
-            params={"temperature": 0.1},
+            synthesizer=sf.Model(
+                "provider/synthesizer",
+                prompt="Blend the answers",
+                params={"temperature": 0.1},
+            ),
         )
     )
 
@@ -95,9 +97,10 @@ def test_fusion_url4_recovers_editable_topology_names_and_policy() -> None:
     assert "prompt='Answer A'" in python
     assert "'provider/b'" in python
     assert "name='right'" in python
-    assert "synthesizer='provider/synthesizer'" in python
-    assert "prompt='Blend the answers'" in python
-    assert "params={'temperature': 0.1}" in python
+    assert "synthesizer=sf.Model(" in python
+    assert "        'provider/synthesizer'," in python
+    assert "        prompt='Blend the answers'," in python
+    assert "        params={'temperature': 0.1}," in python
     assert "web_search" not in python
 
 

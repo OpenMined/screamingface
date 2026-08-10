@@ -59,9 +59,11 @@ def test_a_fusion_links_its_synthesizer_into_a_judge_shaped_benchmark() -> None:
 def test_structural_synthesizer_keeps_generation_params_but_not_the_blending_prompt() -> None:
     fusion = sf.Fusion(
         [sf.Model("provider/a"), sf.Model("provider/b")],
-        synthesizer="provider/judge",
-        prompt="Blend the member answers into one final answer.",
-        params={"max_tokens": 16384, "temperature": 0.2},
+        synthesizer=sf.Model(
+            "provider/judge",
+            prompt="Blend the member answers into one final answer.",
+            params={"max_tokens": 16384, "temperature": 0.2},
+        ),
     )
 
     value = _compiled(fusion)

@@ -63,8 +63,7 @@ def test_candidate_parameters_reject_values_that_cannot_be_encoded(
     with pytest.raises(ValueError, match="cannot be encoded"):
         sf.Fusion(
             [sf.Model("provider/a"), sf.Model("provider/b")],
-            synthesizer="provider/synth",
-            params=params,
+            synthesizer=sf.Model("provider/synth", params=params),
         )
 
 
@@ -92,25 +91,39 @@ def test_fusion_accepts_an_optional_display_name() -> None:
     assert fusion.name == "Frontier"
 
 
-def test_fusion_accepts_optional_candidate_owned_synthesis_policy() -> None:
-    fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        synthesizer="provider/synth",
+def test_fusion_accepts_a_model_with_candidate_owned_synthesis_policy() -> None:
+    synthesizer = sf.Model(
+        "provider/synth",
         prompt="Resolve disagreements using evidence.",
         params={"temperature": 0.1},
     )
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        synthesizer=synthesizer,
+    )
 
-    assert fusion.synthesizer == "provider/synth"
-    assert fusion.prompt == "Resolve disagreements using evidence."
-    assert fusion.params == {"temperature": 0.1}
+    assert fusion.synthesizer is synthesizer
+    assert isinstance(fusion.synthesizer, sf.Model)
+    assert fusion.synthesizer.prompt == "Resolve disagreements using evidence."
+    assert fusion.synthesizer.params == {"temperature": 0.1}
+
+
+def test_fusion_normalizes_synthesizer_route_shorthand_to_a_model() -> None:
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        synthesizer="provider/synth",
+    )
+
+    assert isinstance(fusion.synthesizer, sf.Model)
+    assert fusion.synthesizer.model == "provider/synth"
 
 
 def test_fusion_needs_no_explicit_synthesizer_policy() -> None:
     fusion = sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")])
 
     assert fusion.synthesizer is None
-    assert fusion.prompt is None
-    assert fusion.params == {}
+    assert not hasattr(fusion, "prompt")
+    assert not hasattr(fusion, "params")
 
 
 def test_nested_fusions_are_regular_members() -> None:
@@ -166,6 +179,14 @@ def test_fusion_rejects_unpublished_recipe_extensions() -> None:
 
     with pytest.raises(TypeError, match="sf.Model or sf.Fusion"):
         sf.Fusion([CustomRecipe(), sf.Model("provider/model")])
+
+
+def test_fusion_rejects_non_model_synthesizers() -> None:
+    with pytest.raises(TypeError, match="synthesizer must be an sf.Model"):
+        sf.Fusion(
+            [sf.Model("provider/a"), sf.Model("provider/b")],
+            synthesizer=cast(Any, sf.Fusion([sf.Model("provider/c"), sf.Model("provider/d")])),
+        )
 
 
 @pytest.mark.parametrize(
@@ -225,9 +246,11 @@ def test_candidate_representations_include_behavioral_overrides() -> None:
     fusion = sf.Fusion(
         [sf.Model("provider/a"), sf.Model("provider/b")],
         name="pair",
-        synthesizer="provider/synth",
-        prompt="Resolve conflicts.",
-        params={"reasoning": "high"},
+        synthesizer=sf.Model(
+            "provider/synth",
+            prompt="Resolve conflicts.",
+            params={"reasoning": "high"},
+        ),
     )
 
     assert repr(model) == (
@@ -235,6 +258,7 @@ def test_candidate_representations_include_behavioral_overrides() -> None:
         "params={'temperature': 0.2})"
     )
     assert repr(fusion) == (
-        "Fusion(['a', 'b'], name='pair', synthesizer='provider/synth', "
-        "prompt='Resolve conflicts.', params={'reasoning': 'high'})"
+        "Fusion(['a', 'b'], name='pair', "
+        "synthesizer=Model('provider/synth', prompt='Resolve conflicts.', "
+        "params={'reasoning': 'high'}))"
     )

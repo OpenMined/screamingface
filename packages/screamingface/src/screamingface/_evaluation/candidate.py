@@ -124,13 +124,13 @@ class _CandidateCompiler:
         )
         synthesizer = None
         if isinstance(recipe, Fusion) and recipe.synthesizer is not None:
-            synthesizer_model = _canonical_model(recipe.synthesizer)
+            synthesizer_model = _canonical_model(recipe.synthesizer.model)
             # INVARIANT: structural Benchmarks own their Judge instructions, while the
             # Candidate still owns the selected model's generation parameters. Reusing
-            # `recipe.prompt` here would leak ordinary blending policy into a different
-            # Benchmark role; dropping `recipe.params` would silently change the system.
+            # the Model's synthesis prompt here would leak ordinary blending policy into a
+            # different Benchmark role; dropping its params would silently change the system.
             expression = _CandidateCompiler().compile(
-                Model(synthesizer_model, params=recipe.params),
+                Model(synthesizer_model, params=recipe.synthesizer.params),
                 synthesis_root=True,
             )
             assert expression.url4 is not None
@@ -147,9 +147,9 @@ class _CandidateCompiler:
                     _model_parameter_assignment(
                         operation_id=operation_id,
                         model=synthesizer_model,
-                        params=recipe.params,
+                        params=recipe.synthesizer.params,
                     )
-                    if recipe.params
+                    if recipe.synthesizer.params
                     else None
                 ),
                 url4=expression.url4,
@@ -259,8 +259,8 @@ class _CandidateCompiler:
                 kind="fusion",
                 models=_ordered_unique(models),
             )
-        synthesizer = _canonical_model(fusion.synthesizer)
-        prompt = fusion.prompt or DEFAULT_SYNTHESIS_PROMPT
+        synthesizer = _canonical_model(fusion.synthesizer.model)
+        prompt = fusion.synthesizer.prompt or DEFAULT_SYNTHESIS_PROMPT
         member_names: list[str] = []
         for member in members:
             # Keep labels out of raw URL4 syntax. Names are user-visible text and may contain
@@ -273,7 +273,7 @@ class _CandidateCompiler:
                     path=_model_route(synthesizer),
                     context=_fusion_context(members, tuple(member_names)),
                     intent=Text(_url4_text(prompt)),
-                    params=_synthesis_params(fusion.params),
+                    params=_synthesis_params(fusion.synthesizer.params),
                 ),
                 name=binding,
                 weight=0.0,
@@ -287,7 +287,7 @@ class _CandidateCompiler:
                 depends_on=tuple(member.operation_id for member in members),
             )
         )
-        self._record_parameter_assignment(operation_id, synthesizer, fusion.params)
+        self._record_parameter_assignment(operation_id, synthesizer, fusion.synthesizer.params)
         return _ResolvedRecipe(
             reference=f"${binding}",
             operation_id=operation_id,

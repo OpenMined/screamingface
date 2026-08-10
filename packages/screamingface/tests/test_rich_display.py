@@ -186,9 +186,11 @@ def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None
     fusion = sf.Fusion(
         [opus, gpt],
         name="frontier <pair>",
-        synthesizer="provider/synth",
-        prompt="Resolve <conflicts>.",
-        params={"reasoning": "high"},
+        synthesizer=sf.Model(
+            "provider/synth",
+            prompt="Resolve <conflicts>.",
+            params={"reasoning": "high"},
+        ),
     )
 
     html = cast(Any, fusion)._repr_html_()

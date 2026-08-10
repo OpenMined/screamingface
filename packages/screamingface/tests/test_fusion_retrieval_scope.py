@@ -35,6 +35,8 @@ def test_execution_owned_parameters_are_rejected_on_every_candidate_type(reserve
     with pytest.raises(ValueError, match=rf"{reserved!r} is reserved"):
         sf.Fusion(
             [sf.Model("provider/left"), sf.Model("provider/right")],
-            synthesizer="provider/synthesizer",
-            params={reserved: True},
+            synthesizer=sf.Model(
+                "provider/synthesizer",
+                params={reserved: True},
+            ),
         )
