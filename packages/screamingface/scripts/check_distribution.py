@@ -51,6 +51,18 @@ def _validate(paths: tuple[PurePosixPath, ...], *, source: bool) -> None:
         raise SystemExit("wheel contains application or test code")
     if not source and PurePosixPath("screamingface/py.typed") not in paths:
         raise SystemExit("wheel does not declare its inline types with screamingface/py.typed")
+    # WHY: Apache-2.0 section 4(a) requires the licence to travel with every redistribution.
+    # A packaging change can drop it silently, and the failure is legal rather than functional
+    # — nothing breaks at runtime, so only an assertion catches it.
+    if not _declares_license(paths, source=source):
+        raise SystemExit("distribution does not carry its Apache-2.0 LICENSE")
+
+
+def _declares_license(paths: tuple[PurePosixPath, ...], *, source: bool) -> bool:
+    if source:
+        return any(path.name == "LICENSE" for path in paths)
+    # Hatchling records wheel licence files under `<name>-<version>.dist-info/licenses/`.
+    return any("licenses" in path.parts and path.name == "LICENSE" for path in paths)
 
 
 if __name__ == "__main__":

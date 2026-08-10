@@ -184,7 +184,7 @@ conventional commits → PR. The agent contract is documented in
 | `apps/aigateway-ui` | release-please manages the release PR; merging it tags `aigateway-ui-v*`, which builds the multi-arch GHCR image + Helm chart (`release-aigateway-ui.yml`). Unlike aigateway it is **not** mirrored to the public `sf-installer` repo — the console is internal operator tooling, not part of a product install. |
 | `apps/scoreboard` | manual tag `scoreboard-v*` triggers `release-scoreboard.yml` (GHCR image + Helm chart). |
 | `packages/url4` | tag `url4-v*` triggers `release-url4.yml` — verify + build + `twine check`, then publish via PyPI Trusted Publishing. The publish step needs a one-time owner setup (PyPI project + Trusted Publisher + the `pypi` GitHub Environment); until that lands, verify and build still run and only publish fails. See the workflow header. |
-| `packages/screamingface` | release-please tracks the package version and changelog. No tagged PyPI publish workflow is registered yet; `screamingface-tests.yml` verifies buildability and distribution contents. |
+| `packages/screamingface` | tag `screamingface-v*` triggers `release-screamingface.yml` — verify + build + distribution check + `twine check`, then publish via PyPI Trusted Publishing. Needs the same one-time owner setup as url4 (PyPI project + Trusted Publisher + the `pypi` GitHub Environment); the `screamingface` name is **not reserved on PyPI yet**. Until that lands, verify and build still run and only publish fails. |
 
 ## Reference
 
