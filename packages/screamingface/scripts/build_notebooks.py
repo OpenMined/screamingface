@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import nbformat
-from _ifeval_notebook import kimi_appendix
 from nbformat import NotebookNode
 
 _DRACO_ANSWER_PROMPT_PARTS = (
@@ -205,34 +204,47 @@ report_output"""
 
 
 def _ifeval_e2e() -> NotebookNode:
+    # Authored to match the validated lanl-era research notebook byte-for-byte
+    # (kimi solo baseline, haiku-gemini-kimi fusion, 16k-token self-corrective,
+    # lanl-ensemble). check_notebooks.py pins examples/07_ifeval_e2e.ipynb to
+    # exactly these cells; edit HERE, then regenerate.
     return _notebook(
         nbformat.v4.new_markdown_cell(
             """# IFEval on ScreamingFace: stable first run, then the research experiment
 
-IFEval (arXiv:2311.07911) is 541 prompts with machine-checkable constraints — word
-counts, forbidden punctuation, required sections. The Engine grades every response with
+IFEval ([arXiv:2311.07911](https://arxiv.org/abs/2311.07911)) is 541 prompts with
+machine-checkable constraints — word counts, forbidden punctuation, required sections.
+The Engine grades every response with
 a deterministic verifier: **no judge model in the grading path, zero grading cost**.
 
-The Engine publishes three independently revisioned IFEval Benchmarks that share Cases and verifier
-assets:
+**Mental model: an exam with a mechanical grader.** Every prompt is one exam question
+("write 300+ words, no commas, 3 highlighted sections"), and the grader is a script
+that counts words and commas — it cannot be argued with and costs nothing. The three
+Benchmarks below are three exam FORMATS over the same 541 questions. Running example
+for all three: the question is *"describe a cat in exactly two sentences, no commas."*
 
-- `ifeval` — one shot. A solo Model answers once; a Fusion's members answer and its
-  synthesizer **blends** them into one new answer. The blend is checked.
-- `ifeval/self-corrective` — three fixed attempts. The whole Candidate reads the
-  checker's violations, **writes its own feedback, and retries**.
-- `ifeval/verifying-ensemble` — the current verifying ensemble implementation based on
-  Skurikhin et al. (https://openreview.net/forum?id=XSIYfTm2h7): every direct Fusion
-  member is checked individually, and the **synthesizer acts as JUDGE** — it picks a
-  passing answer word-for-word, or turns the violations into coaching when nobody
-  passed. It never writes the answer on this exam.
+- `ifeval` — A solo Model writes one answer and tries to follow instructions and
+  hands it in. A Fusion is different: its members each write a draft, then the
+  synthesizer **blends** the drafts into one NEW answer — and only the blend is
+  graded
+- `ifeval/self-corrective` — The solo model answers, the grader lists what failed
+  ("3 sentences, and there is a comma"), the model then writes its own study note
+  ("use exactly two sentences,
+  drop the comma") and answers again — up to three attempts, earliest pass wins.
+- `ifeval/lanl-ensemble` — (Skurikhin et al., https://openreview.net/forum?id=XSIYfTm2h7).
+  Every member's draft is graded INDIVIDUALLY — no blending, ever.
+  If member A's draft passes, the case stops
+  right there and A's text is submitted **word-for-word**. The synthesizer acts as
+  JUDGE, and only in two narrow moments: when TWO OR MORE drafts pass it picks the
+  best-written one, and when NOBODY passes it turns the grader's violations into
+  coaching text ("A: drop your comma; B: cut to two sentences") for the next of at most
+  three rounds. The judge never writes answer text on this exam — so it cannot
+  break a constraint a member already satisfied.
 
-One rule to remember: **the synthesizer plays two roles.** Blender on `ifeval`,
-judge on `ifeval/verifying-ensemble`.
-
-The required cells below use Haiku and Gemini Flash for a provider-stable one-Case
-validation. Khoa's Kimi K3 configuration remains in the optional appendix because a
-reasoning model can consume its completion budget before emitting answer text, and an
-upstream provider can fail even when Gateway discovery succeeds."""
+One rule to remember: 
+- **the synthesizer plays two roles.** Answers blending on `ifeval`
+(writes new text; can break constraints)
+- judge on `ifeval/lanl-ensemble` (only picks or coaches; cannot)."""
         ),
         _local_stack_cell(),
         nbformat.v4.new_markdown_cell(
@@ -240,8 +252,11 @@ upstream provider can fail even when Gateway discovery succeeds."""
 All**. Python keeps already-imported SDK modules in memory; a stale kernel can ask the new Engine
 for a pre-merge Benchmark id and receive `unknown_benchmark`."""
         ),
-        nbformat.v4.new_code_cell("import screamingface as sf"),
-        nbformat.v4.new_code_cell("sf.connect()"),
+        nbformat.v4.new_code_cell(
+            """import screamingface as sf
+
+sf.connect()"""
+        ),
         nbformat.v4.new_markdown_cell(
             """## Stable smoke Candidates
 
@@ -253,125 +268,103 @@ so the synthesizer is also a direct member — the shape used by Skurikhin et al
 semantic Case/attempt events land."""
         ),
         nbformat.v4.new_code_cell(
-            """smoke_model = sf.Model(
+            """# Researcher-editable prompt for solo models
+SOLO_ANSWER_PROMPT = (
+    "Answer the request accurately and completely. "
+    "Follow every instruction and formatting constraint in the request."
+)
+
+# Synthesizer prompt - used when synthesizer writes text (the answers blender on `ifeval`).
+# Will be ignored in lanl-ensemble
+FUSION_SYNTHESIS_PROMPT = (
+    "Produce the final answer to the original request. "
+    "Synthesize the strongest supported answer from the panel responses, and follow every "
+    "instruction and formatting constraint in the original request."
+)
+
+haiku_4_5 = sf.Model(
     "openrouter/anthropic/claude-haiku-4.5",
+    prompt=SOLO_ANSWER_PROMPT,
     params={"max_tokens": 4096},
 )
-smoke_judge = sf.Model(
+
+kimi_k3 = sf.Model(
+    "openrouter/moonshotai/kimi-k3",
+    prompt=SOLO_ANSWER_PROMPT,
+    params={"max_tokens": 4096},
+)
+
+gemini_3_flash = sf.Model(
     "openrouter/google/gemini-3-flash-preview",
+    prompt=SOLO_ANSWER_PROMPT,
     params={"max_tokens": 4096},
 )
 
-smoke_fusion = sf.Fusion(
-    [smoke_model, smoke_judge],
-    name="haiku-flash-smoke",
-    synthesizer="openrouter/google/gemini-3-flash-preview",
+haiku_gemini_kimi = sf.Fusion(
+    members=[haiku_4_5, gemini_3_flash],
+    name="haiku-gemini-kimi",
+    synthesizer="openrouter/moonshotai/kimi-k3",
+    prompt=FUSION_SYNTHESIS_PROMPT,
     params={"max_tokens": 4096},
 )
-smoke_fusion"""
+haiku_gemini_kimi"""
         ),
-        nbformat.v4.new_markdown_cell(
-            """## ① Baseline — one model, one shot
-
-This validates the canonical paper-comparable protocol. One Case is only a plumbing check;
-increase `limit` deliberately for a reported score."""
-        ),
+        nbformat.v4.new_markdown_cell("""## ① Baseline — one model, one shot"""),
         nbformat.v4.new_code_cell(
-            """canonical_smoke_model = sf.evaluate(
-    smoke_model,
+            """ifeval = sf.evaluate(
+    kimi_k3,
+    benchmark="ifeval",
+    limit=1,  # only eval on 1 row
+    progress=True,
+)
+ifeval.to_dict()"""
+        ),
+        nbformat.v4.new_markdown_cell("""## ② Does blending preserve instructions?"""),
+        nbformat.v4.new_code_cell(
+            """ifeval_fusion = sf.evaluate(
+    haiku_gemini_kimi,
     benchmark="ifeval",
     limit=1,
     progress=True,
 )
-canonical_smoke_model"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """## ② Does blending preserve instructions?
-
-The synthesizer writes one NEW answer from the members' answers — new text the checker
-never saw. A blend can break a constraint every member satisfied (add a comma, drop a
-section). This cell measures that risk."""
-        ),
-        nbformat.v4.new_code_cell(
-            """canonical_smoke_fusion = sf.evaluate(
-    smoke_fusion,
-    benchmark="ifeval",
-    limit=1,
-    progress=True,
-)
-canonical_smoke_fusion"""
+ifeval_fusion.to_dict()"""
         ),
         nbformat.v4.new_markdown_cell(
             """## ③ Can a model correct itself?
 
-The ablation the paper never ran: {solo + feedback loop}. The model answers, the
-checker reports violations, the model writes its own feedback and retries — up to
-three attempts, earliest pass wins.
-
-Cost: five model calls per case (three answers + two self-feedback authorings), all
-unrolled."""
+Will need more output tokens"""
         ),
         nbformat.v4.new_code_cell(
-            """corrective_smoke_model = sf.evaluate(
-    smoke_model,
+            """kimi_k3_more_tokens = sf.Model(
+    "openrouter/moonshotai/kimi-k3",
+    prompt=SOLO_ANSWER_PROMPT,
+    params={"max_tokens": 16384},  # reasoning headroom for corrective attempts
+)
+
+ifeval_self_corrective = sf.evaluate(
+    kimi_k3_more_tokens,
     benchmark="ifeval/self-corrective",
-    limit=1,
+    limit=10,
     progress=True,
 )
-corrective_smoke_model"""
+ifeval_self_corrective.to_dict()"""
         ),
         nbformat.v4.new_markdown_cell(
             """## ④ The verifying ensemble (the paper's protocol)
 
 Members answer, the checker checks **each draft individually**, and the synthesizer —
 acting as judge here — picks a passing answer verbatim, or coaches everyone and retries
-when nobody passed. A judge cannot break a constraint a member satisfied, because it
-never rewrites the winning text.
-
-Choose a synthesizer that reliably answers tersely: a judge reply that is not a bare
-letter gets no vote (the deterministic passers-first rule decides instead), and the
-synthesizer inherits provider-default params on this exam."""
+when nobody passed. A judge (synthesizer model) never rewrites the output text"""
         ),
         nbformat.v4.new_code_cell(
-            """corrective_smoke_fusion = sf.evaluate(
-    smoke_fusion,
-    benchmark="ifeval/verifying-ensemble",
-    limit=1,
+            """ifeval_lanl_fusion = sf.evaluate(
+    haiku_gemini_kimi,
+    benchmark="ifeval/lanl-ensemble",
+    limit=10,
     progress=True,
 )
-corrective_smoke_fusion"""
+ifeval_lanl_fusion.to_dict()"""
         ),
-        nbformat.v4.new_markdown_cell(
-            """## Read the smoke results
-
-- ① vs ② — did blending help or hurt instruction-following?
-- ① vs ③ — how much does a feedback loop help one model?
-- ③ vs ④ — self-correction vs ensemble correction, same loop, same exam.
-- ② vs ④ — blend-then-check vs check-then-select.
-
-Cost note: the iterative-correction exam has no early stop yet — all three attempts
-always run (and the solo shape adds two self-feedback calls), so its token totals
-overstate a stop-on-success system. Compare scores freely within a column; never
-compare our costs to the paper's.
-
-With one Case these values prove only that the complete contracts execute. They are not
-benchmark results."""
-        ),
-        nbformat.v4.new_code_cell(
-            """{
-    name: {
-        "score": report.candidates[0].score,
-        "output_tokens": report.usage.output_tokens,
-    }
-    for name, report in {
-        "① ifeval · haiku": canonical_smoke_model,
-        "② ifeval · haiku-flash": canonical_smoke_fusion,
-        "③ self-corrective · haiku": corrective_smoke_model,
-        "④ verifying-ensemble · haiku-flash": corrective_smoke_fusion,
-    }.items()
-}"""
-        ),
-        *kimi_appendix(),
     )
 
 
