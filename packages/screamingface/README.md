@@ -414,6 +414,8 @@ or introduce a separate discovery operation.
   nine-Fusion canonical DRACO experiment and audit workflow, with execution disabled by default.
 - [`examples/07_ifeval_e2e.ipynb`](examples/07_ifeval_e2e.ipynb): canonical deterministic
   IFEval, bounded self-correction, and the LANL early-exit Fusion protocol.
+- [`examples/08_healthbench_worst30.ipynb`](examples/08_healthbench_worst30.ipynb): the
+  HealthBench worst-30% open-Fusion challenge and its inexpensive structural smoke protocol.
 - [`examples/09_demo.ipynb`](examples/09_demo.ipynb): a curated, executed presentation that
   reproduces and scales a published DRACO result using the current public API.
 

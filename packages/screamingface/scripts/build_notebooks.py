@@ -48,6 +48,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "05_draco_lite_e2e.ipynb": _draco_lite_e2e(),
         "06_draco_full_e2e.ipynb": _draco_full_e2e(),
         "07_ifeval_e2e.ipynb": _ifeval_e2e(),
+        "08_healthbench_worst30.ipynb": _healthbench_worst30_e2e(),
     }
 
 
@@ -1022,6 +1023,122 @@ audit_sample"""
         "name": "screamingface-sdk",
     }
     return notebook
+
+
+_HEALTH_SYNTHESIS_PROMPT_PARTS = (
+    "You are synthesising the single best response to a health-related ",
+    "conversation by combining independent responses from a panel of models. ",
+    "A physician-authored rubric will grade your output per criterion — ",
+    "accuracy, completeness, safety, and appropriate hedging all matter; so ",
+    "does avoiding harmful or false content.\n\n",
+    "Procedure:\n",
+    "1. Read every panel response carefully.\n",
+    "2. Identify what each contributes that the others miss (facts, safety ",
+    "caveats, follow-up questions, care-seeking guidance).\n",
+    "3. Produce ONE unified response to the final user turn that:\n",
+    "   - Keeps every clinically correct, relevant point\n",
+    "   - Drops anything inaccurate, unsafe, or speculative\n",
+    "   - Resolves disagreements by favouring the safer, better-supported claim\n",
+    "   - Stays concise — verbosity is not rewarded\n",
+    "4. Do not introduce claims no panel member made.\n\n",
+    "Output: the unified response only, no preamble, no JSON wrapper.",
+)
+
+
+def _healthbench_worst30_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell(
+            """# HealthBench worst-30% open-Fusion challenge
+
+Can an open-weights Fusion improve on the baseline across the 157 hardest HealthBench
+Professional conversations? The Engine owns the native multi-turn Cases, pinned GPT-5.4 grading
+Judge, physician-written rubrics, per-item grading, and aggregation. Every Candidate and Judge
+model call is billed through the researcher's provider connection.
+
+This is a challenge metric, not an official HealthBench score. It uses an unclipped mean over the
+worst-30% subset, so negative scores are meaningful and remain rankable. The protocol uses one
+answer sample, no length-adjusted score, a floating OpenRouter GPT-5.4 route, and does not yet
+forward the reference Judge's low-reasoning setting.
+
+The full challenge is intentionally disabled below because it requires hundreds of paid calls.
+The structural smoke performs one Candidate answer and one Judge call."""
+        ),
+        _local_stack_cell(),
+        nbformat.v4.new_code_cell("import screamingface as sf\n\nsf.connect()"),
+        nbformat.v4.new_markdown_cell(
+            """## 1. Verify the complete grading chain
+
+`healthbench/smoke` runs one pinned Case and one rubric item through native conversation input,
+Candidate execution, the official grader prompt, GPT-5.4 verdict parsing, and aggregation. Its
+score is diagnostic and is not comparable to a HealthBench result."""
+        ),
+        nbformat.v4.new_code_cell(
+            """smoke_candidate = sf.Model(
+    "openrouter/deepseek/deepseek-v4-pro",
+    params={"max_tokens": 4096},
+)
+smoke_report = sf.evaluate(smoke_candidate, benchmark="healthbench/smoke")
+smoke_report"""
+        ),
+        nbformat.v4.new_code_cell(
+            """{
+    "score": smoke_report.candidates.only.score,
+    "metrics": smoke_report.candidates.only.metrics,
+    "cases": smoke_report.candidates.only.cases,
+}"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 2. Define the open-Fusion baseline
+
+The members remain prompt-free to preserve Khoa's measured baseline. The explicit synthesizer
+`sf.Model` owns the researcher-editable health synthesis prompt; changing it changes the Candidate,
+not the benchmark revision."""
+        ),
+        nbformat.v4.new_code_cell(
+            _string_assignment("HEALTH_SYNTHESIS_PROMPT", _HEALTH_SYNTHESIS_PROMPT_PARTS)
+        ),
+        nbformat.v4.new_code_cell(
+            """deepseek = sf.Model("openrouter/deepseek/deepseek-v4-pro")
+kimi = sf.Model("openrouter/moonshotai/kimi-k2.6")
+qwen = sf.Model("openrouter/qwen/qwen3.6-plus")
+
+open_trio = sf.Fusion(
+    [deepseek, kimi, qwen],
+    name="open_trio",
+    synthesizer=sf.Model(
+        "openrouter/deepseek/deepseek-v4-pro",
+        prompt=HEALTH_SYNTHESIS_PROMPT,
+    ),
+)
+open_trio"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 3. Run the full challenge deliberately
+
+The complete Evaluation makes 157 × four Candidate calls plus roughly 350 GPT-5.4 Judge calls.
+Set the switch only after inspecting the Candidate and confirming the provider connection."""
+        ),
+        nbformat.v4.new_code_cell("RUN_EVALUATION = False"),
+        nbformat.v4.new_code_cell(
+            """challenge_report = None
+if RUN_EVALUATION:
+    challenge_report = sf.evaluate(open_trio, benchmark="healthbench/worst30")
+challenge_report"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## 4. Inspect and export the artifact
+
+A valid full attempt has non-null `score` and complete verdict coverage. Case Results retain the
+Candidate answer, rubric checks, Judge evidence, raw replies, and any failures."""
+        ),
+        nbformat.v4.new_code_cell(
+            """challenge_report.candidates.only if challenge_report is not None else None"""
+        ),
+        nbformat.v4.new_code_cell(
+            """challenge_report.export("healthbench-worst30.json") """
+            """if challenge_report is not None else None"""
+        ),
+    )
 
 
 def main() -> None:
