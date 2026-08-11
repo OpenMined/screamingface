@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Self
 
+from ._money import MAX_AMOUNT_FRACTIONAL_DIGITS, MAX_AMOUNT_INTEGER_DIGITS
+
 __all__ = [
     "SCHEMA_PROVIDER_ATTEMPT",
     "SCHEMA_REQUEST_ECONOMICS",
@@ -21,7 +23,7 @@ __all__ = [
     "InputTokenUsage",
     "OutputTokenUsage",
     "PricingContext",
-    "ProviderCallRecord",
+    "ProviderAttemptRecord",
     "ProviderExtension",
     "ProviderExtensionFact",
     "ProviderUsageAccountingEvidence",
@@ -62,7 +64,10 @@ MAX_TTL_ROWS = 8
 MAX_EXTENSION_FACTS = 8
 MAX_EXTENSION_TEXT_BYTES = 128
 
-_CANONICAL_DECIMAL = re.compile(r"^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$")
+_CANONICAL_DECIMAL = re.compile(
+    rf"^(?:0|[1-9][0-9]{{0,{MAX_AMOUNT_INTEGER_DIGITS - 1}}})"
+    rf"(?:\.[0-9]{{1,{MAX_AMOUNT_FRACTIONAL_DIGITS}}})?$"
+)
 
 
 def _validate_count(value: int | None, *, field_name: str) -> None:
@@ -321,12 +326,14 @@ class ProviderExtensionFact:
         _validate_ascii(self.unit, field_name="unit", max_bytes=64)
         _validate_ascii(self.source, field_name="source", max_bytes=MAX_EXTENSION_TEXT_BYTES)
         if self.kind == "integer":
-            _validate_count(self.value, field_name="value")  # type: ignore[arg-type]
+            if type(self.value) is not int:
+                raise ValueError("integer extension facts require integer values")
+            _validate_count(self.value, field_name="value")
         elif self.kind == "boolean":
             if type(self.value) is not bool:
                 raise ValueError("boolean extension facts require bool values")
         elif self.kind == "decimal":
-            if not _is_canonical_decimal(self.value):  # type: ignore[arg-type]
+            if type(self.value) is not str or not _is_canonical_decimal(self.value):
                 raise ValueError("decimal extension facts require canonical decimal strings")
         elif self.kind == "enum":
             if type(self.value) is not str:
@@ -440,7 +447,7 @@ class ProviderUsageAccountingEvidence:
 
 
 @dataclass(frozen=True, slots=True)
-class ProviderCallRecord:
+class ProviderAttemptRecord:
     """One observed local provider send-pipeline admission."""
 
     attempt_id: str

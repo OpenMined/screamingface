@@ -38,6 +38,36 @@ def test_nonreported_direct_cost_cannot_smuggle_amount_metadata() -> None:
         DirectCost(status="unavailable", amount="1", unit="credits", source="x")
 
 
+def test_money_and_decimal_extensions_accept_33_but_not_34_fractional_digits() -> None:
+    accepted = "0.123456789012345678901234567890123"
+    rejected = accepted + "4"
+
+    assert (
+        DirectCost.reported(amount=accepted, unit="credits", source="provider.cost").amount
+        == accepted
+    )
+    assert (
+        ProviderExtensionFact(
+            name="cost_detail",
+            kind="decimal",
+            value=accepted,
+            unit=None,
+            source="provider.cost_detail",
+        ).value
+        == accepted
+    )
+    with pytest.raises(ValueError):
+        DirectCost.reported(amount=rejected, unit="credits", source="provider.cost")
+    with pytest.raises(ValueError):
+        ProviderExtensionFact(
+            name="cost_detail",
+            kind="decimal",
+            value=rejected,
+            unit=None,
+            source="provider.cost_detail",
+        )
+
+
 def test_unit_unknown_direct_cost_cannot_claim_a_known_unit() -> None:
     with pytest.raises(ValueError):
         DirectCost(status="unit_unknown", amount="1", unit="usd", source="provider.cost")
@@ -307,3 +337,18 @@ def test_safe_string_subclass_is_normalized_without_calling_its_encode_override(
     response_model = metadata["usage_accounting"]["attempts"][0]["response_model"]
     assert response_model == "claude-safe"
     assert type(response_model) is str
+
+
+@pytest.mark.parametrize(
+    ("kind", "value"),
+    [("integer", "1"), ("integer", True), ("decimal", 1), ("decimal", True)],
+)
+def test_extension_fact_kind_rejects_mismatched_scalar_types(kind: str, value: Any) -> None:
+    with pytest.raises(ValueError):
+        ProviderExtensionFact(
+            name="value",
+            kind=kind,  # type: ignore[arg-type]
+            value=value,
+            unit=None,
+            source="provider.value",
+        )

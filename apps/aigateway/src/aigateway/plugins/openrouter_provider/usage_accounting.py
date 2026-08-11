@@ -18,6 +18,24 @@ from ...core.usage_accounting import (
     UsageSource,
     canonical_amount,
 )
+from ...core.usage_accounting._mapper import (
+    bounded_count as _int_or_none,
+)
+from ...core.usage_accounting._mapper import (
+    cache_write_tokens as _cache_write_tokens,
+)
+from ...core.usage_accounting._mapper import (
+    final_detail_or_none as _final_detail_or_none,
+)
+from ...core.usage_accounting._mapper import (
+    mapping_or_none as _mapping,
+)
+from ...core.usage_accounting._mapper import (
+    response_string,
+)
+from ...core.usage_accounting._mapper import (
+    usage_and_source as _usage_and_source,
+)
 
 __all__ = ["cache_reference_from_cached", "normalize_openrouter_usage_accounting"]
 
@@ -25,7 +43,6 @@ DIRECT_COST_UNIT = "openrouter_credits"
 DIRECT_COST_SOURCE = "openrouter.usage.cost"
 CACHED_DIRECT_COST_SOURCE = "cached_response.usage.cost"
 EXTENSION_NAMESPACE = "openrouter.response_usage.v1"
-_MAX_TOKEN_COUNT = 2**53 - 1
 
 # OpenRouter exposes these provider-cost components without a documented currency/unit.
 # They remain non-aggregable audit evidence until the provider contract supplies one.
@@ -38,30 +55,6 @@ _COST_DETAIL_FIELDS = {
         "openrouter.usage.cost_details.upstream_inference_completions_cost"
     ),
 }
-
-
-def _int_or_none(value: object) -> int | None:
-    if type(value) is int and 0 <= value <= _MAX_TOKEN_COUNT:
-        return value
-    return None
-
-
-def _mapping(value: object) -> Mapping[str, Any] | None:
-    return value if isinstance(value, Mapping) else None
-
-
-def _final_detail_or_none(value: object, source: UsageSource) -> int | None:
-    token_count = _int_or_none(value)
-    if source != "provider_raw_response" and token_count == 0:
-        return None
-    return token_count
-
-
-def _cache_write_tokens(prompt_details: Mapping[str, Any], source: UsageSource) -> int | None:
-    for key in ("cache_write_tokens", "cache_creation_tokens"):
-        if key in prompt_details:
-            return _final_detail_or_none(prompt_details[key], source)
-    return None
 
 
 def _uncached_input(
@@ -145,18 +138,6 @@ def _provider_extensions(usage: Mapping[str, Any]) -> tuple[ProviderExtension, .
     return (ProviderExtension(namespace=EXTENSION_NAMESPACE, facts=tuple(facts[:8])),)
 
 
-def _usage_and_source(
-    raw_response: Mapping[str, Any] | None, final_response: Mapping[str, Any] | None
-) -> tuple[Mapping[str, Any] | None, UsageSource]:
-    raw_usage = _mapping((raw_response or {}).get("usage"))
-    if raw_usage is not None:
-        return raw_usage, "provider_raw_response"
-    final_usage = _mapping((final_response or {}).get("usage"))
-    if final_usage is not None:
-        return final_usage, "provider_converted_response"
-    return None, "provider_raw_response"
-
-
 def normalize_openrouter_usage_accounting(
     *,
     request_body: Mapping[str, Any],
@@ -170,16 +151,16 @@ def normalize_openrouter_usage_accounting(
     if usage is None:
         return ProviderUsageAccountingEvidence(
             supported=True,
-            response_model=_response_model(raw_response, final_response),
-            provider_response_id=_response_id(raw_response, final_response),
+            response_model=response_string(raw_response, final_response, field="model"),
+            provider_response_id=response_string(raw_response, final_response, field="id"),
         )
     return ProviderUsageAccountingEvidence(
         supported=True,
         usage=_tokens(usage, source),
         pricing_context=PricingContext(),
         direct_cost=_direct_cost(usage, source=DIRECT_COST_SOURCE),
-        response_model=_response_model(raw_response, final_response),
-        provider_response_id=_response_id(raw_response, final_response),
+        response_model=response_string(raw_response, final_response, field="model"),
+        provider_response_id=response_string(raw_response, final_response, field="id"),
         provider_extensions=_provider_extensions(usage),
     )
 
@@ -192,23 +173,3 @@ def cache_reference_from_cached(cached: Mapping[str, Any]) -> CacheReference | N
     tokens = _tokens(usage, "cached_converted_response")
     direct = _direct_cost(usage, source=CACHED_DIRECT_COST_SOURCE)
     return CacheReference(usage=tokens, direct_cost=direct)
-
-
-def _response_model(
-    raw_response: Mapping[str, Any] | None, final_response: Mapping[str, Any] | None
-) -> str | None:
-    for candidate in (raw_response, final_response):
-        model = (candidate or {}).get("model")
-        if isinstance(model, str) and model:
-            return model
-    return None
-
-
-def _response_id(
-    raw_response: Mapping[str, Any] | None, final_response: Mapping[str, Any] | None
-) -> str | None:
-    for candidate in (raw_response, final_response):
-        identifier = (candidate or {}).get("id")
-        if isinstance(identifier, str) and identifier:
-            return identifier
-    return None

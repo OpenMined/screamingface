@@ -261,10 +261,12 @@ class TestSafety:
         collector.begin_dispatch()
         request = _Req()
         collector.on_send_admitted(request)
-        collector.on_send_failed(
-            request,
-            outcome="transport_error",
-            failure_code="Bearer sk-provider-secret",
+        assert (
+            collector.finalize_last_open_failure(
+                outcome="transport_error",
+                failure_code="Bearer sk-provider-secret",
+            )
+            is True
         )
         assert collector.records()[0].failure_code == "transport_error"
         assert "sk-provider-secret" not in str(collector.records()[0].as_json())
@@ -366,3 +368,7 @@ class TestRedirectTargetMatching:
         collector.on_send_admitted(hop)
         (record,) = collector.records()
         assert record.redirect_hop_count == 1
+
+
+def test_collector_has_no_dead_request_targeted_failure_surface() -> None:
+    assert not hasattr(RequestAccountingCollector, "on_send_failed")

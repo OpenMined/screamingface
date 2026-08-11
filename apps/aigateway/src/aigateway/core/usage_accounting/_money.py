@@ -29,6 +29,9 @@ from decimal import Decimal, InvalidOperation
 
 __all__ = ["canonical_amount", "sum_amounts"]
 
+MAX_AMOUNT_INTEGER_DIGITS = 18
+MAX_AMOUNT_FRACTIONAL_DIGITS = 33
+
 
 def _to_decimal(value: object) -> Decimal | None:
     """A finite ``Decimal`` for a safely-numeric value, else ``None``.
@@ -85,7 +88,10 @@ def _bounded_render(candidate: Decimal) -> str | None:
         exponent += 1
     integer_digits = len(digits) + exponent if exponent >= 0 else max(len(digits) + exponent, 1)
     fractional_digits = 0 if exponent >= 0 else -exponent
-    if integer_digits > 18 or fractional_digits > 18:
+    if (
+        integer_digits > MAX_AMOUNT_INTEGER_DIGITS
+        or fractional_digits > MAX_AMOUNT_FRACTIONAL_DIGITS
+    ):
         return None
     return _render(candidate)
 
@@ -125,7 +131,7 @@ def sum_amounts(amounts: Iterable[str]) -> str | None:
         if separator:
             total += int(fraction.ljust(scale, "0"))
     whole, remainder = divmod(total, factor)
-    if len(str(whole)) > 18:
+    if len(str(whole)) > MAX_AMOUNT_INTEGER_DIGITS:
         return None
     if scale == 0 or remainder == 0:
         return str(whole)

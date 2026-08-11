@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 import pytest_asyncio
@@ -105,6 +106,20 @@ async def test_set_if_absent_then_get_round_trips_the_response(store) -> None:
     assert await store.get(_KEY) == _RESPONSE
     row = await RequestCacheEntry.get(key_hash=_KEY)
     assert row.response_json == json.dumps(_RESPONSE, separators=(",", ":"), ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_get_preserves_the_exact_lexical_decimal_for_accounting(store) -> None:
+    await store.set_if_absent(_write())
+    row = await RequestCacheEntry.get(key_hash=_KEY)
+    row.response_json = '{"id":"cmpl","choices":[],"usage":{"cost":0.0038799200000000002}}'
+    await row.save(update_fields=["response_json"])
+
+    response = await store.get(_KEY)
+
+    assert response is not None
+    assert response["usage"]["cost"] == Decimal("0.0038799200000000002")
+    assert type(response["usage"]["cost"]) is Decimal
 
 
 @pytest.mark.asyncio

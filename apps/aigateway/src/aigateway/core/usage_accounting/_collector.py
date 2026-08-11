@@ -34,7 +34,7 @@ from ._types import (
     CaptureStatus,
     DirectCost,
     PricingContext,
-    ProviderCallRecord,
+    ProviderAttemptRecord,
     ProviderUsageAccountingEvidence,
 )
 
@@ -260,13 +260,6 @@ class RequestAccountingCollector:
             send.failure_code = "provider_status_error"
         send.raw_evidence = raw_evidence
 
-    def on_send_failed(self, request: object, *, outcome: CallOutcome, failure_code: str) -> None:
-        """The send failed locally before a usable response body."""
-        send = self._by_request.get(id(request))
-        if send is None or send.resolved:
-            return
-        self._finalize_send_failure(send, outcome=outcome, failure_code=failure_code)
-
     def finalize_last_open_failure(self, *, outcome: CallOutcome, failure_code: str) -> bool:
         """Finalize the last admitted send after dispatch escapes with no response hook."""
         if not self._sends or self._sends[-1].resolved:
@@ -330,12 +323,12 @@ class RequestAccountingCollector:
 
     # ---- results -------------------------------------------------------------
 
-    def records(self) -> tuple[ProviderCallRecord, ...]:
+    def records(self) -> tuple[ProviderAttemptRecord, ...]:
         return tuple(self._record(send) for send in self._sends)
 
-    def _record(self, send: _PendingSend) -> ProviderCallRecord:
+    def _record(self, send: _PendingSend) -> ProviderAttemptRecord:
         evidence = send.evidence
-        return ProviderCallRecord(
+        return ProviderAttemptRecord(
             attempt_id=send.attempt_id,
             sequence=send.sequence,
             dispatch_index=send.dispatch_index,

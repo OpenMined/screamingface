@@ -18,35 +18,29 @@ from ...core.usage_accounting import (
     TokenUsage,
     UsageSource,
 )
+from ...core.usage_accounting._mapper import (
+    bounded_count as _int_or_none,
+)
+from ...core.usage_accounting._mapper import (
+    cache_write_tokens as _cache_write_tokens,
+)
+from ...core.usage_accounting._mapper import (
+    final_detail_or_none as _final_detail_or_none,
+)
+from ...core.usage_accounting._mapper import (
+    mapping_or_none as _mapping,
+)
+from ...core.usage_accounting._mapper import (
+    response_string,
+)
+from ...core.usage_accounting._mapper import (
+    usage_and_source as _usage_and_source,
+)
 
 __all__ = ["cache_reference_from_cached", "normalize_anthropic_usage_accounting"]
 
 EXTENSION_NAMESPACE = "anthropic.usage.v1"
 _MAX_TOKEN_COUNT = 2**53 - 1
-
-
-def _int_or_none(value: object) -> int | None:
-    if type(value) is int and 0 <= value <= _MAX_TOKEN_COUNT:
-        return value
-    return None
-
-
-def _mapping(value: object) -> Mapping[str, Any] | None:
-    return value if isinstance(value, Mapping) else None
-
-
-def _final_detail_or_none(value: object, source: UsageSource) -> int | None:
-    token_count = _int_or_none(value)
-    if source != "provider_raw_response" and token_count == 0:
-        return None
-    return token_count
-
-
-def _cache_write_tokens(prompt_details: Mapping[str, Any], source: UsageSource) -> int | None:
-    for key in ("cache_write_tokens", "cache_creation_tokens"):
-        if key in prompt_details:
-            return _final_detail_or_none(prompt_details[key], source)
-    return None
 
 
 def _inclusive_input(
@@ -59,7 +53,11 @@ def _inclusive_input(
 
 
 def _cache_ttl_rows(usage: Mapping[str, Any], source: UsageSource) -> tuple[CacheWriteTTL, ...]:
-    creation = _mapping(usage.get("cache_creation")) or {}
+    creation = _mapping(usage.get("cache_creation"))
+    if creation is None:
+        prompt_details = _mapping(usage.get("prompt_tokens_details")) or {}
+        creation = _mapping(prompt_details.get("cache_creation_token_details"))
+    creation = creation or {}
     rows: list[CacheWriteTTL] = []
     for key, ttl in (
         ("ephemeral_5m_input_tokens", 300),
@@ -84,7 +82,14 @@ def _tokens(usage: Mapping[str, Any], source: UsageSource) -> TokenUsage:
         output_total = _final_detail_or_none(usage.get("completion_tokens"), source)
         if output_total is None:
             output_total = _final_detail_or_none(usage.get("output_tokens"), source)
-        any_known = input_total is not None or output_total is not None
+        uncached = _final_detail_or_none(prompt_details.get("text_tokens"), source)
+        cache_read = _final_detail_or_none(prompt_details.get("cached_tokens"), source)
+        cache_write = _cache_write_tokens(prompt_details, source)
+        ttl_rows = _cache_ttl_rows(usage, source)
+        any_known = any(
+            value is not None
+            for value in (input_total, output_total, uncached, cache_read, cache_write)
+        )
         return TokenUsage(
             status=(
                 "complete"
@@ -94,8 +99,10 @@ def _tokens(usage: Mapping[str, Any], source: UsageSource) -> TokenUsage:
             source=source,
             input=InputTokenUsage(
                 total=input_total,
-                cache_read=_final_detail_or_none(prompt_details.get("cached_tokens"), source),
-                cache_write=_cache_write_tokens(prompt_details, source),
+                uncached=uncached,
+                cache_read=cache_read,
+                cache_write=cache_write,
+                cache_write_by_ttl=ttl_rows,
             ),
             output=OutputTokenUsage(
                 total=output_total,
@@ -171,18 +178,6 @@ def _provider_extensions(usage: Mapping[str, Any]) -> tuple[ProviderExtension, .
     return (ProviderExtension(namespace=EXTENSION_NAMESPACE, facts=tuple(facts)),)
 
 
-def _usage_and_source(
-    raw_response: Mapping[str, Any] | None, final_response: Mapping[str, Any] | None
-) -> tuple[Mapping[str, Any] | None, UsageSource]:
-    raw_usage = _mapping((raw_response or {}).get("usage"))
-    if raw_usage is not None:
-        return raw_usage, "provider_raw_response"
-    final_usage = _mapping((final_response or {}).get("usage"))
-    if final_usage is not None:
-        return final_usage, "provider_converted_response"
-    return None, "provider_raw_response"
-
-
 def normalize_anthropic_usage_accounting(
     *,
     request_body: Mapping[str, Any],
@@ -197,16 +192,16 @@ def normalize_anthropic_usage_accounting(
         return ProviderUsageAccountingEvidence(
             supported=True,
             direct_cost=DirectCost.absent(),
-            response_model=_response_model(raw_response, final_response),
-            provider_response_id=_response_id(raw_response, final_response),
+            response_model=response_string(raw_response, final_response, field="model"),
+            provider_response_id=response_string(raw_response, final_response, field="id"),
         )
     return ProviderUsageAccountingEvidence(
         supported=True,
         usage=_tokens(usage, source),
         pricing_context=_pricing_context(usage),
         direct_cost=DirectCost.absent(),
-        response_model=_response_model(raw_response, final_response),
-        provider_response_id=_response_id(raw_response, final_response),
+        response_model=response_string(raw_response, final_response, field="model"),
+        provider_response_id=response_string(raw_response, final_response, field="id"),
         provider_extensions=_provider_extensions(usage),
     )
 
@@ -220,23 +215,3 @@ def cache_reference_from_cached(cached: Mapping[str, Any]) -> CacheReference | N
         usage=_tokens(usage, "cached_converted_response"),
         direct_cost=DirectCost.absent(),
     )
-
-
-def _response_model(
-    raw_response: Mapping[str, Any] | None, final_response: Mapping[str, Any] | None
-) -> str | None:
-    for candidate in (raw_response, final_response):
-        model = (candidate or {}).get("model")
-        if isinstance(model, str) and model:
-            return model
-    return None
-
-
-def _response_id(
-    raw_response: Mapping[str, Any] | None, final_response: Mapping[str, Any] | None
-) -> str | None:
-    for candidate in (raw_response, final_response):
-        identifier = (candidate or {}).get("id")
-        if isinstance(identifier, str) and identifier:
-            return identifier
-    return None

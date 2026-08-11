@@ -632,8 +632,12 @@ class TestSharedHandlerConcurrency:
                 for _ in range(sends):
                     await handler.post(url=_URL, json={"model": model})
             records = collector.records()
-            models = {r.requested_model for r in records}
-            assert models == {model}, f"{model} collected another caller's send: {models}"
+            response_owners = {
+                raw["who"] for _attempt_id, raw, _succeeded in collector.open_records() if raw
+            }
+            assert response_owners == {model}, (
+                f"{model} collected another caller's response: {response_owners}"
+            )
             return model, len(records), {r.sequence for r in records}
 
         slow, fast = await asyncio.gather(_call("slow", 2), _call("fast", 3))

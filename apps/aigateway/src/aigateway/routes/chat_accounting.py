@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Final, Literal
 
 from fastapi import HTTPException, Request
@@ -70,6 +71,7 @@ __all__ = [
     "finalize_provider_evidence",
     "note_dispatch_failure",
     "streaming_rejection",
+    "validate_accounting_version",
 ]
 
 
@@ -92,18 +94,11 @@ class AccountingSession:
             self.collector.begin_dispatch()
 
 
-def begin_accounting(
-    request: Request, *, plugin: ProviderPluginBase, provider: str, model: str
-) -> AccountingSession | None:
-    """Open a session for a negotiated request, or ``None`` when not negotiated.
-
-    Called BEFORE the cache stage so a hit still renders metadata — but note that the
-    collector exists only to hold records, and a hit creates none. Nothing here reads a
-    credential, dispatches, or touches the request body.
-    """
+def validate_accounting_version(request: Request) -> bool:
+    """Validate the transport negotiation without publishing a correlation session."""
     requested_version = request.headers.get(NEGOTIATION_HEADER)
     if requested_version is None:
-        return None
+        return False
     if requested_version.strip().lower() != NEGOTIATION_VERSION:
         raise HTTPException(
             status_code=400,
@@ -112,11 +107,28 @@ def begin_accounting(
                 "message": f"supported accounting version: {NEGOTIATION_VERSION}",
             },
         )
-    try:
-        strategy = plugin.usage_accounting_strategy()
-    except Exception:
-        logger.warning("provider usage-accounting strategy failed provider=%s", provider)
+    return True
+
+
+def begin_accounting(
+    request: Request, *, plugin: ProviderPluginBase | None, provider: str, model: str
+) -> AccountingSession | None:
+    """Open a session for a negotiated request, or ``None`` when not negotiated.
+
+    Called BEFORE the cache stage so a hit still renders metadata — but note that the
+    collector exists only to hold records, and a hit creates none. Nothing here reads a
+    credential, dispatches, or touches the request body.
+    """
+    if not validate_accounting_version(request):
+        return None
+    if plugin is None:
         strategy = UsageAccountingStrategy.unsupported()
+    else:
+        try:
+            strategy = plugin.usage_accounting_strategy()
+        except Exception:
+            logger.warning("provider usage-accounting strategy failed provider=%s", provider)
+            strategy = UsageAccountingStrategy.unsupported()
     if type(strategy) is not UsageAccountingStrategy:
         logger.warning("provider usage-accounting strategy is invalid provider=%s", provider)
         strategy = UsageAccountingStrategy.unsupported()
@@ -365,6 +377,23 @@ def attach_success_metadata(
         return result
 
 
+def _restore_cached_json_numbers(value: Any) -> Any:
+    """Undo the cache reader's Decimal precision carrier before serving JSON."""
+    if type(value) is Decimal:
+        return float(value)
+    if type(value) is dict:
+        restored = {key: _restore_cached_json_numbers(item) for key, item in value.items()}
+        return value if all(restored[key] is item for key, item in value.items()) else restored
+    if type(value) is list:
+        restored_list = [_restore_cached_json_numbers(item) for item in value]
+        return (
+            value
+            if all(new is old for new, old in zip(restored_list, value, strict=True))
+            else restored_list
+        )
+    return value
+
+
 def attach_hit_metadata(
     cached: dict[str, Any], session: AccountingSession | None, *, plugin: ProviderPluginBase
 ) -> dict[str, Any]:
@@ -377,8 +406,9 @@ def attach_hit_metadata(
 
     INVARIANT: ``cached`` is the store's replayed row. It is copied, never mutated.
     """
+    response = _restore_cached_json_numbers(cached)
     if session is None:
-        return cached
+        return response
     reference: CacheReference | None = None
     try:
         reference = plugin.cache_reference_from_cached_response(cached)
@@ -397,14 +427,14 @@ def attach_hit_metadata(
         reference = None
     try:
         return attach_metadata(
-            cached, _metadata(session, cache_status="hit", cache_reference=reference)
+            response, _metadata(session, cache_status="hit", cache_reference=reference)
         )
     except Exception:
         logger.warning(
             "usage accounting cache-hit rendering failed gateway_call_id=%s",
             session.gateway_call_id,
         )
-        return cached
+        return response
 
 
 def accounting_error_response(request: Request, exc: HTTPException) -> JSONResponse | None:

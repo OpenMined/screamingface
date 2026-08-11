@@ -13,7 +13,7 @@ from ._types import (
     SCHEMA_USAGE_ACCOUNTING,
     CacheReference,
     CaptureStatus,
-    ProviderCallRecord,
+    ProviderAttemptRecord,
 )
 
 __all__ = ["METADATA_KEY", "render_aigw_metadata"]
@@ -27,7 +27,7 @@ CacheStatusWord = Literal["hit", "miss", "bypass"]
 DirectCostSummaryStatus = Literal["complete", "partial", "unavailable", "not_applicable"]
 
 
-def _direct_cost_summary(records: Sequence[ProviderCallRecord]) -> list[dict[str, Any]]:
+def _direct_cost_summary(records: Sequence[ProviderAttemptRecord]) -> list[dict[str, Any]]:
     """Group only aggregable provider-authored amounts by their exact unit and source."""
     grouped: dict[tuple[str, str], list[str]] = {}
     for record in records:
@@ -44,7 +44,7 @@ def _direct_cost_summary(records: Sequence[ProviderCallRecord]) -> list[dict[str
     return summary
 
 
-def _reported_costs_are_summable(records: Sequence[ProviderCallRecord]) -> bool:
+def _reported_costs_are_summable(records: Sequence[ProviderAttemptRecord]) -> bool:
     grouped: dict[tuple[str, str], list[str]] = {}
     for record in records:
         cost = record.direct_cost
@@ -69,7 +69,7 @@ def _resolve_capture_status(
 
 
 def _direct_cost_status(
-    records: Sequence[ProviderCallRecord],
+    records: Sequence[ProviderAttemptRecord],
     *,
     capture_status: CaptureStatus,
     cache_status: CacheStatusWord,
@@ -144,7 +144,7 @@ def render_aigw_metadata(
     cache_reference: CacheReference | None = None,
 ) -> dict[str, Any]:
     """Build bounded metadata from authoritative observed attempts."""
-    records: tuple[ProviderCallRecord, ...] = () if collector is None else collector.records()
+    records: tuple[ProviderAttemptRecord, ...] = () if collector is None else collector.records()
     observed_attempts = len(records)
     rendered_records = records[:MAX_RENDERED_ATTEMPTS]
     omitted_attempts = observed_attempts - len(rendered_records)

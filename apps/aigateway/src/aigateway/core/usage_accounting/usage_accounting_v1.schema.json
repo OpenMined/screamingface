@@ -77,7 +77,7 @@
         "status": {"enum": ["reported", "absent", "unavailable", "invalid", "unit_unknown"]},
         "amount": {
           "oneOf": [
-            {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,17}[1-9])?$", "maxLength": 64},
+            {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,32}[1-9])?$", "maxLength": 64},
             {"type": "null"}
           ]
         },
@@ -163,7 +163,7 @@
         },
         {
           "if": {"properties": {"kind": {"const": "decimal"}}},
-          "then": {"properties": {"value": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,17}[1-9])?$"}}}
+          "then": {"properties": {"value": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,32}[1-9])?$"}}}
         },
         {
           "if": {"properties": {"kind": {"const": "boolean"}}},
@@ -281,7 +281,7 @@
       "additionalProperties": false,
       "required": ["amount", "unit", "source"],
       "properties": {
-        "amount": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,17}[1-9])?$", "maxLength": 64},
+        "amount": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,32}[1-9])?$", "maxLength": 64},
         "unit": {"type": "string", "pattern": "^[ -~]{1,64}$"},
         "source": {"type": "string", "pattern": "^[ -~]{1,128}$"}
       }

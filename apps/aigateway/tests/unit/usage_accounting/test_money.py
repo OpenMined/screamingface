@@ -25,6 +25,11 @@ class TestCanonicalAmount:
             ("0", "0"),
             (1, "1"),
             (Decimal("0.0012"), "0.0012"),
+            ("0.0038799200000000002", "0.0038799200000000002"),
+            (
+                "0.123456789012345678901234567890123",
+                "0.123456789012345678901234567890123",
+            ),
         ],
     )
     def test_renders_canonical_fixed_point(self, value: object, expected: str) -> None:
@@ -61,7 +66,7 @@ class TestCanonicalAmount:
 
     @pytest.mark.parametrize(
         "value",
-        ["-1", "1000000000000000000", "0.1234567890123456789"],
+        ["-1", "1000000000000000000", "0.1234567890123456789012345678901234"],
     )
     def test_out_of_contract_amounts_are_invalid_not_mapper_exceptions(self, value: str) -> None:
         assert canonical_amount(value) is None
@@ -100,4 +105,12 @@ class TestSumAmounts:
                 ]
             )
             == "999999999999999999.000000000000000002"
+        )
+
+    def test_sum_preserves_the_full_fractional_bound(self) -> None:
+        assert (
+            sum_amounts(
+                ["0.123456789012345678901234567890122", "0.000000000000000000000000000000001"]
+            )
+            == "0.123456789012345678901234567890123"
         )

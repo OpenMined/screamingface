@@ -64,7 +64,9 @@ class TestOpenRouterCost:
         assert _openrouter({"usage": {"cost": None}}).direct_cost.status == "unavailable"
         assert _openrouter({"usage": {"cost": "NaN"}}).direct_cost.status == "invalid"
 
-    @pytest.mark.parametrize("cost", ["-1", "1000000000000000000", "0.1234567890123456789"])
+    @pytest.mark.parametrize(
+        "cost", ["-1", "1000000000000000000", "0.1234567890123456789012345678901234"]
+    )
     def test_invalid_cost_preserves_other_evidence(self, cost: str) -> None:
         evidence = _openrouter(
             {
@@ -360,6 +362,38 @@ class TestAnthropic:
         # LiteLLM derives this value locally from summarized thinking text. It is not
         # provider-reported Anthropic usage and cannot populate the canonical subset.
         assert usage.output.reasoning is None
+
+    def test_converted_and_cached_usage_preserve_litellm_cache_breakdown(self) -> None:
+        final = _litellm_final_usage(
+            prompt_tokens=130,
+            completion_tokens=25,
+            total_tokens=155,
+            prompt_tokens_details={
+                "text_tokens": 100,
+                "cached_tokens": 20,
+                "cache_creation_tokens": 10,
+                "cache_creation_token_details": {
+                    "ephemeral_5m_input_tokens": 7,
+                    "ephemeral_1h_input_tokens": 3,
+                },
+            },
+        )
+
+        converted = _anthropic(None, final).usage
+        cached = anthropic_cache_reference_from_cached(final)
+
+        assert converted.input.as_json() == {
+            "total": 130,
+            "uncached": 100,
+            "cache_read": 20,
+            "cache_write": 10,
+            "cache_write_by_ttl": [
+                {"ttl_seconds": 300, "tokens": 7},
+                {"ttl_seconds": 3600, "tokens": 3},
+            ],
+        }
+        assert cached is not None
+        assert cached.usage.input.as_json() == converted.input.as_json()
 
     def test_zero_filled_converted_totals_are_unknown(self) -> None:
         usage = _anthropic(None, _litellm_final_usage()).usage

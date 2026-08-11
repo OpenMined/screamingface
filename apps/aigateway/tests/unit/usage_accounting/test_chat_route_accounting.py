@@ -19,6 +19,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from litellm.exceptions import RateLimitError
+from litellm.types.utils import ModelResponse, Usage
 
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.request_cache import RequestCacheWrite
@@ -228,6 +229,80 @@ class TestNegotiation:
             negotiated = chat_client.post(_CHAT_PATH, json=body, headers=_ACCOUNTING_HEADERS)
         assert plain.status_code == negotiated.status_code == 400
         assert plain.json()["detail"] == negotiated.json()["detail"]
+
+
+class TestEarlySafeErrors:
+    @pytest.mark.parametrize(
+        ("model", "detail"),
+        [
+            ("claude-haiku-4-5", "model must be provider-prefixed"),
+            ("future-provider/model", "unknown provider: future-provider"),
+        ],
+    )
+    def test_negotiated_model_resolution_error_carries_accounting_metadata(
+        self, chat_client: TestClient, model: str, detail: str
+    ) -> None:
+        store = _install(chat_client, _Store())
+
+        response = chat_client.post(
+            _CHAT_PATH,
+            json=_chat_body(model=model),
+            headers=_ACCOUNTING_HEADERS,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["detail"] == detail
+        metadata = body["_aigw"]
+        assert metadata["usage_accounting"]["capture_status"] == "accounting_not_supported"
+        assert metadata["usage_accounting"]["attempts"] == []
+        assert metadata["request_economics"]["observed_new_attempts"] == 0
+        assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
+        assert store.get_calls == []
+
+    @pytest.mark.parametrize("model", ["claude-haiku-4-5", "future-provider/model"])
+    def test_non_negotiated_model_resolution_error_shape_is_unchanged(
+        self, chat_client: TestClient, model: str
+    ) -> None:
+        response = chat_client.post(_CHAT_PATH, json=_chat_body(model=model))
+
+        assert response.status_code == 400
+        assert set(response.json()) == {"detail"}
+
+    @pytest.mark.parametrize(
+        ("content", "expected_detail"),
+        [
+            (b"{", "request body must be valid JSON"),
+            (b"[]", "model and messages are required"),
+        ],
+    )
+    def test_negotiated_body_errors_carry_accounting_metadata(
+        self, chat_client: TestClient, content: bytes, expected_detail: str
+    ) -> None:
+        response = chat_client.post(
+            _CHAT_PATH,
+            content=content,
+            headers={**_ACCOUNTING_HEADERS, "Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == expected_detail
+        metadata = _aigw(response)
+        assert metadata["usage_accounting"]["capture_status"] == "accounting_not_supported"
+        assert metadata["usage_accounting"]["attempts"] == []
+        assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
+
+    def test_unknown_accounting_version_wins_before_malformed_body_parsing(
+        self, chat_client: TestClient
+    ) -> None:
+        response = chat_client.post(
+            _CHAT_PATH,
+            content=b"{",
+            headers={"X-AIGW-Accounting": "v2", "Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "unsupported_accounting_version"
 
 
 class TestStreaming:
@@ -485,6 +560,28 @@ class TestAnthropicRouteMapping:
         assert attempt["latency_ms"] is not None
         assert metadata["usage_accounting"]["capture_status"] == "complete"
 
+    def test_a_valid_negotiated_request_allocates_one_gateway_call_id(
+        self, credential_blobs, chat_client
+    ) -> None:
+        _arrange_account(chat_client, credential_blobs)
+        _install(chat_client, _Store())
+        with (
+            patch(_ANTHROPIC_DISPATCH, self._succeed()),
+            patch(
+                "aigateway.routes.chat_accounting.new_gateway_call_id",
+                return_value="call_" + "a" * 32,
+            ) as allocate_unsupported_call_id,
+            patch(
+                "aigateway.core.usage_accounting._collector.new_gateway_call_id",
+                return_value="call_" + "a" * 32,
+            ) as allocate_supported_call_id,
+        ):
+            response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
+
+        assert response.status_code == 200, response.text
+        assert allocate_unsupported_call_id.call_count + allocate_supported_call_id.call_count == 1
+        assert _aigw(response)["usage_accounting"]["gateway_call_id"] == "call_" + "a" * 32
+
     def test_anthropic_reports_no_money_on_the_wire(self, credential_blobs, chat_client) -> None:
         # §9.18 / §12 stop condition: no USD may appear for Anthropic in the MVP.
         _arrange_account(chat_client, credential_blobs)
@@ -499,6 +596,56 @@ class TestAnthropicRouteMapping:
         assert economics["known_direct_cost_subtotals"] == []
         assert economics["direct_cost_status"] == "unavailable"
         assert "usd" not in json.dumps(metadata).lower()
+
+    def test_installed_litellm_converted_usage_reaches_the_rendered_wire(
+        self, credential_blobs, chat_client
+    ) -> None:
+        class _ConvertedReporting:
+            async def __call__(self, _body: dict[str, Any]) -> ModelResponse:
+                collector = active_collector()
+                assert collector is not None
+                marker = object()
+                collector.on_send_admitted(marker)
+                collector.on_response_completed(marker, status=200, raw_evidence=None)
+                return ModelResponse(
+                    id="msg_converted",
+                    model="claude-haiku-4-5",
+                    choices=[],
+                    usage=Usage(
+                        prompt_tokens=130,
+                        completion_tokens=25,
+                        total_tokens=155,
+                        prompt_tokens_details={
+                            "text_tokens": 100,
+                            "cached_tokens": 20,
+                            "cache_creation_tokens": 10,
+                            "cache_creation_token_details": {
+                                "ephemeral_5m_input_tokens": 7,
+                                "ephemeral_1h_input_tokens": 3,
+                            },
+                        },
+                    ),
+                )
+
+        _arrange_account(chat_client, credential_blobs)
+        _install(chat_client, _Store())
+        with patch(_ANTHROPIC_DISPATCH, _ConvertedReporting()):
+            response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
+
+        assert response.status_code == 200, response.text
+        (attempt,) = _aigw(response)["usage_accounting"]["attempts"]
+        assert attempt["provider_response_id"] == "msg_converted"
+        assert attempt["usage"]["source"] == "provider_converted_response"
+        assert attempt["usage"]["input"] == {
+            "total": 130,
+            "uncached": 100,
+            "cache_read": 20,
+            "cache_write": 10,
+            "cache_write_by_ttl": [
+                {"ttl_seconds": 300, "tokens": 7},
+                {"ttl_seconds": 3600, "tokens": 3},
+            ],
+        }
 
 
 class TestTheBodyLiteLLMActuallyReceives:

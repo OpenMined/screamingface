@@ -6,6 +6,7 @@ import math
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Protocol
 
 from tortoise.exceptions import BaseORMException, IntegrityError
@@ -121,9 +122,13 @@ class TortoiseRequestCacheStore:
         def reject_non_finite(value: str) -> None:
             raise ValueError(f"non-finite JSON constant: {value}")
 
-        def parse_finite_float(value: str) -> float:
-            parsed = float(value)
-            if not math.isfinite(parsed):
+        def parse_finite_decimal(value: str) -> Decimal:
+            try:
+                parsed = Decimal(value)
+                binary_value = float(parsed)
+            except (InvalidOperation, OverflowError, ValueError) as exc:
+                raise ValueError(f"invalid JSON number: {value}") from exc
+            if not parsed.is_finite() or not math.isfinite(binary_value):
                 raise ValueError(f"non-finite JSON number: {value}")
             return parsed
 
@@ -131,7 +136,10 @@ class TortoiseRequestCacheStore:
             response = json.loads(
                 row.response_json,
                 parse_constant=reject_non_finite,
-                parse_float=parse_finite_float,
+                # Keep the persisted lexical value exact until provider accounting has
+                # extracted cost evidence. FastAPI converts Decimal back to a JSON number
+                # only after response metadata has been attached.
+                parse_float=parse_finite_decimal,
             )
             if not isinstance(response, dict):
                 raise ValueError("cached payload is not a JSON object")

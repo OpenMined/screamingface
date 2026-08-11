@@ -10,6 +10,7 @@ Two properties dominate here and neither is visible from the route tests:
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -402,6 +403,28 @@ class TestCacheHitWiring:
         cached = {"id": "gen-1"}
         assert attach_hit_metadata(cached, None, plugin=OpenRouterProviderPlugin()) is cached
 
+    def test_cache_decimals_are_restored_to_the_previous_json_number_shape(self) -> None:
+        cached = {"id": "gen-1", "score": Decimal("1E+2")}
+
+        body = attach_hit_metadata(cached, None, plugin=OpenRouterProviderPlugin())
+
+        assert body == {"id": "gen-1", "score": 100.0}
+        assert type(body["score"]) is float
+        assert cached["score"] == Decimal("1E+2")
+
+    def test_cache_accounting_reads_exact_decimal_before_restoring_response_numbers(self) -> None:
+        cached: dict[str, Any] = {
+            "id": "gen-1",
+            "usage": {"cost": Decimal("0.0038799200000000002")},
+        }
+
+        body = attach_hit_metadata(cached, _session(), plugin=OpenRouterProviderPlugin())
+
+        reference = body["_aigw"]["usage_accounting"]["cache"]["reference"]
+        assert reference["direct_cost"]["amount"] == "0.0038799200000000002"
+        assert type(body["usage"]["cost"]) is float
+        assert cached["usage"]["cost"] == Decimal("0.0038799200000000002")
+
 
 class TestSuccessAttachment:
     def test_a_non_negotiated_miss_is_returned_untouched(self) -> None:
@@ -586,10 +609,12 @@ class TestDispatchFailureWiring:
         collector.on_response_completed(first, status=200, raw_evidence={})
         second = object()
         collector.on_send_admitted(second)
-        collector.on_send_failed(
-            second,
-            outcome="transport_error",
-            failure_code="transport_connect_error",
+        assert (
+            collector.finalize_last_open_failure(
+                outcome="transport_error",
+                failure_code="transport_connect_error",
+            )
+            is True
         )
 
         note_dispatch_failure(session, httpx.ConnectError("terminal failure"))
@@ -604,10 +629,12 @@ class TestDispatchFailureWiring:
         collector.begin_dispatch()
         first = object()
         collector.on_send_admitted(first)
-        collector.on_send_failed(
-            first,
-            outcome="transport_error",
-            failure_code="transport_connect_error",
+        assert (
+            collector.finalize_last_open_failure(
+                outcome="transport_error",
+                failure_code="transport_connect_error",
+            )
+            is True
         )
         second = object()
         collector.on_send_admitted(second)

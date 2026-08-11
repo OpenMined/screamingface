@@ -51,6 +51,7 @@ from .chat_accounting import (
     note_dispatch_failure,
     safe_request_view,
     streaming_rejection,
+    validate_accounting_version,
 )
 from .chat_cache_stage import (
     defaults_unreadable_bypass,
@@ -209,37 +210,58 @@ async def _dispatch_and_finalize_accounting(
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
+    # Validate before parsing untrusted body bytes so an unknown version always fails
+    # explicitly, but do not mint a correlation ID unless this request needs a session.
+    validate_accounting_version(request)
     try:
         body = await request.json()
     except ValueError:
         # Malformed JSON is untrusted input, not a server fault (OME-428 D6).
+        begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise HTTPException(status_code=400, detail="request body must be valid JSON") from None
     shape_error = chat_body_shape_error(body)
     if shape_error is not None:
+        begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise HTTPException(status_code=400, detail=shape_error)
 
     # Popped immediately so the control object can never reach providers.
     # ``{"cache": {"use-cache": false}}`` opts out; absent, empty and an explicit
     # opt-in all participate. `ttl`, `s-maxage`, `no-cache` and `no-store` bypass as
     # `unsupported_control` rather than being silently honoured.
-    cache_controls = parse_global_cache_controls(body)
-    # The gateway owns upstream routing and credentials. Caller-supplied
-    # LiteLLM control-plane fields (api_key/api_base/base_url/fallbacks/
-    # model_list/...) would let LiteLLM send the injected credential to an
-    # arbitrary host or bend dispatch behavior (SF-244 audit F03, OME-428 D6).
-    # Providers that need an api_base (ollama) set their own in
-    # prepare_chat_body; the gateway credential is injected after this strip.
-    body = strip_dispatch_controls(body)
+    try:
+        cache_controls = parse_global_cache_controls(body)
+        # The gateway owns upstream routing and credentials. Caller-supplied
+        # LiteLLM control-plane fields (api_key/api_base/base_url/fallbacks/
+        # model_list/...) would let LiteLLM send the injected credential to an
+        # arbitrary host or bend dispatch behavior (SF-244 audit F03, OME-428 D6).
+        # Providers that need an api_base (ollama) set their own in
+        # prepare_chat_body; the gateway credential is injected after this strip.
+        body = strip_dispatch_controls(body)
+    except HTTPException:
+        begin_accounting(request, plugin=None, provider="unresolved", model="")
+        raise
 
     profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
+        begin_accounting(
+            request,
+            plugin=None,
+            provider="unresolved",
+            model=model,
+        )
         raise HTTPException(status_code=400, detail="model must be provider-prefixed")
 
     registry: ProviderRegistry = request.app.state.providers
     plugin = registry.get(provider)
     if plugin is None:
+        begin_accounting(
+            request,
+            plugin=None,
+            provider="unresolved",
+            model=model,
+        )
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
 
     # OME-479 §4.5 tier (a): neutralize this provider's own LiteLLM control-plane

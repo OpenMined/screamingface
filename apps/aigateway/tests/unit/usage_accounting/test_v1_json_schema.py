@@ -94,6 +94,42 @@ def test_schema_pins_the_closed_failure_code_vocabulary() -> None:
     assert set(failure_code["oneOf"][0]["enum"]) == FAILURE_CODES
 
 
+def test_schema_uses_the_33_fractional_digit_bound_for_every_money_surface() -> None:
+    schema = _schema()
+    expected = r"^(0|[1-9][0-9]{0,17})(\.[0-9]{0,32}[1-9])?$"
+    assert schema["$defs"]["direct_cost"]["properties"]["amount"]["oneOf"][0]["pattern"] == expected
+    assert (
+        schema["$defs"]["extension_fact"]["allOf"][1]["then"]["properties"]["value"]["pattern"]
+        == expected
+    )
+    assert schema["$defs"]["cost_subtotal"]["properties"]["amount"]["pattern"] == expected
+
+
+def test_schema_accepts_33_fractional_digits_on_all_money_surfaces() -> None:
+    amount = "0.123456789012345678901234567890123"
+    metadata = _rendered_success()
+    attempt = metadata["usage_accounting"]["attempts"][0]
+    attempt["direct_cost"]["amount"] = amount
+    attempt["provider_extensions"] = [
+        {
+            "namespace": "openrouter.response_usage.v1",
+            "facts": [
+                {
+                    "name": "cost_detail",
+                    "kind": "decimal",
+                    "value": amount,
+                    "unit": None,
+                    "source": "openrouter.usage.cost_details.cost_detail",
+                }
+            ],
+            "truncated": False,
+        }
+    ]
+    metadata["request_economics"]["known_direct_cost_subtotals"][0]["amount"] = amount
+
+    Draft202012Validator(_schema()).validate(metadata)
+
+
 def test_real_anthropic_converted_cache_reference_validates_with_positive_usage() -> None:
     cached = ModelResponse(
         id="msg_1",

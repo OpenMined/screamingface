@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+from importlib.resources import files
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from aigateway.core.usage_accounting import (
     CacheReference,
     DirectCost,
-    ProviderCallRecord,
+    ProviderAttemptRecord,
     ProviderExtension,
     ProviderExtensionFact,
     RequestAccountingCollector,
@@ -25,7 +27,7 @@ from aigateway.core.usage_accounting._render import (
 )
 
 
-def _record(**overrides: Any) -> ProviderCallRecord:
+def _record(**overrides: Any) -> ProviderAttemptRecord:
     base: dict[str, Any] = {
         "attempt_id": "attempt_1",
         "sequence": 1,
@@ -36,20 +38,20 @@ def _record(**overrides: Any) -> ProviderCallRecord:
         "outcome": "succeeded",
     }
     base.update(overrides)
-    return ProviderCallRecord(**base)
+    return ProviderAttemptRecord(**base)
 
 
 class _FakeCollector:
     def __init__(
         self,
-        records: tuple[ProviderCallRecord, ...] = (),
+        records: tuple[ProviderAttemptRecord, ...] = (),
         *,
         status: str = "complete",
     ) -> None:
         self._records = records
         self._status = status
 
-    def records(self) -> tuple[ProviderCallRecord, ...]:
+    def records(self) -> tuple[ProviderAttemptRecord, ...]:
         return self._records
 
     def status(self) -> Any:
@@ -244,6 +246,60 @@ class TestCacheReference:
 
 
 class TestBounds:
+    def test_renderer_is_total_and_schema_valid_across_generated_boundary_records(self) -> None:
+        schema = json.loads(
+            files("aigateway.core.usage_accounting")
+            .joinpath("usage_accounting_v1.schema.json")
+            .read_text(encoding="utf-8")
+        )
+        validator = Draft202012Validator(schema)
+        record_counts = (0, 1, 63, 64, 65)
+        model_lengths = (0, 1, 512)
+
+        for case in range(90):
+            amount = f"{case % 10}.123456789012345678901234567890123"
+            extension = ProviderExtension(
+                namespace="provider.audit.v1",
+                facts=(
+                    ProviderExtensionFact(
+                        name="cost_detail",
+                        kind="decimal",
+                        value=amount,
+                        unit=None,
+                        source="provider.usage.cost_detail",
+                    ),
+                ),
+            )
+            model_length = model_lengths[case % len(model_lengths)]
+            records = tuple(
+                _record(
+                    attempt_id=f"attempt_{index:032x}",
+                    sequence=index,
+                    requested_model=("m" * model_length) or None,
+                    response_model=("r" * model_length) or None,
+                    provider_response_id=f"provider-{index}",
+                    direct_cost=DirectCost.reported(
+                        amount=amount,
+                        unit="openrouter_credits",
+                        source="openrouter.usage.cost",
+                    ),
+                    provider_extensions=(extension,),
+                )
+                for index in range(1, record_counts[case % len(record_counts)] + 1)
+            )
+
+            metadata = _render(
+                _FakeCollector(records, status="partial" if case % 2 else "complete"),
+                gateway_call_id=f"call_{case:032x}",
+            )
+
+            errors = list(validator.iter_errors(metadata))
+            assert not errors, f"generated case {case}: {errors}"
+            assert (
+                len(json.dumps(metadata, ensure_ascii=False, separators=(",", ":")).encode())
+                <= MAX_METADATA_BYTES
+            )
+
     def test_more_than_64_attempts_are_counted_then_omitted(self) -> None:
         records = tuple(
             _record(attempt_id=f"attempt_{index}", sequence=index) for index in range(1, 66)

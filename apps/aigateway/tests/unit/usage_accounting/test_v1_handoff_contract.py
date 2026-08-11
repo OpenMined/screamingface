@@ -10,7 +10,7 @@ from aigateway.core.usage_accounting import (
     InputTokenUsage,
     OutputTokenUsage,
     PricingContext,
-    ProviderCallRecord,
+    ProviderAttemptRecord,
     TokenUsage,
 )
 from aigateway.core.usage_accounting._render import render_aigw_metadata
@@ -18,21 +18,24 @@ from aigateway.plugins.anthropic_provider.usage_accounting import (
     normalize_anthropic_usage_accounting,
 )
 
+_ATTEMPT_ID = "attempt_" + "1" * 32
+_CALL_ID = "call_" + "1" * 32
+
 
 class _Collector:
-    def __init__(self, records: tuple[ProviderCallRecord, ...]) -> None:
+    def __init__(self, records: tuple[ProviderAttemptRecord, ...]) -> None:
         self._records = records
 
-    def records(self) -> tuple[ProviderCallRecord, ...]:
+    def records(self) -> tuple[ProviderAttemptRecord, ...]:
         return self._records
 
     def status(self) -> str:
         return "complete"
 
 
-def _attempt(**overrides: Any) -> ProviderCallRecord:
+def _attempt(**overrides: Any) -> ProviderAttemptRecord:
     values: dict[str, Any] = {
-        "attempt_id": "attempt_1",
+        "attempt_id": _ATTEMPT_ID,
         "sequence": 1,
         "dispatch_index": 1,
         "attempt_index": 1,
@@ -53,7 +56,7 @@ def _attempt(**overrides: Any) -> ProviderCallRecord:
         ),
     }
     values.update(overrides)
-    return ProviderCallRecord(**values)
+    return ProviderAttemptRecord(**values)
 
 
 def test_wire_uses_attempt_semantics_and_separate_evidence_statuses() -> None:
@@ -61,7 +64,7 @@ def test_wire_uses_attempt_semantics_and_separate_evidence_statuses() -> None:
         collector=_Collector((_attempt(),)),
         supported=True,
         cache_status="miss",
-        gateway_call_id="call_1",
+        gateway_call_id=_CALL_ID,
     )
 
     accounting = metadata["usage_accounting"]
@@ -70,7 +73,7 @@ def test_wire_uses_attempt_semantics_and_separate_evidence_statuses() -> None:
     assert accounting["observed_attempts"] == 1
     assert accounting["omitted_attempts"] == 0
     attempt = accounting["attempts"][0]
-    assert attempt["attempt_id"] == "attempt_1"
+    assert attempt["attempt_id"] == _ATTEMPT_ID
     assert attempt["attempt_index"] == 1
     assert attempt["usage"]["input"] == {
         "total": 12,
@@ -153,7 +156,7 @@ def test_cache_hit_is_reference_evidence_not_counterfactual_savings() -> None:
         collector=None,
         supported=True,
         cache_status="hit",
-        gateway_call_id="call_1",
+        gateway_call_id=_CALL_ID,
         cache_reference=reference,
     )
 
