@@ -35,7 +35,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TypedDict
 
-from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
+from url4_cloud.benchmarks.contract import CandidateResult
 from url4_cloud.benchmarks.healthbench.case_evaluation import CASE_EVALUATION_SCHEMA
 from url4_cloud.benchmarks.healthbench.scoring import (
     case_score,
@@ -77,41 +77,6 @@ class CandidateFields(TypedDict):
     metadata: dict[str, Any]
 
 
-class Metrics(TypedDict, total=False):
-    """Run-health block for a SCORED exam.
-
-    INVARIANT (SDK decoder rules, pinned by test_healthbench_sdk_contract):
-    values are NUMBERS only, and an unscored Candidate must carry EMPTY metrics
-    — so on ``score: None`` this block is ``{}`` and diagnosis lives in each
-    Case's ``failures`` instead. The scoring identity ("unclipped-mean-v1") is
-    carried by the revision hash and the benchmark description, never here.
-    """
-
-    scored_cases: int
-    failed_cases: int
-    score_sd: float
-    verdict_coverage: float
-    judge_invalid_replies: int
-
-
-class CandidateResult(TypedDict):
-    """The wire shape of one exam result (``CANDIDATE_RESULT_SCHEMA``).
-
-    A TypedDict, not Pydantic: this side only PRODUCES the payload (inputs are
-    validated upstream), so the win is pyright-checked keys at zero runtime cost —
-    ``json.dumps`` serializes it unchanged.
-    """
-
-    schema: str
-    benchmark_id: str
-    benchmark_revision: str
-    case_count: int
-    score: float | None
-    metrics: Metrics
-    cases: list[CaseResult]
-    failures: list[dict[str, Any]]
-
-
 def load_rubric_points(root: Path, case_id: int) -> list[int] | None:
     """Read one Case's private points list; ``None`` when the asset is unusable."""
 
@@ -150,7 +115,7 @@ def aggregate(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
-) -> CandidateResult:
+) -> dict[str, Any]:
     """Score every selected Case, then the exam — unclipped mean (see scoring.py).
 
     Walks ``case_ids`` (the selection is authoritative — rows that showed up but
@@ -170,49 +135,60 @@ def aggregate(
     case_results: list[CaseResult] = []
     scores: list[float] = []
     judged_items = 0
+    met_items = 0
     total_items = 0
     invalid_replies = 0
     for case_id in case_ids:
         points = load_rubric_points(root, case_id)
         total_items += len(points) if points is not None else 0
-        result, score, judged, invalid = _case_result(
+        result, score, judged, met, invalid = _case_result(
             case_id, by_case.get(case_id), points, orphan_errors
         )
         case_results.append(result)
         judged_items += judged
+        met_items += met
         invalid_replies += invalid
         if score is not None:
             scores.append(score)
     scored_all = len(scores) == len(case_ids)
     mean = unclipped_mean(scores) if scored_all else None
-    return {
-        "schema": CANDIDATE_RESULT_SCHEMA,
-        "benchmark_id": benchmark_id,
-        "benchmark_revision": benchmark_revision,
-        "case_count": len(case_results),
+    coverage = round(verdict_coverage(judged_items, total_items), 4)
+    # SDK rule (enforced by the CandidateResult model): an unscored Candidate must
+    # carry EMPTY metrics — when any Case failed, diagnosis lives in that Case's
+    # failures rows, not up here.
+    metrics: dict[str, Any] = {}
+    if mean is not None:
+        metrics = {
+            # HealthBench's canonical-trio mapping (contract enforced by
+            # CandidateResult; draco's aggregate is the semantic reference):
+            # pass_rate is the UNWEIGHTED criterion hit rate — met / judged rubric
+            # items, deliberately different from `score`, the point-WEIGHTED
+            # unclipped rubric mean; coverage is judged / expected rubric items,
+            # the same value long published as `verdict_coverage` (which stays —
+            # metrics are append-only).
+            "pass_rate": round(met_items / judged_items, 4) if judged_items else 0.0,
+            "coverage": coverage,
+            "scored_cases": len(scores),
+            "failed_cases": len(case_ids) - len(scores),
+            "score_sd": round(sample_stdev(scores), 4),
+            "verdict_coverage": coverage,
+            "judge_invalid_replies": invalid_replies,
+        }
+    return CandidateResult(
+        benchmark_id=benchmark_id,
+        benchmark_revision=benchmark_revision,
+        case_count=len(case_results),
         # WHY: None whenever ANY selected Case failed — a partial mean over surviving
         # Cases would silently drop exactly the hardest rows (B1).
-        "score": round(mean, 4) if mean is not None else None,
-        # SDK rule: an unscored Candidate must carry EMPTY metrics — when any Case
-        # failed, diagnosis lives in that Case's failures rows, not up here.
-        "metrics": (
-            {}
-            if mean is None
-            else {
-                "scored_cases": len(scores),
-                "failed_cases": len(case_ids) - len(scores),
-                "score_sd": round(sample_stdev(scores), 4),
-                "verdict_coverage": round(verdict_coverage(judged_items, total_items), 4),
-                "judge_invalid_replies": invalid_replies,
-            }
-        ),
-        "cases": case_results,
+        score=round(mean, 4) if mean is not None else None,
+        metrics=metrics,
+        cases=[dict(case) for case in case_results],
         # Case-scoped failures live on their Case result rows above. This top-level
         # list is the contract's slot for failures attributable to NO selected Case
         # (draco precedent) — healthbench routes every failure to a Case, so it is
         # always empty, but the SDK requires the key.
-        "failures": [],
-    }
+        failures=[],
+    ).as_payload()
 
 
 def _case_result(
@@ -220,7 +196,7 @@ def _case_result(
     row: Mapping[str, Any] | None,
     points: list[int] | None,
     orphan_errors: list[dict[str, Any]] | None = None,
-) -> tuple[CaseResult, float | None, int, int]:
+) -> tuple[CaseResult, float | None, int, int, int]:
     """Score one selected Case; every unusable state becomes a VISIBLE failed result.
 
     A decision ladder, most-broken first — each rung becomes a Failure whose
@@ -234,12 +210,13 @@ def _case_result(
                                prepare guarantees one positive item per Case)
         everything valid     → grade with the Case score, no failures
 
-    Returns ``(case_result, score_or_None, judged_count, invalid_reply_count)``.
+    Returns ``(case_result, score_or_None, judged_count, met_count,
+    invalid_reply_count)``.
     """
 
     if points is None:
         failure = _failure(case_id, "grading", "missing_rubric_asset")
-        outcome = _failed_result(case_id, row, [], failure), None, 0, 0
+        outcome = _failed_result(case_id, row, [], failure), None, 0, 0, 0
     elif row is None:
         # WHY the collected_errors attachment: an on_error=collect row loses its
         # Case identity, so a mid-chain error surfaces HERE as a missing row —
@@ -251,10 +228,10 @@ def _case_result(
             "missing_case_row",
             **({"collected_errors": orphan_errors[:3]} if orphan_errors else {}),
         )
-        outcome = _failed_result(case_id, None, [], failure), None, 0, 0
+        outcome = _failed_result(case_id, None, [], failure), None, 0, 0, 0
     elif "error" in row:
         failure = _failure(case_id, "candidate", "case_error", error=row["error"])
-        outcome = _failed_result(case_id, row, [], failure), None, 0, 0
+        outcome = _failed_result(case_id, row, [], failure), None, 0, 0, 0
     else:
         verdicts, invalid = _verdicts(row)
         checks = _checks(row, points)
@@ -272,7 +249,13 @@ def _case_result(
                 judged=len(verdicts),
                 expected=len(points),
             )
-            outcome = _failed_result(case_id, row, checks, failure), None, len(verdicts), invalid
+            outcome = (
+                _failed_result(case_id, row, checks, failure),
+                None,
+                len(verdicts),
+                sum(verdicts.values()),
+                invalid,
+            )
         else:
             scored: CaseResult = {
                 "case_id": case_id,
@@ -289,7 +272,7 @@ def _case_result(
                 },
                 "failures": [],
             }
-            outcome = scored, score, len(verdicts), invalid
+            outcome = scored, score, len(verdicts), sum(verdicts.values()), invalid
     return outcome
 
 
@@ -358,12 +341,21 @@ def _checks(row: Mapping[str, Any], points: list[int]) -> list[dict[str, Any]]:
             or not isinstance(rubric_id, int)
         ):
             continue
+        check: dict[str, Any] = {
+            "type": "rubric_item",
+            "id": str(rubric_id),
+            "label": str(rubric.get("rubric_item", "")),
+            "evidence": [_evidence(evidence)],
+        }
+        # Check-level verdict in the report schema's vocabulary — the judge decides
+        # it. Without a top-level outcome the SDK renders the check as unjudged
+        # (ifeval precedent), so it is emitted whenever the judge reply was valid;
+        # an invalid reply leaves the check outcome-less on purpose.
+        if evidence.get("valid") is True:
+            check["outcome"] = "MET" if evidence.get("criteria_met") is True else "UNMET"
         checks.append(
             {
-                "type": "rubric_item",
-                "id": str(rubric_id),
-                "label": str(rubric.get("rubric_item", "")),
-                "evidence": [_evidence(evidence)],
+                **check,
                 "metadata": (
                     {"points": points[rubric_id - 1]} if 1 <= rubric_id <= len(points) else {}
                 ),
@@ -481,9 +473,7 @@ def _verdicts(row: Mapping[str, Any]) -> tuple[dict[int, bool], int]:
 
 __all__ = [
     "AggregateError",
-    "CandidateResult",
     "CaseResult",
-    "Metrics",
     "aggregate",
     "load_rubric_points",
 ]

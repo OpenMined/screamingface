@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from url4_cloud.benchmarks.healthbench.aggregate import (
     AggregateError,
-    CandidateResult,
     aggregate,
     load_rubric_points,
 )
@@ -81,7 +81,7 @@ def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
     }
 
 
-def _failure_codes(result: CandidateResult) -> dict[int, str | None]:
+def _failure_codes(result: dict[str, Any]) -> dict[int, str | None]:
     """case_id → the Case's single failure code (None when scored clean)."""
 
     return {
@@ -105,6 +105,10 @@ def test_fully_judged_cases_score_and_mean_unclipped(tmp_path: Path) -> None:
     assert result["metrics"].get("failed_cases") == 0
     assert result["metrics"].get("verdict_coverage") == 1.0
     assert _failure_codes(result) == {1: None, 2: None}
+    # The check-level verdict the SDK renders from (ifeval precedent): the judge's
+    # decision surfaces as a top-level outcome, not only inside evidence.
+    checks = result["cases"][0]["grade"]["checks"]
+    assert [check["outcome"] for check in checks] == ["UNMET", "UNMET", "MET"]
     # SDK Case Result contract (seen live in the smoke run): every Case carries
     # the full key set, a scored Case carries a rubric grade, and evidence rows
     # sit under grade.checks — not in any home-grown envelope.
@@ -132,6 +136,46 @@ def test_fully_judged_cases_score_and_mean_unclipped(tmp_path: Path) -> None:
     # Same decoder rejects non-numeric metric values (also seen live) — the
     # scoring label must never reappear inside metrics.
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())
+
+
+def test_canonical_contract_metrics_map_healthbench_semantics(tmp_path: Path) -> None:
+    """The MAPPING is under test — presence/range is the CandidateResult model's job.
+
+    pass_rate is the UNWEIGHTED criterion hit rate (met / judged), deliberately
+    different from `score`, the point-weighted unclipped mean; coverage equals the
+    long-published `verdict_coverage` (append-only, both keys stay). HealthBench's
+    all-or-nothing rule makes coverage 1.0 whenever a score exists at all — partial
+    judging forces score None with EMPTY metrics — so the SDK low-coverage warning
+    cannot fire here by construction; the keys exist for the cross-benchmark
+    contract and the report tiles.
+    """
+
+    _write_rubric(tmp_path, 1, [7, 8, -6])
+    _write_rubric(tmp_path, 2, [5])
+    rows = json.dumps(
+        [
+            _case_row(1, {1: False, 2: False, 3: True}),
+            _case_row(2, {1: True}),
+        ]
+    )
+    result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
+    # 2 of 4 judged criteria met (case 1: only the penalty item; case 2: its one item).
+    assert result["metrics"]["pass_rate"] == pytest.approx(0.5)
+    assert result["metrics"]["coverage"] == result["metrics"]["verdict_coverage"] == 1.0
+    # The weighted/unweighted distinction is real: same run, different numbers.
+    assert result["score"] != result["metrics"]["pass_rate"]
+
+
+def test_a_negative_unclipped_mean_survives_the_contract(tmp_path: Path) -> None:
+    """INVARIANT: the challenge metric is UNCLIPPED — a penalty-dominated run scores
+    negative and must pass the CandidateResult contract (its score has no lower
+    bound); clamping or rejecting it would corrupt worst-30 ranking."""
+
+    _write_rubric(tmp_path, 1, [2, -8])
+    rows = json.dumps([_case_row(1, {1: True, 2: True})])  # (2-8)/2 = -3.0
+    result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,))
+    assert result["score"] == pytest.approx(-3.0)
+    assert result["metrics"]["pass_rate"] == 1.0  # every criterion judged MET — yet negative
 
 
 def test_a_missing_rubric_asset_fails_the_case_and_the_exam(tmp_path: Path) -> None:

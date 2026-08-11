@@ -49,7 +49,11 @@ class CandidateResult(BaseModel):
     benchmark_id: str
     benchmark_revision: str
     case_count: int = Field(ge=0)
-    score: float | None = Field(ge=0.0, le=1.0)
+    # WHY no lower bound: draco and ifeval scores live in [0, 1], but healthbench's
+    # challenge metric is an UNCLIPPED mean over penalty-carrying rubrics — negative
+    # scores are meaningful and rankable (clamping here would corrupt the metric).
+    # The canonical trio metrics (pass_rate, coverage) stay [0, 1] regardless.
+    score: float | None = Field(le=1.0)
     metrics: dict[str, Any]
     cases: list[dict[str, Any]]
     failures: list[dict[str, Any]]
