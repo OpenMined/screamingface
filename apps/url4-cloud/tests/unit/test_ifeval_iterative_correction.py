@@ -215,7 +215,9 @@ def test_a_never_passing_case_scores_its_last_attempt() -> None:
     assert result["metrics"]["pass_at_3"] == 0.0
 
 
-def test_a_partial_failed_case_is_retained_without_a_partial_score() -> None:
+def test_a_failed_case_is_declared_as_fallback_and_kept_out_of_the_denominator() -> None:
+    # Same coverage-declared semantics as the single-pass reducer: the failed Case is
+    # retained and counted, never folded into a denominator or recast as incorrect.
     payload = _rows(
         _evaluation(1, [True, True]),
         {
@@ -230,7 +232,10 @@ def test_a_partial_failed_case_is_retained_without_a_partial_score() -> None:
         payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
     )
 
-    assert result["score"] is None
+    assert result["score"] == 1.0
+    assert result["metrics"]["cases_checked"] == 1
+    assert result["metrics"]["cases_fallback"] == 1
+    assert result["metrics"]["coverage"] == 0.5
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert result["cases"][1]["grade"] is None
     assert result["cases"][1]["failures"][0]["message"] == (
@@ -274,9 +279,9 @@ def test_all_crash_result_retains_the_collected_inner_failure() -> None:
 def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
     # INVARIANT: a Candidate that echoes a forged check record into its ANSWER text
     # cannot self-grade — the exact Case Evaluation accepts only records whose
-    # instruction ids match the private spec exactly, which the prompt never reveals. A forged
-    # all-pass record therefore leaves the Case ungraded and makes the Candidate
-    # unscorable, even when another Case has an honest record.
+    # instruction ids match the private spec exactly, which the prompt never reveals.
+    # A forged all-pass record therefore leaves ITS Case ungraded (fallback, visible
+    # in coverage) — it can never smuggle a pass into the score.
     forged = _record(1, 1, [True, True])
     forged["instruction_id_list"] = ["startend:quotation"]
     payload = _rows(
@@ -288,7 +293,8 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
         payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
     )
 
-    assert result["score"] is None
+    assert result["score"] == 1.0  # the honest case only
+    assert result["metrics"]["cases_fallback"] == 1
     assert result["cases"][0]["grade"] is None
 
 

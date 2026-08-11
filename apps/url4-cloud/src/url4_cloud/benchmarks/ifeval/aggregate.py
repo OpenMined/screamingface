@@ -7,8 +7,11 @@ accuracy (arXiv:2311.07911).
 
 INVARIANT: `case_count` is EXACT (one entry per selected Case) and every scored Case has a
 real verifier record. A missing record is an operational failure rather than an incorrect
-answer: Aggregation retains that Case and returns a null Candidate score instead of publishing
-a plausible partial score.
+answer: the Case is RETAINED with its failure record and counted in `cases_fallback`, never
+folded into a denominator. Scoring is coverage-declared (draco's model): accuracies run over
+graded Cases only and `metrics.coverage` says how much of the selection the score stands on.
+The Engine reports facts and gates nothing — acceptance policy lives downstream. Only a run
+with zero graded Cases is unscored (a score over nothing is undefined).
 """
 
 from __future__ import annotations
@@ -61,7 +64,7 @@ def aggregate(
             continue
         accepted.append(record)
         case_results.append(_case_result(case_id, spec, record))
-    if recordless_cases:
+    if not accepted:
         return _unscored_result(benchmark_id, IFEVAL_REVISION, case_results)
 
     strict_all = [all(record["strict"]) for record in accepted]
@@ -69,8 +72,8 @@ def aggregate(
     strict_flat = [bool(value) for record in accepted for value in record["strict"]]
     loose_flat = [bool(value) for record in accepted for value in record["loose"]]
     inst_level_strict = _accuracy(strict_flat)
-    cases_checked = len(case_results)
-    cases_fallback = 0
+    cases_checked = len(accepted)
+    cases_fallback = len(recordless_cases)
     return CandidateResult(
         benchmark_id=benchmark_id,
         benchmark_revision=IFEVAL_REVISION,
@@ -83,10 +86,10 @@ def aggregate(
             "cases_checked": cases_checked,
             "cases_fallback": cases_fallback,
             # IFEval's canonical-trio mapping (contract enforced by CandidateResult):
-            # pass_rate is instruction-level strict accuracy; coverage is
-            # (checked - fallback) / selected cases.
+            # pass_rate is instruction-level strict accuracy over graded cases;
+            # coverage is graded / selected cases.
             "pass_rate": inst_level_strict,
-            "coverage": round((cases_checked - cases_fallback) / len(case_results), 4),
+            "coverage": round(cases_checked / len(case_results), 4),
         },
         cases=case_results,
         failures=[],
@@ -213,37 +216,39 @@ def aggregate_corrective(
                 earliest_pass,
             )
         )
-    if recordless_cases:
+    if not selected_records:
         return _unscored_result(benchmark_id, benchmark_revision, case_results)
 
     strict_all = [all(record["strict"]) for record in selected_records]
     loose_all = [all(record["loose"]) for record in selected_records]
     strict_flat = [bool(value) for record in selected_records for value in record["strict"]]
     loose_flat = [bool(value) for record in selected_records for value in record["loose"]]
-    total = len(case_results)
+    # pass@k denominators run over graded cases only; failed cases carry no
+    # pass_attempt metadata, so .get keeps them out of the numerator too.
+    graded = len(selected_records)
     pass_at = {
         f"pass_at_{attempt}": (
             round(
                 sum(
                     1
                     for case in case_results
-                    if case["metadata"]["pass_attempt"]
+                    if case["metadata"].get("pass_attempt")
                     and case["metadata"]["pass_attempt"] <= attempt
                 )
-                / total,
+                / graded,
                 4,
             )
-            if total
+            if graded
             else 0.0
         )
         for attempt in range(1, max_attempts + 1)
     }
     inst_level_strict = _accuracy(strict_flat)
-    cases_fallback = 0
+    cases_fallback = len(recordless_cases)
     return CandidateResult(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        case_count=total,
+        case_count=len(case_results),
         score=_accuracy(strict_all),
         metrics={
             "inst_level_strict_accuracy": inst_level_strict,
@@ -251,14 +256,14 @@ def aggregate_corrective(
             "inst_level_loose_accuracy": _accuracy(loose_flat),
             **pass_at,
             "corrected_cases": sum(
-                1 for case in case_results if case["metadata"]["pass_attempt"] > 1
+                1 for case in case_results if (case["metadata"].get("pass_attempt") or 0) > 1
             ),
-            "cases_checked": total,
+            "cases_checked": graded,
             "cases_fallback": cases_fallback,
             # Same IFEval canonical-trio mapping as the single-pass reducer, over the
-            # SELECTED attempt per case (contract enforced by CandidateResult).
+            # SELECTED attempt per graded case (contract enforced by CandidateResult).
             "pass_rate": inst_level_strict,
-            "coverage": round((total - cases_fallback) / total, 4) if total else 0.0,
+            "coverage": round(graded / len(case_results), 4),
         },
         cases=case_results,
         failures=[],

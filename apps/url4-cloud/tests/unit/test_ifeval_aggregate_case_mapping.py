@@ -81,5 +81,7 @@ def test_truthy_text_cannot_impersonate_verifier_booleans() -> None:
 
     result = aggregate(rows, _SPECS, "ifeval", _ORDER)
 
-    assert result["score"] is None
+    # The forged record leaves ITS Case ungraded (fallback); the honest case scores.
+    assert result["score"] == 1.0
+    assert result["metrics"]["cases_fallback"] == 1
     assert result["cases"][0]["grade"] is None
