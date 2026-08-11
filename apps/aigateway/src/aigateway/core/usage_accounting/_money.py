@@ -1,7 +1,7 @@
 """Canonical money spelling for provider-authored cost evidence (OME-303 §3.5).
 
-FEATURE: per-provider-call usage accounting. AIGateway reports what a provider said
-a call cost; Engine converts, attributes and sums it.
+FEATURE: per-observed-attempt usage accounting. AIGateway reports provider-authored
+direct-cost evidence; Engine converts, attributes and sums it.
 
 INVARIANT: one value has exactly one wire spelling. Engine sums these strings across
 runs and deployments, so ``"1"`` and ``"1.000"`` arriving for the same cost would be

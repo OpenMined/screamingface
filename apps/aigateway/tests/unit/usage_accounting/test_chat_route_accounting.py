@@ -354,11 +354,12 @@ class TestDispatchGrouping:
     def test_a_supported_provider_with_zero_observed_sends_is_partial(
         self, credential_blobs, chat_client
     ) -> None:
-        """§9.22 — never `complete`, and never the cache-hit `not_applicable`.
+        """§9.22 — capture is partial while attempt-level cost is not applicable.
 
         This is the shape of a patched dispatch: the plugin returned an answer but no
         HTTP send passed the observer. Claiming `complete` would assert the provider was
-        called zero times for a request that really was served.
+        called zero times for a request that really was served. Request economics still
+        has no observed attempt to summarize; capture status carries that uncertainty.
         """
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
@@ -367,7 +368,7 @@ class TestDispatchGrouping:
         metadata = _aigw(response)
         assert metadata["usage_accounting"]["capture_status"] == "partial"
         assert metadata["usage_accounting"]["attempts"] == []
-        assert metadata["request_economics"]["direct_cost_status"] == "unavailable"
+        assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
 
     def test_gateway_overload_retries_bump_the_dispatch_index(
         self, credential_blobs, chat_client
@@ -741,7 +742,7 @@ class TestDispatchFailureClassification:
         assert all(attempt["failure_code"] == "provider_status_error" for attempt in attempts)
         assert all(attempt["usage"]["input"]["total"] == 2 for attempt in attempts)
 
-    def test_gateway_local_http_error_after_response_is_not_relabelled_as_provider_error(
+    def test_unclassified_local_error_after_response_is_indeterminate_not_success(
         self, credential_blobs, chat_client
     ) -> None:
         _arrange_account(chat_client, credential_blobs)
@@ -762,7 +763,7 @@ class TestDispatchFailureClassification:
             response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
         assert response.status_code == 503
         (attempt,) = response.json()["_aigw"]["usage_accounting"]["attempts"]
-        assert attempt["outcome"] == "succeeded"
+        assert attempt["outcome"] == "indeterminate"
         assert attempt["failure_code"] is None
 
     def test_final_transport_escape_resolves_the_open_attempt(
@@ -843,8 +844,8 @@ class TestTheClientFieldIsGatewayOwned:
     def test_a_caller_cannot_reintroduce_hidden_retries(
         self, credential_blobs, chat_client
     ) -> None:
-        # Caller-set retry counts would silently multiply provider calls the accounting
-        # contract claims to have counted.
+        # Caller-set retry counts would silently multiply sends beyond the accounting
+        # contract's pinned observation boundary.
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
         dispatch = _Dispatch()
@@ -869,8 +870,8 @@ class TestTheClientFieldIsGatewayOwned:
 class TestUnsupportedProviderEconomics:
     """The route-level half of the ``collector is None`` ambiguity.
 
-    A provider with no declared accounting strategy still DISPATCHES — real, billable
-    provider work happens — but produces no observed records. The renderer sees the same
+    A provider with no declared accounting strategy still DISPATCHES, so provider activity
+    may happen, but produces no observed records. The renderer sees the same
     ``collector is None`` a cache hit produces, so only ``supported``/``cache_status`` can
     keep "we cannot see this provider's spend" from being published as "this cost
     nothing".
@@ -894,11 +895,11 @@ class TestUnsupportedProviderEconomics:
         assert metadata["usage_accounting"]["capture_status"] == "accounting_not_supported"
         assert metadata["usage_accounting"]["attempts"] == []
         economics = metadata["request_economics"]
-        # Zero OBSERVED calls, which here is a measurement limit and not a proof — so the
-        # completeness flag must refuse to certify the monetary picture.
+        # Zero observed attempts means attempt-level cost is not applicable. The separate
+        # capture status carries the measurement limit and prevents a complete-cost claim.
         assert economics["observed_new_attempts"] == 0
         assert economics["known_direct_cost_subtotals"] == []
-        assert economics["direct_cost_status"] == "unavailable"
+        assert economics["direct_cost_status"] == "not_applicable"
 
     def test_an_unsupported_cache_hit_reports_no_current_cost(
         self, credential_blobs, chat_client

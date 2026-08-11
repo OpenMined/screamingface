@@ -4,7 +4,7 @@
 # body carries a meaningful top-level ``error`` — it RAISES while *converting*
 # the body (``RateLimitError``/``ServiceUnavailableError``/``APIError``/
 # ``AuthenticationError``/``BadRequestError``, keyed by status). That error came
-# from an already-returned (billable) upstream call, so it is non-retryable
+# from an already-returned, potentially billed upstream call, so it is non-retryable
 # exactly like an error found by scanning a returned payload — yet the plugin's
 # post-return ``_find_embedded_error`` scanner never sees it because no payload
 # is returned. A genuine transport failure raises the SAME outer LiteLLM type

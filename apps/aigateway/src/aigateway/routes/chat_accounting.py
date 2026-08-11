@@ -1,4 +1,4 @@
-"""The route-facing seam for OME-303 per-provider-call usage accounting.
+"""The route-facing seam for OME-303 per-observed-attempt usage accounting.
 
 FEATURE: an opt-in evidence contract on ``POST /v1/chat/completions``.
 
@@ -30,7 +30,11 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from ..core.plugin_base import ProviderPluginBase
-from ..core.usage_accounting import CacheReference, ProviderUsageAccountingEvidence
+from ..core.usage_accounting import (
+    CacheReference,
+    ProviderUsageAccountingEvidence,
+    UsageAccountingStrategy,
+)
 from ..core.usage_accounting._classify import (
     classify_conversion_failure,
     classify_transport_failure,
@@ -108,7 +112,14 @@ def begin_accounting(
                 "message": f"supported accounting version: {NEGOTIATION_VERSION}",
             },
         )
-    strategy = plugin.usage_accounting_strategy()
+    try:
+        strategy = plugin.usage_accounting_strategy()
+    except Exception:
+        logger.warning("provider usage-accounting strategy failed provider=%s", provider)
+        strategy = UsageAccountingStrategy.unsupported()
+    if type(strategy) is not UsageAccountingStrategy:
+        logger.warning("provider usage-accounting strategy is invalid provider=%s", provider)
+        strategy = UsageAccountingStrategy.unsupported()
     collector = (
         RequestAccountingCollector(
             provider=provider,
@@ -151,8 +162,8 @@ def streaming_rejection() -> HTTPException:
     WHY refuse rather than degrade: accounting a stream honestly would mean reading the
     SSE body to find its terminal usage frame, and the response hook that does the
     reading would consume the very stream the caller is waiting on. Silently returning
-    empty accounting instead would be worse — it would report zero provider cost for a
-    call that really happened. Non-negotiated streaming is untouched.
+    empty accounting instead would be worse — it would report no observed attempt for a
+    stream whose transport cannot be observed completely. Non-negotiated streaming is untouched.
     """
     return HTTPException(
         status_code=400,
@@ -250,8 +261,8 @@ def finalize_provider_evidence(
     the one whose body became the caller's answer, so it is the only record for which the
     converted shape describes the same call.
 
-    INVARIANT: totally non-raising. A mapper bug must never fail a provider response that
-    has already been billed; it degrades the record to incomplete instead.
+    INVARIANT: totally non-raising. A mapper bug must never fail a completed provider
+    response; it degrades the record to incomplete instead.
     """
     if session is None or session.collector is None:
         return
@@ -276,7 +287,7 @@ def finalize_provider_evidence(
                 session.gateway_call_id,
             )
             continue
-        if not isinstance(evidence, ProviderUsageAccountingEvidence):
+        if type(evidence) is not ProviderUsageAccountingEvidence:
             logger.warning(
                 "provider usage-accounting mapper returned invalid evidence "
                 "provider=%s gateway_call_id=%s",
@@ -308,8 +319,12 @@ def note_dispatch_failure(
     finalized = session.collector.finalize_last_open_failure(
         outcome=outcome, failure_code=failure_code
     )
-    if provider_error_after_response and not finalized:
+    if finalized:
+        return
+    if provider_error_after_response:
         session.collector.mark_last_succeeded_provider_error()
+    else:
+        session.collector.mark_last_succeeded_indeterminate()
 
 
 def _metadata(
@@ -324,7 +339,6 @@ def _metadata(
         cache_status=cache_status,
         gateway_call_id=session.gateway_call_id,
         cache_reference=cache_reference,
-        dispatched=session.dispatch_count > 0,
     )
 
 
@@ -374,7 +388,7 @@ def attach_hit_metadata(
             session.provider,
             session.gateway_call_id,
         )
-    if reference is not None and not isinstance(reference, CacheReference):
+    if reference is not None and type(reference) is not CacheReference:
         logger.warning(
             "cache-reference mapper returned invalid evidence provider=%s gateway_call_id=%s",
             session.provider,

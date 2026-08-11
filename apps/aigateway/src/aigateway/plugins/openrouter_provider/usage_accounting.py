@@ -103,7 +103,7 @@ def _tokens(usage: Mapping[str, Any], source: UsageSource) -> TokenUsage:
 
 
 def _direct_cost(usage: Mapping[str, Any], *, source: str) -> DirectCost:
-    if "cost" not in usage:
+    if usage.get("cost") is None:
         return DirectCost.unavailable()
     amount = canonical_amount(usage.get("cost"))
     if amount is None:

@@ -3,8 +3,8 @@
 Two properties dominate here and neither is visible from the route tests:
 
 * **least privilege** — a provider mapper must never be handed a credential or a prompt;
-* **non-raising** — a mapper bug must never fail a provider response that was already
-  billed. The gateway degrades the evidence instead of losing the caller's answer.
+* **non-raising** — a mapper bug must never fail a completed provider response. The
+  gateway degrades the evidence instead of losing the caller's answer.
 """
 
 from __future__ import annotations
@@ -26,11 +26,13 @@ from aigateway.core.usage_accounting import (
     UsageAccountingStrategy,
     new_gateway_call_id,
 )
+from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.routes.chat_accounting import (
     AccountingSession,
     attach_hit_metadata,
     attach_success_metadata,
+    begin_accounting,
     dispatch_body_with_accounting,
     finalize_provider_evidence,
     note_conversion_failure,
@@ -99,6 +101,15 @@ class _RecordingPlugin:
         return self._reference
 
 
+class _Request:
+    headers = {"X-AIGW-Accounting": "v1"}
+
+    class _State:
+        pass
+
+    state = _State()
+
+
 def _observe(collector: RequestAccountingCollector, *, status: int = 200) -> object:
     marker = object()
     collector.begin_dispatch()
@@ -156,10 +167,10 @@ class TestSafeRequestView:
 
 class TestFinalizeIsNonRaising:
     def test_a_raising_mapper_does_not_propagate(self) -> None:
-        """The response was already produced and billed.
+        """The response was already produced and may have been billed.
 
-        Letting a mapper bug raise here would turn a successful, already-paid-for
-        provider call into a 500 for the caller — accounting causing the very loss it
+        Letting a mapper bug raise here would turn a completed, potentially billed
+        provider attempt into a 500 for the caller — accounting causing the very loss it
         exists to measure.
         """
         session = _session()
@@ -221,6 +232,36 @@ class TestFinalizeIsNonRaising:
         )
         body = attach_success_metadata({"id": "msg_1"}, session, cache_status="miss")
         assert body["id"] == "msg_1"
+        (attempt,) = body["_aigw"]["usage_accounting"]["attempts"]
+        assert attempt["usage"]["status"] == "unavailable"
+
+    def test_an_evidence_subclass_degrades_before_overrides_can_run(self) -> None:
+        class _HostileEvidence(ProviderUsageAccountingEvidence):
+            armed = False
+
+            def __getattribute__(self, name: str) -> Any:
+                if type(self).armed and name == "usage":
+                    raise RuntimeError("subclass field override must not run")
+                return super().__getattribute__(name)
+
+        evidence = _HostileEvidence(supported=True)
+        _HostileEvidence.armed = True
+
+        class _SubclassMapper(_RecordingPlugin):
+            def normalize_chat_usage_accounting(self, **_kwargs: Any) -> Any:
+                return evidence
+
+        session = _session()
+        assert session.collector is not None
+        _observe(session.collector)
+        finalize_provider_evidence(
+            session,
+            plugin=_SubclassMapper(),  # type: ignore[arg-type]
+            request_body={"model": "x/y"},
+            final_response={"usage": {}},
+        )
+
+        body = attach_success_metadata({"id": "msg_1"}, session, cache_status="miss")
         (attempt,) = body["_aigw"]["usage_accounting"]["attempts"]
         assert attempt["usage"]["status"] == "unavailable"
 
@@ -335,6 +376,21 @@ class TestCacheHitWiring:
         assert body["id"] == "gen-1"
         assert body["_aigw"]["usage_accounting"]["cache"]["reference"] is None
 
+    def test_a_reference_subclass_degrades_before_overrides_can_run(self) -> None:
+        class _HostileReference(CacheReference):
+            def as_json(self) -> dict[str, Any]:
+                raise RuntimeError("subclass method must not run")
+
+        cached = {"id": "gen-1", "choices": []}
+        body = attach_hit_metadata(
+            cached,
+            _session(),
+            plugin=_RecordingPlugin(reference=_HostileReference()),  # type: ignore[arg-type]
+        )
+
+        assert body["id"] == "gen-1"
+        assert body["_aigw"]["usage_accounting"]["cache"]["reference"] is None
+
     def test_the_replayed_cache_row_is_never_mutated(self) -> None:
         # INVARIANT (§6): `cached` is the store's row. Mutating it would put `_aigw`
         # into the cache — for this process and, with a shared store, for everyone.
@@ -396,6 +452,73 @@ class TestHandlerInjection:
         body = {"model": "x/y"}
         assert dispatch_body_with_accounting(body, session, object()) is body
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("plugin", "model"),
+        [
+            (AnthropicProviderPlugin(), "anthropic/claude-haiku-4-5"),
+            (OpenRouterProviderPlugin(), "openrouter/x/y"),
+        ],
+    )
+    async def test_supported_provider_dispatch_forwards_the_declared_shared_handler(
+        self, monkeypatch: pytest.MonkeyPatch, plugin: Any, model: str
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        async def fake_acompletion(**body: Any) -> dict[str, Any]:
+            seen.update(body)
+            return {"id": "response"}
+
+        monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+        strategy = plugin.usage_accounting_strategy()
+        assert strategy.uses_shared_litellm_http is True
+
+        session = _session(provider=plugin.custom_llm_provider)
+        handler = object()
+        body = dispatch_body_with_accounting({"model": model}, session, handler)
+        await plugin.chat_completion(body)
+
+        assert seen["client"] is handler
+
+
+class TestStrategyContainment:
+    def test_a_raising_strategy_degrades_to_unsupported(self) -> None:
+        class _RaisingStrategy(_RecordingPlugin):
+            def usage_accounting_strategy(self) -> UsageAccountingStrategy:
+                raise ValueError("bad provider strategy")
+
+        session = begin_accounting(
+            _Request(),  # type: ignore[arg-type]
+            plugin=_RaisingStrategy(),  # type: ignore[arg-type]
+            provider="future-provider",
+            model="future-provider/model",
+        )
+
+        assert session is not None
+        assert session.supported is False
+        assert session.collector is None
+
+    def test_a_strategy_subclass_degrades_to_unsupported(self) -> None:
+        class _HostileStrategy(UsageAccountingStrategy):
+            @property
+            def is_supported(self) -> bool:
+                raise RuntimeError("subclass property must not run")
+
+        class _SubclassPlugin(_RecordingPlugin):
+            def usage_accounting_strategy(self) -> UsageAccountingStrategy:
+                return _HostileStrategy.litellm_async_http_v1()
+
+        session = begin_accounting(
+            _Request(),  # type: ignore[arg-type]
+            plugin=_SubclassPlugin(),  # type: ignore[arg-type]
+            provider="future-provider",
+            model="future-provider/model",
+        )
+
+        assert session is not None
+        assert session.supported is False
+        assert session.collector is None
+
 
 class TestConversionFailureWiring:
     def test_the_open_record_is_marked_with_the_core_owned_code(self) -> None:
@@ -440,6 +563,60 @@ class TestDispatchFailureWiring:
         (record,) = collector.records()
         assert record.outcome == "provider_error"
         assert record.failure_code == "provider_status_error"
+
+    def test_unclassified_local_failure_after_response_is_indeterminate(self) -> None:
+        session = _session()
+        collector = session.collector
+        assert collector is not None
+        _observe(collector)
+
+        note_dispatch_failure(session, RuntimeError("local failure"))
+
+        (record,) = collector.records()
+        assert record.outcome == "indeterminate"
+        assert record.failure_code is None
+
+    def test_terminal_finalized_attempt_does_not_mutate_an_earlier_success(self) -> None:
+        session = _session()
+        collector = session.collector
+        assert collector is not None
+        collector.begin_dispatch()
+        first = object()
+        collector.on_send_admitted(first)
+        collector.on_response_completed(first, status=200, raw_evidence={})
+        second = object()
+        collector.on_send_admitted(second)
+        collector.on_send_failed(
+            second,
+            outcome="transport_error",
+            failure_code="transport_connect_error",
+        )
+
+        note_dispatch_failure(session, httpx.ConnectError("terminal failure"))
+
+        records = collector.records()
+        assert [record.outcome for record in records] == ["succeeded", "transport_error"]
+
+    def test_conversion_after_retry_targets_only_the_final_success(self) -> None:
+        session = _session()
+        collector = session.collector
+        assert collector is not None
+        collector.begin_dispatch()
+        first = object()
+        collector.on_send_admitted(first)
+        collector.on_send_failed(
+            first,
+            outcome="transport_error",
+            failure_code="transport_connect_error",
+        )
+        second = object()
+        collector.on_send_admitted(second)
+        collector.on_response_completed(second, status=200, raw_evidence={})
+
+        note_conversion_failure(session)
+
+        records = collector.records()
+        assert [record.outcome for record in records] == ["transport_error", "conversion_error"]
 
 
 class TestErrorRenderingIsContained:

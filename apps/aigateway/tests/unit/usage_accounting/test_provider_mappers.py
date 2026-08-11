@@ -61,6 +61,7 @@ class TestOpenRouterCost:
 
     def test_missing_and_invalid_cost_have_distinct_nonaggregable_statuses(self) -> None:
         assert _openrouter({"usage": {"prompt_tokens": 1}}).direct_cost.status == "unavailable"
+        assert _openrouter({"usage": {"cost": None}}).direct_cost.status == "unavailable"
         assert _openrouter({"usage": {"cost": "NaN"}}).direct_cost.status == "invalid"
 
     @pytest.mark.parametrize("cost", ["-1", "1000000000000000000", "0.1234567890123456789"])
@@ -244,7 +245,7 @@ class TestAnthropic:
                     "output_tokens": 25,
                     "cache_creation_input_tokens": 10,
                     "cache_read_input_tokens": 20,
-                    "output_tokens_details": {"reasoning_tokens": 7},
+                    "output_tokens_details": {"thinking_tokens": 7},
                 },
             }
         )
@@ -307,6 +308,27 @@ class TestAnthropic:
             is None
         )
 
+    @pytest.mark.parametrize("service_tier", [["standard"], {"tier": "standard"}])
+    def test_malformed_service_tier_does_not_erase_other_evidence(
+        self, service_tier: object
+    ) -> None:
+        evidence = _anthropic(
+            {
+                "id": "msg_1",
+                "usage": {
+                    "input_tokens": 1,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                    "output_tokens": 2,
+                    "service_tier": service_tier,
+                },
+            }
+        )
+        assert evidence.pricing_context.service_tier is None
+        assert evidence.usage.input.total == 1
+        assert evidence.usage.output.total == 2
+        assert evidence.provider_response_id == "msg_1"
+
     def test_direct_cost_is_contractually_absent_not_unknown(self) -> None:
         assert _anthropic({"usage": {"input_tokens": 1}}).direct_cost.status == "absent"
         assert _anthropic(None).direct_cost.status == "absent"
@@ -327,6 +349,7 @@ class TestAnthropic:
                 total_tokens=155,
                 cache_creation_input_tokens=0,
                 cache_read_input_tokens=0,
+                completion_tokens_details={"reasoning_tokens": 7},
             ),
         ).usage
         assert usage.source == "provider_converted_response"
@@ -334,6 +357,9 @@ class TestAnthropic:
         assert usage.output.total == 25
         assert usage.input.cache_read is None
         assert usage.input.cache_write is None
+        # LiteLLM derives this value locally from summarized thinking text. It is not
+        # provider-reported Anthropic usage and cannot populate the canonical subset.
+        assert usage.output.reasoning is None
 
     def test_zero_filled_converted_totals_are_unknown(self) -> None:
         usage = _anthropic(None, _litellm_final_usage()).usage
@@ -361,7 +387,7 @@ class TestAnthropic:
                 "usage": {
                     "input_tokens": 1,
                     "output_tokens": 2,
-                    "output_tokens_details": {"reasoning_tokens": 3},
+                    "output_tokens_details": {"thinking_tokens": 3},
                 }
             }
         ).usage

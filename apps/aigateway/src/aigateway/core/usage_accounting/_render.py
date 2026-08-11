@@ -72,11 +72,10 @@ def _direct_cost_status(
     records: Sequence[ProviderCallRecord],
     *,
     capture_status: CaptureStatus,
-    dispatched: bool,
     cache_status: CacheStatusWord,
     omitted_attempts: int,
 ) -> DirectCostSummaryStatus:
-    if cache_status == "hit" or not dispatched:
+    if cache_status == "hit" or not records:
         return "not_applicable"
     reported = sum(record.direct_cost.status == "reported" for record in records)
     if reported == 0:
@@ -143,7 +142,6 @@ def render_aigw_metadata(
     cache_status: CacheStatusWord,
     gateway_call_id: str,
     cache_reference: CacheReference | None = None,
-    dispatched: bool | None = None,
 ) -> dict[str, Any]:
     """Build bounded metadata from authoritative observed attempts."""
     records: tuple[ProviderCallRecord, ...] = () if collector is None else collector.records()
@@ -155,12 +153,9 @@ def render_aigw_metadata(
     )
     if omitted_attempts and capture_status == "complete":
         capture_status = "partial"
-    if dispatched is None:
-        dispatched = bool(collector is not None and getattr(collector, "dispatched", True))
     cost_status = _direct_cost_status(
         records,
         capture_status=capture_status,
-        dispatched=dispatched,
         cache_status=cache_status,
         omitted_attempts=omitted_attempts,
     )

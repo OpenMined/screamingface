@@ -1,6 +1,6 @@
 """The request-scoped accounting collector and its ``ContextVar`` binding (OME-303 U2).
 
-FEATURE: per-provider-call usage accounting — the half that counts.
+FEATURE: per-observed-attempt usage accounting — the half that counts local send admissions.
 
 INVARIANT (plan §12 stop condition): one observed send is one record, and no observed
 send may disappear. Everything else in this file exists to keep that true across
@@ -49,11 +49,22 @@ __all__ = [
 MAX_RAW_EVIDENCE_BYTES = 256 * 1024
 
 
-def _bounded_utf8(value: str | None, *, max_bytes: int) -> str | None:
-    """Keep a provider string only when it fits the public-contract bound."""
-    if value is None or not value or len(value.encode("utf-8")) > max_bytes:
+def _bounded_utf8(value: object, *, max_bytes: int) -> str | None:
+    """Keep a string only when it is valid UTF-8 and fits the contract bound."""
+    if not isinstance(value, str):
         return None
-    return value
+    # Call base ``str`` methods directly so a plugin-provided subclass cannot run an
+    # overridden truthiness/``encode``/``__str__`` while evidence is rendered.
+    normalized = str.__str__(value)
+    if not normalized:
+        return None
+    try:
+        encoded = str.encode(normalized, "utf-8")
+    except UnicodeEncodeError:
+        return None
+    if len(encoded) > max_bytes:
+        return None
+    return normalized
 
 
 def _safe_failure_code(outcome: CallOutcome, failure_code: str) -> str:
@@ -173,9 +184,10 @@ class RequestAccountingCollector:
                 self._by_request[id(request)] = open_send
                 open_send.request_ref = request
                 return
-            # Somewhere else entirely: the promised hop never happened. Disarm the fold
-            # and record this admission on its own below. The redirect's own target was
-            # never observed, so the request can no longer claim complete evidence.
+            # Somewhere else entirely: the promised hop never happened. Disarm the fold,
+            # finalize the redirect response as a transport error and record this admission
+            # separately below. Both observed admissions remain represented, so this branch
+            # does not by itself make capture incomplete.
             open_send.awaiting_redirect_hop = False
             open_send.expected_redirect_target = None
             self._finalize_send_failure(
@@ -257,19 +269,30 @@ class RequestAccountingCollector:
 
     def finalize_last_open_failure(self, *, outcome: CallOutcome, failure_code: str) -> bool:
         """Finalize the last admitted send after dispatch escapes with no response hook."""
-        for send in reversed(self._sends):
-            if not send.resolved:
-                self._finalize_send_failure(send, outcome=outcome, failure_code=failure_code)
-                return True
-        return False
+        if not self._sends or self._sends[-1].resolved:
+            return False
+        self._finalize_send_failure(self._sends[-1], outcome=outcome, failure_code=failure_code)
+        return True
 
     def mark_last_succeeded_provider_error(self) -> None:
         """Correct an HTTP-200 body that provider-specific validation rejected."""
-        for send in reversed(self._sends):
-            if send.outcome == "succeeded":
-                send.outcome = "provider_error"
-                send.failure_code = "provider_status_error"
-                return
+        if not self._sends or self._sends[-1].outcome != "succeeded":
+            return
+        self._sends[-1].outcome = "provider_error"
+        self._sends[-1].failure_code = "provider_status_error"
+
+    def mark_last_succeeded_indeterminate(self) -> None:
+        """Downgrade a completed 2xx followed by an unclassified local failure.
+
+        INVARIANT: only an explicit conversion marker may claim ``conversion_error`` and
+        only provider-body validation may claim ``provider_error``. With neither proof,
+        retaining ``succeeded`` would overstate the usable outcome, so the attempt becomes
+        indeterminate without inventing a failure code.
+        """
+        if not self._sends or self._sends[-1].outcome != "succeeded":
+            return
+        self._sends[-1].outcome = "indeterminate"
+        self._sends[-1].failure_code = None
 
     # ---- evidence ------------------------------------------------------------
 
@@ -300,11 +323,10 @@ class RequestAccountingCollector:
         record stays, and only its outcome changes. Dropping it would under-report
         real spend.
         """
-        for send in reversed(self._sends):
-            if send.outcome == "succeeded":
-                send.outcome = outcome
-                send.failure_code = _safe_failure_code(outcome, failure_code)
-                return
+        if not self._sends or self._sends[-1].outcome != "succeeded":
+            return
+        self._sends[-1].outcome = outcome
+        self._sends[-1].failure_code = _safe_failure_code(outcome, failure_code)
 
     # ---- results -------------------------------------------------------------
 

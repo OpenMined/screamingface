@@ -113,7 +113,7 @@ def test_anthropic_raw_usage_is_inclusive_and_pricing_context_is_canonical() -> 
                     "ephemeral_5m_input_tokens": 7,
                     "ephemeral_1h_input_tokens": 3,
                 },
-                "output_tokens_details": {"reasoning_tokens": 7},
+                "output_tokens_details": {"thinking_tokens": 7},
                 "service_tier": "standard",
             },
         },

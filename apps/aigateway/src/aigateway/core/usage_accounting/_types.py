@@ -75,16 +75,24 @@ def _validate_count(value: int | None, *, field_name: str) -> None:
 def _validate_ascii(value: str | None, *, field_name: str, max_bytes: int) -> None:
     if value is None:
         return
+    if type(value) is not str:
+        raise ValueError(f"{field_name} must be a string")
     try:
         encoded = value.encode("ascii")
     except UnicodeEncodeError as exc:
         raise ValueError(f"{field_name} must be ASCII") from exc
     if not encoded or len(encoded) > max_bytes:
         raise ValueError(f"{field_name} must contain 1..{max_bytes} ASCII bytes")
+    if any(byte < 0x20 or byte > 0x7E for byte in encoded):
+        raise ValueError(f"{field_name} must contain printable ASCII only")
 
 
 def _is_canonical_decimal(value: str) -> bool:
-    return bool(_CANONICAL_DECIMAL.fullmatch(value)) and not ("." in value and value.endswith("0"))
+    return (
+        type(value) is str
+        and bool(_CANONICAL_DECIMAL.fullmatch(value))
+        and not ("." in value and value.endswith("0"))
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +123,10 @@ class InputTokenUsage:
     def __post_init__(self) -> None:
         for name in ("total", "uncached", "cache_read", "cache_write"):
             _validate_count(getattr(self, name), field_name=name)
+        if type(self.cache_write_by_ttl) is not tuple or any(
+            type(row) is not CacheWriteTTL for row in self.cache_write_by_ttl
+        ):
+            raise ValueError("cache_write_by_ttl must contain CacheWriteTTL rows")
         if len(self.cache_write_by_ttl) > MAX_TTL_ROWS:
             raise ValueError(f"cache_write_by_ttl may contain at most {MAX_TTL_ROWS} rows")
 
@@ -153,6 +165,20 @@ class TokenUsage:
     output: OutputTokenUsage = field(default_factory=OutputTokenUsage)
 
     def __post_init__(self) -> None:
+        if type(self.status) is not str or self.status not in {
+            "complete",
+            "partial",
+            "unavailable",
+        }:
+            raise ValueError("usage status must use the canonical v1 vocabulary")
+        if type(self.source) is not str or self.source not in {
+            "provider_raw_response",
+            "provider_converted_response",
+            "cached_converted_response",
+        }:
+            raise ValueError("usage source must use the canonical v1 vocabulary")
+        if type(self.input) is not InputTokenUsage or type(self.output) is not OutputTokenUsage:
+            raise ValueError("usage input/output must use canonical value objects")
         contradictory = self.status == "complete" and (
             self.input.total is None or self.output.total is None
         )
@@ -205,6 +231,8 @@ class PricingContext:
     backend: str | None = None
 
     def __post_init__(self) -> None:
+        if self.service_tier is not None and type(self.service_tier) is not str:
+            raise ValueError("service_tier must be a string")
         if self.service_tier not in {None, "standard", "priority", "batch"}:
             raise ValueError("service_tier must use the canonical v1 vocabulary")
         _validate_ascii(self.service_tier, field_name="service_tier", max_bytes=64)
@@ -224,6 +252,14 @@ class DirectCost:
     source: str | None = None
 
     def __post_init__(self) -> None:
+        if type(self.status) is not str or self.status not in {
+            "reported",
+            "absent",
+            "unavailable",
+            "invalid",
+            "unit_unknown",
+        }:
+            raise ValueError("direct cost status must use the canonical v1 vocabulary")
         if self.amount is not None and not _is_canonical_decimal(self.amount):
             raise ValueError("amount must be a bounded nonnegative canonical decimal")
         _validate_ascii(self.unit, field_name="unit", max_bytes=64)
@@ -232,6 +268,8 @@ class DirectCost:
             raise ValueError("reported direct cost requires amount, unit and source")
         if self.status == "unit_unknown" and None in (self.amount, self.source):
             raise ValueError("unit_unknown direct cost requires amount and source")
+        if self.status == "unit_unknown" and self.unit is not None:
+            raise ValueError("unit_unknown direct cost cannot carry a unit")
         if self.status in {"absent", "unavailable", "invalid"} and any(
             value is not None for value in (self.amount, self.unit, self.source)
         ):
@@ -277,6 +315,8 @@ class ProviderExtensionFact:
     source: str
 
     def __post_init__(self) -> None:
+        if type(self.kind) is not str:
+            raise ValueError("extension fact kind is not supported by accounting v1")
         _validate_ascii(self.name, field_name="name", max_bytes=64)
         _validate_ascii(self.unit, field_name="unit", max_bytes=64)
         _validate_ascii(self.source, field_name="source", max_bytes=MAX_EXTENSION_TEXT_BYTES)
@@ -286,10 +326,10 @@ class ProviderExtensionFact:
             if type(self.value) is not bool:
                 raise ValueError("boolean extension facts require bool values")
         elif self.kind == "decimal":
-            if not isinstance(self.value, str) or not _is_canonical_decimal(self.value):
+            if not _is_canonical_decimal(self.value):  # type: ignore[arg-type]
                 raise ValueError("decimal extension facts require canonical decimal strings")
         elif self.kind == "enum":
-            if not isinstance(self.value, str):
+            if type(self.value) is not str:
                 raise ValueError("enum extension facts require plugin-declared strings")
             _validate_ascii(self.value, field_name="value", max_bytes=64)
         else:
@@ -315,8 +355,14 @@ class ProviderExtension:
 
     def __post_init__(self) -> None:
         _validate_ascii(self.namespace, field_name="namespace", max_bytes=64)
+        if type(self.facts) is not tuple or any(
+            type(fact) is not ProviderExtensionFact for fact in self.facts
+        ):
+            raise ValueError("provider extension facts must use canonical value objects")
         if len(self.facts) > MAX_EXTENSION_FACTS:
             raise ValueError(f"provider extension may contain at most {MAX_EXTENSION_FACTS} facts")
+        if type(self.truncated) is not bool:
+            raise ValueError("provider extension truncated must be a boolean")
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -331,6 +377,15 @@ class UsageAccountingStrategy:
     """Declared observation strategy; support never follows from mapper presence alone."""
 
     capability: AccountingCapability = "unsupported"
+
+    def __post_init__(self) -> None:
+        if type(self.capability) is not str or self.capability not in {
+            "unsupported",
+            "litellm_async_http_v1",
+            "provider_owned_http_v1",
+            "provider_owned_process_v1",
+        }:
+            raise ValueError("accounting capability must use the canonical v1 vocabulary")
 
     @classmethod
     def unsupported(cls) -> Self:
@@ -362,6 +417,18 @@ class ProviderUsageAccountingEvidence:
     provider_extensions: tuple[ProviderExtension, ...] = ()
 
     def __post_init__(self) -> None:
+        if type(self.supported) is not bool:
+            raise ValueError("supported must be a boolean")
+        if type(self.usage) is not TokenUsage:
+            raise ValueError("usage must use the canonical TokenUsage value object")
+        if type(self.pricing_context) is not PricingContext:
+            raise ValueError("pricing_context must use the canonical PricingContext value object")
+        if type(self.direct_cost) is not DirectCost:
+            raise ValueError("direct_cost must use the canonical DirectCost value object")
+        if type(self.provider_extensions) is not tuple or any(
+            type(extension) is not ProviderExtension for extension in self.provider_extensions
+        ):
+            raise ValueError("provider_extensions must use canonical value objects")
         if len(self.provider_extensions) > 4:
             raise ValueError("an attempt may contain at most 4 extension namespaces")
         if sum(len(extension.facts) for extension in self.provider_extensions) > 8:
@@ -438,9 +505,13 @@ class CacheReference:
     incurred_in_current_request: Literal[False] = False
 
     def __post_init__(self) -> None:
-        if self.kind != "cached_final_response":
+        if type(self.usage) is not TokenUsage:
+            raise ValueError("cache usage must use the canonical TokenUsage value object")
+        if type(self.direct_cost) is not DirectCost:
+            raise ValueError("cache direct_cost must use the canonical DirectCost value object")
+        if type(self.kind) is not str or self.kind != "cached_final_response":
             raise ValueError("cache reference kind is fixed in v1")
-        if self.coverage != "final_successful_response_only":
+        if type(self.coverage) is not str or self.coverage != "final_successful_response_only":
             raise ValueError("cache reference coverage is fixed in v1")
         if self.incurred_in_current_request is not False:
             raise ValueError("cache reference cannot be current-request spend")

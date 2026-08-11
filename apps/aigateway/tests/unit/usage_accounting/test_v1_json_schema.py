@@ -12,6 +12,7 @@ from jsonschema import Draft202012Validator, ValidationError
 from litellm.types.utils import ModelResponse, Usage
 
 from aigateway.core.usage_accounting import ProviderUsageAccountingEvidence
+from aigateway.core.usage_accounting._classify import FAILURE_CODES
 from aigateway.core.usage_accounting._collector import RequestAccountingCollector
 from aigateway.core.usage_accounting._render import render_aigw_metadata
 from aigateway.plugins.anthropic_provider.usage_accounting import (
@@ -54,7 +55,6 @@ def _rendered_success() -> dict[str, Any]:
         supported=True,
         cache_status="miss",
         gateway_call_id=collector.gateway_call_id,
-        dispatched=True,
     )
 
 
@@ -76,7 +76,6 @@ def test_real_cache_reference_validates_against_the_handoff_schema() -> None:
         cache_status="hit",
         gateway_call_id="call_" + "a" * 32,
         cache_reference=reference,
-        dispatched=False,
     )
     Draft202012Validator(_schema()).validate(metadata)
 
@@ -88,6 +87,11 @@ def test_schema_rejects_unknown_core_fields() -> None:
     }
     with pytest.raises(ValidationError):
         Draft202012Validator(_schema()).validate(metadata)
+
+
+def test_schema_pins_the_closed_failure_code_vocabulary() -> None:
+    failure_code = _schema()["$defs"]["attempt"]["properties"]["failure_code"]
+    assert set(failure_code["oneOf"][0]["enum"]) == FAILURE_CODES
 
 
 def test_real_anthropic_converted_cache_reference_validates_with_positive_usage() -> None:
@@ -112,6 +116,5 @@ def test_real_anthropic_converted_cache_reference_validates_with_positive_usage(
         cache_status="hit",
         gateway_call_id="call_" + "b" * 32,
         cache_reference=reference,
-        dispatched=False,
     )
     Draft202012Validator(_schema()).validate(metadata)

@@ -1,6 +1,6 @@
 """The shared, app-lifetime LiteLLM transport observer (OME-303 U3).
 
-FEATURE: per-provider-call usage accounting — the half that WATCHES.
+FEATURE: per-observed-attempt usage accounting — the half that WATCHES local send admissions.
 
 WHY one app-lifetime handler and not one per request (plan §4.1): a request-scoped
 handler would throw away connection pooling on every call, and LiteLLM's own default

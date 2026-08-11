@@ -455,7 +455,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         dispatch_body["caching"] = False
         dispatch_body["cache"] = {"no-cache": True, "no-store": True}
         # OME-303 §4.3: pin the gateway-owned OUTER retry cardinality so the accounting
-        # contract's provider-call count cannot be changed by a process-global default.
+        # contract's observed-attempt count cannot be changed by a process-global default.
         dispatch_body["num_retries"] = 0
         dispatch_body["max_retries"] = 0
 
@@ -468,7 +468,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             # WHY (FINDING A): litellm 1.87.0 RAISES while converting a nominal
             # HTTP-200 body that carries a meaningful top-level error — it never
             # returns a payload for _find_embedded_error to scan below. Such an
-            # error came from an already-returned (billable) upstream call, so
+            # error came from an already-returned, potentially billed upstream call, so
             # route it through the SAME sanitizer as a scanned embedded error:
             # non-retryable, status sanitized, raw provider text discarded.
             # INVARIANT: a genuine transport failure is re-raised unchanged so

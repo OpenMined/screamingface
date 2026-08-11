@@ -7,9 +7,9 @@ FEATURE: an opt-in, provider-extensible EVIDENCE contract. A caller sending
   with token/cache/reasoning evidence and provider-authored cost; and
 * ``request_economics`` — a current-request summary of known provider-authored cost.
 
-STORY: as a benchmark operator I want to know what each run actually cost in provider
-work — including the calls a retry made and the calls a cache hit did NOT make — without
-the gateway guessing at prices.
+STORY: as a benchmark operator I want bounded provider-authored usage and cost evidence
+for every locally observed attempt, including retries, without the gateway guessing at
+prices, provider receipt, execution or billing.
 
 INVARIANT (the scope boundary): AIGateway returns FACTS. USD conversion, deterministic
 attribution, run rollups, saved-cost persistence and UI belong to URL4/Engine. Nothing

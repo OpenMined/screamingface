@@ -45,11 +45,9 @@ class _FakeCollector:
         records: tuple[ProviderCallRecord, ...] = (),
         *,
         status: str = "complete",
-        dispatched: bool = True,
     ) -> None:
         self._records = records
         self._status = status
-        self.dispatched = dispatched
 
     def records(self) -> tuple[ProviderCallRecord, ...]:
         return self._records
@@ -194,17 +192,23 @@ class TestDirectCostSummary:
 
 class TestCaptureAndCostStatuses:
     def test_unsupported_provider_is_not_zero_or_complete(self) -> None:
-        metadata = _render(supported=False, dispatched=True)
+        metadata = _render(supported=False)
         assert metadata["usage_accounting"]["capture_status"] == "accounting_not_supported"
-        assert metadata["request_economics"]["direct_cost_status"] == "unavailable"
+        assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
+
+    def test_dispatched_without_an_observed_attempt_has_no_applicable_attempt_cost(self) -> None:
+        collector = _FakeCollector(status="partial")
+        metadata = _render(collector)
+        assert metadata["usage_accounting"]["observed_attempts"] == 0
+        assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
 
     def test_cache_hit_is_not_applicable(self) -> None:
         metadata = _render(cache_status="hit")
         assert metadata["usage_accounting"]["capture_status"] == "not_applicable"
         assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
 
-    def test_preflight_without_dispatch_is_not_applicable(self) -> None:
-        metadata = _render(dispatched=False)
+    def test_no_observed_attempt_is_not_applicable(self) -> None:
+        metadata = _render()
         assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
 
     def test_partial_capture_suppresses_unverifiable_subtotal(self) -> None:

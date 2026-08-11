@@ -23,6 +23,7 @@ import httpx
 import litellm
 import pytest
 from litellm.exceptions import Timeout
+from litellm.litellm_core_utils.logging_worker import GLOBAL_LOGGING_WORKER
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
 from aigateway.core.usage_accounting import TRANSPORT_LITELLM_ASYNC_HTTP_V1
@@ -35,6 +36,8 @@ from aigateway.core.usage_accounting._handler import (
     AccountingAsyncHTTPHandler,
     build_accounting_handler,
 )
+from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
+from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 
 _URL = "https://provider.example/v1/chat/completions"
 
@@ -135,7 +138,7 @@ class TestSendCardinality:
         await handler.close()
 
     @pytest.mark.asyncio
-    async def test_redirect_chain_does_not_inflate_provider_calls(
+    async def test_redirect_chain_does_not_inflate_observed_attempts(
         self, transport_spy: dict[str, Any]
     ) -> None:
         # §9.13. httpx dispatches event hooks INSIDE its redirect loop, so a 307 chain
@@ -174,9 +177,9 @@ class TestSendCardinality:
         2. ``Client._redirect_url`` converts exactly that into ``RemoteProtocolError``;
         3. ``AsyncHTTPHandler.post`` resends the ORIGINAL request once on that error.
 
-        So the next admission is a second real, billable provider call — not the hop the
+        So the next admission is a second observed generation attempt — not the hop the
         307 promised. Folding it into the redirect's record deleted it silently while the
-        request still rendered ``status=complete``.
+        request still rendered ``status=complete``. Receipt and billing remain unknown.
         """
         seen: dict[str, Any] = {"urls": []}
 
@@ -209,6 +212,112 @@ class TestSendCardinality:
         assert collector.status() == "partial"
         assert collector.status() == "partial"
         await handler.close()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("plugin", "model", "payload"),
+        [
+            (
+                AnthropicProviderPlugin(),
+                "anthropic/claude-3-haiku-20240307",
+                {
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-3-haiku-20240307",
+                    "content": [{"type": "text", "text": "ok"}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                },
+            ),
+            (
+                OpenRouterProviderPlugin(),
+                "openrouter/openai/gpt-4o-mini",
+                {
+                    "id": "gen-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "openai/gpt-4o-mini",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                },
+            ),
+        ],
+    )
+    async def test_each_supported_plugin_reaches_the_observed_handler_through_real_litellm(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        transport_spy: dict[str, Any],
+        plugin: Any,
+        model: str,
+        payload: dict[str, Any],
+    ) -> None:
+        transport_spy["handler"] = lambda _request: _json_response(payload)
+
+        def fail_unobserved_fallback(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("LiteLLM ignored the injected accounting handler")
+
+        monkeypatch.setattr(
+            "litellm.llms.anthropic.chat.handler.get_async_httpx_client",
+            fail_unobserved_fallback,
+        )
+        monkeypatch.setattr(
+            "litellm.llms.custom_httpx.llm_http_handler.get_async_httpx_client",
+            fail_unobserved_fallback,
+        )
+        for field in (
+            "pre_call_rules",
+            "post_call_rules",
+            "callbacks",
+            "input_callback",
+            "success_callback",
+            "failure_callback",
+            "_async_input_callback",
+            "_async_success_callback",
+            "_async_failure_callback",
+        ):
+            monkeypatch.setattr(litellm, field, [], raising=False)
+        monkeypatch.setattr(litellm, "model_fallbacks", None, raising=False)
+        monkeypatch.setattr(litellm, "model_alias_map", {}, raising=False)
+
+        def discard_background_log(async_coroutine: Any) -> None:
+            async_coroutine.close()
+
+        monkeypatch.setattr(
+            GLOBAL_LOGGING_WORKER,
+            "ensure_initialized_and_enqueue",
+            discard_background_log,
+        )
+
+        handler = AccountingAsyncHTTPHandler()
+        collector = RequestAccountingCollector(
+            provider=plugin.custom_llm_provider,
+            requested_model=model,
+            transport=TRANSPORT_LITELLM_ASYNC_HTTP_V1,
+        )
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 1,
+            "api_key": "test-key",
+            "api_base": _URL,
+            "client": handler,
+        }
+        try:
+            with bound_collector(collector):
+                collector.begin_dispatch()
+                await plugin.chat_completion(body)
+
+            assert len(collector.records()) == 1
+        finally:
+            await handler.close()
 
 
 def _is_verifying(entry: tuple[Any, Any]) -> bool:
@@ -311,11 +420,11 @@ class TestTlsPreservation:
 
 class TestHooksAreTotal:
     @pytest.mark.asyncio
-    async def test_a_failing_hook_cannot_fail_or_resend_the_provider_call(
+    async def test_a_failing_hook_cannot_fail_or_create_another_send_admission(
         self, transport_spy: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # §9.11 and a plan §12 stop condition. A hook raising ConnectError would be
-        # caught by litellm's post() and cause a SECOND real, billable provider call.
+        # caught by litellm's post() and cause a SECOND observed send admission.
         calls = {"n": 0}
 
         def _respond(request: httpx.Request) -> httpx.Response:
@@ -336,8 +445,8 @@ class TestHooksAreTotal:
             collector.begin_dispatch()
             response = await handler.post(url=_URL, json={"model": "m"})
         assert response is not None
-        assert response.status_code == 200, "the caller lost an already-billed response"
-        assert calls["n"] == 1, "a hook failure caused a second billable provider call"
+        assert response.status_code == 200, "the caller lost a completed provider response"
+        assert calls["n"] == 1, "a hook failure caused a second observed send admission"
         assert collector.status() == "partial"
         assert collector.status() == "partial"
         await handler.close()

@@ -223,7 +223,22 @@
         },
         "provider_extensions_truncated": {"type": "boolean"},
         "redirect_hop_count": {"type": "integer", "minimum": 0, "maximum": 255},
-        "failure_code": {"oneOf": [{"type": "string", "maxLength": 128}, {"type": "null"}]}
+        "failure_code": {
+          "oneOf": [
+            {
+              "enum": [
+                "provider_status_error",
+                "transport_connect_error",
+                "transport_read_error",
+                "transport_timeout",
+                "transport_error",
+                "response_conversion_failed",
+                "no_response_observed"
+              ]
+            },
+            {"type": "null"}
+          ]
+        }
       }
     },
     "cache_reference": {

@@ -23,7 +23,6 @@ __all__ = ["cache_reference_from_cached", "normalize_anthropic_usage_accounting"
 
 EXTENSION_NAMESPACE = "anthropic.usage.v1"
 _MAX_TOKEN_COUNT = 2**53 - 1
-_SERVICE_TIERS = frozenset({"standard", "priority", "batch"})
 
 
 def _int_or_none(value: object) -> int | None:
@@ -79,7 +78,6 @@ def _tokens(usage: Mapping[str, Any], source: UsageSource) -> TokenUsage:
     )
     if converted_shape:
         prompt_details = _mapping(usage.get("prompt_tokens_details")) or {}
-        completion_details = _mapping(usage.get("completion_tokens_details")) or {}
         input_total = _final_detail_or_none(usage.get("prompt_tokens"), source)
         if input_total is None:
             input_total = _final_detail_or_none(usage.get("input_tokens"), source)
@@ -101,7 +99,9 @@ def _tokens(usage: Mapping[str, Any], source: UsageSource) -> TokenUsage:
             ),
             output=OutputTokenUsage(
                 total=output_total,
-                reasoning=_final_detail_or_none(completion_details.get("reasoning_tokens"), source),
+                # LiteLLM 1.95.0 estimates this converted field locally from the
+                # summarized thinking text. It is not provider-reported usage.
+                reasoning=None,
             ),
         )
 
@@ -135,14 +135,20 @@ def _tokens(usage: Mapping[str, Any], source: UsageSource) -> TokenUsage:
         ),
         output=OutputTokenUsage(
             total=output_total,
-            reasoning=_final_detail_or_none(output_details.get("reasoning_tokens"), source),
+            reasoning=_final_detail_or_none(output_details.get("thinking_tokens"), source),
         ),
     )
 
 
 def _pricing_context(usage: Mapping[str, Any]) -> PricingContext:
     tier = usage.get("service_tier")
-    return PricingContext(service_tier=tier if tier in _SERVICE_TIERS else None)
+    if tier == "standard":
+        return PricingContext(service_tier="standard")
+    if tier == "priority":
+        return PricingContext(service_tier="priority")
+    if tier == "batch":
+        return PricingContext(service_tier="batch")
+    return PricingContext()
 
 
 def _provider_extensions(usage: Mapping[str, Any]) -> tuple[ProviderExtension, ...]:
