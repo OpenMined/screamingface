@@ -1,6 +1,9 @@
 # screamingface-docs
 
-Documentation site for ScreamingFace — a Vue 3 + TypeScript + Vite single-page app.
+The ScreamingFace docs site, a Vue 3 + TypeScript + Vite single-page app served at
+[https://docs.screamingface.ai](https://docs.screamingface.ai). It covers the ScreamingFace
+Client (install, quickstart, and guides) alongside the url4, Engine, AI gateway, and caching
+concepts.
 
 ## Stack
 

@@ -1,16 +1,26 @@
 # aigateway
 
-LiteLLM-compatible AI gateway. Exposes an OpenAI-shape `/v1/chat/completions`
-endpoint and dispatches through registered provider plugins via
+The AI gateway: the component the ScreamingFace Engine calls to reach model
+providers, and the place provider credentials live. It is LiteLLM-based and
+exposes one OpenAI-shaped `/v1/chat/completions` endpoint to every provider,
+dispatching through registered provider plugins via
 [LiteLLM](https://github.com/BerriAI/litellm). The registered providers are
 Anthropic, Antigravity, Codex, Gemini CLI, Hugging Face, Ollama and OpenRouter.
+Concept page: https://docs.screamingface.ai/learn/ai-gateway
+
+The AI gateway is the system's credential boundary: the Engine and Client never
+see raw keys. Keys are stored encrypted at rest (see Secrets at rest below), and
+the master key `AIGATEWAY_SECRET_KEY` is never stored with the data or logged;
+there is no OS keychain.
 
 The request *shape* is OpenAI-compatible; the provider set is not. Codex targets
 its own ChatGPT subscription backend, which is distinct from the OpenAI Platform
-API — AIGateway does not currently include a first-class OpenAI Platform
-provider. Provider concerns — OAuth tokens, refresh, response shaping — live in
-self-contained plugins under `src/aigateway/plugins/`; every direct subpackage
-exposing a `PLUGIN` attribute is discovered automatically.
+API: AIGateway does not currently include a first-class OpenAI Platform
+provider. Providers are plugins, enabled per deployment (for example the
+OpenRouter plugin ships disabled until `AIGW_OPENROUTER_ENABLED=true`). Provider
+concerns, OAuth tokens, refresh, response shaping, live in self-contained
+plugins under `src/aigateway/plugins/`; every direct subpackage exposing a
+`PLUGIN` attribute is discovered automatically.
 
 Local development uses SQLite at `sqlite://./aigateway.sqlite3` by default.
 Hosted deployments should set `AIGATEWAY_DATABASE_URL` to Postgres.
