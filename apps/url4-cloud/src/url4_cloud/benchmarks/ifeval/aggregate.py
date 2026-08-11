@@ -68,6 +68,9 @@ def aggregate(
     loose_all = [all(record["loose"]) for record in accepted]
     strict_flat = [bool(value) for record in accepted for value in record["strict"]]
     loose_flat = [bool(value) for record in accepted for value in record["loose"]]
+    inst_level_strict = _accuracy(strict_flat)
+    cases_checked = len(case_results)
+    cases_fallback = 0
     return {
         "schema": CANDIDATE_RESULT_SCHEMA,
         "benchmark_id": benchmark_id,
@@ -75,11 +78,17 @@ def aggregate(
         "case_count": len(case_results),
         "score": _accuracy(strict_all),
         "metrics": {
-            "inst_level_strict_accuracy": _accuracy(strict_flat),
+            "inst_level_strict_accuracy": inst_level_strict,
             "prompt_level_loose_accuracy": _accuracy(loose_all),
             "inst_level_loose_accuracy": _accuracy(loose_flat),
-            "cases_checked": len(case_results),
-            "cases_fallback": 0,
+            "cases_checked": cases_checked,
+            "cases_fallback": cases_fallback,
+            # INVARIANT: {score, pass_rate, coverage} is the canonical cross-benchmark
+            # report contract (draco's aggregate is the reference) — the SDK report
+            # tiles read exactly these keys. IFEval maps pass_rate to instruction-level
+            # strict accuracy and coverage to (checked - fallback) / selected cases.
+            "pass_rate": inst_level_strict,
+            "coverage": round((cases_checked - cases_fallback) / len(case_results), 4),
         },
         "cases": case_results,
         "failures": [],
@@ -232,6 +241,8 @@ def aggregate_corrective(
         )
         for attempt in range(1, max_attempts + 1)
     }
+    inst_level_strict = _accuracy(strict_flat)
+    cases_fallback = 0
     return {
         "schema": CANDIDATE_RESULT_SCHEMA,
         "benchmark_id": benchmark_id,
@@ -239,7 +250,7 @@ def aggregate_corrective(
         "case_count": total,
         "score": _accuracy(strict_all),
         "metrics": {
-            "inst_level_strict_accuracy": _accuracy(strict_flat),
+            "inst_level_strict_accuracy": inst_level_strict,
             "prompt_level_loose_accuracy": _accuracy(loose_all),
             "inst_level_loose_accuracy": _accuracy(loose_flat),
             **pass_at,
@@ -247,7 +258,12 @@ def aggregate_corrective(
                 1 for case in case_results if case["metadata"]["pass_attempt"] > 1
             ),
             "cases_checked": total,
-            "cases_fallback": 0,
+            "cases_fallback": cases_fallback,
+            # INVARIANT: {score, pass_rate, coverage} is the canonical cross-benchmark
+            # report contract (draco's aggregate is the reference) — same IFEval mapping
+            # as the single-pass reducer, over the SELECTED attempt per case.
+            "pass_rate": inst_level_strict,
+            "coverage": round((total - cases_fallback) / total, 4) if total else 0.0,
         },
         "cases": case_results,
         "failures": [],

@@ -11,6 +11,7 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
     aggregate,
+    aggregate_corrective,
     load_specs,
 )
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
@@ -18,6 +19,10 @@ from url4_cloud.benchmarks.ifeval.case_evaluation import (
     bind_case_evaluation,
 )
 from url4_cloud.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
+from url4_cloud.benchmarks.ifeval.iterative_correction import (
+    SELF_CORRECTIVE_ID,
+    SELF_CORRECTIVE_REVISION,
+)
 
 _SPECS = {
     1: {
@@ -88,6 +93,10 @@ def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
     assert result["metrics"]["inst_level_strict_accuracy"] == round(2 / 3, 4)
     assert result["metrics"]["prompt_level_loose_accuracy"] == 1.0
     assert result["metrics"]["inst_level_loose_accuracy"] == 1.0
+    # Canonical report contract: pass_rate mirrors inst-level strict accuracy and
+    # coverage is (checked - fallback) / selected — all 2 cases were checked here.
+    assert result["metrics"]["pass_rate"] == round(2 / 3, 4)
+    assert result["metrics"]["coverage"] == 1.0
     assert result["case_count"] == 2
     assert result["cases"][0]["input"] == _SPECS[1]["prompt"]
     assert result["cases"][0]["output"] == "Answer 1"
@@ -179,6 +188,30 @@ def test_metrics_are_flat_numbers_only() -> None:
     result = aggregate(payload, {2: _SPECS[2]}, "ifeval", [2])
 
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())
+
+
+def test_canonical_contract_metrics_are_published_for_every_scored_aggregate() -> None:
+    """INVARIANT: every scored aggregate publishes the canonical trio (score,
+    pass_rate, coverage) in [0, 1] — the SDK report tiles and its low-coverage
+    warning read exactly these keys across all benchmarks (draco is the reference).
+    """
+
+    payload = _rows(
+        _evaluation(1, [True, False], [True, True]),
+        _evaluation(2, [True], [True]),
+    )
+    single_pass = aggregate(payload, _SPECS, "ifeval", _ORDER)
+    corrective = aggregate_corrective(
+        payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
+    )
+
+    for result in (single_pass, corrective):
+        assert 0.0 <= result["score"] <= 1.0
+        assert 0.0 <= result["metrics"]["pass_rate"] <= 1.0
+        assert 0.0 <= result["metrics"]["coverage"] <= 1.0
+        # IFEval's mapping: pass_rate IS instruction-level strict accuracy.
+        assert result["metrics"]["pass_rate"] == result["metrics"]["inst_level_strict_accuracy"]
+        assert result["metrics"]["coverage"] == 1.0
 
 
 def test_a_record_for_an_unknown_case_id_is_ignored() -> None:
