@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, CandidateResult
 
 
-def _scored_kwargs(**overrides: object) -> dict[str, object]:
-    kwargs: dict[str, object] = {
+def _scored_kwargs(**overrides: Any) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
         "benchmark_id": "ifeval",
         "benchmark_revision": "rev",
         "case_count": 1,
