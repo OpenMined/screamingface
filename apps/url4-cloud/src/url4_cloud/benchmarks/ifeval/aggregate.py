@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
+from url4_cloud.benchmarks.contract import CandidateResult
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
     CHECK_SCHEMA,
     decode_case_evaluation,
@@ -71,28 +71,26 @@ def aggregate(
     inst_level_strict = _accuracy(strict_flat)
     cases_checked = len(case_results)
     cases_fallback = 0
-    return {
-        "schema": CANDIDATE_RESULT_SCHEMA,
-        "benchmark_id": benchmark_id,
-        "benchmark_revision": IFEVAL_REVISION,
-        "case_count": len(case_results),
-        "score": _accuracy(strict_all),
-        "metrics": {
+    return CandidateResult(
+        benchmark_id=benchmark_id,
+        benchmark_revision=IFEVAL_REVISION,
+        case_count=len(case_results),
+        score=_accuracy(strict_all),
+        metrics={
             "inst_level_strict_accuracy": inst_level_strict,
             "prompt_level_loose_accuracy": _accuracy(loose_all),
             "inst_level_loose_accuracy": _accuracy(loose_flat),
             "cases_checked": cases_checked,
             "cases_fallback": cases_fallback,
-            # INVARIANT: {score, pass_rate, coverage} is the canonical cross-benchmark
-            # report contract (draco's aggregate is the reference) — the SDK report
-            # tiles read exactly these keys. IFEval maps pass_rate to instruction-level
-            # strict accuracy and coverage to (checked - fallback) / selected cases.
+            # IFEval's canonical-trio mapping (contract enforced by CandidateResult):
+            # pass_rate is instruction-level strict accuracy; coverage is
+            # (checked - fallback) / selected cases.
             "pass_rate": inst_level_strict,
             "coverage": round((cases_checked - cases_fallback) / len(case_results), 4),
         },
-        "cases": case_results,
-        "failures": [],
-    }
+        cases=case_results,
+        failures=[],
+    ).as_payload()
 
 
 def _unscored_result(
@@ -102,16 +100,15 @@ def _unscored_result(
 ) -> dict[str, Any]:
     """Return the complete Evaluation record without fabricating an aggregate score."""
 
-    return {
-        "schema": CANDIDATE_RESULT_SCHEMA,
-        "benchmark_id": benchmark_id,
-        "benchmark_revision": benchmark_revision,
-        "case_count": len(cases),
-        "score": None,
-        "metrics": {},
-        "cases": [dict(case) for case in cases],
-        "failures": [],
-    }
+    return CandidateResult(
+        benchmark_id=benchmark_id,
+        benchmark_revision=benchmark_revision,
+        case_count=len(cases),
+        score=None,
+        metrics={},
+        cases=[dict(case) for case in cases],
+        failures=[],
+    ).as_payload()
 
 
 def _failed_case_result(
@@ -243,13 +240,12 @@ def aggregate_corrective(
     }
     inst_level_strict = _accuracy(strict_flat)
     cases_fallback = 0
-    return {
-        "schema": CANDIDATE_RESULT_SCHEMA,
-        "benchmark_id": benchmark_id,
-        "benchmark_revision": benchmark_revision,
-        "case_count": total,
-        "score": _accuracy(strict_all),
-        "metrics": {
+    return CandidateResult(
+        benchmark_id=benchmark_id,
+        benchmark_revision=benchmark_revision,
+        case_count=total,
+        score=_accuracy(strict_all),
+        metrics={
             "inst_level_strict_accuracy": inst_level_strict,
             "prompt_level_loose_accuracy": _accuracy(loose_all),
             "inst_level_loose_accuracy": _accuracy(loose_flat),
@@ -259,15 +255,14 @@ def aggregate_corrective(
             ),
             "cases_checked": total,
             "cases_fallback": cases_fallback,
-            # INVARIANT: {score, pass_rate, coverage} is the canonical cross-benchmark
-            # report contract (draco's aggregate is the reference) — same IFEval mapping
-            # as the single-pass reducer, over the SELECTED attempt per case.
+            # Same IFEval canonical-trio mapping as the single-pass reducer, over the
+            # SELECTED attempt per case (contract enforced by CandidateResult).
             "pass_rate": inst_level_strict,
             "coverage": round((total - cases_fallback) / total, 4) if total else 0.0,
         },
-        "cases": case_results,
-        "failures": [],
-    }
+        cases=case_results,
+        failures=[],
+    ).as_payload()
 
 
 def _attempt_records(
