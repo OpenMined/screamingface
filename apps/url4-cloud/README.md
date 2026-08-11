@@ -1,5 +1,15 @@
 # url4-cloud
 
+The ScreamingFace Engine: the runtime that turns a `url4` expression into a
+graded benchmark result. The Client talks only to an Engine, never to providers
+directly. It is a demand-driven, memoized DAG executor and streams usage as it
+runs. It runs bundled, self-hosted, or hosted; the local default is
+http://127.0.0.1:9108. Concept page: https://docs.screamingface.ai/learn/engine
+
+The Engine is the trust boundary: it holds provider credentials (via the AI
+gateway), the benchmark answer keys, and the grading. Prompts cross to the
+models; answer keys and rubrics do not.
+
 REST + WebSocket url4 execution runner (k8s Jobs + NATS). Design: `docs/spec/2026-07-21-url4-cloud.md`
 · epic OME-513.
 

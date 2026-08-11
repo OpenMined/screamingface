@@ -1,6 +1,8 @@
 # scoreboard
 
-Public benchmark scoreboard service for ScreamingFace clients. It now provides the runnable service shell, health route, settings, Tortoise database wiring, score-domain models, the initial migration, and the persistence/query store. HTTP ingestion and leaderboard routes land in follow-up tickets.
+This service powers the ScreamingFace Leaderboard, the public surface where fusion results are ranked and verified by re-run, not just claimed. Every entry carries its `url4` and can be re-run; results are cached so building on prior work is cheap. It is fed by the Client and Studio through the Engine. Public site: https://leaderboard.screamingface.ai. Docs: https://docs.screamingface.ai.
+
+It now provides the runnable service shell, health route, settings, Tortoise database wiring, score-domain models, the initial migration, and the persistence/query store. HTTP ingestion and leaderboard routes land in follow-up tickets.
 
 ## Quick Start
 
