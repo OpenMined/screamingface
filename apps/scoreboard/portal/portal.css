@@ -45,9 +45,9 @@ th[aria-sort="descending"] .sort-button .arrow { opacity: 1; }
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--gain);
-  background: var(--gain-bg);
-  border: var(--border-hairline) solid var(--gain);
+  color: var(--success-text-high);
+  background: var(--success-bg-subtle);
+  border: var(--border-hairline) solid var(--success-border);
   border-radius: var(--radius-none);
   padding: 0 var(--space-2);
   white-space: nowrap;
@@ -79,6 +79,31 @@ table .btn { white-space: nowrap; }
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---- benchmark tab strip --------------------------------------------- */
+/* Same visual language as .rail .crumbs (hairline underline for the active
+   item) rather than a new pattern — one nav idiom for the whole portal. */
+.tabstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--line);
+  margin: 0 0 var(--space-5);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+}
+.tabstrip a {
+  display: inline-block;
+  padding: var(--space-3) 0;
+  color: var(--ink-2);
+  text-decoration: none;
+  border-bottom: var(--border-strong) solid transparent;
+}
+.tabstrip a:hover { color: var(--ink); }
+.tabstrip a[aria-current="page"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
 }
 
 /* ---- responsive ------------------------------------------------------ */
