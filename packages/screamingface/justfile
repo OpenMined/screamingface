@@ -24,8 +24,8 @@ stack-up:
     set -euo pipefail
     mkdir -p {{rundir}}
     chmod 700 {{rundir}}
-    # One stack at a time. A port held by THIS worktree's services is adopted (pid
-    # file rewritten so stack-down can stop it); a port held by another worktree's
+    # One stack at a time. A port held by THIS checkout's services is adopted (pid
+    # file rewritten so stack-down can stop it); a port held by another checkout's
     # stack is refused outright — silently reusing it runs benchmarks against
     # another branch's code and produces results that look right but aren't.
     repo_root=$(cd {{repo}} && pwd -P)
@@ -44,7 +44,7 @@ stack-up:
             *)
                 echo "ERROR: $name :$port is held by another stack; refusing to reuse it:" >&2
                 echo "  pid $pid — ${command:-<command gone>}" >&2
-                echo "Stop it first with: just stack-down   (works from any worktree)" >&2
+                echo "Stop it first with: just stack-down   (works from any checkout)" >&2
                 exit 1
                 ;;
         esac
@@ -178,7 +178,7 @@ stack-down:
     # Pid files are only hints — a stack-up run elsewhere (or a lost pid file)
     # leaves orphans they don't cover. Ports are the truth: sweep each stack port
     # and stop any listener whose command matches a known service signature, no
-    # matter which worktree launched it. Unrecognized listeners are left alone.
+    # matter which checkout launched it. Unrecognized listeners are left alone.
     for entry in "aigateway:9105" "scoreboard:9106" "url4-cloud:9108"; do
         name=${entry%%:*}; port=${entry##*:}
         for pid in $(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null); do
@@ -208,7 +208,7 @@ stack-status:
         name=${entry%%:*}; port=${entry##*:}
         pid=$(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null | head -n1)
         if [ -n "$pid" ]; then
-            # Naming the owning worktree makes a foreign stack visible at a glance.
+            # Naming the owning checkout makes a foreign stack visible at a glance.
             command=$(ps -p "$pid" -o command= 2>/dev/null || true)
             owner=${command%%/apps/*}
             if [ "$owner" = "$command" ]; then owner="unrecognized: $command"; fi
