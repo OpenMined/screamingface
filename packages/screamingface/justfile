@@ -13,10 +13,17 @@ engine_repo := env_var_or_default("SCREAMINGFACE_ENGINE_REPO", repo)
 default:
     @just --list
 
-# Sync the SDK venv and open JupyterLab in examples/ (run just stack-up first)
+# Sync the SDK venv and open JupyterLab in examples/ (run just stack-up first).
+# Notebooks talk to the LOCAL engine by default — a bare sf.connect() would
+# otherwise reach the deployed fusion.dev engine, silently testing whatever is
+# deployed there instead of this checkout. Export SCREAMINGFACE_ENGINE_URL to
+# target another engine deliberately.
 jupyter:
+    #!/usr/bin/env bash
+    set -euo pipefail
     uv sync --extra notebook
-    uv run jupyter lab examples
+    SCREAMINGFACE_ENGINE_URL=${SCREAMINGFACE_ENGINE_URL:-http://127.0.0.1:9108} \
+        uv run jupyter lab examples
 
 # Start AI Gateway (:9105), scoreboard (:9106), and url4-cloud engine (:9108) in the background
 stack-up:
