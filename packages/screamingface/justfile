@@ -24,6 +24,35 @@ stack-up:
     set -euo pipefail
     mkdir -p {{rundir}}
     chmod 700 {{rundir}}
+    # One stack at a time. A port held by THIS worktree's services is adopted (pid
+    # file rewritten so stack-down can stop it); a port held by another worktree's
+    # stack is refused outright — silently reusing it runs benchmarks against
+    # another branch's code and produces results that look right but aren't.
+    repo_root=$(cd {{repo}} && pwd -P)
+    engine_root=$(cd {{engine_repo}} && pwd -P)
+    claim() {  # claim <name> <port> <expected_root> <pidfile> → 0 adopted, 1 port free
+        local name=$1 port=$2 root=$3 pidfile=$4 pid command
+        pid=$(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null | head -n1 || true)
+        if [ -z "$pid" ]; then return 1; fi
+        command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+        case "$command" in
+            "$root"/*)
+                echo "$pid" >"$pidfile"
+                echo "$name :$port already running (pid $pid, adopted)"
+                return 0
+                ;;
+            *)
+                echo "ERROR: $name :$port is held by another stack; refusing to reuse it:" >&2
+                echo "  pid $pid — ${command:-<command gone>}" >&2
+                echo "Stop it first with: just stack-down   (works from any worktree)" >&2
+                exit 1
+                ;;
+        esac
+    }
+    start_gateway=0; start_scoreboard=0; start_engine=0
+    claim "gateway   " 9105 "$repo_root" {{rundir}}/aigateway.pid || start_gateway=1
+    claim "scoreboard" 9106 "$repo_root" {{rundir}}/scoreboard.pid || start_scoreboard=1
+    claim "engine    " 9108 "$engine_root" {{rundir}}/url4-cloud.pid || start_engine=1
     # Each service runs from its own venv; sync is idempotent and near-instant
     # when the lockfile is unchanged, so a fresh worktree just works. The first
     # sync in a new worktree builds the venvs and can take a few minutes.
@@ -62,9 +91,7 @@ stack-up:
         .venv/bin/python -m scoreboard.seed --benchmarks-json \
             '[{"id":"draco/smoke","display_name":"DRACO Smoke","description":"Local end-to-end development protocol"}]'
     )
-    if lsof -nP -iTCP:9105 -sTCP:LISTEN >/dev/null 2>&1; then
-        echo "gateway   :9105 already running"
-    else
+    if [ "$start_gateway" = 1 ]; then
         # AUTH DISABLED = anonymous loopback mode; no admin bootstrap, key stored under
         # the anonymous account. Matches how the local stack has been run so far.
         # BOOTSTRAP flag re-activates stored provider profiles (e.g. the OpenRouter key)
@@ -82,9 +109,7 @@ stack-up:
         )
         echo "gateway   :9105 starting  (log: {{rundir}}/aigateway.log)"
     fi
-    if lsof -nP -iTCP:9106 -sTCP:LISTEN >/dev/null 2>&1; then
-        echo "scoreboard :9106 already running"
-    else
+    if [ "$start_scoreboard" = 1 ]; then
         (
             cd {{repo}}/apps/scoreboard
             nohup .venv/bin/uvicorn scoreboard.main:app --port 9106 \
@@ -93,9 +118,7 @@ stack-up:
         )
         echo "scoreboard :9106 starting  (log: {{rundir}}/scoreboard.log)"
     fi
-    if lsof -nP -iTCP:9108 -sTCP:LISTEN >/dev/null 2>&1; then
-        echo "engine    :9108 already running"
-    else
+    if [ "$start_engine" = 1 ]; then
         (
             cd {{engine_repo}}/apps/url4-cloud
             URL4_BENCHMARK_ASSETS={{assets}} \
@@ -137,6 +160,8 @@ stack-down:
                         aigateway:*uvicorn*aigateway.main:app*|scoreboard:*uvicorn*scoreboard.main:app*|url4-cloud:*url4-cloud*serve*)
                             if kill "$pid" 2>/dev/null; then
                                 echo "$name stopped"
+                            else
+                                echo "$name pid $pid could not be signalled; still listed below if alive"
                             fi
                             ;;
                         *:)
@@ -150,6 +175,30 @@ stack-down:
         fi
         rm -f "$pidfile"
     done
+    # Pid files are only hints — a stack-up run elsewhere (or a lost pid file)
+    # leaves orphans they don't cover. Ports are the truth: sweep each stack port
+    # and stop any listener whose command matches a known service signature, no
+    # matter which worktree launched it. Unrecognized listeners are left alone.
+    for entry in "aigateway:9105" "scoreboard:9106" "url4-cloud:9108"; do
+        name=${entry%%:*}; port=${entry##*:}
+        for pid in $(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null); do
+            command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+            case "$name:$command" in
+                aigateway:*uvicorn*aigateway.main:app*|scoreboard:*uvicorn*scoreboard.main:app*|url4-cloud:*url4-cloud*serve*)
+                    if kill "$pid" 2>/dev/null; then
+                        echo "$name stopped (found by port :$port, pid $pid)"
+                    else
+                        echo "$name pid $pid on :$port could not be signalled"
+                    fi
+                    ;;
+                *:)
+                    ;;
+                *)
+                    echo "port :$port is held by an unrecognized command; leaving it alone: $command"
+                    ;;
+            esac
+        done
+    done
     exit 0
 
 # Show what is listening
@@ -157,8 +206,13 @@ stack-status:
     #!/usr/bin/env bash
     for entry in "gateway:9105" "scoreboard:9106" "engine:9108"; do
         name=${entry%%:*}; port=${entry##*:}
-        if lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1; then
-            echo "$name   :$port UP"
+        pid=$(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null | head -n1)
+        if [ -n "$pid" ]; then
+            # Naming the owning worktree makes a foreign stack visible at a glance.
+            command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+            owner=${command%%/apps/*}
+            if [ "$owner" = "$command" ]; then owner="unrecognized: $command"; fi
+            echo "$name   :$port UP   ($owner)"
         else
             echo "$name   :$port down"
         fi
