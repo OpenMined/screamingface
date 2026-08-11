@@ -29,7 +29,7 @@ Issues = "https://github.com/OpenMined/screamingface/issues"
 [project.optional-dependencies]
 # Url4Node.serve() and `url4 serve` — the ASGI app itself is framework-free; only
 # serving over HTTP needs uvicorn.
-server = ["uvicorn>=0.30"]
+server = ["uvicorn>=0.52.1"]
 
 # `url4.streaming` — the CloudEvents/OTel wire contract IS pydantic models.
 #
