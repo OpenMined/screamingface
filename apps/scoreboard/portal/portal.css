@@ -103,7 +103,7 @@ table .btn { white-space: nowrap; }
 .tabstrip a:hover { color: var(--ink); }
 .tabstrip a[aria-current="page"] {
   color: var(--ink);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--accent-solid);
 }
 
 /* ---- responsive ------------------------------------------------------ */
