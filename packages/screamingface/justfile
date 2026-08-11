@@ -24,16 +24,37 @@ stack-up:
     set -euo pipefail
     mkdir -p {{rundir}}
     chmod 700 {{rundir}}
-    test -x {{repo}}/apps/aigateway/.venv/bin/uvicorn || {
-        echo "AI Gateway environment missing; run: cd {{repo}}/apps/aigateway && uv sync"
+    # Each service runs from its own venv; sync is idempotent and near-instant
+    # when the lockfile is unchanged, so a fresh worktree just works. The first
+    # sync in a new worktree builds the venvs and can take a few minutes.
+    echo "syncing gateway venv ({{repo}}/apps/aigateway)…"
+    (cd {{repo}}/apps/aigateway && uv sync) || {
+        echo "AI Gateway environment failed to sync under {{repo}}/apps/aigateway"
         exit 1
     }
-    test -x {{repo}}/apps/scoreboard/.venv/bin/uvicorn || {
-        echo "Scoreboard environment missing; run: cd {{repo}}/apps/scoreboard && uv sync && uv run tortoise migrate"
+    # Apply pending gateway DB migrations — a fresh worktree has an empty SQLite DB
+    # and the server refuses to boot without its tables (e.g. secret_master_keys).
+    # Same invocation as the Helm migrate job; run from apps/aigateway because the
+    # default DB URL is the relative sqlite://./aigateway.sqlite3 the server uses.
+    echo "migrating gateway database…"
+    (cd {{repo}}/apps/aigateway && .venv/bin/python -m tortoise -c aigateway.db.TORTOISE_CONFIG migrate) || {
+        echo "AI Gateway database migration failed"
         exit 1
     }
-    test -x {{engine_repo}}/apps/url4-cloud/.venv/bin/url4-cloud || {
-        echo "URL4 Cloud environment missing; run: cd {{engine_repo}}/apps/url4-cloud && uv sync"
+    echo "syncing scoreboard venv ({{repo}}/apps/scoreboard)…"
+    (cd {{repo}}/apps/scoreboard && uv sync) || {
+        echo "Scoreboard environment failed to sync under {{repo}}/apps/scoreboard"
+        exit 1
+    }
+    # Same fresh-worktree story as the gateway: seed/serve need the tables first.
+    echo "migrating scoreboard database…"
+    (cd {{repo}}/apps/scoreboard && uv run tortoise migrate) || {
+        echo "Scoreboard database migration failed"
+        exit 1
+    }
+    echo "syncing engine venv ({{engine_repo}}/apps/url4-cloud)…"
+    (cd {{engine_repo}}/apps/url4-cloud && uv sync) || {
+        echo "URL4 Cloud environment failed to sync under {{engine_repo}}/apps/url4-cloud"
         exit 1
     }
     (
