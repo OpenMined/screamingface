@@ -491,6 +491,11 @@ def _case_result(
                     "type": "instruction",
                     "id": f"instruction-{index}",
                     "label": descriptions[index - 1],
+                    # Check-level verdict in the report schema's vocabulary; the strict
+                    # verifier decides it, matching the headline score. Without it a
+                    # reader must dig into evidence, and the SDK renders the check as
+                    # unjudged.
+                    "outcome": "MET" if strict[index - 1] else "UNMET",
                     "evidence": [
                         _verification_evidence(1, "strict", strict[index - 1]),
                         _verification_evidence(2, "loose", loose[index - 1]),
