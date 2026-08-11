@@ -24,10 +24,13 @@ stack-up:
     set -euo pipefail
     mkdir -p {{rundir}}
     chmod 700 {{rundir}}
-    # One stack at a time. A port held by THIS checkout's services is adopted (pid
-    # file rewritten so stack-down can stop it); a port held by another checkout's
-    # stack is refused outright — silently reusing it runs benchmarks against
-    # another branch's code and produces results that look right but aren't.
+    # Mental model: fixed-port services — each service owns one well-known port
+    # (gateway 9105, scoreboard 9106, engine 9108), so holding the port IS being
+    # the service, and only one stack can exist at a time. An occupied port means
+    # one of two things: our own service is already up (adopt it — rewrite its pid
+    # file so stack-down can stop it), or someone else holds our port (error out;
+    # reusing a stranger's service would run benchmarks against another branch's
+    # code and produce results that look right but aren't).
     repo_root=$(cd {{repo}} && pwd -P)
     engine_root=$(cd {{engine_repo}} && pwd -P)
     claim() {  # claim <name> <port> <expected_root> <pidfile> → 0 adopted, 1 port free
@@ -175,10 +178,11 @@ stack-down:
         fi
         rm -f "$pidfile"
     done
-    # Pid files are only hints — a stack-up run elsewhere (or a lost pid file)
-    # leaves orphans they don't cover. Ports are the truth: sweep each stack port
-    # and stop any listener whose command matches a known service signature, no
-    # matter which checkout launched it. Unrecognized listeners are left alone.
+    # Same fixed-port mental model: the port, not the pid file, says whether a
+    # service is running — pid files are hints that go stale (lost, or written by
+    # a stack-up run elsewhere). So after the pid-file pass, visit each service
+    # port and stop whoever holds it, IF its command matches a known service
+    # signature. A non-matching holder is not our service — leave it alone.
     for entry in "aigateway:9105" "scoreboard:9106" "url4-cloud:9108"; do
         name=${entry%%:*}; port=${entry##*:}
         for pid in $(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null); do
