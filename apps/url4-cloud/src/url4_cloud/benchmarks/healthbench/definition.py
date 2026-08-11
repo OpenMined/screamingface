@@ -20,20 +20,13 @@ from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4_cloud.benchmarks.definition import Benchmark, candidate
 from url4_cloud.benchmarks.healthbench import verdict
 from url4_cloud.benchmarks.healthbench.prompts import GRADER_TEMPLATE
-from url4_cloud.benchmarks.healthbench.subset import (
-    SMOKE_CASE_ID,
-    WORST30_CASE_IDS,
-    subset_sha,
-)
+from url4_cloud.benchmarks.healthbench.subset import WORST30_CASE_IDS, subset_sha
 
 BENCHMARK_ID = "healthbench/worst30"
-SMOKE_BENCHMARK_ID = "healthbench/smoke"
 CASE_COUNT = len(WORST30_CASE_IDS)
-SMOKE_CASE_COUNT = 1
 DATASET = "openai/healthbench-professional"
 DATASET_REVISION = "349962fd46dd02343a0d8a606491baf59154ea1a"
 PROTOCOL_REVISION = "worst30-per-item-v2"  # v2: aggregate intent carries the selected count
-SMOKE_PROTOCOL_REVISION = "structural-smoke-v1"
 # WHY: prepare.py's output participates in the answer key; bump this when the preparer's
 # emission rules change so a rebuilt image can never serve old routes a different key.
 PREPARER_REVISION = "hf-rows-v1"
@@ -72,15 +65,6 @@ REVISION = hashlib.sha256(
         )
     ).encode()
 ).hexdigest()[:16]
-SMOKE_REVISION = hashlib.sha256(
-    "\n".join(
-        (
-            REVISION,
-            SMOKE_PROTOCOL_REVISION,
-            str(SMOKE_CASE_ID),
-        )
-    ).encode()
-).hexdigest()[:16]
 ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
 CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 TASKS_ROUTE = f"{ROUTE_PREFIX}/rubric-tasks"
@@ -88,13 +72,6 @@ VERDICT_ROUTE = f"{ROUTE_PREFIX}/rubric-verdict"
 RUBRIC_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/rubric-evaluation"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
-SMOKE_ROUTE_PREFIX = f"/benchmarks/{SMOKE_BENCHMARK_ID}/{SMOKE_REVISION}"
-SMOKE_CASES_ROUTE = f"{SMOKE_ROUTE_PREFIX}/cases"
-SMOKE_TASKS_ROUTE = f"{SMOKE_ROUTE_PREFIX}/rubric-tasks"
-SMOKE_VERDICT_ROUTE = f"{SMOKE_ROUTE_PREFIX}/rubric-verdict"
-SMOKE_RUBRIC_EVALUATION_ROUTE = f"{SMOKE_ROUTE_PREFIX}/rubric-evaluation"
-SMOKE_CASE_EVALUATION_ROUTE = f"{SMOKE_ROUTE_PREFIX}/case-evaluation"
-SMOKE_AGGREGATE_ROUTE = f"{SMOKE_ROUTE_PREFIX}/aggregate"
 
 
 def _build(case_count: int) -> Node:
@@ -107,19 +84,6 @@ def _build(case_count: int) -> Node:
         rubric_evaluation_route=RUBRIC_EVALUATION_ROUTE,
         case_evaluation_route=CASE_EVALUATION_ROUTE,
         aggregate_route=AGGREGATE_ROUTE,
-    )
-
-
-def _build_smoke(case_count: int) -> Node:
-    return _build_protocol(
-        case_count,
-        total=SMOKE_CASE_COUNT,
-        cases_route=SMOKE_CASES_ROUTE,
-        tasks_route=SMOKE_TASKS_ROUTE,
-        verdict_route=SMOKE_VERDICT_ROUTE,
-        rubric_evaluation_route=SMOKE_RUBRIC_EVALUATION_ROUTE,
-        case_evaluation_route=SMOKE_CASE_EVALUATION_ROUTE,
-        aggregate_route=SMOKE_AGGREGATE_ROUTE,
     )
 
 
@@ -155,9 +119,8 @@ def _build_protocol(
        computes the challenge metric (unclipped mean). Rows travel as context, not
        argv, so no OS argument-length limit can truncate them.
 
-    ``case_count`` < ``total`` slices to a partial run (smoke); equal means the
-    full set. The six routes are revision-pinned, which is how worst30 and smoke
-    share this one builder under separate namespaces.
+    ``case_count`` < ``total`` slices to a partial run (the SDK's ``limit=N``);
+    equal means the full set. The six routes are revision-pinned.
 
     Returns the unresolved DAG — the Engine executes it at submission time.
     """
@@ -239,7 +202,7 @@ def _build_protocol(
         cases_route,
         body=(src(case_evaluation, name="graded", weight=0.0),),
         intent=Text("$graded"),
-        # Partial run (smoke) takes the first N Cases; full run takes them all.
+        # Partial run (limit=N) takes the first N Cases; full run takes them all.
         slice=None if case_count == total else (0, case_count),
         on_error="collect",
     )
@@ -297,24 +260,9 @@ HEALTHBENCH_WORST30 = Benchmark(
     install=_install,
 )
 
-HEALTHBENCH_SMOKE = Benchmark(
-    id=SMOKE_BENCHMARK_ID,
-    variant="smoke",
-    title="HealthBench Structural Smoke",
-    description=(
-        "A one-Case, one-rubric-item structural probe of the HealthBench challenge "
-        "protocol. Its score is diagnostic and not comparable to any HealthBench "
-        "number."
-    ),
-    revision=SMOKE_REVISION,
-    case_count=SMOKE_CASE_COUNT,
-    build=_build_smoke,
-    install=_install,
-)
-
 
 def _model_route(model: str) -> str:
     return "/" + model.removeprefix("/")
 
 
-__all__ = ["HEALTHBENCH_SMOKE", "HEALTHBENCH_WORST30"]
+__all__ = ["HEALTHBENCH_WORST30"]

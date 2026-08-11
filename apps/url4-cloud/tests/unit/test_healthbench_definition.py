@@ -12,18 +12,12 @@ import hashlib
 from url4.core.grammar import parse
 from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.benchmarks.healthbench.definition import (
-    HEALTHBENCH_SMOKE,
     HEALTHBENCH_WORST30,
     JUDGE_MODEL,
     REVISION,
-    SMOKE_REVISION,
 )
 from url4_cloud.benchmarks.healthbench.prompts import GRADER_TEMPLATE
-from url4_cloud.benchmarks.healthbench.subset import (
-    SMOKE_CASE_ID,
-    WORST30_CASE_IDS,
-    WORST30_HF_IDS,
-)
+from url4_cloud.benchmarks.healthbench.subset import WORST30_CASE_IDS, WORST30_HF_IDS
 
 # WHY: byte-parity with OpenAI simple-evals' GRADER_TEMPLATE (verified against the
 # vendored reference at authoring time). Any edit — even fixing the reference's own
@@ -41,33 +35,26 @@ def test_the_grader_template_is_byte_pinned() -> None:
     assert hashlib.sha256(GRADER_TEMPLATE.encode()).hexdigest() == GRADER_TEMPLATE_SHA
 
 
-def test_both_exams_are_registered_under_their_ids() -> None:
+def test_the_exam_is_registered_under_its_id() -> None:
     assert BUILTIN_BENCHMARKS.get("healthbench/worst30") is HEALTHBENCH_WORST30
-    assert BUILTIN_BENCHMARKS.get("healthbench/smoke") is HEALTHBENCH_SMOKE
 
 
 def test_the_subset_is_the_frozen_157() -> None:
     assert len(WORST30_HF_IDS) == 157
     assert len(set(WORST30_HF_IDS)) == 157
     assert len(WORST30_CASE_IDS) == 157
-    # The smoke Case is drawn from the challenge subset, not from the easy 368.
-    assert SMOKE_CASE_ID in WORST30_CASE_IDS
 
 
-def test_variants_carry_distinct_revisions_and_routes() -> None:
-    assert REVISION != SMOKE_REVISION
+def test_the_exam_routes_are_revision_pinned() -> None:
     assert REVISION in _url4(HEALTHBENCH_WORST30)
-    assert SMOKE_REVISION in _url4(HEALTHBENCH_SMOKE)
-    assert REVISION not in _url4(HEALTHBENCH_SMOKE)
 
 
 def test_the_expression_renders_and_reparses() -> None:
-    for benchmark in (HEALTHBENCH_WORST30, HEALTHBENCH_SMOKE):
-        rendered = _url4(benchmark)
-        parse(rendered)
-        # S-RT1: the whole exam must stay far under transport-hostile sizes — the
-        # per-item fan-out is built Engine-side, not pre-expanded into the address.
-        assert len(rendered) < 4_000
+    rendered = _url4(HEALTHBENCH_WORST30)
+    parse(rendered)
+    # S-RT1: the whole exam must stay far under transport-hostile sizes — the
+    # per-item fan-out is built Engine-side, not pre-expanded into the address.
+    assert len(rendered) < 4_000
 
 
 def test_the_judge_call_shape_is_the_official_one() -> None:

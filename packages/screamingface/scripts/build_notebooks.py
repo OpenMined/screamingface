@@ -1061,30 +1061,31 @@ answer sample, no length-adjusted score, a floating OpenRouter GPT-5.4 route, an
 forward the reference Judge's low-reasoning setting.
 
 The full challenge is intentionally disabled below because it requires hundreds of paid calls.
-The structural smoke performs one Candidate answer and one Judge call."""
+The `limit=1` rehearsal performs one Candidate answer and a handful of Judge calls."""
         ),
         _local_stack_cell(),
         nbformat.v4.new_code_cell("import screamingface as sf\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell(
             """## 1. Verify the complete grading chain
 
-`healthbench/smoke` runs one pinned Case and one rubric item through native conversation input,
-Candidate execution, the official grader prompt, GPT-5.4 verdict parsing, and aggregation. Its
-score is diagnostic and is not comparable to a HealthBench result."""
+A `limit=1` run takes the first worst-30 Case through native conversation input, Candidate
+execution, the official grader prompt, GPT-5.4 verdict parsing, and aggregation. It is a
+plumbing rehearsal: its Report carries the `healthbench/worst30` id but a one-Case score, so
+treat the number as diagnostic — never as a challenge result."""
         ),
         nbformat.v4.new_code_cell(
-            """smoke_candidate = sf.Model(
+            """rehearsal_candidate = sf.Model(
     "openrouter/deepseek/deepseek-v4-pro",
     params={"max_tokens": 4096},
 )
-smoke_report = sf.evaluate(smoke_candidate, benchmark="healthbench/smoke")
-smoke_report"""
+rehearsal_report = sf.evaluate(rehearsal_candidate, benchmark="healthbench/worst30", limit=1)
+rehearsal_report"""
         ),
         nbformat.v4.new_code_cell(
             """{
-    "score": smoke_report.candidates.only.score,
-    "metrics": smoke_report.candidates.only.metrics,
-    "cases": smoke_report.candidates.only.cases,
+    "score": rehearsal_report.candidates.only.score,
+    "metrics": rehearsal_report.candidates.only.metrics,
+    "cases": rehearsal_report.candidates.only.cases,
 }"""
         ),
         nbformat.v4.new_markdown_cell(

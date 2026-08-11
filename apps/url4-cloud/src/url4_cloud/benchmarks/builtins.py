@@ -2,7 +2,6 @@
 
 from url4_cloud.benchmarks.draco.definition import DRACO, DRACO_LITE, DRACO_SMOKE
 from url4_cloud.benchmarks.healthbench.definition import (
-    HEALTHBENCH_SMOKE,
     HEALTHBENCH_WORST30,
 )
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
@@ -22,7 +21,6 @@ BUILTIN_BENCHMARKS = BenchmarkRegistry(
         IFEVAL,
         IFEVAL_LANL_ENSEMBLE,
         IFEVAL_SELF_CORRECTIVE,
-        HEALTHBENCH_SMOKE,
         HEALTHBENCH_WORST30,
     )
 )

@@ -11,8 +11,8 @@ never a build-time fork, because:
 1. Engine Case ids are positions in the FULL file — baking only the subset would
    force a renumbering layer, exactly the silent answer-key drift this build
    refuses to allow.
-2. Two benchmarks share these assets: the smoke Case is pinned independently of
-   the worst-30 list.
+2. The assets cover every professional row, so the served exam stays a pure
+   filter over one immutable answer key.
 3. 525 conversations of JSON is cheap; a filter is simpler than a fork.
 
 ``WORST30_CASE_IDS`` appears here only in the drift assertion (see ``emit``).

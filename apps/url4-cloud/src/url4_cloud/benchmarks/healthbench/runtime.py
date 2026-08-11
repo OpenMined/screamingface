@@ -43,15 +43,6 @@ from url4_cloud.benchmarks.healthbench.definition import (
     JUDGE_MODEL,
     REVISION,
     RUBRIC_EVALUATION_ROUTE,
-    SMOKE_AGGREGATE_ROUTE,
-    SMOKE_BENCHMARK_ID,
-    SMOKE_CASE_EVALUATION_ROUTE,
-    SMOKE_CASE_ID,
-    SMOKE_CASES_ROUTE,
-    SMOKE_REVISION,
-    SMOKE_RUBRIC_EVALUATION_ROUTE,
-    SMOKE_TASKS_ROUTE,
-    SMOKE_VERDICT_ROUTE,
     TASKS_ROUTE,
     VERDICT_ROUTE,
     WORST30_CASE_IDS,
@@ -80,21 +71,6 @@ def install(node: Url4Node, root: Path) -> None:
         benchmark_id=BENCHMARK_ID,
         benchmark_revision=REVISION,
         case_ids=WORST30_CASE_IDS,
-    )
-    # Install the same six routes for the smoke exam, a partial run of the same assets.
-    # One Case only, so it runs fast enough to be a preflight check for the full exam.
-    _install_protocol_once(
-        node,
-        root,
-        cases_route=SMOKE_CASES_ROUTE,
-        tasks_route=SMOKE_TASKS_ROUTE,
-        verdict_route=SMOKE_VERDICT_ROUTE,
-        rubric_evaluation_route=SMOKE_RUBRIC_EVALUATION_ROUTE,
-        case_evaluation_route=SMOKE_CASE_EVALUATION_ROUTE,
-        aggregate_route=SMOKE_AGGREGATE_ROUTE,
-        benchmark_id=SMOKE_BENCHMARK_ID,
-        benchmark_revision=SMOKE_REVISION,
-        case_ids=(SMOKE_CASE_ID,),
     )
 
 

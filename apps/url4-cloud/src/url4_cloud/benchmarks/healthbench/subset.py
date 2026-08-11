@@ -177,11 +177,6 @@ WORST30_HF_IDS: tuple[str, ...] = (
     "11cb964a58ffb9fb7abda7c811ca305f",
 )
 
-# WHY: the cheapest structural probe inside the subset — fewest rubric items (2), then
-# shortest conversation; good-faith/typical preferred so the smoke run exercises the
-# ordinary path, not a red-team trap.
-SMOKE_HF_ID = "27780da4d1b342caf1b83f5bdf726ba1"
-
 
 def subset_sha() -> str:
     """The revision-participating fingerprint of the frozen id list."""
@@ -352,5 +347,3 @@ WORST30_CASE_IDS: tuple[int, ...] = (
     111,
     127,
 )
-
-SMOKE_CASE_ID = 78
