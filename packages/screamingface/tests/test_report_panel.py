@@ -261,3 +261,30 @@ def test_empty_cases_and_untrusted_failures_have_safe_markup() -> None:
     assert "1 failure" in html
     assert "run · &lt;script&gt;failed&lt;/script&gt;" in html
     assert "<script>" not in html
+
+
+def test_an_envelope_input_renders_as_a_transcript_not_wire_json() -> None:
+    """INVARIANT: multi-turn (envelope) Cases read as a conversation — the rail
+    label is the user's question and the pane is a role-labeled transcript; the
+    wire JSON (schema key, escapes) never reaches the researcher's eyes."""
+
+    envelope = (
+        '{"schema":"screamingface.candidate-input.v1","messages":['
+        '{"role":"user","content":"How do I treat GI bleeding at home?"},'
+        '{"role":"assistant","content":"Do not treat it at home."}]}'
+    )
+    chat_case = CaseResult(
+        case_id=1,
+        input=envelope,
+        output="the answer",
+        finish_reason="stop",
+        grade=CaseGrade(method="rubric", score=0.0, metrics={}, checks=[]),
+        failures=[],
+        metadata={},
+    )
+    html = body(report_html(report(candidate("solo", 0.0, cases=(chat_case,)))))
+    assert "How do I treat GI bleeding at home?" in html
+    assert "user: How do I treat GI bleeding at home?" in html
+    assert "assistant: Do not treat it at home." in html
+    assert "candidate-input.v1" not in html
+    assert "&quot;schema&quot;" not in html

@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
 from screamingface._report_primitives import Failure, _nonblank
+
+# The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
+# with url4-cloud's `benchmarks/contract.py` CANDIDATE_INPUT_SCHEMA.
+_CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
 
 type ProducerType = Literal["model", "deterministic"]
 
@@ -246,6 +251,43 @@ class CaseResult:
     def metadata(self) -> Mapping[str, object]:
         return self._metadata
 
+    @property
+    def conversation(self) -> tuple[tuple[str, str], ...] | None:
+        """The Case's chat turns, or ``None`` when the input is plain text.
+
+        Engine-owned multi-turn Benchmarks (HealthBench first) wrap structured
+        turns in the versioned candidate-input envelope; single-turn Benchmarks
+        (DRACO, IFEval) send plain prompt text. This property is the SDK's ONE
+        decode point for that wire format: it returns ``(role, content)`` turns
+        only when the input is a JSON object explicitly carrying the envelope
+        schema, and ``None`` for everything else — decoding never raises, so the
+        worst case is seeing the raw string, never a crash. Renderers consume
+        ``display_input`` / ``prompt_preview`` below and stay format-blind.
+        """
+
+        return _decode_candidate_envelope(self.input)
+
+    @property
+    def display_input(self) -> str:
+        """The input as readable text: a role-labeled transcript, or the raw value."""
+
+        turns = self.conversation
+        if turns is None:
+            return self.input if isinstance(self.input, str) else str(self.input)
+        return "\n\n".join(f"{role}: {content}" for role, content in turns)
+
+    @property
+    def prompt_preview(self) -> str:
+        """The Case's question — the first user turn, or the plain input text."""
+
+        turns = self.conversation
+        if turns is None:
+            return self.input if isinstance(self.input, str) else str(self.input)
+        for role, content in turns:
+            if role == "user":
+                return content
+        return turns[0][1]
+
     def to_dict(self) -> dict[str, object]:
         return {
             "case_id": self.case_id,
@@ -256,6 +298,34 @@ class CaseResult:
             "failures": [failure.to_dict() for failure in self.failures],
             "metadata": thaw_mapping(self._metadata),
         }
+
+
+def _decode_candidate_envelope(value: object) -> tuple[tuple[str, str], ...] | None:
+    """Decode the versioned chat envelope; ``None`` for anything that is not exactly it."""
+
+    try:
+        decoded = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        decoded = None
+    envelope = (
+        decoded
+        if isinstance(decoded, Mapping) and decoded.get("schema") == _CANDIDATE_INPUT_SCHEMA
+        else None
+    )
+    messages = envelope.get("messages") if envelope is not None else None
+    parsed = [_turn(message) for message in messages] if isinstance(messages, list) else []
+    turns = [turn for turn in parsed if turn is not None]
+    # All-or-nothing: one malformed message means this is not a trustworthy
+    # transcript — fall back to showing the raw string rather than a partial one.
+    if not turns or len(turns) != len(parsed):
+        return None
+    return tuple(turns)
+
+
+def _turn(message: object) -> tuple[str, str] | None:
+    role = message.get("role") if isinstance(message, Mapping) else None
+    content = message.get("content") if isinstance(message, Mapping) else None
+    return (role, content) if isinstance(role, str) and isinstance(content, str) else None
 
 
 def _optional_number(value: object, label: str) -> float | None:

@@ -479,7 +479,7 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
         f"<label class='sf-rail__item' for='{item}'>"
         f"<span class='{mark}' aria-hidden='true'>{glyph}</span>"
         f"<span class='sf-rail__id'>case {case.case_id}</span>{who}"
-        f"<span class='sf-rail__q'>{escape(_clip(case.input, 90))}</span></label>"
+        f"<span class='sf-rail__q'>{escape(_clip(case.prompt_preview, 90))}</span></label>"
     )
 
 
@@ -512,7 +512,7 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
         "<div class='sf-pane'><div class='sf-pane__h'>"
         f"<span class='sf-report__case-id'>case {case.case_id} · "
         f"{escape(candidate.name)}</span>{verdict}{finish_html}</div>{tags_html}"
-        f"<div class='sf-pane__q'>{escape(_clip(case.input, 600))}</div>"
+        f"<div class='sf-pane__q'>{escape(_clip(case.display_input, 600))}</div>"
         f"{answer_html}{checks_head}{checks}</div>"
     )
 
