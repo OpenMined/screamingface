@@ -33,7 +33,7 @@ Issues = "https://github.com/OpenMined/screamingface/issues"
 notebook = [
     "ipywidgets>=8.1",
     "ipykernel>=6.29",
-    "jupyterlab>=4.2",
+    "jupyterlab>=4.6.2",
     "nbclient>=0.10",
     "nbformat>=5.10",
 ]
