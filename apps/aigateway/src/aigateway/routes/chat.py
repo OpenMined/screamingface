@@ -50,8 +50,6 @@ from .chat_accounting import (
     note_conversion_failure,
     note_dispatch_failure,
     safe_request_view,
-    streaming_rejection,
-    validate_accounting_opt_in,
 )
 from .chat_cache_stage import (
     defaults_unreadable_bypass,
@@ -210,18 +208,17 @@ async def _dispatch_and_finalize_accounting(
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
-    # Validate before parsing untrusted body bytes so an invalid opt-in always fails
-    # explicitly, but do not mint a correlation ID unless this request needs a session.
-    validate_accounting_opt_in(request)
     try:
         body = await request.json()
     except ValueError:
         # Malformed JSON is untrusted input, not a server fault (OME-428 D6).
         begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise HTTPException(status_code=400, detail="request body must be valid JSON") from None
+    streaming = isinstance(body, dict) and body.get("stream") is True
     shape_error = chat_body_shape_error(body)
     if shape_error is not None:
-        begin_accounting(request, plugin=None, provider="unresolved", model="")
+        if not streaming:
+            begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise HTTPException(status_code=400, detail=shape_error)
 
     # Popped immediately so the control object can never reach providers.
@@ -238,30 +235,33 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # prepare_chat_body; the gateway credential is injected after this strip.
         body = strip_dispatch_controls(body)
     except HTTPException:
-        begin_accounting(request, plugin=None, provider="unresolved", model="")
+        if not streaming:
+            begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise
 
     profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
-        begin_accounting(
-            request,
-            plugin=None,
-            provider="unresolved",
-            model=model,
-        )
+        if not streaming:
+            begin_accounting(
+                request,
+                plugin=None,
+                provider="unresolved",
+                model=model,
+            )
         raise HTTPException(status_code=400, detail="model must be provider-prefixed")
 
     registry: ProviderRegistry = request.app.state.providers
     plugin = registry.get(provider)
     if plugin is None:
-        begin_accounting(
-            request,
-            plugin=None,
-            provider="unresolved",
-            model=model,
-        )
+        if not streaming:
+            begin_accounting(
+                request,
+                plugin=None,
+                provider="unresolved",
+                model=model,
+            )
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
 
     # OME-479 §4.5 tier (a): neutralize this provider's own LiteLLM control-plane
@@ -279,16 +279,14 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # Stripping first is what makes it neither.
     body = plugin.strip_provider_dispatch_controls(body)
 
-    # OME-303: open the accounting session BEFORE the cache stage, so a HIT can render
-    # metadata too. This reads only a request HEADER and the provider's declared
-    # strategy — it does not touch `body`, so it cannot reach provider parameter
-    # validation and cannot enter the OME-305 effective request/cache key. A negotiated
-    # and a non-negotiated request with identical bodies key identically.
-    accounting = begin_accounting(request, plugin=plugin, provider=provider, model=model)
-    if accounting is not None and body.get("stream"):
-        # §3.3: refuse before ANY provider dispatch and before handler injection.
-        # Accounting a stream would mean reading the SSE body the caller is waiting on.
-        raise streaming_rejection()
+    # OME-303: non-streaming accounting is gateway-owned and default-on. Streaming
+    # bypasses it until SSE usage can be observed without consuming or delaying the stream.
+    # This branch runs BEFORE the cache stage, so a non-streaming HIT still gets metadata.
+    accounting = (
+        None
+        if streaming
+        else begin_accounting(request, plugin=plugin, provider=provider, model=model)
+    )
 
     # ==================================================================
     # STAGE 1 — the global cache, BEFORE any CREDENTIAL is resolved.
@@ -447,7 +445,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # and reaches its existing 503 rather than being answered 200 from cache.
     body = plugin.prepare_chat_body(body)
 
-    if body.get("stream") and not plugin.supports_chat_streaming():
+    if streaming and not plugin.supports_chat_streaming():
         raise HTTPException(
             status_code=400,
             detail={
@@ -470,7 +468,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
 
     # NOTE: overload retry covers the non-streaming path only; streaming responses
     # commit a 200 status before dispatch, so a mid-stream 429/503 cannot be retried.
-    if body.get("stream"):
+    if streaming:
         # INVARIANT: reaching here means ``stream`` is truthy, and a truthy ``stream``
         # is a structural bypass in the eligibility layer — so the outcome is always a
         # bypass and no write can follow. The headers therefore come from the SAME
@@ -483,7 +481,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
             headers=global_cache_headers(cache_outcome),
         )
 
-    # OME-303: inject the gateway's observed LiteLLM client for a negotiated request
+    # OME-303: inject the gateway's observed LiteLLM client for an accounted request
     # whose provider declared `litellm_async_http`; then normalize each observed
     # send's OWN raw provider evidence before success OR error metadata can render.
     result = await _dispatch_and_finalize_accounting(

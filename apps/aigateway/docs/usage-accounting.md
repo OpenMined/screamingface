@@ -1,24 +1,22 @@
 # Usage accounting
 
 `POST /v1/chat/completions` can return bounded provider-attempt accounting under the top-level
-`_aigw` key. OpenRouter and Anthropic are the initial supported providers.
+`_aigw` key. This key is reserved by the gateway and replaces any provider-supplied `_aigw` value
+in the returned copy; cached provider JSON remains unchanged. OpenRouter and Anthropic are the
+initial supported providers.
 
 This contract is pre-beta and may change incompatibly. The wire intentionally carries no numbered
 version and no maturity label. This document and the packaged JSON Schema describe the current
 contract; consumers must update with pre-beta changes.
 
-## Current activation
+## Activation
 
-The current implementation is temporarily opt-in for non-streaming calls:
+Accounting is enabled by default for non-streaming calls. Callers do not send an activation header.
+Accounting state does not enter provider parameter validation or alter the effective request-cache
+key.
 
-```http
-X-AIGW-Accounting: enabled
-```
-
-The activation header is gateway transport metadata. It is not forwarded to a provider, does not
-enter provider parameter validation and does not alter the effective request-cache key. Streaming
-accounting and default-on activation are the next delivery unit; until then, an opted-in
-`stream:true` request is rejected before provider dispatch.
+Streaming remains available through the existing SSE path without `_aigw` accounting. Supporting
+streaming accounting later must not buffer the complete stream or delay its first token.
 
 ## Response shape
 

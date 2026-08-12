@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 from fastapi import HTTPException
 
+from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
 from aigateway.core.usage_accounting import (
     CacheReference,
     DirectCost,
@@ -27,6 +29,7 @@ from aigateway.core.usage_accounting import (
     UsageAccountingStrategy,
     new_gateway_call_id,
 )
+from aigateway.main import _profile_index_conflict
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.routes.chat_accounting import (
@@ -103,7 +106,7 @@ class _RecordingPlugin:
 
 
 class _Request:
-    headers = {"X-AIGW-Accounting": "enabled"}
+    headers: dict[str, str] = {}
 
     class _State:
         pass
@@ -399,7 +402,7 @@ class TestCacheHitWiring:
         attach_hit_metadata(cached, _session(), plugin=OpenRouterProviderPlugin())
         assert "_aigw" not in cached
 
-    def test_a_non_negotiated_hit_is_returned_byte_for_byte(self) -> None:
+    def test_a_missing_session_hit_is_returned_byte_for_byte(self) -> None:
         cached = {"id": "gen-1"}
         assert attach_hit_metadata(cached, None, plugin=OpenRouterProviderPlugin()) is cached
 
@@ -427,7 +430,7 @@ class TestCacheHitWiring:
 
 
 class TestSuccessAttachment:
-    def test_a_non_negotiated_miss_is_returned_untouched(self) -> None:
+    def test_a_missing_session_miss_is_returned_untouched(self) -> None:
         result = {"id": "msg_1"}
         assert attach_success_metadata(result, None, cache_status="miss") is result
 
@@ -438,6 +441,45 @@ class TestSuccessAttachment:
         assert attached["_aigw"]["usage_accounting"]["cache"] == {
             "status": "miss",
             "reference": None,
+        }
+
+
+class TestSpecializedErrorHandlers:
+    @pytest.mark.asyncio
+    async def test_profile_conflict_carries_default_on_accounting(self) -> None:
+        request = SimpleNamespace(state=SimpleNamespace())
+        begin_accounting(
+            request,  # type: ignore[arg-type]
+            plugin=AnthropicProviderPlugin(),
+            provider="anthropic",
+            model="anthropic/claude-haiku-4-5",
+        )
+
+        response = await _profile_index_conflict(
+            request,  # type: ignore[arg-type]
+            CredentialBlobMutationConflict("forced contention"),
+        )
+        body = json.loads(bytes(response.body))
+
+        assert response.status_code == 503
+        assert body["detail"]["code"] == "profile_index_conflict"
+        assert body["_aigw"]["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
+
+    @pytest.mark.asyncio
+    async def test_profile_conflict_without_session_keeps_existing_shape(self) -> None:
+        request = SimpleNamespace(state=SimpleNamespace())
+
+        response = await _profile_index_conflict(
+            request,  # type: ignore[arg-type]
+            CredentialBlobMutationConflict("forced contention"),
+        )
+
+        assert response.status_code == 503
+        assert json.loads(bytes(response.body)) == {
+            "detail": {
+                "code": "profile_index_conflict",
+                "message": "Profile metadata update conflicted. Try again.",
+            }
         }
 
 
@@ -675,8 +717,8 @@ class TestErrorRenderingIsContained:
 
         assert accounting_error_response(self._request(None), HTTPException(404)) is None
 
-    def test_a_negotiated_error_keeps_the_exception_headers(self) -> None:
-        # Dropping `Retry-After` on a 429 would make the opt-in change backpressure
+    def test_an_accounted_error_keeps_the_exception_headers(self) -> None:
+        # Dropping `Retry-After` on a 429 would make accounting change backpressure
         # behaviour for the caller.
         from fastapi import HTTPException
 

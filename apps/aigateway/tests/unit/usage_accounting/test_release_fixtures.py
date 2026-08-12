@@ -60,8 +60,8 @@ _REQUIRED_METADATA_FIXTURES = {
     "huggingface_unpinned_backend",
 }
 _ROUTE_ONLY_ACCEPTANCE = {
-    "non_negotiated_response_parity",
-    "invalid_accounting_option_rejection",
+    "default_on_response_accounting",
+    "streaming_accounting_bypass",
 }
 _EXPECTED_FIXTURE_SHA256 = {
     "anthropic_cache_replay": ("942ede46748dff83e43496429a30c6a1b094a07ec3d60921059124ac0617eaab"),
@@ -458,8 +458,8 @@ def test_release_fixture_matrix_is_complete(
 ) -> None:
     assert set(release_fixtures) == _REQUIRED_METADATA_FIXTURES
     assert _ROUTE_ONLY_ACCEPTANCE == {
-        "non_negotiated_response_parity",
-        "invalid_accounting_option_rejection",
+        "default_on_response_accounting",
+        "streaming_accounting_bypass",
     }
 
 

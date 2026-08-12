@@ -243,18 +243,15 @@ async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONRe
 
 
 async def _accounted_http_exception(request: Request, exc: Exception) -> Response:
-    """Render ``_aigw`` beside ``detail`` for a NEGOTIATED caller's safe terminal error.
+    """Render ``_aigw`` beside ``detail`` for an accounted safe terminal error.
 
-    FEATURE (OME-303 §7 U7): a request that opted into accounting gets its evidence back
-    even when the request fails — that is precisely when "did this cost me anything?"
-    matters most.
+    FEATURE (OME-303 §7 U7): a non-streaming chat request gets its evidence back even when
+    it fails — that is precisely when "did this cost me anything?" matters most.
 
-    INVARIANT: a strict no-op for everyone else. Without an accounting session on
-    ``request.state`` this delegates to Starlette's own handler, so every non-negotiated
-    error — on this route and on every other route in the app — keeps its exact current
-    shape. This is registered app-wide rather than wrapped around the chat route because
-    safe terminal errors are raised from many places, several of them long before
-    dispatch.
+    INVARIANT: a strict no-op without an accounting session on ``request.state``. This
+    delegates to Starlette's own handler for non-chat and streaming paths. It is registered
+    app-wide rather than wrapped around the chat route because safe terminal errors are
+    raised from many places, several of them long before dispatch.
     """
     if isinstance(exc, StarletteHTTPException):
         accounted = accounting_error_response(request, cast(HTTPException, exc))
@@ -263,16 +260,18 @@ async def _accounted_http_exception(request: Request, exc: Exception) -> Respons
     return await http_exception_handler(request, cast(StarletteHTTPException, exc))
 
 
-async def _profile_index_conflict(_request: Request, _exc: Exception) -> JSONResponse:
-    return JSONResponse(
+async def _profile_index_conflict(request: Request, _exc: Exception) -> JSONResponse:
+    exc = HTTPException(
         status_code=503,
-        content={
-            "detail": {
-                "code": "profile_index_conflict",
-                "message": "Profile metadata update conflicted. Try again.",
-            }
+        detail={
+            "code": "profile_index_conflict",
+            "message": "Profile metadata update conflicted. Try again.",
         },
     )
+    accounted = accounting_error_response(request, exc)
+    if accounted is not None:
+        return accounted
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:

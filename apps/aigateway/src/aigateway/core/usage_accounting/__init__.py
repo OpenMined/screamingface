@@ -1,7 +1,7 @@
 """OME-303 — AIGateway per-provider-attempt usage accounting.
 
-FEATURE: an opt-in, provider-extensible EVIDENCE contract. A caller enabling
-accounting receives two sibling response-only objects under ``_aigw``:
+FEATURE: default-on, provider-extensible EVIDENCE for non-streaming chat calls.
+A caller receives two sibling response-only objects under ``_aigw``:
 
 * ``usage_accounting`` — one attempt per local provider HTTP send-pipeline admission,
   with token/cache/reasoning evidence and provider-authored cost; and

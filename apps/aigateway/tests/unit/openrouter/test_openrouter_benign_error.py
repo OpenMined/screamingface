@@ -111,5 +111,7 @@ def test_benign_top_level_error_returns_the_paid_payload_intact(
     # STORY: as a BYOK user I paid for this completion — the gateway must not
     # discard it as a 502 because the upstream attached a benign error object.
     assert resp.status_code == 200, resp.text
-    assert resp.json() == payload
+    body = resp.json()
+    assert body.pop("_aigw")["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
+    assert body == payload
     assert _active_labels(authenticated_client, account_id) == ["work-or"]

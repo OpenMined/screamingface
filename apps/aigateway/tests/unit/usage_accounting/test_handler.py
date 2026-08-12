@@ -498,7 +498,8 @@ class TestHooksAreTotal:
 
     @pytest.mark.asyncio
     async def test_no_collector_bound_is_a_no_op(self, transport_spy: dict[str, Any]) -> None:
-        # A non-negotiated request shares the app-lifetime handler only if something goes
+        # A streaming or otherwise unaccounted request shares the app-lifetime handler
+        # only if something goes wrong elsewhere.
         # wrong upstream; either way an unbound context must not explode.
         transport_spy["handler"] = lambda _r: _json_response({"ok": True})
         handler = AccountingAsyncHTTPHandler()

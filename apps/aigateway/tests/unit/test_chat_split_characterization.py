@@ -238,7 +238,9 @@ async def test_chat_success_dumps_model_and_sets_bypass_headers(
         )
 
     assert resp.status_code == 200
-    assert resp.json() == payload
+    body = resp.json()
+    assert body.pop("_aigw")["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
+    assert body == payload
     assert resp.headers["x-aigw-cache"] == "bypass"
     assert resp.headers["x-aigw-cache-reason"] == "disabled"
     assert "x-aigw-cache-key" not in resp.headers
@@ -270,4 +272,6 @@ async def test_chat_success_passes_plain_dict_response_through(
         )
 
     assert resp.status_code == 200
-    assert resp.json() == payload
+    body = resp.json()
+    assert body.pop("_aigw")["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
+    assert body == payload

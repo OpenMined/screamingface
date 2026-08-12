@@ -314,7 +314,7 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         and the response would then claim ``complete`` accounting for sends nothing
         observed. A read-only report may later be DERIVED from this method.
 
-        INVARIANT: the default is ``unsupported``, and unsupported is SAFE. A negotiated
+        INVARIANT: the default is ``unsupported``, and unsupported is SAFE. A non-streaming
         request to an unsupported provider renders ``accounting_not_supported``, never
         ``complete`` with zero observed attempts — the second would assert the provider was
         never called, which is false.

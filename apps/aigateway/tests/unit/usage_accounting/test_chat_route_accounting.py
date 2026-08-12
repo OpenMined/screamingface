@@ -1,6 +1,6 @@
 """OME-303 — the accounting response contract on POST /v1/chat/completions.
 
-These tests hold the current wire decisions in place: the temporary header opt-in, the
+These tests hold the current wire decisions in place: default-on non-streaming accounting, the
 ``_aigw`` namespace, the cache boundary, and the rule that none of it may reach
 ``request_cache_entries.response_json``.
 """
@@ -33,6 +33,9 @@ from aigateway.plugins.openrouter_provider.dispatch_errors import (
 _CHAT_PATH = "/v1/chat/completions"
 _ANTHROPIC_DISPATCH = (
     "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion"
+)
+_ANTHROPIC_STREAM_DISPATCH = (
+    "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion_stream"
 )
 # The plugin METHOD (accounting controls not yet applied) vs the inner LiteLLM-facing
 # handler the plugin delegates to (controls applied). Assert at the seam that matches
@@ -110,6 +113,17 @@ class _Dispatch:
         return dict(self._payload)
 
 
+class _StreamingDispatch:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.collectors: list[Any] = []
+
+    async def __call__(self, body: dict[str, Any]):
+        self.calls.append(dict(body))
+        self.collectors.append(active_collector())
+        yield {"choices": [{"delta": {"content": "streamed"}}]}
+
+
 class _Store:
     """Minimal in-memory request-cache store honouring the OME-305 contract."""
 
@@ -151,27 +165,26 @@ def _install(client: TestClient, store: _Store) -> _Store:
 
 def _aigw(response: Any) -> dict[str, Any]:
     body = response.json()
-    assert "_aigw" in body, f"negotiated response carried no _aigw: {body}"
+    assert "_aigw" in body, f"accounted response carried no _aigw: {body}"
     return body["_aigw"]
 
 
-# --- negotiation --------------------------------------------------------------
+# --- activation ---------------------------------------------------------------
 
 
-class TestNegotiation:
-    def test_a_non_negotiated_response_shape_is_unchanged(
-        self, credential_blobs, chat_client
-    ) -> None:
-        # §9.1 — the opt-in must be invisible to every existing caller.
+class TestActivation:
+    def test_accounting_is_default_on(self, credential_blobs, chat_client) -> None:
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
         with patch(_ANTHROPIC_DISPATCH, _Dispatch()):
             response = chat_client.post(_CHAT_PATH, json=_chat_body())
         assert response.status_code == 200, response.text
-        assert "_aigw" not in response.json()
+        assert "_aigw" in response.json()
         assert "_aigw_accounting" not in response.json()
 
-    def test_the_header_opts_in(self, credential_blobs, chat_client) -> None:
+    def test_the_legacy_header_does_not_change_accounting(
+        self, credential_blobs, chat_client
+    ) -> None:
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
         with patch(_ANTHROPIC_DISPATCH, _Dispatch()):
@@ -182,9 +195,7 @@ class TestNegotiation:
         assert metadata["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
         assert metadata["request_economics"]["schema"] == "aigw.request_economics"
 
-    def test_an_invalid_accounting_option_is_rejected_before_dispatch(
-        self, credential_blobs, chat_client
-    ) -> None:
+    def test_an_unknown_legacy_header_value_is_ignored(self, credential_blobs, chat_client) -> None:
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
         dispatch = _Dispatch()
@@ -192,16 +203,15 @@ class TestNegotiation:
             response = chat_client.post(
                 _CHAT_PATH, json=_chat_body(), headers={"X-AIGW-Accounting": "unknown"}
             )
-        assert response.status_code == 400
-        assert response.json()["detail"]["code"] == "invalid_accounting_option"
-        assert dispatch.calls == []
+        assert response.status_code == 200, response.text
+        assert len(dispatch.calls) == 1
+        assert "_aigw" in response.json()
 
     def test_the_header_does_not_change_the_cache_key(self, credential_blobs, chat_client) -> None:
         """§9.2 — THE cache-partition test.
 
-        If the opt-in reached the effective request, negotiated and non-negotiated
-        callers would key differently and the shared cache would split in half, each
-        side paying for answers the other already has.
+        A legacy header must not enter the effective request and partition the shared
+        cache, even though accounting itself is now always active for non-streaming calls.
         """
         _arrange_account(chat_client, credential_blobs)
         store = _install(chat_client, _Store())
@@ -217,7 +227,7 @@ class TestNegotiation:
         # The second request therefore HIT the row the first one wrote.
         assert negotiated.headers["X-AIGW-Cache"] == "hit"
 
-    def test_the_header_does_not_change_provider_parameter_validation(
+    def test_the_legacy_header_does_not_change_provider_parameter_validation(
         self, credential_blobs, chat_client
     ) -> None:
         # §9.2 second half: an unknown parameter must fail closed identically either way.
@@ -231,6 +241,50 @@ class TestNegotiation:
         assert plain.json()["detail"] == negotiated.json()["detail"]
 
 
+class TestDefaultOnAccounting:
+    def test_non_streaming_accounting_needs_no_header(self, credential_blobs, chat_client) -> None:
+        _arrange_account(chat_client, credential_blobs)
+        _install(chat_client, _Store())
+        with patch(_ANTHROPIC_DISPATCH, _Dispatch()):
+            response = chat_client.post(_CHAT_PATH, json=_chat_body())
+
+        assert response.status_code == 200, response.text
+        metadata = _aigw(response)
+        assert metadata["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
+
+    def test_legacy_accounting_header_is_ignored(self, credential_blobs, chat_client) -> None:
+        _arrange_account(chat_client, credential_blobs)
+        _install(chat_client, _Store())
+        dispatch = _Dispatch()
+        with patch(_ANTHROPIC_DISPATCH, dispatch):
+            response = chat_client.post(
+                _CHAT_PATH,
+                json=_chat_body(),
+                headers={"X-AIGW-Accounting": "unknown"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert len(dispatch.calls) == 1
+        assert "_aigw" in response.json()
+
+    def test_streaming_bypasses_accounting_even_with_a_legacy_header(
+        self, credential_blobs, chat_client
+    ) -> None:
+        _arrange_account(chat_client, credential_blobs)
+        _install(chat_client, _Store())
+        with patch(_ANTHROPIC_DISPATCH, _Dispatch()):
+            response = chat_client.post(
+                _CHAT_PATH,
+                json=_chat_body(stream=True),
+                headers=_ACCOUNTING_HEADERS,
+            )
+
+        assert response.status_code != 400 or (
+            response.json().get("detail", {}).get("code")
+            != "accounting_not_supported_for_streaming"
+        )
+
+
 class TestEarlySafeErrors:
     @pytest.mark.parametrize(
         ("model", "detail"),
@@ -239,7 +293,7 @@ class TestEarlySafeErrors:
             ("future-provider/model", "unknown provider: future-provider"),
         ],
     )
-    def test_negotiated_model_resolution_error_carries_accounting_metadata(
+    def test_model_resolution_error_carries_accounting_metadata(
         self, chat_client: TestClient, model: str, detail: str
     ) -> None:
         store = _install(chat_client, _Store())
@@ -261,13 +315,13 @@ class TestEarlySafeErrors:
         assert store.get_calls == []
 
     @pytest.mark.parametrize("model", ["claude-haiku-4-5", "future-provider/model"])
-    def test_non_negotiated_model_resolution_error_shape_is_unchanged(
+    def test_default_on_model_resolution_error_carries_accounting(
         self, chat_client: TestClient, model: str
     ) -> None:
         response = chat_client.post(_CHAT_PATH, json=_chat_body(model=model))
 
         assert response.status_code == 400
-        assert set(response.json()) == {"detail"}
+        assert set(response.json()) == {"detail", "_aigw"}
 
     @pytest.mark.parametrize(
         ("content", "expected_detail"),
@@ -276,7 +330,7 @@ class TestEarlySafeErrors:
             (b"[]", "model and messages are required"),
         ],
     )
-    def test_negotiated_body_errors_carry_accounting_metadata(
+    def test_body_errors_carry_accounting_metadata(
         self, chat_client: TestClient, content: bytes, expected_detail: str
     ) -> None:
         response = chat_client.post(
@@ -292,7 +346,7 @@ class TestEarlySafeErrors:
         assert metadata["usage_accounting"]["attempts"] == []
         assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
 
-    def test_invalid_accounting_option_wins_before_malformed_body_parsing(
+    def test_legacy_accounting_header_does_not_precede_malformed_body_parsing(
         self, chat_client: TestClient
     ) -> None:
         response = chat_client.post(
@@ -302,40 +356,58 @@ class TestEarlySafeErrors:
         )
 
         assert response.status_code == 400
-        assert response.json()["detail"]["code"] == "invalid_accounting_option"
+        assert response.json()["detail"] == "request body must be valid JSON"
+        assert "_aigw" in response.json()
 
 
 class TestStreaming:
-    def test_negotiated_streaming_is_rejected_before_dispatch(
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"stream": True},
+            _chat_body(model="future-provider/model", stream=True),
+            _chat_body(model="claude-haiku-4-5", stream=True),
+        ],
+    )
+    def test_streaming_early_errors_have_no_accounting_metadata(
+        self, chat_client: TestClient, body: dict[str, Any]
+    ) -> None:
+        response = chat_client.post(_CHAT_PATH, json=body)
+
+        assert response.status_code == 400
+        assert set(response.json()) == {"detail"}
+
+    def test_streaming_with_a_legacy_header_bypasses_accounting(
         self, credential_blobs, chat_client
     ) -> None:
-        # §9.3 and a plan §12 stop condition: no provider dispatch, no handler injection,
-        # and above all no attempt to read the SSE body.
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
-        dispatch = _Dispatch()
-        with patch(_ANTHROPIC_DISPATCH, dispatch):
+        dispatch = _StreamingDispatch()
+        with patch(_ANTHROPIC_STREAM_DISPATCH, dispatch):
             response = chat_client.post(
                 _CHAT_PATH, json=_chat_body(stream=True), headers=_ACCOUNTING_HEADERS
             )
-        assert response.status_code == 400, response.text
-        assert dispatch.calls == [], "a rejected stream still reached the provider"
-        assert response.json()["detail"]["code"] == "accounting_not_supported_for_streaming"
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert '"_aigw"' not in response.text
+        assert len(dispatch.calls) == 1
+        assert "client" not in dispatch.calls[0]
+        assert dispatch.collectors == [None]
 
-    def test_a_non_negotiated_stream_is_not_rejected_by_the_accounting_gate(
+    def test_streaming_without_a_legacy_header_bypasses_accounting(
         self, credential_blobs, chat_client
     ) -> None:
-        # The rejection above must be scoped to negotiated callers only. Without the
-        # header the request must NOT earn a 400 from the accounting gate; the existing
-        # streaming suite covers the rest of that path.
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
-        with patch(_ANTHROPIC_DISPATCH, _Dispatch()):
+        dispatch = _StreamingDispatch()
+        with patch(_ANTHROPIC_STREAM_DISPATCH, dispatch):
             response = chat_client.post(_CHAT_PATH, json=_chat_body(stream=True))
-        assert response.status_code != 400 or (
-            response.json().get("detail", {}).get("code")
-            != "accounting_not_supported_for_streaming"
-        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert '"_aigw"' not in response.text
+        assert len(dispatch.calls) == 1
+        assert "client" not in dispatch.calls[0]
+        assert dispatch.collectors == [None]
 
 
 # --- the cache boundary -------------------------------------------------------
@@ -560,7 +632,7 @@ class TestAnthropicRouteMapping:
         assert attempt["latency_ms"] is not None
         assert metadata["usage_accounting"]["capture_status"] == "complete"
 
-    def test_a_valid_negotiated_request_allocates_one_gateway_call_id(
+    def test_a_valid_accounted_request_allocates_one_gateway_call_id(
         self, credential_blobs, chat_client
     ) -> None:
         _arrange_account(chat_client, credential_blobs)
@@ -675,12 +747,12 @@ class TestTheBodyLiteLLMActuallyReceives:
         # degrades silently to `partial`.
         assert body["client"] is cast(Any, chat_client.app).state.usage_accounting_handler
 
-    def test_a_non_negotiated_request_disables_retries_but_is_not_instrumented(
+    def test_a_default_on_request_disables_retries_and_is_instrumented(
         self, credential_blobs, chat_client
     ) -> None:
         # The retry controls are a provider-level correctness property, not an
         # accounting-only one: they must not appear or vanish with the header. The
-        # client injection, by contrast, is strictly opt-in.
+        # client injection is now default-on for supported non-streaming providers.
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
         dispatch = _Dispatch()
@@ -689,7 +761,7 @@ class TestTheBodyLiteLLMActuallyReceives:
         (body,) = dispatch.calls
         assert body["num_retries"] == 0
         assert body["max_retries"] == 0
-        assert "client" not in body, "a non-negotiated request must not be instrumented"
+        assert "client" in body, "a default-on request was not instrumented"
 
     def test_the_negotiation_header_is_never_forwarded_to_the_provider(
         self, credential_blobs, chat_client
@@ -802,7 +874,7 @@ class TestConversionFailure:
         assert "SECRET-INTERNAL-STATE" not in rendered
         assert "primes below one hundred" not in rendered
 
-    def test_a_non_negotiated_conversion_failure_keeps_the_existing_shape(
+    def test_a_default_on_conversion_failure_carries_accounting(
         self, credential_blobs, chat_client
     ) -> None:
         _arrange_account(chat_client, credential_blobs)
@@ -815,7 +887,27 @@ class TestConversionFailure:
         with patch(_ANTHROPIC_DISPATCH, _Plain()):
             response = chat_client.post(_CHAT_PATH, json=_chat_body())
         assert response.status_code == 502
-        assert set(response.json()) == {"detail"}
+        assert set(response.json()) == {"detail", "_aigw"}
+
+    def test_a_non_object_provider_result_is_a_conversion_failure(
+        self, credential_blobs, chat_client
+    ) -> None:
+        _arrange_account(chat_client, credential_blobs)
+        store = _install(chat_client, _Store())
+
+        class _ListResult:
+            async def __call__(self, body: dict[str, Any]) -> Any:
+                return [{"provider_private": "must-not-cross"}]
+
+        with patch(_ANTHROPIC_DISPATCH, _ListResult()):
+            response = chat_client.post(_CHAT_PATH, json=_chat_body())
+
+        assert response.status_code == 502
+        assert "provider_private" not in response.text
+        accounting = response.json()["_aigw"]["usage_accounting"]
+        assert accounting["capture_status"] == "partial"
+        assert accounting["attempts"] == []
+        assert store.rows == {}
 
     def test_plugin_local_conversion_failure_uses_the_core_conversion_outcome(
         self, credential_blobs, chat_client

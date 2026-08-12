@@ -68,13 +68,15 @@ provider-authored direct cost, deterministic attribution, run/subtree rollups an
 - cache-hit historical references that are never current spend;
 - exact Decimal arithmetic, bounded metadata, leakage tests and packaged Draft 2020-12 schema;
 - taxonomy version suffix removal and registry-driven provider-neutral failure-code conformance.
+- default-on accounting for non-streaming chat calls with no activation header;
+- unchanged streaming/SSE behavior without accounting metadata.
 
 ### Next unit
 
-Make accounting default-on for non-streaming and streaming chat calls, then remove the temporary
-`X-AIGW-Accounting: enabled` opt-in. Streaming must preserve first-token delivery, observe raw SSE
-usage without buffering the complete stream, publish final accounting in an OpenAI-compatible final
-usage chunk, and classify disconnect/mid-stream failure honestly.
+If streaming accounting becomes necessary, preserve first-token delivery, observe raw SSE usage
+without buffering the complete stream, publish final accounting in an OpenAI-compatible final usage
+chunk, and classify disconnect/mid-stream failure honestly. Streaming accounting is not required for
+the current delivery.
 
 ### Follow-ups requiring evidence
 

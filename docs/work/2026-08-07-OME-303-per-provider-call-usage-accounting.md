@@ -838,3 +838,28 @@ Outcome:
   provider plugin registry. The test fails explicitly if discovery returns no providers.
 - RED evidence: the new schema taxonomy test failed on the existing `.v1` schema identifiers and
   `_v1` transport values. After the migration, the accounting suite passed: `367 passed, 1 warning`.
+
+## Outcome — default-on non-streaming accounting
+
+- Removed `X-AIGW-Accounting` activation and validation. Every non-streaming chat call now opens an
+  accounting session by default; legacy header values are ignored and never reach providers or the
+  cache key.
+- Preserved the existing `stream: true` SSE path without accounting. Streaming requests, including
+  recognized early errors, create no accounting session, inject no accounting client, bind no
+  collector and return no `_aigw` metadata.
+- Defined `_aigw` as a gateway-reserved response namespace. A provider-supplied value is replaced
+  only in the returned copy; provider JSON stored in the request cache remains unchanged.
+- Non-object provider results now fail as sanitized local conversion errors with bounded accounting
+  instead of returning a successful bare JSON array that cannot carry `_aigw`; malformed results are
+  never cached or reflected in the response.
+- Specialized profile-index mutation conflicts now use the same accounting error renderer when a
+  session exists, while non-chat and streaming conflicts retain the prior detail-only `503` shape.
+- RED evidence: three activation tests initially failed for missing default accounting, legacy-header
+  rejection and streaming rejection. Independent review additionally reproduced streaming early
+  error metadata, a successful non-object response without accounting and an accounted mutation
+  conflict without `_aigw`; each counterexample received a focused regression test before its fix.
+- Verification: usage-accounting suite `377 passed`; affected provider/cache/security suite
+  `119 passed`; final configured AIGateway gate passed Ruff, format, Pyright, Enterprise guard and
+  full pytest+coverage: `ALL GATES GREEN`. One unrelated statistical auth timing failure passed its
+  focused rerun before the successful full-gate repeat. Two-stage independent review returned
+  **GO** with no findings.

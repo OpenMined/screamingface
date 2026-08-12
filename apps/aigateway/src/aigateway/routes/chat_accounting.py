@@ -1,19 +1,14 @@
 """The route-facing seam for OME-303 per-observed-attempt usage accounting.
 
-FEATURE: an opt-in evidence contract on ``POST /v1/chat/completions``.
+FEATURE: default-on evidence for non-streaming ``POST /v1/chat/completions`` calls.
 
-STORY: as a benchmark operator I enable accounting and receive every observed
+STORY: as a benchmark operator I receive every observed
 local provider attempt, canonical usage and provider-authored cost evidence. Cache replay
 is labelled historical evidence rather than current spend or counterfactual savings.
 
-INVARIANT (the whole reason this is a header): the opt-in signal is TRANSPORT metadata.
-It is not a body field, so it cannot reach provider parameter validation and cannot enter
-the OME-305 effective request/cache key. A negotiated and a non-negotiated request with
-otherwise identical bodies MUST produce the same ``key_hash`` — otherwise turning
-accounting on would silently partition the shared cache in half.
-
-INVARIANT: a non-negotiated request is byte-for-byte unaffected. No collector, no handler
-injection, no metadata, no shape change.
+INVARIANT: accounting activation is gateway-owned and never enters the request body or the
+OME-305 effective request/cache key. Streaming bypasses accounting until the gateway can
+observe SSE usage without consuming or delaying the caller's stream.
 
 INVARIANT (§6): metadata is attached to a COPY, and only after the request cache has
 stored the provider's own JSON. See ``attach_success_metadata``.
@@ -55,13 +50,9 @@ from ..core.usage_accounting._render import (
 
 logger = logging.getLogger(__name__)
 
-NEGOTIATION_HEADER: Final = "X-AIGW-Accounting"
-NEGOTIATION_VALUE: Final = "enabled"
 _STATE_ATTR: Final = "aigw_accounting"
 
 __all__ = [
-    "NEGOTIATION_HEADER",
-    "NEGOTIATION_VALUE",
     "AccountingSession",
     "accounting_error_response",
     "attach_hit_metadata",
@@ -70,14 +61,12 @@ __all__ = [
     "bound_dispatch",
     "finalize_provider_evidence",
     "note_dispatch_failure",
-    "streaming_rejection",
-    "validate_accounting_opt_in",
 ]
 
 
 @dataclass
 class AccountingSession:
-    """Everything the route needs to account for one negotiated caller request."""
+    """Everything the route needs to account for one non-streaming caller request."""
 
     provider: str
     supported: bool
@@ -94,33 +83,15 @@ class AccountingSession:
             self.collector.begin_dispatch()
 
 
-def validate_accounting_opt_in(request: Request) -> bool:
-    """Validate the temporary opt-in without publishing a correlation session."""
-    requested_value = request.headers.get(NEGOTIATION_HEADER)
-    if requested_value is None:
-        return False
-    if requested_value.strip().lower() != NEGOTIATION_VALUE:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "invalid_accounting_option",
-                "message": f"supported accounting value: {NEGOTIATION_VALUE}",
-            },
-        )
-    return True
-
-
 def begin_accounting(
     request: Request, *, plugin: ProviderPluginBase | None, provider: str, model: str
-) -> AccountingSession | None:
-    """Open a session for a negotiated request, or ``None`` when not negotiated.
+) -> AccountingSession:
+    """Open a session for a non-streaming request.
 
     Called BEFORE the cache stage so a hit still renders metadata — but note that the
     collector exists only to hold records, and a hit creates none. Nothing here reads a
     credential, dispatches, or touches the request body.
     """
-    if not validate_accounting_opt_in(request):
-        return None
     if plugin is None:
         strategy = UsageAccountingStrategy.unsupported()
     else:
@@ -156,7 +127,7 @@ def begin_accounting(
     # §9.24: the id is logged here so an operator can correlate a response with gateway
     # logs. Without this line `gateway_call_id` would be response-local only.
     logger.info(
-        "usage accounting negotiated provider=%s gateway_call_id=%s supported=%s",
+        "usage accounting started provider=%s gateway_call_id=%s supported=%s",
         provider,
         session.gateway_call_id,
         session.supported,
@@ -168,35 +139,14 @@ def session_for(request: Request) -> AccountingSession | None:
     return getattr(request.state, _STATE_ATTR, None)
 
 
-def streaming_rejection() -> HTTPException:
-    """Refuse a negotiated ``stream:true`` BEFORE any provider dispatch (§3.3).
-
-    WHY refuse rather than degrade: accounting a stream honestly would mean reading the
-    SSE body to find its terminal usage frame, and the response hook that does the
-    reading would consume the very stream the caller is waiting on. Silently returning
-    empty accounting instead would be worse — it would report no observed attempt for a
-    stream whose transport cannot be observed completely. Non-negotiated streaming is untouched.
-    """
-    return HTTPException(
-        status_code=400,
-        detail={
-            "code": "accounting_not_supported_for_streaming",
-            "message": (
-                "usage accounting is not available for streaming requests; "
-                "retry without stream:true or without the accounting header"
-            ),
-        },
-    )
-
-
 def dispatch_body_with_accounting(
     body: dict[str, Any], session: AccountingSession | None, handler: Any
 ) -> dict[str, Any]:
     """Inject the gateway's observed LiteLLM client for an accounted dispatch.
 
-    INVARIANT: injected ONLY for a negotiated request whose provider declared
-    ``litellm_async_http``. Every other request keeps LiteLLM's own client selection,
-    so opting in cannot change the transport for traffic that did not ask for it.
+    INVARIANT: injected ONLY for an accounted non-streaming request whose provider declared
+    ``litellm_async_http``. Streaming and unsupported providers keep their existing client
+    selection.
 
     INVARIANT: a fresh dict. The caller's ``body`` is the one the cache keyed; a dispatch
     control written into it would leak into that identity.
@@ -357,7 +307,7 @@ def _metadata(
 def attach_success_metadata(
     result: dict[str, Any], session: AccountingSession | None, *, cache_status: CacheStatusWord
 ) -> dict[str, Any]:
-    """Return the response body a negotiated caller receives on a miss/bypass.
+    """Return an accounted response body on a miss/bypass.
 
     INVARIANT (§6): this runs AFTER ``store_global_response``. Two independent reasons —
     the cache row must stay provider-compatible for every future replay, and
@@ -397,7 +347,7 @@ def _restore_cached_json_numbers(value: Any) -> Any:
 def attach_hit_metadata(
     cached: dict[str, Any], session: AccountingSession | None, *, plugin: ProviderPluginBase
 ) -> dict[str, Any]:
-    """Return the response body a negotiated caller receives on a cache HIT.
+    """Return an accounted response body on a cache HIT.
 
     INVARIANT: ``attempts`` is empty and ``observed_new_attempts`` is ``0``.
     A hit performs no provider dispatch, so a synthetic record here would report spend
@@ -440,7 +390,8 @@ def attach_hit_metadata(
 def accounting_error_response(request: Request, exc: HTTPException) -> JSONResponse | None:
     """A safe terminal error body carrying ``_aigw`` beside ``detail``, or ``None``.
 
-    ``None`` means "not negotiated" — the caller gets today's unchanged error shape.
+    ``None`` means the request has no accounting session, including non-chat and streaming
+    paths; the caller gets the route's unchanged error shape.
 
     INVARIANT: only the already-sanitized ``exc.detail`` is echoed. Raw provider bodies,
     prompts, generated text, credentials, headers and tracebacks are excluded upstream

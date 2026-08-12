@@ -470,18 +470,17 @@ def test_the_response_size_cap_decides_whether_a_miss_fills_the_cache(
     assert len(store.rows) == expected_rows
 
 
-def test_a_response_that_is_not_an_object_is_served_but_not_stored(
+def test_a_response_that_is_not_an_object_is_rejected_and_not_stored(
     credential_blobs, cache_client
 ) -> None:
     """Malformed responses are never stored (plan §1 bypass list, §5.2).
 
     The route builds ``result`` as ``model_dump()`` when the provider response offers
-    one and passes the raw object through otherwise, so its dict-ness is a convention
-    of every shipped plugin rather than something the type system enforces. A plugin
-    that returned a bare list would serialize fine to the caller and then become a
-    permanent global entry shaped nothing like a chat completion.
+    one and otherwise receives the raw object. A plugin that returns a bare list has
+    produced no valid chat-completion object and leaves nowhere to attach default-on
+    accounting, so it is a local conversion failure rather than a successful response.
 
-    INVARIANT: the store is fed only what a later reader can serve as a chat response.
+    INVARIANT: malformed provider results reach neither the caller nor the shared store.
     """
     _arrange_account(cache_client, credential_blobs)
     store = _install(cache_client, _ContractStore())
@@ -493,9 +492,8 @@ def test_a_response_that_is_not_an_object_is_served_but_not_stored(
     with patch(_PATCH_TARGET, _ListReturningDispatch()):
         resp = cache_client.post(_CHAT_PATH, json=_chat_body())
 
-    assert resp.status_code == 200, resp.text
-    assert resp.json() == [{"not": "a completion object"}]
-    assert resp.headers["X-AIGW-Cache-Write"] == "not_stored"
+    assert resp.status_code == 502, resp.text
+    assert set(resp.json()) == {"detail", "_aigw"}
     assert store.rows == {}
 
 
@@ -793,4 +791,10 @@ def test_an_entry_filled_under_one_credential_kind_is_read_under_the_other(
     assert hit.headers["X-AIGW-Cache"] == "hit"
     assert len(wire.calls) == 1, "the reader must not have dispatched at all"
     assert prepare.call_count == int(filler == "oauth")
-    assert hit.json() == filled.json()
+    hit_body = hit.json()
+    filled_body = filled.json()
+    assert {key: value for key, value in hit_body.items() if key != "_aigw"} == {
+        key: value for key, value in filled_body.items() if key != "_aigw"
+    }
+    assert filled_body["_aigw"]["usage_accounting"]["cache"]["status"] == "miss"
+    assert hit_body["_aigw"]["usage_accounting"]["cache"]["status"] == "hit"

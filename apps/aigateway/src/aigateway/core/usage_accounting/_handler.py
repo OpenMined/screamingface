@@ -46,8 +46,8 @@ logger = logging.getLogger(__name__)
 __all__ = ["AccountingAsyncHTTPHandler", "build_accounting_handler"]
 
 # Reading an SSE body in a hook would consume the stream the caller is meant to receive.
-# Negotiated streaming is rejected before dispatch (plan §3.3), so this is defence in
-# depth against a provider that answers a non-streaming request with an event stream.
+# Streaming bypasses accounting before dispatch, so this is defence in depth against a
+# provider that answers an accounted non-streaming request with an event stream.
 _EVENT_STREAM = "text/event-stream"
 
 
@@ -80,9 +80,9 @@ def _bounded_json(payload: bytes) -> dict[str, Any] | None:
 async def _read_body(response: httpx.Response) -> tuple[dict[str, Any] | None, bool]:
     """``(raw_evidence, body_completed)`` for a response, reading it when that is safe.
 
-    WHY reading here is safe and correct: the handler is injected ONLY for negotiated
-    requests, and a negotiated ``stream:true`` is rejected before dispatch — so every
-    response this hook sees is non-streaming, and httpx would read it moments later
+    WHY reading here is safe and correct: the handler is injected ONLY for accounted
+    non-streaming requests; streaming bypasses accounting before dispatch. Every response
+    this hook sees is therefore non-streaming, and httpx would read it moments later
     anyway (``Client.send`` calls ``aread()`` when ``stream=False``). Reading it now is
     what makes ``latency_ms`` a completed-body measurement instead of time-to-headers,
     and it yields the RAW provider body that §3.5 requires mappers to prefer over

@@ -408,6 +408,14 @@ class TestAttachAndErrors:
         result = attach_metadata(payload, {})
         assert {key: value for key, value in result.items() if key != METADATA_KEY} == payload
 
+    def test_gateway_reserved_namespace_replaces_provider_value_only_in_the_copy(self) -> None:
+        payload = {"id": "msg_1", METADATA_KEY: {"provider": "untrusted"}}
+
+        result = attach_metadata(payload, {"usage_accounting": {}})
+
+        assert result[METADATA_KEY] == {"usage_accounting": {}}
+        assert payload[METADATA_KEY] == {"provider": "untrusted"}
+
     def test_aigw_sits_beside_detail_not_inside_it(self) -> None:
         body = merged_error_detail({"code": "bad_request"}, {"usage_accounting": {}})
         assert set(body) == {"detail", METADATA_KEY}

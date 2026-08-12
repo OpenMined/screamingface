@@ -133,7 +133,10 @@ def test_nested_fallbacks_and_model_list_never_reach_litellm(
     assert "fallbacks" not in captured
     assert "model_list" not in captured
     assert "context_window_fallbacks" not in captured
-    assert "evil.example" not in json.dumps({k: v for k, v in captured.items() if k != "api_key"})
+    safe_capture = {
+        key: value for key, value in captured.items() if key not in {"api_key", "client"}
+    }
+    assert "evil.example" not in json.dumps(safe_capture)
     assert captured["api_base"] == _OFFICIAL_API_BASE
 
 

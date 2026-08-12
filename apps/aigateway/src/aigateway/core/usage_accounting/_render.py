@@ -194,7 +194,7 @@ def render_aigw_metadata(
 
 
 def attach_metadata(payload: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
-    """Return a shallow copy so response-only metadata never enters cached JSON."""
+    """Return a shallow copy with the gateway-reserved ``_aigw`` response namespace."""
     copied = dict(payload)
     copied[METADATA_KEY] = metadata
     return copied

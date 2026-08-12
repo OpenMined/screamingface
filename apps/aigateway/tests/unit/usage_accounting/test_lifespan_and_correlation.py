@@ -209,23 +209,23 @@ class TestGatewayCallIdCorrelation:
             f"gateway_call_id {call_id} never reached the logs"
         )
 
-    def test_nothing_is_logged_for_a_non_negotiated_request(
+    def test_default_on_request_logs_its_response_correlation_id(
         self, credential_blobs, logged_in: TestClient, caplog
     ) -> None:
-        # The opt-in must not add log volume for callers who did not ask for it.
         _arrange_account(logged_in, credential_blobs)
         with (
             caplog.at_level(logging.INFO, logger="aigateway.routes.chat_accounting"),
             patch(_ANTHROPIC_DISPATCH, _Dispatch()),
         ):
-            logged_in.post(
+            response = logged_in.post(
                 _CHAT_PATH,
                 json={
                     "model": "anthropic/claude-haiku-4-5",
                     "messages": [{"role": "user", "content": "hi"}],
                 },
             )
-        assert [r for r in caplog.records if "usage accounting" in r.getMessage()] == []
+        call_id = response.json()["_aigw"]["usage_accounting"]["gateway_call_id"]
+        assert any(call_id in record.getMessage() for record in caplog.records)
 
     def test_the_correlation_log_carries_no_prompt_or_credential(
         self, credential_blobs, logged_in: TestClient, caplog

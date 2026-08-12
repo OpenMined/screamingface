@@ -249,15 +249,18 @@ def convert_provider_response(provider_response: Any, session: Any = None) -> An
     working connection because of a gateway-side bug.
     """
     dumpable = cast(Any, provider_response)
-    if not hasattr(dumpable, "model_dump"):
-        return provider_response
     try:
-        return dumpable.model_dump()
+        result = dumpable.model_dump() if hasattr(dumpable, "model_dump") else provider_response
     except Exception as failure:
         # INVARIANT: type only. The exception text is provider-influenced.
         logger.error("provider response conversion failed type=%s", type(failure).__name__)
         note_conversion_failure(session)
         raise _unknown_provider_exception() from None
+    if not isinstance(result, dict):
+        logger.error("provider response conversion failed type=non_object")
+        note_conversion_failure(session)
+        raise _unknown_provider_exception() from None
+    return result
 
 
 def _unknown_provider_exception() -> HTTPException:
