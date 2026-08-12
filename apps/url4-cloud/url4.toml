@@ -117,7 +117,7 @@ id = "antigravity/gemini-3-flash"
 id = "openrouter/openai/gpt-5.5"
 
 # The HealthBench judge (healthbench/definition.py JUDGE_MODEL). The Benchmark's judge
-# call pins ``web_search=false``, so no retrieval capability is declared here.
+# call pins ``web_search=false`` per call, so the route-level default does not reach Grading.
 [[aigateway.models]]
 id = "openrouter/openai/gpt-5.4"
 
@@ -129,7 +129,6 @@ id = "openrouter/anthropic/claude-fable-5"
 
 [[aigateway.models]]
 id = "openrouter/anthropic/claude-haiku-4.5"
-native_web_search = true
 
 [[aigateway.models]]
 id = "openrouter/google/gemini-3.1-pro-preview"
