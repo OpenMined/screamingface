@@ -45,6 +45,10 @@
 
     <div id="leaderboard-summary" class="stats" aria-label="Leaderboard summary" hidden>
       <div class="s"><span class="k">Best accuracy</span><div class="v gain" id="summary-best">—</div></div>
+      <!-- OME-769: the reproducible-only figure sits beside the raw best so the two
+           are readable together — an em-dash here means nothing has been reproduced
+           yet, which is not the same claim as a low score. -->
+      <div class="s"><span class="k">SOTA (reproducible)</span><div class="v gain" id="summary-sota">—</div></div>
       <div class="s"><span class="k">Specs shown</span><div class="v" id="summary-specs">—</div></div>
       <div class="s"><span class="k">Verified rows</span><div class="v" id="summary-verified">—</div></div>
     </div>
@@ -70,8 +74,17 @@
     </div>
   </div>
 
+  <!-- leaderboard-logic.js before benchmark.js: it publishes window.SFLeaderboardLogic,
+       which benchmark.js reads at render time. Both are `defer`, so they execute in
+       document order. -->
+  <script src="leaderboard-logic.js" defer></script>
   <script src="main.js" defer></script>
   <script src="benchmark.js" defer></script>
   <script src="theme.js" defer></script>
+  <!-- Progressive enhancement only (OME-769 D4): the SOTA badge renders as plain
+       text "SOTA" without this, and wave-mark.js upgrades the O to the animated
+       mark once its texture actually decodes. A failure here must leave the text
+       badge untouched, never a gap. -->
+  <script src="wave-mark.js" defer></script>
 </body>
 </html>
