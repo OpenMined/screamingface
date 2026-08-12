@@ -228,9 +228,54 @@ repo-wide. The *body field* `web_search_excluded_domains` correctly survives in 
 (`runner/connector.py`, `runner/request_parameters.py`), the shared schema, and the SDK's reserved
 params — the deployment setting died, the caller-facing parameter did not.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+**The epic's goal is met: both web-search mechanisms are now cacheable.**
+
+- **Commits:** `936cff51` docs · `b60d997e` OME-782 tools · `79f21d60` OME-781 web search
+- **Gates:** ALL GREEN for `aigateway` after each unit, re-run independently rather than accepted on
+  an implementer's report. Coverage 91.74% against an 80 floor.
+- **Actual vs planned:** far less code than planned. Two of the plan's five OME-781 steps
+  (the shared envelope builder; emitting the envelope into `prepared`) were **deleted as
+  unnecessary**, and one (`provider_native_rule`) was **illegal**. The plan's two core-layer changes
+  had already been struck by decision D2 before any code was written.
+
+### What actually shipped
+
+| Unit | Result |
+|---|---|
+| `OME-778` | Closed as already satisfied — the safety net existed; produced the rule-5 inversion inventory instead |
+| `OME-782` | Tool-bearing requests cacheable, **opt-in per provider**; OpenRouter promoted |
+| `OME-781` | Deployment blocklist deleted; both web-search rules keyed |
+| `OME-779` | **Not done** — owner decided this epic adds no TTL |
+| `OME-780` | **Not done** — nothing to consume; depends on `OME-779` |
+| `OME-783` | **Not started** — needs a decision, see below |
+
+### The through-line
+
+Every unit got smaller than specified, and in each case the guard rails were what shrank it:
+
+- The conformance sweep refused a six-provider flip, producing the opt-in seam — a better design
+  than the one specced, and now a one-line change per future provider.
+- A model validator refused `provider_native_rule` on a top-level path.
+- An implementer refused to paper over a claim the spec had carried over unverified.
+
+Three separate mechanisms each caught a different error before it reached `main`. The deferred
+provider work (`OME-787`…`OME-792`) exists because one of them fired.
+
+### Open items
+
+- **`OME-779`/`OME-780`** — superseded by the no-TTL decision. `OME-779` retains standalone value
+  reduced to reporting `Age` alone (no TTL): that would let freshness-bounded url4-cloud runs use
+  the cache at all, rather than collapsing their bound into an opt-out. Worth keeping as an
+  enhancement outside this epic.
+- **`OME-783`** — a url4-cloud Tavily retrieval cache is a **new** cache, not the existing one, and
+  would be unsafe without expiry (nothing there mirrors aigateway's opt-out escape hatch). Needs an
+  explicit owner call before starting.
+- **Not merged.** Branch `OME-777-cacheable-web-search` is unpushed; no PR opened.
+
+### Reviewer must-reads
+
+Twelve prior tests were changed under Confidence-Gate approval across two commits, both run with
+`--skip-append-only`. **The append-only gate deliberately could not check them**, so review of those
+diffs is manual and non-optional. They are enumerated per unit above.
