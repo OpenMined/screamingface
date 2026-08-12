@@ -1,4 +1,4 @@
-"""ScreamingFace — evaluate Models and Fusions on research Benchmarks."""
+"""ScreamingFace — evaluate composable Candidate Recipes on research Benchmarks."""
 
 from screamingface import benchmarks, connections, events, leaderboards, models
 from screamingface._default_client import close, configure, connect, disconnect, evaluate
@@ -34,6 +34,7 @@ from screamingface.leaderboard import (
 )
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
+from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.report import (
     CandidateResult,
@@ -94,6 +95,7 @@ __all__ = [
     "OperationInfo",
     "OAuthFlow",
     "PlanningError",
+    "Pipeline",
     "ProviderConnectionError",
     "Recipe",
     "Report",

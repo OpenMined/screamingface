@@ -1,6 +1,6 @@
 # ScreamingFace
 
-ScreamingFace evaluates candidate Models and Fusions against reproducible research benchmarks.
+ScreamingFace evaluates Candidate Recipes against reproducible research benchmarks.
 
 ## Language
 
@@ -19,8 +19,32 @@ own identity and revision even when it shares Cases or Grading material with the
 _Avoid_: Method, mode, option
 
 **Candidate**:
-A Model or Fusion submitted to a Benchmark for evaluation.
-_Avoid_: Ensemble when referring to both Models and Fusions
+A complete Recipe submitted to a Benchmark for evaluation. Model, Fusion, and Pipeline are the
+public Candidate kinds.
+_Avoid_: Ensemble when referring to all Candidate kinds
+
+**Recipe**:
+An immutable, network-free description of Candidate-owned answer production. Model, Fusion, and
+Pipeline are the public Recipe values and may compose recursively.
+_Avoid_: Candidate when the Recipe is nested inside another Recipe
+
+**Complete Recipe**:
+A Recipe that accepts one input and produces one final answer. Every constructible public Model,
+Fusion, and Pipeline is complete; Fusion therefore always requires a synthesizer.
+_Avoid_: Valid Recipe
+
+**Model**:
+One atomic model-backed Recipe.
+_Avoid_: Solo Fusion
+
+**Fusion**:
+An ordered parallel collection of Recipe members followed by one synthesizer Recipe.
+_Avoid_: Pipeline, fan-out when referring to the complete synthesized Candidate
+
+**Pipeline**:
+An ordered serial Recipe. Its first stage receives the Pipeline input and every later stage
+receives only the immediately preceding stage's final answer.
+_Avoid_: Cascade, because Pipeline does not imply conditional routing or early exit
 
 **Candidate Result**:
 The outcome of evaluating one Candidate against one Benchmark, including its score, Candidate
@@ -94,10 +118,10 @@ changes the Candidate rather than the Benchmark.
 _Avoid_: Benchmark dependency, pinned Judge
 
 **Fusion Synthesizer**:
-The Candidate-owned Model configured for a Fusion's synthesizer role. A whole-Candidate invocation
-uses its Candidate-owned prompt to produce the final answer. A structural Benchmark may instead
-invoke its route and parameters under Benchmark-owned selection or coaching instructions; that
-adaptation does not make it a Benchmark-owned grading Judge.
+The Candidate-owned complete Recipe configured for a Fusion's synthesizer role. A Fusion
+invocation passes its input and parallel member answers to it to produce one final answer.
+It is part of the complete Candidate Recipe and remains distinct from a Benchmark-owned grading
+Judge.
 _Avoid_: Fusion member, grading Judge
 
 **Cost Estimate**:

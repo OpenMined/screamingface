@@ -13,16 +13,14 @@ DEFAULT_SYNTHESIS_PROMPT = (
     "Synthesize the strongest supported answer from the panel responses, and follow every "
     "instruction and formatting constraint in the original request."
 )
-_DEFAULT_PARAMS: dict[str, str | int | float | bool] = {
-    "max_tokens": 4096,
-}
 
 
 def resolved_params(
     overrides: Mapping[str, str | int | float | bool],
 ) -> tuple[tuple[str, str], ...]:
-    merged = {**_DEFAULT_PARAMS, **overrides}
-    return tuple((name, _scalar(value)) for name, value in merged.items())
+    """Encode only Candidate parameters the researcher explicitly selected."""
+
+    return tuple((name, _scalar(value)) for name, value in overrides.items())
 
 
 def _scalar(value: str | int | float | bool) -> str:

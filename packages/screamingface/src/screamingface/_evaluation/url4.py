@@ -16,6 +16,7 @@ from screamingface._evaluation.model import (
     _member_projection,
 )
 from screamingface._evaluation.results import report_from_url4_outcome
+from screamingface._evaluation.topology import _RecipeTopology, _topology_from_expression
 from screamingface.events import Event
 from screamingface.report import Report
 
@@ -104,38 +105,155 @@ def _candidate_from_url4(value: str) -> Candidate:
     calls = _candidate_calls(candidate)
     final = _final_binding(candidate.intent.value, calls)
     selected = _dependency_closure(final, calls)
+    topology = _topology_from_expression(candidate)
+    return _candidate_from_topology(url4, topology, calls, final, selected)
+
+
+def _candidate_from_topology(
+    url4: str,
+    topology: _RecipeTopology,
+    calls: dict[str, tuple[str, tuple[str, ...]]],
+    final: str,
+    selected: set[str],
+) -> Candidate:
+    nodes = _topology_model_nodes(topology)
+    if topology.binding != final or set(nodes) != set(calls):
+        raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
+    _validate_topology_dependencies(topology, calls, input_dependencies=())
+    fusion_names = _direct_fusion_output_names(topology)
+    dependencies = _topology_operation_dependencies(topology)
     operations = tuple(
         _compiled_operation(
             id=f"op_{name}",
-            kind="model" if name.startswith("model_") else "synthesis",
-            label=f"{_display_name(name, calls)} {_operation_suffix(name)}",
-            depends_on=tuple(f"op_{dependency}" for dependency in calls[name][1]),
+            kind=nodes[name].role or "model",
+            label=(
+                f"{fusion_names.get(name, nodes[name].name)} "
+                f"{'synthesis' if nodes[name].role == 'synthesis' else 'answer'}"
+            ),
+            depends_on=tuple(f"op_{dependency}" for dependency in dependencies[name]),
         )
         for name in calls
         if name in selected
     )
-    kind = "model" if final.startswith("model_") else "fusion"
     members = (
-        ()
-        if kind == "model"
-        else tuple(
+        tuple(
             _member_projection(
-                operation_id=f"op_{dependency}",
-                name=_display_name(dependency, calls),
-                kind="model" if dependency.startswith("model_") else "fusion",
-                models=_models(dependency, calls),
+                operation_id=f"op_{member.binding}",
+                name=member.name,
+                kind=member.kind,
+                models=_models(member.binding, calls),
             )
-            for dependency in calls[final][1]
+            for member in topology.members
         )
+        if topology.kind == "fusion"
+        else ()
     )
     return _compiled_candidate(
-        name=_display_name(final, calls),
-        kind=kind,
+        name=topology.name,
+        kind=topology.kind,
         models=_models(final, calls),
         url4=url4,
         operations=operations,
         members=members,
     )
+
+
+def _topology_model_nodes(value: _RecipeTopology) -> dict[str, _RecipeTopology]:
+    selected: dict[str, _RecipeTopology] = {}
+
+    def visit(node: _RecipeTopology) -> None:
+        if node.kind == "model":
+            previous = selected.setdefault(node.binding, node)
+            if previous != node:
+                raise ValueError("Evaluation URL4 has conflicting Recipe topology metadata")
+            return
+        children = node.stages if node.kind == "pipeline" else node.members
+        for child in children:
+            visit(child)
+        if node.synthesizer is not None:
+            visit(node.synthesizer)
+
+    visit(value)
+    return selected
+
+
+def _validate_topology_dependencies(
+    value: _RecipeTopology,
+    calls: dict[str, tuple[str, tuple[str, ...]]],
+    *,
+    input_dependencies: tuple[str, ...],
+) -> None:
+    if value.kind == "model":
+        if calls[value.binding][1] != input_dependencies:
+            raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
+        return
+    if value.kind == "pipeline":
+        dependencies = input_dependencies
+        for stage in value.stages:
+            _validate_topology_dependencies(
+                stage,
+                calls,
+                input_dependencies=dependencies,
+            )
+            dependencies = (stage.binding,)
+        return
+    for member in value.members:
+        _validate_topology_dependencies(
+            member,
+            calls,
+            input_dependencies=input_dependencies,
+        )
+    assert value.synthesizer is not None
+    synthesis_dependencies = tuple(
+        dict.fromkeys((*input_dependencies, *(member.binding for member in value.members)))
+    )
+    _validate_topology_dependencies(
+        value.synthesizer,
+        calls,
+        input_dependencies=synthesis_dependencies,
+    )
+
+
+def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
+    selected: dict[str, str] = {}
+
+    def visit(node: _RecipeTopology) -> None:
+        if node.kind == "model":
+            return
+        children = node.stages if node.kind == "pipeline" else node.members
+        for child in children:
+            visit(child)
+        if node.synthesizer is not None:
+            visit(node.synthesizer)
+            if node.synthesizer.kind == "model":
+                selected[node.binding] = node.name
+
+    visit(value)
+    return selected
+
+
+def _topology_operation_dependencies(
+    value: _RecipeTopology,
+) -> dict[str, tuple[str, ...]]:
+    selected: dict[str, tuple[str, ...]] = {}
+
+    def visit(node: _RecipeTopology, upstream: tuple[str, ...]) -> None:
+        if node.kind == "model":
+            selected[node.binding] = upstream
+            return
+        if node.kind == "pipeline":
+            dependencies = upstream
+            for stage in node.stages:
+                visit(stage, dependencies)
+                dependencies = (stage.binding,)
+            return
+        for member in node.members:
+            visit(member, upstream)
+        assert node.synthesizer is not None
+        visit(node.synthesizer, tuple(member.binding for member in node.members))
+
+    visit(value, ())
+    return selected
 
 
 def _candidate_text(root: object) -> str:
@@ -199,20 +317,6 @@ def _models(
 ) -> tuple[str, ...]:
     selected = _dependency_closure(name, calls)
     return tuple(dict.fromkeys(route for key, (route, _) in calls.items() if key in selected))
-
-
-def _display_name(
-    name: str,
-    calls: dict[str, tuple[str, tuple[str, ...]]],
-) -> str:
-    route, dependencies = calls[name]
-    if not dependencies:
-        return route.rsplit("/", 1)[-1]
-    return "+".join(_display_name(dependency, calls) for dependency in dependencies)
-
-
-def _operation_suffix(name: str) -> str:
-    return "answer" if name.startswith("model_") else "synthesis"
 
 
 __all__: list[str] = []

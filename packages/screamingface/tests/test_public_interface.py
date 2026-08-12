@@ -51,6 +51,7 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "MemberResult",
         "Model",
         "OperationInfo",
+        "Pipeline",
         "PlanningError",
         "ProviderConnectionError",
         "Recipe",

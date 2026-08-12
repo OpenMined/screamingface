@@ -9,12 +9,10 @@ from dataclasses import dataclass
 from url4 import Expression, Iteration, Node, RelExpr, RelUrl, Source, Text, Url4Error, build, walk
 
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
+from screamingface._evaluation.topology import _RecipeTopology, _topology_from_expression
 
 _BINDING = re.compile(r"(?:model|synthesis)_\d+")
 _REFERENCE = re.compile(r"\$(model_\d+|synthesis_\d+)")
-_MEMBER_LABEL = re.compile(
-    r"=== Model \d+ \((.*?)\) ===\u2028\$(model_\d+|synthesis_\d+)",
-)
 _BENCHMARK_ROUTE = re.compile(
     r"/benchmarks/([A-Za-z0-9._~/-]+?)/"
     r"(?:cases|tasks|aggregate|criterion-verdict|criterion-evaluation|case-evaluation)\b"
@@ -42,10 +40,8 @@ class Url4(str):
 @dataclass(frozen=True, slots=True)
 class _Call:
     binding: str
-    kind: str
     model: str
     dependencies: tuple[str, ...]
-    member_names: dict[str, str]
     prompt: str
     params: tuple[tuple[str, str], ...]
 
@@ -58,7 +54,9 @@ def _to_python(value: str) -> str:
     candidate, linked = _candidate_expression(root)
     calls = _calls(candidate)
     final = _final_binding(candidate, calls)
-    lines = _render_recipe(final, calls, explicit_name=None, indent=0)
+    topology = _topology_from_expression(candidate)
+    _validate_topology(topology, calls, final)
+    lines = _render_topology(topology, calls, indent=0)
     lines[0] = f"candidate = {lines[0]}"
     source = ["import screamingface as sf", "", *lines]
     if linked:
@@ -96,15 +94,10 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
             continue
         context = node.value.context or ""
         dependencies = tuple(dict.fromkeys(_REFERENCE.findall(context)))
-        member_names = {
-            binding: _python_text(name) for name, binding in _MEMBER_LABEL.findall(context)
-        }
         calls[node.name] = _Call(
             binding=node.name,
-            kind="model" if node.name.startswith("model_") else "fusion",
             model=node.value.path.removeprefix("/"),
             dependencies=dependencies,
-            member_names=member_names,
             prompt=_python_text(node.value.intent.value),
             params=_params(node.value.params),
         )
@@ -122,30 +115,21 @@ def _final_binding(candidate: Expression, calls: dict[str, _Call]) -> str:
     return match.group(1)
 
 
-def _render_recipe(
-    binding: str,
-    calls: dict[str, _Call],
+def _render_model(
+    call: _Call,
     *,
+    role: str,
     explicit_name: str | None,
     indent: int,
+    force_name: bool = False,
 ) -> list[str]:
-    if binding not in calls:
-        raise ValueError(f"URL4 Candidate references unknown binding {binding!r}")
-    call = calls[binding]
-    return (
-        _render_model(call, explicit_name=explicit_name, indent=indent)
-        if call.kind == "model"
-        else _render_fusion(call, calls, explicit_name=explicit_name, indent=indent)
-    )
-
-
-def _render_model(call: _Call, *, explicit_name: str | None, indent: int) -> list[str]:
     prefix = " " * indent
     lines = [f"{prefix}sf.Model(", f"{prefix}    {call.model!r},"]
     inferred_name = call.model.rsplit("/", 1)[-1]
-    if explicit_name is not None and explicit_name != inferred_name:
+    if explicit_name is not None and (force_name or explicit_name != inferred_name):
         lines.append(f"{prefix}    name={explicit_name!r},")
-    if call.prompt != DEFAULT_ANSWER_PROMPT:
+    default_prompt = DEFAULT_SYNTHESIS_PROMPT if role == "synthesis" else DEFAULT_ANSWER_PROMPT
+    if call.prompt != default_prompt:
         lines.append(f"{prefix}    prompt={call.prompt!r},")
     params = _editable_params(call)
     if params:
@@ -154,63 +138,130 @@ def _render_model(call: _Call, *, explicit_name: str | None, indent: int) -> lis
     return lines
 
 
-def _render_fusion(
-    call: _Call,
+def _render_topology(
+    value: _RecipeTopology,
     calls: dict[str, _Call],
     *,
-    explicit_name: str | None,
     indent: int,
 ) -> list[str]:
-    if len(call.dependencies) < 2:
-        raise ValueError("URL4 Fusion must reference at least two Candidate members")
+    if value.kind == "model":
+        assert value.role is not None
+        return _render_model(
+            calls[value.binding],
+            role=value.role,
+            explicit_name=value.name,
+            indent=indent,
+            force_name=value.named,
+        )
+    if value.kind == "pipeline":
+        return _render_pipeline_topology(value, calls, indent=indent)
+    return _render_fusion_topology(value, calls, indent=indent)
+
+
+def _render_pipeline_topology(
+    value: _RecipeTopology,
+    calls: dict[str, _Call],
+    *,
+    indent: int,
+) -> list[str]:
     prefix = " " * indent
-    lines = [f"{prefix}sf.Fusion(", f"{prefix}    ["]
-    for dependency in call.dependencies:
-        member = _render_recipe(
-            dependency,
-            calls,
-            explicit_name=call.member_names.get(dependency),
-            indent=indent + 8,
-        )
-        member[-1] += ","
-        lines.extend(member)
+    lines = [f"{prefix}sf.Pipeline(", f"{prefix}    ["]
+    for stage in value.stages:
+        rendered = _render_topology(stage, calls, indent=indent + 8)
+        rendered[-1] += ","
+        lines.extend(rendered)
     lines.append(f"{prefix}    ],")
-    if explicit_name is not None:
-        inferred_name = "+".join(
-            call.member_names.get(dependency, _inferred_name(dependency, calls))
-            for dependency in call.dependencies
-        )
-        if explicit_name != inferred_name:
-            lines.append(f"{prefix}    name={explicit_name!r},")
-    lines.append(f"{prefix}    synthesizer=sf.Model(")
-    lines.append(f"{prefix}        {call.model!r},")
-    if call.prompt != DEFAULT_SYNTHESIS_PROMPT:
-        lines.append(f"{prefix}        prompt={call.prompt!r},")
-    params = _editable_params(call)
-    if params:
-        lines.append(f"{prefix}        params={params!r},")
-    lines.append(f"{prefix}    ),")
+    inferred_name = "->".join(stage.name for stage in value.stages)
+    if value.named or value.name != inferred_name:
+        lines.append(f"{prefix}    name={value.name!r},")
     lines.append(f"{prefix})")
     return lines
 
 
-def _inferred_name(binding: str, calls: dict[str, _Call]) -> str:
-    call = calls[binding]
-    if call.kind == "model":
-        return call.model.rsplit("/", 1)[-1]
-    return "+".join(
-        call.member_names.get(dependency, _inferred_name(dependency, calls))
-        for dependency in call.dependencies
+def _render_fusion_topology(
+    value: _RecipeTopology,
+    calls: dict[str, _Call],
+    *,
+    indent: int,
+) -> list[str]:
+    assert value.synthesizer is not None
+    prefix = " " * indent
+    lines = [f"{prefix}sf.Fusion(", f"{prefix}    ["]
+    for member in value.members:
+        rendered = _render_topology(member, calls, indent=indent + 8)
+        rendered[-1] += ","
+        lines.extend(rendered)
+    lines.append(f"{prefix}    ],")
+    inferred_name = "+".join(member.name for member in value.members)
+    if value.name != inferred_name:
+        lines.append(f"{prefix}    name={value.name!r},")
+    synthesizer = _render_topology(value.synthesizer, calls, indent=indent + 4)
+    synthesizer[0] = f"{prefix}    synthesizer={synthesizer[0].lstrip()}"
+    synthesizer[-1] += ","
+    lines.extend(synthesizer)
+    lines.append(f"{prefix})")
+    return lines
+
+
+def _validate_topology(
+    value: _RecipeTopology,
+    calls: dict[str, _Call],
+    final: str,
+) -> None:
+    if value.binding != final:
+        raise ValueError("URL4 Candidate Recipe topology does not match its result binding")
+    bindings: set[str] = set()
+    _validate_topology_node(value, calls, input_dependencies=(), bindings=bindings)
+    if bindings != set(calls):
+        raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+
+
+def _validate_topology_node(
+    value: _RecipeTopology,
+    calls: dict[str, _Call],
+    *,
+    input_dependencies: tuple[str, ...],
+    bindings: set[str],
+) -> None:
+    if value.kind == "model":
+        call = calls.get(value.binding)
+        if call is None or call.dependencies != input_dependencies:
+            raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+        bindings.add(value.binding)
+        return
+    if value.kind == "pipeline":
+        dependencies = input_dependencies
+        for stage in value.stages:
+            _validate_topology_node(
+                stage,
+                calls,
+                input_dependencies=dependencies,
+                bindings=bindings,
+            )
+            dependencies = (stage.binding,)
+        return
+    assert value.synthesizer is not None
+    for member in value.members:
+        _validate_topology_node(
+            member,
+            calls,
+            input_dependencies=input_dependencies,
+            bindings=bindings,
+        )
+    synthesis_dependencies = tuple(
+        dict.fromkeys((*input_dependencies, *(member.binding for member in value.members)))
+    )
+    _validate_topology_node(
+        value.synthesizer,
+        calls,
+        input_dependencies=synthesis_dependencies,
+        bindings=bindings,
     )
 
 
 def _editable_params(call: _Call) -> dict[str, str | int | float | bool]:
     selected: dict[str, str | int | float | bool] = {}
     for name, value in call.params:
-        if name == "max_tokens" and value == "4096":
-            continue
-        if call.kind == "fusion" and name == "web_search" and value == "false":
-            continue
         selected[name] = _scalar(value)
     return selected
 

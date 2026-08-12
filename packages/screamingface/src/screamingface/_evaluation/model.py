@@ -15,9 +15,10 @@ from screamingface.discovery import BenchmarkInfo
 from screamingface.fusion import Fusion
 from screamingface.model import Model
 from screamingface.operation import OperationInfo, _operation_dag
+from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 
-type CandidateKind = Literal["model", "fusion"]
+type CandidateKind = Literal["model", "fusion", "pipeline"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,13 +131,7 @@ def _compiled_candidate(
     object.__setattr__(candidate, "models", selected_models)
     object.__setattr__(candidate, "url4", _canonical_url4(url4, "Candidate"))
     object.__setattr__(candidate, "operations", _operation_dag(operations))
-    selected_members = tuple(members)
-    if any(not isinstance(member, _MemberProjection) for member in selected_members):
-        raise TypeError("Candidate members must contain only compiled member projections")
-    if selected_kind == "model" and selected_members:
-        raise ValueError("a planned Model Candidate cannot contain members")
-    if selected_kind == "fusion" and len(selected_members) < 2:
-        raise ValueError("a planned Fusion Candidate requires at least two direct members")
+    selected_members = _candidate_members(members, selected_kind)
     operation_ids = {operation.id for operation in candidate.operations}
     known_ids = (
         operation_ids
@@ -156,6 +151,22 @@ def _compiled_candidate(
         _candidate_parameter_assignments(parameter_assignments, operation_ids),
     )
     return candidate
+
+
+def _candidate_members(
+    values: Sequence[_MemberProjection],
+    kind: CandidateKind,
+) -> tuple[_MemberProjection, ...]:
+    selected = tuple(values)
+    if any(not isinstance(member, _MemberProjection) for member in selected):
+        raise TypeError("Candidate members must contain only compiled member projections")
+    if kind == "model" and selected:
+        raise ValueError("a planned Model Candidate cannot contain members")
+    if kind == "pipeline" and selected:
+        raise ValueError("a planned Pipeline Candidate cannot contain direct Fusion members")
+    if kind == "fusion" and not selected:
+        raise ValueError("a planned Fusion Candidate requires at least one direct member")
+    return selected
 
 
 def _candidate_parameter_assignments(
@@ -242,11 +253,13 @@ def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
     elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
         values = tuple(value)
     else:
-        raise TypeError("candidates must be an sf.Model, sf.Fusion, or ordered sequence")
+        raise TypeError(
+            "candidates must be an sf.Model, sf.Fusion, sf.Pipeline, or ordered sequence"
+        )
     if not values:
         raise ValueError("an Evaluation requires at least one Candidate")
-    if any(not isinstance(candidate, Model | Fusion) for candidate in values):
-        raise TypeError("candidates must contain only sf.Model or sf.Fusion values")
+    if any(not isinstance(candidate, Model | Fusion | Pipeline) for candidate in values):
+        raise TypeError("candidates must contain only sf.Model, sf.Fusion, or sf.Pipeline values")
     names: set[str] = set()
     for candidate in values:
         if candidate.name in names:
@@ -277,7 +290,9 @@ def _candidate_kind(value: object) -> CandidateKind:
         return "model"
     if value == "fusion":
         return "fusion"
-    raise ValueError("Candidate kind must be 'model' or 'fusion'")
+    if value == "pipeline":
+        return "pipeline"
+    raise ValueError("Candidate kind must be 'model', 'fusion', or 'pipeline'")
 
 
 def _nonblank(value: object, label: str) -> str:

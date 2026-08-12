@@ -207,6 +207,54 @@ def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None
     assert "sf-gain-grad" in html
 
 
+def test_pipeline_card_shows_ordered_topology_in_light_and_dark_themes() -> None:
+    pipeline = sf.Pipeline(
+        [
+            sf.Model("provider/draft", name="draft <one>"),
+            sf.Fusion(
+                [sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")],
+                name="review panel",
+                synthesizer="provider/reconciler",
+            ),
+            sf.Model("provider/final"),
+        ],
+        name="draft → review → final",
+    )
+
+    html = cast(Any, pipeline)._repr_html_()
+
+    assert "ScreamingFace pipeline" in html
+    assert "draft → review → final" in html
+    assert ">stages<" in html
+    assert "stage 1" in html
+    assert "stage 2" in html
+    assert "stage 3" in html
+    assert "draft &lt;one&gt;" in html
+    assert "review panel" in html
+    assert "nested fusion" in html
+    assert "provider/final" in html
+    assert "sf-card__accent--pipeline" in html
+    assert "@media (prefers-color-scheme:dark)" in html
+    assert ".vscode-dark .sf-ui" in html
+
+
+def test_fusion_card_renders_a_complete_recipe_synthesizer_without_model_assumptions() -> None:
+    synthesizer = sf.Pipeline(
+        [sf.Model("provider/judge"), sf.Model("provider/writer")],
+        name="judge → writer",
+    )
+    fusion = sf.Fusion(
+        [sf.Model("provider/a"), sf.Model("provider/b")],
+        synthesizer=synthesizer,
+    )
+
+    html = cast(Any, fusion)._repr_html_()
+
+    assert ">synthesis<" in html
+    assert "judge → writer" in html
+    assert "nested pipeline" in html
+
+
 def test_catalogue_surface_has_no_duplicate_view_operation() -> None:
     assert not hasattr(sf.models, "view")
     assert not hasattr(sf.benchmarks, "view")
@@ -256,10 +304,12 @@ def test_cards_cover_provider_fallback_and_nested_fusions() -> None:
     inner = sf.Fusion(
         [sf.Model("provider/a"), sf.Model("provider/b")],
         name="inner",
+        synthesizer="provider/inner-synth",
     )
     outer = sf.Fusion(
         [inner, sf.Model("provider/c")],
         name="outer",
+        synthesizer="provider/outer-synth",
     )
     fusion_html = cast(Any, outer)._repr_html_()
     assert "nested fusion" in fusion_html

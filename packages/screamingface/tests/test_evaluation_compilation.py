@@ -309,14 +309,24 @@ def test_compiled_candidate_rejects_inconsistent_member_state() -> None:
             operations=(answer,),
             members=(member,),
         )
-    with pytest.raises(ValueError, match="at least two direct members"):
+    planned = _compiled_candidate(
+        name="pair",
+        kind="fusion",
+        models=("provider/member",),
+        url4="(@)!'pair'",
+        operations=(answer,),
+        members=(member,),
+    )
+    assert planned.members == (member,)
+
+    with pytest.raises(ValueError, match="at least one direct member"):
         _compiled_candidate(
             name="pair",
             kind="fusion",
             models=("provider/member",),
             url4="(@)!'pair'",
             operations=(answer,),
-            members=(member,),
+            members=(),
         )
 
 

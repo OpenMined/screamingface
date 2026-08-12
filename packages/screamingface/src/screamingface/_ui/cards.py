@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from screamingface.discovery import Benchmark, ModelInfo
     from screamingface.fusion import Fusion
     from screamingface.model import Model
+    from screamingface.pipeline import Pipeline
     from screamingface.recipe import Recipe
 
 
@@ -40,12 +41,7 @@ def fusion_card_html(fusion: Fusion) -> str:
     members = "".join(_member_detail(member) for member in fusion.members)
     synthesis = ""
     if fusion.synthesizer is not None:
-        fields = ""
-        fields += _field("synthesizer", _mono(fusion.synthesizer.model), wide=True)
-        if fusion.synthesizer.prompt is not None:
-            fields += _field("prompt", escape(fusion.synthesizer.prompt), wide=True)
-        if fusion.synthesizer.params:
-            fields += _field("params", _params(fusion.synthesizer.params), wide=True)
+        fields = _synthesizer_fields(fusion.synthesizer)
         synthesis = _section("synthesis", f"<div class='sf-card__grid'>{fields}</div>")
     return (
         f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace fusion'>"
@@ -53,6 +49,21 @@ def fusion_card_html(fusion: Fusion) -> str:
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(fusion.name)}</span>"
         "<span class='sf-card__kicker'>fusion</span></div>"
         f"{_section('members', members)}{synthesis}</div>"
+    )
+
+
+def pipeline_card_html(pipeline: Pipeline) -> str:
+    """Render one serial Candidate as an explicitly ordered topology."""
+
+    stages = "".join(
+        _recipe_detail(stage, index=index) for index, stage in enumerate(pipeline.stages, start=1)
+    )
+    return (
+        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace pipeline'>"
+        "<div class='sf-card__accent sf-card__accent--pipeline'></div>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(pipeline.name)}</span>"
+        "<span class='sf-card__kicker sf-card__kicker--pipeline'>pipeline</span></div>"
+        f"{_section('stages', stages)}</div>"
     )
 
 
@@ -123,15 +134,44 @@ def _section(title: str, body: str) -> str:
 
 
 def _member_detail(member: Recipe) -> str:
-    route = getattr(member, "model", None)
+    return _recipe_detail(member)
+
+
+def _recipe_detail(recipe: Recipe, *, index: int | None = None) -> str:
+    route = getattr(recipe, "model", None)
+    kind = _recipe_kind(recipe)
     if route is None:
-        detail = "<div class='sf-card__hint'>nested fusion</div>"
+        detail = f"<div class='sf-card__hint'>nested {escape(kind)}</div>"
     else:
         detail = f"<div class='sf-detail__route'>{escape(str(route))}</div>"
+    order = "" if index is None else f"<div class='sf-detail__index'>stage {index}</div>"
     return (
         "<div class='sf-detail__item'>"
-        f"<div class='sf-detail__name'>{escape(member.name)}</div>{detail}</div>"
+        f"{order}<div class='sf-detail__name'>{escape(recipe.name)}</div>{detail}</div>"
     )
+
+
+def _synthesizer_fields(recipe: Recipe) -> str:
+    route = getattr(recipe, "model", None)
+    if route is None:
+        value = (
+            f"<span class='sf-mono'>{escape(recipe.name)}</span>"
+            f"<div class='sf-card__hint'>nested {escape(_recipe_kind(recipe))}</div>"
+        )
+        return _field("synthesizer", value, wide=True)
+
+    fields = _field("synthesizer", _mono(str(route)), wide=True)
+    prompt = getattr(recipe, "prompt", None)
+    if prompt is not None:
+        fields += _field("prompt", escape(str(prompt)), wide=True)
+    params = getattr(recipe, "params", None)
+    if params:
+        fields += _field("params", _params(params), wide=True)
+    return fields
+
+
+def _recipe_kind(recipe: Recipe) -> str:
+    return type(recipe).__name__.lower()
 
 
 def _provider_of(route: str) -> str:
