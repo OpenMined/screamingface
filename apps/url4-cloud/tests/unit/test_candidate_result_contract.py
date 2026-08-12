@@ -16,6 +16,8 @@ from url4_cloud.benchmarks.contract import (
     Evidence,
     EvidenceProducer,
     Failure,
+    decode_candidate_invocation,
+    encode_candidate_invocation,
 )
 
 
@@ -191,6 +193,37 @@ def test_scored_case_requires_a_numeric_grade_and_no_failure_or_refusal() -> Non
         _scored_case(refusal="I cannot help with that")
 
 
+def test_every_case_requires_public_input_and_a_scored_case_requires_output() -> None:
+    with pytest.raises(ValidationError, match="input"):
+        _scored_case(input=None)
+    with pytest.raises(ValidationError, match="output"):
+        _scored_case(output=None)
+
+
+def test_provider_finish_reason_is_preserved_without_a_closed_sdk_vocabulary() -> None:
+    reason = "provider_safety_stop"
+    case = _scored_case(finish_reason=reason)
+    encoded = encode_candidate_invocation("answer", reason, None)
+
+    assert case.finish_reason == reason
+    assert decode_candidate_invocation(encoded) == ("answer", reason, None)
+
+
+def test_open_wire_fields_accept_only_json_values() -> None:
+    for build in (
+        lambda: _evidence(raw_output={"not-json"}),
+        lambda: _evidence(raw_output=("tuple", "is", "not", "a", "JSON", "array")),
+        lambda: _check(metadata={"nested": {1: "non-string JSON object key"}}),
+        lambda: _check(metadata={"value": object()}),
+        lambda: _grade(metrics={"value": object()}),
+        lambda: _failure(metadata={"value": object()}),
+        lambda: _scored_case(metadata={"value": object()}),
+        lambda: _candidate(metrics={"pass_rate": 1.0, "coverage": 1.0, "value": object()}),
+    ):
+        with pytest.raises(ValidationError, match="JSON"):
+            build()
+
+
 def test_refused_case_preserves_exact_refusal_and_provider_failure() -> None:
     refusal = "I can’t provide that dosage."
     case = CaseResult(
@@ -248,7 +281,7 @@ def test_case_failures_must_belong_to_that_case() -> None:
         CaseResult(
             status="failed",
             case_id=7,
-            input=None,
+            input="selected input",
             output=None,
             finish_reason=None,
             refusal=None,
@@ -304,7 +337,7 @@ def test_candidate_score_is_unscored_when_any_case_is_not_scored() -> None:
     failed = CaseResult(
         status="failed",
         case_id=7,
-        input=None,
+        input="selected input",
         output=None,
         finish_reason=None,
         refusal=None,

@@ -161,13 +161,15 @@ def test_rows_must_exactly_match_the_bound_selection() -> None:
     """INVARIANT: a lost row cannot masquerade as an intentionally shorter prefix."""
     rows = json.dumps([_row("c1", case=1)])
 
-    with pytest.raises(agg.AggregateError, match="exactly match"):
-        agg.aggregate(
-            rows,
-            rubrics=_RUBRICS,
-            benchmark_id="draco",
-            selected_cases=_selected(1, 2),
-        )
+    result = agg.aggregate(
+        rows,
+        rubrics=_RUBRICS,
+        benchmark_id="draco",
+        selected_cases=_selected(1, 2),
+    )
+
+    assert result["score"] is None
+    assert result["cases"][1]["failures"][0]["code"] == "case_result_missing"
 
 
 def test_a_full_row_set_without_case_evaluations_is_still_unscored() -> None:
@@ -186,7 +188,7 @@ def test_a_full_row_set_without_case_evaluations_is_still_unscored() -> None:
 
 def test_no_rows_at_all_fails_after_the_mapping_guard() -> None:
     """An empty payload has no mapping error, but it still cannot produce a valid result."""
-    with pytest.raises(agg.AggregateError, match="no DRACO Case results"):
+    with pytest.raises(agg.AggregateError, match="selected Case sequence"):
         agg.aggregate("[]", rubrics=_RUBRICS, benchmark_id="draco", selected_cases=[])
 
 

@@ -85,7 +85,11 @@ def _build(case_count: int) -> Node:
     return expr(
         src(row_set, name="rows", weight=0.0),
         src(
-            RelExpr(path=AGGREGATE_ROUTE, context="$rows", intent=Text("aggregate")),
+            RelExpr(
+                path=AGGREGATE_ROUTE,
+                context="$rows",
+                intent=Text(f"aggregate:{case_count}"),
+            ),
             name="result",
             weight=0.0,
         ),

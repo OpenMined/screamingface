@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from url4_cloud.benchmarks.errors import ProviderRefusal
 from url4_cloud.benchmarks.healthbench.aggregate import (
     AggregateError,
     aggregate,
@@ -27,6 +28,7 @@ from url4_cloud.benchmarks.healthbench.verdict import SCHEMA as VERDICT_SCHEMA
 
 
 def _write_rubric(root: Path, case_id: int, points: list[int]) -> None:
+    _write_case(root, case_id)
     rubric_dir = root / "rubrics"
     rubric_dir.mkdir(parents=True, exist_ok=True)
     (rubric_dir / f"{case_id}.json").write_text(
@@ -41,6 +43,14 @@ def _write_rubric(root: Path, case_id: int, points: list[int]) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _write_case(root: Path, case_id: int) -> None:
+    cases_path = root / "cases.json"
+    cases = json.loads(cases_path.read_text()) if cases_path.exists() else []
+    if not any(row["id"] == case_id for row in cases):
+        cases.append({"id": case_id, "input": f"input-{case_id}"})
+        cases_path.write_text(json.dumps(cases), encoding="utf-8")
 
 
 def _evidence(case_id: int, rubric_id: int, met: bool) -> dict[str, object]:
@@ -109,6 +119,12 @@ def test_fully_judged_cases_score_and_mean_unclipped(tmp_path: Path) -> None:
     # decision surfaces as a top-level outcome, not only inside evidence.
     checks = result["cases"][0]["grade"]["checks"]
     assert [check["outcome"] for check in checks] == ["UNMET", "UNMET", "MET"]
+    assert [check["label"] for check in checks] == ["[1] c1", "[1] c2", "[1] c3"]
+    assert [check["metadata"] for check in checks] == [
+        {"points": 7},
+        {"points": 8},
+        {"points": -6},
+    ]
     # SDK Case Result contract (seen live in the smoke run): every Case carries
     # the full key set, a scored Case carries a rubric grade, and evidence rows
     # sit under grade.checks — not in any home-grown envelope.
@@ -182,6 +198,7 @@ def test_a_negative_unclipped_mean_survives_the_contract(tmp_path: Path) -> None
 
 def test_a_missing_rubric_asset_fails_the_case_and_the_exam(tmp_path: Path) -> None:
     _write_rubric(tmp_path, 1, [7])
+    _write_case(tmp_path, 2)
     rows = json.dumps([_case_row(1, {1: True}), _case_row(2, {1: True})])
     result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
     # B1: the broken Case is IN the output, and the exam refuses to publish a mean.
@@ -198,7 +215,16 @@ def test_an_error_collected_row_fails_its_case(tmp_path: Path) -> None:
     rows = json.dumps(
         [
             _case_row(1, {1: True}),
-            {"schema": CASE_EVALUATION_SCHEMA, "case_id": 2, "error": "candidate died"},
+            {
+                "schema": CASE_EVALUATION_SCHEMA,
+                "case_id": 2,
+                "error": {
+                    "kind": "ResolutionError",
+                    "code": "provider_error",
+                    "message": "the provider was unavailable",
+                    "permanent": True,
+                },
+            },
         ]
     )
     result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
@@ -206,6 +232,13 @@ def test_an_error_collected_row_fails_its_case(tmp_path: Path) -> None:
     assert _failure_codes(result)[2] == "case_error"
     failed = next(case for case in result["cases"] if case["case_id"] == 2)
     assert failed["grade"] is None
+    assert failed["failures"][0]["message"] == "the provider was unavailable"
+    assert failed["failures"][0]["metadata"]["source_error"] == {
+        "kind": "ResolutionError",
+        "code": "provider_error",
+        "message": "the provider was unavailable",
+        "retryable": False,
+    }
 
 
 def test_partial_verdicts_never_score(tmp_path: Path) -> None:
@@ -255,8 +288,18 @@ def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Pa
     result = aggregate(
         json.dumps(
             [
-                {"error": {"kind": "ProviderRefusal", "message": first}},
-                {"error": {"kind": "ProviderRefusal", "message": second}},
+                {
+                    "error": {
+                        "kind": "ProviderRefusal",
+                        "message": str(ProviderRefusal(first, finish_reason="content_filter")),
+                    }
+                },
+                {
+                    "error": {
+                        "kind": "ProviderRefusal",
+                        "message": str(ProviderRefusal(second, finish_reason="content_filter")),
+                    }
+                },
             ]
         ),
         tmp_path,
@@ -269,6 +312,10 @@ def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Pa
     assert result["metrics"] == {}
     assert [case["status"] for case in result["cases"]] == ["refused", "refused"]
     assert [case["refusal"] for case in result["cases"]] == [first, second]
+    assert [case["finish_reason"] for case in result["cases"]] == [
+        "content_filter",
+        "content_filter",
+    ]
 
 
 def test_a_missing_case_row_is_visible(tmp_path: Path) -> None:
@@ -288,8 +335,14 @@ def test_a_missing_case_row_is_visible(tmp_path: Path) -> None:
 def test_unusable_row_payloads_raise_before_scoring(tmp_path: Path) -> None:
     with pytest.raises(AggregateError):
         aggregate("not json", tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,))
-    with pytest.raises(AggregateError):
-        aggregate("[]", tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,))
+
+
+def test_no_rows_retains_every_selected_case_as_failed(tmp_path: Path) -> None:
+    _write_rubric(tmp_path, 1, [7])
+    result = aggregate("[]", tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,))
+
+    assert result["score"] is None
+    assert result["cases"][0]["failures"][0]["code"] == "missing_case_row"
 
 
 def test_load_rubric_points_rejects_malformed_assets(tmp_path: Path) -> None:

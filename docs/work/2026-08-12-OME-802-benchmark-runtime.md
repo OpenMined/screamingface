@@ -1,9 +1,9 @@
 ---
 ticket: OME-802
 stack: url4-cloud
-status: complete
+status: done
 started: 2026-08-12
-finished: 2026-08-12
+finished: 2026-08-13
 ---
 
 # OME-802 — Extract generic benchmark outcome and scoring runtime in URL4 Cloud
@@ -52,14 +52,16 @@ published checker and scoring mathematics in DRACO, IFEval, and HealthBench adap
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** strict nested contract and generic finalizer added; DRACO, IFEval, and
-  HealthBench migrated; exact provider refusal survives URL4 collection; pre-release partial-score
-  and shallow-envelope tests tightened in place; each Benchmark revision now incorporates the
-  existing v1 result-contract identity.
-- **Commits:** this change (`feat(url4-cloud): enforce benchmark result contract`)
+- **Actual files:** strict nested contract and exact-selection finalizer added; DRACO, IFEval, and
+  HealthBench migrated; missing selected Cases become explicit failures; exact provider refusal
+  and open finish reasons survive URL4 collection; public diagnostics are sanitized; open fields
+  enforce real JSON value trees; IFEval carries selected cardinality into aggregation; each
+  Benchmark revision now incorporates the existing v1 result-contract identity.
+- **Commits:** `feat(url4-cloud): enforce benchmark result contract` and
+  `fix(url4-cloud): complete benchmark result invariants`.
 - **Gates:** `ruff check`, `ruff format --check`, Pyright, layering, and the coverage gate pass;
-  1,361 URL4 Cloud tests pass with 5 existing skips. The append-only policy check is intentionally
-  skipped because this pre-release task replaces assertions for the old partial v1 contract rather
-  than retaining that behavior through compatibility tests.
+  the focused cross-Benchmark contract suite passes 124 tests. The append-only policy check is
+  intentionally skipped because this pre-release task replaces assertions for the old partial v1
+  contract rather than retaining that behavior through compatibility tests.
 - **Deviations:** Existing tests were edited where they asserted the deliberately replaced
   unreleased v1 shape or partial-scoring policy. No compatibility implementation was added.

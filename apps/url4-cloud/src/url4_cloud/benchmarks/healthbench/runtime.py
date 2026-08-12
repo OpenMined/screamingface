@@ -156,7 +156,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
             case_id = _positive_case_id(request.intent)
             output, finish_reason, refusal = decode_candidate_invocation(request.context)
             if refusal is not None:
-                raise ProviderRefusal(refusal)
+                raise ProviderRefusal(refusal, finish_reason=finish_reason)
             raw_cases = _read(root / "cases.json", "HealthBench cases")
             transcript = _transcript(raw_cases, case_id)
             items = _rubric_items(root, case_id)

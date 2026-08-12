@@ -563,7 +563,11 @@ def _reduced_rows(
     return expr(
         src(row_set, name="rows", weight=0.0),
         src(
-            RelExpr(path=aggregate_route, context="$rows", intent=Text("aggregate")),
+            RelExpr(
+                path=aggregate_route,
+                context="$rows",
+                intent=Text(f"aggregate:{case_count}"),
+            ),
             name="result",
             weight=0.0,
         ),

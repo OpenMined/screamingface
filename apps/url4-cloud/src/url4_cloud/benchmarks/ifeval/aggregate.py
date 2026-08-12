@@ -20,9 +20,13 @@ from typing import Any
 
 from url4_cloud.benchmarks.aggregation import (
     CandidateScore,
+    SelectedCase,
     collected_provider_refusal,
+    failed_case_result,
     finalize_candidate_result,
+    public_error,
     refused_case_result,
+    scored_case_result,
 )
 from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
@@ -43,6 +47,8 @@ def aggregate(
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
     case_order: Sequence[int],
+    *,
+    selected_case_count: int,
 ) -> dict[str, Any]:
     """Reduce the row array into a `CandidateResult` — exactly one entry per row.
 
@@ -53,35 +59,23 @@ def aggregate(
     """
 
     rows = _rows(rows_json)
+    selected = _selected_cases(specs, case_order, selected_case_count)
+    _reject_surplus_rows(rows, selected)
     case_results: list[CaseResult] = []
-    for index, (raw, case_id) in enumerate(
-        zip(rows, _selected_case_ids(rows, specs, case_order), strict=True)
-    ):
+    for index, raw in enumerate(rows):
+        selected_case = selected[index]
+        case_id = int(selected_case.case_id)
         spec = specs[case_id]
         record = _first_valid_record(raw, case_id, spec)
         if record is None:
-            case_results.append(_failed_case_result(raw, index, case_id, spec))
+            case_results.append(_failed_case_result(raw, index, selected_case))
             continue
-        case_results.append(_case_result(case_id, spec, record))
+        case_results.append(_case_result(selected_case, record))
     return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=IFEVAL_REVISION,
+        selected_cases=selected,
         cases=case_results,
-        scorer=_ifeval_score,
-    ).as_payload()
-
-
-def _unscored_result(
-    benchmark_id: str,
-    benchmark_revision: str,
-    cases: Sequence[CaseResult],
-) -> dict[str, Any]:
-    """Return the complete Evaluation record without fabricating an aggregate score."""
-
-    return finalize_candidate_result(
-        benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        cases=cases,
         scorer=_ifeval_score,
     ).as_payload()
 
@@ -89,50 +83,40 @@ def _unscored_result(
 def _failed_case_result(
     row: Any,
     row_index: int,
-    case_id: int,
-    spec: Mapping[str, Any],
+    selected_case: SelectedCase,
 ) -> CaseResult:
     """Retain one selected Case whose Candidate Invocation or Grading failed."""
 
     if refusal := collected_provider_refusal(row):
         return refused_case_result(
-            case_id=case_id,
-            input=spec["prompt"],
-            refusal=refusal,
+            selected_case=selected_case,
+            refusal=refusal.text,
+            finish_reason=refusal.finish_reason,
             metadata={"row_index": row_index},
         )
 
     error = row.get("error") if isinstance(row, Mapping) else None
     error = error if isinstance(error, Mapping) else {}
-    kind = _bounded_text(error.get("kind"), 80)
-    code = _bounded_text(error.get("code"), 80) or "invalid_case_evaluation"
-    message = _bounded_text(error.get("message"), 200) or (
-        "the Case produced no valid IFEval evaluation record"
+    diagnostic = public_error(
+        error,
+        default_code="invalid_case_evaluation",
+        default_message="the Case produced no valid IFEval evaluation record",
     )
     metadata: dict[str, Any] = {"row_index": row_index}
-    if kind is not None:
-        metadata["error_kind"] = kind
-    return CaseResult.model_validate(
-        {
-            "status": "failed",
-            "case_id": case_id,
-            "input": spec["prompt"],
-            "output": None,
-            "finish_reason": None,
-            "refusal": None,
-            "grade": None,
-            "failures": [
-                {
-                    "stage": _failure_stage(code),
-                    "code": code,
-                    "message": message,
-                    "retryable": _retryable(error),
-                    "case_id": case_id,
-                    "metadata": metadata,
-                }
-            ],
-            "metadata": {},
-        }
+    if diagnostic.kind is not None:
+        metadata["error_kind"] = diagnostic.kind
+    return failed_case_result(
+        selected_case=selected_case,
+        failures=[
+            {
+                "stage": _failure_stage(diagnostic.code),
+                "code": diagnostic.code,
+                "message": diagnostic.message,
+                "retryable": diagnostic.retryable,
+                "case_id": selected_case.case_id,
+                "metadata": metadata,
+            }
+        ],
     )
 
 
@@ -142,26 +126,14 @@ def _failure_stage(code: str) -> str:
     )
 
 
-def _retryable(error: Mapping[str, Any]) -> bool | None:
-    retryable = error.get("retryable")
-    if isinstance(retryable, bool):
-        return retryable
-    permanent = error.get("permanent")
-    return not permanent if isinstance(permanent, bool) else None
-
-
-def _bounded_text(value: object, limit: int) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    return " ".join(value.split())[:limit]
-
-
 def aggregate_corrective(
     rows_json: str,
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
     benchmark_revision: str,
     case_order: Sequence[int],
+    *,
+    selected_case_count: int,
     max_attempts: int = 3,
 ) -> dict[str, Any]:
     """Reduce corrective-chain rows — one scored entry per case, pass@attempt metrics.
@@ -172,14 +144,16 @@ def aggregate_corrective(
     """
 
     rows = _rows(rows_json)
+    selected = _selected_cases(specs, case_order, selected_case_count)
+    _reject_surplus_rows(rows, selected)
     case_results: list[CaseResult] = []
-    for index, (raw, case_id) in enumerate(
-        zip(rows, _selected_case_ids(rows, specs, case_order), strict=True)
-    ):
+    for index, raw in enumerate(rows):
+        selected_case = selected[index]
+        case_id = int(selected_case.case_id)
         spec = specs[case_id]
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
-            case_results.append(_failed_case_result(raw, index, case_id, spec))
+            case_results.append(_failed_case_result(raw, index, selected_case))
             continue
         earliest_pass = min(
             (attempt for attempt, record in records.items() if all(record["strict"])),
@@ -188,8 +162,7 @@ def aggregate_corrective(
         selected_attempt = earliest_pass or max(records)
         case_results.append(
             _corrective_case(
-                case_id,
-                spec,
+                selected_case,
                 records,
                 selected_attempt,
                 earliest_pass,
@@ -198,9 +171,17 @@ def aggregate_corrective(
     return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
+        selected_cases=selected,
         cases=case_results,
         scorer=lambda cases: _ifeval_score(cases, max_attempts=max_attempts),
     ).as_payload()
+
+
+def _reject_surplus_rows(rows: Sequence[Any], selected: Sequence[SelectedCase]) -> None:
+    if len(rows) > len(selected):
+        raise AggregateError(
+            f"aggregate received {len(rows)} rows for {len(selected)} selected Cases"
+        )
 
 
 def _attempt_records(
@@ -241,14 +222,13 @@ def _attempt_records(
 
 
 def _corrective_case(
-    case_id: int,
-    spec: Mapping[str, Any],
+    selected_case: SelectedCase,
     records: Mapping[int, Mapping[str, Any]],
     selected_attempt: int,
     pass_attempt: int,
 ) -> CaseResult:
     selected = records[selected_attempt]
-    result = _case_result(case_id, spec, selected)
+    result = _case_result(selected_case, selected)
     return result.model_copy(
         update={
             "metadata": {
@@ -331,36 +311,38 @@ def _rows(rows_json: str) -> list[Any]:
         raise AggregateError(f"reducer payload is not JSON: {exc}") from None
     if not isinstance(rows, list):
         raise AggregateError(f"reducer payload must be a JSON array, got {type(rows).__name__}")
-    if not rows:
-        raise AggregateError("no IFEval rows were produced; the Candidate cannot be scored")
     return rows
 
 
-def _selected_case_ids(
-    rows: Sequence[Any],
+def _selected_cases(
     specs: Mapping[int, Mapping[str, Any]],
     case_order: Sequence[int],
-) -> list[int]:
-    """The prefix of installed Cases selected by the Benchmark's `limit` slice.
+    selected_case_count: int,
+) -> list[SelectedCase]:
+    """The exact installed Case prefix authored into the Benchmark URL4.
 
-    The slice walks ``cases.json`` in file order, so the id for collected row N is
-    ``case_order[N]``. Ids are official keys — sorting them would grade rows against
-    the wrong specs.
+    The slice walks ``cases.json`` in file order. Ids are official keys — sorting
+    them would grade rows against the wrong specs.
     """
 
-    if len(rows) > len(case_order):
-        raise AggregateError(
-            f"reducer carried {len(rows)} rows but only {len(case_order)} IFEval cases "
-            "are installed"
-        )
-    selected = list(case_order[: len(rows)])
+    if (
+        isinstance(selected_case_count, bool)
+        or not isinstance(selected_case_count, int)
+        or selected_case_count < 1
+        or selected_case_count > len(case_order)
+    ):
+        raise AggregateError(f"selected_case_count must be between 1 and {len(case_order)}")
+    selected = list(case_order[:selected_case_count])
     missing = [case_id for case_id in selected if case_id not in specs]
     if missing:
         raise AggregateError(
             f"cases.json selects case ids {missing} that have no installed instruction "
             "spec; the installed IFEval assets are incomplete"
         )
-    return selected
+    return [
+        SelectedCase(case_id=case_id, input=str(specs[case_id]["prompt"]), metadata={})
+        for case_id in selected
+    ]
 
 
 def _first_valid_record(
@@ -417,50 +399,43 @@ def _record_content(record: Mapping[str, Any], instruction_count: int) -> bool:
     )
 
 
-def _case_result(case_id: int, spec: Mapping[str, Any], record: Mapping[str, Any]) -> CaseResult:
+def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> CaseResult:
     strict = [bool(value) for value in record["strict"]]
     loose = [bool(value) for value in record["loose"]]
     descriptions = record["descriptions"]
     assert isinstance(descriptions, list)
-    return CaseResult.model_validate(
-        {
-            "status": "scored",
-            "case_id": case_id,
-            "input": spec["prompt"],
-            "output": record["answer"],
-            "finish_reason": record["finish_reason"],
-            "refusal": None,
-            "grade": {
-                "method": "deterministic",
-                "score": float(all(strict)),
-                "metrics": {
-                    "follow_all_strict": all(strict),
-                    "follow_all_loose": all(loose),
-                    "strict_checks_passed": sum(strict),
-                    "loose_checks_passed": sum(loose),
-                },
-                "checks": [
-                    {
-                        "type": "instruction",
-                        "id": f"instruction-{index}",
-                        "label": descriptions[index - 1],
-                        # Check-level verdict in the report schema's vocabulary; the strict
-                        # verifier decides it, matching the headline score. Without it a
-                        # reader must dig into evidence, and the SDK renders the check as
-                        # unjudged.
-                        "outcome": "MET" if strict[index - 1] else "UNMET",
-                        "evidence": [
-                            _verification_evidence(1, "strict", strict[index - 1]),
-                            _verification_evidence(2, "loose", loose[index - 1]),
-                        ],
-                        "metadata": {"instruction_index": index},
-                    }
-                    for index in range(1, len(strict) + 1)
-                ],
+    return scored_case_result(
+        selected_case=selected_case,
+        output=str(record["answer"]),
+        finish_reason=record["finish_reason"],
+        grade={
+            "method": "deterministic",
+            "score": float(all(strict)),
+            "metrics": {
+                "follow_all_strict": all(strict),
+                "follow_all_loose": all(loose),
+                "strict_checks_passed": sum(strict),
+                "loose_checks_passed": sum(loose),
             },
-            "failures": [],
-            "metadata": {},
-        }
+            "checks": [
+                {
+                    "type": "instruction",
+                    "id": f"instruction-{index}",
+                    "label": descriptions[index - 1],
+                    # Check-level verdict in the report schema's vocabulary; the strict
+                    # verifier decides it, matching the headline score. Without it a
+                    # reader must dig into evidence, and the SDK renders the check as
+                    # unjudged.
+                    "outcome": "MET" if strict[index - 1] else "UNMET",
+                    "evidence": [
+                        _verification_evidence(1, "strict", strict[index - 1]),
+                        _verification_evidence(2, "loose", loose[index - 1]),
+                    ],
+                    "metadata": {"instruction_index": index},
+                }
+                for index in range(1, len(strict) + 1)
+            ],
+        },
     )
 
 

@@ -10,6 +10,7 @@ from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_criterion_evaluation,
 )
 from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
+from url4_cloud.benchmarks.errors import ProviderRefusal
 
 _RUBRIC = {
     "sections": [
@@ -109,10 +110,33 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
     }
 
 
+def test_a_missing_selected_row_is_retained_and_invalidates_the_score() -> None:
+    result = agg.aggregate(
+        json.dumps([_scored_row(1)]),
+        {1: _RUBRIC, 2: _RUBRIC},
+        "draco",
+        selected_cases=_selected(1, 2),
+        judge_passes=1,
+    )
+
+    assert result["score"] is None
+    assert [case["case_id"] for case in result["cases"]] == [1, 2]
+    assert result["cases"][1]["failures"][0]["code"] == "case_result_missing"
+
+
 def test_provider_refusal_is_retained_exactly_and_skips_grading() -> None:
     exact = "I can’t answer that request."
     result = agg.aggregate(
-        json.dumps([{"error": {"kind": "ProviderRefusal", "message": exact}}]),
+        json.dumps(
+            [
+                {
+                    "error": {
+                        "kind": "ProviderRefusal",
+                        "message": str(ProviderRefusal(exact, finish_reason="content_filter")),
+                    }
+                }
+            ]
+        ),
         {1: _RUBRIC},
         "draco",
         selected_cases=_selected(1),
@@ -124,6 +148,7 @@ def test_provider_refusal_is_retained_exactly_and_skips_grading() -> None:
     assert result["metrics"] == {}
     assert case["status"] == "refused"
     assert case["refusal"] == exact
+    assert case["finish_reason"] == "content_filter"
     assert case["grade"] is None
     assert case["failures"][0]["code"] == "provider_refusal"
 

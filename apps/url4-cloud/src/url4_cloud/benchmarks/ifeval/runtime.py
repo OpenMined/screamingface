@@ -92,7 +92,7 @@ def _check(root: Path):
             case_id, attempt = _case_and_attempt(request.intent)
             answer, finish_reason, refusal = decode_candidate_invocation(request.context)
             if refusal is not None:
-                raise ProviderRefusal(refusal)
+                raise ProviderRefusal(refusal, finish_reason=finish_reason)
             spec, result, violations = _verification(root, case_id, answer)
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
@@ -190,14 +190,14 @@ def _verification(
 
 def _aggregate(root: Path):
     def aggregate(request: Request) -> str:
-        if request.intent != "aggregate":
-            raise _unsupported("IFEval aggregation", request.intent)
         try:
+            case_order = scoring.load_case_order(root)
             result = scoring.aggregate(
                 request.context,
                 scoring.load_specs(root / "instructions"),
                 BENCHMARK_ID,
-                scoring.load_case_order(root),
+                case_order,
+                selected_case_count=_aggregate_case_count(request.intent, len(case_order)),
             )
         except (OSError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
@@ -208,15 +208,15 @@ def _aggregate(root: Path):
 
 def _aggregate_corrective(root: Path, benchmark_id: str, benchmark_revision: str):
     def aggregate(request: Request) -> str:
-        if request.intent != "aggregate":
-            raise _unsupported("IFEval corrective aggregation", request.intent)
         try:
+            case_order = scoring.load_case_order(root)
             result = scoring.aggregate_corrective(
                 request.context,
                 scoring.load_specs(root / "instructions"),
                 benchmark_id,
                 benchmark_revision,
-                scoring.load_case_order(root),
+                case_order,
+                selected_case_count=_aggregate_case_count(request.intent, len(case_order)),
                 max_attempts=MAX_ATTEMPTS,
             )
         except (OSError, ValueError) as exc:
@@ -224,6 +224,18 @@ def _aggregate_corrective(root: Path, benchmark_id: str, benchmark_revision: str
         return _json(result)
 
     return aggregate
+
+
+def _aggregate_case_count(intent: str, available: int) -> int:
+    operation, separator, raw_count = (intent or "").partition(":")
+    if operation != "aggregate" or not separator:
+        raise _unsupported("IFEval aggregation", intent)
+    count = _positive_int(raw_count, "selected Case count")
+    if count > available:
+        raise _unavailable(
+            f"IFEval aggregation selected {count} Cases but only {available} are installed"
+        )
+    return count
 
 
 def _lanl_intent(intent: str) -> tuple[str, int, int]:

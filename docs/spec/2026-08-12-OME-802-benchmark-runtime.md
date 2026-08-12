@@ -53,6 +53,9 @@ Do not add a route solely to wrap one Python helper that URL4 does not need to a
 - provider `finish_reason: str | null`
 - exact provider `refusal: str | null`
 
+`finish_reason` is open non-blank provider text, not an SDK-owned enum. A new provider reason must
+survive the wire unchanged rather than requiring an Engine release.
+
 A Benchmark adapter must never turn a refusal into an incorrect answer or discard its exact text.
 The adapter converts it into a refused Case Result and skips grading for that Case. It does not
 silently inject the Benchmark evaluator into Candidate construction.
@@ -86,10 +89,14 @@ non-boolean integer so future Benchmarks do not have to renumber official identi
   Evidence retains its rejection metadata.
 - A `CaseGrade` names the method, carries an optional score, open metrics, and ordered Checks.
 - Metadata and Benchmark-specific metrics stay open JSON mappings; structural envelope keys are
-  closed and unknown fields fail producer construction.
+  closed and unknown fields fail producer construction. “JSON” is enforced at producer
+  construction: sets, custom objects, non-finite floats, and other non-wire values fail there.
 
-Private rubrics, reference answers, credentials, hidden reasoning, and stack traces never enter
-the public result merely because the producer models can represent open metadata.
+Public Benchmark criteria, scoring weights, Judge evidence, and bounded operational diagnostics
+remain available so a Client can explain every outcome. Credentials, genuinely non-public answer
+keys, hidden reasoning, stack traces, and internal filesystem paths never enter the public result
+merely because the producer models can represent open metadata. Failures retain safe codes and
+messages; sensitive implementation detail is sanitized rather than all diagnostics being removed.
 
 ## Fail-closed finalization
 
@@ -107,6 +114,12 @@ Results, optional Candidate-level Failures, and one scorer adapter.
 Canonical Benchmarks therefore fail closed on any missing required Case. If a future official
 Benchmark explicitly permits partial scoring, that is a different immutable Benchmark protocol
 and requires an explicit finalization policy rather than weakening the default.
+
+“Complete” here means that every selected Case has a numeric score accepted by that Benchmark's
+own protocol; it does not impose universal 100% evaluator-evidence coverage. DRACO, for example,
+accepts a scored Case at its reference 95% Judge-coverage floor and exposes the missing Evidence in
+its metrics. IFEval and HealthBench require complete checks for a scored Case. There is no generic
+`partially_scored` status: rejected partial grading remains auditable with `grade.score: null`.
 
 ## Benchmark adapters
 
@@ -140,4 +153,3 @@ dual writers/readers, or shape inference fallbacks.
 - Dynamic operation occurrence, timing, usage, cost, and cache attribution.
 - Arbitrary user Python and manifest-defined execution graphs.
 - One universal scoring formula that changes published Benchmark semantics.
-

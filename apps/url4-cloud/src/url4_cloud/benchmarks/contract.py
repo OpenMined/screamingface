@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import (
     BaseModel,
@@ -25,7 +25,6 @@ CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
 CANDIDATE_RESULT_SCHEMA = "screamingface.candidate-result.v1"
 CANDIDATE_MESSAGE_ROLES = frozenset({"system", "developer", "user", "assistant"})
-FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter"})
 CaseId = StrictInt | StrictStr
 Outcome = Literal["MET", "UNMET", "PASS", "FAIL"]
 FailureStage = Literal["candidate", "grading", "aggregation"]
@@ -36,6 +35,11 @@ class _StrictWireModel(BaseModel):
     """Closed producer value: every structural wire key is intentional."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
+
+    @field_validator("metadata", "metrics", check_fields=False)
+    @classmethod
+    def _validate_open_json_mapping(cls, value: object) -> object:
+        return _json_value(value)
 
 
 class EvidenceProducer(_StrictWireModel):
@@ -55,6 +59,11 @@ class Evidence(_StrictWireModel):
     explanation: str | None = Field(default=None, exclude_if=lambda value: value is None)
     raw_output: Any
     metadata: dict[str, Any]
+
+    @field_validator("raw_output")
+    @classmethod
+    def _validate_raw_output(cls, value: object) -> object:
+        return _json_value(value)
 
     @model_validator(mode="after")
     def _enforce_validity(self) -> Evidence:
@@ -112,7 +121,7 @@ class Failure(_StrictWireModel):
     @field_validator("case_id")
     @classmethod
     def _validate_case_id(cls, value: CaseId | None) -> CaseId | None:
-        return _case_id(value, optional=True)
+        return validate_case_id(value, optional=True)
 
 
 class CaseResult(_StrictWireModel):
@@ -120,7 +129,7 @@ class CaseResult(_StrictWireModel):
 
     status: CaseStatus
     case_id: CaseId
-    input: str | None
+    input: str = Field(min_length=1)
     output: str | None
     finish_reason: str | None
     refusal: str | None
@@ -131,7 +140,7 @@ class CaseResult(_StrictWireModel):
     @field_validator("case_id")
     @classmethod
     def _validate_case_id(cls, value: CaseId) -> CaseId:
-        validated = _case_id(value)
+        validated = validate_case_id(value)
         assert validated is not None
         return validated
 
@@ -145,9 +154,7 @@ class CaseResult(_StrictWireModel):
     @field_validator("finish_reason")
     @classmethod
     def _validate_finish_reason(cls, value: str | None) -> str | None:
-        if value is not None and value not in FINISH_REASONS:
-            raise ValueError("finish_reason must be a supported provider value or null")
-        return value
+        return validate_finish_reason(value)
 
     @model_validator(mode="after")
     def _enforce_status(self) -> CaseResult:
@@ -157,11 +164,13 @@ class CaseResult(_StrictWireModel):
             if (
                 self.grade is None
                 or self.grade.score is None
+                or self.output is None
                 or self.refusal is not None
                 or self.failures
             ):
                 raise ValueError(
-                    "a scored Case requires a numeric grade and cannot carry refusal or failures"
+                    "a scored Case requires output and a numeric grade and cannot carry refusal "
+                    "or failures"
                 )
             return self
         if self.status == "refused":
@@ -280,7 +289,7 @@ def _candidate_outcome(result: CandidateResult) -> None:
     _canonical_metrics(result.metrics)
 
 
-def _case_id(value: CaseId | None, *, optional: bool = False) -> CaseId | None:
+def validate_case_id(value: CaseId | None, *, optional: bool = False) -> CaseId | None:
     if value is None and optional:
         return None
     if isinstance(value, bool) or not isinstance(value, int | str):
@@ -288,6 +297,37 @@ def _case_id(value: CaseId | None, *, optional: bool = False) -> CaseId | None:
     if isinstance(value, str) and not value.strip():
         raise ValueError("case_id must be a non-boolean integer or non-blank string")
     return value
+
+
+def validate_finish_reason(value: object) -> str | None:
+    """Preserve any non-blank provider finish reason without freezing its vocabulary."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("finish_reason must be non-empty provider text or null")
+    return value
+
+
+def _json_value(value: object) -> object:
+    if not _is_json_value(value):
+        raise ValueError("open wire fields must contain JSON values")
+    return value
+
+
+def _is_json_value(value: object) -> bool:
+    value_type = type(value)
+    valid = value is None or value_type in {str, bool, int}
+    if value_type is float:
+        valid = math.isfinite(cast(float, value))
+    elif value_type is list:
+        valid = all(_is_json_value(item) for item in cast(list[object], value))
+    elif value_type is dict:
+        valid = all(
+            type(key) is str and _is_json_value(item)
+            for key, item in cast(dict[object, object], value).items()
+        )
+    return valid
 
 
 def _finite_score(value: object) -> object:
@@ -343,12 +383,7 @@ def _validate_candidate_invocation(
 ) -> None:
     if not isinstance(output, str):
         raise ValueError("Candidate Invocation output must be text")
-    if finish_reason is not None and (
-        not isinstance(finish_reason, str) or finish_reason not in FINISH_REASONS
-    ):
-        raise ValueError(
-            "Candidate Invocation finish_reason must be a supported provider value or null"
-        )
+    validate_finish_reason(finish_reason)
     if refusal is not None and (not isinstance(refusal, str) or not refusal.strip()):
         raise ValueError("Candidate Invocation refusal must be non-empty text or null")
 
@@ -360,7 +395,7 @@ __all__ = [
     "CANDIDATE_MESSAGE_ROLES",
     "CANDIDATE_RESULT_SCHEMA",
     "CANDIDATE_ROUTE",
-    "FINISH_REASONS",
+    "CaseId",
     "CaseGrade",
     "CaseResult",
     "CandidateResult",
@@ -370,4 +405,6 @@ __all__ = [
     "Failure",
     "decode_candidate_invocation",
     "encode_candidate_invocation",
+    "validate_case_id",
+    "validate_finish_reason",
 ]

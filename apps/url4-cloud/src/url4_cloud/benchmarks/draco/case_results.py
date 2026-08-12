@@ -5,6 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from url4_cloud.benchmarks.aggregation import (
+    SelectedCase,
+)
+from url4_cloud.benchmarks.aggregation import (
+    failed_case_result as build_failed_case_result,
+)
+from url4_cloud.benchmarks.aggregation import (
+    scored_case_result as build_scored_case_result,
+)
+from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.draco.errors import AggregateError
 from url4_cloud.benchmarks.draco.scoring import flatten_criteria, score_case
 from url4_cloud.benchmarks.draco.validation import optional_integer
@@ -66,7 +76,7 @@ def scored_case_result(
     verdicts: Sequence[Mapping[str, Any]],
     judge_passes: int,
     criterion_count: int | None,
-) -> dict[str, Any]:
+) -> CaseResult:
     """Build one scored or coverage-failed Case Result."""
     case_id, criteria_expected = _expected_criteria(case_record, rubric, criterion_count)
     expected = criteria_expected * judge_passes
@@ -126,7 +136,7 @@ def incomplete_case_result(
     judge_passes: int,
     criterion_count: int | None,
     failure: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> CaseResult:
     """Retain auditable grading material when no Judge Evidence was scoreable."""
     case_id, criteria_expected = _expected_criteria(case_record, rubric, criterion_count)
     verdicts_expected = criteria_expected * judge_passes
@@ -159,38 +169,22 @@ def incomplete_case_result(
 
 def failed_selected_case_result(
     selected_case: Mapping[str, Any], failure: Mapping[str, Any]
-) -> dict[str, Any]:
+) -> CaseResult:
     """Represent a selected Case that never produced a Candidate answer."""
-    return {
-        "status": "failed",
-        "case_id": int(selected_case["id"]),
-        "input": selected_case["input"],
-        "output": None,
-        "finish_reason": None,
-        "refusal": None,
-        "grade": None,
-        "failures": [dict(failure)],
-        "metadata": {
-            key: value for key, value in selected_case.items() if key not in {"id", "input"}
-        },
-    }
+    return build_failed_case_result(
+        selected_case=_selected_case(selected_case, id_key="id"),
+        failures=[failure],
+    )
 
 
-def ungraded_case_result(
-    case_record: Mapping[str, Any], failure: Mapping[str, Any]
-) -> dict[str, Any]:
+def ungraded_case_result(case_record: Mapping[str, Any], failure: Mapping[str, Any]) -> CaseResult:
     """Retain an observed Candidate answer when private grading material is unavailable."""
-    return {
-        "status": "failed",
-        "case_id": int(case_record["case_id"]),
-        "input": case_record["input"],
-        "output": case_record["output"],
-        "finish_reason": case_record["finish_reason"],
-        "refusal": None,
-        "grade": None,
-        "failures": [dict(failure)],
-        "metadata": case_record.get("metadata", {}),
-    }
+    return build_failed_case_result(
+        selected_case=_selected_case(case_record, id_key="case_id"),
+        failures=[failure],
+        output=str(case_record["output"]),
+        finish_reason=_finish_reason(case_record.get("finish_reason")),
+    )
 
 
 def _expected_criteria(
@@ -214,24 +208,44 @@ def _case_result(
     metrics: Mapping[str, Any],
     checks: Sequence[Mapping[str, Any]],
     failures: Sequence[Mapping[str, Any]],
-) -> dict[str, Any]:
+) -> CaseResult:
     """Assemble the shared Case Result envelope once."""
-    return {
-        "status": "scored" if score is not None and not failures else "failed",
-        "case_id": int(case_record["case_id"]),
-        "input": case_record["input"],
-        "output": case_record["output"],
-        "finish_reason": case_record["finish_reason"],
-        "refusal": None,
-        "grade": {
-            "method": "rubric",
-            "score": score,
-            "metrics": dict(metrics),
-            "checks": [dict(check) for check in checks],
-        },
-        "failures": [dict(failure) for failure in failures],
-        "metadata": case_record.get("metadata", {}),
+    selected = _selected_case(case_record, id_key="case_id")
+    output = str(case_record["output"])
+    finish_reason = _finish_reason(case_record.get("finish_reason"))
+    grade = {
+        "method": "rubric",
+        "score": score,
+        "metrics": dict(metrics),
+        "checks": [dict(check) for check in checks],
     }
+    if score is not None and not failures:
+        return build_scored_case_result(
+            selected_case=selected,
+            output=output,
+            finish_reason=finish_reason,
+            grade=grade,
+        )
+    return build_failed_case_result(
+        selected_case=selected,
+        failures=failures,
+        output=output,
+        finish_reason=finish_reason,
+        grade=grade,
+    )
+
+
+def _selected_case(record: Mapping[str, Any], *, id_key: str) -> SelectedCase:
+    metadata = record.get("metadata")
+    return SelectedCase(
+        case_id=int(record[id_key]),
+        input=str(record["input"]),
+        metadata=dict(metadata) if isinstance(metadata, Mapping) else {},
+    )
+
+
+def _finish_reason(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _checks(

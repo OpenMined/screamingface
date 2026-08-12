@@ -207,7 +207,7 @@ def _task_rows(
             case_id = tasks.positive_case_id(request.intent)
             output, finish_reason, refusal = decode_candidate_invocation(request.context)
             if refusal is not None:
-                raise ProviderRefusal(refusal)
+                raise ProviderRefusal(refusal, finish_reason=finish_reason)
             raw_cases = _read(root / "cases.json", "DRACO cases")
             criteria = tasks.load_criteria(root / "criteria", case_id)
             rubric = _object(
