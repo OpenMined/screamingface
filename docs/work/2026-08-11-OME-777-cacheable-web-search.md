@@ -263,16 +263,37 @@ Every unit got smaller than specified, and in each case the guard rails were wha
 Three separate mechanisms each caught a different error before it reached `main`. The deferred
 provider work (`OME-787`…`OME-792`) exists because one of them fired.
 
-### Open items
+### Open items — resolved 2026-08-11
 
-- **`OME-779`/`OME-780`** — superseded by the no-TTL decision. `OME-779` retains standalone value
-  reduced to reporting `Age` alone (no TTL): that would let freshness-bounded url4-cloud runs use
-  the cache at all, rather than collapsing their bound into an opt-out. Worth keeping as an
-  enhancement outside this epic.
-- **`OME-783`** — a url4-cloud Tavily retrieval cache is a **new** cache, not the existing one, and
-  would be unsafe without expiry (nothing there mirrors aigateway's opt-out escape hatch). Needs an
-  explicit owner call before starting.
-- **Not merged.** Branch `OME-777-cacheable-web-search` is unpushed; no PR opened.
+**`OME-779` / `OME-780` — kept, rescoped to `Age` reporting only.** Stripped of the TTL, `OME-779`
+becomes **entirely read-side**: emit `Age` from the existing `created_at`, widen the closed grammar
+to accept `max-age`, and decline to serve a row older than a caller's stated bound. That is
+*filtering at read time*, not expiry — nothing is written, nothing is deleted, and `expires_at`
+stays `NULL` on every row.
+
+Two consequences, both good:
+
+- **No model change, no migration, no queryset mutation** — so the `tortoise-dev` companion is
+  likely not required after all. Confirm at DESIGN and record the assessment rather than invoking
+  it reflexively.
+- The usage-replay question stops blocking that unit, since it touches no write path. It remains
+  open at the epic level and is recorded above.
+
+`OME-780` shrinks to connecting two halves that already exist: url4-cloud's honouring logic is
+fully written and unreachable only because `GATEWAY_REPORTS_AGE` is `False`. Its own source says so.
+The payoff is real — today a freshness-bounded run collapses into a **full cache opt-out**, so it
+gets no benefit from anything this epic landed.
+
+**`OME-783` — deferred, not cancelled, with the reasoning recorded on the ticket.** The argument for
+it was that Tavily calls never traverse aigateway, so `OME-782` only ever caches turn 1 of the loop.
+True — but `OME-781` made the alternative path a **single fully-cacheable request**, and
+`runner/connector.py` already selects it whenever `spec.native_web_search` holds. A second cache is
+therefore only worth its correctness burden if the tool-loop path proves hot for models lacking
+native search, which nobody has measured. Building it now would be speculative work; it is the one
+place in the epic where expiry would not be optional, since url4-cloud offers callers no opt-out
+escape hatch.
+
+**Not merged.** Branch `OME-777-cacheable-web-search` is unpushed; no PR opened.
 
 ### Reviewer must-reads
 
