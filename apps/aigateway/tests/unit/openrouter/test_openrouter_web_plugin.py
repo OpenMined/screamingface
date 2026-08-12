@@ -175,9 +175,14 @@ def test_unproven_server_tool_types_stay_unadvertised() -> None:
 
 
 def test_true_becomes_the_providers_web_plugin() -> None:
+    """WHY the absence of `engine` is load-bearing (OME-800): OpenRouter falls back
+    native-or-Exa ONLY while `engine` is unspecified. Naming `native` forces the model's
+    built-in search even for a model that has none, which errors — and that made "this
+    provider searches natively" a per-MODEL fact every consumer had to carry as its own list.
+    """
     out = _prepared({"web_search": True})
 
-    assert out["plugins"] == [{"id": "web", "engine": "native"}]
+    assert out["plugins"] == [{"id": "web"}]
 
 
 def test_the_caller_facing_keys_never_reach_the_wire() -> None:
@@ -207,9 +212,7 @@ def test_web_search_reaches_dispatch_through_the_real_route_pipeline(
     assert response.status_code == 200, response.text
     assert "web_search" not in captured
     assert "web_search_excluded_domains" not in captured
-    assert captured["plugins"] == [
-        {"id": "web", "engine": "native", "exclude_domains": ["rubric.test"]}
-    ]
+    assert captured["plugins"] == [{"id": "web", "exclude_domains": ["rubric.test"]}]
 
 
 def test_false_and_absent_both_send_no_plugin() -> None:

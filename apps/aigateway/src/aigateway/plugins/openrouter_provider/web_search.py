@@ -15,7 +15,15 @@ WEB_SEARCH_EXCLUDED_DOMAINS_PARAM = "web_search_excluded_domains"
 EXCLUDE_DOMAINS_KEY = "exclude_domains"
 """OpenRouter web-plugin spelling; its server-tool surface uses a different field name."""
 
-_WEB_SEARCH_POLICY: dict[str, object] = {"id": "web", "engine": "native"}
+_WEB_SEARCH_POLICY: dict[str, object] = {"id": "web"}
+"""The web plugin, with the engine deliberately UNSET.
+
+INVARIANT (OME-800): never name an `engine` here. OpenRouter selects the model's built-in
+search when it has one and falls back to Exa when it does not — but only while `engine` is
+unspecified. Naming `native` forces the built-in path even for a model that has none, which
+errors, and turns "this provider searches natively" into a per-MODEL fact every consumer has
+to track as its own list. `apps/url4-cloud` used to carry exactly that list.
+"""
 
 
 def apply_web_search(body: dict[str, Any]) -> None:

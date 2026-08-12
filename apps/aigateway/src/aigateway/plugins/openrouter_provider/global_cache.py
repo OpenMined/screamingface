@@ -58,7 +58,12 @@ from .settings import (
 # never part of any prior revision's contract for this key path. Abandoning the whole
 # generation here is the same discipline as every other adapter-revision bump: readers must
 # never be served an entry keyed under a semantics this module no longer implements.
-GLOBAL_CACHE_ADAPTER_REVISION = "openrouter-global-cache-2026-08c"
+#
+# 08d (OME-800): `apply_web_search` stopped naming the search engine, so the envelope this
+# key path projects changed shape. Entries written while `engine: "native"` was forced
+# describe a request this module no longer sends — a different upstream retrieval path, and
+# for models without built-in search, one that erred rather than answering.
+GLOBAL_CACHE_ADAPTER_REVISION = "openrouter-global-cache-2026-08d"
 
 
 def project_global_cache_request(body: dict[str, Any]) -> dict[str, Any] | CacheBypass:

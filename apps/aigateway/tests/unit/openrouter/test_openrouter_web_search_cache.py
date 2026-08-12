@@ -150,7 +150,7 @@ def test_a_literal_true_does_emit_the_envelope() -> None:
     # The other half: the parametrized test above must not be passing because the
     # envelope is never emitted at all.
     prepared = _plugin().prepare_chat_body(_body(web_search=True))
-    assert prepared["plugins"] == [{"id": "web", "engine": "native"}]
+    assert prepared["plugins"] == [{"id": "web"}]
 
 
 def test_a_request_with_no_search_field_projects_without_an_envelope() -> None:
@@ -358,9 +358,7 @@ def test_a_web_search_request_now_uses_the_cache_through_the_real_route(
     # Only ONE real dispatch: the repeat was served from the entry, never re-sent.
     assert len(calls) == 1
     # No deployment list to union with any more — the caller's own list, verbatim.
-    assert calls[0]["plugins"] == [
-        {"id": "web", "engine": "native", "exclude_domains": ["rubric.test"]}
-    ]
+    assert calls[0]["plugins"] == [{"id": "web", "exclude_domains": ["rubric.test"]}]
 
 
 def test_a_bare_request_still_uses_the_cache_through_the_real_route(
