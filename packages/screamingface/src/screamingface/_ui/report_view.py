@@ -92,6 +92,10 @@ _STYLE = (
 .sf-badge--bad{{color:var(--sf-blind);border-color:var(--sf-blind);
   background:var(--sf-blind-bg)}}
 .sf-badge--bad .sq{{background:var(--sf-blind)}}
+/* infra failure is a WARNING state, not a wrong answer — never the incorrect red */
+.sf-badge--warn{{color:var(--sf-warning);border-color:var(--sf-warning-solid);
+  background:var(--sf-warning-bg)}}
+.sf-badge--warn .sq{{background:var(--sf-warning-solid)}}
 .sf-report__pre{{margin:8px 0 0;padding:8px;background:var(--sf-surface);
   border:1px solid var(--sf-line);font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:12px;color:var(--sf-ink-2);white-space:pre-wrap;overflow-wrap:anywhere;
@@ -118,6 +122,8 @@ _STYLE = (
   border:1px solid var(--sf-success);background:var(--sf-success-bg)}}
 .sf-mark--bad{{color:var(--sf-blind);border-color:var(--sf-blind);
   background:var(--sf-blind-bg)}}
+.sf-mark--warn{{color:var(--sf-warning);border-color:var(--sf-warning-solid);
+  background:var(--sf-warning-bg)}}
 .sf-pane{{display:none;padding:12px 14px;min-width:0}}
 .sf-pane__h{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}}
 .sf-pane__q{{font-size:15px;line-height:1.45;color:var(--sf-ink)}}
@@ -266,7 +272,13 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         _cell("score", _percent(candidate.score), score=scored),
         _cell("pass rate", _percent(_metric(metrics, "pass_rate"))),
         _cell("coverage", _percent(_metric(metrics, "coverage"))),
-        _cell("cost", "—" if usage.cost_usd is None else _money(usage.cost_usd)),
+        # WHY (OME-793): the two dash meanings differ — cost is "not reported by this
+        # run" (a pipeline gap), while withheld score/metrics are explained by the strip.
+        _cell(
+            "cost",
+            "—" if usage.cost_usd is None else _money(usage.cost_usd),
+            title="cost not reported by this run" if usage.cost_usd is None else "",
+        ),
         _cell("tokens", _tokens_total(usage)),
         _cell("duration", _duration(candidate.duration_ms)),
     ]
@@ -277,10 +289,31 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         f"<span class='sf-report__run'>{escape(_short(candidate.run_id))}</span></div>"
         f"{_models_html(candidate)}"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
+        f"{_withheld_html(candidate)}"
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
         f"{_recipe_html(candidate)}</div>"
+    )
+
+
+def _withheld_html(candidate: CandidateResult) -> str:
+    """Explain the dashes: B1 withholds ALL metrics when any selected case failed.
+
+    A partial mean over surviving cases would silently drop exactly the hardest rows, so
+    the aggregate publishes nothing — this strip says that instead of leaving bare `—`s
+    (OME-793: three unexplained dashes sent readers hunting a rendering bug).
+    """
+
+    if candidate.score is not None:
+        return ""
+    failed = sum(1 for case in candidate.cases if case.grade is None)
+    if not failed:
+        return ""
+    total = len(candidate.cases)
+    return (
+        f"<div class='sf-report__warn'>score withheld — {failed} of {total} cases failed; "
+        "metrics are published only for fully scored runs.</div>"
     )
 
 
@@ -387,13 +420,14 @@ def _recipe_html(candidate: CandidateResult) -> str:
     )
 
 
-def _cell(key: str, value: str, *, score: bool = False) -> str:
+def _cell(key: str, value: str, *, score: bool = False, title: str = "") -> str:
     """One figure. The score cell is the card's hero — it alone takes the fusion edge."""
 
     cell_class = "sf-report__cell" + (" sf-report__cell--score" if score else "")
     value_class = "sf-report__v" + (" sf-report__v--score" if score else "")
+    title_attr = f" title='{escape(title)}'" if title else ""
     return (
-        f"<div class='{cell_class}'><div class='sf-report__k'>{escape(key)}</div>"
+        f"<div class='{cell_class}'{title_attr}><div class='sf-report__k'>{escape(key)}</div>"
         f"<div class='{value_class}'>{escape(value)}</div></div>"
     )
 
@@ -403,14 +437,58 @@ def _stamp(moment: Any) -> str:
 
 
 def _failures_html(report: Report) -> str:
+    """The failure banner names every failed case — a bare message forces raw-JSON triage.
+
+    Identical failures (same stage · code · message) collapse into ONE line carrying every
+    affected case id, so three dead cases read as one diagnosis, not three mysteries
+    (OME-793: the worst30 fusion incident rendered 3 id-less duplicate lines).
+    """
+
     failures = report.failures
     if not failures:
         return ""
-    lines = "\n".join(
-        f"{getattr(item, 'stage', '?')} · {getattr(item, 'message', item)}" for item in failures
-    )
+    groups: dict[tuple[str, str, str], list[Any]] = {}
+    for item in failures:
+        key = (
+            str(getattr(item, "stage", "?")),
+            str(getattr(item, "code", "") or ""),
+            str(getattr(item, "message", item)),
+        )
+        groups.setdefault(key, []).append(item)
+    lines = "\n".join(_failure_line(key, items) for key, items in groups.items())
     count = f"{len(failures)} failure" + ("" if len(failures) == 1 else "s")
     return f"<div class='sf-report__fail' role='alert'>{escape(count)}\n{escape(lines)}</div>"
+
+
+def _failure_line(key: tuple[str, str, str], items: list[Any]) -> str:
+    stage, code, message = key
+    case_ids = [str(value) for value in (getattr(item, "case_id", None) for item in items) if value]
+    # A failure with no code and no case identity keeps the plain `stage · message` shape.
+    if not code and not case_ids:
+        return f"{stage} · {message}"
+    head = " · ".join(part for part in (stage, code) if part)
+    cases = ""
+    if case_ids:
+        label = "case" if len(case_ids) == 1 else "cases"
+        cases = f" · {label} {', '.join(case_ids)}"
+    underlying = next(
+        (found for found in (_first_collected_error(item) for item in items) if found), ""
+    )
+    return f"{head}{cases} — {message}{underlying}"
+
+
+def _first_collected_error(failure: Any) -> str:
+    """Pull `(Kind: message)` out of a failure's collected_errors metadata, if present."""
+
+    metadata = getattr(failure, "metadata", None)
+    collected = metadata.get("collected_errors") if isinstance(metadata, Mapping) else None
+    first = collected[0] if isinstance(collected, list | tuple) and collected else None
+    error = first.get("error") if isinstance(first, Mapping) else None
+    kind = error.get("kind") if isinstance(error, Mapping) else None
+    message = error.get("message") if isinstance(error, Mapping) else None
+    if not kind and not message:
+        return ""
+    return f" ({kind}: {message})" if kind else f" ({message})"
 
 
 def _cases_html(report: Report) -> str:
@@ -471,21 +549,31 @@ def _group_key(report: Report) -> str:
 
 
 def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who: bool) -> str:
-    passed = _case_passed(case)
-    mark = "sf-mark" + ("" if passed else " sf-mark--bad")
-    glyph = "&check;" if passed else "&times;"
+    state = _case_state(case)
+    # WHY (OME-793): a failed case gets the warning mark, never the incorrect ✗ — the rail
+    # must not present an infra failure as a graded wrong answer.
+    mark = (
+        "sf-mark" + {"passed": "", "incorrect": " sf-mark--bad", "failed": " sf-mark--warn"}[state]
+    )
+    glyph = {"passed": "&check;", "incorrect": "&times;", "failed": "!"}[state]
     who = f" <span class='sf-rail__who'>{escape(candidate.name)}</span>" if show_who else ""
+    preview = _clip(case.input, 90) if case.input is not None else "input unavailable"
     return (
         f"<label class='sf-rail__item' for='{item}'>"
         f"<span class='{mark}' aria-hidden='true'>{glyph}</span>"
         f"<span class='sf-rail__id'>case {case.case_id}</span>{who}"
-        f"<span class='sf-rail__q'>{escape(_clip(case.input, 90))}</span></label>"
+        f"<span class='sf-rail__q'>{escape(preview)}</span></label>"
     )
 
 
 def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
-    passed = _case_passed(case)
-    verdict = _badge("correct" if passed else "incorrect", good=passed)
+    state = _case_state(case)
+    # WHY (OME-793): tri-state verdict — "failed" (warning) is neither correct nor
+    # incorrect; the case was never graded, and the badge must say so.
+    if state == "failed":
+        verdict = _badge("failed", good=False, warn=True)
+    else:
+        verdict = _badge("correct" if state == "passed" else "incorrect", good=state == "passed")
     grade = case.grade
     checks = "".join(_check_html(check) for check in (grade.checks if grade else ()))
     checks_head = (
@@ -508,12 +596,35 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
         for key, value in (case.metadata or {}).items()
     )
     tags_html = f"<div class='sf-chips' style='margin-top:8px'>{tags}</div>" if tags else ""
+    if case.input is not None:
+        question = f"<div class='sf-pane__q'>{escape(_clip(case.input, 600))}</div>"
+    else:
+        # INVARIANT (OME-793): absence is stated, never rendered as an empty body — a
+        # failed case's input was not retained by the Engine (see OME-784 for fixing that).
+        question = (
+            "<div class='sf-pane__q'>input unavailable — "
+            "the case failed before it was recorded</div>"
+        )
     return (
         "<div class='sf-pane'><div class='sf-pane__h'>"
         f"<span class='sf-report__case-id'>case {case.case_id} · "
         f"{escape(candidate.name)}</span>{verdict}{finish_html}</div>{tags_html}"
-        f"<div class='sf-pane__q'>{escape(_clip(case.input, 600))}</div>"
-        f"{answer_html}{checks_head}{checks}</div>"
+        f"{question}{answer_html}{_case_failures_html(case)}{checks_head}{checks}</div>"
+    )
+
+
+def _case_failures_html(case: CaseResult) -> str:
+    """The failure chain IS the failed case's content — stage, code, message, evidence."""
+
+    if not case.failures:
+        return ""
+    lines = "\n".join(
+        f"{failure.stage} · {failure.code} — {failure.message}{_first_collected_error(failure)}"
+        for failure in case.failures
+    )
+    return (
+        "<div class='sf-detail__k'>failures</div>"
+        f"<div class='sf-report__fail'>{escape(lines)}</div>"
     )
 
 
@@ -526,6 +637,18 @@ def _case_passed(case: CaseResult) -> bool:
     if grade.checks:
         return all(_check_good(check) for check in grade.checks)
     return grade.score is not None and grade.score > 0
+
+
+def _case_state(case: CaseResult) -> str:
+    """Tri-state outcome: 'failed' (never graded) is distinct from 'incorrect' (graded, bad).
+
+    INVARIANT (OME-793): grade is None ⇒ the Engine produced no verdict for this case —
+    the model contract guarantees such a case carries failures explaining why.
+    """
+
+    if case.grade is None:
+        return "failed"
+    return "passed" if _case_passed(case) else "incorrect"
 
 
 def _check_good(check: Any) -> bool:
@@ -554,8 +677,8 @@ def _check_html(check: Any) -> str:
     )
 
 
-def _badge(text: str, *, good: bool) -> str:
-    variant = "sf-badge--ok" if good else "sf-badge--bad"
+def _badge(text: str, *, good: bool, warn: bool = False) -> str:
+    variant = "sf-badge--warn" if warn else ("sf-badge--ok" if good else "sf-badge--bad")
     return f"<span class='sf-badge {variant}'><i class='sq'></i>{escape(text)}</span>"
 
 

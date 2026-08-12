@@ -245,6 +245,122 @@ def test_axis_and_grading_details_render_only_meaningful_differences() -> None:
     assert "of 5 verdicts" in grading
 
 
+def multi_case_report(*cases: CaseResult) -> Report:
+    """A Report sized to its cases — Report validation pins case_count to the Benchmark."""
+
+    benchmark = BenchmarkInfo("draco/smoke", "74c94830e8de6afd", len(cases))
+    inner = candidate("open_trio", None, cases=cases)
+    sized = CandidateResult(
+        benchmark=benchmark,
+        run_id=inner.run_id,
+        started_at=_START,
+        completed_at=_END,
+        name=inner.name,
+        kind=inner.kind,
+        url4=inner.url4,
+        models=list(inner.models),
+        operations=list(inner.operations),
+        score=None,
+        metrics={},
+        cases=list(cases),
+        members=[],
+        failures=[],
+        usage=sf.Usage(input_tokens=3449, output_tokens=2340),
+    )
+    return Report(benchmark=benchmark, case_count=len(cases), candidates=[sized])
+
+
+def failed_case(case_id: int = 153) -> CaseResult:
+    """A Case the Engine could not grade — the OME-793 incident shape."""
+
+    return CaseResult(
+        case_id=case_id,
+        input=None,
+        output=None,
+        finish_reason=None,
+        grade=None,
+        failures=[
+            sf.Failure(
+                stage="candidate",
+                code="missing_case_row",
+                message="no evaluation row for this Case reached the aggregate",
+                case_id=case_id,
+                metadata={
+                    "collected_errors": [
+                        {
+                            "error": {
+                                "kind": "ResolutionError",
+                                "message": "malformed aigateway response",
+                            }
+                        }
+                    ]
+                },
+            )
+        ],
+        metadata={},
+    )
+
+
+# WHY (OME-793): an infra failure must never present as a wrong answer — the badge is the
+# first thing a reader trusts, and "incorrect" on a never-graded case misreports the run.
+def test_a_failed_case_is_not_painted_as_incorrect() -> None:
+    html = body(report_html(report(candidate("open_trio", None, cases=(failed_case(),)))))
+
+    assert "failed" in html
+    assert "incorrect" not in html
+    assert "sf-badge--warn" in html
+    assert "sf-mark--warn" in html
+
+
+# INVARIANT (OME-793): the pane must surface the failure chain the report already carries —
+# stage, code, message, and the underlying collected error — not an empty body.
+def test_a_failed_case_pane_shows_the_failure_chain_not_nothing() -> None:
+    html = body(report_html(report(candidate("open_trio", None, cases=(failed_case(),)))))
+
+    assert "missing_case_row" in html
+    assert "no evaluation row for this Case reached the aggregate" in html
+    assert "ResolutionError: malformed aigateway response" in html
+    assert "input unavailable" in html
+
+
+# WHY (OME-793): three identical banner lines with no ids forced readers into raw JSON;
+# grouping keeps the count while naming every case.
+def test_the_failure_banner_names_cases_and_groups_identical_failures() -> None:
+    value = multi_case_report(failed_case(153), failed_case(149), failed_case(418))
+    banner = _failures_html(value)
+
+    assert "3 failures" in banner
+    assert "cases 153, 149, 418" in banner
+    assert "missing_case_row" in banner
+    assert "ResolutionError: malformed aigateway response" in banner
+    # Grouped: the shared message appears ONCE in the banner, not three times.
+    assert banner.count("no evaluation row for this Case reached the aggregate") == 1
+
+
+# WHY (OME-793): a bare dash teaches readers that dashes are meaningless; the withheld
+# score must say it is withheld and why (B1 keeps metrics empty when any case failed).
+def test_an_unscored_candidate_explains_the_withheld_score() -> None:
+    html = body(report_html(multi_case_report(case(), failed_case())))
+
+    assert "score withheld" in html
+    assert "1 of 2 cases failed" in html
+
+
+def test_an_absent_cost_says_it_was_not_reported() -> None:
+    html = body(report_html(report(candidate("m", 0.5))))
+
+    assert "cost not reported" in html
+
+
+def test_a_failure_without_case_id_or_collected_errors_still_renders() -> None:
+    bare = sf.Failure(stage="aggregation", code="orphan_rows", message="rows without a case")
+    html = _failures_html(cast(Report, SimpleNamespace(failures=(bare,))))
+
+    assert "1 failure" in html
+    assert "orphan_rows" in html
+    assert "rows without a case" in html
+
+
 def test_empty_cases_and_untrusted_failures_have_safe_markup() -> None:
     empty_report = cast(Report, SimpleNamespace(candidates=()))
     assert _cases_html(empty_report) == ""
