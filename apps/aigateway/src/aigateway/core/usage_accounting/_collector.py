@@ -100,6 +100,7 @@ class _PendingSend:
     # Held so the correlation key (``id(request)``) cannot be recycled onto a later
     # object while this send is still open.
     request_ref: Any
+    admitted_urls: set[str] = field(default_factory=set)
     redirect_hop_count: int = 0
     resolved: bool = False
     http_status: int | None = None
@@ -177,6 +178,14 @@ class RequestAccountingCollector:
         open_send = self._open_redirecting_send()
         if open_send is not None:
             if self._continues_redirect(open_send, request):
+                request_url = getattr(request, "url", None)
+                if request_url is not None and str(request_url) in open_send.admitted_urls:
+                    # WHY: at this seam a self-redirect is indistinguishable from LiteLLM
+                    # resending any earlier URL in the chain on a replacement client. Keep
+                    # one economic attempt, but do not claim every admission was represented.
+                    self._incomplete = True
+                if request_url is not None:
+                    open_send.admitted_urls.add(str(request_url))
                 open_send.redirect_hop_count += 1
                 open_send.awaiting_redirect_hop = False
                 open_send.expected_redirect_target = None
@@ -203,6 +212,9 @@ class RequestAccountingCollector:
             started_at=time.monotonic(),
             request_ref=request,
         )
+        request_url = getattr(request, "url", None)
+        if request_url is not None:
+            send.admitted_urls.add(str(request_url))
         self._sends.append(send)
         self._by_request[id(request)] = send
 
@@ -420,10 +432,8 @@ class RequestAccountingCollector:
         an extra VISIBLE record (honest over-reporting), never a vanished send.
 
         AIDEV-NOTE: a provider that self-redirects (``Location`` equal to the request URL)
-        is genuinely indistinguishable from a resend of that same URL at this seam, and
-        folds. That direction is chosen on purpose: inflating ``attempts`` on every
-        legitimate self-redirect is a plan §12 stop condition, and this residual case
-        needs evidence the transport does not give the hooks.
+        is genuinely indistinguishable from a resend of that same URL at this seam. It
+        folds to preserve redirect economics, while the caller marks capture incomplete.
         """
         target = open_send.expected_redirect_target
         if target is None:

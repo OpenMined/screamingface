@@ -372,3 +372,43 @@ class TestRedirectTargetMatching:
 
 def test_collector_has_no_dead_request_targeted_failure_surface() -> None:
     assert not hasattr(RequestAccountingCollector, "on_send_failed")
+
+
+def test_self_redirect_fold_marks_capture_partial_when_resend_is_indistinguishable() -> None:
+    # INVARIANT: a self-redirect and a replacement-client resend have the same target at
+    # this seam. Preserve redirect economics, but never claim every admission was counted.
+    collector = _collector()
+    collector.begin_dispatch()
+    first, ambiguous_next_send = _UrlReq(_ORIGIN), _UrlReq(_ORIGIN)
+    collector.on_send_admitted(first)
+    collector.on_redirect_observed(first, target=_ORIGIN)
+    collector.on_send_admitted(ambiguous_next_send)
+    collector.on_response_completed(
+        ambiguous_next_send,
+        status=200,
+        raw_evidence={"id": "gen-1"},
+    )
+
+    (record,) = collector.records()
+    assert record.redirect_hop_count == 1
+    assert collector.status() == "partial"
+
+
+def test_redirect_cycle_marks_capture_partial_when_it_returns_to_original_url() -> None:
+    collector = _collector()
+    collector.begin_dispatch()
+    first, second, ambiguous_third = (
+        _UrlReq(_ORIGIN),
+        _UrlReq(_TARGET),
+        _UrlReq(_ORIGIN),
+    )
+    collector.on_send_admitted(first)
+    collector.on_redirect_observed(first, target=_TARGET)
+    collector.on_send_admitted(second)
+    collector.on_redirect_observed(second, target=_ORIGIN)
+    collector.on_send_admitted(ambiguous_third)
+    collector.on_response_completed(ambiguous_third, status=200, raw_evidence={"id": "gen-1"})
+
+    (record,) = collector.records()
+    assert record.redirect_hop_count == 2
+    assert collector.status() == "partial"

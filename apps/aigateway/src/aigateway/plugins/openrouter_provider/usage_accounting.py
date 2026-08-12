@@ -60,9 +60,9 @@ _COST_DETAIL_FIELDS = {
 def _uncached_input(
     total: int | None, cache_read: int | None, cache_write: int | None
 ) -> int | None:
-    if None in (total, cache_read, cache_write):
+    if total is None or cache_read is None or cache_write is None:
         return None
-    uncached = total - cache_read - cache_write  # type: ignore[operator]
+    uncached = total - cache_read - cache_write
     return uncached if uncached >= 0 else None
 
 

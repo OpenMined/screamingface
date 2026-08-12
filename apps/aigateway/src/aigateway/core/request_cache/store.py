@@ -137,8 +137,8 @@ class TortoiseRequestCacheStore:
                 row.response_json,
                 parse_constant=reject_non_finite,
                 # Keep the persisted lexical value exact until provider accounting has
-                # extracted cost evidence. FastAPI converts Decimal back to a JSON number
-                # only after response metadata has been attached.
+                # extracted cost evidence. The response boundary then restores Decimal
+                # carriers to floats so cached JSON numbers keep their prior wire shape.
                 parse_float=parse_finite_decimal,
             )
             if not isinstance(response, dict):

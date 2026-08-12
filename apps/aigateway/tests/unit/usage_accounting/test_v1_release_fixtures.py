@@ -570,3 +570,44 @@ def test_huggingface_fixtures_prove_canonical_fit_without_claiming_support(
     assert pinned["pricing_context"]["backend"] == "hf-inference-endpoint"
     assert unpinned["pricing_context"]["backend"] is None
     assert HuggingFaceProviderPlugin().usage_accounting_strategy().is_supported is False
+
+
+def test_release_fixture_exercises_private_input_without_publishing_it() -> None:
+    sentinel = "PRIVATE PROMPT"
+    request_body = {
+        "model": "openrouter/fixture-model",
+        "messages": [{"role": "user", "content": sentinel}],
+    }
+    raw_response = {
+        "id": "response-1",
+        "model": "fixture-model",
+        "usage": {"prompt_tokens": 2, "completion_tokens": 1, "cost": "0.001"},
+        "provider_debug": {"prompt": sentinel},
+    }
+    evidence = normalize_openrouter_usage_accounting(
+        request_body=request_body,
+        raw_response=raw_response,
+        final_response=None,
+    )
+    fixture = _render(
+        (
+            _record(
+                1,
+                usage=evidence.usage,
+                pricing_context=evidence.pricing_context,
+                direct_cost=evidence.direct_cost,
+                provider_extensions=evidence.provider_extensions,
+                response_model=evidence.response_model,
+                provider_response_id=evidence.provider_response_id,
+            ),
+        )
+    )
+
+    assert sentinel in json.dumps({"request": request_body, "response": raw_response})
+    assert sentinel not in json.dumps(fixture)
+    Draft202012Validator(_schema()).validate(fixture)
+    canonical = json.dumps(fixture, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    assert (
+        sha256(canonical.encode()).hexdigest()
+        == "10037cb637daefbfc7322723a7fa3f399fd7fd85d0251e536b6ee05f34019ef9"
+    )
