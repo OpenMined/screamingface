@@ -71,6 +71,19 @@ def test_canonical_metrics_must_be_fractions() -> None:
         CandidateResult(**_scored_kwargs(metrics={"pass_rate": 0.5, "coverage": True}))
 
 
+def test_a_negative_score_is_valid_on_the_wire() -> None:
+    """INVARIANT: `score` has NO lower bound — healthbench's unclipped mean goes
+    negative when rubric penalties dominate, and those scores are rankable challenge
+    results. Only the upper bound (1.0) and the trio metrics' [0, 1] range hold."""
+
+    payload = CandidateResult(
+        **_scored_kwargs(score=-3.0, metrics={"pass_rate": 1.0, "coverage": 1.0})
+    ).as_payload()
+    assert payload["score"] == -3.0
+    with pytest.raises(ValidationError):
+        CandidateResult(**_scored_kwargs(score=1.5))
+
+
 def test_an_unscored_result_cannot_carry_metrics() -> None:
     """INVARIANT: score None ⇒ metrics {} — a failed run never publishes a plausible
     partial score (nor plausible partial metrics)."""

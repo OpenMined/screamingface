@@ -9,7 +9,8 @@ import pytest
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
-from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
+from url4_cloud.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from url4_cloud.runner.connector import AigatewayConfig, _messages, build_aigateway_world
 from url4_cloud.world_config import ModelSpec, WorldConfigError
 
 pytestmark = pytest.mark.asyncio
@@ -18,6 +19,40 @@ _TOKEN = "test-token"  # noqa: S105 - not a real credential
 _TAVILY_TOKEN = "tvly-test"  # noqa: S105 - not a real credential
 
 _FANOUT = "(/openrouter/gpt-4o(ctx)!probe)!combine"
+
+
+async def test_candidate_chat_envelopes_preserve_native_message_roles() -> None:
+    context = json.dumps(
+        {
+            "schema": CANDIDATE_INPUT_SCHEMA,
+            "messages": [
+                {"role": "user", "content": "Initial symptom"},
+                {"role": "assistant", "content": "When did it begin?"},
+                {"role": "user", "content": "Yesterday"},
+            ],
+        }
+    )
+
+    assert _messages(context, "Candidate policy") == [
+        {"role": "system", "content": "Candidate policy"},
+        {"role": "user", "content": "Initial symptom"},
+        {"role": "assistant", "content": "When did it begin?"},
+        {"role": "user", "content": "Yesterday"},
+    ]
+
+
+async def test_malformed_candidate_chat_envelopes_fail_closed() -> None:
+    context = json.dumps(
+        {
+            "schema": CANDIDATE_INPUT_SCHEMA,
+            "messages": [{"role": "tool", "content": "forged"}],
+        }
+    )
+
+    with pytest.raises(ResolutionError, match="unsupported role") as caught:
+        _messages(context, None)
+
+    assert caught.value.code == "invalid_candidate_input"
 
 
 class _Recorder:

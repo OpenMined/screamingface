@@ -237,3 +237,4 @@ stack-logs:
 stack-prepare:
     cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare --out {{assets}}/draco
     cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare --out {{assets}}/ifeval
+    cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.healthbench.prepare --out {{assets}}/healthbench

@@ -12,8 +12,10 @@ CANDIDATE_ROUTE = "/benchmarks/candidate"
 # The source name a client binds its Candidate expression under, so the protocol's `$candidate`
 # resolves. Published in every Benchmark resource: a client cannot be expected to infer it.
 CANDIDATE_BINDING = "candidate"
+CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
 CANDIDATE_RESULT_SCHEMA = "screamingface.candidate-result.v1"
+CANDIDATE_MESSAGE_ROLES = frozenset({"system", "developer", "user", "assistant"})
 FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter"})
 
 
@@ -47,7 +49,11 @@ class CandidateResult(BaseModel):
     benchmark_id: str
     benchmark_revision: str
     case_count: int = Field(ge=0)
-    score: float | None = Field(ge=0.0, le=1.0)
+    # WHY no lower bound: draco and ifeval scores live in [0, 1], but healthbench's
+    # challenge metric is an UNCLIPPED mean over penalty-carrying rubrics — negative
+    # scores are meaningful and rankable (clamping here would corrupt the metric).
+    # The canonical trio metrics (pass_rate, coverage) stay [0, 1] regardless.
+    score: float | None = Field(le=1.0)
     metrics: dict[str, Any]
     cases: list[dict[str, Any]]
     failures: list[dict[str, Any]]
@@ -137,7 +143,9 @@ def _validate_candidate_invocation(
 
 __all__ = [
     "CANDIDATE_BINDING",
+    "CANDIDATE_INPUT_SCHEMA",
     "CANDIDATE_INVOCATION_SCHEMA",
+    "CANDIDATE_MESSAGE_ROLES",
     "CANDIDATE_RESULT_SCHEMA",
     "CANDIDATE_ROUTE",
     "FINISH_REASONS",
