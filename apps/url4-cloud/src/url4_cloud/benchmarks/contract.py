@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CANDIDATE_ROUTE = "/benchmarks/candidate"
 # The source name a client binds its Candidate expression under, so the protocol's `$candidate`
@@ -12,6 +15,69 @@ CANDIDATE_BINDING = "candidate"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
 CANDIDATE_RESULT_SCHEMA = "screamingface.candidate-result.v1"
 FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter"})
+
+
+class CandidateResult(BaseModel):
+    """The `screamingface.candidate-result.v1` payload every Benchmark aggregate returns.
+
+    Mental model: this class IS the producer side of the wire contract. An aggregate
+    that hand-builds the dict can silently drop a field the SDK renders from (that is
+    how an all-pass run once displayed every case as INCORRECT); an aggregate that
+    constructs this model cannot — a wrong shape fails in its own unit tests with a
+    named validator error. Invariants enforced here, once, instead of as prose in
+    three benchmarks:
+
+    - a SCORED result publishes the canonical cross-benchmark trio: `score` plus
+      `metrics["pass_rate"]` and `metrics["coverage"]`, each in [0, 1] (draco's
+      aggregate is the reference; the SDK report tiles and its low-coverage warning
+      read exactly these keys). Per-benchmark metric keys ride alongside — the
+      metrics mapping is deliberately open.
+    - an UNSCORED result (`score is None`) carries `metrics == {}` — a failed run
+      never publishes a plausible partial score.
+    - `case_count` is EXACT: one entry per selected Case, scored or failed.
+
+    Check-level MET/UNMET outcomes are pinned by ifeval's tests but not yet enforced
+    here: draco's multi-run checks carry verdicts per judge pass and need a roll-up
+    design before a single check-level outcome is honest (OME-773 follow-up).
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    schema_version: str = Field(default=CANDIDATE_RESULT_SCHEMA, alias="schema")
+    benchmark_id: str
+    benchmark_revision: str
+    case_count: int = Field(ge=0)
+    score: float | None = Field(ge=0.0, le=1.0)
+    metrics: dict[str, Any]
+    cases: list[dict[str, Any]]
+    failures: list[dict[str, Any]]
+
+    @model_validator(mode="after")
+    def _enforce_result_contract(self) -> CandidateResult:
+        if self.schema_version != CANDIDATE_RESULT_SCHEMA:
+            raise ValueError(f"CandidateResult schema must be {CANDIDATE_RESULT_SCHEMA!r}")
+        if self.case_count != len(self.cases):
+            raise ValueError("case_count must equal the number of retained cases")
+        if self.score is None:
+            if self.metrics:
+                raise ValueError("a failed or unscored Candidate cannot contain metrics")
+            return self
+        for key in ("pass_rate", "coverage"):
+            value = self.metrics.get(key)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or not 0.0 <= value <= 1.0
+            ):
+                raise ValueError(
+                    f"a scored Candidate must publish canonical metric {key!r} in [0, 1]"
+                )
+        return self
+
+    def as_payload(self) -> dict[str, Any]:
+        """The wire dict — key names, order, and values as the v1 JSON expects."""
+
+        return self.model_dump(by_alias=True)
 
 
 def encode_candidate_invocation(
@@ -75,6 +141,7 @@ __all__ = [
     "CANDIDATE_RESULT_SCHEMA",
     "CANDIDATE_ROUTE",
     "FINISH_REASONS",
+    "CandidateResult",
     "decode_candidate_invocation",
     "encode_candidate_invocation",
 ]

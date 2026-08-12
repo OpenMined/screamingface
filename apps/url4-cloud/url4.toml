@@ -111,6 +111,10 @@ id = "openrouter/anthropic/claude-fable-5"
 native_web_search = true
 
 [[aigateway.models]]
+id = "openrouter/anthropic/claude-haiku-4.5"
+native_web_search = true
+
+[[aigateway.models]]
 id = "openrouter/google/gemini-3.1-pro-preview"
 web_tools = true
 

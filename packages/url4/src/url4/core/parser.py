@@ -341,7 +341,11 @@ def _decode_iteration(
     # (``(name:w:src*(body)…)!intent``) is NOT this shape — per §5.3.10 the
     # descriptor attributes the iteration as a source of the enclosing
     # expression, so the group route (the grammar) must handle it.
-    if raw_intent is not None and (inner := strip_one_paren_layer(source_expr)) is not None:
+    if (
+        raw_intent is not None
+        and (inner := strip_one_paren_layer(source_expr)) is not None
+        and not _is_source_list(inner)
+    ):
         inner_clean, _, inner_directives = split_expr_params(inner)
         inner_src, per_row_intent, _ = split_intent(inner_clean)
         collection, body = split_collection_iteration(inner_src)
@@ -354,6 +358,19 @@ def _decode_iteration(
     if collection is not None and body is not None:
         return IterationEnvelope(collection, body, raw_intent, None, directives)
     return None
+
+
+def _is_source_list(inner: str) -> bool:
+    """Return whether an iteration-looking parenthesis contains sibling sources.
+
+    A depth-zero comma before the iteration body or after it proves the parenthesized
+    value is an expression source list, rather than one reduce-over-iteration expression.
+    """
+
+    head, tail = _split_at_iteration_body(inner)
+    if head is None:
+        return False
+    return len(split_top_level_commas(head)) > 1 or len(split_top_level_commas(tail)) > 1
 
 
 def _is_descriptored(collection: str) -> bool:

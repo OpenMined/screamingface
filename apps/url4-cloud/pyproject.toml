@@ -36,6 +36,10 @@ dependencies = [
     # pydantic — it is NOT a base dependency of the engine, so that embedders who only run
     # expressions do not install a wire-format library they never import.
     "url4[streaming]",
+    # --- run mode only: the vendored IFEval verifier (benchmarks/ifeval/vendor) ---
+    "immutabledict>=4.2.0",
+    "langdetect>=1.0.9",
+    "nltk>=3.9.1",
 ]
 
 [project.scripts]
@@ -60,6 +64,7 @@ url4 = { path = "../../packages/url4", editable = true }
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["src/url4_cloud/benchmarks/ifeval/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
@@ -80,12 +85,18 @@ known-first-party = [
     "url4_cloud",
 ]
 
+[tool.pyright]
+ignore = ["src/url4_cloud/benchmarks/ifeval/vendor"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 testpaths = ["tests"]
 filterwarnings = [
     "error::DeprecationWarning:url4_cloud",
 ]
+
+[tool.coverage.run]
+omit = ["src/url4_cloud/benchmarks/ifeval/vendor/*"]
 
 [dependency-groups]
 dev = [

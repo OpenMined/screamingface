@@ -47,7 +47,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
+from url4_cloud.benchmarks.contract import CandidateResult
 from url4_cloud.benchmarks.draco import assets
 from url4_cloud.benchmarks.draco import case_results as case_results_module
 from url4_cloud.benchmarks.draco.case_evaluation import decode_case_evaluation
@@ -139,24 +139,22 @@ def aggregate(
         and not isinstance(grade.get("score"), bool)
     ]
     if len(scored) != len(case_results):
-        return {
-            "schema": CANDIDATE_RESULT_SCHEMA,
-            "benchmark_id": benchmark_id,
-            "benchmark_revision": benchmark_revision,
-            "case_count": len(case_results),
-            "score": None,
-            "metrics": {},
-            "cases": case_results,
-            "failures": [],
-        }
+        return CandidateResult(
+            benchmark_id=benchmark_id,
+            benchmark_revision=benchmark_revision,
+            case_count=len(case_results),
+            score=None,
+            metrics={},
+            cases=case_results,
+            failures=[],
+        ).as_payload()
 
-    return {
-        "schema": CANDIDATE_RESULT_SCHEMA,
-        "benchmark_id": benchmark_id,
-        "benchmark_revision": benchmark_revision,
-        "case_count": len(case_results),
-        "score": _mean_grades(scored, "score"),
-        "metrics": {
+    return CandidateResult(
+        benchmark_id=benchmark_id,
+        benchmark_revision=benchmark_revision,
+        case_count=len(case_results),
+        score=_mean_grades(scored, "score"),
+        metrics={
             "normalized_score_sd": _mean_grade_metrics(scored, "normalized_score_sd"),
             "pass_rate": _mean_grade_metrics(scored, "pass_rate"),
             "pass_rate_sd": _mean_grade_metrics(scored, "pass_rate_sd"),
@@ -174,11 +172,11 @@ def aggregate(
             "verdicts_invalid": _sum_grade_metrics(scored, "verdicts_invalid"),
             "verdicts_missing": _sum_grade_metrics(scored, "verdicts_missing"),
         },
-        "cases": case_results,
+        cases=case_results,
         # Case-scoped failures live on their Case Result. Candidate-level failures are reserved
         # for failures that cannot be attributed to a selected Case.
-        "failures": [],
-    }
+        failures=[],
+    ).as_payload()
 
 
 def _decode_rows(
