@@ -1,9 +1,9 @@
 ---
 ticket: OME-769
 stack: scoreboard
-status: done
+status: in_progress
 started: 2026-08-12
-finished: 2026-08-12
+finished:
 ---
 
 # OME-769 — Leaderboard: fill the submissions board (ranked rows, core columns, SOTA medal)
@@ -147,3 +147,52 @@ rendering the structure without fabricating data — see Decisions.
      this is a source-level check rather than an observed one.
   7. Rendering beyond these pure functions remains covered only by manual verification —
      unchanged from OME-768 and the reason deviation 1's follow-up matters.
+
+
+## Review round 2 (PR #569 — @HupBaHa, 2026-08-12)
+
+Five findings, all verified against the code before acting; all five valid.
+
+**P1 — the SOTA medal could name the wrong reproduced winner. Descoped (owner decision).**
+`entries` is built by `RowNumber().over(spec_id).orderby(accuracy DESC, submitted_at DESC)` — one
+row per spec, verification never consulted. A spec holding a verified 0.80 and an unverified 0.90
+returns only the 0.90, so the verified run is invisible to any client and the medal could badge a
+lower verified spec, or none. Working through the fix showed a **second** problem the reviewer's
+suggested server-computed SOTA field would not solve: if the winner is a row the table does not
+contain, there is no truthful row to badge. `OME-771` filters the pool in the *query*, making the
+verified run a real row — the medal moves there. Removed with it: the reproducible-SOTA stat, the
+`.badge-sota` rendering, `enhanceSotaMark`, and the vendored `wave-mark.js` +
+`assets/mark/sf-mark-wave.webp`. `sotaAccuracy`/`isSota` are retained and still tested, carrying an
+`AIDEV-NOTE` explaining why they are not yet called.
+
+**Findings 2 and 4 were resolved *by* the descope, not patched separately.** `.stats` is
+`repeat(3,1fr)` above 620px with border rules assuming three cells, so the fourth stat produced a
+3+1 layout with "Verified rows" alone at one-third width; and both `summary-best` and
+`summary-sota` carried `.gain`, painting two different numbers as the win. Dropping the fourth stat
+fixed both at once — verified: `statCount: 3`, `gainCount: 1`.
+
+**Finding 3 — `--text-xs` does not exist.** The scale is `--text-2/-body/-display/-hero/-label/
+-lead/-metric/-micro/-sm/-title`. The rule became dead code with the badge and was removed. **This
+is the same failure mode as the `--accent` bug found in PR #558** — a plausible-looking token name
+used without grepping the token list. The lesson is procedural, not local.
+
+**Finding 5 — missing SDLC artifacts.** Accurate, and worse than stated: this ledger's own
+"Planned changes" listed `docs/tasks/2026-08-12-OME-769-submissions-board.md` and it was never
+created, while `OME-768` shipped all three artifacts. Added `docs/tasks/`, `docs/spec/`, and
+`docs/plan/` for this unit, with a provenance note recording that the decisions were made before
+implementation but originally lived only in this ledger.
+
+**Row highlight reworded rather than removed (spec D12).** The gold row now marks the highest
+accuracy on screen and says `(highest accuracy)`; the previous
+`(state of the art, independently reproduced)` was false whenever the leader was unverified —
+which is the live state of the dev board. `renderClimb` keys off the same raw maximum, so the two
+agree.
+
+**Self-inflicted bug caught by re-testing:** the bulk deletion that removed `enhanceSotaMark` also
+removed `renderAccuracyCell`, which sat between it and `renderBody`. That threw and left the whole
+table hidden. Restored; found only because the board was re-driven in Chrome after the edit rather
+than assumed correct.
+
+**Post-descope verification:** wrap visible, 2 rows, `statCount: 3`, `gainCount: 1`,
+`anyBadge: false`, gold row = `unverified-top` with `(highest accuracy)`, bars `100%`/`62.6%`, no
+`wave-mark` request, table overflow reduced 134px → 72px. JS tests 14/14. All gates green.

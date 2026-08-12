@@ -20,6 +20,16 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
+  // AIDEV-NOTE: `sotaAccuracy` and `isSota` are intentionally NOT called by
+  // benchmark.js yet. The SOTA medal was descoped from OME-769 in review because
+  // `/v1/leaderboard` returns one row per spec chosen by accuracy alone, so a
+  // spec's verified run is invisible whenever that spec also has a higher
+  // unverified run — the medal could name the wrong reproduced winner and no
+  // client-side logic can recover the missing row. OME-771 filters the pool in
+  // the query (`?pool=verified`), which makes the verified run a real row; these
+  // functions are kept, tested, and correct so the medal can be wired there
+  // without rediscovering the invariant below.
+  //
   // INVARIANT: only a reproducible entry may ever be presented as SOTA. Returns
   // null when nothing has been reproduced — the medal is then shown nowhere,
   // rather than falling back to the best self-reported score. A board that

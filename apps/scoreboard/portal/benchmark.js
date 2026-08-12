@@ -14,17 +14,13 @@
   // direction applied the first time a column is selected.
   var COLUMNS = [
     { key: "rank", label: "Rank", sort: "number", dir: "asc", cls: "num" },
-    // The mark slot as its own column rather than a fixed-width span inside the
-    // spec cell. OME-769 words this as "a spacer for non-SOTA rows so names stay
-    // aligned" — a column satisfies that goal structurally instead of by hand.
-    //
-    // WHY it is not in the spec cell: the enhanced badge ("S" + <canvas> + "TA")
-    // renders WIDER than its plain-text form, so an in-cell slot sized to the
-    // text grew on the SOTA row once wave-mark.js upgraded it, shifting that
-    // row's name ~64px right of every other row — the exact misalignment the
-    // spacer was meant to prevent. It also stole width from `.cell-wrap`'s
-    // 192px cap and wrapped long spec names onto a second line. A column cannot
-    // drift for either reason. OME-770's frontier mark belongs here too.
+    // The mark slot as its own column rather than a span inside the spec cell.
+    // OME-769 words it as "a spacer for non-SOTA rows so names stay aligned"; a
+    // column satisfies that goal structurally rather than by hand-tuned widths,
+    // which measurably failed (an in-cell slot sized to the badge text grew when
+    // the badge was enhanced, shifting that row's name ~64px right of the rest,
+    // and it stole width from `.cell-wrap`'s 192px cap, wrapping long spec names).
+    // Currently renders empty — see renderMarkSlot. OME-770/771 populate it.
     { key: "__mark", label: "", sort: null, cls: "col-mark" },
     // OME-769 asks for a "Name" column, but nothing in the payload names a
     // fusion — `spec_id` is the only identifier (the gap catalogued in OME-772).
@@ -96,7 +92,6 @@
           }
           renderHead(headNode);
           renderBody(document.getElementById("leaderboard-body"));
-          enhanceSotaMark(document.getElementById("leaderboard-body"));
         });
         th.appendChild(btn);
       }
@@ -116,61 +111,23 @@
     return Math.max.apply(null, entries.map(function (e) { return e.accuracy; }));
   }
 
-  // The SOTA mark cell. INVARIANT: rendered on EVERY row — badge on the SOTA
-  // row, empty everywhere else — so the spec text starts at the same x on all
-  // rows. OME-770 drops its frontier mark into this same cell.
-  function renderMarkSlot(isSotaRow) {
-    var slot = P.el("td", "col-mark");
-    if (!isSotaRow) {
-      return slot;
-    }
-    // Text baseline first (D4). enhanceSotaMark() upgrades the O to canvas only
-    // once the texture decodes; if it never loads, this still reads "SOTA".
-    var badge = P.el("span", "badge-sota");
-    // WHY the badge is decorative: once enhanced its letters become
-    // "S" + <canvas> + "TA", which a screen reader would announce as "S TA".
-    // The sr-only sentence appended in renderBody is the accessible carrier of
-    // this meaning, so the badge stays out of the accessibility tree in both its
-    // text and its enhanced form.
-    badge.setAttribute("aria-hidden", "true");
-    badge.appendChild(P.el("span", "gt-flow", "SOTA"));
-    slot.appendChild(badge);
-    return slot;
-  }
-
-  var MARK_SRC = "assets/mark/sf-mark-wave.webp";
-
-  // Progressive enhancement, deliberately not graceful degradation (D4). The
-  // design system's badge markup is "S" + <canvas> + "TA", where the canvas IS
-  // the letter O — so a canvas that never paints leaves "S TA" with a hole in
-  // it. Rather than render that and hope, the badge ships as plain text and is
-  // only rewritten AFTER the texture has decoded and the driver is present.
+  // The mark cell. Rendered on EVERY row so the column exists structurally;
+  // currently always empty.
   //
-  // WHY the image is preloaded here instead of trusting wave-mark.js: that
-  // script swallows its own decode failure (`.catch(function () {})`), so it
-  // cannot tell us whether the mark is safe to swap in. It does expose
-  // window.SFWave.init() for canvases added later, which is exactly this case.
-  function enhanceSotaMark(root) {
-    var badges = (root || document).querySelectorAll(".badge-sota");
-    if (!badges.length || !window.SFWave || typeof window.SFWave.init !== "function") return;
-    var probe = new Image();
-    probe.onerror = function () { /* texture unavailable — the text badge stands */ };
-    probe.onload = function () {
-      badges.forEach(function (badge) {
-        if (badge.getAttribute("data-mark-enhanced")) return;
-        badge.setAttribute("data-mark-enhanced", "1");
-        P.clear(badge);
-        badge.appendChild(P.el("span", "gt-flow", "S"));
-        var cv = document.createElement("canvas");
-        cv.className = "wave-mark gt-wave";
-        cv.setAttribute("data-src", MARK_SRC);
-        cv.setAttribute("aria-hidden", "true");
-        badge.appendChild(cv);
-        badge.appendChild(P.el("span", "gt-flow", "TA"));
-      });
-      window.SFWave.init(root || document);
-    };
-    probe.src = MARK_SRC;
+  // WHY empty: the SOTA medal was descoped from OME-769 in review. The medal has
+  // to name the best *reproduced* run, but `/v1/leaderboard` returns one row per
+  // spec chosen by accuracy alone (`RowNumber().over(spec_id).orderby(accuracy)`),
+  // so a spec whose top run is unverified hides its own verified run entirely.
+  // A verified 0.80 for spec A is invisible when A also has an unverified 0.90 —
+  // no client-side logic can recover it, and badging A's displayed 0.90 row as
+  // "independently reproduced" would state a different falsehood.
+  //
+  // AIDEV-NOTE: OME-771 fixes this properly by filtering the pool in the QUERY
+  // (?pool=verified), which makes the verified run a real row that can be badged
+  // truthfully; the medal lands there. OME-770's frontier mark also belongs in
+  // this cell. Until one of them ships, this column is intentionally blank.
+  function renderMarkSlot() {
+    return P.el("td", "col-mark");
   }
 
   // The vendored .score-cell recipe: the number plus a proportional track. Its
@@ -199,20 +156,26 @@
   function renderBody(bodyNode) {
     P.clear(bodyNode);
     var barMax = bestAccuracy(state.entries);
-    // The medal is decided by the reproducible-only maximum, NOT barMax.
-    var sota = L.sotaAccuracy(state.entries);
     sortedEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
-      var isSota = L.isSota(entry, sota);
-      if (isSota) tr.className = "sota";
+      // INVARIANT: this marks the row with the highest accuracy on screen — a
+      // "leading" signal, NOT a reproduction claim. SFDS defines gain as the
+      // leading-row/SOTA colour, so gold here is sanctioned, but the accessible
+      // text below must not promise reproduction: the leader is frequently
+      // unverified (the Verified column shows that per row), and the medal that
+      // *would* assert reproduction is descoped to OME-771 — see renderMarkSlot.
+      var isLeader = barMax !== null && entry.accuracy === barMax;
+      if (isLeader) tr.className = "sota";
 
       tr.appendChild(P.el("td", "num", entry.rank));
-      tr.appendChild(renderMarkSlot(isSota));
+      tr.appendChild(renderMarkSlot());
 
       var specTd = P.el("td", "cell-wrap");
       specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));
-      // Color must not be the only carrier of the sota meaning.
-      if (isSota) specTd.appendChild(P.el("span", "sr-only", " (state of the art, independently reproduced)"));
+      // Colour must not be the only carrier of the meaning — and the wording is
+      // deliberately "highest accuracy", not "state of the art": this row may be
+      // unverified.
+      if (isLeader) specTd.appendChild(P.el("span", "sr-only", " (highest accuracy)"));
       tr.appendChild(specTd);
 
       tr.appendChild(P.el("td", null, P.formatProviders(entry.ran_with_providers)));
@@ -249,15 +212,10 @@
     }
 
     var best = bestAccuracy(entries);
-    var sota = L.sotaAccuracy(entries);
     var verified = entries.filter(L.isReproducible).length;
     // Bare numbers: the .stats cell labels ("Specs shown", "Verified rows")
     // already carry the words.
     document.getElementById("summary-best").textContent = P.formatPercent(best);
-    // An em-dash when nothing is reproduced yet — deliberately NOT "0%", which
-    // would read as "the best reproduced run scored zero" rather than "there is
-    // no reproduced run".
-    document.getElementById("summary-sota").textContent = sota === null ? P.EM_DASH : P.formatPercent(sota);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
     document.getElementById("summary-verified").textContent = verified.toLocaleString();
     summaryNode.hidden = false;
@@ -267,11 +225,8 @@
   // entry carries the sota (gain) fill — same story color as tr.sota.
   // Purely visual: aria-hidden, the table is the accessible representation.
   //
-  // WHY this changed with OME-769: the fill used to key off the raw maximum
-  // accuracy, so once the table's medal became reproducible-only this chart
-  // would have painted an unverified top row in the win color while the table
-  // withheld the medal from it — the same story color asserting two different
-  // things on one page. Both now read from L.isSota.
+  // The fill keys off the raw maximum accuracy, matching the row treatment in
+  // renderBody — both mean "leading", neither claims reproduction.
   function renderClimb(entries) {
     var section = document.getElementById("leaderboard-climb-section");
     var node = document.getElementById("leaderboard-climb");
@@ -280,14 +235,14 @@
       section.hidden = true;
       return;
     }
-    var sota = L.sotaAccuracy(entries);
+    var best = bestAccuracy(entries);
     P.clear(node);
     L.orderRows(entries)
       .forEach(function (entry) {
         var row = P.el("div", "row");
         row.appendChild(P.el("span", "lbl", entry.spec_id));
         var track = P.el("span", "track");
-        var fill = P.el("span", "fill " + (L.isSota(entry, sota) ? "sota" : "base"));
+        var fill = P.el("span", "fill " + (entry.accuracy === best ? "sota" : "base"));
         fill.style.width = ((entry.accuracy * 100).toFixed(1) + "%").replace(".0%", "%");
         track.appendChild(fill);
         row.appendChild(track);
@@ -365,7 +320,6 @@
         renderClimb(state.entries);
         renderHead(document.getElementById("leaderboard-head"));
         renderBody(document.getElementById("leaderboard-body"));
-        enhanceSotaMark(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);
         wrap.hidden = false;
       },

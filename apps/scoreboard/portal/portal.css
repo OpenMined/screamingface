@@ -117,19 +117,15 @@ table .btn { white-space: nowrap; }
   .col-run { display: none; }
 }
 
-/* ---- SOTA mark slot (OME-769) ---------------------------------------- */
-/* INVARIANT: every row renders this slot — badge on the SOTA row, empty
-   elsewhere — so the spec text starts at the same x on every row. OME-770 drops
-   its frontier mark into the same slot; without the reserved width, names would
-   jump sideways the moment any mark appeared. */
-/* A column, so the browser aligns it for us — see the WHY in benchmark.js's
-   COLUMNS. Narrow and never wrapping: it holds one badge or nothing. */
+/* ---- mark column (OME-769) ------------------------------------------- */
+/* A column rather than a span inside the spec cell, so the browser handles the
+   alignment — see the WHY in benchmark.js's COLUMNS. Narrow and never wrapping:
+   it holds one mark or nothing, and currently always nothing (the SOTA medal is
+   descoped to OME-771, the frontier mark comes with OME-770). */
 .col-mark {
   width: 1%;
   white-space: nowrap;
 }
-/* The badge is smaller than body text inside a dense table row. */
-.col-mark .badge-sota { font-size: var(--text-xs); padding: .2em .5em; }
 
 /* ---- rail pinning: the one deliberate override in this file ---------- */
 /* WHY: style.css ships `.rail { position: relative }` plus a `.rail.stuck`
