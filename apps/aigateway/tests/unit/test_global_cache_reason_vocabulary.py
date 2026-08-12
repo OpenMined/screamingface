@@ -81,7 +81,6 @@ _WIRE_CONTRACT: Final[frozenset[str]] = frozenset(
         "unprojected_parameter",
         "provider_rule_set",
         "stream",
-        "tools",
         "metadata",
         "canonicalization_failure",
     }
@@ -101,8 +100,11 @@ def _declared_reasons() -> dict[str, set[str]]:
 def test_the_reason_collector_is_not_vacuous() -> None:
     # Guards the guard: an introspection sweep that finds nothing would make every
     # assertion below trivially true.
+    # OME-782 removed "tools" (``BYPASS_TOOLS``) from the published vocabulary — tools/
+    # tool_choice presence is no longer a structural bypass, so the floor dropped by
+    # one, from 15 to 14. Traceable, not arbitrary.
     declared = _declared_reasons()
-    assert len(declared) >= 15, declared
+    assert len(declared) >= 14, declared
     assert {module for names in declared.values() for module in names}
 
 

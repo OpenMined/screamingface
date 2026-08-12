@@ -202,6 +202,7 @@ def function_calling_rules(
     auth_modes: tuple[AuthMode, ...],
     projection_revision: str,
     tool_choice: bool = True,
+    cache_behavior: CacheBehavior = "bypass",
 ) -> tuple[ParameterProjectionRule, ...]:
     """The ``tools`` [and ``tool_choice``] rules for a provider's enabled tools.
 
@@ -212,6 +213,19 @@ def function_calling_rules(
 
     INVARIANT: authorization lives in ONE place — these rules. There is no separate
     tools dispatch path, so the classifier and the published contract cannot drift.
+
+    # WHY ``cache_behavior`` defaults to ``"bypass"`` (OME-782/OME-787): a provider may
+    # only declare these rules ``keyed`` if its ``global_cache_projection`` can back
+    # them — ``ProviderPluginBase`` returns ``CacheBypass`` by default, so promoting a
+    # provider that has not implemented the projection would advertise a cacheable
+    # parameter to callers who can never actually be served from cache.
+    # ``test_a_provider_that_declares_a_keyed_rule_backs_it_with_a_real_projection`` in
+    # ``tests/unit/test_global_cache_registry_conformance.py`` enforces that. The
+    # promotion order (implement the projection FIRST, then flip this argument) is
+    # documented at ``plugins/antigravity_provider/parameters.py:68``. Caching tools is
+    # therefore opt-in PER PROVIDER: pass ``cache_behavior="keyed"`` explicitly once a
+    # provider's projection is ready — see ``plugins/openrouter_provider/parameters.py``
+    # for the first provider to do so.
     """
     tool_types = supported_tool_types(tool_capabilities)
     if not tool_types:
@@ -221,7 +235,7 @@ def function_calling_rules(
             "tools",
             auth_modes=auth_modes,
             schema=tools_schema(tool_types),
-            cache_behavior="bypass",
+            cache_behavior=cache_behavior,
             projection_revision=projection_revision,
         )
     ]
@@ -231,7 +245,7 @@ def function_calling_rules(
                 "tool_choice",
                 auth_modes=auth_modes,
                 schema=tool_choice_schema(tool_types),
-                cache_behavior="bypass",
+                cache_behavior=cache_behavior,
                 projection_revision=projection_revision,
             )
         )

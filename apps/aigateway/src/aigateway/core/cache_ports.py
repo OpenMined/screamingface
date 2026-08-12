@@ -72,7 +72,6 @@ PUBLISHED_CACHE_REASONS: Final[frozenset[str]] = frozenset(
         "unprojected_parameter",
         "provider_rule_set",
         "stream",
-        "tools",
         "metadata",
         # canonicalization (global_keys)
         "canonicalization_failure",

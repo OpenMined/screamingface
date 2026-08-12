@@ -396,10 +396,19 @@ def test_a_body_without_a_usable_model_does_not_participate(body: dict[str, Any]
     assert _bypass(_plan(body)).reason == "unsupported_shape"
 
 
-def test_streaming_and_tool_bearing_requests_do_not_participate() -> None:
+def test_streaming_requests_do_not_participate() -> None:
     assert _bypass(_plan(_body(stream=True))).reason == "stream"
+
+
+def test_a_tool_bearing_request_without_a_declared_rule_does_not_participate() -> None:
+    # OME-782 (owner decision D1): tools/tool_choice presence no longer bypasses the
+    # cache unconditionally — ``_Plugin`` here declares no ``tools``/``tool_choice``
+    # rule at all, so this still does not participate, but now for the same reason
+    # as any other undeclared parameter, not a tool-specific one. See
+    # test_global_cache_tool_requests.py for the keyed case on a provider that DOES
+    # declare function-calling rules.
     tools = _plan(_body(tools=[{"type": "function", "function": {"name": "f"}}]))
-    assert _bypass(tools).reason == "tools"
+    assert _bypass(tools).reason == "unknown_parameter"
 
 
 # --- the plan is unambiguous ---------------------------------------------------

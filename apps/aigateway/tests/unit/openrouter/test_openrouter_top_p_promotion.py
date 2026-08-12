@@ -23,7 +23,9 @@ from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
+from aigateway.core.standard_parameters import direct_rule
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
+from aigateway.plugins.openrouter_provider.parameters import _AUTH, _REVISION
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
@@ -407,11 +409,26 @@ def test_the_caller_visible_policy_reports_top_p_as_a_keyed_path() -> None:
         == ()
     )
     # An actual declared-bypass rule proves the helper does not return ``()`` vacuously.
+    #
+    # WHY a FABRICATED rule rather than a real OpenRouter one (OME-781): this example has
+    # broken twice from being coupled to whichever real path happened to be `bypass` —
+    # first ``tools`` (OME-787 promoted it to `keyed`), then ``web_search`` (OME-781
+    # promoted it too). OpenRouter now has 17 keyed rules and zero `bypass`/
+    # `transport_only`, so there is no real path left to couple to, and there is no
+    # guarantee a future one stays un-promoted either. A proof of non-vacuity must not
+    # depend on some rule staying un-promoted, so it is built from a synthetic rule that
+    # cannot be promoted out from under this test.
+    synthetic_bypass_rule = direct_rule(
+        "_synthetic_bypass_probe",
+        auth_modes=_AUTH,
+        projection_revision=_REVISION,
+        cache_behavior="bypass",
+    )
     assert caller_cache_bypass_paths(
-        {"model": _MODEL, "messages": list(_MESSAGES), "tools": []},
-        rules=_rules(),
+        {"model": _MODEL, "messages": list(_MESSAGES), "_synthetic_bypass_probe": True},
+        rules=(*_rules(), synthetic_bypass_rule),
         auth_mode="api_key",
-    ) == ("tools",)
+    ) == ("_synthetic_bypass_probe",)
 
 
 def test_two_top_p_values_never_share_a_cache_entry_through_the_real_route(

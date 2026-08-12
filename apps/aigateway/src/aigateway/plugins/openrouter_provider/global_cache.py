@@ -49,7 +49,16 @@ from .settings import (
 # OME-712 (`...-08` -> `...-08b`): `:online` ids USED to dispatch and fill entries, and are
 # now refused. The projection below bypasses them, but a bypass only stops NEW rows — rows
 # written before this landed stay readable under their old key. Bumping abandons them.
-GLOBAL_CACHE_ADAPTER_REVISION = "openrouter-global-cache-2026-08b"
+#
+# OME-781 (`...-08b` -> `...-08c`): `web_search` / `web_search_excluded_domains` moved from
+# `cache_behavior="bypass"` to `"keyed"` (the deployment blocklist that made bypass necessary
+# is deleted). Rows written under the old bypass semantics were never stored for a search
+# request at all, so there is nothing to serve stale — but this bump also folds in the
+# `apply_web_search` envelope-shaping constants (the `id`/`engine` policy dict), which were
+# never part of any prior revision's contract for this key path. Abandoning the whole
+# generation here is the same discipline as every other adapter-revision bump: readers must
+# never be served an entry keyed under a semantics this module no longer implements.
+GLOBAL_CACHE_ADAPTER_REVISION = "openrouter-global-cache-2026-08c"
 
 
 def project_global_cache_request(body: dict[str, Any]) -> dict[str, Any] | CacheBypass:

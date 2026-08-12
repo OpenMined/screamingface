@@ -47,8 +47,8 @@ from aigateway.core.request_cache.global_controls import (
     UNSUPPORTED_CONTROL_FIELDS,
 )
 from aigateway.core.request_cache.global_eligibility import (
+    BYPASS_DECLARED,
     BYPASS_STREAM,
-    BYPASS_TOOLS,
 )
 from aigateway.core.request_cache.global_plan import BYPASS_DISABLED
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -537,8 +537,14 @@ def test_a_stream_false_request_still_participates(credential_blobs, cache_clien
     assert second.headers["X-AIGW-Cache"] == "hit"
 
 
-def test_a_tool_bearing_request_bypasses(credential_blobs, cache_client) -> None:
-    # A tool call is a multi-turn negotiation, not one deterministic completion.
+def test_a_tool_bearing_request_bypasses_on_an_unpromoted_provider(
+    credential_blobs, cache_client
+) -> None:
+    # OME-782/OME-787: tool-bearing requests are no longer a STRUCTURAL bypass —
+    # whether they key is now an ordinary per-provider ``cache_behavior`` choice
+    # (default ``"bypass"``). Anthropic has not been promoted (only OpenRouter has,
+    # OME-787), so this request still bypasses — but now for the ordinary
+    # declared-bypass reason any other un-promoted rule gets, not a tools-specific one.
     _arrange_account(cache_client, credential_blobs)
     counter = _DispatchCounter()
     tools = [
@@ -551,7 +557,7 @@ def test_a_tool_bearing_request_bypasses(credential_blobs, cache_client) -> None
         resp = cache_client.post(_CHAT_PATH, json=_chat_body(tools=tools))
     assert resp.status_code == 200, resp.text
     assert resp.headers["X-AIGW-Cache"] == "bypass"
-    assert resp.headers["X-AIGW-Cache-Reason"] == BYPASS_TOOLS
+    assert resp.headers["X-AIGW-Cache-Reason"] == BYPASS_DECLARED
 
 
 def test_a_keyed_parameter_is_cached_under_its_value_and_still_reaches_dispatch(
