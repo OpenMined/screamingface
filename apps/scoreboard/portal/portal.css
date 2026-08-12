@@ -132,3 +132,19 @@ table .btn { white-space: nowrap; }
    + spacer in JS; that is new untested behavior, so it is tracked separately
    rather than folded into OME-768. Drop this block when that lands. */
 .rail { position: sticky; top: 0; }
+
+/* WHY: the byte-matched style.css gives .badge-verified a ::before glyph masked
+   from /assets/remix/System/check-line.svg, an icon set this portal does not
+   vendor — so every verified badge fired a 404. createVerifiedBadge() already
+   renders a literal "✓ verified", so the pseudo-element is redundant here as
+   well as broken; suppress it rather than vendoring an icon set for one glyph.
+   AIDEV-NOTE: `content: none` alone does NOT stop the fetch — Chrome still
+   resolves the mask URL and fires the 404 (verified in DevTools). The mask
+   itself has to be cleared, so keep all three declarations. If this portal ever
+   vendors the remix icons, drop this block instead of leaving two checkmarks.
+   Found in review of PR #558. */
+.badge-verified::before {
+  content: none;
+  -webkit-mask: none;
+  mask: none;
+}
