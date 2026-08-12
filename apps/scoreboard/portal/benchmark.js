@@ -223,7 +223,18 @@
         }
         state.entries = (data && data.entries) || [];
         if (state.entries.length === 0) {
+          // OME-768 asks this page for an "empty table structure", so the shell
+          // has to render on the zero-entry path too — previously this returned
+          // early with `wrap` still hidden, so a benchmark with no submissions
+          // showed the message and no table at all. renderSummary/renderClimb
+          // hide themselves when passed an empty list, so the reader gets the
+          // column headers plus the empty-state line and nothing misleading.
+          renderSummary(state.entries);
+          renderClimb(state.entries);
+          renderHead(document.getElementById("leaderboard-head"));
+          P.clear(document.getElementById("leaderboard-body"));
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
+          wrap.hidden = false;
           return;
         }
         renderSummary(state.entries);
