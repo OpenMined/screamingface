@@ -105,9 +105,30 @@ table .btn { white-space: nowrap; }
   color: var(--ink);
   border-bottom-color: var(--accent-solid);
 }
+/* WHY: benchmark.html ships the nav empty and initTabStrip's failure path is
+   deliberately silent, so on an API error (or zero registered benchmarks) the
+   bare element still painted its border-bottom — a hairline rule floating above
+   the masthead — and still announced an empty "Benchmarks" navigation landmark. */
+.tabstrip:empty { display: none; }
 
 /* ---- responsive ------------------------------------------------------ */
 @media (max-width: 639px) {
   /* sf:// deep-links are not useful on narrow screens; collapse the column. */
   .col-run { display: none; }
 }
+
+/* ---- rail pinning: the one deliberate override in this file ---------- */
+/* WHY: style.css ships `.rail { position: relative }` plus a `.rail.stuck`
+   variant its own comment documents as "(JS toggles .stuck + a spacer to hold
+   its place)" — the system expects the host page to supply that scroll
+   listener. This portal never has, so the rail scrolled away while
+   `.rail .toggle` (position: fixed, no background/border per the system) stayed
+   pinned top-right — leaving a bare "◐ light" glyph floating over page content,
+   and over benchmark.html's rightmost table cells at ~1000px viewports.
+   Restoring `sticky` keeps the rail under the fixed toggle at all scroll
+   offsets, which is the behavior this portal had before the v2 migration.
+   AIDEV-NOTE: this knowingly breaks the "extends — never overrides" rule at the
+   top of this file. The system-faithful fix is to implement the `.stuck` toggle
+   + spacer in JS; that is new untested behavior, so it is tracked separately
+   rather than folded into OME-768. Drop this block when that lands. */
+.rail { position: sticky; top: 0; }

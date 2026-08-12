@@ -357,7 +357,14 @@ window.ScorePortal = (function () {
       function (err) {
         showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
       }
-    );
+    ).catch(function (err) {
+      // WHY: the handler above is the second argument to the *first* `.then`, so it
+      // only sees a `/v1/benchmarks` rejection. Anything thrown later — a malformed
+      // benchmark entry, a DOM failure, a rejection inside the Promise.all
+      // continuation — would otherwise become an unhandled rejection and leave the
+      // page stuck on "Loading benchmarks…" with the table hidden and no error state.
+      showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
+    });
   }
 
   /* ---- public surface -------------------------------------------------- */
