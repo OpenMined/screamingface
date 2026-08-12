@@ -70,6 +70,7 @@ from url4_cloud.benchmarks.ifeval.definition import (
     CHECK_ROUTE,
     install_ifeval,
 )
+from url4_cloud.benchmarks.protocol import build_evaluation_protocol
 
 
 def _solo_attempt_input(attempt: int) -> str:
@@ -548,30 +549,13 @@ def _reduced_rows(
     # INVARIANT: both shapes emit exactly one exact Case Evaluation per row (solo packs
     # attempt-tagged check records; lanl packs the gated chain via its envelope route),
     # so the Aggregator never has to discover grading records inside arbitrary text.
-    rows = iterate(
-        CASES_ROUTE,
-        body=(src(checked, name="checked", weight=0.0),),
-        intent=Text("$checked"),
-        slice=None if case_count == CASE_COUNT else (0, case_count),
-        on_error="collect",
-    )
-    row_set = expr(
-        *row_bindings,
-        src(rows, name="selected_rows", weight=0.0),
-        intent=Text("$selected_rows"),
-    )
-    return expr(
-        src(row_set, name="rows", weight=0.0),
-        src(
-            RelExpr(
-                path=aggregate_route,
-                context="$rows",
-                intent=Text(f"aggregate:{case_count}"),
-            ),
-            name="result",
-            weight=0.0,
-        ),
-        intent=Text("$result"),
+    return build_evaluation_protocol(
+        cases_route=CASES_ROUTE,
+        case_evaluation=checked,
+        selected_case_count=case_count,
+        available_case_count=CASE_COUNT,
+        aggregate_route=aggregate_route,
+        bindings=row_bindings,
     )
 
 

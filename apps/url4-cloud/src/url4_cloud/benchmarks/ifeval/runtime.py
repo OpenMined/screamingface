@@ -14,7 +14,14 @@ from url4_cloud.benchmarks.contract import (
     decode_candidate_invocation,
     encode_candidate_invocation,
 )
-from url4_cloud.benchmarks.errors import ProviderRefusal
+from url4_cloud.benchmarks.evaluation import (
+    aggregate_endpoint,
+    candidate_answer,
+    compact_json,
+    json_array,
+    json_object,
+)
+from url4_cloud.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from url4_cloud.benchmarks.ifeval import aggregate as scoring
 from url4_cloud.benchmarks.ifeval import grading
 from url4_cloud.benchmarks.ifeval.case_evaluation import bind_case_evaluation
@@ -39,6 +46,7 @@ from url4_cloud.benchmarks.ifeval.corrective_policy import (
 from url4_cloud.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
+    CASE_COUNT,
     CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
@@ -54,17 +62,32 @@ def install(node: Url4Node, root: Path) -> None:
     endpoints = (
         (CHECK_ROUTE, _check(root)),
         (CASE_EVALUATION_ROUTE, _case_evaluation),
-        (AGGREGATE_ROUTE, _aggregate(root)),
+        (
+            AGGREGATE_ROUTE,
+            aggregate_endpoint(
+                label="IFEval aggregation",
+                available_case_count=CASE_COUNT,
+                aggregate=_aggregate(root),
+            ),
+        ),
         (
             SELF_AGGREGATE_ROUTE,
-            _aggregate_corrective(root, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION),
+            aggregate_endpoint(
+                label="IFEval corrective aggregation",
+                available_case_count=CASE_COUNT,
+                aggregate=_aggregate_corrective(root, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION),
+            ),
         ),
         (RESOLVE_CANDIDATE_ROUTE, _resolve_candidate),
         (MEMBER_RECORD_ROUTE, _member_record),
         (MEMBER_ANSWER_ROUTE, _member_answer),
         (
             LANL_AGGREGATE_ROUTE,
-            _aggregate_corrective(root, LANL_ENSEMBLE_ID, LANL_ENSEMBLE_REVISION),
+            aggregate_endpoint(
+                label="IFEval corrective aggregation",
+                available_case_count=CASE_COUNT,
+                aggregate=_aggregate_corrective(root, LANL_ENSEMBLE_ID, LANL_ENSEMBLE_REVISION),
+            ),
         ),
         (LANL_GATE_ROUTE, _lanl_gate(root)),
         (LANL_SELECT_ROUTE, _lanl_select(root)),
@@ -90,10 +113,8 @@ def _check(root: Path):
             return _feedback(request.context)
         try:
             case_id, attempt = _case_and_attempt(request.intent)
-            answer, finish_reason, refusal = decode_candidate_invocation(request.context)
-            if refusal is not None:
-                raise ProviderRefusal(refusal, finish_reason=finish_reason)
-            spec, result, violations = _verification(root, case_id, answer)
+            candidate = candidate_answer(request.context)
+            spec, result, violations = _verification(root, case_id, candidate.output)
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
         record = {
@@ -101,8 +122,8 @@ def _check(root: Path):
             "case_id": case_id,
             "attempt": attempt,
             "valid": True,
-            "answer": answer,
-            "finish_reason": finish_reason,
+            "answer": candidate.output,
+            "finish_reason": candidate.finish_reason,
             "instruction_id_list": spec["instruction_id_list"],
             "descriptions": grading.describe_instructions(
                 instruction_id_list=spec["instruction_id_list"],
@@ -114,7 +135,7 @@ def _check(root: Path):
             # Violations remain ordinary fields inside the exact Case Evaluation.
             "violations": violations,
         }
-        return _json(record)
+        return compact_json(record)
 
     return check
 
@@ -143,7 +164,7 @@ def _case_evaluation(request: Request) -> str:
 
     try:
         case_id = _positive_int(request.intent, "case id")
-        payload = _json_payload(request.context, "Case evaluation")
+        payload = json_object(request.context, "Case evaluation")
         expected = tuple(f"attempt_{index}" for index in range(1, len(payload) + 1))
         if not expected or tuple(payload) != expected:
             raise ValueError(
@@ -161,7 +182,7 @@ def _case_evaluation(request: Request) -> str:
         result = bind_case_evaluation(case_id, attempts)
     except (TypeError, ValueError) as exc:
         raise _unavailable(str(exc)) from exc
-    return _json(result)
+    return compact_json(result)
 
 
 def _verification(
@@ -189,53 +210,33 @@ def _verification(
 
 
 def _aggregate(root: Path):
-    def aggregate(request: Request) -> str:
-        try:
-            case_order = scoring.load_case_order(root)
-            result = scoring.aggregate(
-                request.context,
-                scoring.load_specs(root / "instructions"),
-                BENCHMARK_ID,
-                case_order,
-                selected_case_count=_aggregate_case_count(request.intent, len(case_order)),
-            )
-        except (OSError, ValueError) as exc:
-            raise _unavailable(str(exc)) from exc
-        return _json(result)
+    def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+        case_order = scoring.load_case_order(root)
+        return scoring.aggregate(
+            case_evaluations,
+            scoring.load_specs(root / "instructions"),
+            BENCHMARK_ID,
+            case_order,
+            selected_case_count=selected_case_count,
+        )
 
     return aggregate
 
 
 def _aggregate_corrective(root: Path, benchmark_id: str, benchmark_revision: str):
-    def aggregate(request: Request) -> str:
-        try:
-            case_order = scoring.load_case_order(root)
-            result = scoring.aggregate_corrective(
-                request.context,
-                scoring.load_specs(root / "instructions"),
-                benchmark_id,
-                benchmark_revision,
-                case_order,
-                selected_case_count=_aggregate_case_count(request.intent, len(case_order)),
-                max_attempts=MAX_ATTEMPTS,
-            )
-        except (OSError, ValueError) as exc:
-            raise _unavailable(str(exc)) from exc
-        return _json(result)
+    def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+        case_order = scoring.load_case_order(root)
+        return scoring.aggregate_corrective(
+            case_evaluations,
+            scoring.load_specs(root / "instructions"),
+            benchmark_id,
+            benchmark_revision,
+            case_order,
+            selected_case_count=selected_case_count,
+            max_attempts=MAX_ATTEMPTS,
+        )
 
     return aggregate
-
-
-def _aggregate_case_count(intent: str, available: int) -> int:
-    operation, separator, raw_count = (intent or "").partition(":")
-    if operation != "aggregate" or not separator:
-        raise _unsupported("IFEval aggregation", intent)
-    count = _positive_int(raw_count, "selected Case count")
-    if count > available:
-        raise _unavailable(
-            f"IFEval aggregation selected {count} Cases but only {available} are installed"
-        )
-    return count
 
 
 def _lanl_intent(intent: str) -> tuple[str, int, int]:
@@ -247,7 +248,7 @@ def _lanl_intent(intent: str) -> tuple[str, int, int]:
 
 
 def _lanl_members(value: object, label: str) -> list[dict[str, Any]]:
-    raw = _json_array(value, label)
+    raw = json_array(value, label)
     members = [_attempt_member(_member(item, index), index) for index, item in enumerate(raw)]
     if not MIN_MEMBERS <= len(members) <= MAX_MEMBERS:
         raise _unavailable(f"{label} must carry {MIN_MEMBERS}..{MAX_MEMBERS} member answers")
@@ -294,7 +295,7 @@ def _lanl_gate(root: Path):
         if kind == "continue":
             proceed = not passers and attempt < MAX_ATTEMPTS
             payload = [{"case_id": case_id, "attempt": attempt + 1}] if proceed else []
-            return _json(payload)
+            return compact_json(payload)
         if len(passers) >= 2:
             pool = passers
         elif not passers and attempt == MAX_ATTEMPTS:
@@ -308,8 +309,8 @@ def _lanl_gate(root: Path):
         else:
             pool = []
         if not pool:
-            return _json([])
-        return _json(
+            return compact_json([])
+        return compact_json(
             [
                 {
                     "case_id": case_id,
@@ -340,7 +341,7 @@ def _lanl_select(root: Path):
 
     def select(request: Request) -> str:
         case_id, _attempt = _case_and_attempt(request.intent)
-        payload = _json_payload(request.context, "lanl selection")
+        payload = json_object(request.context, "lanl selection")
         if set(payload) != {"round", "tie"}:
             raise _unavailable("lanl selection payload must carry exactly round and tie")
         members = _lanl_members(payload["round"], "selection round")
@@ -366,7 +367,7 @@ def _lanl_select(root: Path):
 def _tie_letter(value: object, members: list[dict[str, Any]]) -> str | None:
     """The judge's letter from the 0-or-1-item tie-pick collection, if any."""
 
-    items = _json_array(value, "tie picks") if value not in (None, "") else []
+    items = json_array(value, "tie picks") if value not in (None, "") else []
     if not items:
         return None
     reply = items[0]
@@ -400,13 +401,13 @@ def _lanl_envelope(request: Request) -> str:
 
     try:
         case_id = _positive_int(request.intent, "case id")
-        payload = _json_payload(request.context, "lanl case evaluation")
+        payload = json_object(request.context, "lanl case evaluation")
         if set(payload) != {"attempt_1", "next"}:
             raise ValueError("lanl case evaluation must carry exactly attempt_1 and next")
         attempts = [_decoded_check(payload["attempt_1"], "attempt_1")]
         next_value: object = payload["next"]
         while True:
-            items = _json_array(next_value, "lanl continuation") if next_value != "" else []
+            items = json_array(next_value, "lanl continuation") if next_value != "" else []
             if not items:
                 break
             if len(items) != 1:
@@ -416,7 +417,7 @@ def _lanl_envelope(request: Request) -> str:
         result = bind_case_evaluation(case_id, attempts)
     except (TypeError, ValueError) as exc:
         raise _unavailable(str(exc)) from exc
-    return _json(result)
+    return compact_json(result)
 
 
 def _continuation_outcome(outcome: object) -> tuple[dict[str, Any], object]:
@@ -457,7 +458,7 @@ def _resolve_candidate(request: Request) -> str:
     """Validate raw Fusion bindings before any LANL member invocation."""
 
     value = _bound_members(request)
-    return _json(_resolved_members(value))
+    return compact_json(_resolved_members(value))
 
 
 def _bound_members(request: Request) -> dict[str, object]:
@@ -543,25 +544,12 @@ def _direct_model_call(parsed: Expression, label: str) -> RelExpr:
     return call
 
 
-def _json_array(value: object, label: str) -> list[object]:
-    """Decode arrays carried as JSON text through URL4's scalar struct fields."""
-
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except ValueError as exc:
-            raise _unavailable(f"{label} must be JSON: {exc}") from exc
-    if not isinstance(value, list):
-        raise _unavailable(f"{label} must be an array")
-    return value
-
-
 def _member_record(request: Request) -> str:
     """Return one validated attempt record for the next URL4 round."""
 
     if request.intent != "record":
         raise _unsupported("IFEval member record", request.intent)
-    return _json(_attempt_member(_json_payload(request.context, "member record"), 0))
+    return compact_json(_attempt_member(json_object(request.context, "member record"), 0))
 
 
 def _member_answer(request: Request) -> str:
@@ -569,7 +557,7 @@ def _member_answer(request: Request) -> str:
 
     members = [
         _member(value, index)
-        for index, value in enumerate(_json_array(request.context, "Candidate member round"))
+        for index, value in enumerate(json_array(request.context, "Candidate member round"))
     ]
     for member in members:
         if member["key"] == request.intent:
@@ -643,16 +631,6 @@ def _judge_letter(reply: object, selected: Mapping[str, object]) -> str | None:
     return token if len(token) == 1 and token in selected else None
 
 
-def _json_payload(context: str, label: str) -> dict[str, object]:
-    try:
-        payload = json.loads(context or "")
-    except ValueError as exc:
-        raise _unavailable(f"{label} input must be JSON: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise _unavailable(f"{label} input must be a JSON object")
-    return payload
-
-
 def _case_and_attempt(value: str) -> tuple[int, int]:
     case_part, _, attempt_part = (value or "").partition(":")
     case_id = _positive_int(case_part, "case id")
@@ -661,7 +639,7 @@ def _case_and_attempt(value: str) -> tuple[int, int]:
 
 
 def _positive_int(value: object, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, str)):
+    if isinstance(value, bool) or not isinstance(value, int | str):
         raise ValueError(f"IFEval {label} must be an integer, got {value!r}")
     try:
         selected = int(value)
@@ -670,10 +648,6 @@ def _positive_int(value: object, label: str) -> int:
     if selected < 1:
         raise ValueError(f"IFEval {label} must be positive, got {selected}")
     return selected
-
-
-def _json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def _unsupported(label: str, intent: str) -> ResolutionError:
@@ -689,10 +663,6 @@ def _read(path: Path, label: str) -> str:
         return path.read_text(encoding="utf-8")
     except OSError as exc:
         raise _unavailable(f"could not read {label} at {str(path)!r}: {exc}") from exc
-
-
-def _unavailable(detail: str) -> ResolutionError:
-    return ResolutionError(detail, code="benchmark_unavailable", permanent=True)
 
 
 def _candidate_invalid(detail: str) -> ResolutionError:

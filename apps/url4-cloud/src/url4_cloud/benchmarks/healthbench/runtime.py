@@ -9,7 +9,7 @@ recipe can actually resolve. Data flows through them in exam order:
                          one fully-built judge prompt per rubric item
     /rubric-verdict    → parse one judge reply into a verdict (or raise → retry)
     /rubric-evaluation → staple {case, rubric, verdict} into one row
-    /case-evaluation   → collect a Case's rows into its per-Case artifact
+    /case-evaluation   → collect a Case's rubric evaluations into its Case Evaluation
     /aggregate         → reduce all Case artifacts into the final score
 
 Everything here is deterministic — the model calls live in the expression, not in
@@ -25,11 +25,16 @@ from typing import Any
 
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
-from url4_cloud.benchmarks.contract import (
-    CANDIDATE_INPUT_SCHEMA,
-    decode_candidate_invocation,
+from url4_cloud.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from url4_cloud.benchmarks.evaluation import (
+    aggregate_endpoint,
+    candidate_answer,
+    case_evaluation_endpoint,
+    compact_json,
+    json_object,
+    positive_case_id,
 )
-from url4_cloud.benchmarks.errors import ProviderRefusal
+from url4_cloud.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from url4_cloud.benchmarks.healthbench import aggregate as reducing
 from url4_cloud.benchmarks.healthbench import records
 from url4_cloud.benchmarks.healthbench.case_evaluation import (
@@ -96,8 +101,23 @@ def _install_protocol_once(
         (tasks_route, _rubric_tasks(root, case_ids)),
         (verdict_route, _rubric_verdict),
         (rubric_evaluation_route, _rubric_evaluation),
-        (case_evaluation_route, _case_evaluation),
-        (aggregate_route, _aggregate(root, benchmark_id, benchmark_revision, case_ids)),
+        (
+            case_evaluation_route,
+            case_evaluation_endpoint(
+                label="HealthBench Case evaluation",
+                item_name="Rubric evaluation",
+                bind=bind_case_evaluation,
+                error_context_head=300,
+            ),
+        ),
+        (
+            aggregate_route,
+            aggregate_endpoint(
+                label="HealthBench",
+                available_case_count=len(case_ids),
+                aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids),
+            ),
+        ),
     )
     for route, handler in endpoints:
         if route not in routes:
@@ -119,8 +139,8 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
         problems.append(f"cases.json missing under {root}")
     else:
         try:
-            rows = json.loads((root / "cases.json").read_text(encoding="utf-8"))
-            present = {row.get("id") for row in rows if isinstance(row, Mapping)}
+            cases = json.loads((root / "cases.json").read_text(encoding="utf-8"))
+            present = {case.get("id") for case in cases if isinstance(case, Mapping)}
             missing = [case_id for case_id in case_ids if case_id not in present]
             if missing:
                 problems.append(f"cases.json lacks selected cases {missing[:5]}")
@@ -153,23 +173,22 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
     def rubric_tasks(request: Request) -> str:
         try:
-            case_id = _positive_case_id(request.intent)
-            output, finish_reason, refusal = decode_candidate_invocation(request.context)
-            if refusal is not None:
-                raise ProviderRefusal(refusal, finish_reason=finish_reason)
+            case_id = positive_case_id(request.intent)
+            answer = candidate_answer(request.context)
+            output, finish_reason = answer.output, answer.finish_reason
             raw_cases = _read(root / "cases.json", "HealthBench cases")
             transcript = _transcript(raw_cases, case_id)
             items = _rubric_items(root, case_id)
             case_record = records.bind_case(
                 raw_cases, case_id=case_id, output=output, finish_reason=finish_reason
             )
-            rows: list[dict[str, str]] = []
+            tasks: list[dict[str, str]] = []
             for item in items:
                 rendered = render_rubric_item(item["points"], item["criterion"])
                 rubric_record = records.bind_rubric_item(
                     rendered, case_id=case_id, rubric_id=item["rubric_id"]
                 )
-                rows.append(
+                tasks.append(
                     {
                         "case_id": str(case_id),
                         "rubric_id": str(item["rubric_id"]),
@@ -182,7 +201,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
                         # hoists it back to one record per Case.
                         "case_record": (
                             json.dumps(case_record, ensure_ascii=False, separators=(",", ":"))
-                            if not rows
+                            if not tasks
                             else "{}"
                         ),
                         "rubric_record": json.dumps(
@@ -192,7 +211,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
                 )
         except (OSError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
-        return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+        return compact_json(tasks)
 
     return rubric_tasks
 
@@ -227,48 +246,27 @@ def _rubric_verdict(request: Request) -> str:
             code="judge_reply_invalid",
             permanent=False,
         )
-    return json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+    return compact_json(record)
 
 
 def _rubric_evaluation(request: Request) -> str:
     try:
-        case_id = _positive_case_id(request.intent)
-        payload = _object(request.context, "HealthBench rubric evaluation")
+        case_id = positive_case_id(request.intent)
+        payload = json_object(request.context, "HealthBench rubric evaluation")
         # Exact keys in exact order — the payload comes from OUR expression's struct()
         # (definition.py), so any drift means the expression and runtime disagree.
         if tuple(payload) != ("case", "rubric", "evidence"):
             raise ValueError("HealthBench rubric evaluation fields must be case, rubric, evidence")
-        raw_case = _embedded_object(payload["case"], "Case record")
+        raw_case = json_object(payload["case"], "Case record")
         result = bind_rubric_evaluation(
             case_id,
             raw_case or None,
-            _embedded_object(payload["rubric"], "Rubric record"),
-            _embedded_object(payload["evidence"], "Rubric verdict"),
+            json_object(payload["rubric"], "Rubric record"),
+            json_object(payload["evidence"], "Rubric verdict"),
         )
     except (TypeError, ValueError) as exc:
         raise _unavailable(str(exc)) from exc
-    return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-
-
-def _case_evaluation(request: Request) -> str:
-    try:
-        case_id = _positive_case_id(request.intent)
-        raw = json.loads(request.context)
-        if not isinstance(raw, list) or not raw:
-            raise ValueError("HealthBench Case evaluation must be a non-empty JSON array")
-        evaluations = [
-            _embedded_object(item, f"Rubric evaluation {index}")
-            for index, item in enumerate(raw, start=1)
-        ]
-        result = bind_case_evaluation(case_id, evaluations)
-    except (TypeError, ValueError) as exc:
-        # WHY the context head in the error: this route sits on the resolver seam —
-        # its context is whatever the runner rendered for the rubric_rows collection.
-        # A live failure here (2026-08-06 smoke run) was undiagnosable without seeing
-        # the actual payload, and this error IS the audit record that reaches the
-        # report via on_error=collect.
-        raise _unavailable(f"{exc}; context head: {request.context[:300]!r}") from exc
-    return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    return compact_json(result)
 
 
 def _aggregate(
@@ -277,37 +275,14 @@ def _aggregate(
     benchmark_revision: str,
     case_ids: tuple[int, ...],
 ):
-    def aggregate_handler(request: Request) -> str:
-        # Intent is "aggregate:<selected>" — the expression tells the reducer how
-        # many Cases the run actually selected (a `limit=N` run slices the Case
-        # loop, and scoring the full installed list would fail every un-run Case).
-        operation, _, raw_count = request.intent.partition(":")
-        if operation != "aggregate" or not raw_count.isdigit():
-            raise ResolutionError(
-                f"unsupported HealthBench operation {request.intent!r}",
-                code="benchmark_operation_unsupported",
-                permanent=True,
-            )
-        selected = int(raw_count)
-        if not 1 <= selected <= len(case_ids):
-            raise ResolutionError(
-                f"HealthBench aggregate selection {selected} is outside 1..{len(case_ids)}",
-                code="benchmark_operation_unsupported",
-                permanent=True,
-            )
-        try:
-            result = reducing.aggregate(
-                request.context,
-                root,
-                benchmark_id=benchmark_id,
-                benchmark_revision=benchmark_revision,
-                # The slice in the expression is (0, selected) over this same
-                # ordering, so the selected prefix IS the run's Case list.
-                case_ids=case_ids[:selected],
-            )
-        except (OSError, ValueError) as exc:
-            raise _unavailable(str(exc)) from exc
-        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+        return reducing.aggregate(
+            case_evaluations,
+            root,
+            benchmark_id=benchmark_id,
+            benchmark_revision=benchmark_revision,
+            case_ids=case_ids[:selected_case_count],
+        )
 
     return aggregate_handler
 
@@ -350,41 +325,15 @@ def _rubric_items(root: Path, case_id: int) -> list[dict[str, Any]]:
     return items
 
 
-def _positive_case_id(value: object) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, str)):
-        raise ValueError("case_id must be a positive integer")
-    try:
-        selected = int(value)
-    except ValueError:
-        raise ValueError("case_id must be a positive integer") from None
-    if selected < 1:
-        raise ValueError("case_id must be a positive integer")
-    return selected
-
-
 def _select_cases(raw: str, case_ids: tuple[int, ...]) -> list[dict[str, object]]:
     try:
-        rows = json.loads(raw)
-        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        cases = json.loads(raw)
+        if not isinstance(cases, list) or not all(isinstance(case, dict) for case in cases):
             raise ValueError("expected a JSON array of objects")
-        by_id = {row["id"]: row for row in rows}
+        by_id = {case["id"]: case for case in cases}
         return [by_id[case_id] for case_id in case_ids]
     except (KeyError, TypeError, ValueError) as exc:
         raise _unavailable(f"could not select HealthBench cases {case_ids}: {exc}") from exc
-
-
-def _object(value: str, label: str) -> dict[str, object]:
-    decoded = json.loads(value)
-    if not isinstance(decoded, dict):
-        raise ValueError(f"{label} must be a JSON object")
-    return decoded
-
-
-def _embedded_object(value: object, label: str) -> dict[str, object]:
-    decoded = json.loads(value) if isinstance(value, str) else value
-    if not isinstance(decoded, dict):
-        raise ValueError(f"{label} must decode to an object")
-    return decoded
 
 
 def _read(path: Path, label: str) -> str:
@@ -392,14 +341,6 @@ def _read(path: Path, label: str) -> str:
         return path.read_text(encoding="utf-8")
     except OSError as exc:
         raise _unavailable(f"could not read {label} at {str(path)!r}: {exc}") from exc
-
-
-def _unavailable(detail: str) -> ResolutionError:
-    return ResolutionError(
-        detail,
-        code="benchmark_unavailable",
-        permanent=True,
-    )
 
 
 __all__ = ["install", "preflight"]
