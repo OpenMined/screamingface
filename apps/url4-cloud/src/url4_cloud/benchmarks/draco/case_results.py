@@ -162,10 +162,12 @@ def failed_selected_case_result(
 ) -> dict[str, Any]:
     """Represent a selected Case that never produced a Candidate answer."""
     return {
+        "status": "failed",
         "case_id": int(selected_case["id"]),
         "input": selected_case["input"],
         "output": None,
         "finish_reason": None,
+        "refusal": None,
         "grade": None,
         "failures": [dict(failure)],
         "metadata": {
@@ -179,10 +181,12 @@ def ungraded_case_result(
 ) -> dict[str, Any]:
     """Retain an observed Candidate answer when private grading material is unavailable."""
     return {
+        "status": "failed",
         "case_id": int(case_record["case_id"]),
         "input": case_record["input"],
         "output": case_record["output"],
         "finish_reason": case_record["finish_reason"],
+        "refusal": None,
         "grade": None,
         "failures": [dict(failure)],
         "metadata": case_record.get("metadata", {}),
@@ -213,10 +217,12 @@ def _case_result(
 ) -> dict[str, Any]:
     """Assemble the shared Case Result envelope once."""
     return {
+        "status": "scored" if score is not None and not failures else "failed",
         "case_id": int(case_record["case_id"]),
         "input": case_record["input"],
         "output": case_record["output"],
         "finish_reason": case_record["finish_reason"],
+        "refusal": None,
         "grade": {
             "method": "rubric",
             "score": score,

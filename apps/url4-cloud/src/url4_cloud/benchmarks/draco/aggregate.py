@@ -54,7 +54,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from url4_cloud.benchmarks.contract import CandidateResult
+from url4_cloud.benchmarks.aggregation import (
+    CandidateScore,
+    collected_provider_refusal,
+    finalize_candidate_result,
+    refused_case_result,
+)
+from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.draco import assets
 from url4_cloud.benchmarks.draco import case_results as case_results_module
 from url4_cloud.benchmarks.draco.case_evaluation import decode_case_evaluation
@@ -138,28 +144,19 @@ def aggregate(
     decoded_rows = _decode_rows(rows, expected_cases, judge_passes)
     _require_verifiable_mapping(decoded_rows)
     case_results = _aggregate_rows(decoded_rows, rubrics, judge_passes, criterion_count)
-    scored = [
-        case
-        for case in case_results
-        if isinstance((grade := case.get("grade")), Mapping)
-        and isinstance(grade.get("score"), int | float)
-        and not isinstance(grade.get("score"), bool)
-    ]
-    if len(scored) != len(case_results):
-        return CandidateResult(
-            benchmark_id=benchmark_id,
-            benchmark_revision=benchmark_revision,
-            case_count=len(case_results),
-            score=None,
-            metrics={},
-            cases=case_results,
-            failures=[],
-        ).as_payload()
-
-    return CandidateResult(
+    return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        case_count=len(case_results),
+        cases=case_results,
+        scorer=_draco_score,
+    ).as_payload()
+
+
+def _draco_score(cases: Sequence[CaseResult]) -> CandidateScore:
+    """Apply the official DRACO cross-Case reduction to complete typed Cases."""
+
+    scored = [case.model_dump() for case in cases]
+    return CandidateScore(
         score=_mean_grades(scored, "score"),
         metrics={
             "normalized_score_sd": _mean_grade_metrics(scored, "normalized_score_sd"),
@@ -179,11 +176,7 @@ def aggregate(
             "verdicts_invalid": _sum_grade_metrics(scored, "verdicts_invalid"),
             "verdicts_missing": _sum_grade_metrics(scored, "verdicts_missing"),
         },
-        cases=case_results,
-        # Case-scoped failures live on their Case Result. Candidate-level failures are reserved
-        # for failures that cannot be attributed to a selected Case.
-        failures=[],
-    ).as_payload()
+    )
 
 
 def _decode_rows(
@@ -217,6 +210,16 @@ def _aggregate_rows(
     case_results: list[dict[str, Any]] = []
     for index, row in enumerate(decoded_rows):
         if not row.case_records:
+            if refusal := collected_provider_refusal(row.raw):
+                case_results.append(
+                    refused_case_result(
+                        case_id=int(row.expected_case["id"]),
+                        input=str(row.expected_case["input"]),
+                        refusal=refusal,
+                        metadata={"row_index": index},
+                    ).model_dump()
+                )
+                continue
             failure = _row_failure(
                 row.raw,
                 index,

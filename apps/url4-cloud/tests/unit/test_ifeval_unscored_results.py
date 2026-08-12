@@ -60,10 +60,12 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
     assert result["failures"] == []
     assert result["cases"] == [
         {
+            "status": "failed",
             "case_id": 1,
             "input": "Answer without commas.",
             "output": None,
             "finish_reason": None,
+            "refusal": None,
             "grade": None,
             "failures": [
                 {
@@ -78,6 +80,24 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
             "metadata": {},
         }
     ]
+
+
+def test_provider_refusal_is_retained_exactly_and_skips_grading() -> None:
+    exact = "I can’t comply with that request."
+    result = aggregate(
+        json.dumps([{"error": {"kind": "ProviderRefusal", "message": exact}}]),
+        _SPEC,
+        "ifeval",
+        _ORDER,
+    )
+
+    case = result["cases"][0]
+    assert result["score"] is None
+    assert result["metrics"] == {}
+    assert case["status"] == "refused"
+    assert case["refusal"] == exact
+    assert case["grade"] is None
+    assert case["failures"][0]["code"] == "provider_refusal"
 
 
 def test_nested_verifier_record_is_not_discovered_as_grading() -> None:

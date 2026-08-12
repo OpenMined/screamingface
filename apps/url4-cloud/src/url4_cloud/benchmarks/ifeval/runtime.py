@@ -14,6 +14,7 @@ from url4_cloud.benchmarks.contract import (
     decode_candidate_invocation,
     encode_candidate_invocation,
 )
+from url4_cloud.benchmarks.errors import ProviderRefusal
 from url4_cloud.benchmarks.ifeval import aggregate as scoring
 from url4_cloud.benchmarks.ifeval import grading
 from url4_cloud.benchmarks.ifeval.case_evaluation import bind_case_evaluation
@@ -91,11 +92,7 @@ def _check(root: Path):
             case_id, attempt = _case_and_attempt(request.intent)
             answer, finish_reason, refusal = decode_candidate_invocation(request.context)
             if refusal is not None:
-                raise ResolutionError(
-                    "Candidate refused the IFEval Case",
-                    code="provider_refusal",
-                    permanent=True,
-                )
+                raise ProviderRefusal(refusal)
             spec, result, violations = _verification(root, case_id, answer)
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc

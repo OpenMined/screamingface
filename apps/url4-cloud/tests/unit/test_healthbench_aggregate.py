@@ -114,10 +114,12 @@ def test_fully_judged_cases_score_and_mean_unclipped(tmp_path: Path) -> None:
     # sit under grade.checks — not in any home-grown envelope.
     first = result["cases"][0]
     assert set(first) == {
+        "status",
         "case_id",
         "input",
         "output",
         "finish_reason",
+        "refusal",
         "grade",
         "failures",
         "metadata",
@@ -242,6 +244,31 @@ def test_invalid_judge_evidence_counts_and_fails_the_case(tmp_path: Path) -> Non
     assert result["score"] is None
     assert result["metrics"] == {}  # unscored → empty (SDK report rule)
     assert _failure_codes(result) == {1: "incomplete_verdicts"}
+
+
+def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Path) -> None:
+    _write_rubric(tmp_path, 1, [7])
+    _write_rubric(tmp_path, 2, [7])
+    first = "I can’t answer the first request."
+    second = "I can’t answer the second request."
+
+    result = aggregate(
+        json.dumps(
+            [
+                {"error": {"kind": "ProviderRefusal", "message": first}},
+                {"error": {"kind": "ProviderRefusal", "message": second}},
+            ]
+        ),
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1, 2),
+    )
+
+    assert result["score"] is None
+    assert result["metrics"] == {}
+    assert [case["status"] for case in result["cases"]] == ["refused", "refused"]
+    assert [case["refusal"] for case in result["cases"]] == [first, second]
 
 
 def test_a_missing_case_row_is_visible(tmp_path: Path) -> None:

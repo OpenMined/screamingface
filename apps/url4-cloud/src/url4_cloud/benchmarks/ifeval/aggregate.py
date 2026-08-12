@@ -7,11 +7,8 @@ accuracy (arXiv:2311.07911).
 
 INVARIANT: `case_count` is EXACT (one entry per selected Case) and every scored Case has a
 real verifier record. A missing record is an operational failure rather than an incorrect
-answer: the Case is RETAINED with its failure record and counted in `cases_fallback`, never
-folded into a denominator. Scoring is coverage-declared (draco's model): accuracies run over
-graded Cases only and `metrics.coverage` says how much of the selection the score stands on.
-The Engine reports facts and gates nothing — acceptance policy lives downstream. Only a run
-with zero graded Cases is unscored (a score over nothing is undefined).
+answer: the Case is retained with its failure record and the complete Candidate fails closed
+with `score: None` and empty metrics. No accuracy is published over a surviving subset.
 """
 
 from __future__ import annotations
@@ -21,7 +18,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from url4_cloud.benchmarks.contract import CandidateResult
+from url4_cloud.benchmarks.aggregation import (
+    CandidateScore,
+    collected_provider_refusal,
+    finalize_candidate_result,
+    refused_case_result,
+)
+from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
     CHECK_SCHEMA,
     decode_case_evaluation,
@@ -50,67 +53,36 @@ def aggregate(
     """
 
     rows = _rows(rows_json)
-    case_results: list[dict[str, Any]] = []
-    accepted: list[dict[str, Any]] = []
-    recordless_cases: list[tuple[int, int]] = []
+    case_results: list[CaseResult] = []
     for index, (raw, case_id) in enumerate(
         zip(rows, _selected_case_ids(rows, specs, case_order), strict=True)
     ):
         spec = specs[case_id]
         record = _first_valid_record(raw, case_id, spec)
         if record is None:
-            recordless_cases.append((index, case_id))
             case_results.append(_failed_case_result(raw, index, case_id, spec))
             continue
-        accepted.append(record)
         case_results.append(_case_result(case_id, spec, record))
-    if not accepted:
-        return _unscored_result(benchmark_id, IFEVAL_REVISION, case_results)
-
-    strict_all = [all(record["strict"]) for record in accepted]
-    loose_all = [all(record["loose"]) for record in accepted]
-    strict_flat = [bool(value) for record in accepted for value in record["strict"]]
-    loose_flat = [bool(value) for record in accepted for value in record["loose"]]
-    inst_level_strict = _accuracy(strict_flat)
-    cases_checked = len(accepted)
-    cases_fallback = len(recordless_cases)
-    return CandidateResult(
+    return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=IFEVAL_REVISION,
-        case_count=len(case_results),
-        score=_accuracy(strict_all),
-        metrics={
-            "inst_level_strict_accuracy": inst_level_strict,
-            "prompt_level_loose_accuracy": _accuracy(loose_all),
-            "inst_level_loose_accuracy": _accuracy(loose_flat),
-            "cases_checked": cases_checked,
-            "cases_fallback": cases_fallback,
-            # IFEval's canonical-trio mapping (contract enforced by CandidateResult):
-            # pass_rate is instruction-level strict accuracy over graded cases;
-            # coverage is graded / selected cases.
-            "pass_rate": inst_level_strict,
-            "coverage": round(cases_checked / len(case_results), 4),
-        },
         cases=case_results,
-        failures=[],
+        scorer=_ifeval_score,
     ).as_payload()
 
 
 def _unscored_result(
     benchmark_id: str,
     benchmark_revision: str,
-    cases: Sequence[Mapping[str, Any]],
+    cases: Sequence[CaseResult],
 ) -> dict[str, Any]:
     """Return the complete Evaluation record without fabricating an aggregate score."""
 
-    return CandidateResult(
+    return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        case_count=len(cases),
-        score=None,
-        metrics={},
-        cases=[dict(case) for case in cases],
-        failures=[],
+        cases=cases,
+        scorer=_ifeval_score,
     ).as_payload()
 
 
@@ -119,8 +91,16 @@ def _failed_case_result(
     row_index: int,
     case_id: int,
     spec: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> CaseResult:
     """Retain one selected Case whose Candidate Invocation or Grading failed."""
+
+    if refusal := collected_provider_refusal(row):
+        return refused_case_result(
+            case_id=case_id,
+            input=spec["prompt"],
+            refusal=refusal,
+            metadata={"row_index": row_index},
+        )
 
     error = row.get("error") if isinstance(row, Mapping) else None
     error = error if isinstance(error, Mapping) else {}
@@ -132,24 +112,28 @@ def _failed_case_result(
     metadata: dict[str, Any] = {"row_index": row_index}
     if kind is not None:
         metadata["error_kind"] = kind
-    return {
-        "case_id": case_id,
-        "input": spec["prompt"],
-        "output": None,
-        "finish_reason": None,
-        "grade": None,
-        "failures": [
-            {
-                "stage": _failure_stage(code),
-                "code": code,
-                "message": message,
-                "retryable": _retryable(error),
-                "case_id": case_id,
-                "metadata": metadata,
-            }
-        ],
-        "metadata": {},
-    }
+    return CaseResult.model_validate(
+        {
+            "status": "failed",
+            "case_id": case_id,
+            "input": spec["prompt"],
+            "output": None,
+            "finish_reason": None,
+            "refusal": None,
+            "grade": None,
+            "failures": [
+                {
+                    "stage": _failure_stage(code),
+                    "code": code,
+                    "message": message,
+                    "retryable": _retryable(error),
+                    "case_id": case_id,
+                    "metadata": metadata,
+                }
+            ],
+            "metadata": {},
+        }
+    )
 
 
 def _failure_stage(code: str) -> str:
@@ -188,16 +172,13 @@ def aggregate_corrective(
     """
 
     rows = _rows(rows_json)
-    case_results: list[dict[str, Any]] = []
-    selected_records: list[dict[str, Any]] = []
-    recordless_cases: list[tuple[int, int]] = []
+    case_results: list[CaseResult] = []
     for index, (raw, case_id) in enumerate(
         zip(rows, _selected_case_ids(rows, specs, case_order), strict=True)
     ):
         spec = specs[case_id]
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
-            recordless_cases.append((index, case_id))
             case_results.append(_failed_case_result(raw, index, case_id, spec))
             continue
         earliest_pass = min(
@@ -205,8 +186,6 @@ def aggregate_corrective(
             default=0,
         )
         selected_attempt = earliest_pass or max(records)
-        selected = records[selected_attempt]
-        selected_records.append(selected)
         case_results.append(
             _corrective_case(
                 case_id,
@@ -216,57 +195,11 @@ def aggregate_corrective(
                 earliest_pass,
             )
         )
-    if not selected_records:
-        return _unscored_result(benchmark_id, benchmark_revision, case_results)
-
-    strict_all = [all(record["strict"]) for record in selected_records]
-    loose_all = [all(record["loose"]) for record in selected_records]
-    strict_flat = [bool(value) for record in selected_records for value in record["strict"]]
-    loose_flat = [bool(value) for record in selected_records for value in record["loose"]]
-    # pass@k denominators run over graded cases only; failed cases carry no
-    # pass_attempt metadata, so .get keeps them out of the numerator too.
-    graded = len(selected_records)
-    pass_at = {
-        f"pass_at_{attempt}": (
-            round(
-                sum(
-                    1
-                    for case in case_results
-                    if case["metadata"].get("pass_attempt")
-                    and case["metadata"]["pass_attempt"] <= attempt
-                )
-                / graded,
-                4,
-            )
-            if graded
-            else 0.0
-        )
-        for attempt in range(1, max_attempts + 1)
-    }
-    inst_level_strict = _accuracy(strict_flat)
-    cases_fallback = len(recordless_cases)
-    return CandidateResult(
+    return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        case_count=len(case_results),
-        score=_accuracy(strict_all),
-        metrics={
-            "inst_level_strict_accuracy": inst_level_strict,
-            "prompt_level_loose_accuracy": _accuracy(loose_all),
-            "inst_level_loose_accuracy": _accuracy(loose_flat),
-            **pass_at,
-            "corrected_cases": sum(
-                1 for case in case_results if (case["metadata"].get("pass_attempt") or 0) > 1
-            ),
-            "cases_checked": graded,
-            "cases_fallback": cases_fallback,
-            # Same IFEval canonical-trio mapping as the single-pass reducer, over the
-            # SELECTED attempt per graded case (contract enforced by CandidateResult).
-            "pass_rate": inst_level_strict,
-            "coverage": round(graded / len(case_results), 4),
-        },
         cases=case_results,
-        failures=[],
+        scorer=lambda cases: _ifeval_score(cases, max_attempts=max_attempts),
     ).as_payload()
 
 
@@ -313,27 +246,30 @@ def _corrective_case(
     records: Mapping[int, Mapping[str, Any]],
     selected_attempt: int,
     pass_attempt: int,
-) -> dict[str, Any]:
+) -> CaseResult:
     selected = records[selected_attempt]
     result = _case_result(case_id, spec, selected)
-    result["metadata"] = {
-        "selected_attempt": selected_attempt,
-        # 0 means no attempt passed every strict Check.
-        "pass_attempt": pass_attempt,
-        "attempts": [
-            {
-                "attempt": attempt,
-                "output": record["answer"],
-                "finish_reason": record["finish_reason"],
-                "feedback": list(record["violations"]),
-                # The judge's actual coaching for THIS attempt (authored after the
-                # previous round failed); None for attempt 1 and judge-free flows.
-                "judge_feedback": record.get("judge_feedback"),
+    return result.model_copy(
+        update={
+            "metadata": {
+                "selected_attempt": selected_attempt,
+                # 0 means no attempt passed every strict Check.
+                "pass_attempt": pass_attempt,
+                "attempts": [
+                    {
+                        "attempt": attempt,
+                        "output": record["answer"],
+                        "finish_reason": record["finish_reason"],
+                        "feedback": list(record["violations"]),
+                        # The judge's actual coaching for THIS attempt (authored after the
+                        # previous round failed); None for attempt 1 and judge-free flows.
+                        "judge_feedback": record.get("judge_feedback"),
+                    }
+                    for attempt, record in sorted(records.items())
+                ],
             }
-            for attempt, record in sorted(records.items())
-        ],
-    }
-    return result
+        }
+    )
 
 
 def load_specs(directory: Path) -> dict[int, dict[str, Any]]:
@@ -481,49 +417,100 @@ def _record_content(record: Mapping[str, Any], instruction_count: int) -> bool:
     )
 
 
-def _case_result(
-    case_id: int, spec: Mapping[str, Any], record: Mapping[str, Any]
-) -> dict[str, Any]:
+def _case_result(case_id: int, spec: Mapping[str, Any], record: Mapping[str, Any]) -> CaseResult:
     strict = [bool(value) for value in record["strict"]]
     loose = [bool(value) for value in record["loose"]]
     descriptions = record["descriptions"]
     assert isinstance(descriptions, list)
-    return {
-        "case_id": case_id,
-        "input": spec["prompt"],
-        "output": record["answer"],
-        "finish_reason": record["finish_reason"],
-        "grade": {
-            "method": "deterministic",
-            "score": float(all(strict)),
-            "metrics": {
-                "follow_all_strict": all(strict),
-                "follow_all_loose": all(loose),
-                "strict_checks_passed": sum(strict),
-                "loose_checks_passed": sum(loose),
+    return CaseResult.model_validate(
+        {
+            "status": "scored",
+            "case_id": case_id,
+            "input": spec["prompt"],
+            "output": record["answer"],
+            "finish_reason": record["finish_reason"],
+            "refusal": None,
+            "grade": {
+                "method": "deterministic",
+                "score": float(all(strict)),
+                "metrics": {
+                    "follow_all_strict": all(strict),
+                    "follow_all_loose": all(loose),
+                    "strict_checks_passed": sum(strict),
+                    "loose_checks_passed": sum(loose),
+                },
+                "checks": [
+                    {
+                        "type": "instruction",
+                        "id": f"instruction-{index}",
+                        "label": descriptions[index - 1],
+                        # Check-level verdict in the report schema's vocabulary; the strict
+                        # verifier decides it, matching the headline score. Without it a
+                        # reader must dig into evidence, and the SDK renders the check as
+                        # unjudged.
+                        "outcome": "MET" if strict[index - 1] else "UNMET",
+                        "evidence": [
+                            _verification_evidence(1, "strict", strict[index - 1]),
+                            _verification_evidence(2, "loose", loose[index - 1]),
+                        ],
+                        "metadata": {"instruction_index": index},
+                    }
+                    for index in range(1, len(strict) + 1)
+                ],
             },
-            "checks": [
-                {
-                    "type": "instruction",
-                    "id": f"instruction-{index}",
-                    "label": descriptions[index - 1],
-                    # Check-level verdict in the report schema's vocabulary; the strict
-                    # verifier decides it, matching the headline score. Without it a
-                    # reader must dig into evidence, and the SDK renders the check as
-                    # unjudged.
-                    "outcome": "MET" if strict[index - 1] else "UNMET",
-                    "evidence": [
-                        _verification_evidence(1, "strict", strict[index - 1]),
-                        _verification_evidence(2, "loose", loose[index - 1]),
-                    ],
-                    "metadata": {"instruction_index": index},
-                }
-                for index in range(1, len(strict) + 1)
-            ],
-        },
-        "failures": [],
-        "metadata": {},
+            "failures": [],
+            "metadata": {},
+        }
+    )
+
+
+def _ifeval_score(
+    cases: Sequence[CaseResult], *, max_attempts: int | None = None
+) -> CandidateScore:
+    """Apply IFEval's published accuracy formulas to complete typed Cases."""
+
+    grades = [case.grade for case in cases]
+    if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
+        raise AssertionError("IFEval scorer requires complete graded Cases")
+    typed_grades = [grade for grade in grades if grade is not None]
+    strict_all = [grade.score == 1.0 for grade in typed_grades]
+    loose_all = [grade.metrics.get("follow_all_loose") is True for grade in typed_grades]
+    strict_flat = [check.outcome == "MET" for grade in typed_grades for check in grade.checks]
+    loose_flat = [
+        evidence.outcome == "PASS"
+        for grade in typed_grades
+        for check in grade.checks
+        for evidence in check.evidence
+        if evidence.metadata.get("mode") == "loose"
+    ]
+    inst_level_strict = _accuracy(strict_flat)
+    metrics: dict[str, Any] = {
+        "inst_level_strict_accuracy": inst_level_strict,
+        "prompt_level_loose_accuracy": _accuracy(loose_all),
+        "inst_level_loose_accuracy": _accuracy(loose_flat),
+        "pass_rate": inst_level_strict,
+        "coverage": 1.0,
     }
+    if max_attempts is not None:
+        metrics.update(
+            {
+                f"pass_at_{attempt}": round(
+                    sum(
+                        1
+                        for case in cases
+                        if case.metadata.get("pass_attempt")
+                        and case.metadata["pass_attempt"] <= attempt
+                    )
+                    / len(cases),
+                    4,
+                )
+                for attempt in range(1, max_attempts + 1)
+            }
+        )
+        metrics["corrected_cases"] = sum(
+            1 for case in cases if (case.metadata.get("pass_attempt") or 0) > 1
+        )
+    return CandidateScore(score=_accuracy(strict_all), metrics=metrics)
 
 
 def _verification_evidence(sequence: int, mode: str, passed: bool) -> dict[str, Any]:

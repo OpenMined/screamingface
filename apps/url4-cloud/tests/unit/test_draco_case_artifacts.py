@@ -118,10 +118,12 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
     decoded = json.loads(result.text)
     assert decoded["cases"] == [
         {
+            "status": "scored",
             "case_id": 1,
             "input": _QUESTION,
             "output": _ANSWER,
             "finish_reason": "stop",
+            "refusal": None,
             "grade": {
                 "method": "rubric",
                 "score": 1.0,

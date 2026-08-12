@@ -7,6 +7,7 @@ from pathlib import Path
 
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
+from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from url4_cloud.benchmarks.definition import Benchmark, candidate
 
 BENCHMARK_ID = "ifeval"
@@ -32,6 +33,7 @@ REVISION = hashlib.sha256(
             VERIFIER_REPOSITORY,
             VERIFIER_REVISION,
             PROTOCOL_REVISION,
+            CANDIDATE_RESULT_SCHEMA,
             f"candidate_web_search={CANDIDATE_WEB_SEARCH}",
         )
     ).encode()

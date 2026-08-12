@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
+from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from url4_cloud.benchmarks.definition import Benchmark, candidate
 from url4_cloud.benchmarks.healthbench import verdict
 from url4_cloud.benchmarks.healthbench.prompts import GRADER_TEMPLATE
@@ -55,6 +56,7 @@ REVISION = hashlib.sha256(
             DATASET,
             DATASET_REVISION,
             PROTOCOL_REVISION,
+            CANDIDATE_RESULT_SCHEMA,
             PREPARER_REVISION,
             subset_sha(),
             JUDGE_MODEL,

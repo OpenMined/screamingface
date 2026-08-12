@@ -66,8 +66,8 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
             {
                 "error": {
                     "kind": "ResolutionError",
-                    "code": "provider_refusal",
-                    "message": "provider refused the request",
+                    "code": "provider_error",
+                    "message": "provider request failed",
                 }
             },
         ]
@@ -88,8 +88,8 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
     expected_failure = [
         {
             "stage": "candidate",
-            "code": "provider_refusal",
-            "message": "provider refused the request",
+            "code": "provider_error",
+            "message": "provider request failed",
             "retryable": None,
             "case_id": 2,
             "metadata": {"row_index": 1, "error_kind": "ResolutionError"},
@@ -97,14 +97,35 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
     ]
     assert result["failures"] == []
     assert result["cases"][1] == {
+        "status": "failed",
         "case_id": 2,
         "input": "Question 2",
         "output": None,
         "finish_reason": None,
+        "refusal": None,
         "grade": None,
         "failures": expected_failure,
         "metadata": {},
     }
+
+
+def test_provider_refusal_is_retained_exactly_and_skips_grading() -> None:
+    exact = "I can’t answer that request."
+    result = agg.aggregate(
+        json.dumps([{"error": {"kind": "ProviderRefusal", "message": exact}}]),
+        {1: _RUBRIC},
+        "draco",
+        selected_cases=_selected(1),
+        judge_passes=1,
+    )
+
+    case = result["cases"][0]
+    assert result["score"] is None
+    assert result["metrics"] == {}
+    assert case["status"] == "refused"
+    assert case["refusal"] == exact
+    assert case["grade"] is None
+    assert case["failures"][0]["code"] == "provider_refusal"
 
 
 def test_missing_selected_case_rubric_retains_the_case_and_invalidates_the_score() -> None:
@@ -121,10 +142,12 @@ def test_missing_selected_case_rubric_retains_the_case_and_invalidates_the_score
     assert result["metrics"] == {}
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert result["cases"][1] == {
+        "status": "failed",
         "case_id": 2,
         "input": "Question 2",
         "output": "Answer 2",
         "finish_reason": "stop",
+        "refusal": None,
         "grade": None,
         "failures": [
             {

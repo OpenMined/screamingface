@@ -29,6 +29,7 @@ from url4_cloud.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     decode_candidate_invocation,
 )
+from url4_cloud.benchmarks.errors import ProviderRefusal
 from url4_cloud.benchmarks.healthbench import aggregate as reducing
 from url4_cloud.benchmarks.healthbench import records
 from url4_cloud.benchmarks.healthbench.case_evaluation import (
@@ -155,11 +156,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
             case_id = _positive_case_id(request.intent)
             output, finish_reason, refusal = decode_candidate_invocation(request.context)
             if refusal is not None:
-                raise ResolutionError(
-                    "Candidate refused the HealthBench Case",
-                    code="provider_refusal",
-                    permanent=True,
-                )
+                raise ProviderRefusal(refusal)
             raw_cases = _read(root / "cases.json", "HealthBench cases")
             transcript = _transcript(raw_cases, case_id)
             items = _rubric_items(root, case_id)

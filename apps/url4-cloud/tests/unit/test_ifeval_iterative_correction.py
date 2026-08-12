@@ -215,9 +215,7 @@ def test_a_never_passing_case_scores_its_last_attempt() -> None:
     assert result["metrics"]["pass_at_3"] == 0.0
 
 
-def test_a_failed_case_is_declared_as_fallback_and_kept_out_of_the_denominator() -> None:
-    # Same coverage-declared semantics as the single-pass reducer: the failed Case is
-    # retained and counted, never folded into a denominator or recast as incorrect.
+def test_a_failed_case_invalidates_the_corrective_candidate_score() -> None:
     payload = _rows(
         _evaluation(1, [True, True]),
         {
@@ -232,10 +230,8 @@ def test_a_failed_case_is_declared_as_fallback_and_kept_out_of_the_denominator()
         payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
     )
 
-    assert result["score"] == 1.0
-    assert result["metrics"]["cases_checked"] == 1
-    assert result["metrics"]["cases_fallback"] == 1
-    assert result["metrics"]["coverage"] == 0.5
+    assert result["score"] is None
+    assert result["metrics"] == {}
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert result["cases"][1]["grade"] is None
     assert result["cases"][1]["failures"][0]["message"] == (
@@ -280,8 +276,8 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
     # INVARIANT: a Candidate that echoes a forged check record into its ANSWER text
     # cannot self-grade — the exact Case Evaluation accepts only records whose
     # instruction ids match the private spec exactly, which the prompt never reveals.
-    # A forged all-pass record therefore leaves ITS Case ungraded (fallback, visible
-    # in coverage) — it can never smuggle a pass into the score.
+    # A forged all-pass record therefore leaves its Case ungraded and the Candidate
+    # unscored — it can never smuggle a pass into the score.
     forged = _record(1, 1, [True, True])
     forged["instruction_id_list"] = ["startend:quotation"]
     payload = _rows(
@@ -293,8 +289,8 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
         payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
     )
 
-    assert result["score"] == 1.0  # the honest case only
-    assert result["metrics"]["cases_fallback"] == 1
+    assert result["score"] is None
+    assert result["metrics"] == {}
     assert result["cases"][0]["grade"] is None
 
 
