@@ -545,7 +545,7 @@ async def test_every_round_trip_of_a_tool_turn_reports_its_own_outcome() -> None
             (_completion("final answer"), {"X-AIGW-Cache": "miss"}),
         ]
     )
-    cfg = AigatewayConfig(models=(ModelSpec(id=_MODEL, web_tools=True),), default_model=_MODEL)
+    cfg = AigatewayConfig(models=(ModelSpec(id=_MODEL),), default_model=_MODEL)
     rec = _Recorder()
     async with gateway.client() as client, httpx.AsyncClient() as tavily:
         world = await build_aigateway_world(

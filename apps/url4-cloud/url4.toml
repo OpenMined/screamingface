@@ -13,14 +13,22 @@
 # Adding a model is a deliberate, reviewable edit: these paths are a public naming surface that
 # url4 expressions depend on.
 #
-# Each route is a TABLE, not a bare id, so its capabilities are declared beside it:
+# A route may be a bare id or a TABLE, so a capability can be declared beside it:
 #
-#   web_tools   Offer the Tavily-backed web_search/web_fetch tool loop to this model.
-#               Defaults to FALSE — a route gets tools only by declaring it. Declaring it does
-#               not by itself enable anything: the deployment must ALSO supply TAVILY_API_KEY,
-#               or the route serves plain completions (see `runner/connector.py`). Enabling it
-#               changes the request the model sees (a `tools`/`tool_choice` payload, then extra
-#               round trips feeding results back), which is why it is per-route, not global.
+#   web_search  May this route search the web. Defaults to TRUE — declare it only to turn a
+#               route OFF. It says THAT the route searches, never HOW: the mechanism is
+#               derived from the provider by `world_config.provider_of` against
+#               `world_config.WEB_SEARCH_NATIVE_PROVIDERS`. A provider in that set delegates
+#               to its own server-side search; every other route runs the Tavily-backed
+#               web_search/web_fetch tool loop here instead.
+#
+#               Which mechanism a model can carry is a fact about its provider, so the Engine
+#               owns it. An operator who had to declare it was keeping that knowledge in their
+#               head, and a route could claim a mechanism its provider does not serve.
+#
+#               `web_search = true` still enables nothing on its own where the tool loop is
+#               used: the deployment must ALSO supply TAVILY_API_KEY, or the route serves
+#               plain completions (see `runner/web_tools.build_runtime`).
 
 [aigateway]
 base_url = "http://127.0.0.1:9105"
@@ -33,9 +41,11 @@ web_tool_max_iterations = 12
 allow_outbound = true
 
 # --- anthropic — unprefixed ids -----------------------------------------------------------
-# web_tools OFF: the plugin dispatches OpenAI-shape tool calls through litellm, which IS the
-# shape `_WEB_TOOLS` declares, so the loop is expected to round-trip — but that has not been
-# verified end-to-end against a live Anthropic credential, and only verified routes opt in.
+# These take the Tavily loop: `anthropic` is not in WEB_SEARCH_NATIVE_PROVIDERS, because
+# aigateway's Anthropic plugin declares no web-search parameter. The plugin dispatches
+# OpenAI-shape tool calls through litellm, which IS the shape `_WEB_TOOLS` declares, so the
+# loop is expected to round-trip — not yet verified end-to-end against a live Anthropic
+# credential (OME-797 defers that check; a deployment with no TAVILY_API_KEY is unaffected).
 [[aigateway.models]]
 id = "claude-opus-4-8"
 
@@ -52,9 +62,10 @@ id = "claude-sonnet-4-5"
 id = "claude-haiku-4-5"
 
 # --- codex ---------------------------------------------------------------------------------
-# web_tools stays OFF: these dispatch through the Codex OAuth backend, whose tool-call handling
-# is not verified end-to-end here. Flip a route to true once it is — the flag is per route
-# precisely so that is a one-line, reviewable change rather than a global switch.
+# Tavily loop as well. These dispatch through the Codex OAuth backend, not litellm's stock
+# OpenAI route, so litellm's own `web_search_options` never reaches them; their tool-call
+# handling is not verified end-to-end here either. Set `web_search = false` on a route to take
+# it out of retrieval entirely.
 [[aigateway.models]]
 id = "codex/gpt-5.5"
 
@@ -71,7 +82,7 @@ id = "codex/gpt-5.3-codex"
 id = "codex/gpt-5.2"
 
 # --- gemini --------------------------------------------------------------------------------
-# web_tools OFF for the same reason as codex: Google Code Assist backend, unverified here.
+# Tavily loop, same reason as codex: Google Code Assist backend, unverified here.
 [[aigateway.models]]
 id = "gemini-cli/gemini-3.1-flash-lite"
 
@@ -97,10 +108,13 @@ id = "antigravity/gemini-3-flash"
 # CAVEAT: unlike the four static catalogs above, this list is env-overridable at deploy time
 # (AIGW_OPENROUTER_DEFAULT_MODELS), so the pinning test can only hold it to the seeds compiled
 # into the plugin — a deployment that overrides them is on its own.
-# web_tools: verified end-to-end through OpenRouter's OpenAI-shape tool calling.
+#
+# `openrouter` IS in WEB_SEARCH_NATIVE_PROVIDERS, so every route below delegates search to
+# OpenRouter's own server-side engine — one request, fully cacheable (OME-781) — and none of
+# them runs the Tavily loop. That holds for the whole provider, including the models whose
+# tool calling was separately verified here.
 [[aigateway.models]]
 id = "openrouter/openai/gpt-5.5"
-native_web_search = true
 
 # The HealthBench judge (healthbench/definition.py JUDGE_MODEL). The Benchmark's judge
 # call pins ``web_search=false``, so no retrieval capability is declared here.
@@ -109,11 +123,9 @@ id = "openrouter/openai/gpt-5.4"
 
 [[aigateway.models]]
 id = "openrouter/anthropic/claude-opus-4.8"
-native_web_search = true
 
 [[aigateway.models]]
 id = "openrouter/anthropic/claude-fable-5"
-native_web_search = true
 
 [[aigateway.models]]
 id = "openrouter/anthropic/claude-haiku-4.5"
@@ -121,23 +133,18 @@ native_web_search = true
 
 [[aigateway.models]]
 id = "openrouter/google/gemini-3.1-pro-preview"
-web_tools = true
 
 [[aigateway.models]]
 id = "openrouter/google/gemini-3-flash-preview"
-web_tools = true
 
 [[aigateway.models]]
 id = "openrouter/moonshotai/kimi-k2.6"
-web_tools = true
 
 [[aigateway.models]]
 id = "openrouter/deepseek/deepseek-v4-pro"
-web_tools = true
 
 [[aigateway.models]]
 id = "openrouter/qwen/qwen3.6-plus"
-web_tools = true
 
 # RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not
 # parse them yet; declaring one is a loud config error, never a silent no-op:

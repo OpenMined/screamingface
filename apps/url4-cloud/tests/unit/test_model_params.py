@@ -28,12 +28,18 @@ from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.world_config import ModelSpec
 
 _MODEL = "openrouter/google/gemini-3.1-pro-preview"
+_TAVILY_MODEL = "google/gemini-3.1-pro-preview"
+"""`_MODEL` minus the OpenRouter prefix: provider `google` carries no native envelope, so a
+route declared on this id takes the Tavily loop — needed by the tool-loop tests below, which
+must not silently resolve to `_MODEL`'s native mechanism instead."""
 
 
 # Every probe expression carries `anchor:1.0:'a'` beside the model call: with the call as the
 # body's ONLY source, the all-calls rule fires the per-row reduce and `default_route` adds a
 # gateway hop these assertions do not expect. One data sibling degrades it to a join.
-async def _evaluate(expression: str, *, web_tools: bool = False, tavily: bool = False):
+async def _evaluate(
+    expression: str, *, model: str = _MODEL, web_search: bool = False, tavily: bool = False
+):
     """Run one expression against a mock gateway; return the captured request bodies."""
     bodies: list[dict] = []
 
@@ -46,7 +52,7 @@ async def _evaluate(expression: str, *, web_tools: bool = False, tavily: bool = 
     ) as client:
         world = await build_aigateway_world(
             AigatewayConfig(
-                default_model=_MODEL, models=(ModelSpec(id=_MODEL, web_tools=web_tools),)
+                default_model=model, models=(ModelSpec(id=model, web_search=web_search),)
             ),
             client=client,
             tavily_client=client if tavily else None,
@@ -134,8 +140,9 @@ async def test_a_runner_owned_field_is_rejected(field: str) -> None:
     `model` would let an expression address one route and run another model, breaking the
     "route path is exactly '/' + gateway id" invariant that `url4.toml` and
     `test_declared_models_match_aigateway.py` exist to hold. `tools`/`tool_choice` would
-    bypass the per-route `web_tools` opt-in that keeps a configured Tavily key from
-    silently changing every model's payload. `stream` would break response parsing.
+    bypass the route's own resolved mechanism (`ModelSpec.uses_web_tools`) that keeps a
+    configured Tavily key from silently changing every model's payload. `stream` would break
+    response parsing.
 
     Dropping them silently would be worse than forwarding them: the expression would read
     as though it had pinned something it had not.
@@ -164,10 +171,11 @@ async def test_an_unknown_parameter_is_forwarded_for_the_gateway_to_judge() -> N
 
 @pytest.mark.asyncio
 async def test_web_tools_still_win_over_a_caller_supplied_payload() -> None:
-    """The route's declared tools must be what ships, on a route that opted in."""
+    """The route's resolved tools must be what ships, on a route whose mechanism is Tavily."""
     bodies = await _evaluate(
-        f"(v:1.0:/{_MODEL}(a:1.0:'x')!'grade';temperature=0.2,anchor:1.0:'a')!'go'",
-        web_tools=True,
+        f"(v:1.0:/{_TAVILY_MODEL}(a:1.0:'x')!'grade';temperature=0.2,anchor:1.0:'a')!'go'",
+        model=_TAVILY_MODEL,
+        web_search=True,
         tavily=True,
     )
 
@@ -218,14 +226,17 @@ async def test_parameters_apply_to_every_round_trip_of_the_tool_loop() -> None:
         transport=httpx.MockTransport(handle), base_url="http://aigateway.test"
     ) as client:
         world = await build_aigateway_world(
-            AigatewayConfig(default_model=_MODEL, models=(ModelSpec(id=_MODEL, web_tools=True),)),
+            AigatewayConfig(
+                default_model=_TAVILY_MODEL,
+                models=(ModelSpec(id=_TAVILY_MODEL, web_search=True),),
+            ),
             client=client,
             tavily_client=client,
             tavily_api_key="tv-key",
         )
         try:
             await world.node.evaluate(
-                f"(v:1.0:/{_MODEL}(a:1.0:'x')!'grade';temperature=0.2,anchor:1.0:'a')!'go'"
+                f"(v:1.0:/{_TAVILY_MODEL}(a:1.0:'x')!'grade';temperature=0.2,anchor:1.0:'a')!'go'"
             )
         finally:
             await world.aclose()

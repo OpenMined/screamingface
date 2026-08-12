@@ -157,41 +157,39 @@ default_route = "/plain"
 
 [[aigateway.models]]
 id = "plain"
+web_search = false
 
 [[aigateway.models]]
 id = "searcher"
-web_tools = true
 """
 
 
 def test_a_route_declared_as_a_table_carries_its_capabilities() -> None:
     assert _section(_TABLES).models == (
-        ModelSpec(id="plain", web_tools=False),
-        ModelSpec(id="searcher", web_tools=True),
+        ModelSpec(id="plain", web_search=False),
+        ModelSpec(id="searcher"),
     )
 
 
-def test_web_tools_defaults_off_so_a_route_opts_in_explicitly() -> None:
-    # The deny-by-default half of the gate: supplying a Tavily key must not retroactively
-    # change the request every undeclared model sees.
-    assert _section(_TABLES).models[0].web_tools is False
+def test_web_search_stays_off_only_when_a_route_opts_out_explicitly() -> None:
+    # `web_search` now defaults to true, so a route that must not search has to say so with an
+    # explicit `web_search = false` — supplying a Tavily key must not retroactively turn it on.
+    assert _section(_TABLES).models[0].web_search is False
 
 
-def test_a_bare_id_string_is_shorthand_for_a_capability_free_route() -> None:
-    assert _section(_MINIMAL).models[0] == ModelSpec(id="claude-haiku-4-5", web_tools=False)
+def test_a_bare_id_string_is_shorthand_for_a_route_that_searches_by_default() -> None:
+    assert _section(_MINIMAL).models[0] == ModelSpec(id="claude-haiku-4-5")
 
 
 def test_the_two_spellings_may_be_mixed() -> None:
-    section = _section(
-        '[aigateway]\ndefault_route = "/a"\nmodels = ["a", { id = "b", web_tools = true }]\n'
-    )
+    section = _section('[aigateway]\ndefault_route = "/a"\nmodels = ["a", { id = "b" }]\n')
 
-    assert section.models == (ModelSpec(id="a"), ModelSpec(id="b", web_tools=True))
+    assert section.models == (ModelSpec(id="a"), ModelSpec(id="b"))
 
 
 def test_a_route_table_without_an_id_is_rejected() -> None:
     with pytest.raises(WorldConfigError, match="missing its `id`"):
-        _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ web_tools = true }]\n')
+        _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ web_search = true }]\n')
 
 
 def test_unknown_key_on_a_route_table_is_rejected() -> None:
@@ -200,9 +198,9 @@ def test_unknown_key_on_a_route_table_is_rejected() -> None:
         _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ id = "a", web_tool = true }]\n')
 
 
-def test_non_boolean_web_tools_is_rejected() -> None:
-    with pytest.raises(WorldConfigError, match="web_tools must be a boolean"):
-        _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ id = "a", web_tools = "yes" }]\n')
+def test_non_boolean_web_search_is_rejected() -> None:
+    with pytest.raises(WorldConfigError, match="web_search must be a boolean"):
+        _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ id = "a", web_search = "yes" }]\n')
 
 
 def test_a_route_entry_of_the_wrong_type_is_rejected() -> None:

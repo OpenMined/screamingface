@@ -259,7 +259,7 @@ async def test_runner_invalid_model_capability_disables_discovery_and_still_fail
     config = tmp_path / "url4.toml"
     config.write_text(
         '[aigateway]\ndefault_route = "model"\n'
-        '[[aigateway.models]]\nid = "model"\nweb_tools = "yes"\n'
+        '[[aigateway.models]]\nid = "model"\nweb_search = "yes"\n'
     )
     env = {job_env.RUNNER_CONFIG: str(config)}
 
@@ -271,7 +271,7 @@ async def test_runner_invalid_model_capability_disables_discovery_and_still_fail
     # One world, two consequences: discovery advertises nothing rather than something it cannot
     # execute, and the Runner — the authority on what a run may address — still refuses outright.
     assert service is None
-    with pytest.raises(WorldConfigError, match="web_tools must be a boolean"):
+    with pytest.raises(WorldConfigError, match="web_search must be a boolean"):
         declared_model_ids(env)
 
 

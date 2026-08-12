@@ -19,10 +19,12 @@ nothing.
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import pytest
+
+from url4_cloud import job_env
+from url4_cloud.world_config import ModelSpec, load_config
 
 _RUNNER_CONFIG = Path(__file__).resolve().parents[2] / "url4.toml"
 
@@ -47,11 +49,11 @@ DRACO_JUDGE = "google/gemini-3.1-pro-preview"
 """arXiv:2602.11685 §4.2 pins it. Also a solo candidate — see the dual-role test below."""
 
 
-def _routes() -> dict[str, dict]:
-    """Every declared model route, keyed by its gateway id."""
-    with _RUNNER_CONFIG.open("rb") as handle:
-        entries = tomllib.load(handle)["aigateway"]["models"]
-    return {e["id"]: e for e in entries if not isinstance(e, str)}
+def _routes() -> dict[str, ModelSpec]:
+    """Every declared model route, keyed by its gateway id, as the parsed spec."""
+    section = load_config({job_env.RUNNER_CONFIG: str(_RUNNER_CONFIG)}).aigateway
+    assert section is not None
+    return {model.id: model for model in section.models}
 
 
 @pytest.mark.parametrize("slug", DRACO_LINEUP)
@@ -66,9 +68,16 @@ def test_every_lineup_model_has_a_declared_route(slug: str) -> None:
 
 
 def test_the_dual_role_judge_route_can_retrieve_as_a_candidate() -> None:
-    """The route declares capability; the Benchmark Judge call pins retrieval off in URL4."""
+    """The route declares capability; the Benchmark Judge call pins retrieval off in URL4.
 
-    assert _routes()[_GATEWAY_PREFIX + DRACO_JUDGE].get("web_tools") is True
+    AIDEV-NOTE: before OME-797 this route named `web_tools = true` explicitly and took the
+    Tavily loop. The mechanism is now derived from the provider — this id is `openrouter/…`,
+    which resolves to `uses_native_web_search` instead — so the assertion follows the
+    mechanism that actually serves the route today rather than pinning the retired one.
+    """
+
+    spec = _routes()[_GATEWAY_PREFIX + DRACO_JUDGE]
+    assert spec.uses_native_web_search is True
 
 
 def test_the_lineup_has_no_duplicate_entries() -> None:

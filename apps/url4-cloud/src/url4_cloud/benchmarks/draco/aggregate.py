@@ -20,24 +20,31 @@ CRITERION, five independent passes, and the judge blind to the weights and to th
 criteria. The Engine-owned Benchmark definition constructs that fan-out and this in-process
 handler reduces the complete row collection without crossing an operating-system argv boundary.
 
-AIDEV-NOTE: protocol caveats, the two ways a run here still differs from the paper:
+AIDEV-NOTE: protocol caveats, the three ways a run here still differs from the paper:
 
 * `judge_reasoning: "low"` (arXiv:2602.11685 §4.2) is NOT carried until the gateway supports it.
   `reasoning_effort` is absent from the OpenRouter plugin's rule set, and the gateway fails
   closed on an unknown parameter, so
   sending it would turn every judge call into a 400 rather than a deviation. `judge_temperature`
   and `max_tokens` DO reach the model.
-* Retrieval reaches EVERY answering route as of 2026-08-02, but by TWO different mechanisms
-  (owner decision, same date): provider-side `native_web_search` on the OpenRouter routes that
-  support it, and the runner-driven Tavily loop on `gemini-3.1-pro-preview`,
-  `gemini-3-flash-preview`, `kimi-k2.6`, `deepseek-v4-pro`, and `qwen3.6-plus`. Both honour the
-  same declared blocklist—verified live on both paths—but they are not the same search product,
-  so a candidate that answered through Tavily and one that answered natively did not read the
-  same web. A comparison ACROSS those two groups carries that caveat; the reference chart used
-  neither exactly.
+* Candidate retrieval runs on the PROVIDER's search, not a backend this repo pins. Every lineup
+  model is `openrouter/*`, so as of OME-797 (2026-08-12) all eight take the native mechanism,
+  and OME-800 leaves the engine unset — OpenRouter picks its own built-in search where the model
+  has one and Exa where it does not. So the search product can differ BETWEEN candidates of one
+  run, and can change under us without a config edit.
+  Before 2026-08-12 the mechanism was declared per route, and five candidates
+  (`gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `kimi-k2.6`, `deepseek-v4-pro`,
+  `qwen3.6-plus`) answered through the runner-driven Tavily loop instead. Runs either side of
+  that date are not the same experiment.
+* `EXCLUDED_DOMAINS` changes MEANING with the mechanism. The Tavily loop drops blocked hosts
+  client-side (`runner.web_tools._is_blocked`) — the Runner enforces it. The native path only
+  forwards `web_search_excluded_domains` and relies on the provider to honour it. Since the
+  blocklist covers `arxiv.org`, `paperswithcode.com`, `semanticscholar.org` and `alphaxiv.org`
+  — where the paper under reproduction lives — a native-path run rests on OpenRouter's
+  compliance for its leakage control, which is not verified here.
 
-Neither is visible in the numbers this module emits. A score published as "DRACO-reproduced"
-has to state both.
+None of the three is visible in the numbers this module emits. A score published as
+"DRACO-reproduced" has to state all three.
 """
 
 from __future__ import annotations

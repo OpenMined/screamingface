@@ -69,18 +69,18 @@ class _MockAigateway:
         models: tuple[str, ...],
         *,
         responses: dict[str, str | tuple[int, dict] | dict | list] | None = None,
-        web_tools: bool = True,
+        web_search: bool = True,
     ) -> None:
         # `ids` is the wire spelling aigateway advertises; `models` is the declared-world
-        # shape the connector consumes. `web_tools` applies to every route this mock serves —
+        # shape the connector consumes. `web_search` applies to every route this mock serves —
         # tests that need a mixed world build the ModelSpec tuple themselves.
         #
-        # WHY it defaults True while production defaults False: offering tools also requires a
-        # Tavily client, and these tests pass one only when the tool loop IS the subject — so
-        # this default is inert everywhere else. The route-level gate is proven on its own by
-        # `test_no_tools_when_the_route_did_not_opt_in`, which sets it False with a key present.
+        # Offering tools also requires a Tavily client, and these tests pass one only when the
+        # tool loop IS the subject — so this default is inert everywhere else. The route-level
+        # gate is proven on its own by `test_no_tools_when_the_route_opted_out`, which sets
+        # it False with a key present.
         self.ids = models
-        self.models = tuple(ModelSpec(id=m, web_tools=web_tools) for m in models)
+        self.models = tuple(ModelSpec(id=m, web_search=web_search) for m in models)
         self.responses = responses or {}
         self.requests: list[httpx.Request] = []
         self._seq_index: dict[str, int] = {}
@@ -507,7 +507,7 @@ _MODEL = "anthropic/claude-haiku-4-5"
 
 async def test_no_tools_when_tavily_key_absent() -> None:
     # The route opts IN, so the absent key is the only thing that can withhold the tools.
-    gw = _MockAigateway((_MODEL,), responses={_MODEL: "plain answer"}, web_tools=True)
+    gw = _MockAigateway((_MODEL,), responses={_MODEL: "plain answer"}, web_search=True)
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
@@ -520,11 +520,11 @@ async def test_no_tools_when_tavily_key_absent() -> None:
     assert "tool_choice" not in body
 
 
-async def test_no_tools_when_the_route_did_not_opt_in() -> None:
+async def test_no_tools_when_the_route_opted_out() -> None:
     # The other half of the gate: a configured Tavily key must NOT rewrite the request of a
-    # model that never declared `web_tools`. Without this, supplying a key to serve one route
-    # would silently change what every other model is asked.
-    gw = _MockAigateway((_MODEL,), responses={_MODEL: "plain answer"}, web_tools=False)
+    # model whose route declares `web_search=False`. Without this, supplying a key to serve one
+    # route would silently change what every other model is asked.
+    gw = _MockAigateway((_MODEL,), responses={_MODEL: "plain answer"}, web_search=False)
     tvly = _MockTavily()
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client, tvly.client() as tclient:
@@ -548,7 +548,7 @@ async def test_opted_in_and_opted_out_routes_coexist_in_one_world() -> None:
     gw = _MockAigateway((plain, searcher), responses={plain: "a", searcher: "b"})
     tvly = _MockTavily()
     cfg = AigatewayConfig(
-        models=(ModelSpec(id=plain, web_tools=False), ModelSpec(id=searcher, web_tools=True)),
+        models=(ModelSpec(id=plain, web_search=False), ModelSpec(id=searcher, web_search=True)),
         default_model=plain,
     )
     async with gw.client() as client, tvly.client() as tclient:

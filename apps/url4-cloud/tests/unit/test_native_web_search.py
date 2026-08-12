@@ -1,20 +1,23 @@
 """Provider-side web search, and the expression-level toggle that selects it.
 
-FEATURE: a route whose provider runs search ITSELF declares `native_web_search`, and an
-expression turns retrieval on or off per call with `;web_search=`.
+FEATURE: a route declares only THAT it may search (`web_search`, default true); the Engine
+derives WHICH mechanism from the provider, and an expression turns retrieval on or off per
+call with `;web_search=`.
 STORY: as a benchmark author, a published score was produced on the provider's own server-side
 search — a client-side loop over a different backend is a different experiment, so I need the
 same surface, and I need to switch it off for the judge in the same expression.
 
-TWO MECHANISMS, one per route:
-  * `web_tools`         — the RUNNER declares OpenAI functions and executes them against Tavily.
-                          Kept for providers with no server-side search of their own.
-  * `native_web_search` — the PROVIDER executes the search and answers with it already done.
-                          The runner asks the GATEWAY for it (`web_search: true`) and never
-                          spells one provider's envelope itself.
+TWO MECHANISMS, chosen by provider (`world_config.WEB_SEARCH_NATIVE_PROVIDERS`):
+  * the TAVILY loop  — the RUNNER declares OpenAI functions and executes them against Tavily.
+                       Serves every provider with no server-side search of its own.
+  * the NATIVE path  — the PROVIDER executes the search and answers with it already done.
+                       The runner asks the GATEWAY for it (`web_search: true`) and never
+                       spells one provider's envelope itself.
 
 INVARIANT: never both on one route. The request would carry two tool populations and
-double-dispatch — searching twice per turn and billing for both.
+double-dispatch — searching twice per turn and billing for both. This is now structural
+rather than validated: one flag cannot name two mechanisms (see
+`test_web_search_routing.test_mechanisms_partition_the_flag`).
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ from url4.core.errors import ResolutionError
 from url4_cloud.retrieval_policy import RetrievalPolicy, retrieval_scope
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.web_tools import build_runtime
-from url4_cloud.world_config import ModelSpec, WorldConfigError, parse_config
+from url4_cloud.world_config import ModelSpec
 
 _NATIVE = "openrouter/anthropic/claude-opus-4.8"
 _TAVILY = "claude-opus-4-8"
@@ -43,12 +46,14 @@ async def _bodies(expression: str, *, cfg: AigatewayConfig | None = None) -> lis
         captured.append(json.loads(request.content))
         return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}], "usage": {}})
 
+    # `_NATIVE` is an openrouter route, so it delegates; `_TAVILY` is unprefixed (anthropic) and
+    # takes the loop. `_PLAIN` has to OPT OUT now that searching is the default.
     config = cfg or AigatewayConfig(
         default_model=_PLAIN,
         models=(
-            ModelSpec(id=_NATIVE, native_web_search=True),
-            ModelSpec(id=_TAVILY, web_tools=True),
-            ModelSpec(id=_PLAIN),
+            ModelSpec(id=_NATIVE),
+            ModelSpec(id=_TAVILY),
+            ModelSpec(id=_PLAIN, web_search=False),
         ),
     )
     async with httpx.AsyncClient(
@@ -148,12 +153,14 @@ async def test_a_tavily_route_still_declares_openai_functions() -> None:
 
     assert [t["function"]["name"] for t in body["tools"]] == ["web_search", "web_fetch"]
     assert body["tool_choice"] == "auto"
+    assert "web_search" not in body
 
 
 @pytest.mark.asyncio
 async def test_saying_nothing_keeps_the_routes_declared_behaviour() -> None:
-    """Absent means 'as declared', so every expression written before this toggle existed
-    behaves exactly as it did."""
+    """Absent means 'as declared' — for `_NATIVE` and `_TAVILY` that is unchanged from before
+    this toggle existed, but `_PLAIN` used to stay silent by default and now must opt out
+    explicitly to keep doing so."""
     assert "web_search" in (await _bodies(_call(_NATIVE)))[0]
     assert "tools" in (await _bodies(_call(_TAVILY)))[0]
     assert "tools" not in (await _bodies(_call(_PLAIN)))[0]
@@ -164,7 +171,7 @@ async def test_saying_nothing_keeps_the_routes_declared_behaviour() -> None:
 async def test_asking_a_route_with_no_mechanism_to_search_is_loud() -> None:
     """The silent alternative is an expression that reads as though it retrieved and an answer
     written from weights alone — indistinguishable in the result."""
-    with pytest.raises(ResolutionError, match="declares no web search"):
+    with pytest.raises(ResolutionError, match="declares web_search = false"):
         await _bodies(_call(_PLAIN, ";web_search=true"))
 
 
@@ -181,42 +188,21 @@ async def test_the_toggle_is_consumed_and_never_reaches_the_gateway() -> None:
 # --- the declared world ----------------------------------------------------------
 
 
-def test_declaring_both_mechanisms_is_a_config_error() -> None:
-    raw = {
-        "aigateway": {
-            "default_route": "/m",
-            "models": [{"id": "m", "web_tools": True, "native_web_search": True}],
-        }
-    }
-    with pytest.raises(WorldConfigError, match="one retrieval mechanism"):
-        parse_config(raw, {})
-
-
-def test_native_web_search_defaults_off() -> None:
-    raw = {"aigateway": {"default_route": "/m", "models": [{"id": "m"}]}}
-
-    section = parse_config(raw, {}).aigateway
-    assert section is not None
-    assert section.models[0].native_web_search is False
-
-
-def test_native_web_search_must_be_a_boolean() -> None:
-    raw = {"aigateway": {"default_route": "/m", "models": [{"id": "m", "native_web_search": 1}]}}
-
-    with pytest.raises(WorldConfigError, match="native_web_search must be a boolean"):
-        parse_config(raw, {})
+# SUPERSEDED (OME-797) — three tests stood here; their guarantees moved to
+# `test_web_search_routing.test_mechanisms_partition_the_flag`,
+# `.test_web_search_defaults_to_true`, and `.test_web_search_must_be_a_boolean`.
 
 
 @pytest.mark.asyncio
 async def test_a_default_on_search_route_still_honours_caller_exclusions() -> None:
-    """A `web_tools` route searches by DEFAULT, so a caller reaches the tool loop without ever
+    """A Tavily-loop route searches by DEFAULT, so a caller reaches the tool loop without ever
     writing `web_search=true`. Their exclusion list must still bind: a silently ignored exclusion
     is indistinguishable from an honoured one, which is the worst failure mode a privacy control
     can have."""
     client = httpx.AsyncClient(base_url="https://tavily.test")
     try:
         runtime = build_runtime(
-            spec=ModelSpec(id=_TAVILY, web_tools=True),
+            spec=ModelSpec(id=_TAVILY),
             wants_search=True,
             tavily_http=client,
             tavily_api_key="key",
