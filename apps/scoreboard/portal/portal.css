@@ -45,9 +45,9 @@ th[aria-sort="descending"] .sort-button .arrow { opacity: 1; }
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--gain);
-  background: var(--gain-bg);
-  border: var(--border-hairline) solid var(--gain);
+  color: var(--success-text-high);
+  background: var(--success-bg-subtle);
+  border: var(--border-hairline) solid var(--success-border);
   border-radius: var(--radius-none);
   padding: 0 var(--space-2);
   white-space: nowrap;
@@ -81,8 +81,70 @@ table .btn { white-space: nowrap; }
   border: 0;
 }
 
+/* ---- benchmark tab strip --------------------------------------------- */
+/* Same visual language as .rail .crumbs (hairline underline for the active
+   item) rather than a new pattern — one nav idiom for the whole portal. */
+.tabstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--line);
+  margin: 0 0 var(--space-5);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+}
+.tabstrip a {
+  display: inline-block;
+  padding: var(--space-3) 0;
+  color: var(--ink-2);
+  text-decoration: none;
+  border-bottom: var(--border-strong) solid transparent;
+}
+.tabstrip a:hover { color: var(--ink); }
+.tabstrip a[aria-current="page"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent-solid);
+}
+/* WHY: benchmark.html ships the nav empty and initTabStrip's failure path is
+   deliberately silent, so on an API error (or zero registered benchmarks) the
+   bare element still painted its border-bottom — a hairline rule floating above
+   the masthead — and still announced an empty "Benchmarks" navigation landmark. */
+.tabstrip:empty { display: none; }
+
 /* ---- responsive ------------------------------------------------------ */
 @media (max-width: 639px) {
   /* sf:// deep-links are not useful on narrow screens; collapse the column. */
   .col-run { display: none; }
+}
+
+/* ---- rail pinning: the one deliberate override in this file ---------- */
+/* WHY: style.css ships `.rail { position: relative }` plus a `.rail.stuck`
+   variant its own comment documents as "(JS toggles .stuck + a spacer to hold
+   its place)" — the system expects the host page to supply that scroll
+   listener. This portal never has, so the rail scrolled away while
+   `.rail .toggle` (position: fixed, no background/border per the system) stayed
+   pinned top-right — leaving a bare "◐ light" glyph floating over page content,
+   and over benchmark.html's rightmost table cells at ~1000px viewports.
+   Restoring `sticky` keeps the rail under the fixed toggle at all scroll
+   offsets, which is the behavior this portal had before the v2 migration.
+   AIDEV-NOTE: this knowingly breaks the "extends — never overrides" rule at the
+   top of this file. The system-faithful fix is to implement the `.stuck` toggle
+   + spacer in JS; that is new untested behavior, so it is tracked separately
+   rather than folded into OME-768. Drop this block when that lands. */
+.rail { position: sticky; top: 0; }
+
+/* WHY: the byte-matched style.css gives .badge-verified a ::before glyph masked
+   from /assets/remix/System/check-line.svg, an icon set this portal does not
+   vendor — so every verified badge fired a 404. createVerifiedBadge() already
+   renders a literal "✓ verified", so the pseudo-element is redundant here as
+   well as broken; suppress it rather than vendoring an icon set for one glyph.
+   AIDEV-NOTE: `content: none` alone does NOT stop the fetch — Chrome still
+   resolves the mask URL and fires the 404 (verified in DevTools). The mask
+   itself has to be cleared, so keep all three declarations. If this portal ever
+   vendors the remix icons, drop this block instead of leaving two checkmarks.
+   Found in review of PR #558. */
+.badge-verified::before {
+  content: none;
+  -webkit-mask: none;
+  mask: none;
 }

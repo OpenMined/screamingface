@@ -213,6 +213,19 @@ window.ScorePortal = (function () {
     return btn;
   }
 
+  /* ---- benchmark tab strip (shared by benchmark.html) ------------------ */
+  // Renders whatever the catalog actually returns — never hardcodes specific
+  // benchmark ids (spec OME-768 D6).
+  function renderTabStrip(container, benchmarks, activeId) {
+    if (!container) return;
+    clear(container);
+    benchmarks.forEach(function (b) {
+      var a = link(null, "benchmark.html?id=" + encodeURIComponent(b.id), b.display_name || b.id);
+      if (b.id === activeId) a.setAttribute("aria-current", "page");
+      container.appendChild(a);
+    });
+  }
+
   /* ---- ready ----------------------------------------------------------- */
   function ready(fn) {
     if (document.readyState === "loading") {
@@ -238,11 +251,24 @@ window.ScorePortal = (function () {
     }
   }
 
-  function benchmarkRow(b) {
+  // "Subtitle" isn't an explicit field on Benchmark — using `description`
+  // provisionally (flagged to Irina on OME-768; easy to swap if she says
+  // otherwise, this is the one place it's read).
+  function benchmarkSubtitle(b) {
+    return b.description || null;
+  }
+
+  function benchmarkRow(b, submissionCount) {
     var tr = document.createElement("tr");
-    tr.appendChild(el("td", null, b.display_name || b.id));
-    tr.appendChild(el("td", "mono", b.id));
-    tr.appendChild(el("td", "cell-wrap", b.description ? b.description : EM_DASH));
+
+    var nameTd = el("td", "cell-wrap");
+    nameTd.appendChild(el("div", null, b.display_name || b.id));
+    var subtitle = benchmarkSubtitle(b);
+    if (subtitle) nameTd.appendChild(el("div", "faint", subtitle));
+    nameTd.appendChild(el("span", "mono faint", b.id));
+    tr.appendChild(nameTd);
+
+    tr.appendChild(el("td", "num mono", typeof submissionCount === "number" ? submissionCount.toLocaleString(PORTAL_LOCALE) : EM_DASH));
 
     // dataset_url is API-provided/untrusted: only render it when it is a real
     // http(s) URL, so a javascript:/data: scheme can never reach the href.
@@ -289,6 +315,21 @@ window.ScorePortal = (function () {
     });
   }
 
+  // D11: no aggregate "submission count" endpoint exists yet (OME-772). One
+  // extra fetch per benchmark is an acceptable N+1 at today's benchmark count
+  // (a handful) — revisit if the catalog grows past that. `/v1/leaderboard`
+  // returns best-per-spec entries (not every raw submission), so this reads
+  // as a fusion/spec count, matching OME-769's own "fusion count" term — the
+  // closest honest proxy for "# submissions" without a dedicated endpoint.
+  // top=200 is the route's own MAX_LEADERBOARD_TOP — the true ceiling, not a
+  // number picked here.
+  function fetchSubmissionCount(benchmarkId) {
+    return fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "?top=200").then(
+      function (data) { return (data && data.entries && data.entries.length) || 0; },
+      function () { return null; } // count unknown, not zero — row still renders
+    );
+  }
+
   function initIndex() {
     var statusNode = document.getElementById("benchmark-status");
     var listNode = document.getElementById("benchmark-list");
@@ -304,15 +345,26 @@ window.ScorePortal = (function () {
           showEmpty(statusNode, "No public benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
           return;
         }
-        clear(listNode);
-        benchmarks.forEach(function (b) { listNode.appendChild(benchmarkRow(b)); });
-        setStatus(statusNode, null);
-        wrapNode.hidden = false;
+        return Promise.all(benchmarks.map(function (b) { return fetchSubmissionCount(b.id); })).then(
+          function (counts) {
+            clear(listNode);
+            benchmarks.forEach(function (b, i) { listNode.appendChild(benchmarkRow(b, counts[i])); });
+            setStatus(statusNode, null);
+            wrapNode.hidden = false;
+          }
+        );
       },
       function (err) {
         showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
       }
-    );
+    ).catch(function (err) {
+      // WHY: the handler above is the second argument to the *first* `.then`, so it
+      // only sees a `/v1/benchmarks` rejection. Anything thrown later — a malformed
+      // benchmark entry, a DOM failure, a rejection inside the Promise.all
+      // continuation — would otherwise become an unhandled rejection and leave the
+      // page stuck on "Loading benchmarks…" with the table hidden and no error state.
+      showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
+    });
   }
 
   /* ---- public surface -------------------------------------------------- */
@@ -338,6 +390,7 @@ window.ScorePortal = (function () {
     formatCount: formatCount,
     createVerifiedBadge: createVerifiedBadge,
     createCopyButton: createCopyButton,
+    renderTabStrip: renderTabStrip,
     ready: ready,
     EM_DASH: EM_DASH,
   };

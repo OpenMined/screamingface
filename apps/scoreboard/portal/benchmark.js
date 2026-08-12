@@ -173,6 +173,26 @@
     section.hidden = false;
   }
 
+  // Tab strip renders across all pages regardless of whether the current
+  // `id` is valid — even a 404/missing-id state should let the reader jump
+  // to a real benchmark, not dead-end.
+  function initTabStrip(activeId) {
+    var tabsNode = document.getElementById("benchmark-tabs");
+    if (!tabsNode) return;
+    P.fetchJson("/v1/benchmarks").then(
+      function (data) { P.renderTabStrip(tabsNode, (data && data.benchmarks) || [], activeId); },
+      function () { /* tab strip is a nav convenience, not load-bearing — fail silent */ }
+    );
+  }
+
+  // D9: an unknown/missing benchmark id must not be a dead end — the status
+  // region gets a real link back to the catalog, not just text.
+  function showNotFound(statusNode, message) {
+    P.setStatus(statusNode, "error", "");
+    statusNode.appendChild(document.createTextNode(message + " "));
+    statusNode.appendChild(P.link(null, "index.html", "Return to the benchmark list."));
+  }
+
   function init() {
     var statusNode = document.getElementById("leaderboard-status");
     var wrap = document.getElementById("leaderboard-wrap");
@@ -183,10 +203,12 @@
     try {
       id = P.requireParam("id");
     } catch (e) {
-      P.showError(statusNode, "No benchmark specified. Return to the benchmark list.");
+      showNotFound(statusNode, "No benchmark specified.");
+      initTabStrip(null);
       return;
     }
     state.benchmarkId = id;
+    initTabStrip(id);
 
     P.showLoading(statusNode, "Loading leaderboard…");
     wrap.hidden = true;
@@ -201,7 +223,18 @@
         }
         state.entries = (data && data.entries) || [];
         if (state.entries.length === 0) {
+          // OME-768 asks this page for an "empty table structure", so the shell
+          // has to render on the zero-entry path too — previously this returned
+          // early with `wrap` still hidden, so a benchmark with no submissions
+          // showed the message and no table at all. renderSummary/renderClimb
+          // hide themselves when passed an empty list, so the reader gets the
+          // column headers plus the empty-state line and nothing misleading.
+          renderSummary(state.entries);
+          renderClimb(state.entries);
+          renderHead(document.getElementById("leaderboard-head"));
+          P.clear(document.getElementById("leaderboard-body"));
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
+          wrap.hidden = false;
           return;
         }
         renderSummary(state.entries);
@@ -212,8 +245,11 @@
         wrap.hidden = false;
       },
       function (err) {
+        if (err && err.status === 404) {
+          showNotFound(statusNode, "Benchmark not found.");
+          return;
+        }
         P.showError(statusNode, P.describeError(err, {
-          notFound: "Benchmark not found.",
           generic: "Could not load leaderboard — try again later.",
         }));
       }
