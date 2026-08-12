@@ -5,10 +5,17 @@
 # exist; env supplies only per-Job values (the token, and optional base_url / model overrides).
 #
 # INVARIANT: a route path is exactly "/" + the gateway id. No renaming, no aliases. `id`
-# entries must match aigateway's `/v1/models` ids EXACTLY — note that Anthropic's ids are
-# UNPREFIXED (`claude-haiku-4-5`), the `anthropic/` prefix appearing only in litellm_params,
-# while every other provider prefixes. `tests/unit/test_declared_models_match_aigateway.py`
-# fails if this list drifts from the plugins' MODELS.
+# entries must match aigateway's `/v1/models` ids EXACTLY, and that id is ALWAYS
+# `<custom_llm_provider>/<slug>` — `canonical_model_id` prefixes every provider's slug unless it
+# already carries the prefix, with no exemption for any of them. Anthropic included: the served
+# id is `anthropic/claude-haiku-4-5`. `tests/unit/test_declared_models_match_aigateway.py`
+# derives the expected ids through that same rule and fails if this list drifts from the
+# plugins' MODELS.
+#
+# AIDEV-NOTE: this block used to claim Anthropic's ids were UNPREFIXED, and the five routes below
+# were declared bare to match. They were therefore served by nothing: the projection dropped all
+# five from `/v1/models`, and `default_route` failed with "model must be provider-prefixed"
+# inside a user's expression (OME-795).
 #
 # Adding a model is a deliberate, reviewable edit: these paths are a public naming surface that
 # url4 expressions depend on.
@@ -32,7 +39,7 @@
 
 [aigateway]
 base_url = "http://127.0.0.1:9105"
-default_route = "/claude-haiku-4-5"
+default_route = "/anthropic/claude-haiku-4-5"
 timeout_s = 600.0
 web_tool_max_iterations = 12
 
@@ -40,26 +47,26 @@ web_tool_max_iterations = 12
 # been able to fetch them. Set false to hand the node a denying outbound layer instead.
 allow_outbound = true
 
-# --- anthropic — unprefixed ids -----------------------------------------------------------
+# --- anthropic ------------------------------------------------------------------------------
 # These take the Tavily loop: `anthropic` is not in WEB_SEARCH_NATIVE_PROVIDERS, because
 # aigateway's Anthropic plugin declares no web-search parameter. The plugin dispatches
 # OpenAI-shape tool calls through litellm, which IS the shape `_WEB_TOOLS` declares, so the
 # loop is expected to round-trip — not yet verified end-to-end against a live Anthropic
 # credential (OME-797 defers that check; a deployment with no TAVILY_API_KEY is unaffected).
 [[aigateway.models]]
-id = "claude-opus-4-8"
+id = "anthropic/claude-opus-4-8"
 
 [[aigateway.models]]
-id = "claude-opus-4-7"
+id = "anthropic/claude-opus-4-7"
 
 [[aigateway.models]]
-id = "claude-sonnet-4-6"
+id = "anthropic/claude-sonnet-4-6"
 
 [[aigateway.models]]
-id = "claude-sonnet-4-5"
+id = "anthropic/claude-sonnet-4-5"
 
 [[aigateway.models]]
-id = "claude-haiku-4-5"
+id = "anthropic/claude-haiku-4-5"
 
 # --- codex ---------------------------------------------------------------------------------
 # Tavily loop as well. These dispatch through the Codex OAuth backend, not litellm's stock

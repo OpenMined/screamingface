@@ -17,7 +17,12 @@ def test_local_app_automatically_wires_the_loopback_aigateway() -> None:
 
     assert isinstance(app.state.connections, AigatewayConnections)
     assert str(app.state.connections._client.base_url) == LOCAL_AIGATEWAY_BASE_URL  # noqa: SLF001
-    assert app.state.catalog is None
+    # INVARIANT: ONE local default, honoured by BOTH consumers. This used to assert the catalog
+    # was None — the fallback was computed after the catalog had already been built from the
+    # unsubstituted settings, so `/v1/models` answered 503 on the one deployment shape whose
+    # address is known in advance, while `/v1/connections` on the same address answered 200
+    # (OME-795).
+    assert app.state.catalog is not None
 
 
 def test_local_app_preserves_an_explicit_aigateway_url() -> None:
@@ -57,6 +62,19 @@ def test_an_explicit_aigateway_url_outranks_the_local_default() -> None:
         local_aigateway_base_url="http://sidecar.test:9105",
     )
 
+    assert isinstance(app.state.connections, AigatewayConnections)
+    assert str(app.state.connections._client.base_url) == "http://gateway.test:9876"  # noqa: SLF001
+
+
+def test_an_explicit_url_points_the_catalog_at_the_same_gateway_as_connections() -> None:
+    """INVARIANT: the two consumers never diverge onto different gateways.
+
+    The bug OME-795 fixed was exactly this divergence in the DEFAULT case; this pins the
+    explicit case too, so a future refactor cannot restore the split from the other side.
+    """
+    app = _app(aigateway_base_url="http://gateway.test:9876")
+
+    assert app.state.catalog is not None
     assert isinstance(app.state.connections, AigatewayConnections)
     assert str(app.state.connections._client.base_url) == "http://gateway.test:9876"  # noqa: SLF001
 
