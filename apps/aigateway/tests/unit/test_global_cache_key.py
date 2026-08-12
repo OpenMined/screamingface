@@ -512,10 +512,17 @@ def test_stream_false_is_eligible_and_does_not_change_the_key() -> None:
     assert _hash(_body(stream=False)) == _hash()
 
 
-def test_tool_bearing_requests_are_ineligible() -> None:
+def test_tool_bearing_requests_are_eligible() -> None:
+    # OME-782 (owner decision D1): tools/tool_choice presence no longer bypasses
+    # unconditionally — whether they key or bypass is decided the ordinary way, by
+    # whatever rule a provider declares for them. ``_RULES`` above declares NO
+    # ``tools``/``tool_choice`` rule at all, so this fabricated provider's answer is
+    # "unknown_parameter" — the same answer any other undeclared path gets — not a
+    # tool-specific reason. See test_global_cache_tool_requests.py for the keyed
+    # case, on a provider that DOES declare function-calling rules.
     tools = [{"type": "function", "function": {"name": "f"}}]
-    assert _reason(_body(tools=tools)) == "tools"
-    assert _reason(_body(tool_choice="auto")) == "tools"
+    assert _reason(_body(tools=tools)) == "unknown_parameter"
+    assert _reason(_body(tool_choice="auto")) == "unknown_parameter"
 
 
 def test_caller_metadata_is_ineligible() -> None:

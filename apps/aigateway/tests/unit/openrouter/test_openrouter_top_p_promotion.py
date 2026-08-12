@@ -407,11 +407,17 @@ def test_the_caller_visible_policy_reports_top_p_as_a_keyed_path() -> None:
         == ()
     )
     # An actual declared-bypass rule proves the helper does not return ``()`` vacuously.
+    # OME-787: ``tools`` no longer works as this example — OpenRouter opted its tool
+    # rules into ``keyed`` (it has a real ``global_cache_projection``), so a ``tools``
+    # body now returns ``()`` here too. ``web_search`` is a rule that genuinely stayed
+    # ``bypass`` (OME-712: the dispatched envelope also depends on deployment-level
+    # excluded-domains config the projection cannot see, and retrieval is time-varying
+    # regardless — see the AIDEV-NOTE above ``_RULES`` in parameters.py).
     assert caller_cache_bypass_paths(
-        {"model": _MODEL, "messages": list(_MESSAGES), "tools": []},
+        {"model": _MODEL, "messages": list(_MESSAGES), "web_search": True},
         rules=_rules(),
         auth_mode="api_key",
-    ) == ("tools",)
+    ) == ("web_search",)
 
 
 def test_two_top_p_values_never_share_a_cache_entry_through_the_real_route(

@@ -135,6 +135,51 @@ their guarantee preserved first in spec §3.3.1 as the approval condition.
 **Append-only gate workflow:** test inversions land in their own isolated commit, run with
 `--skip-append-only` and this approval cited; every other commit runs the full gate unmodified.
 
+## OME-782 outcome — done
+
+**Design changed mid-unit, twice, both times because a guard rail fired.**
+
+The first attempt flipped `cache_behavior` to `keyed` inside the shared `function_calling_rules`,
+promoting all six function-calling providers at once. `test_a_provider_that_declares_a_keyed_rule_backs_it_with_a_real_projection`
+refused it — correctly. Only **two** providers (Anthropic, OpenRouter) implement
+`global_cache_projection`; the other four inherit `CacheBypass` from `ProviderPluginBase`, so
+promoting them would advertise a cacheable parameter to callers who can never be served from cache.
+The house rule for exactly this is recorded at `plugins/antigravity_provider/parameters.py:68`:
+implement the projection FIRST, then flip.
+
+Final design, after the owner cut scope to OpenRouter: **opt-in per provider.**
+`function_calling_rules` gained a keyword-only `cache_behavior: CacheBehavior = "bypass"`, and
+OpenRouter alone passes `"keyed"`. Adding a provider later is now a one-line change at a call site
+rather than a core edit. The four missing projections are filed as `OME-787`…`OME-792`.
+
+**Actual files:** `core/standard_parameters.py` (opt-in parameter),
+`core/request_cache/global_eligibility.py` (`tools`/`tool_choice` out of `PRESENCE_BYPASS_REASONS`,
+`BYPASS_TOOLS` deleted), `core/request_cache/global_keys.py` (import/`__all__` cleanup,
+`PARAMETER_CONTRACT_REVISION` → `2026-08b`), `core/cache_ports.py` (`"tools"` out of
+`PUBLISHED_CACHE_REASONS`), `plugins/openrouter_provider/parameters.py` (the single opt-in).
+Tests: new `tests/unit/test_global_cache_tool_requests.py` (8), plus the six approved prior-test
+changes.
+
+**Gates:** ALL GREEN (`--skip-append-only`, see below). Full unit suite **3030 passed**, 0 failures.
+Independently re-run by the orchestrator, not taken on the implementer's report.
+
+**Prior tests changed (owner-approved):** the three originally approved (f/g/h) plus three more the
+change surfaced — the `>= 15` reason-floor (now 14, `"tools"` legitimately left the published
+vocabulary), the e2e `test_chat_request_cache.py` bypass reason (now `BYPASS_DECLARED`, still
+bypassing because Anthropic is unpromoted), and OpenRouter's keyed-path proofs. Run with
+`--skip-append-only`; the gate cannot see these, so a reviewer must.
+
+**Confirmation the seam works:** `tests/unit/anthropic/test_anthropic_global_cache_projection.py`
+needed **zero** edits, and the antigravity conformance failure disappeared on its own.
+
+**Deviations:**
+- Implemented before `OME-779` rather than after. Within a single PR nothing ships separately, and
+  §5.4's correction removed the sequencing constraint entirely.
+- `AIDEV-NOTE` for `OME-781`: `test_openrouter_top_p_promotion.py` now uses `web_search` as its
+  "a genuinely declared-bypass rule exists" anti-vacuity example, because `tools` no longer is.
+  `OME-781` promotes `web_search` to keyed and will therefore break that proof again — it needs a
+  third example, ideally one that is permanently bypass. Expected, not a surprise.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>

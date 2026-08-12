@@ -27,7 +27,7 @@ design rather than a repair.
 | 1 | Tool-bearing requests bypass by presence alone | `core/request_cache/global_eligibility.py` | Lifted by decision D1 |
 | 2 | A deployment env var changes the upstream call without reaching the key | `plugins/openrouter_provider/{settings,web_search}.py` | Removed by decision D2 |
 | 3 | The projection's `prepared` is only complete because search requests never reach the cache | `plugins/openrouter_provider/parameters.py` | Dissolves with #2 |
-| — | Retrieval is time-varying; the cache cannot express freshness | `core/request_cache/global_controls.py` | **Not waived.** Addressed first, §6 |
+| — | Retrieval is time-varying; the cache cannot express freshness | `core/request_cache/global_controls.py` | **Not waived, and not addressed.** See §5.4 — no consumer regresses without it, and no TTL is added |
 
 ## 2. Decisions
 
@@ -238,12 +238,35 @@ turns carry accumulated results and cost more. This caches the cheapest call in 
 no Tavily spend at all, since those calls never traverse aigateway. It is cheap and correct, but it
 is not the answer to web-search cost — §5.5 is.
 
-### 5.4 Phases 1a/1b — freshness (`OME-779`, `OME-780`)
+### 5.4 Phases 1a/1b — freshness (`OME-779`, `OME-780`) — OPTIONAL, not a gate
 
-Ships **before** 5.2 and 5.3, and the ordering is load-bearing rather than stylistic. Because
-`requires_revalidation` discards any hit whose age is unprovable, every new hit created by phases 2
-and 3 would be thrown away and re-issued — an extra round trip in place of a saving. Shipping
-caching first makes the platform's primary consumer measurably slower.
+**Correction (2026-08-11).** Earlier revisions of this spec asserted that freshness had to ship
+first, because `requires_revalidation` discards any hit whose age is unprovable, so phases 2 and 3
+would cost bounded runs an extra round trip. **That was wrong**, and the error was repeated from an
+upstream feasibility study rather than checked against the code.
+
+`url4_cloud/rest/cache_policy.py::_degrade_unhonourable_bound` already collapses a stated `max_age`
+into a full opt-out (`participate=False`) whenever `GATEWAY_REPORTS_AGE` is `False`, which it is. A
+bounded run therefore **never asks the cache** — it sends `use-cache: false` and takes exactly one
+round trip, precisely as it does today. `requires_revalidation` is a belt-and-braces path that is
+currently unreachable by design, and the docstring for the collapse records why it is done early: a
+four-iteration tool turn would otherwise become eight calls, multiplied across a fan-out.
+
+| Run type | After phases 2 and 3, with no freshness work |
+|---|---|
+| States `max_age` | Opts out before sending → one round trip. **Unchanged from today.** |
+| States no bound (per that docstring, the overwhelming majority) | Gains cache hits |
+
+So no consumer regresses, and the sequencing constraint does not exist.
+
+**Owner decision (2026-08-11): this epic adds no TTL.** The global cache writes `expires_at=NULL`
+and never expires — a closed v2 semantic established in migration 0009 — and that behaviour is
+deliberately left alone. `OME-779`/`OME-780` become an optional enhancement whose value is letting
+freshness-bounded runs use the cache at all, rather than a prerequisite for anything.
+
+The accepted consequence: a cached search-backed answer is retained indefinitely, and an unbounded
+run may be served an old one. That is the same exposure every other cached path already carries, and
+bounding it is exactly what a caller states `max_age` for.
 
 **aigateway (`OME-779`)** — emit `Age` from `created_at` on hits; widen the closed grammar to accept
 `max-age` alongside `use-cache`; refuse to serve an entry older than a stated bound; set

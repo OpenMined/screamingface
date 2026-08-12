@@ -262,7 +262,14 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     # per-control rationale live in routing_policy.py.
     *routing_policy_rules(auth_modes=_AUTH, projection_revision=_REVISION),
     # OME-583: tools + tool_choice (OpenAI-native, §9 proof).
-    *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),
+    # OME-787: opted into cache keying — this provider has a real
+    # `global_cache_projection` (below), so its tool rules can actually be backed.
+    *function_calling_rules(
+        _TOOL_CAPABILITIES,
+        auth_modes=_AUTH,
+        projection_revision=_REVISION,
+        cache_behavior="keyed",
+    ),
     # Server-side web search — the caller-facing half. `direct` is the ADDRESSING kind, not the
     # wire shape: `prepare_chat_body` consumes both fields and emits `plugins` in their place,
     # so neither name reaches OpenRouter. Verified live 2026-07-31 (litellm 1.87.0) that the

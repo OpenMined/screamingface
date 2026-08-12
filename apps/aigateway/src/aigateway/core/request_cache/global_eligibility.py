@@ -50,7 +50,6 @@ BYPASS_DECLARED: Final = "unsupported_fields"
 BYPASS_MALFORMED_PARAMETER: Final = "malformed_parameter"
 BYPASS_RULE_SET: Final = "provider_rule_set"
 BYPASS_STREAM: Final = "stream"
-BYPASS_TOOLS: Final = "tools"
 BYPASS_METADATA: Final = "metadata"
 BYPASS_UNPROJECTED_NATIVE: Final = "unprojected_parameter"
 BYPASS_MODE_RESTRICTED: Final = "mode_restricted_parameter"
@@ -71,13 +70,18 @@ EXCLUDED_TRANSPORT_FIELDS: Final[frozenset[str]] = frozenset(
 
 # Presence alone makes the request ineligible (plan §1.3). ``metadata`` bypasses
 # even when empty, because presence is the fact under review: no closed
-# transport-only subset of caller metadata has been proven yet. Tool-bearing
-# requests bypass because a tool call is a multi-turn negotiation, not a single
-# deterministic completion.
+# transport-only subset of caller metadata has been proven yet.
+#
+# WHY: tools/tool_choice used to live here too (OME-305) and no longer do —
+# OME-782, owner decision D1. A cached entry represents ONE model call, and a
+# tool RESULT the caller sends back on the next turn arrives in ``messages``,
+# which is already hashed verbatim, so a differing tool result already yields
+# a differing key. There is nothing left for a blanket presence bypass to
+# protect: whether ``tools``/``tool_choice`` key or bypass is now decided the
+# ordinary way, per request path, by whatever rule a provider declares for
+# them (see ``standard_parameters.function_calling_rules``).
 PRESENCE_BYPASS_REASONS: Final[Mapping[str, str]] = {
     "metadata": BYPASS_METADATA,
-    "tools": BYPASS_TOOLS,
-    "tool_choice": BYPASS_TOOLS,
 }
 
 # Ineligible only when truthy: ``stream: false`` means exactly what omission means.

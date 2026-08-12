@@ -51,7 +51,6 @@ from .global_eligibility import (
     BYPASS_MODE_RESTRICTED,
     BYPASS_RULE_SET,
     BYPASS_STREAM,
-    BYPASS_TOOLS,
     BYPASS_UNKNOWN_PARAMETER,
     BYPASS_UNPROJECTED_NATIVE,
     BYPASS_UNSUPPORTED_SHAPE,
@@ -73,7 +72,6 @@ __all__ = [
     "BYPASS_MODE_RESTRICTED",
     "BYPASS_RULE_SET",
     "BYPASS_STREAM",
-    "BYPASS_TOOLS",
     "BYPASS_UNKNOWN_PARAMETER",
     "BYPASS_UNPROJECTED_NATIVE",
     "BYPASS_UNSUPPORTED_SHAPE",
@@ -105,7 +103,13 @@ OPERATION: Final = "chat.completions"
 # rule (how a wrapper is unpacked, which fields are excluded as transport). Bump
 # this when that changes, and every existing entry is abandoned rather than
 # re-served under new semantics.
-PARAMETER_CONTRACT_REVISION: Final = "aigw-parameter-contract-2026-08"
+#
+# WHY the "b" bump (OME-782): tools/tool_choice moved from a blanket presence
+# bypass to ordinary per-rule keying (D1). That is exactly the class of pipeline
+# behaviour change this revision exists to cover, so the bump abandons any entry
+# that was ever keyed (or would have bypassed) under the old tools-bypass
+# contract rather than silently re-serving it under the new one.
+PARAMETER_CONTRACT_REVISION: Final = "aigw-parameter-contract-2026-08b"
 
 BYPASS_CANONICALIZATION: Final = "canonicalization_failure"
 
