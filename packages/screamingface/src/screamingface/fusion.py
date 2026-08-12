@@ -4,25 +4,25 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any, ClassVar
 
-from screamingface.model import Model
-from screamingface.recipe import Recipe, _name
+from screamingface.recipe import Recipe, _name, _recipe
 
 
-@dataclass(frozen=True, slots=True, init=False, eq=False)
+@dataclass(frozen=True, slots=True, init=False)
 class Fusion(Recipe):
-    """Combine ordered members through an optional Candidate-owned synthesizer."""
+    """Combine ordered parallel members through an explicit synthesizer Recipe."""
 
     name: str
     members: tuple[Recipe, ...]
-    synthesizer: Model | None
+    synthesizer: Recipe
 
     def __init__(
         self,
-        members: Sequence[Recipe],
+        members: Sequence[str | Recipe],
         *,
         name: str | None = None,
-        synthesizer: str | Model | None = None,
+        synthesizer: str | Recipe,
     ) -> None:
         selected_members = _members(members)
         inferred_name = "+".join(member.name for member in selected_members)
@@ -32,7 +32,7 @@ class Fusion(Recipe):
             inferred_name if name is None else _name(name, "fusion name"),
         )
         object.__setattr__(self, "members", selected_members)
-        object.__setattr__(self, "synthesizer", _synthesizer(synthesizer))
+        object.__setattr__(self, "synthesizer", _recipe(synthesizer, "Fusion synthesizer"))
 
     @property
     def _recipe_marker(self) -> None:
@@ -44,8 +44,7 @@ class Fusion(Recipe):
         arguments = [f"[{members}]"]
         if self.name != inferred_name:
             arguments.append(f"name={self.name!r}")
-        if self.synthesizer is not None:
-            arguments.append(f"synthesizer={self.synthesizer!r}")
+        arguments.append(f"synthesizer={self.synthesizer!r}")
         return f"Fusion({', '.join(arguments)})"
 
     def _repr_html_(self) -> str:
@@ -53,35 +52,16 @@ class Fusion(Recipe):
 
         return fusion_card_html(self)
 
+    __hash__: ClassVar[Any] = None
+
 
 def _members(values: object) -> tuple[Recipe, ...]:
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise TypeError("Fusion members must be sf.Model or sf.Fusion values")
-    selected = tuple(values)
-    if len(selected) < 2:
-        raise ValueError("a Fusion requires at least two members")
-    if any(not isinstance(member, Model | Fusion) for member in selected):
-        raise TypeError("Fusion members must be sf.Model or sf.Fusion values")
-    _unique_names(selected)
+        raise TypeError("Fusion members must be an ordered sequence of model routes or Recipes")
+    selected = tuple(_recipe(value, "Fusion member") for value in values)
+    if not selected:
+        raise ValueError("a Fusion requires at least one member")
     return selected
-
-
-def _synthesizer(value: object) -> Model | None:
-    if value is None:
-        return None
-    if isinstance(value, Model):
-        return value
-    if isinstance(value, str):
-        return Model(value)
-    raise TypeError("Fusion synthesizer must be an sf.Model or model route string")
-
-
-def _unique_names(members: tuple[Recipe, ...]) -> None:
-    seen: set[str] = set()
-    for member in members:
-        if member.name in seen:
-            raise ValueError(f"duplicate Fusion member name {member.name!r}")
-        seen.add(member.name)
 
 
 __all__ = ["Fusion"]

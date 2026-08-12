@@ -1,4 +1,4 @@
-"""Compile benchmark-agnostic Model and Fusion values into Candidate URL4."""
+"""Compile benchmark-agnostic Recipe values into Candidate URL4."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from url4 import Node, RelExpr, RenderError, Text, expr, render, src
+from url4 import Node, RelExpr, RenderError, Text, expr, render, src, struct
 
 from screamingface._evaluation.model import (
     _compiled_operation,
@@ -21,44 +21,26 @@ from screamingface._evaluation.policy import (
     DEFAULT_SYNTHESIS_PROMPT,
     resolved_params,
 )
+from screamingface._evaluation.topology import (
+    _RecipeTopology,
+    _topology_source,
+)
 from screamingface.errors import PlanningError
 from screamingface.fusion import Fusion
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
+from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 
 
 @dataclass(frozen=True, slots=True)
 class _CompiledCandidate:
-    kind: Literal["model", "fusion"]
-    url4: str | None
+    kind: Literal["model", "fusion", "pipeline"]
+    url4: str
     models: tuple[str, ...]
     operations: tuple[OperationInfo, ...]
     members: tuple[_MemberProjection, ...]
-    member_expressions: tuple[_MemberExpression, ...]
     parameter_assignments: tuple[_ModelParameterAssignment, ...]
-    # WHY: a structural Benchmark may bind this component separately through
-    # `$candidate_synthesizer`; a solo Model has no such component.
-    synthesizer: _SynthesizerExpression | None
-
-
-@dataclass(frozen=True, slots=True)
-class _MemberExpression:
-    """One direct Fusion member exposed through the universal binding contract."""
-
-    name: str
-    kind: Literal["model", "fusion"]
-    url4: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class _SynthesizerExpression:
-    """The explicit Fusion component exposed by `$candidate_synthesizer`."""
-
-    model: str
-    operation: OperationInfo
-    parameter_assignment: _ModelParameterAssignment | None
-    url4: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,12 +48,14 @@ class _ResolvedRecipe:
     reference: str
     operation_id: str
     name: str
-    kind: Literal["model", "fusion"]
+    kind: Literal["model", "fusion", "pipeline"]
     models: tuple[str, ...]
+    topology: _RecipeTopology
+    members: tuple[_ResolvedRecipe, ...] = ()
 
 
 def compile_candidate(recipe: Recipe) -> _CompiledCandidate:
-    """Compile a Candidate, retaining structural members when a Fusion is incomplete."""
+    """Compile one complete, benchmark-independent Recipe into Candidate URL4."""
 
     try:
         return _CandidateCompiler().compile(recipe)
@@ -85,87 +69,38 @@ def compile_candidate(recipe: Recipe) -> _CompiledCandidate:
 
 
 class _CandidateCompiler:
-    """Flatten one immutable Recipe into a shared, content-deduplicated URL4 DAG."""
+    """Compile one immutable Recipe while preserving every declared invocation position."""
 
     def __init__(self) -> None:
         self._sources: list[Node] = []
         self._operations: list[OperationInfo] = []
         self._parameter_assignments: list[_ModelParameterAssignment] = []
-        self._resolved: dict[int, _ResolvedRecipe] = {}
-        self._models_by_content: dict[tuple[object, ...], _ResolvedRecipe] = {}
         self._active: set[int] = set()
         self._model_count = 0
         self._synthesis_count = 0
 
     def compile(self, recipe: Recipe, *, synthesis_root: bool = False) -> _CompiledCandidate:
         root = self._recipe(recipe, synthesis=synthesis_root)
-        members: tuple[_MemberProjection, ...] = ()
-        if isinstance(recipe, Fusion):
-            members = tuple(
-                _member_projection(
-                    operation_id=self._resolved[id(member)].operation_id,
-                    name=member.name,
-                    kind=self._resolved[id(member)].kind,
-                    models=self._resolved[id(member)].models,
-                )
-                for member in recipe.members
-            )
-        member_expressions = (
+        members = (
             tuple(
-                _MemberExpression(
+                _member_projection(
+                    operation_id=resolved.operation_id,
                     name=member.name,
-                    kind="model" if isinstance(member, Model) else "fusion",
-                    url4=compile_candidate(member).url4,
+                    kind=resolved.kind,
+                    models=resolved.models,
                 )
-                for member in recipe.members
+                for member, resolved in zip(recipe.members, root.members, strict=True)
             )
             if isinstance(recipe, Fusion)
             else ()
         )
-        synthesizer = None
-        if isinstance(recipe, Fusion) and recipe.synthesizer is not None:
-            synthesizer_model = _canonical_model(recipe.synthesizer.model)
-            # INVARIANT: structural Benchmarks own their Judge instructions, while the
-            # Candidate still owns the selected model's generation parameters. Reusing
-            # the Model's synthesis prompt here would leak ordinary blending policy into a
-            # different Benchmark role; dropping its params would silently change the system.
-            expression = _CandidateCompiler().compile(
-                Model(synthesizer_model, params=recipe.synthesizer.params),
-                synthesis_root=True,
-            )
-            assert expression.url4 is not None
-            operation_id = "op_candidate_synthesizer"
-            synthesizer = _SynthesizerExpression(
-                model=synthesizer_model,
-                operation=_compiled_operation(
-                    id=operation_id,
-                    kind="synthesis",
-                    label=f"{recipe.name} synthesizer",
-                    depends_on=(),
-                ),
-                parameter_assignment=(
-                    _model_parameter_assignment(
-                        operation_id=operation_id,
-                        model=synthesizer_model,
-                        params=recipe.synthesizer.params,
-                    )
-                    if recipe.synthesizer.params
-                    else None
-                ),
-                url4=expression.url4,
-            )
+        sources = [*self._sources, _topology_source(root.topology)]
         return _CompiledCandidate(
             kind=root.kind,
-            url4=(
-                render(expr(*self._sources, intent=Text(root.reference)))
-                if root.reference
-                else None
-            ),
+            url4=render(expr(*sources, intent=Text(root.reference))),
             models=root.models,
             operations=tuple(self._operations),
             members=members,
-            member_expressions=member_expressions,
-            synthesizer=synthesizer,
             parameter_assignments=tuple(self._parameter_assignments),
         )
 
@@ -173,41 +108,55 @@ class _CandidateCompiler:
         self,
         recipe: Recipe,
         *,
+        input_context: str = "$input",
+        input_dependencies: tuple[str, ...] = (),
         synthesis: bool = False,
     ) -> _ResolvedRecipe:
         identity = id(recipe)
-        if resolved := self._resolved.get(identity):
-            return resolved
         if identity in self._active:
             raise ValueError(f"Candidate graph contains a cycle at {recipe.name!r}")
         self._active.add(identity)
-        if isinstance(recipe, Model):
-            resolved = self._model(recipe, synthesis=synthesis)
-        elif isinstance(recipe, Fusion):
-            resolved = self._fusion(
-                recipe,
-                tuple(self._recipe(member) for member in recipe.members),
-            )
-        else:  # pragma: no cover - the public validation seals Recipe variants
-            raise TypeError("candidate must be an sf.Model or sf.Fusion")
-        self._active.remove(identity)
-        self._resolved[identity] = resolved
-        return resolved
+        try:
+            if isinstance(recipe, Model):
+                return self._model(
+                    recipe,
+                    input_context=input_context,
+                    input_dependencies=input_dependencies,
+                    synthesis=synthesis,
+                )
+            if isinstance(recipe, Fusion):
+                members = tuple(
+                    self._recipe(
+                        member,
+                        input_context=input_context,
+                        input_dependencies=input_dependencies,
+                    )
+                    for member in recipe.members
+                )
+                return self._fusion(recipe, members, input_context=input_context)
+            if isinstance(recipe, Pipeline):
+                return self._pipeline(
+                    recipe,
+                    input_context=input_context,
+                    input_dependencies=input_dependencies,
+                    synthesis=synthesis,
+                )
+            raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
+        finally:
+            self._active.remove(identity)
 
     def _model(
         self,
         model: Model,
         *,
+        input_context: str,
+        input_dependencies: tuple[str, ...],
         synthesis: bool,
     ) -> _ResolvedRecipe:
-        prompt = model.prompt or DEFAULT_ANSWER_PROMPT
-        params = _synthesis_params(model.params) if synthesis else resolved_params(model.params)
+        default_prompt = DEFAULT_SYNTHESIS_PROMPT if synthesis else DEFAULT_ANSWER_PROMPT
+        prompt = model.prompt or default_prompt
+        params = resolved_params(model.params)
         route = _canonical_model(model.model)
-        content = (route, model._sample_id, prompt, params)
-        if resolved := self._models_by_content.get(content):
-            self._record_parameter_assignment(resolved.operation_id, route, model.params)
-            return resolved
-
         self._model_count += 1
         binding = f"model_{self._model_count}"
         operation_id = f"op_{binding}"
@@ -215,7 +164,7 @@ class _CandidateCompiler:
             src(
                 RelExpr(
                     path=_model_route(route),
-                    context="$input",
+                    context=input_context,
                     intent=Text(_url4_text(prompt)),
                     params=params,
                 ),
@@ -226,74 +175,154 @@ class _CandidateCompiler:
         self._operations.append(
             _compiled_operation(
                 id=operation_id,
-                kind="model",
-                label=f"{model.name} answer",
-                depends_on=(),
+                kind="synthesis" if synthesis else "model",
+                label=f"{model.name} {'synthesis' if synthesis else 'answer'}",
+                depends_on=input_dependencies,
             )
         )
         self._record_parameter_assignment(operation_id, route, model.params)
-        resolved = _ResolvedRecipe(
+        return _ResolvedRecipe(
             reference=f"${binding}",
             operation_id=operation_id,
             name=model.name,
             kind="model",
             models=(route,),
+            topology=_RecipeTopology(
+                kind="model",
+                name=model.name,
+                binding=binding,
+                named=model._sample_id is not None,
+                role="synthesis" if synthesis else "model",
+            ),
         )
-        self._models_by_content[content] = resolved
-        return resolved
 
     def _fusion(
         self,
         fusion: Fusion,
         members: tuple[_ResolvedRecipe, ...],
+        *,
+        input_context: str,
     ) -> _ResolvedRecipe:
         self._synthesis_count += 1
         binding = f"synthesis_{self._synthesis_count}"
         operation_id = f"op_{binding}"
         models = tuple(model for member in members for model in member.models)
-        if fusion.synthesizer is None or any(not member.reference for member in members):
-            return _ResolvedRecipe(
-                reference="",
+        context = _fusion_context(input_context, members)
+        dependencies = tuple(member.operation_id for member in members)
+        if isinstance(fusion.synthesizer, Model):
+            synthesizer = _canonical_model(fusion.synthesizer.model)
+            prompt = fusion.synthesizer.prompt or DEFAULT_SYNTHESIS_PROMPT
+            self._sources.append(
+                src(
+                    RelExpr(
+                        path=_model_route(synthesizer),
+                        context=context,
+                        intent=Text(_url4_text(prompt)),
+                        params=resolved_params(fusion.synthesizer.params),
+                    ),
+                    name=binding,
+                    weight=0.0,
+                )
+            )
+            self._operations.append(
+                _compiled_operation(
+                    id=operation_id,
+                    kind="synthesis",
+                    label=f"{fusion.name} synthesis",
+                    depends_on=dependencies,
+                )
+            )
+            self._record_parameter_assignment(
+                operation_id,
+                synthesizer,
+                fusion.synthesizer.params,
+            )
+            result = _ResolvedRecipe(
+                reference=f"${binding}",
                 operation_id=operation_id,
                 name=fusion.name,
                 kind="fusion",
-                models=_ordered_unique(models),
-            )
-        synthesizer = _canonical_model(fusion.synthesizer.model)
-        prompt = fusion.synthesizer.prompt or DEFAULT_SYNTHESIS_PROMPT
-        member_names: list[str] = []
-        for member in members:
-            # Keep labels out of raw URL4 syntax. Names are user-visible text and may contain
-            # characters that would be problematic in an expression context, including `(` and `)`.
-            # Normalize them so label rendering remains readable without affecting URL4 parsing.
-            member_names.append(_context_text(member.name))
-        self._sources.append(
-            src(
-                RelExpr(
-                    path=_model_route(synthesizer),
-                    context=_fusion_context(members, tuple(member_names)),
-                    intent=Text(_url4_text(prompt)),
-                    params=_synthesis_params(fusion.synthesizer.params),
+                models=_ordered_unique((*models, synthesizer)),
+                topology=_RecipeTopology(
+                    kind="fusion",
+                    name=fusion.name,
+                    binding=binding,
+                    members=tuple(_required_topology(member) for member in members),
+                    synthesizer=_RecipeTopology(
+                        kind="model",
+                        name=fusion.synthesizer.name,
+                        binding=binding,
+                        named=fusion.synthesizer._sample_id is not None,
+                        role="synthesis",
+                    ),
                 ),
-                name=binding,
-                weight=0.0,
+                members=members,
             )
+            return result
+
+        # WHY: a complete Recipe used as the synthesizer receives the same explicit
+        # question-and-panel value as a direct Model synthesizer. Its internal serial or
+        # parallel topology remains ordinary Recipe compilation rather than a special path.
+        resolved_synthesizer = self._recipe(
+            fusion.synthesizer,
+            input_context=context,
+            input_dependencies=dependencies,
+            synthesis=True,
         )
-        self._operations.append(
-            _compiled_operation(
-                id=operation_id,
-                kind="synthesis",
-                label=f"{fusion.name} synthesis",
-                depends_on=tuple(member.operation_id for member in members),
-            )
-        )
-        self._record_parameter_assignment(operation_id, synthesizer, fusion.synthesizer.params)
         return _ResolvedRecipe(
-            reference=f"${binding}",
-            operation_id=operation_id,
+            reference=resolved_synthesizer.reference,
+            operation_id=resolved_synthesizer.operation_id,
             name=fusion.name,
             kind="fusion",
-            models=_ordered_unique((*models, synthesizer)),
+            models=_ordered_unique((*models, *resolved_synthesizer.models)),
+            topology=_RecipeTopology(
+                kind="fusion",
+                name=fusion.name,
+                binding=resolved_synthesizer.reference.removeprefix("$"),
+                members=tuple(_required_topology(member) for member in members),
+                synthesizer=_required_topology(resolved_synthesizer),
+            ),
+            members=members,
+        )
+
+    def _pipeline(
+        self,
+        pipeline: Pipeline,
+        *,
+        input_context: str,
+        input_dependencies: tuple[str, ...],
+        synthesis: bool,
+    ) -> _ResolvedRecipe:
+        context = input_context
+        dependencies = input_dependencies
+        models: tuple[str, ...] = ()
+        resolved: _ResolvedRecipe | None = None
+        stage_topologies: list[_RecipeTopology] = []
+        for index, stage in enumerate(pipeline.stages):
+            resolved = self._recipe(
+                stage,
+                input_context=context,
+                input_dependencies=dependencies,
+                synthesis=synthesis and index == 0,
+            )
+            context = resolved.reference
+            dependencies = (resolved.operation_id,)
+            models = _ordered_unique((*models, *resolved.models))
+            stage_topologies.append(_required_topology(resolved))
+        assert resolved is not None
+        return _ResolvedRecipe(
+            reference=resolved.reference,
+            operation_id=resolved.operation_id,
+            name=pipeline.name,
+            kind="pipeline",
+            models=models,
+            topology=_RecipeTopology(
+                kind="pipeline",
+                name=pipeline.name,
+                binding=resolved.reference.removeprefix("$"),
+                named=pipeline._is_named,
+                stages=tuple(stage_topologies),
+            ),
         )
 
     def _record_parameter_assignment(
@@ -313,36 +342,33 @@ class _CandidateCompiler:
         )
 
 
-def _fusion_context(
-    members: tuple[_ResolvedRecipe, ...],
-    member_names: tuple[str, ...],
-) -> str:
-    line = "\u2028"
-    section_separator = line * 2
-    sections = [
-        f"=== Model {index} ({name}) ==={line}{member.reference}"
-        for index, (member, name) in enumerate(
-            zip(members, member_names, strict=True),
-            1,
+def _fusion_context(input_context: str, members: tuple[_ResolvedRecipe, ...]) -> str:
+    """Build canonical JSON at runtime so arbitrary answers remain safely escaped."""
+
+    return render(
+        struct(
+            {
+                "input": input_context,
+                "outputs": {
+                    f"member_{index}": member.reference for index, member in enumerate(members, 1)
+                },
+            }
         )
-    ]
-    return (
-        f"Question:{line}$input{line}{line}"
-        f"Panel answers (one per model):{line}"
-        f"{section_separator.join(sections)}"
     )
 
 
-def _context_text(value: str) -> str:
-    return _url4_text(value).replace("(", "（").replace(")", "）")
+def _recipe_kind(recipe: Recipe) -> Literal["model", "fusion", "pipeline"]:
+    if isinstance(recipe, Model):
+        return "model"
+    if isinstance(recipe, Fusion):
+        return "fusion"
+    if isinstance(recipe, Pipeline):
+        return "pipeline"
+    raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
 
 
-def _synthesis_params(
-    overrides: Mapping[str, str | int | float | bool],
-) -> tuple[tuple[str, str], ...]:
-    """Keep every Fusion writer retrieval-free, independent of Benchmark policy."""
-
-    return (*resolved_params(overrides), ("web_search", "false"))
+def _required_topology(value: _ResolvedRecipe) -> _RecipeTopology:
+    return value.topology
 
 
 def _canonical_model(model: str) -> str:

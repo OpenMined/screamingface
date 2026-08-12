@@ -13,12 +13,14 @@ CARD_STYLE = (
 .sf-card,.sf-catalog{border:1px solid var(--sf-line-2);background:var(--sf-bg)}
 .sf-card__accent{height:3px;background:var(--sf-gain-grad)}
 .sf-card__accent--solid{background:var(--sf-gain)}
+.sf-card__accent--pipeline{background:var(--sf-accent)}
 .sf-card__head{display:flex;align-items:baseline;gap:8px;padding:12px;
   border-bottom:1px solid var(--sf-line)}
 .sf-card__title,.sf-catalog__title{font-size:15px;font-weight:600;color:var(--sf-ink);
   overflow-wrap:anywhere}
 .sf-card__kicker{margin-left:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--sf-gain)}
+.sf-card__kicker--pipeline{color:var(--sf-accent)}
 .sf-card__grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--sf-line)}
 .sf-card__field{background:var(--sf-bg);padding:8px 12px;min-width:0}
 .sf-card__field.wide{grid-column:1/-1}
@@ -32,6 +34,8 @@ CARD_STYLE = (
 .sf-detail__item{border-left:2px solid var(--sf-line-2);padding:2px 0 6px 10px;margin-top:6px}
 .sf-detail__name{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
   font-weight:600;color:var(--sf-gain)}
+.sf-detail__index{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--sf-ink-3)}
 .sf-detail__route,.sf-detail__params{font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11px;color:var(--sf-ink-2);overflow-wrap:anywhere}
 .sf-more__full{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;

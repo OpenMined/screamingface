@@ -201,7 +201,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
                 score=0.5,
                 metrics={"score": 0.5},
                 cases=case_results(),
-                members=(),
+                members=(member(),),
                 failures=(),
                 usage=sf.Usage(),
             ),
@@ -241,11 +241,11 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
                 score=0.5,
                 metrics={"score": 0.5},
                 cases=case_results(),
-                members=(member(),),
+                members=(),
                 failures=(),
                 usage=sf.Usage(),
             ),
-            "at least two direct members",
+            "at least one direct member",
         ),
         (
             lambda: sf.CandidateResult(

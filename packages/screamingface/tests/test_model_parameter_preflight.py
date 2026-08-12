@@ -32,51 +32,6 @@ _BENCHMARK = {
     "url4": _BENCHMARK_URL4,
 }
 
-_MEMBER_BENCHMARK = {
-    **_BENCHMARK,
-    "url4": render(
-        expr(
-            src(
-                RelExpr(
-                    path="/candidate",
-                    context="question",
-                    intent=text("$candidate_member_1"),
-                ),
-                name="first",
-                weight=0.0,
-            ),
-            src(
-                RelExpr(
-                    path="/candidate",
-                    context="question",
-                    intent=text("$candidate_member_2"),
-                ),
-                name="second",
-                weight=0.0,
-            ),
-            intent=text("$first $second"),
-        )
-    ),
-}
-
-_SYNTHESIZER_BENCHMARK = {
-    **_BENCHMARK,
-    "url4": render(
-        expr(
-            src(
-                RelExpr(
-                    path="/candidate",
-                    context="question",
-                    intent=text("$candidate_synthesizer"),
-                ),
-                name="answer",
-                weight=0.0,
-            ),
-            intent=text("$answer"),
-        )
-    ),
-}
-
 
 def _summary(model: str) -> dict[str, object]:
     provider = model.split("/", 1)[0]
@@ -218,7 +173,7 @@ def test_valid_explicit_params_fetch_each_distinct_model_once() -> None:
     assert detail_models == ["provider/opus"]
 
 
-def test_deduplicated_operation_retains_an_explicit_default_override() -> None:
+def test_repeated_model_route_retains_an_explicit_parameter_assignment() -> None:
     detail_models: list[str] = []
     transport = _ReachedTransport()
     inner = sf.Fusion(
@@ -272,91 +227,6 @@ def test_synthesizer_params_are_preflighted_against_its_model() -> None:
         client.evaluate(candidate, benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == ["provider/synth"]
-
-
-def test_member_only_benchmark_does_not_fetch_unused_parameter_contracts() -> None:
-    detail_models: list[str] = []
-    transport = _ReachedTransport()
-    candidate = sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/other")],
-        synthesizer=sf.Model("provider/synth", params={"top_k": 40}),
-    )
-    client = sf.Client(
-        engine_url="https://engine.example",
-        http_transport=_engine(
-            detail_models,
-            models=("provider/opus", "provider/other", "provider/synth"),
-            benchmark=_MEMBER_BENCHMARK,
-        ),
-        run_transport=transport,
-    )
-
-    with client, pytest.raises(RuntimeError, match="execution reached"):
-        client.evaluate(candidate, benchmark="fixture")
-
-    assert transport.called is True
-    assert detail_models == []
-
-
-@pytest.mark.asyncio
-async def test_async_member_only_benchmark_does_not_fetch_unused_parameter_contracts() -> None:
-    detail_models: list[str] = []
-    transport = _AsyncReachedTransport()
-    candidate = sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/other")],
-        synthesizer=sf.Model("provider/synth", params={"top_k": 40}),
-    )
-    client = sf.AsyncClient(
-        engine_url="https://engine.example",
-        http_transport=_engine(
-            detail_models,
-            models=("provider/opus", "provider/other", "provider/synth"),
-            benchmark=_MEMBER_BENCHMARK,
-        ),
-        run_transport=transport,
-    )
-
-    with pytest.raises(RuntimeError, match="execution reached"):
-        await client.evaluate(candidate, benchmark="fixture")
-    await client.aclose()
-
-    assert transport.called is True
-    assert detail_models == []
-
-
-def test_structural_synthesizer_is_preflighted_when_whole_fusion_is_incomplete() -> None:
-    detail_models: list[str] = []
-    transport = _ForbiddenTransport()
-    incomplete = sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/other")],
-        name="incomplete",
-    )
-    candidate = sf.Fusion(
-        [incomplete, sf.Model("provider/third")],
-        name="outer",
-        synthesizer=sf.Model("provider/synth", params={"top_k": 40}),
-    )
-    client = sf.Client(
-        engine_url="https://engine.example",
-        http_transport=_engine(
-            detail_models,
-            models=(
-                "provider/opus",
-                "provider/other",
-                "provider/third",
-                "provider/synth",
-            ),
-            benchmark=_SYNTHESIZER_BENCHMARK,
-        ),
-        run_transport=transport,
-    )
-
-    with client, pytest.raises(sf.PlanningError, match="top_k") as caught:
-        client.evaluate(candidate, benchmark="fixture")
-
-    assert caught.value.code == "unsupported_model_parameter"
-    assert transport.called is False
     assert detail_models == ["provider/synth"]
 
 
@@ -427,3 +297,26 @@ async def test_async_evaluation_uses_the_same_parameter_preflight() -> None:
     assert caught.value.code == "invalid_model_parameter"
     assert transport.called is False
     assert detail_models == ["provider/opus"]
+
+
+def test_later_pipeline_stage_parameters_fail_before_any_paid_execution() -> None:
+    detail_models: list[str] = []
+    transport = _ForbiddenTransport()
+    candidate = sf.Pipeline(
+        [
+            sf.Model("provider/opus", params={"temperature": 0.2}),
+            sf.Model("provider/synth", params={"top_k": 40}),
+        ]
+    )
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=_engine(detail_models),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(sf.PlanningError, match="top_k") as caught:
+        client.evaluate(candidate, benchmark="fixture")
+
+    assert caught.value.code == "unsupported_model_parameter"
+    assert transport.called is False
+    assert detail_models == ["provider/opus", "provider/synth"]

@@ -47,16 +47,8 @@ BENCHMARK = {
     "url4": BENCHMARK_URL4,
 }
 
-CANDIDATE_URL4 = render(
-    expr(
-        src(
-            RelExpr(path="/provider/opus", context="$input", intent=text("Answer.")),
-            name="model_1",
-            weight=0.0,
-        ),
-        intent=text("$model_1"),
-    )
-)
+CANDIDATE_URL4 = compile_candidate(sf.Model("provider/opus", prompt="Answer.")).url4
+assert CANDIDATE_URL4 is not None
 REPLAY_URL4 = render(
     expr(
         src(text(CANDIDATE_URL4), name="candidate", weight=0.0),

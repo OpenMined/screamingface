@@ -29,7 +29,7 @@ from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.url4 import Url4
 
-type RecipeKind = Literal["model", "fusion"]
+type RecipeKind = Literal["model", "fusion", "pipeline"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -326,7 +326,9 @@ def _kind(value: object, label: str) -> RecipeKind:
         return "model"
     if value == "fusion":
         return "fusion"
-    raise ValueError(f"{label} kind must be 'model' or 'fusion'")
+    if value == "pipeline":
+        return "pipeline"
+    raise ValueError(f"{label} kind must be 'model', 'fusion', or 'pipeline'")
 
 
 def _models(values: Sequence[str], label: str) -> tuple[str, ...]:
@@ -396,8 +398,11 @@ def _candidate_shape(
             raise ValueError("a Model Candidate must contain exactly one model route")
         if selected_members:
             raise ValueError("a Model Candidate cannot contain members")
-    elif len(selected_members) < 2:
-        raise ValueError("a Fusion Candidate requires at least two direct members")
+    elif selected_kind == "pipeline":
+        if selected_members:
+            raise ValueError("a Pipeline Candidate cannot contain direct Fusion members")
+    elif not selected_members:
+        raise ValueError("a Fusion Candidate requires at least one direct member")
     if scored and selected_failures:
         raise ValueError("a failed Candidate cannot contain a score or metrics")
     return selected_kind, selected_models, selected_members, selected_failures

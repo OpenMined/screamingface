@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any, ClassVar
 
 from screamingface._candidate_policy import GenerationParams
 from screamingface._candidate_policy import params as _generation_params
@@ -11,7 +12,7 @@ from screamingface._candidate_policy import prompt as _generation_prompt
 from screamingface.recipe import Recipe, _model_route, _name
 
 
-@dataclass(frozen=True, slots=True, init=False, eq=False)
+@dataclass(frozen=True, slots=True, init=False)
 class Model(Recipe):
     """Select one model route with optional Candidate-owned answer policy."""
 
@@ -45,6 +46,8 @@ class Model(Recipe):
     @property
     def _recipe_marker(self) -> None:
         return None
+
+    __hash__: ClassVar[Any] = None
 
     def __repr__(self) -> str:
         arguments = [repr(self.model)]

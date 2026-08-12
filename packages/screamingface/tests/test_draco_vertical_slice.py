@@ -364,7 +364,7 @@ def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     assert f"{_ROUTE_PREFIX}/aggregate" in result.url4
     assert "temperature=0.2" in result.url4
     assert "reasoning=" not in result.url4
-    assert "max_tokens=4096" in result.url4
+    assert "max_tokens=" not in result.url4
     assert "\n" not in result.url4
     assert result.name == "haiku"
     assert result.score == 0.7
@@ -574,13 +574,14 @@ def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
     )
     assert "gemini-pro:" not in candidate_url4
     assert "claude-opus-4.8:" not in candidate_url4
-    assert "=== Model 1 (gemini-pro)" in candidate_url4
-    assert "=== Model 2 (claude-opus-4.8)" in candidate_url4
-    assert "synthesis_1_member_1_name='" not in candidate_url4
-    assert "synthesis_1_member_2_name='" not in candidate_url4
+    executable = candidate_url4.split("_sf_recipe", 1)[0]
+    assert "gemini-pro" not in executable
+    assert "claude-opus-4.8" not in executable
+    assert "member_1: '$model_1'" in executable
+    assert "member_2: '$model_2'" in executable
 
 
-def test_compiler_deduplicates_equivalent_model_values_by_content() -> None:
+def test_compiler_preserves_equivalent_models_as_distinct_invocations() -> None:
     left = sf.Fusion(
         [sf.Model("provider/first"), sf.Model("provider/second")],
         name="left",
@@ -605,8 +606,8 @@ def test_compiler_deduplicates_equivalent_model_values_by_content() -> None:
         )
 
     result = report.candidates.only
-    assert tuple(operation.kind for operation in result.operations).count("model") == 3
-    assert result.url4.count("/provider/first") == 1
+    assert tuple(operation.kind for operation in result.operations).count("model") == 4
+    assert result.url4.count("/provider/first") == 2
 
 
 def test_explicit_sample_names_prevent_model_content_deduplication() -> None:

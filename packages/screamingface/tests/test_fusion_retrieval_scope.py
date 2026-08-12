@@ -1,4 +1,4 @@
-"""Benchmarks own retrieval while Fusion synthesis is always retrieval-free."""
+"""Model parameters remain explicit and retrieval remains Engine-owned."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 
 
-def test_compiled_fusion_members_inherit_benchmark_retrieval_but_synthesis_disables_it() -> None:
-    """A Benchmark can enable retrieval without granting it to the Fusion writer."""
+def test_compiled_fusion_injects_no_model_parameters() -> None:
 
     compiled = compile_candidate(
         sf.Fusion(
@@ -19,12 +18,11 @@ def test_compiled_fusion_members_inherit_benchmark_retrieval_but_synthesis_disab
     )
 
     assert compiled.url4 is not None
-    assert "/provider/left?max_tokens=4096&q=" in compiled.url4
-    assert "/provider/right?max_tokens=4096&q=" in compiled.url4
-    assert "/provider/synthesizer?max_tokens=4096&web_search=false" in compiled.url4
-    assert compiled.url4.count("web_search=false") == 1
-    assert compiled.synthesizer is not None
-    assert "/provider/synthesizer?max_tokens=4096&web_search=false" in compiled.synthesizer.url4
+    assert "max_tokens=" not in compiled.url4
+    assert "web_search=" not in compiled.url4
+    assert "/provider/left($input)" in compiled.url4
+    assert "/provider/right($input)" in compiled.url4
+    assert "/provider/synthesizer(" in compiled.url4
 
 
 @pytest.mark.parametrize("reserved", ["web_search", "plugins", "tools", "provider", "q"])

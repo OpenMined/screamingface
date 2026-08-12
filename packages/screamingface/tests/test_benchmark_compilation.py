@@ -142,7 +142,8 @@ def test_model_compilation_uses_candidate_owned_defaults_and_input_binding() -> 
     assert "Answer the request accurately and completely." in compiled.url4
     assert "Follow every instruction and formatting constraint" in compiled.url4
     assert "reasoning=" not in compiled.url4
-    assert "max_tokens=4096" in compiled.url4
+    assert "max_tokens=" not in compiled.url4
+    assert "web_search=" not in compiled.url4
     assert [operation.kind for operation in compiled.operations] == ["model"]
 
 
@@ -240,124 +241,17 @@ def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -
     ]
 
 
-def _three_member_benchmark_url4() -> str:
-    return render(
-        expr(
-            *(
-                src(
-                    RelExpr(
-                        path="/candidate",
-                        context="question",
-                        intent=text(f"$candidate_member_{index}"),
-                    ),
-                    name=f"answer_{index}",
-                    weight=0.0,
-                )
-                for index in range(1, 4)
-            ),
-            intent=text("$answer_1 $answer_2 $answer_3"),
-        )
-    )
+def _structural_resource() -> dict[str, object]:
+    return _resource(url4="(member:0.0:/validate($candidate_member_1)!'$member')!'$member'")
 
 
-def test_structural_member_bindings_keep_benchmark_logic_out_of_the_sdk() -> None:
-    benchmark = _decode_benchmark_resource(
-        _resource(url4=_three_member_benchmark_url4()),
-        requested_id="bench@1",
-        requested_limit=1,
-    )
-    fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b"), sf.Model("provider/c")],
-        name="trio",
-    )
-
-    evaluation = compile_evaluation(
-        (fusion,),
-        benchmark,
-        1,
-    )
-    candidate = evaluation.candidates[0]
-
-    assert candidate.models == ("provider/a", "provider/b", "provider/c")
-    assert evaluation.required_models == (
-        "provider/a",
-        "provider/b",
-        "provider/c",
-    )
-    assert [operation.kind for operation in candidate.operations] == ["model", "model", "model"]
-    for index in range(1, 4):
-        assert candidate.url4.count(f"candidate_member_{index}") == 2
-    assert "openrouter/anthropic/claude-haiku-4.5" not in candidate.url4
-
-
-def test_dynamic_members_retain_the_candidate_synthesizer_in_preflight_and_operations() -> None:
-    benchmark = _decode_benchmark_resource(
-        _resource(
-            url4=("(members:0.0:/validate($candidate_members)!'$candidate_synthesizer')!'$members'")
-        ),
-        requested_id="bench@1",
-        requested_limit=1,
-    )
-    fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        name="pair",
-        synthesizer="provider/synth",
-    )
-
-    evaluation = compile_evaluation(
-        (fusion,),
-        benchmark,
-        1,
-    )
-    candidate = evaluation.candidates[0]
-
-    assert candidate.models == ("provider/a", "provider/b", "provider/synth")
-    assert evaluation.required_models == candidate.models
-    assert [operation.kind for operation in candidate.operations] == [
-        "model",
-        "model",
-        "synthesis",
-    ]
-
-
-def test_dynamic_judge_requires_an_explicit_fusion_synthesizer() -> None:
-    benchmark = _decode_benchmark_resource(
-        _resource(
-            url4=("(members:0.0:/validate($candidate_members)!'$candidate_synthesizer')!'$members'")
-        ),
-        requested_id="bench@1",
-        requested_limit=1,
-    )
-    fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        name="pair",
-    )
-
-    with pytest.raises(sf.PlanningError, match="synthesizer=") as error:
-        compile_evaluation(
-            (fusion,),
-            benchmark,
-            1,
-        )
-
-    assert error.value.code == "candidate_shape_mismatch"
-
-
-def test_local_candidate_linking_precedes_model_catalog_preflight() -> None:
+def test_structural_candidate_bindings_are_rejected_before_model_preflight() -> None:
     requests: list[str] = []
 
     def engine(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
         if request.url.path == "/v1/benchmarks/bench@1":
-            return httpx.Response(
-                200,
-                json=_resource(
-                    url4=(
-                        "(members:0.0:/validate($candidate_members)!"
-                        "'$candidate_synthesizer')!'$members'"
-                    )
-                ),
-            )
+            return httpx.Response(200, json=_structural_resource())
         if request.url.path == "/v1/models":
             return httpx.Response(503, json={"detail": "catalog unavailable"})
         raise AssertionError(f"unexpected Engine request: {request.method} {request.url}")
@@ -365,12 +259,13 @@ def test_local_candidate_linking_precedes_model_catalog_preflight() -> None:
     fusion = sf.Fusion(
         [sf.Model("provider/a"), sf.Model("provider/b")],
         name="pair",
+        synthesizer="provider/synth",
     )
     with sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(engine),
     ) as client:
-        with pytest.raises(sf.PlanningError, match="synthesizer=") as error:
+        with pytest.raises(sf.PlanningError, match="unsupported structural Candidate") as error:
             client.evaluate(fusion, benchmark="bench@1")
 
     assert error.value.code == "candidate_shape_mismatch"
@@ -378,21 +273,13 @@ def test_local_candidate_linking_precedes_model_catalog_preflight() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_local_candidate_linking_precedes_model_catalog_preflight() -> None:
+async def test_async_structural_candidate_bindings_are_rejected_before_model_preflight() -> None:
     requests: list[str] = []
 
     def engine(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
         if request.url.path == "/v1/benchmarks/bench@1":
-            return httpx.Response(
-                200,
-                json=_resource(
-                    url4=(
-                        "(members:0.0:/validate($candidate_members)!"
-                        "'$candidate_synthesizer')!'$members'"
-                    )
-                ),
-            )
+            return httpx.Response(200, json=_structural_resource())
         if request.url.path == "/v1/models":
             return httpx.Response(503, json={"detail": "catalog unavailable"})
         raise AssertionError(f"unexpected Engine request: {request.method} {request.url}")
@@ -400,47 +287,17 @@ async def test_async_local_candidate_linking_precedes_model_catalog_preflight() 
     fusion = sf.Fusion(
         [sf.Model("provider/a"), sf.Model("provider/b")],
         name="pair",
+        synthesizer="provider/synth",
     )
     async with sf.AsyncClient(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(engine),
     ) as client:
-        with pytest.raises(sf.PlanningError, match="synthesizer=") as error:
+        with pytest.raises(sf.PlanningError, match="unsupported structural Candidate") as error:
             await client.evaluate(fusion, benchmark="bench@1")
 
     assert error.value.code == "candidate_shape_mismatch"
     assert requests == ["/v1/benchmarks/bench@1"]
-
-
-@pytest.mark.parametrize(
-    "candidate",
-    [
-        sf.Model("provider/solo"),
-        sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")]),
-        sf.Fusion(
-            [
-                sf.Model("provider/a"),
-                sf.Fusion([sf.Model("provider/b"), sf.Model("provider/c")]),
-                sf.Model("provider/d"),
-            ]
-        ),
-    ],
-)
-def test_structural_model_member_requirements_fail_during_planning(candidate) -> None:
-    benchmark = _decode_benchmark_resource(
-        _resource(url4=_three_member_benchmark_url4()),
-        requested_id="bench@1",
-        requested_limit=1,
-    )
-
-    with pytest.raises(sf.PlanningError, match="member|members") as error:
-        compile_evaluation(
-            (candidate,),
-            benchmark,
-            1,
-        )
-
-    assert error.value.code == "candidate_shape_mismatch"
 
 
 class _Transport:

@@ -1,8 +1,8 @@
 # screamingface
 
-Evaluate Models and Fusions against URL4-native research Benchmarks.
+Evaluate composable Candidate Recipes against URL4-native research Benchmarks.
 
-> **Development status:** immutable Model/Fusion authoring, Engine-backed discovery, the direct
+> **Development status:** immutable Model/Fusion/Pipeline authoring, Engine-backed discovery, the direct
 > evaluation API, and the confirmed `url4-cloud` lifecycle are
 > implemented. The current MVP Engine publishes canonical `draco` plus the non-comparable
 > `draco/lite` and `draco/smoke` development protocols as independently revisioned Benchmark
@@ -51,11 +51,17 @@ editable_python = score.url4.to_python()
 replayed_report = sf.evaluate(score.url4)
 ```
 
-`Url4.to_python()` is local and no-spend: it produces an editable `sf.Model` or `sf.Fusion` plus
+`Url4.to_python()` is local and no-spend: it produces an editable `sf.Model`, `sf.Fusion`, or
+`sf.Pipeline` plus
 the recovered Benchmark call. Raw URL4 evaluation does not accept `benchmark=` or `limit=`
 because either would imply
 recompiling an already-complete expression. Replay starts a new, potentially paid Run; identical
 URL4 does not guarantee identical model output.
+
+Every Client-compiled Candidate URL4 contains exactly one inert `_sf_recipe` source with the
+versioned `screamingface.recipe.v1` descriptor. It preserves the public Recipe structure and names
+for exact replay reporting and `to_python()` reconstruction. These operations require that
+descriptor; the Client does not guess authoring structure from an executable call graph.
 
 The installed `draco` definition always refers to the complete official 100-task Benchmark;
 `limit=1` merely runs one Case. Grading uses five independent Judge passes per criterion. The
@@ -103,24 +109,63 @@ constraint_aware = sf.Fusion(
 ```
 
 These overrides never alter Benchmark-owned Cases, fixed Judge models or prompts, Grading, or
-Aggregation. Prompt defaults and explicit overrides are embedded in each final URL4. A Fusion may
-be authored without `synthesizer=`, but planning rejects it before spend whenever the selected
-Benchmark invokes the whole Fusion or its synthesizer. When a Benchmark binds the synthesizer as a
-separate structural component, the model route and `params` remain Candidate-owned while the
-Benchmark owns that role's instructions; an ordinary whole-Fusion blending prompt is not reused as
-a Judge prompt. The Benchmark sets the retrieval ceiling on `/candidate`; ordinary Model and
-Fusion-member calls inherit it, while the SDK compiler always pins whole-Fusion synthesis to
-`web_search=false`. Users cannot override retrieval through Candidate `params`. DRACO can therefore
-offer guarded web access to answer producers without silently giving synthesis a stronger
-experiment than the published protocol.
+Aggregation. Prompt defaults and explicit overrides are embedded in each final URL4. Every Fusion
+requires an explicit `synthesizer=` and always produces one answer. Model-call parameters are never
+invented by the SDK: a parameter-free Model emits no sampling or retrieval parameters and therefore
+uses the Engine's configured defaults. Benchmarks may still impose explicit execution policy in
+their own URL4 protocol. Transport, routing, tool, and Benchmark-policy fields remain unavailable
+through Candidate `params`.
+
+### Serial and recursive composition
+
+Every complete `Recipe` accepts one input and returns one final answer. `Model` is atomic,
+`Fusion` runs members in parallel and passes their answers to a synthesizer, and `Pipeline` passes
+one answer through ordered serial stages:
+
+```python
+draft = sf.Model("openrouter/openai/gpt-5.5")
+review = sf.Model(
+    "openrouter/anthropic/claude-opus-4.8",
+    prompt="Review the previous answer and return a corrected answer.",
+)
+final = sf.Model(
+    "openrouter/openai/gpt-5.5",
+    prompt="Polish the previous answer without adding unsupported claims.",
+)
+
+review_chain = sf.Pipeline([draft, review, final], name="review-chain")
+same_chain = draft.then(review).then(final)
+```
+
+The first Pipeline stage receives the Candidate input; each later stage receives only the previous
+stage's answer. No original input or accumulated history is injected implicitly. Pipelines and
+complete Fusions compose recursively, including in the synthesis role:
+
+```python
+judge = sf.Model("openrouter/anthropic/claude-opus-4.8")
+writer = sf.Model("openrouter/openai/gpt-5.5")
+
+candidate = sf.Fusion(
+    [
+        review_chain,
+        sf.Model("openrouter/google/gemini-3.1-pro-preview"),
+    ],
+    synthesizer=sf.Pipeline([judge, writer]),
+)
+```
+
+`Pipeline([...])` is the canonical serial representation; `.then(...)` is immutable shorthand and
+never executes work. Every Recipe-valued position also accepts a model-route string as shorthand
+for `sf.Model(...)`. Shape mismatches, cycles, invalid models, and invalid parameters fail before
+spend.
 
 Each flat Benchmark resource uses `screamingface.benchmark.v1` and carries one canonical `url4`
-plus an opaque immutable `revision`. The SDK fetches the requested id, compiles a Model or Fusion
-into an expression accepting `$input`, and links only the universal bindings referenced by that
-Benchmark (`$candidate`, direct members, or an explicit synthesizer). A Benchmark invokes a bound
-expression through `/candidate`; that route evaluates it inside the same Engine job, not through
-an additional Client or control-plane request. Unsupported Candidate shapes fail with typed errors
-instead of falling back to Client-side execution.
+plus an opaque immutable `revision`. The SDK fetches the requested id, compiles a Recipe
+into an expression accepting `$input`, and links it through the single universal `$candidate`
+binding. A Benchmark invokes that bound expression through `/candidate`; that route evaluates it
+inside the same Engine job, not through an additional Client or control-plane request. Old
+structural member/synthesizer bindings fail with a typed planning error rather than invoking a
+second Client compilation path.
 
 The Candidate input is normally plain text. Engine-owned Benchmarks that require native chat
 history wrap structured turns in the versioned Candidate-input envelope; the Runner preserves
@@ -340,15 +385,16 @@ model providers, Tavily, or Benchmark datasets directly. Local and hosted Engine
 Client-visible contract; in-memory channels, NATS, workers, and deployment topology are Engine
 details.
 
-Models and Fusions are immutable, Client-independent, and network-free. Models select routes and
-optional answer policy; Fusions declare topology and optional synthesis policy. The SDK resolves
-their defaults and compiles the Candidate expression. Benchmarks are immutable Engine protocols
+Models, Fusions, and Pipelines are immutable, structurally comparable, Client-independent, and
+network-free. Models select routes and optional answer policy; Fusions declare parallel topology
+and an explicit synthesizer; Pipelines declare serial topology. Every placement compiles to a
+distinct logical invocation, even when two Recipe values are equal or reused. The SDK compiles the
+complete Recipe into one Candidate expression. Benchmarks are immutable Engine protocols
 that own Cases, Candidate Invocation order, fixed Judge configuration, Grading, Aggregation,
 and execution policy. Reports record the exact Engine-pinned Benchmark revision.
 
-Equivalent resolved Model calls deduplicate by content inside a compiled Candidate graph.
-Explicit Model names identify intentional independent samples. Durable reuse across Candidates,
-retries, and resumed Evaluations belongs to the Engine's provenance-aware response cache.
+Durable reuse across graph positions, Candidates, retries, and resumed Evaluations belongs to the
+Engine's provenance-aware response cache; Client compilation never merges authored positions.
 
 ## Discovery
 

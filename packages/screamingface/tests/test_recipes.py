@@ -71,13 +71,15 @@ def test_fusion_keeps_members_in_order_and_infers_a_name() -> None:
     opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
     gpt = sf.Model("openrouter/openai/gpt-5.5")
 
-    fusion = sf.Fusion([opus, gpt])
+    synthesizer = sf.Model("openrouter/openai/gpt-5.5")
+    fusion = sf.Fusion([opus, gpt], synthesizer=synthesizer)
 
     assert isinstance(fusion, sf.Recipe)
     assert fusion.name == "claude-opus-4.8+gpt-5.5"
     assert fusion.members == (opus, gpt)
     assert fusion.members[0] is opus
     assert fusion.members[1] is gpt
+    assert fusion.synthesizer is synthesizer
     assert not hasattr(fusion, "reducer")
     assert not hasattr(fusion, "url4")
 
@@ -86,6 +88,7 @@ def test_fusion_accepts_an_optional_display_name() -> None:
     fusion = sf.Fusion(
         [sf.Model("provider/opus"), sf.Model("provider/gpt")],
         name=" Frontier ",
+        synthesizer="provider/synth",
     )
 
     assert fusion.name == "Frontier"
@@ -118,10 +121,13 @@ def test_fusion_normalizes_synthesizer_route_shorthand_to_a_model() -> None:
     assert fusion.synthesizer.model == "provider/synth"
 
 
-def test_fusion_needs_no_explicit_synthesizer_policy() -> None:
-    fusion = sf.Fusion([sf.Model("provider/a"), sf.Model("provider/b")])
+def test_fusion_requires_an_explicit_synthesizer() -> None:
+    with pytest.raises(TypeError, match="required keyword-only argument: 'synthesizer'"):
+        cast(Any, sf.Fusion)([sf.Model("provider/a"), sf.Model("provider/b")])
 
-    assert fusion.synthesizer is None
+    fusion = sf.Fusion(["provider/a"], synthesizer="provider/synth")
+    assert fusion.members == (sf.Model("provider/a"),)
+    assert fusion.synthesizer == sf.Model("provider/synth")
     assert not hasattr(fusion, "prompt")
     assert not hasattr(fusion, "params")
 
@@ -130,8 +136,8 @@ def test_nested_fusions_are_regular_members() -> None:
     opus = sf.Model("provider/opus")
     gpt = sf.Model("provider/gpt")
     gemini = sf.Model("provider/gemini")
-    pair = sf.Fusion([opus, gpt], name="pair")
-    trio = sf.Fusion([pair, gemini], name="trio")
+    pair = sf.Fusion([opus, gpt], name="pair", synthesizer="provider/pair-synth")
+    trio = sf.Fusion([pair, gemini], name="trio", synthesizer="provider/trio-synth")
 
     assert trio.members == (pair, gemini)
     nested = cast(sf.Fusion, trio.members[0])
@@ -145,28 +151,29 @@ def test_explicit_names_distinguish_independent_samples() -> None:
     assert first is not second
     assert first != second
 
-    fusion = sf.Fusion([first, second], name="self-fusion")
+    fusion = sf.Fusion([first, second], name="self-fusion", synthesizer="provider/synth")
     assert fusion.members == (first, second)
 
 
-@pytest.mark.parametrize(
-    ("members", "message"),
-    [
-        ([], "at least two members"),
-        ([sf.Model("provider/one")], "at least two members"),
-        (
-            [sf.Model("provider-a/same"), sf.Model("provider-b/same")],
-            "duplicate Fusion member name 'same'",
-        ),
-        ([sf.Model("provider/one"), "provider/two"], "members must be sf.Model or sf.Fusion"),
-    ],
-)
-def test_fusion_rejects_ambiguous_or_non_composite_members(
-    members: list[object],
-    message: str,
-) -> None:
-    with pytest.raises((TypeError, ValueError), match=message):
-        sf.Fusion(cast(Any, members))
+def test_fusion_accepts_one_member_routes_and_duplicate_display_names() -> None:
+    fusion = sf.Fusion(
+        ["provider/one", sf.Model("provider-a/same"), sf.Model("provider-b/same")],
+        synthesizer="provider/synth",
+    )
+
+    assert fusion.members == (
+        sf.Model("provider/one"),
+        sf.Model("provider-a/same"),
+        sf.Model("provider-b/same"),
+    )
+
+
+def test_fusion_rejects_empty_or_ambiguous_member_collections() -> None:
+    with pytest.raises(ValueError, match="at least one member"):
+        sf.Fusion([], synthesizer="provider/synth")
+
+    with pytest.raises(TypeError, match="ordered sequence"):
+        sf.Fusion(cast(Any, "provider/one"), synthesizer="provider/synth")
 
 
 def test_fusion_rejects_unpublished_recipe_extensions() -> None:
@@ -177,15 +184,15 @@ def test_fusion_rejects_unpublished_recipe_extensions() -> None:
         def _recipe_marker(self) -> None:
             return None
 
-    with pytest.raises(TypeError, match="sf.Model or sf.Fusion"):
-        sf.Fusion([CustomRecipe(), sf.Model("provider/model")])
+    with pytest.raises(TypeError, match="sf.Model, sf.Fusion, or sf.Pipeline"):
+        sf.Fusion([CustomRecipe(), sf.Model("provider/model")], synthesizer="provider/synth")
 
 
-def test_fusion_rejects_non_model_synthesizers() -> None:
-    with pytest.raises(TypeError, match="synthesizer must be an sf.Model"):
+def test_fusion_rejects_unsupported_recipe_synthesizers() -> None:
+    with pytest.raises(TypeError, match="Fusion synthesizer must be a model route"):
         sf.Fusion(
             [sf.Model("provider/a"), sf.Model("provider/b")],
-            synthesizer=cast(Any, sf.Fusion([sf.Model("provider/c"), sf.Model("provider/d")])),
+            synthesizer=cast(Any, object()),
         )
 
 
@@ -197,6 +204,7 @@ def test_fusion_rejects_non_model_synthesizers() -> None:
             lambda: sf.Fusion(
                 [sf.Model("provider/a"), sf.Model("provider/b")],
                 name=" ",
+                synthesizer="provider/synth",
             ),
             "fusion name",
         ),
@@ -230,9 +238,11 @@ def test_candidate_representations_are_compact() -> None:
 
     assert repr(opus) == "Model('openrouter/anthropic/claude-opus-4.8')"
     assert repr(sample) == ("Model('openrouter/anthropic/claude-opus-4.8', name='sample-1')")
-    assert repr(sf.Fusion([opus, gpt])) == ("Fusion(['claude-opus-4.8', 'gpt-5.5'])")
-    assert repr(sf.Fusion([opus, gpt], name="pair")) == (
-        "Fusion(['claude-opus-4.8', 'gpt-5.5'], name='pair')"
+    assert repr(sf.Fusion([opus, gpt], synthesizer="provider/synth")) == (
+        "Fusion(['claude-opus-4.8', 'gpt-5.5'], synthesizer=Model('provider/synth'))"
+    )
+    assert repr(sf.Fusion([opus, gpt], name="pair", synthesizer="provider/synth")) == (
+        "Fusion(['claude-opus-4.8', 'gpt-5.5'], name='pair', synthesizer=Model('provider/synth'))"
     )
 
 
