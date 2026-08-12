@@ -259,18 +259,18 @@ def test_params_from_env_missing_required_raises() -> None:
 _MODEL = "claude-haiku-4-5"
 
 
-def _declared(*models: str, web_tools: bool = False) -> WorldConfig:
+def _declared(*models: str, web_search: bool = False) -> WorldConfig:
     """A config declaring `models`, defaulting to the first — the Runner never discovers.
 
-    `web_tools` is the per-route opt-in every declared route here shares; it defaults off,
-    matching the shipped default, so a test that wants the tool loop must ask for it.
+    `web_search` is the per-route opt-in every declared route here shares; it defaults off HERE
+    — unlike `ModelSpec`'s own default — so a test that wants the tool loop must ask for it.
     """
     declared = models or (_MODEL,)
     return WorldConfig(
         aigateway=AigatewaySection(
             base_url="http://aigateway.test",
             default_model=declared[0],
-            models=tuple(ModelSpec(id=model, web_tools=web_tools) for model in declared),
+            models=tuple(ModelSpec(id=model, web_search=web_search) for model in declared),
         )
     )
 
@@ -362,7 +362,36 @@ async def test_build_executor_with_tavily_key_declares_web_tools() -> None:
     async with client, _unused_tavily_client() as tclient:
         executor = build_executor(
             {job_env.TAVILY_API_KEY: "tvly-x"},
-            _declared(web_tools=True),
+            _declared(web_search=True),
+            client=client,
+            tavily_client=tclient,
+        )
+        async for _ in executor.execute(f"/{_MODEL}(ctx)!go"):
+            pass
+
+    assert posts, "the aigateway completion endpoint was never called"
+    body = posts[0]
+    assert {t["function"]["name"] for t in body["tools"]} == {"web_search", "web_fetch"}
+    assert body["tool_choice"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_build_executor_offers_tools_on_the_production_default() -> None:
+    # `_declared` defaults `web_search` to False, opposite of `ModelSpec`'s own default, so no
+    # test above exercises the value that actually ships. This route is built straight from
+    # `ModelSpec`, taking its default (True) untouched, on a non-openrouter id.
+    config = WorldConfig(
+        aigateway=AigatewaySection(
+            base_url="http://aigateway.test",
+            default_model=_MODEL,
+            models=(ModelSpec(id=_MODEL),),
+        )
+    )
+    client, posts = _recording_aigateway_client()
+    async with client, _unused_tavily_client() as tclient:
+        executor = build_executor(
+            {job_env.TAVILY_API_KEY: "tvly-x"},
+            config,
             client=client,
             tavily_client=tclient,
         )
@@ -377,13 +406,13 @@ async def test_build_executor_with_tavily_key_declares_web_tools() -> None:
 
 @pytest.mark.asyncio
 async def test_build_executor_declares_no_tools_for_a_route_that_did_not_opt_in() -> None:
-    # A Tavily key is configured, but url4.toml declared this route without `web_tools` — the
-    # deployment secret must not decide what the model is asked.
+    # A Tavily key is configured, but this route declares `web_search=False` — the deployment
+    # secret must not decide what the model is asked.
     client, posts = _recording_aigateway_client()
     async with client, _unused_tavily_client() as tclient:
         executor = build_executor(
             {job_env.TAVILY_API_KEY: "tvly-x"},
-            _declared(web_tools=False),
+            _declared(web_search=False),
             client=client,
             tavily_client=tclient,
         )

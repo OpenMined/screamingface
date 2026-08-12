@@ -513,7 +513,7 @@ async def test_required_retrieval_treats_a_blank_tavily_key_as_unconfigured() ->
     world = await build_aigateway_world(
         AigatewayConfig(
             default_model="provider/model",
-            models=(ModelSpec(id="provider/model", web_tools=True),),
+            models=(ModelSpec(id="provider/model"),),
         ),
         client=client,
         tavily_api_key="   ",
@@ -623,7 +623,7 @@ async def test_retrieval_policy_protects_search_results_and_direct_fetches() -> 
     client, world = await _world(
         BenchmarkRegistry((benchmark,)),
         [],
-        models=(ModelSpec(id="provider/model", web_tools=True),),
+        models=(ModelSpec(id="provider/model"),),
         response=model_response,
         tavily_client=tavily,
     )

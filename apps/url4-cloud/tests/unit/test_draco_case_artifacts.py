@@ -78,7 +78,7 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
 
     def respond(request: httpx.Request) -> httpx.Response:
         model = json.loads(request.content)["model"]
-        content = _ANSWER if model == "provider/candidate" else _RAW_JUDGE_REPLY
+        content = _ANSWER if model == "openrouter/anthropic/claude-opus-4.8" else _RAW_JUDGE_REPLY
         return httpx.Response(
             200,
             json={
@@ -88,7 +88,7 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
         )
 
     candidate = RelExpr(
-        path="/provider/candidate",
+        path="/openrouter/anthropic/claude-opus-4.8",
         context="$input",
         intent=text("Answer exactly."),
     )
@@ -101,9 +101,9 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
     ) as client:
         world = await build_aigateway_world(
             AigatewayConfig(
-                default_model="provider/candidate",
+                default_model="openrouter/anthropic/claude-opus-4.8",
                 models=(
-                    ModelSpec(id="provider/candidate", native_web_search=True),
+                    ModelSpec(id="openrouter/anthropic/claude-opus-4.8"),
                     ModelSpec(id=JUDGE_MODEL),
                 ),
             ),

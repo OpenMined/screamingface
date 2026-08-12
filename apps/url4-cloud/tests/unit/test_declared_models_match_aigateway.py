@@ -138,14 +138,3 @@ def test_declared_model_ids_are_route_shaped(model: str) -> None:
     assert model, "empty model id"
     assert not model.startswith("/"), f"{model!r} must not start with '/' — routes derive it"
     assert model == model.strip(), f"{model!r} has surrounding whitespace"
-
-
-def test_no_route_declares_web_tools_it_cannot_use() -> None:
-    # `web_tools` only means anything on a route that exists; a true on an id aigateway does
-    # not serve is a config error the run would never reach, so catch it here.
-    with _RUNNER_CONFIG.open("rb") as handle:
-        entries = tomllib.load(handle)["aigateway"]["models"]
-    enabled = {e["id"] for e in entries if not isinstance(e, str) and e.get("web_tools")}
-
-    assert enabled, "no route declares web_tools — the Tavily loop is now unreachable"
-    assert sorted(enabled - _aigateway_model_ids()) == []

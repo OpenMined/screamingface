@@ -507,7 +507,7 @@ async def test_the_tool_calling_loop_applies_the_policy_on_every_round_trip() ->
         ),
         base_url="https://api.tavily.com",
     )
-    cfg = AigatewayConfig(models=(ModelSpec(id=MODEL, web_tools=True),), default_model=MODEL)
+    cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
 
     async with gw.client() as client, tavily:
         world = await build_aigateway_world(

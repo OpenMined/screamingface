@@ -43,7 +43,7 @@ def apply_retrieval_policy(
 
 def wants_web_search(params: Mapping[str, str], spec: ModelSpec) -> bool:
     """Resolve an optional URL4 search toggle against the declared route capabilities."""
-    declared = spec.web_tools or spec.native_web_search
+    declared = spec.web_search
     raw = params.get(WEB_SEARCH_PARAM)
     if raw is None:
         return declared
@@ -56,7 +56,7 @@ def wants_web_search(params: Mapping[str, str], spec: ModelSpec) -> bool:
     wanted = raw == "true"
     if wanted and not declared:
         raise RunnerRequestError(
-            f"web_search=true but route /{spec.id} declares no web search mechanism",
+            f"web_search=true but route /{spec.id} declares web_search = false",
             code="web_retrieval_unavailable",
             permanent=True,
         )

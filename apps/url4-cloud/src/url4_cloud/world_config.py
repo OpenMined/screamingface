@@ -53,7 +53,7 @@ _AIGATEWAY_KEYS = frozenset(
         "web_tool_max_iterations",
     }
 )
-_MODEL_KEYS = frozenset({"id", "web_tools", "native_web_search"})
+_MODEL_KEYS = frozenset({"id", "web_search"})
 _RESERVED_TABLES = frozenset({"data", "commands", "holdings", "identities"})
 _TOP_LEVEL_KEYS = frozenset({"aigateway"})
 _MODEL_ID_RE = re.compile(r"[A-Za-z0-9\-_.~]+(?:/[A-Za-z0-9\-_.~]+)*", re.ASCII)
@@ -63,25 +63,76 @@ class WorldConfigError(ValueError):
     """The Runner's configuration is unusable — raised at startup, before any run."""
 
 
+WEB_SEARCH_NATIVE_PROVIDERS = frozenset({"openrouter"})
+"""Providers whose aigateway plugin carries a native web-search envelope.
+
+A route served by one of these delegates retrieval to the provider; every other searching
+route runs the Tavily tool loop here instead.
+
+WHY only `openrouter`: `web_search` is declared by exactly one aigateway plugin
+(`plugins/openrouter_provider/parameters.py`). The other plugins register bespoke
+`custom_llm_provider` handlers — `codex` (OpenAI Codex OAuth), `gemini-cli` (Google Code
+Assist), `antigravity`, and aigateway's own `anthropic` — rather than litellm's stock vendor
+routes, so litellm's `web_search_options` is not reachable through them and a request
+carrying an undeclared parameter is refused by the parameter contract.
+
+AIDEV-NOTE: adding an entry here is NOT sufficient on its own. The provider's aigateway
+plugin must first declare the parameter, build the envelope from one pure function shared by
+the dispatch path and the cache-key projection, key the fields, and bump the cache adapter
+revision (OME-777 invariant I1). This set is the LAST step of that work, not the first.
+"""
+
+_UNPREFIXED_PROVIDER = "anthropic"
+
+
+def provider_of(model_id: str) -> str:
+    """The provider that serves a route: the segment before the first `/`.
+
+    WHY the segment and not a substring of the whole id: `openrouter/anthropic/claude-opus-4.8`
+    is an OpenRouter route and must take OpenRouter's envelope. A substring test hands it to
+    any future `anthropic` entry and silently sends it down the wrong provider's mechanism.
+
+    INVARIANT: an id with no `/` is Anthropic's — aigateway's catalog leaves exactly that one
+    provider unprefixed (`claude-haiku-4-5`), the `anthropic/` prefix appearing only in
+    litellm_params.
+    """
+    prefix, separator, _ = model_id.partition("/")
+    return prefix if separator else _UNPREFIXED_PROVIDER
+
+
 @dataclass(frozen=True, slots=True)
 class ModelSpec:
-    """One declared route: the gateway id, plus the per-route capabilities it opts into.
+    """One declared route: the gateway id, plus whether it may search the web.
 
     A route is addressed as a table rather than a bare id so capabilities are declared WHERE
-    the route is, not in a parallel list that can silently disagree with it. `web_tools` is the
-    first such capability; the shape is what a second one extends.
+    the route is, not in a parallel list that can silently disagree with it.
 
-    WHY `web_tools` defaults to False: the tool loop rewrites the request the model sees (a
-    `tools`/`tool_choice` payload, then extra round trips feeding results back). That is a
-    behavior change per model, and not every provider handles an OpenAI-shape tool call the
-    same way — so it is opted INTO per route, never inherited from the mere presence of a
-    Tavily key. An operator who supplies a key but declares no `web_tools = true` route gets
-    exactly the plain completions they declared.
+    WHY only THAT it searches, never HOW: which mechanism a model can carry is a property of
+    its provider, not a choice an operator should have to encode per route. Declaring the
+    mechanism made the operator the keeper of that knowledge and let a route claim one its
+    provider could not serve. The mechanism is therefore derived, and this file states intent.
+
+    WHY the default is True: a deployment that supplies a Tavily key wants retrieval. The
+    previous per-route opt-in meant a route stayed silently non-searching until somebody
+    remembered to declare it. A route that must not search says so with `web_search = false`.
     """
 
     id: str
-    web_tools: bool = False
-    native_web_search: bool = False
+    web_search: bool = True
+
+    @property
+    def uses_native_web_search(self) -> bool:
+        """The provider performs the search; the Runner only sets `web_search` on the body."""
+        return self.web_search and provider_of(self.id) in WEB_SEARCH_NATIVE_PROVIDERS
+
+    @property
+    def uses_web_tools(self) -> bool:
+        """The Runner performs the search itself, through the Tavily tool loop.
+
+        INVARIANT: this and `uses_native_web_search` are mutually exclusive, and their
+        disjunction is `web_search` — a searching route has exactly one mechanism.
+        """
+        return self.web_search and not self.uses_native_web_search
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,8 +158,8 @@ def routes_for(models: Sequence[ModelSpec]) -> dict[str, ModelSpec]:
     """Map each route path — ``"/" + id``, 1:1, no aliases — to the spec that declared it.
 
     The VALUE is the whole spec, not the bare id: the endpoint that serves a route needs the
-    capabilities declared alongside it (`web_tools`), and resolving them from the same lookup
-    that resolves the id is what keeps a route and its capabilities from being fetched through
+    capability declared alongside it (`web_search`), and resolving it from the same lookup
+    that resolves the id is what keeps a route and its capability from being fetched through
     two different paths that can disagree.
     """
     return {"/" + model.id: model for model in models}
@@ -224,9 +275,9 @@ def _models(value: object) -> tuple[ModelSpec, ...]:
 def _model_spec(entry: object) -> ModelSpec:
     """One `[[aigateway.models]]` entry — a table, or a bare id string as shorthand.
 
-    The string form is exactly ``{ id = "<it>" }``: a route that opts into nothing. It stays
-    supported because "declare a plain route" should not require a table, and because every
-    capability defaults off, so the two spellings cannot mean different things.
+    The string form is exactly ``{ id = "<it>" }``. It stays supported because "declare a
+    plain route" should not require a table, and because both spellings take `web_search`'s
+    default of true, so the two spellings cannot mean different things.
     """
     if isinstance(entry, Mapping):
         return _model_table(entry)
@@ -246,25 +297,10 @@ def _model_table(table: Mapping[str, object]) -> ModelSpec:
     raw_id = table.get("id")
     if raw_id is None:
         raise WorldConfigError("[[aigateway.models]] entry is missing its `id`")
-    web_tools = _model_flag(table, "web_tools")
-    native_web_search = _model_flag(table, "native_web_search")
-    if web_tools and native_web_search:
-        raise WorldConfigError(
-            f"[[aigateway.models]] {raw_id!r} declares both web_tools and native_web_search — "
-            "a route serves one retrieval mechanism"
-        )
-    return ModelSpec(
-        id=_model_id(str(raw_id)),
-        web_tools=web_tools,
-        native_web_search=native_web_search,
-    )
-
-
-def _model_flag(table: Mapping[str, object], key: str) -> bool:
-    value = table.get(key, False)
+    value = table.get("web_search", True)
     if not isinstance(value, bool):
-        raise WorldConfigError(f"[[aigateway.models]] {key} must be a boolean, got {value!r}")
-    return value
+        raise WorldConfigError(f"[[aigateway.models]] web_search must be a boolean, got {value!r}")
+    return ModelSpec(id=_model_id(str(raw_id)), web_search=value)
 
 
 def _model_id(model: str) -> str:

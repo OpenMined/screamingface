@@ -61,8 +61,8 @@ class AigatewayConfig:
     base_url: str = "http://127.0.0.1:9105"
     default_model: str = "claude-haiku-4-5"
     # WHY: DECLARED, never discovered — see `config.routes_for`. Empty is a config error, not a
-    # signal to go ask the gateway what it serves. Each entry carries its own capabilities
-    # (`web_tools`), so a route's behavior is declared beside the route.
+    # signal to go ask the gateway what it serves. Each entry carries its own capability
+    # (`web_search`), so a route's behavior is declared beside the route.
     models: tuple[ModelSpec, ...] = ()
     # WHY: absolute-URL sources are a real url4 feature, so the default preserves the behavior a
     # `Url4Node` world has always had. Set False to hand the node a denying outbound layer.
@@ -103,7 +103,7 @@ class AigatewayWorld:
         separate flag could only ever agree with `_tavily_client` — or drift from it.
 
         This is the world-level capability, NOT a promise that any given call sends tools:
-        a route sends them only when its own `ModelSpec.web_tools` is true. Both must hold.
+        a route sends them only when its own `ModelSpec.uses_web_tools` is true. Both must hold.
         """
         return self._tavily_client is not None
 
@@ -372,10 +372,10 @@ async def _chat_completion_loop(
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
 
-    Tools are offered only when the route declares `web_tools` and the world can serve them
-    through Tavily. A configured key alone must never change a model request, an explicit
-    ``web_search=false`` disables retrieval, and benchmark-required search fails closed when
-    Tavily is unavailable.
+    Tools are offered only when the route's mechanism resolves to `ModelSpec.uses_web_tools`
+    and the world can serve them through Tavily. A configured key alone must never change a
+    model request, an explicit ``web_search=false`` disables retrieval, and benchmark-required
+    search fails closed when Tavily is unavailable.
 
     INVARIANT: the cache policy is re-applied on EVERY round trip, not merged once before the
     loop. One turn is several independently-keyed gateway calls, and a policy that lapsed after
@@ -437,10 +437,10 @@ def _retrieval_request(
     if (
         retrieval_policy is not None
         and params.get(WEB_SEARCH_PARAM) == "true"
-        and not (spec.web_tools or spec.native_web_search)
+        and not spec.web_search
     ):
         raise ResolutionError(
-            f"model route {spec.id!r} does not declare a web search mechanism",
+            f"model route {spec.id!r} declares web_search = false",
             code="benchmark_retrieval_unavailable",
             permanent=True,
         )
@@ -454,7 +454,7 @@ def _retrieval_request(
         policy=retrieval_policy,
         params=params,
     )
-    if wants_search and spec.native_web_search:
+    if wants_search and spec.uses_native_web_search:
         extra: dict[str, object] = {"web_search": True}
         exclusions = caller_exclusions(params)
         if exclusions:

@@ -559,8 +559,9 @@ def _usage(input_tokens: int, output_tokens: int) -> Usage:
 def _one_node_two_usage_events() -> tuple[SpanData, CostUsageData, CostUsageData]:
     """Drive `_RunState` through ONE node that reports usage TWICE.
 
-    This is the ordinary shape of a `web_tools` route, not a corner case: every aigateway round
-    trip in the tool loop reports its own usage against the same span.
+    This is the ordinary shape of a route whose mechanism resolves to `uses_web_tools`, not a
+    corner case: every aigateway round trip in the tool loop reports its own usage against the
+    same span.
     """
     state = _RunState()
     state.map(NodeStarted(span_id=_SPAN, parent_span_id=None, node_kind="RelUrlNode", detail="m"))
