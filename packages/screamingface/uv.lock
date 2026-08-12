@@ -1759,7 +1759,7 @@ wheels = [
 
 [[package]]
 name = "url4"
-version = "1.4.0"
+version = "1.4.1"
 source = { editable = "../url4" }
 dependencies = [
     { name = "httpx" },
