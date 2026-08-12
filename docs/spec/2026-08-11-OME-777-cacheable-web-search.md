@@ -191,18 +191,56 @@ defect so §7's decision on it appears as a visible diff. No production code cha
 
 ### 5.2 Phase 2 — Path B, OpenRouter native (`OME-781`)
 
+**Design corrected 2026-08-11.** An earlier revision specified moving both rules to
+`provider_native_rule` so the *effective* envelope would be keyed via `prepared`. **That is
+illegal**: `chat_parameters/_types.py:120-124` rejects a `provider_native` rule whose
+`request_path` does not start with `provider_params.`, and both web-search fields are top-level
+caller-facing paths. The check is deliberate — `projected_root` derives from the target namespace,
+and relaxing it would make every native keyed rule silently bypass.
+
+The correct design is smaller:
+
 1. Delete `web_search_excluded_domains` from `settings.py` and the env var with it.
-2. Extract `build_web_search_plugin(body) -> dict | None` in `web_search.py`. Pure: body in,
-   envelope or `None` out; no settings parameter. Normalizes domains — strip, casefold, dedupe,
-   sort. `apply_web_search` becomes a thin writer over it.
-3. `global_cache.py::project_global_cache_request` calls the same builder and emits the envelope
-   into `prepared`. Legal now, because every value in it originates in the body the projection was
-   handed.
-4. `parameters.py`: both rules move from `direct_rule(..., cache_behavior="bypass")` to
-   `provider_native_rule(...)` with `projected_root` at the envelope. This is a **rule-factory
-   swap**, not a keyword change.
-5. Bump `GLOBAL_CACHE_ADAPTER_REVISION` `openrouter-global-cache-2026-08b` → `-08c`. Mandatory:
+2. `apply_web_search` reads its domains from the **body alone** — the settings parameter goes away.
+   It already does `sorted({...})`, so dedupe and ordering of the *dispatched* value are handled.
+3. `parameters.py`: both rules keep `direct_rule` and move `cache_behavior="bypass"` → `"keyed"`.
+4. Bump `GLOBAL_CACHE_ADAPTER_REVISION` `openrouter-global-cache-2026-08b` → `-08c`. Mandatory:
    rows written under bypass semantics must be abandoned, not re-served.
+
+**Why `prepared` does not need to describe the envelope.** The invariant recorded at
+`parameters.py:121` held that `prepared` was complete only because no cacheable request ever
+carried a `plugins` block. This work makes such requests cacheable, so that argument lapses — but
+completeness is re-established by a different route rather than by describing the envelope:
+
+> Once the env var is deleted, the `plugins` envelope is a **pure function of `web_search` and
+> `web_search_excluded_domains`**, both of which are now `keyed` and hashed directly. Two requests
+> with the same key therefore carry the same envelope inputs, hence the same envelope, hence the
+> same upstream call. The constants shaping the envelope are folded into
+> `GLOBAL_CACHE_ADAPTER_REVISION`, so changing its shape abandons every entry.
+
+This is the same reasoning the Anthropic projection uses for `reasoning_effort`: what matters is
+that the key determines the dispatched call, not that `prepared` restates it.
+
+**Accepted consequence — duplicate entries, never a wrong hit.** Because the caller's raw list is
+hashed, `["B.com", "a.com"]` and `["a.com", "b.com"]` produce two entries for one upstream call.
+That is a lost dedupe opportunity, not a correctness defect, and it is the identical trade already
+documented for `reasoning_effort="none"` vs omitted. Normalizing the caller's spelling for the key
+is **not** available here: I2 permits it only where the dispatched payload is normalized the same
+way, and these two fields are consumed by `apply_web_search` rather than forwarded, so the
+normalization would have to be re-derived in two places — precisely the drift I1 exists to prevent.
+
+**Retracted: the `web_search: false` "free win".** An earlier revision claimed that effective-form
+keying would collapse `web_search: false` onto the same key as omitting the field, retiring the
+"no falsy exemption" cost. **That was carried over from the illegal `provider_native` design and is
+not true under `direct_rule`**: `_accept` hashes a direct rule's raw caller value verbatim, and
+falsy-omission semantics exist only for `provider_native` routing controls (`omit_if_false`). So
+`false` and omitted produce two keys.
+
+Both nonetheless dispatch the *same* upstream call — no envelope is emitted in either case — so this
+is another duplicate entry, never a wrong hit. Collapsing them would require adding falsy-omission
+semantics to the shared `direct_rule` path, changing behaviour for every provider to save one
+duplicate row on one parameter. **Declined** as core widening disproportionate to the gain; the
+pinning test asserts the real behaviour (same dispatch, two keys) rather than the aspiration.
 
 **Retain** the guard in `plugin.py` rejecting `web_search_excluded_domains` without
 `web_search is True`. It enforces the emission precondition at the boundary and becomes *more*
@@ -344,7 +382,8 @@ Non-negotiable, in addition to each phase's own coverage:
    different settings must now produce the **same** key for the same body: same intent, inverted
    assertion.
 3. Domain case/order/duplicate variance → same key; genuinely different sets → different keys.
-4. `web_search: false` ≡ omitted.
+4. `web_search: false` and omitted dispatch the **same** upstream call (no envelope) under **two**
+   keys — pinned as a documented duplicate, never a wrong hit. See the retraction in §5.2.
 5. `tools` reordered → **different** key, asserted deliberately with its reason.
 6. `metadata` still bypasses after `OME-782`; cross-provider regression pass.
 7. `Age` correctness; `max-age: 0` never serves; expired row not served; url4-cloud skew path.

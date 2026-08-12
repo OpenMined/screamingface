@@ -373,7 +373,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # discard an accepted price ceiling or data policy. A fresh dict per request
         # keeps one caller from mutating the policy the next one gets.
         out["provider"] = build_provider_policy(out.pop("provider", None))
-        apply_web_search(out, self.settings)
+        apply_web_search(out)
         return out
 
     def global_cache_projection(self, body: dict[str, Any]) -> dict[str, Any] | CacheBypass:

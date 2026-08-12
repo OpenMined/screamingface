@@ -404,6 +404,10 @@ def test_every_reviewed_control_is_covered_by_a_key_difference_test() -> None:
             "auto",
             {"type": "function", "function": {"name": "f"}},
         ),
+        # OME-781: the deployment blocklist that forced these to `bypass` is deleted,
+        # so both search fields are keyed exactly like every other direct path.
+        ("web_search", True, False),
+        ("web_search_excluded_domains", ["a.test"], ["b.test"]),
     ],
 )
 def test_two_openrouter_requests_differing_only_in_one_keyed_value_never_share_a_key(
@@ -442,6 +446,9 @@ def test_every_openrouter_keyed_path_has_an_explicit_key_difference_proof() -> N
         # rows above, same as every other direct-keyed path.
         "tools",
         "tool_choice",
+        # OME-781: the deployment blocklist that forced these to `bypass` is deleted.
+        "web_search",
+        "web_search_excluded_domains",
     }
     # `sort` has one valid value and is pinned by presence versus absence above.
     assert keyed == covered_by_two_values | {"provider_params.sort"}

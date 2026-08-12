@@ -129,11 +129,6 @@ class OpenRouterPluginSettings(PluginSettings):
     enabled: bool = False
     default_models: list[str] = Field(default_factory=_default_model_slugs)
     validation_model: str = "openrouter/openrouter/free"
-    # Domains this deployment asks OpenRouter search to exclude for every caller. A caller's own
-    # list is UNIONed with this and can never remove an operator entry. Actual support varies by
-    # upstream model/engine; protocols needing hard exclusion must select a compatible route.
-    # Empty by default: inventing policy here would silently shape everyone's retrieval.
-    web_search_excluded_domains: list[str] = Field(default_factory=list)
 
     @field_validator("default_models")
     @classmethod

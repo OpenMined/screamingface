@@ -180,6 +180,54 @@ needed **zero** edits, and the antigravity conformance failure disappeared on it
   `OME-781` promotes `web_search` to keyed and will therefore break that proof again — it needs a
   third example, ideally one that is permanently bypass. Expected, not a surprise.
 
+## OME-781 outcome — done
+
+**The unit shrank to almost nothing once two of my own design errors were removed.**
+
+Error 1 — the spec routed both rules through `provider_native_rule` so the *effective* envelope
+would be keyed via `prepared`. That is illegal: `chat_parameters/_types.py:120-124` rejects a
+`provider_native` rule whose `request_path` is not `provider_params.*`, and both web-search fields
+are top-level. Caught before code by reading the validator.
+
+Error 2 — the spec claimed effective-form keying would collapse `web_search: false` onto the same
+key as omitting the field ("free win"). **Caught by the implementer, not by me.** It was carried
+over from the illegal design and never re-verified after the correction: `_accept` hashes a direct
+rule's raw value, and falsy-omission semantics exist only for `provider_native` routing controls.
+
+With both removed, the change is: delete a setting, drop a function parameter, flip two enum
+values, bump a revision. The shared `build_web_search_plugin` builder, the projection change and
+the "highest-value test in the epic" (projection ≡ dispatch) were all scaffolding around a problem
+that deleting the env var had already solved — once the envelope depends only on keyed caller
+fields, the key determines the upstream call without `prepared` restating it.
+
+**Actual files:** `plugins/openrouter_provider/{settings,web_search,plugin,parameters,global_cache}.py`.
+Tests: new `test_openrouter_web_search_keyed.py` (6), plus the approved inversions/deletions and
+mechanical fallout in `test_openrouter_web_search_cache.py`, `test_openrouter_web_plugin.py`,
+`test_openrouter_global_cache_projection.py`, `test_openrouter_top_p_promotion.py`.
+
+**Gates:** ALL GREEN (`--skip-append-only`). OpenRouter subset 841 passed. Coverage 91.74%.
+Re-run independently by the orchestrator.
+
+**Decisions taken during the unit:**
+- `web_search: false` vs omitted → **two keys, one upstream call.** Accepted as a duplicate entry,
+  never a wrong hit — the same trade already documented for `reasoning_effort="none"`. Adding
+  falsy-omission semantics to the shared `direct_rule` path was **declined**: it would change
+  behaviour for every provider to save one duplicate row on one parameter.
+- The anti-vacuity proof in `test_openrouter_top_p_promotion.py` had broken twice (OME-782 promoted
+  `tools`, OME-781 promoted `web_search`) because it depended on some OpenRouter rule staying
+  un-promoted. OpenRouter now has **17 keyed rules and zero bypass**, so no third example exists.
+  Fixed the *coupling* instead: the proof now builds a synthetic `_synthetic_bypass_probe` rule, so
+  it can never be invalidated by a future promotion.
+
+**Deviations:** the deployment-blocklist deletion also broke unnamed helpers in the two named test
+files (`_bypass_reason`, `_Settings`, `_prepared`'s settings param). Repaired as mechanics, not
+design, and both modules carry a "SUPERSEDED IN PART (OME-781)" docstring note.
+
+**Verified:** `AIGW_OPENROUTER_WEB_SEARCH_EXCLUDED_DOMAINS` and `WebSearchSettings` have zero hits
+repo-wide. The *body field* `web_search_excluded_domains` correctly survives in url4-cloud
+(`runner/connector.py`, `runner/request_parameters.py`), the shared schema, and the SDK's reserved
+params — the deployment setting died, the caller-facing parameter did not.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>

@@ -102,36 +102,36 @@ _TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
 # two-layer shape `provider` already uses: the classifier refuses the native field, the provider
 # sets it. The caller can never reach the envelope.
 #
-# AIDEV-NOTE (OME-712, owner decision — READ BEFORE PROMOTING THESE TO ``keyed``). Both search
-# rules declare ``cache_behavior="bypass"``, alone among the output-affecting rules in this file.
-# Two independent reasons, either sufficient:
+# AIDEV-NOTE (OME-781, owner decision D2 — READ BEFORE REOPENING A ``cache_behavior`` HERE). Both
+# search rules now declare ``cache_behavior="keyed"``, like every other output-affecting rule in
+# this file. They were ``bypass`` under OME-712, because the dispatched envelope's
+# `exclude_domains` used to be the UNION of the caller's list and a DEPLOYMENT setting
+# (``AIGW_OPENROUTER_WEB_SEARCH_EXCLUDED_DOMAINS``) the cache key could never see — exactly the
+# shape ruling 34 names: identical bodies, one key, two different upstream calls.
 #
-# 1. The dispatched envelope's `exclude_domains` is the UNION of the caller's list and the
-#    DEPLOYMENT setting ``AIGW_OPENROUTER_WEB_SEARCH_EXCLUDED_DOMAINS``. That setting is not in
-#    the request body, and ``global_cache_projection`` is contractually forbidden from reading
-#    ``self.settings`` (the purity INVARIANT on the port, with
-#    ``test_no_projection_reads_operator_configuration`` as the tripwire), so it can never reach
-#    the key. That is exactly the shape ruling 34 names: identical bodies, one key, two different
-#    upstream calls. Ruling 34 allows two answers — bypass, or accept the collision in writing —
-#    and the colliding input here is a BLOCKLIST, so accepting the collision would mean serving
-#    an answer retrieved without an operator's exclusions to a deployment that requires them.
-# 2. Retrieval is time-varying by definition. An EXACT-REQUEST cache answers "the same call was
-#    made before"; for a search-backed call that is precisely the wrong question.
+# WHY keying is now correct: OME-781 DELETED that setting. The body is the sole source of
+# blocked domains, so the emitted `plugins` envelope is a pure function of the two caller
+# fields `web_search` and `web_search_excluded_domains` alone — and both are already keyed
+# leaves. Two requests that hash to the same key therefore carry the same envelope and
+# therefore dispatch the same upstream call, which is the property every other keyed rule in
+# this file already relies on. Envelope-shaping constants (`_WEB_SEARCH_POLICY`'s `id`/`engine`,
+# the OME-712 `:online` refusal) are not caller-observable, so they fold into
+# ``GLOBAL_CACHE_ADAPTER_REVISION`` in ``global_cache.py`` rather than into the key.
 #
 # INVARIANT this rests on: the `plugins` envelope is emitted ONLY when `web_search is True`
-# (``web_search.apply_web_search`` returns early otherwise), and any request carrying that field
-# bypasses here. So no CACHEABLE request can be dispatched with a `plugins` block, which is what
-# keeps ``global_cache``'s `prepared` a complete description of what this boundary sends. Emit
-# the envelope on any other condition and that projection silently becomes incomplete.
+# (``web_search.apply_web_search`` returns early otherwise), and both source fields it reads are
+# popped from the body and nowhere else. So a cached hit and a fresh dispatch of the same keyed
+# body produce the identical envelope.
 #
-# ACCEPTED CONSEQUENCE: a benchmark re-run that uses `web_search` re-pays OpenRouter every time,
-# and `web_search: false` bypasses too — ``_accept`` reads ``cache_behavior`` before it looks at
-# the value. Do not add a falsy-value exemption; the saving is not worth a second code path.
+# INVARIANT: ``apply_web_search`` must never regain a non-body input (a settings object, a
+# clock, anything not in the request) without re-opening this decision — that is what makes the
+# envelope a pure function of two keyed fields rather than something a stored key can silently
+# stop describing. See the signature-shape tripwire in
+# ``tests/unit/openrouter/test_openrouter_web_search_keyed.py``.
 #
-# The route out, if this ever needs to be `keyed`: fold the deployment policy into the request
-# BODY before the key is built — the pattern OME-638 already uses for profile defaults — so the
-# projection has nothing unobservable left to read. That needs a new plugin port; it is not a
-# change to this file alone.
+# Retrieval remaining time-varying is an accepted property of every OTHER keyed field too (a
+# repeat `temperature` request can land on a different upstream endpoint); it was never a
+# reason unique to search, and is not restated here.
 
 _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
@@ -279,14 +279,14 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         "web_search",
         auth_modes=_AUTH,
         schema=WEB_SEARCH_SCHEMA,
-        cache_behavior="bypass",
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
     direct_rule(
         "web_search_excluded_domains",
         auth_modes=_AUTH,
         schema=WEB_SEARCH_EXCLUDED_DOMAINS_SCHEMA,
-        cache_behavior="bypass",
+        cache_behavior="keyed",
         projection_revision=_REVISION,
     ),
 )

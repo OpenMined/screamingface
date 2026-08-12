@@ -4,34 +4,33 @@ FEATURE: provider-neutral `web_search`, and one globally shared exact-request ca
 The two landed independently and interact in exactly two places, both of which are
 wrong-hit risks rather than performance ones.
 
-STORY: as a benchmark operator I set a deployment blocklist so no run retrieves from
-the domains under test. No caller, and no stored cache row, may hand me an answer that
-was retrieved without it.
+SUPERSEDED IN PART (OME-781, owner decision D2, 2026-08-11). Under OME-712 both
+search rules declared `cache_behavior="bypass"`, because the dispatched envelope's
+`exclude_domains` was the UNION of the caller's list and a DEPLOYMENT setting
+(`AIGW_OPENROUTER_WEB_SEARCH_EXCLUDED_DOMAINS`) the cache projection could never see.
+OME-781 DELETED that setting: the request body is now the sole source of blocked
+domains, so the envelope is a pure function of two caller fields and both rules are
+`cache_behavior="keyed"`. The tests below that pinned the bypass are inverted or
+deleted accordingly; see `docs/spec/2026-08-11-OME-777-cacheable-web-search.md` §3.3.1
+for the guarantee the deleted tests recorded before they were removed.
 
-INVARIANT under test (1): a request carrying either search parameter is UNCACHEABLE.
-The dispatched envelope's `exclude_domains` is the union of the caller's list and a
-DEPLOYMENT setting, and the cache projection is contractually forbidden from reading
-settings — so that union can never reach the key. Ruling 34 calls this out by name:
-identical bodies, one key, two different upstream calls. Both rules therefore declare
-`cache_behavior="bypass"`, and these tests prove the declaration actually fires.
+STORY (as it now stands): as a benchmark operator I re-run the same `web_search`
+request and it is served from the shared cache like any other keyed OpenRouter
+parameter — there is no longer a deployment input that could make two hosts silently
+disagree about what a shared key would dispatch.
 
-INVARIANT under test (2): the `plugins` envelope is emitted ONLY when
-`web_search is True`. That is what keeps invariant (1) sufficient — if the envelope
-could appear on any other condition, a CACHEABLE request would carry an unprojected
-output-affecting field and `global_cache`'s `prepared` would silently stop describing
-what this boundary sends.
+INVARIANT under test (2, unchanged by OME-781): the `plugins` envelope is emitted
+ONLY when `web_search is True`. Combined with `web_search` and
+`web_search_excluded_domains` both being keyed leaves, this is what keeps
+`global_cache`'s `prepared` a complete description of what this boundary sends
+without describing the envelope itself — two requests with the same key carry the
+same envelope inputs, hence the same envelope, hence the same upstream call.
 
-INVARIANT under test (3): `:online` — OpenRouter's implicit-search model variant — is
-refused at dispatch AND bypassed at projection. The refusal alone is not enough: the
-cache is read before `prepare_chat_body` runs, so a stored row would answer 200 for a
-request the gateway must refuse. This is the same class as the routing-policy bypass
-and is pinned the same way.
-
-AIDEV-NOTE: these are deliberately NOT key-difference tests. A key-difference test is
-what plan §10 owes a KEYED parameter; the obligation for a BYPASS parameter is the
-opposite — prove no key is produced at all — plus a non-vacuity proof that the same
-helper does produce one for a bare request, so a blanket bypass cannot pass by
-accident.
+INVARIANT under test (3, unchanged by OME-781): `:online` — OpenRouter's
+implicit-search model variant — is refused at dispatch AND bypassed at projection.
+The refusal alone is not enough: the cache is read before `prepare_chat_body` runs,
+so a stored row would answer 200 for a request the gateway must refuse. This is the
+same class as the routing-policy bypass and is pinned the same way.
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ from fastapi.testclient import TestClient
 
 from aigateway.core.cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from aigateway.core.request_cache import RequestCacheWrite
-from aigateway.core.request_cache.global_keys import BYPASS_DECLARED, build_global_cache_key
+from aigateway.core.request_cache.global_keys import build_global_cache_key
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
@@ -81,54 +80,34 @@ def _built(plugin: OpenRouterProviderPlugin | None = None, **overrides: Any) -> 
     )
 
 
-def _bypass_reason(**overrides: Any) -> str:
-    built = _built(**overrides)
-    assert isinstance(built, CacheBypass), built
-    return built.reason
+# --- R1: a search request now reaches the key --------------------------------------
 
 
-# --- R1: a search request never reaches the key -----------------------------------
+def test_a_web_search_request_is_now_keyed() -> None:
+    """SUPERSEDED (OME-781, owner decision D2).
 
+    Was ``test_a_web_search_request_is_never_keyed``, asserting verbatim:
+    ``assert _bypass_reason(web_search=True) == BYPASS_DECLARED``.
 
-def test_a_web_search_request_is_never_keyed() -> None:
-    """THE test for the bypass decision.
-
-    If this ever returns a key, the deployment blocklist — which shapes the dispatched
-    request and cannot reach that key — becomes a wrong-hit class: an answer retrieved
-    WITHOUT an operator's exclusions served to a deployment that requires them.
+    D2 deleted the deployment setting that made bypass necessary, so this is now THE
+    test for the keying decision: a ``web_search`` request must reach the cache like
+    any other output-affecting OpenRouter parameter.
     """
-    assert _bypass_reason(web_search=True) == BYPASS_DECLARED
+    built = _built(web_search=True)
+    assert not isinstance(built, CacheBypass), built
+    assert built.key_hash
 
 
-def test_caller_exclusions_alone_are_never_keyed() -> None:
-    """The second field must bypass on its own, not by leaning on the first.
+def test_both_fields_together_are_keyed_rather_than_bypassed() -> None:
+    """SUPERSEDED (OME-781, owner decision D2).
 
-    ``validate_chat_parameter_combination`` refuses exclusions without
-    ``web_search: true`` — but that hook runs on the MISS path only, well after the
-    lookup. The cache stage never consults it, so this field has to carry its own
-    disposition.
+    Was ``test_both_fields_together_bypass_for_the_declared_reason``, asserting
+    verbatim: ``assert _bypass_reason(web_search=True,
+    web_search_excluded_domains=["a.test"]) == BYPASS_DECLARED``.
     """
-    assert _bypass_reason(web_search_excluded_domains=["example.test"]) == BYPASS_DECLARED
-
-
-def test_both_fields_together_bypass_for_the_declared_reason() -> None:
-    # Not the projection failing, not an unknown parameter — the reviewed declaration.
-    assert _bypass_reason(web_search=True, web_search_excluded_domains=["a.test"]) == (
-        BYPASS_DECLARED
-    )
-
-
-def test_the_deployment_blocklist_cannot_smuggle_itself_into_a_key() -> None:
-    """Two deployments, same body, different operator policy: neither may be keyed.
-
-    This is the concrete shape of ruling 34's hazard. Were these keyed, both plugins
-    would produce the SAME hash while dispatching different `exclude_domains` — so one
-    deployment would be served the other's retrieval.
-    """
-    for plugin in (_plugin(), _plugin(web_search_excluded_domains=["rubric.test"])):
-        built = _built(plugin, web_search=True)
-        assert isinstance(built, CacheBypass), built
-        assert built.reason == BYPASS_DECLARED
+    built = _built(web_search=True, web_search_excluded_domains=["a.test"])
+    assert not isinstance(built, CacheBypass), built
+    assert built.key_hash
 
 
 # --- R4: the bypass is scoped to search traffic -----------------------------------
@@ -163,9 +142,7 @@ def test_only_a_literal_true_emits_the_provider_envelope(value: Any) -> None:
     is-truthy test, a deployment default that turns search on — and the projection
     silently becomes incomplete while every test above still passes.
     """
-    prepared = _plugin(web_search_excluded_domains=["rubric.test"]).prepare_chat_body(
-        _body(web_search=value)
-    )
+    prepared = _plugin().prepare_chat_body(_body(web_search=value))
     assert "plugins" not in prepared
 
 
@@ -177,7 +154,7 @@ def test_a_literal_true_does_emit_the_envelope() -> None:
 
 
 def test_a_request_with_no_search_field_projects_without_an_envelope() -> None:
-    produced = _plugin(web_search_excluded_domains=["rubric.test"]).global_cache_projection(_body())
+    produced = _plugin().global_cache_projection(_body())
     assert not isinstance(produced, CacheBypass), produced
     assert "plugins" not in produced["prepared"]
 
@@ -215,26 +192,38 @@ def test_an_online_model_produces_no_key() -> None:
 # --- R5: the published contract states the disposition ----------------------------
 
 
-def test_both_search_paths_publish_a_bypass_disposition() -> None:
-    """A caller reading the parameter contract must see that search is not cached."""
+def test_both_search_paths_now_publish_a_keyed_disposition() -> None:
+    """SUPERSEDED (OME-781, owner decision D2).
+
+    Was ``test_both_search_paths_publish_a_bypass_disposition``, asserting verbatim:
+    ``assert behaviors["web_search"] == "bypass"`` and
+    ``assert behaviors["web_search_excluded_domains"] == "bypass"``.
+    """
     behaviors = {
         rule.request_path: rule.cache_behavior
         for rule in _plugin().chat_parameter_rules(model=_MODEL, auth_type="api_key")
     }
-    assert behaviors["web_search"] == "bypass"
-    assert behaviors["web_search_excluded_domains"] == "bypass"
+    assert behaviors["web_search"] == "keyed"
+    assert behaviors["web_search_excluded_domains"] == "keyed"
 
 
-def test_neither_search_path_appears_in_the_keyed_set() -> None:
-    # Guards against a future promotion to ``keyed`` landing without the design work
-    # ruling 34 requires — see the AIDEV-NOTE in ``parameters.py``.
+def test_both_search_paths_now_appear_in_the_keyed_set() -> None:
+    """SUPERSEDED (OME-781, owner decision D2).
+
+    Was ``test_neither_search_path_appears_in_the_keyed_set``, asserting verbatim:
+    ``assert "web_search" not in keyed`` and
+    ``assert "web_search_excluded_domains" not in keyed``.
+
+    Guards against a future REGRESSION to ``bypass`` landing without the design work
+    OME-781/D2 did — see the AIDEV-NOTE in ``parameters.py``.
+    """
     keyed = {
         rule.request_path
         for rule in _plugin().chat_parameter_rules(model=_MODEL, auth_type="api_key")
         if rule.cache_behavior == "keyed"
     }
-    assert "web_search" not in keyed
-    assert "web_search_excluded_domains" not in keyed
+    assert "web_search" in keyed
+    assert "web_search_excluded_domains" in keyed
 
 
 # --- R6: the same behaviour through the real route --------------------------------
@@ -309,42 +298,66 @@ def _fake_acompletion(calls: list[dict[str, Any]]):
     async def fake_acompletion(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
-            model_dump=lambda: {"id": "or-1", "choices": [{"message": {"content": "ok"}}]}
+            model_dump=lambda: {
+                "id": "or-1",
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            }
         )
 
     return fake_acompletion
 
 
-def test_a_web_search_request_bypasses_the_cache_through_the_real_route(
+def test_a_web_search_request_now_uses_the_cache_through_the_real_route(
     monkeypatch: pytest.MonkeyPatch, credential_blobs, cached_client: TestClient
 ) -> None:
-    """End to end: the disposition is wired, not merely declared.
+    """SUPERSEDED (OME-781, owner decision D2) — MECHANICAL FALLOUT, not a named
+    inversion target: the deleted setting made the OLD version of this test
+    (``test_a_web_search_request_bypasses_the_cache_through_the_real_route``) both
+    unrunnable (``_enable_openrouter`` no longer accepts a meaningful
+    ``web_search_excluded_domains`` kwarg — ``OpenRouterPluginSettings`` dropped the
+    field) and semantically false (the route no longer bypasses). Was asserting
+    verbatim: ``assert response.headers["X-AIGW-Cache"] == "bypass"``, ``assert
+    response.headers["X-AIGW-Cache-Reason"] == BYPASS_DECLARED``, ``assert
+    store.reads == []`` and ``assert calls[0]["plugins"] == [{"id": "web", "engine":
+    "native", "exclude_domains": ["rubric.test"]}]`` (the union of a caller list and a
+    deployment list that no longer exists).
 
-    Asserts store ACTIVITY as well as the published headers — a correct header with a
-    stage that never ran would be a vacuous pass, and the probe count is what
-    distinguishes the two.
+    End to end, through the real route: a repeat ``web_search`` request is served
+    from cache exactly like any other keyed OpenRouter parameter.
     """
-    _enable_openrouter(monkeypatch, web_search_excluded_domains=["rubric.test"])
+    _enable_openrouter(monkeypatch)
     _create_connection(cached_client)
     store = _Store()
     cast(Any, cached_client.app).state.request_cache_store = store
     calls: list[dict[str, Any]] = []
 
     with patch("litellm.acompletion", _fake_acompletion(calls)):
-        response = cached_client.post(
+        first = cached_client.post(
             "/v1/chat/completions",
-            json={"model": _MODEL, "messages": _MESSAGES, "web_search": True},
+            json={
+                "model": _MODEL,
+                "messages": _MESSAGES,
+                "web_search": True,
+                "web_search_excluded_domains": ["rubric.test"],
+            },
+        )
+        repeat = cached_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": _MODEL,
+                "messages": _MESSAGES,
+                "web_search": True,
+                "web_search_excluded_domains": ["rubric.test"],
+            },
         )
 
-    assert response.status_code == 200, response.text
-    assert response.headers["X-AIGW-Cache"] == "bypass"
-    assert response.headers["X-AIGW-Cache-Reason"] == BYPASS_DECLARED
-    # The stage RAN (so the assertions below are not vacuous) and still read nothing.
-    assert store.probes >= 1
-    assert store.reads == []
-    assert store.rows == {}
-    # The request was really dispatched, carrying the union of both exclusion lists.
+    assert first.status_code == repeat.status_code == 200, first.text
+    assert first.headers["X-AIGW-Cache"] == "miss"
+    assert first.headers["X-AIGW-Cache-Write"] == "stored"
+    assert repeat.headers["X-AIGW-Cache"] == "hit"
+    # Only ONE real dispatch: the repeat was served from the entry, never re-sent.
     assert len(calls) == 1
+    # No deployment list to union with any more — the caller's own list, verbatim.
     assert calls[0]["plugins"] == [
         {"id": "web", "engine": "native", "exclude_domains": ["rubric.test"]}
     ]
@@ -353,9 +366,9 @@ def test_a_web_search_request_bypasses_the_cache_through_the_real_route(
 def test_a_bare_request_still_uses_the_cache_through_the_real_route(
     monkeypatch: pytest.MonkeyPatch, credential_blobs, cached_client: TestClient
 ) -> None:
-    # Blast-radius proof at the route level: the bypass above is about the search
-    # fields, not about OpenRouter losing the cache it just gained.
-    _enable_openrouter(monkeypatch, web_search_excluded_domains=["rubric.test"])
+    # Blast-radius proof at the route level: search becoming cacheable did not cost
+    # OpenRouter the cache it already had for ordinary requests.
+    _enable_openrouter(monkeypatch)
     _create_connection(cached_client)
     store = _Store()
     cast(Any, cached_client.app).state.request_cache_store = store

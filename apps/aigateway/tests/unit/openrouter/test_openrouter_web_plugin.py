@@ -16,6 +16,14 @@ WHY this landing does not advertise `tools: [{"type": "openrouter:web_search"}]`
 the emitted `plugins` envelope retrieved successfully. OpenRouter now documents both surfaces,
 so enabling the server-tool form later requires fresh conformance evidence through this
 Gateway's pinned LiteLLM/provider path; it is not a compatibility fallback for this contract.
+
+SUPERSEDED IN PART (OME-781, owner decision D2, 2026-08-11). The deployment-wide exclusion
+setting (`AIGW_OPENROUTER_WEB_SEARCH_EXCLUDED_DOMAINS`) this module used to union with the
+caller's list is DELETED — the request body is now the sole source of blocked domains, and
+`apply_web_search` takes the body alone. The deployment-union tests below are removed
+accordingly; see `docs/spec/2026-08-11-OME-777-cacheable-web-search.md` §3.3.1 for the
+guarantee they pinned before they were deleted. Both `web_search` and
+`web_search_excluded_domains` are now `cache_behavior="keyed"` rather than `"bypass"`.
 """
 
 from __future__ import annotations
@@ -93,11 +101,6 @@ def _post_chat(client, body: dict):
     return client.post("/v1/chat/completions", json=payload)
 
 
-class _Settings:
-    def __init__(self, excluded: list[str] | None = None) -> None:
-        self.web_search_excluded_domains = excluded or []
-
-
 def _rule(path: str):
     for rule in openrouter_chat_parameter_rules(model=_MODEL, auth_type="api_key"):
         if rule.request_path == path:
@@ -105,9 +108,9 @@ def _rule(path: str):
     return None
 
 
-def _prepared(body: dict[str, Any], settings: _Settings | None = None) -> dict[str, Any]:
+def _prepared(body: dict[str, Any]) -> dict[str, Any]:
     out = dict(body)
-    apply_web_search(out, settings or _Settings())
+    apply_web_search(out)
     return out
 
 
@@ -115,20 +118,30 @@ def _prepared(body: dict[str, Any], settings: _Settings | None = None) -> dict[s
 
 
 def test_web_search_is_enabled_as_a_plain_boolean() -> None:
-    """A boolean is bounded COMPLETELY — there is no nested JSON for a caller to smuggle."""
+    """SUPERSEDED (OME-781, owner decision D2).
+
+    Was asserting verbatim: ``assert rule.cache_behavior == "bypass"``.
+
+    A boolean is bounded COMPLETELY — there is no nested JSON for a caller to smuggle.
+    That is unaffected by D2; only the cache disposition changed.
+    """
     rule = _rule("web_search")
 
     assert rule is not None
-    assert rule.cache_behavior == "bypass"
+    assert rule.cache_behavior == "keyed"
     assert rule.parameter_schema is not None
     assert rule.parameter_schema.type == "boolean"
 
 
 def test_caller_exclusions_are_a_bounded_string_array() -> None:
+    """SUPERSEDED (OME-781, owner decision D2).
+
+    Was asserting verbatim: ``assert rule.cache_behavior == "bypass"``.
+    """
     rule = _rule("web_search_excluded_domains")
 
     assert rule is not None
-    assert rule.cache_behavior == "bypass"
+    assert rule.cache_behavior == "keyed"
     assert rule.parameter_schema is not None
     assert rule.parameter_schema.type == "array"
     assert rule.parameter_schema.item_type == "string"
@@ -239,34 +252,7 @@ def test_exclusions_without_web_search_fail_instead_of_becoming_a_silent_noop() 
         )
 
 
-# --- the exclusion union ---------------------------------------------------------
-
-
-def test_deployment_exclusions_apply_without_the_caller_asking() -> None:
-    out = _prepared({"web_search": True}, _Settings(["rubric.test"]))
-
-    assert out["plugins"][0]["exclude_domains"] == ["rubric.test"]
-
-
-def test_caller_exclusions_are_added_to_the_deployments() -> None:
-    out = _prepared(
-        {"web_search": True, "web_search_excluded_domains": ["extra.test"]},
-        _Settings(["rubric.test"]),
-    )
-
-    assert out["plugins"][0]["exclude_domains"] == ["extra.test", "rubric.test"]
-
-
-def test_a_caller_cannot_drop_a_deployment_exclusion() -> None:
-    """INVARIANT: UNION, never substitution. The motivating case is a benchmark candidate that
-    must not retrieve the rubric it is graded against — a guard a caller can shorten is not a
-    guard, and the caller supplying its own list is exactly when it would try."""
-    out = _prepared(
-        {"web_search": True, "web_search_excluded_domains": ["unrelated.test"]},
-        _Settings(["rubric.test"]),
-    )
-
-    assert "rubric.test" in out["plugins"][0]["exclude_domains"]
+# --- the exclusion list (OME-781: no more deployment union — see §3.3.1) --------
 
 
 def test_no_exclusions_omits_the_field_rather_than_sending_an_empty_list() -> None:
@@ -293,8 +279,12 @@ def test_the_wire_key_is_openrouters_spelling() -> None:
     A benchmark candidate that can reach its own rubric scores HIGHER, so this failure never looks
     like a bug from the outside. If a future change renames this key, this test fails loudly
     instead of the guard going quiet again.
+
+    MECHANICAL FALLOUT (OME-781): the exclusion list this test pins used to come from a
+    deployment ``_Settings`` double; now that ``apply_web_search`` reads the body alone
+    (D2), the caller's own list is what proves the spelling.
     """
-    out = _prepared({"web_search": True}, _Settings(["rubric.test"]))
+    out = _prepared({"web_search": True, "web_search_excluded_domains": ["rubric.test"]})
 
     assert EXCLUDE_DOMAINS_KEY == "exclude_domains"
     assert out["plugins"][0]["exclude_domains"] == ["rubric.test"]
