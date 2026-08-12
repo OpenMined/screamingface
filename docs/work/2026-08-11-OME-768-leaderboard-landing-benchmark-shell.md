@@ -69,7 +69,11 @@ fonts). Submission-row population (OME-769), cost (OME-770), and the reproducibl
   rebuilt on the live API with tab strip + `?id=` deep-linking; `portal.css` reconciled against v2
   component recipes. One addition beyond the plan: `assets/fonts/*.woff2` (20 files) — the plan
   assumed the font binaries existed somewhere reachable; they didn't (see Deviations).
-- **Commits:** `927a784b` — feat(scoreboard): rebuild leaderboard portal shell on SFDS v2
+- **Commits:**
+  - `65d275cc` — feat(scoreboard): rebuild leaderboard portal shell on SFDS v2
+  - `e4d3acef` — fix(scoreboard): point the active tab underline at a defined accent token
+  - `bfd2aa3c` — fix(scoreboard): address portal review findings before merge
+  (the first sha was `927a784b` pre-rebase onto origin/main)
 - **Gates:** `uv run .claude/scripts/run_gates.py scoreboard --base origin/main` → append-only ✓,
   ruff check ✓, ruff format ✓, pyright ✓, pytest --cov=scoreboard --cov-fail-under=80 ✓ (167
   passed, 2 skipped). ALL GATES GREEN.
@@ -95,3 +99,30 @@ fonts). Submission-row population (OME-769), cost (OME-770), and the reproducibl
      depends on OME-775 (register DRACO/IFEval/HealthBench) + OME-776 (slash-containing benchmark
      ID routing), both still Backlog and set as `blockedBy` on this ticket. This unit's code stays
      generic (renders whatever `/v1/benchmarks` returns) so it doesn't block on either landing.
+  4. **`portal.css` now carries one deliberate override, breaking its own header rule**
+     ("Extends — never overrides — tokens.css + style.css"). `style.css` ships
+     `.rail { position: relative }` + a `.rail.stuck` variant its own comment documents as
+     JS-toggled; this portal supplies no such listener, so the rail scrolled away while the
+     `position: fixed` toggle stayed pinned. Restored `position: sticky` locally rather than
+     implementing the `.stuck` scroll-listener + spacer, because that is new untested behavior and
+     this unit is under a merge deadline. The system-faithful fix wants its own ticket; the override
+     carries an `AIDEV-NOTE:` saying so and to drop the block when that lands.
+
+## Review round (post-PR, pre-merge)
+
+Ran the `code-review` skill against PR #558; 11 findings, all spot-verified before acting.
+**Fixed in `bfd2aa3c`** (detail in that commit message): stale vendored copy vs. the reference
+(the most serious — it falsified spec D1 *and* the PR body's own "byte-matched" claim), the
+sticky-rail/floating-toggle regression, the misleading "Submissions" column header, an empty
+`.tabstrip` painting a stray rule, a `.then`-shaped rejection handler that could strand the page
+on "Loading…", the OM affiliation mark surviving on `spec.html`/`data.html`, and a missing OFL
+license for the vendored fonts.
+
+**Deliberately deferred, with reasons:**
+- *Catalog blocks on N leaderboard fetches before painting any row* — real, but inert at today's
+  benchmark count, and OME-769 rewrites this exact code path. Doing it there beats rushing a
+  render-then-fill refactor under a deadline.
+- *Spec D10 promised a retry affordance on the API-failure state; it ships as static text* —
+  genuine gap against the spec, small, follow-up.
+- *`encodeURIComponent` on slash-containing benchmark IDs still 404s* — already tracked as
+  OME-776 (`blockedBy` on this ticket); nothing to change here.
