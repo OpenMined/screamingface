@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://screamingface.ai/schemas/aigw-usage-accounting-v1.json",
-  "title": "AIGateway usage accounting v1 metadata",
+  "$id": "https://screamingface.ai/schemas/aigw-usage-accounting.json",
+  "title": "AIGateway usage accounting metadata",
   "type": "object",
   "additionalProperties": false,
   "required": ["usage_accounting", "request_economics"],
@@ -200,7 +200,7 @@
         "provider_extensions_truncated", "redirect_hop_count", "failure_code"
       ],
       "properties": {
-        "schema": {"const": "aigw.provider_attempt.v1"},
+        "schema": {"const": "aigw.provider_attempt"},
         "attempt_id": {"type": "string", "pattern": "^attempt_[0-9a-f]{32}$"},
         "sequence": {"type": "integer", "minimum": 1},
         "dispatch_index": {"type": "integer", "minimum": 1},
@@ -209,7 +209,7 @@
         "requested_model": {"oneOf": [{"type": "string", "maxLength": 512}, {"type": "null"}]},
         "response_model": {"oneOf": [{"type": "string", "maxLength": 512}, {"type": "null"}]},
         "provider_response_id": {"oneOf": [{"type": "string", "maxLength": 256}, {"type": "null"}]},
-        "transport": {"enum": ["litellm_async_http_v1", "provider_owned_http_v1", "provider_owned_process_v1"]},
+        "transport": {"enum": ["litellm_async_http", "provider_owned_http", "provider_owned_process"]},
         "outcome": {"enum": ["succeeded", "provider_error", "transport_error", "conversion_error", "indeterminate"]},
         "http_status": {"oneOf": [{"type": "integer", "minimum": 100, "maximum": 599}, {"type": "null"}]},
         "latency_ms": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
@@ -258,7 +258,7 @@
       "additionalProperties": false,
       "required": ["schema", "capture_status", "gateway_call_id", "cache", "observed_attempts", "rendered_attempts", "omitted_attempts", "attempts"],
       "properties": {
-        "schema": {"const": "aigw.chat_usage_accounting.v1"},
+        "schema": {"const": "aigw.chat_usage_accounting"},
         "capture_status": {"enum": ["complete", "partial", "accounting_not_supported", "not_applicable"]},
         "gateway_call_id": {"type": "string", "pattern": "^call_[0-9a-f]{32}$"},
         "cache": {
@@ -291,7 +291,7 @@
       "additionalProperties": false,
       "required": ["schema", "observed_new_attempts", "direct_cost_status", "known_direct_cost_subtotals"],
       "properties": {
-        "schema": {"const": "aigw.request_economics.v1"},
+        "schema": {"const": "aigw.request_economics"},
         "observed_new_attempts": {"$ref": "#/$defs/count"},
         "direct_cost_status": {"enum": ["complete", "partial", "unavailable", "not_applicable"]},
         "known_direct_cost_subtotals": {"type": "array", "items": {"$ref": "#/$defs/cost_subtotal"}}

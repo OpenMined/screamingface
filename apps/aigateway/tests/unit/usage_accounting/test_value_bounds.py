@@ -87,7 +87,7 @@ def test_cache_ttl_breakdown_is_bounded() -> None:
 
 def test_extension_namespace_is_bounded_ascii() -> None:
     with pytest.raises(ValueError):
-        ProviderExtension(namespace="anthropic.\N{SNOWMAN}.v1")
+        ProviderExtension(namespace="anthropic.\N{SNOWMAN}")
 
 
 def test_extension_fact_refuses_nested_provider_objects() -> None:
@@ -117,15 +117,15 @@ def test_extension_fact_count_is_bounded() -> None:
         name="count", kind="integer", value=1, unit="events", source="provider.count"
     )
     with pytest.raises(ValueError):
-        ProviderExtension(namespace="provider.v1", facts=(fact,) * 9)
+        ProviderExtension(namespace="provider", facts=(fact,) * 9)
 
 
 def test_extension_fact_count_is_bounded_across_namespaces() -> None:
     fact = ProviderExtensionFact(
         name="count", kind="integer", value=1, unit="events", source="provider.count"
     )
-    first = ProviderExtension(namespace="provider.a.v1", facts=(fact,) * 5)
-    second = ProviderExtension(namespace="provider.b.v1", facts=(fact,) * 4)
+    first = ProviderExtension(namespace="provider.a", facts=(fact,) * 5)
+    second = ProviderExtension(namespace="provider.b", facts=(fact,) * 4)
     with pytest.raises(ValueError):
         ProviderUsageAccountingEvidence(provider_extensions=(first, second))
 
@@ -147,9 +147,9 @@ def test_nested_mapper_value_objects_are_runtime_validated() -> None:
 
 def test_extension_containers_and_flags_are_runtime_validated() -> None:
     with pytest.raises(ValueError):
-        ProviderExtension(namespace="provider.v1", facts=(object(),))  # type: ignore[arg-type]
+        ProviderExtension(namespace="provider", facts=(object(),))  # type: ignore[arg-type]
     with pytest.raises(ValueError):
-        ProviderExtension(namespace="provider.v1", truncated="yes")  # type: ignore[arg-type]
+        ProviderExtension(namespace="provider", truncated="yes")  # type: ignore[arg-type]
 
 
 def test_strategy_capability_is_runtime_validated() -> None:
@@ -224,7 +224,7 @@ def test_cache_reference_coverage_cannot_be_widened_by_a_mapper() -> None:
 
 def test_overlong_provider_response_id_is_omitted_not_truncated() -> None:
     collector = RequestAccountingCollector(
-        provider="openrouter", requested_model="openrouter/x/y", transport="litellm_async_http_v1"
+        provider="openrouter", requested_model="openrouter/x/y", transport="litellm_async_http"
     )
     collector.begin_dispatch()
     marker = object()
@@ -243,7 +243,7 @@ def test_overlong_provider_response_id_is_omitted_not_truncated() -> None:
 def test_overlong_model_is_omitted_not_aliased_by_truncation() -> None:
     requested_model = "m" * 513
     collector = RequestAccountingCollector(
-        provider="anthropic", requested_model=requested_model, transport="litellm_async_http_v1"
+        provider="anthropic", requested_model=requested_model, transport="litellm_async_http"
     )
     collector.begin_dispatch()
     marker = object()
@@ -256,7 +256,7 @@ def test_unencodable_requested_model_is_omitted_without_breaking_rendering() -> 
     collector = RequestAccountingCollector(
         provider="anthropic",
         requested_model="anthropic/claude\ud800",
-        transport="litellm_async_http_v1",
+        transport="litellm_async_http",
     )
     collector.begin_dispatch()
     marker = object()
@@ -277,7 +277,7 @@ def test_malformed_mapper_identifier_is_omitted_without_breaking_rendering() -> 
     collector = RequestAccountingCollector(
         provider="anthropic",
         requested_model="anthropic/claude",
-        transport="litellm_async_http_v1",
+        transport="litellm_async_http",
     )
     collector.begin_dispatch()
     marker = object()
@@ -313,7 +313,7 @@ def test_safe_string_subclass_is_normalized_without_calling_its_encode_override(
     collector = RequestAccountingCollector(
         provider="anthropic",
         requested_model="anthropic/claude",
-        transport="litellm_async_http_v1",
+        transport="litellm_async_http",
     )
     collector.begin_dispatch()
     marker = object()

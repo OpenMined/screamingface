@@ -251,7 +251,7 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # OME-303 §5.2: anthropic dispatches through litellm's AnthropicChatCompletion,
         # which uses the shared AsyncHTTPHandler and honours an injected client — so the
         # gateway's observed handler sees every generation send.
-        return UsageAccountingStrategy.litellm_async_http_v1()
+        return UsageAccountingStrategy.litellm_async_http()
 
     def normalize_chat_usage_accounting(
         self,

@@ -1,4 +1,4 @@
-"""Pure OpenRouter mapper for the OME-303 accounting v1 contract."""
+"""Pure OpenRouter mapper for the OME-303 accounting contract."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ __all__ = ["cache_reference_from_cached", "normalize_openrouter_usage_accounting
 DIRECT_COST_UNIT = "openrouter_credits"
 DIRECT_COST_SOURCE = "openrouter.usage.cost"
 CACHED_DIRECT_COST_SOURCE = "cached_response.usage.cost"
-EXTENSION_NAMESPACE = "openrouter.response_usage.v1"
+EXTENSION_NAMESPACE = "openrouter.response_usage"
 
 # OpenRouter exposes these provider-cost components without a documented currency/unit.
 # They remain non-aggregable audit evidence until the provider contract supplies one.

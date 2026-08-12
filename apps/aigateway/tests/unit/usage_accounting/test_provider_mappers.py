@@ -1,4 +1,4 @@
-"""Pure provider mapper tests for the unpublished OME-303 accounting v1 contract."""
+"""Pure provider mapper tests for the evolving OME-303 accounting contract."""
 
 from __future__ import annotations
 

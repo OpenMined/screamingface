@@ -25,7 +25,7 @@ from aigateway.plugins.openrouter_provider.usage_accounting import (
 
 
 def _schema() -> dict[str, Any]:
-    resource = files("aigateway.core.usage_accounting").joinpath("usage_accounting_v1.schema.json")
+    resource = files("aigateway.core.usage_accounting").joinpath("usage_accounting.schema.json")
     return json.loads(resource.read_text(encoding="utf-8"))
 
 
@@ -33,7 +33,7 @@ def _rendered_success() -> dict[str, Any]:
     collector = RequestAccountingCollector(
         provider="openrouter",
         requested_model="openrouter/x/y",
-        transport="litellm_async_http_v1",
+        transport="litellm_async_http",
     )
     collector.begin_dispatch()
     marker = object()
@@ -112,7 +112,7 @@ def test_schema_accepts_33_fractional_digits_on_all_money_surfaces() -> None:
     attempt["direct_cost"]["amount"] = amount
     attempt["provider_extensions"] = [
         {
-            "namespace": "openrouter.response_usage.v1",
+            "namespace": "openrouter.response_usage",
             "facts": [
                 {
                     "name": "cost_detail",
@@ -154,3 +154,9 @@ def test_real_anthropic_converted_cache_reference_validates_with_positive_usage(
         cache_reference=reference,
     )
     Draft202012Validator(_schema()).validate(metadata)
+
+
+def test_accounting_taxonomy_has_no_version_suffixes() -> None:
+    schema_text = json.dumps(_schema(), sort_keys=True)
+    assert ".v1" not in schema_text
+    assert "_v1" not in schema_text

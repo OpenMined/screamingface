@@ -1,4 +1,4 @@
-"""Golden handoff tests for the unpublished OME-303 accounting v1 contract."""
+"""Golden handoff tests for the evolving OME-303 accounting contract."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _attempt(**overrides: Any) -> ProviderAttemptRecord:
         "dispatch_index": 1,
         "attempt_index": 1,
         "provider": "openrouter",
-        "transport": "litellm_async_http_v1",
+        "transport": "litellm_async_http",
         "outcome": "succeeded",
         "usage": TokenUsage(
             status="complete",
@@ -88,7 +88,7 @@ def test_wire_uses_attempt_semantics_and_separate_evidence_statuses() -> None:
 
     economics = metadata["request_economics"]
     assert economics == {
-        "schema": "aigw.request_economics.v1",
+        "schema": "aigw.request_economics",
         "observed_new_attempts": 1,
         "direct_cost_status": "complete",
         "known_direct_cost_subtotals": [

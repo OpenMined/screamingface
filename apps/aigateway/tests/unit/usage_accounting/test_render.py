@@ -34,7 +34,7 @@ def _record(**overrides: Any) -> ProviderAttemptRecord:
         "dispatch_index": 1,
         "attempt_index": 1,
         "provider": "openrouter",
-        "transport": "litellm_async_http_v1",
+        "transport": "litellm_async_http",
         "outcome": "succeeded",
     }
     base.update(overrides)
@@ -76,7 +76,7 @@ class TestWireShape:
     def test_attempt_declares_schema_and_response_identity(self) -> None:
         metadata = _render(_FakeCollector((_record(provider_response_id="gen-1"),)))
         attempt = metadata["usage_accounting"]["attempts"][0]
-        assert attempt["schema"] == "aigw.provider_attempt.v1"
+        assert attempt["schema"] == "aigw.provider_attempt"
         assert attempt["attempt_id"] == "attempt_1"
         assert attempt["provider_response_id"] == "gen-1"
         assert "provider_call_id" not in attempt
@@ -249,7 +249,7 @@ class TestBounds:
     def test_renderer_is_total_and_schema_valid_across_generated_boundary_records(self) -> None:
         schema = json.loads(
             files("aigateway.core.usage_accounting")
-            .joinpath("usage_accounting_v1.schema.json")
+            .joinpath("usage_accounting.schema.json")
             .read_text(encoding="utf-8")
         )
         validator = Draft202012Validator(schema)
@@ -259,7 +259,7 @@ class TestBounds:
         for case in range(90):
             amount = f"{case % 10}.123456789012345678901234567890123"
             extension = ProviderExtension(
-                namespace="provider.audit.v1",
+                namespace="provider.audit",
                 facts=(
                     ProviderExtensionFact(
                         name="cost_detail",
@@ -320,7 +320,7 @@ class TestBounds:
             unit=None,
             source="s" * 128,
         )
-        extension = ProviderExtension(namespace="x.v1", facts=(fact,) * 8)
+        extension = ProviderExtension(namespace="x", facts=(fact,) * 8)
         records = tuple(
             _record(
                 attempt_id=f"attempt_{index}",
@@ -373,7 +373,7 @@ class TestBounds:
         fact = ProviderExtensionFact(
             name="events", kind="integer", value=1, unit="events", source="provider.events"
         )
-        extension = ProviderExtension(namespace="provider.v1", facts=(fact,) * 8)
+        extension = ProviderExtension(namespace="provider", facts=(fact,) * 8)
         records = tuple(
             _record(
                 attempt_id=f"attempt_{index}",
@@ -419,7 +419,7 @@ class TestRealCollectorIntegration:
         collector = RequestAccountingCollector(
             provider="anthropic",
             requested_model="claude-haiku-4-5",
-            transport="litellm_async_http_v1",
+            transport="litellm_async_http",
         )
         metadata = _render(collector)
         assert metadata["usage_accounting"]["capture_status"] == "not_applicable"

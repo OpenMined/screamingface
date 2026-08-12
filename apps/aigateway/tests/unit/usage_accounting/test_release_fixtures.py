@@ -1,4 +1,4 @@
-"""Authoritative exact fixture matrix required before accounting v1 publication."""
+"""Authoritative exact fixture matrix for the evolving accounting contract."""
 
 from __future__ import annotations
 
@@ -61,46 +61,46 @@ _REQUIRED_METADATA_FIXTURES = {
 }
 _ROUTE_ONLY_ACCEPTANCE = {
     "non_negotiated_response_parity",
-    "unknown_accounting_version_rejection",
+    "invalid_accounting_option_rejection",
 }
 _EXPECTED_FIXTURE_SHA256 = {
-    "anthropic_cache_replay": ("47f47fd0399b82f4bfb92194bd35dbe1272f3680878d2957aef337df6481d640"),
+    "anthropic_cache_replay": ("942ede46748dff83e43496429a30c6a1b094a07ec3d60921059124ac0617eaab"),
     "anthropic_full_cache_ttl_success": (
-        "bcbd4aebb88b6486024fc535073f86a451bfc57ffcc8294f7eeaa3118045cc01"
+        "92f94728453f042aa096c939b6a7f172587cad0fda37ca6a9d6dbdeee3506fde"
     ),
     "anthropic_missing_cache_evidence": (
-        "f14d1aef70b8b75ca66932d28083294cfec57dd406333f3423855472fe94cefc"
+        "1572205e851f8c1b887e1feafed08a36491fe6a0bdf0ac5fc0b996ebe25babe8"
     ),
     "anthropic_service_tier_tool_usage": (
-        "740f490a4472bff4b49646096da22eb270067e928f58ca799f0ef6df588861ea"
+        "1f3c270ee1a39d8c7a45cfef3cfc00cb1f08d95a00695c142f746b77080e89ff"
     ),
-    "bounds_overflow": ("4868302b4d7d4c857a7c566cb958fd00e7ad50975759d18fb26972c7e02b76e9"),
-    "cache_hit_reference": ("814180f7f91e24cb6b7b063f965ba375b3d1dab9d935a75c5ea2c80e028a8093"),
-    "conversion_failure": ("e88c1f913b6df36283230878acfa1215b6420088d274c91a790d7b3b4f823bed"),
-    "gateway_overload_retry": ("914665862ce94e8da1908cdd385cbce118c3256143edd70a5675476b41cbfe9f"),
-    "hidden_transport_resend": ("06aca182a14c962f4158087f26e4f05caf9928f3f102e6659ca7471180a7dc38"),
+    "bounds_overflow": ("f852cce31b8b01505dec21f0307cc80e00ab00f093a55767785ba905dc953a0e"),
+    "cache_hit_reference": ("b75a070567d9eb4384544f9e44eed97838f42e399069eee2138a0db432c37360"),
+    "conversion_failure": ("5253c1d413f759de4c36653d32979de365843f92f72e47bf0f321da3e77b0713"),
+    "gateway_overload_retry": ("e1fc71b761be4b72145decc49aefa93bfc311425aef50415e6ec2413c3697dd5"),
+    "hidden_transport_resend": ("fc1ab28fac6a815c9adb6be955163013959dd4e28c83899c6c1d671b28b5dd8e"),
     "huggingface_pinned_backend": (
-        "afe528ef1aea44f465d0b86bd14a6cfcbc7b5782b3ecd941cde9c2dbcaee3322"
+        "8ea5ac09de697f2864c7a299c7b7c70107b1629f72420d3abcdef3979ddcff7b"
     ),
     "huggingface_unpinned_backend": (
-        "d6f616455b8cb25f6f65d8f72864282a9fd74d53e816cfd6598d51a0f84454f7"
+        "89aaf9ddd7f72761026951b417010c71c3258397eae127e9ff80e4a37c8e0e89"
     ),
     "openrouter_explicit_zero": (
-        "6792f8ef32ab0af871b0471f5006495f4add9ea078c4f686eb6239c699b0125f"
+        "74100414162ee4a0bfcbae473db8a9de3a432954d2a826e4257aecb5f8889504"
     ),
     "openrouter_failure_with_usage": (
-        "ae8076aafeb8ade6fb0d4136be052ba45f5db1d46170875abd9312faf7ecf5db"
+        "303c3751a04709922589f0bbc1ed77417ea092cde85250f43d4d10f87649815d"
     ),
-    "openrouter_full_success": ("d2ae44b5f9d81d42dd6fbf1c40660305b9ab5331aa5773fe7a62bcbffd493841"),
+    "openrouter_full_success": ("22a06ad9116daa8c68051a83df2987a1dc97aa5030ccef93aa1173b40e6c664f"),
     "openrouter_missing_evidence": (
-        "507afc3005f65a730f6a8a7883e2a6921d8cdb50c816d1a2ebfa9594f729bee2"
+        "9c0d75c4f9c47824e422db6cfca2f527077c135b23be766968def88e1b86e6ab"
     ),
-    "openrouter_retry": ("06aca182a14c962f4158087f26e4f05caf9928f3f102e6659ca7471180a7dc38"),
+    "openrouter_retry": ("fc1ab28fac6a815c9adb6be955163013959dd4e28c83899c6c1d671b28b5dd8e"),
     "response_less_transport_failure": (
-        "267fa9a56ca3d79ceddf93d335933ea363a6175c2dcfc8a0c454241cb10413f6"
+        "ff44733523b789e7ea34a264e2ccf43fb849766f8e789baa507287b8c5204ce7"
     ),
     "unsupported_provider_miss": (
-        "0688aa1201c0403b8084062d01c27be623f6de70c188e07df298b53a84509ff5"
+        "800d4349c1132ca91d62dbafd9c542bb868b21fcc8481727f384ca0ba6fa335c"
     ),
 }
 
@@ -123,7 +123,7 @@ class _Collector:
 
 
 def _schema() -> dict[str, Any]:
-    resource = files("aigateway.core.usage_accounting").joinpath("usage_accounting_v1.schema.json")
+    resource = files("aigateway.core.usage_accounting").joinpath("usage_accounting.schema.json")
     return json.loads(resource.read_text(encoding="utf-8"))
 
 
@@ -181,7 +181,7 @@ def _record(
         provider_response_id=(
             f"response-{sequence}" if provider_response_id == "" else provider_response_id
         ),
-        transport="litellm_async_http_v1",
+        transport="litellm_async_http",
         outcome=outcome,  # type: ignore[arg-type]
         http_status=http_status,
         latency_ms=latency_ms,
@@ -459,7 +459,7 @@ def test_release_fixture_matrix_is_complete(
     assert set(release_fixtures) == _REQUIRED_METADATA_FIXTURES
     assert _ROUTE_ONLY_ACCEPTANCE == {
         "non_negotiated_response_parity",
-        "unknown_accounting_version_rejection",
+        "invalid_accounting_option_rejection",
     }
 
 
@@ -535,7 +535,7 @@ def test_release_fixtures_pin_retry_failure_cache_and_bound_semantics(
     assert tool_attempt["pricing_context"]["service_tier"] == "priority"
     assert tool_attempt["provider_extensions"] == [
         {
-            "namespace": "anthropic.usage.v1",
+            "namespace": "anthropic.usage",
             "facts": [
                 {
                     "name": "web_search_requests",
@@ -609,5 +609,5 @@ def test_release_fixture_exercises_private_input_without_publishing_it() -> None
     canonical = json.dumps(fixture, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     assert (
         sha256(canonical.encode()).hexdigest()
-        == "10037cb637daefbfc7322723a7fa3f399fd7fd85d0251e536b6ee05f34019ef9"
+        == "8a72010bad168760f2f3a4c436f077890edf0f48994f13993f8281716109e3a5"
     )

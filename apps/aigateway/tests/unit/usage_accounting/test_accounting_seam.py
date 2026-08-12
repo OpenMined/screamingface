@@ -45,7 +45,7 @@ from aigateway.routes.chat_accounting import (
 def _session(*, supported: bool = True, provider: str = "openrouter") -> AccountingSession:
     collector = (
         RequestAccountingCollector(
-            provider=provider, requested_model="x/y", transport="litellm_async_http_v1"
+            provider=provider, requested_model="x/y", transport="litellm_async_http"
         )
         if supported
         else None
@@ -71,7 +71,7 @@ class _RecordingPlugin:
         self._reference = reference
 
     def usage_accounting_strategy(self) -> UsageAccountingStrategy:
-        return UsageAccountingStrategy.litellm_async_http_v1()
+        return UsageAccountingStrategy.litellm_async_http()
 
     def normalize_chat_usage_accounting(
         self, *, request_body: Any, raw_response: Any, final_response: Any, failed: bool = False
@@ -103,7 +103,7 @@ class _RecordingPlugin:
 
 
 class _Request:
-    headers = {"X-AIGW-Accounting": "v1"}
+    headers = {"X-AIGW-Accounting": "enabled"}
 
     class _State:
         pass
@@ -529,7 +529,7 @@ class TestStrategyContainment:
 
         class _SubclassPlugin(_RecordingPlugin):
             def usage_accounting_strategy(self) -> UsageAccountingStrategy:
-                return _HostileStrategy.litellm_async_http_v1()
+                return _HostileStrategy.litellm_async_http()
 
         session = begin_accounting(
             _Request(),  # type: ignore[arg-type]

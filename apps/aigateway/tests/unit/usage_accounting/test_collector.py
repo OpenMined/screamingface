@@ -13,7 +13,7 @@ import pytest
 
 from aigateway.core.usage_accounting import (
     SCHEMA_PROVIDER_ATTEMPT,
-    TRANSPORT_LITELLM_ASYNC_HTTP_V1,
+    TRANSPORT_LITELLM_ASYNC_HTTP,
     ProviderUsageAccountingEvidence,
 )
 from aigateway.core.usage_accounting._collector import (
@@ -27,7 +27,7 @@ def _collector(provider: str = "openrouter") -> RequestAccountingCollector:
     return RequestAccountingCollector(
         provider=provider,
         requested_model=f"{provider}/some-model",
-        transport=TRANSPORT_LITELLM_ASYNC_HTTP_V1,
+        transport=TRANSPORT_LITELLM_ASYNC_HTTP,
     )
 
 
@@ -219,7 +219,7 @@ class TestContextVarIsolation:
             collector = RequestAccountingCollector(
                 provider=provider,
                 requested_model=f"{provider}/m",
-                transport=TRANSPORT_LITELLM_ASYNC_HTTP_V1,
+                transport=TRANSPORT_LITELLM_ASYNC_HTTP,
             )
             with bound_collector(collector):
                 collector.begin_dispatch()

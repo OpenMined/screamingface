@@ -1,4 +1,4 @@
-"""Pure Anthropic mapper for the OME-303 accounting v1 contract."""
+"""Pure Anthropic mapper for the OME-303 accounting contract."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ from ...core.usage_accounting._mapper import (
 
 __all__ = ["cache_reference_from_cached", "normalize_anthropic_usage_accounting"]
 
-EXTENSION_NAMESPACE = "anthropic.usage.v1"
+EXTENSION_NAMESPACE = "anthropic.usage"
 _MAX_TOKEN_COUNT = 2**53 - 1
 
 

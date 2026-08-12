@@ -29,7 +29,7 @@ _CHAT_PATH = "/v1/chat/completions"
 _ANTHROPIC_DISPATCH = (
     "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion"
 )
-_ACCOUNTING_HEADERS = {"X-AIGW-Accounting": "v1"}
+_ACCOUNTING_HEADERS = {"X-AIGW-Accounting": "enabled"}
 
 
 async def _create_active_connection(account_id: str, *, label: str = "default"):

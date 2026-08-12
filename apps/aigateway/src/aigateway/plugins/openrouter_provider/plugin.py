@@ -412,7 +412,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # OME-303 §5.1: openrouter dispatches through litellm's base_llm_http_handler,
         # which uses the shared AsyncHTTPHandler and honours an injected client — so the
         # gateway's observed handler sees every generation send.
-        return UsageAccountingStrategy.litellm_async_http_v1()
+        return UsageAccountingStrategy.litellm_async_http()
 
     def normalize_chat_usage_accounting(
         self,

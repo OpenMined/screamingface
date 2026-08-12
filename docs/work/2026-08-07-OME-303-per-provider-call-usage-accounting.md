@@ -760,8 +760,10 @@ Outcome:
 - Official evidence rechecked before edits: OpenRouter documents automatic response usage and cost
   in credits; its current OpenAPI models numeric fields as doubles. Installed LiteLLM is 1.95.0 and
   its Anthropic transformation explicitly sets inclusive `prompt_tokens`, uncached `text_tokens`,
-  cache read/write and TTL detail fields. Installed FastAPI is 0.141.1; a runtime probe confirmed its
-  encoder converts returned `Decimal` values back to JSON numbers after metadata construction.
+  cache read/write and TTL detail fields. Installed FastAPI is 0.141.1; its documented
+  response serialization contract and a production `-> Any` route probe confirmed that bare cached
+  `Decimal` values do not preserve number shape on this route, so `_restore_cached_json_numbers()`
+  converts them before FastAPI serializes the response.
 - GREEN accounting suite before Stage 1 review: `355 passed, 1 warning`.
 - Full configured gate: append-only policy stopped on owner-authorized old-test updates required by
   dead-API removal, the unpublished record rename and the selected amount-bound correction. Rerun
@@ -792,3 +794,47 @@ Outcome:
   `test_unknown_user_timing_close_to_wrong_password` failed twice under coverage after passing its
   focused rerun. The third `run_gates.py aigateway --skip-append-only` run passed Ruff, format,
   Pyright, Enterprise guard and full pytest+coverage: `ALL GATES GREEN`.
+
+## Outcome — final adversarial follow-ups F-C/F-D/F-E/F-F
+
+- F-C now exercises a private sentinel through the shipped OpenRouter normalizer from both request
+  and raw provider input, proves it is absent from schema-valid rendered metadata and pins the
+  canonical adversarial fixture hash without changing the original release matrix.
+- F-D preserves one economic record for redirect chains but marks capture `partial` whenever an
+  expected hop revisits any URL already admitted in that folded chain. That is the point where a
+  legitimate redirect cycle and LiteLLM replacement-client resend are indistinguishable.
+- F-E removed the remaining OpenRouter arithmetic `type: ignore` through explicit `None` narrowing,
+  with no behavior change.
+- F-F corrected the cache Decimal rationale: exact Decimal carriers are consumed by accounting, then
+  `_restore_cached_json_numbers()` restores the prior numeric wire shape before FastAPI serializes
+  the production `-> Any` response.
+- RED evidence: direct self-redirect initially returned `complete`; the added redirect-cycle
+  regression also returned `complete` before admitted-URL tracking.
+- Focused verification: mapper/fixture/collector/cache/route set `160 passed`; final collector and
+  release suites `41 passed`.
+- First full gate reached `3384 passed, 46 skipped`, coverage `92.18%`, and failed only the known
+  unrelated statistical auth timing test; its focused rerun passed. Two subsequent configured gates
+  passed append-only, Ruff, format, Pyright, Enterprise guard and full pytest+coverage:
+  `ALL GATES GREEN`.
+- Independent two-stage review found and then closed redirect-cycle and Decimal-rationale gaps; the
+  final refuter returned `GO` after probing 1,092 redirect chains and the settled F-C/F-D/F-E/F-F
+  corrections. Nothing was staged, committed or pushed.
+
+## Outcome — PR review taxonomy and documentation corrections
+
+- Removed version markers from the evolving pre-beta accounting taxonomy: schema identifiers,
+  transport capabilities, provider-extension namespaces, packaged schema filename and contract-test
+  filenames now use descriptive unversioned names.
+- Replaced the temporary `X-AIGW-Accounting: v1` negotiation with
+  `X-AIGW-Accounting: enabled`. This header remains a non-streaming opt-in only until the separately
+  designed default-on streaming unit removes it.
+- Added the tracked implementation plan at
+  `docs/tasks/aigw/2026-08-12-OME-303-per-provider-attempt-usage-accounting.md` and the current runtime
+  contract at `apps/aigateway/docs/usage-accounting.md`.
+- Documented that compatibility is not guaranteed until beta without publishing an `alpha` marker
+  in the wire. Earlier numbered-contract references in this historical ledger are superseded by the
+  tracked plan and runtime contract above.
+- Replaced the hardcoded provider-name failure-taxonomy test with a guard derived from the actual
+  provider plugin registry. The test fails explicitly if discovery returns no providers.
+- RED evidence: the new schema taxonomy test failed on the existing `.v1` schema identifiers and
+  `_v1` transport values. After the migration, the accounting suite passed: `367 passed, 1 warning`.

@@ -319,7 +319,7 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         ``complete`` with zero observed attempts — the second would assert the provider was
         never called, which is false.
 
-        A provider may declare ``litellm_async_http_v1`` only once it has a cardinality
+        A provider may declare ``litellm_async_http`` only once it has a cardinality
         test proving one generation send produces exactly one record under success AND
         under LiteLLM's hidden retry.
         """

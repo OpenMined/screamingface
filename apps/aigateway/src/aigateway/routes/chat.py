@@ -51,7 +51,7 @@ from .chat_accounting import (
     note_dispatch_failure,
     safe_request_view,
     streaming_rejection,
-    validate_accounting_version,
+    validate_accounting_opt_in,
 )
 from .chat_cache_stage import (
     defaults_unreadable_bypass,
@@ -210,9 +210,9 @@ async def _dispatch_and_finalize_accounting(
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
-    # Validate before parsing untrusted body bytes so an unknown version always fails
+    # Validate before parsing untrusted body bytes so an invalid opt-in always fails
     # explicitly, but do not mint a correlation ID unless this request needs a session.
-    validate_accounting_version(request)
+    validate_accounting_opt_in(request)
     try:
         body = await request.json()
     except ValueError:
@@ -484,7 +484,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         )
 
     # OME-303: inject the gateway's observed LiteLLM client for a negotiated request
-    # whose provider declared `litellm_async_http_v1`; then normalize each observed
+    # whose provider declared `litellm_async_http`; then normalize each observed
     # send's OWN raw provider evidence before success OR error metadata can render.
     result = await _dispatch_and_finalize_accounting(
         request,

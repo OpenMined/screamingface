@@ -1,4 +1,4 @@
-"""Provider-neutral value objects for the OME-303 accounting v1 wire contract."""
+"""Provider-neutral value objects for the OME-303 accounting wire contract."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ __all__ = [
     "SCHEMA_PROVIDER_ATTEMPT",
     "SCHEMA_REQUEST_ECONOMICS",
     "SCHEMA_USAGE_ACCOUNTING",
-    "TRANSPORT_LITELLM_ASYNC_HTTP_V1",
+    "TRANSPORT_LITELLM_ASYNC_HTTP",
     "AccountingCapability",
     "CacheReference",
     "CacheWriteTTL",
@@ -33,17 +33,17 @@ __all__ = [
     "UsageSource",
 ]
 
-SCHEMA_USAGE_ACCOUNTING = "aigw.chat_usage_accounting.v1"
-SCHEMA_REQUEST_ECONOMICS = "aigw.request_economics.v1"
-SCHEMA_PROVIDER_ATTEMPT = "aigw.provider_attempt.v1"
+SCHEMA_USAGE_ACCOUNTING = "aigw.chat_usage_accounting"
+SCHEMA_REQUEST_ECONOMICS = "aigw.request_economics"
+SCHEMA_PROVIDER_ATTEMPT = "aigw.provider_attempt"
 
-TRANSPORT_LITELLM_ASYNC_HTTP_V1: Literal["litellm_async_http_v1"] = "litellm_async_http_v1"
+TRANSPORT_LITELLM_ASYNC_HTTP: Literal["litellm_async_http"] = "litellm_async_http"
 
 AccountingCapability = Literal[
     "unsupported",
-    "litellm_async_http_v1",
-    "provider_owned_http_v1",
-    "provider_owned_process_v1",
+    "litellm_async_http",
+    "provider_owned_http",
+    "provider_owned_process",
 ]
 CaptureStatus = Literal["complete", "partial", "accounting_not_supported", "not_applicable"]
 CallOutcome = Literal[
@@ -175,13 +175,13 @@ class TokenUsage:
             "partial",
             "unavailable",
         }:
-            raise ValueError("usage status must use the canonical v1 vocabulary")
+            raise ValueError("usage status must use the canonical vocabulary")
         if type(self.source) is not str or self.source not in {
             "provider_raw_response",
             "provider_converted_response",
             "cached_converted_response",
         }:
-            raise ValueError("usage source must use the canonical v1 vocabulary")
+            raise ValueError("usage source must use the canonical vocabulary")
         if type(self.input) is not InputTokenUsage or type(self.output) is not OutputTokenUsage:
             raise ValueError("usage input/output must use canonical value objects")
         contradictory = self.status == "complete" and (
@@ -239,7 +239,7 @@ class PricingContext:
         if self.service_tier is not None and type(self.service_tier) is not str:
             raise ValueError("service_tier must be a string")
         if self.service_tier not in {None, "standard", "priority", "batch"}:
-            raise ValueError("service_tier must use the canonical v1 vocabulary")
+            raise ValueError("service_tier must use the canonical vocabulary")
         _validate_ascii(self.service_tier, field_name="service_tier", max_bytes=64)
         _validate_ascii(self.backend, field_name="backend", max_bytes=64)
 
@@ -264,7 +264,7 @@ class DirectCost:
             "invalid",
             "unit_unknown",
         }:
-            raise ValueError("direct cost status must use the canonical v1 vocabulary")
+            raise ValueError("direct cost status must use the canonical vocabulary")
         if self.amount is not None and not _is_canonical_decimal(self.amount):
             raise ValueError("amount must be a bounded nonnegative canonical decimal")
         _validate_ascii(self.unit, field_name="unit", max_bytes=64)
@@ -321,7 +321,7 @@ class ProviderExtensionFact:
 
     def __post_init__(self) -> None:
         if type(self.kind) is not str:
-            raise ValueError("extension fact kind is not supported by accounting v1")
+            raise ValueError("extension fact kind is not supported by accounting")
         _validate_ascii(self.name, field_name="name", max_bytes=64)
         _validate_ascii(self.unit, field_name="unit", max_bytes=64)
         _validate_ascii(self.source, field_name="source", max_bytes=MAX_EXTENSION_TEXT_BYTES)
@@ -340,7 +340,7 @@ class ProviderExtensionFact:
                 raise ValueError("enum extension facts require plugin-declared strings")
             _validate_ascii(self.value, field_name="value", max_bytes=64)
         else:
-            raise ValueError("extension fact kind is not supported by accounting v1")
+            raise ValueError("extension fact kind is not supported by accounting")
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -354,7 +354,7 @@ class ProviderExtensionFact:
 
 @dataclass(frozen=True, slots=True)
 class ProviderExtension:
-    """Versioned audit-only namespace. Engine never needs it for canonical rollup."""
+    """Audit-only namespace. Engine never needs it for canonical rollup."""
 
     namespace: str
     facts: tuple[ProviderExtensionFact, ...] = ()
@@ -388,23 +388,23 @@ class UsageAccountingStrategy:
     def __post_init__(self) -> None:
         if type(self.capability) is not str or self.capability not in {
             "unsupported",
-            "litellm_async_http_v1",
-            "provider_owned_http_v1",
-            "provider_owned_process_v1",
+            "litellm_async_http",
+            "provider_owned_http",
+            "provider_owned_process",
         }:
-            raise ValueError("accounting capability must use the canonical v1 vocabulary")
+            raise ValueError("accounting capability must use the canonical vocabulary")
 
     @classmethod
     def unsupported(cls) -> Self:
         return cls(capability="unsupported")
 
     @classmethod
-    def litellm_async_http_v1(cls) -> Self:
-        return cls(capability=TRANSPORT_LITELLM_ASYNC_HTTP_V1)
+    def litellm_async_http(cls) -> Self:
+        return cls(capability=TRANSPORT_LITELLM_ASYNC_HTTP)
 
     @property
     def uses_shared_litellm_http(self) -> bool:
-        return self.capability == TRANSPORT_LITELLM_ASYNC_HTTP_V1
+        return self.capability == TRANSPORT_LITELLM_ASYNC_HTTP
 
     @property
     def is_supported(self) -> bool:
@@ -517,9 +517,9 @@ class CacheReference:
         if type(self.direct_cost) is not DirectCost:
             raise ValueError("cache direct_cost must use the canonical DirectCost value object")
         if type(self.kind) is not str or self.kind != "cached_final_response":
-            raise ValueError("cache reference kind is fixed in v1")
+            raise ValueError("cache reference kind must use the canonical value")
         if type(self.coverage) is not str or self.coverage != "final_successful_response_only":
-            raise ValueError("cache reference coverage is fixed in v1")
+            raise ValueError("cache reference coverage must use the canonical value")
         if self.incurred_in_current_request is not False:
             raise ValueError("cache reference cannot be current-request spend")
 

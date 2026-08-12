@@ -1,6 +1,6 @@
-"""OME-303 — the negotiated response contract on POST /v1/chat/completions.
+"""OME-303 — the accounting response contract on POST /v1/chat/completions.
 
-These are the tests that hold the FROZEN wire decisions in place: the header opt-in, the
+These tests hold the current wire decisions in place: the temporary header opt-in, the
 ``_aigw`` namespace, the cache boundary, and the rule that none of it may reach
 ``request_cache_entries.response_json``.
 """
@@ -41,7 +41,7 @@ _ANTHROPIC_INNER_DISPATCH = "aigateway.plugins.anthropic_provider.plugin.chat_co
 _ANTHROPIC_STRATEGY = (
     "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.usage_accounting_strategy"
 )
-_ACCOUNTING_HEADERS = {"X-AIGW-Accounting": "v1"}
+_ACCOUNTING_HEADERS = {"X-AIGW-Accounting": "enabled"}
 
 
 # --- arrangement (mirrors tests/unit/test_chat_global_cache_route.py) ----------
@@ -179,10 +179,10 @@ class TestNegotiation:
         assert response.status_code == 200, response.text
         metadata = _aigw(response)
         assert set(metadata) == {"usage_accounting", "request_economics"}
-        assert metadata["usage_accounting"]["schema"] == "aigw.chat_usage_accounting.v1"
-        assert metadata["request_economics"]["schema"] == "aigw.request_economics.v1"
+        assert metadata["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
+        assert metadata["request_economics"]["schema"] == "aigw.request_economics"
 
-    def test_an_unknown_version_is_rejected_before_dispatch(
+    def test_an_invalid_accounting_option_is_rejected_before_dispatch(
         self, credential_blobs, chat_client
     ) -> None:
         _arrange_account(chat_client, credential_blobs)
@@ -190,10 +190,10 @@ class TestNegotiation:
         dispatch = _Dispatch()
         with patch(_ANTHROPIC_DISPATCH, dispatch):
             response = chat_client.post(
-                _CHAT_PATH, json=_chat_body(), headers={"X-AIGW-Accounting": "v2"}
+                _CHAT_PATH, json=_chat_body(), headers={"X-AIGW-Accounting": "unknown"}
             )
         assert response.status_code == 400
-        assert response.json()["detail"]["code"] == "unsupported_accounting_version"
+        assert response.json()["detail"]["code"] == "invalid_accounting_option"
         assert dispatch.calls == []
 
     def test_the_header_does_not_change_the_cache_key(self, credential_blobs, chat_client) -> None:
@@ -292,17 +292,17 @@ class TestEarlySafeErrors:
         assert metadata["usage_accounting"]["attempts"] == []
         assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
 
-    def test_unknown_accounting_version_wins_before_malformed_body_parsing(
+    def test_invalid_accounting_option_wins_before_malformed_body_parsing(
         self, chat_client: TestClient
     ) -> None:
         response = chat_client.post(
             _CHAT_PATH,
             content=b"{",
-            headers={"X-AIGW-Accounting": "v2", "Content-Type": "application/json"},
+            headers={"X-AIGW-Accounting": "unknown", "Content-Type": "application/json"},
         )
 
         assert response.status_code == 400
-        assert response.json()["detail"]["code"] == "unsupported_accounting_version"
+        assert response.json()["detail"]["code"] == "invalid_accounting_option"
 
 
 class TestStreaming:

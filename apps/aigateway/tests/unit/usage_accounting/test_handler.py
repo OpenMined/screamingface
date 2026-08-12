@@ -26,7 +26,7 @@ from litellm.exceptions import Timeout
 from litellm.litellm_core_utils.logging_worker import GLOBAL_LOGGING_WORKER
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
-from aigateway.core.usage_accounting import TRANSPORT_LITELLM_ASYNC_HTTP_V1
+from aigateway.core.usage_accounting import TRANSPORT_LITELLM_ASYNC_HTTP
 from aigateway.core.usage_accounting._collector import (
     MAX_RAW_EVIDENCE_BYTES,
     RequestAccountingCollector,
@@ -46,7 +46,7 @@ def _collector() -> RequestAccountingCollector:
     return RequestAccountingCollector(
         provider="openrouter",
         requested_model="openrouter/some-model",
-        transport=TRANSPORT_LITELLM_ASYNC_HTTP_V1,
+        transport=TRANSPORT_LITELLM_ASYNC_HTTP,
     )
 
 
@@ -300,7 +300,7 @@ class TestSendCardinality:
         collector = RequestAccountingCollector(
             provider=plugin.custom_llm_provider,
             requested_model=model,
-            transport=TRANSPORT_LITELLM_ASYNC_HTTP_V1,
+            transport=TRANSPORT_LITELLM_ASYNC_HTTP,
         )
         body = {
             "model": model,
@@ -625,7 +625,7 @@ class TestSharedHandlerConcurrency:
             collector = RequestAccountingCollector(
                 provider="openrouter",
                 requested_model=model,
-                transport=TRANSPORT_LITELLM_ASYNC_HTTP_V1,
+                transport=TRANSPORT_LITELLM_ASYNC_HTTP,
             )
             with bound_collector(collector):
                 collector.begin_dispatch()

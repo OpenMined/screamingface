@@ -1,7 +1,7 @@
 """OME-303 — AIGateway per-provider-attempt usage accounting.
 
-FEATURE: an opt-in, provider-extensible EVIDENCE contract. A caller sending
-``X-AIGW-Accounting: v1`` receives two sibling response-only objects under ``_aigw``:
+FEATURE: an opt-in, provider-extensible EVIDENCE contract. A caller enabling
+accounting receives two sibling response-only objects under ``_aigw``:
 
 * ``usage_accounting`` — one attempt per local provider HTTP send-pipeline admission,
   with token/cache/reasoning evidence and provider-authored cost; and
@@ -39,7 +39,7 @@ from ._types import (
     SCHEMA_PROVIDER_ATTEMPT,
     SCHEMA_REQUEST_ECONOMICS,
     SCHEMA_USAGE_ACCOUNTING,
-    TRANSPORT_LITELLM_ASYNC_HTTP_V1,
+    TRANSPORT_LITELLM_ASYNC_HTTP,
     AccountingCapability,
     CacheReference,
     CacheWriteTTL,
@@ -63,7 +63,7 @@ __all__ = [
     "SCHEMA_PROVIDER_ATTEMPT",
     "SCHEMA_REQUEST_ECONOMICS",
     "SCHEMA_USAGE_ACCOUNTING",
-    "TRANSPORT_LITELLM_ASYNC_HTTP_V1",
+    "TRANSPORT_LITELLM_ASYNC_HTTP",
     "AccountingCapability",
     "CacheReference",
     "CacheWriteTTL",

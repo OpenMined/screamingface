@@ -10,12 +10,29 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from aigateway.core.loader import load_plugins
+from aigateway.core.registry import ProviderRegistry
 from aigateway.core.usage_accounting._classify import (
     FAILURE_CODES,
     classify_conversion_failure,
     classify_transport_failure,
     outcome_for_status,
 )
+
+
+def _provider_taxonomy_terms(registry: ProviderRegistry) -> set[str]:
+    terms: set[str] = set()
+    for plugin in registry.all():
+        for name in (plugin.custom_llm_provider, plugin.provider_display_name):
+            normalized = "".join(
+                character.lower() if character.isalnum() else " " for character in name
+            )
+            words = normalized.split()
+            terms.add("".join(words))
+            terms.add("_".join(words))
+        provider_words = plugin.custom_llm_provider.replace("-", "_").split("_")
+        terms.add(provider_words[0].lower())
+    return terms
 
 
 class TestOutcomeForStatus:
@@ -127,12 +144,25 @@ class TestConversionFailure:
 
 
 class TestTheVocabularyIsClosed:
+    def test_compound_provider_names_contribute_individual_terms(self) -> None:
+        registry = ProviderRegistry()
+        load_plugins(registry)
+        terms = _provider_taxonomy_terms(registry)
+        assert "gemini-cli" not in terms
+        assert "cli" not in terms
+        assert "face" not in terms
+        assert {"gemini", "geminicli", "gemini_cli", "huggingface", "hugging_face"} <= terms
+
     def test_no_provider_name_appears_in_any_failure_code(self) -> None:
         # A code naming a provider would mean the taxonomy had leaked out of core.
+        registry = ProviderRegistry()
+        load_plugins(registry)
+        forbidden_terms = _provider_taxonomy_terms(registry) | {"litellm", "openai"}
+        assert forbidden_terms > {"litellm", "openai"}, "the guard loaded no provider plugins"
         for code in FAILURE_CODES:
             lowered = code.lower()
-            for provider in ("anthropic", "openrouter", "openai", "gemini", "ollama", "litellm"):
-                assert provider not in lowered
+            for term in forbidden_terms:
+                assert term not in lowered
 
     def test_core_classification_does_not_import_any_plugin(self) -> None:
         # The repo architecture rule, asserted rather than assumed.

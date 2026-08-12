@@ -2,7 +2,7 @@
 
 FEATURE: an opt-in evidence contract on ``POST /v1/chat/completions``.
 
-STORY: as a benchmark operator I send ``X-AIGW-Accounting: v1`` and receive every observed
+STORY: as a benchmark operator I enable accounting and receive every observed
 local provider attempt, canonical usage and provider-authored cost evidence. Cache replay
 is labelled historical evidence rather than current spend or counterfactual savings.
 
@@ -56,12 +56,12 @@ from ..core.usage_accounting._render import (
 logger = logging.getLogger(__name__)
 
 NEGOTIATION_HEADER: Final = "X-AIGW-Accounting"
-NEGOTIATION_VERSION: Final = "v1"
+NEGOTIATION_VALUE: Final = "enabled"
 _STATE_ATTR: Final = "aigw_accounting"
 
 __all__ = [
     "NEGOTIATION_HEADER",
-    "NEGOTIATION_VERSION",
+    "NEGOTIATION_VALUE",
     "AccountingSession",
     "accounting_error_response",
     "attach_hit_metadata",
@@ -71,7 +71,7 @@ __all__ = [
     "finalize_provider_evidence",
     "note_dispatch_failure",
     "streaming_rejection",
-    "validate_accounting_version",
+    "validate_accounting_opt_in",
 ]
 
 
@@ -94,17 +94,17 @@ class AccountingSession:
             self.collector.begin_dispatch()
 
 
-def validate_accounting_version(request: Request) -> bool:
-    """Validate the transport negotiation without publishing a correlation session."""
-    requested_version = request.headers.get(NEGOTIATION_HEADER)
-    if requested_version is None:
+def validate_accounting_opt_in(request: Request) -> bool:
+    """Validate the temporary opt-in without publishing a correlation session."""
+    requested_value = request.headers.get(NEGOTIATION_HEADER)
+    if requested_value is None:
         return False
-    if requested_version.strip().lower() != NEGOTIATION_VERSION:
+    if requested_value.strip().lower() != NEGOTIATION_VALUE:
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "unsupported_accounting_version",
-                "message": f"supported accounting version: {NEGOTIATION_VERSION}",
+                "code": "invalid_accounting_option",
+                "message": f"supported accounting value: {NEGOTIATION_VALUE}",
             },
         )
     return True
@@ -119,7 +119,7 @@ def begin_accounting(
     collector exists only to hold records, and a hit creates none. Nothing here reads a
     credential, dispatches, or touches the request body.
     """
-    if not validate_accounting_version(request):
+    if not validate_accounting_opt_in(request):
         return None
     if plugin is None:
         strategy = UsageAccountingStrategy.unsupported()
@@ -195,7 +195,7 @@ def dispatch_body_with_accounting(
     """Inject the gateway's observed LiteLLM client for an accounted dispatch.
 
     INVARIANT: injected ONLY for a negotiated request whose provider declared
-    ``litellm_async_http_v1``. Every other request keeps LiteLLM's own client selection,
+    ``litellm_async_http``. Every other request keeps LiteLLM's own client selection,
     so opting in cannot change the transport for traffic that did not ask for it.
 
     INVARIANT: a fresh dict. The caller's ``body`` is the one the cache keyed; a dispatch

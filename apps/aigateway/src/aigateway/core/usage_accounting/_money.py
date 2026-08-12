@@ -75,7 +75,7 @@ def _render(candidate: Decimal) -> str:
 
 
 def _bounded_render(candidate: Decimal) -> str | None:
-    """Canonical nonnegative v1 amount within the public precision bound."""
+    """Canonical nonnegative amount within the public precision bound."""
     if candidate < 0:
         return None
     if candidate.is_zero():
