@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1](https://github.com/OpenMined/screamingface/compare/url4-v1.4.0...url4-v1.4.1) (2026-08-12)
+
+
+### Documentation
+
+* additively refresh repo READMEs — product framing + doc links ([c41c3b5](https://github.com/OpenMined/screamingface/commit/c41c3b5813014020b424aab10bd94648a807f361))
+* additively refresh repo READMEs — product framing + doc links ([bed4b12](https://github.com/OpenMined/screamingface/commit/bed4b121a4c0569bb31923a258feb0dcbefa3325))
+
 ## [1.4.0](https://github.com/OpenMined/screamingface/compare/url4-v1.3.0...url4-v1.4.0) (2026-08-10)
 
 
