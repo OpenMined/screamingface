@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -202,6 +203,10 @@ async def test_get_spec_history_returns_submissions_newest_first(
         "submitted_at",
         "submitted_by",
         "verified_by_screamingface",
+        # Widened for OME-770: the history response intentionally carries the run
+        # cost. The set stays exhaustive on purpose — it is the guard that catches
+        # an unintended field leaking into a response portal clients depend on.
+        "run_cost_usd",
     }
 
 
@@ -442,3 +447,67 @@ async def test_a_new_submission_reads_as_verified_on_both_read_paths(
     entry = next(e for e in board.json()["entries"] if e["spec_id"] == "verified-default")
     assert entry["verified_by_screamingface"] is True
     assert history.json()["submissions"][0]["verified_by_screamingface"] is True
+# --- OME-770 review: cost must survive every read path ----------------------
+
+
+async def test_get_spec_history_includes_the_run_cost(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The ledger's acceptance named the history route explicitly, and it was
+    dropping the field: `list_for_spec` returned it on ScoreSchema, but
+    `_history_submission` mapped into a HistorySubmission that had no such field.
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)
+    submission = _submission(spec_id="costed-history").model_copy(
+        update={"run_cost_usd": Decimal("7.250000")},
+    )
+    await store.submit(submission)
+
+    response = await async_client.get("/v1/leaderboard/hle/costed-history/history")
+
+    assert response.status_code == 200
+    returned = response.json()["submissions"][0]["run_cost_usd"]
+    # Numeric equality, not string identity — Decimal scale (7.25 vs 7.250000)
+    # survives the round trip differently and is not part of the contract.
+    assert Decimal(returned) == Decimal("7.25")
+
+
+async def test_get_spec_history_reports_an_absent_cost_as_null(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await store.submit(_submission(spec_id="uncosted-history"))
+
+    response = await async_client.get("/v1/leaderboard/hle/uncosted-history/history")
+
+    assert response.json()["submissions"][0]["run_cost_usd"] is None
+
+
+def test_every_score_field_reaches_at_least_one_read_dto() -> None:
+    """Guard against the duplication that has now caused two separate bugs.
+
+    RankedLeaderboardEntry, HistorySubmission and ScoreSchema each redeclare
+    subsets of the same underlying columns. Adding `run_cost_usd` to the schema
+    but not to RankedLeaderboardEntry produced a runtime 500 (extra="forbid"),
+    and omitting it from HistorySubmission silently dropped it from the history
+    route — neither caught by the type checker. This asserts that a newly added
+    Score field cannot be invisible on every read path at once.
+    """
+    from scoreboard.routes.leaderboard import HistorySubmission, RankedLeaderboardEntry
+    from scoreboard.scores.models import Score
+    from scoreboard.scores.schemas import ScoreSchema
+
+    exposed = (
+        set(RankedLeaderboardEntry.model_fields)
+        | set(HistorySubmission.model_fields)
+        | set(ScoreSchema.model_fields)
+    )
+    # Deliberately unpublished: dedup plumbing, the FK object, and the reverse
+    # relation to idempotency keys (a relation, not a column).
+    internal = {"content_hash", "benchmark", "idempotency_keys"}
+    columns = {name for name in Score._meta.fields_map if not name.startswith("_")}
+
+    missing = columns - exposed - internal
+    assert missing == set(), f"Score columns absent from every read DTO: {sorted(missing)}"

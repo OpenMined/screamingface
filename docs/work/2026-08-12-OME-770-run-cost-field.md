@@ -106,3 +106,80 @@ RED first, against the existing pytest suite:
      only on the unmerged `OME-769` branch (PR #569). Unchanged from D9.
   4. Pass 2 (Cost column, frontier marks, chart, cheapest-run stat) remains blocked on a client
      actually emitting a run total. Nobody is named for that yet — the open question on `OME-772`.
+
+## Review pass (2026-08-13) — three findings, all valid
+
+Owner-reviewed findings, each reproduced against the running app before being fixed. RED first in
+both code cases.
+
+### F1 — `ge=0` was not a sufficient bound (`schemas.py`)
+
+`ScoreSubmission.run_cost_usd` carried only `ge=0`, so the request contract did **not** mirror the
+`DECIMAL(12, 6)` column. Three distinct failures, all verified live:
+
+| Input | Before | After |
+|---|---|---|
+| `0.0000009` | `201`, silently stored as `0.000001` | `422` |
+| `1000000` | `201` on SQLite; overflows `DECIMAL(12, 6)` on Postgres | `422` |
+| `1e30` | **`500`** | `422` |
+
+The first is the serious one: publishing a money figure the submitter never sent. The second means
+the contract was backend-dependent — it would have passed every local gate and failed in
+production. Fixed by adding `max_digits=12, decimal_places=6`. **A cost that cannot be stored
+exactly is now rejected, never rounded.**
+
+### F2 — the history read path silently omitted the cost
+
+`HistorySubmission` and `_history_submission()` were missed entirely, so
+`GET /v1/leaderboard/{id}/{spec}/history` returned no cost — violating this unit's own acceptance
+criterion ("appears on … the per-spec history"). This is the **second** defect caused by the
+read-DTO duplication recorded in Deviation 2, after the 500 on 2026-08-12. Two occurrences of one
+root cause moved it from "note it" to "test it" — see F3.
+
+### F3 — a cross-DTO guard, so there is no third occurrence
+
+Added `test_every_score_field_reaches_at_least_one_read_dto`: every `Score` column must appear on
+`RankedLeaderboardEntry`, `HistorySubmission` or `ScoreSchema`, with an explicit allowlist for the
+deliberately unpublished ones (`content_hash`, the `benchmark` FK object, the `idempotency_keys`
+reverse relation). The next field added to the model and forgotten on a read path now fails a test
+instead of depending on someone noticing. It failed correctly before F2's fix.
+
+### F4 — the SDLC artifacts were missing (process, not code)
+
+`docs/spec/`, `docs/plan/` and `docs/tasks/` did not exist for `OME-770`; only the ledger did.
+Created retroactively (dated `2026-08-12` to keep the artifact set together), with a preamble in
+each stating plainly that they were written after the fact and lift the already-owner-confirmed
+D1–D11 into their required slots — they document what was decided, not a redesign.
+
+**This was a REPEAT.** The identical omission happened on `OME-769` the previous day and was
+corrected there too. Twice in two consecutive units is a pattern in how I start work, not an
+oversight: the ledger gets created (rule 2 is prominent) while spec-before-plan (rule 3) gets
+skipped when the work feels like a small backend change. The mirror also has no `actor` /
+`who-acts` label on Linear, which the card requires — flagged in the mirror as an owner action
+rather than silently changed, since `save_issue.labels` replaces the whole set.
+
+### Review-pass gates
+
+`run_gates.py scoreboard --base origin/main` → ruff check ✓, ruff format ✓, pyright ✓,
+pytest --cov ✓ (**184 passed, 2 skipped**, coverage 88.03% ≥ 80).
+`routes/leaderboard.py` and `scores/models/score.py` are both at 100%.
+
+### Review-pass deviations
+
+1. **A prior test had to change, and the append-only gate blocked it — correctly.**
+   `test_get_spec_history_returns_submissions_newest_first` asserts the history response's
+   **exact** key set, so F2 broke it. Per sdlc rule 5 this was escalated as a Confidence-Gate
+   decision rather than edited silently; the owner approved widening the set. One line was
+   **added** (`"run_cost_usd"`, with a comment on why the exhaustiveness is deliberate) — nothing
+   removed, weakened or skipped, so the assertion still catches an unintended field leaking into a
+   response portal clients depend on. The final gate run therefore used the runner's documented
+   `--skip-append-only` flag; every other gate ran normally and green. Worth noting the gate did
+   its job precisely: it turned an intentional contract change into an explicit decision.
+2. **Two of my own new tests were wrong and had to be corrected before they were committed** —
+   caught by running them, not by review. (a) One asserted the exact string `"7.250000"`, but
+   Decimal scale does not survive the round trip identically; changed to numeric `Decimal`
+   comparison, since trailing-zero scale is not part of the contract. (b) The F3 guard initially
+   omitted `ScoreSchema` from the set of read DTOs and flagged six already-exposed columns
+   (`client_*`, `metadata`, `ran_at_local`) plus a reverse relation as missing. Both were test
+   defects, fixed in the tests.
+3. **No PR opened.** Awaiting explicit owner approval; nothing outward-facing was sent.

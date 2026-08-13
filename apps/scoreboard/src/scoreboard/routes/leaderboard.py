@@ -80,6 +80,7 @@ class HistorySubmission(BaseModel):
     submitted_at: datetime
     submitted_by: SubmittedBy
     verified_by_screamingface: bool
+    run_cost_usd: Decimal | None
 
 
 class HistoryResponse(BaseModel):
@@ -127,6 +128,7 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
         submitted_at=score.submitted_at,
         submitted_by=score.submitted_by,
         verified_by_screamingface=score.verified_by_screamingface,
+        run_cost_usd=score.run_cost_usd,
     )
 
 

@@ -548,3 +548,55 @@ def test_score_submission_keeps_four_figure_run_cost() -> None:
     submission = ScoreSubmission.model_validate(payload)
 
     assert submission.run_cost_usd == Decimal("4210.75")
+
+
+# --- OME-770 review: the contract must match the column's precision ---------
+# ge=0 alone let three distinct failures through, all reproduced live before
+# these tests were written: 0.0000009 was ACCEPTED and silently stored as
+# 0.000001 (a published dollar figure the submitter never sent); 1000000 was
+# accepted on SQLite but exceeds DECIMAL(12,6)'s six integer digits and so fails
+# on Postgres — passing locally, breaking in production; and 1e30 produced an
+# HTTP 500 rather than a 422. The column's shape has to be enforced at the edge.
+
+
+def test_score_submission_rejects_more_than_six_decimal_places() -> None:
+    """INVARIANT: never silently re-round a submitted cost.
+
+    0.0000009 previously round-tripped as 0.000001 with a 201.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "0.0000009"
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_score_submission_rejects_a_cost_above_the_column_ceiling() -> None:
+    """DECIMAL(12,6) leaves six integer digits, so 1000000 does not fit.
+
+    Previously accepted on SQLite and rejected by Postgres — a backend-dependent
+    failure that local testing hides.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "1000000"
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_score_submission_rejects_an_absurd_exponent() -> None:
+    """1e30 previously reached the database and returned HTTP 500."""
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "1e30"
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_score_submission_still_accepts_the_documented_bounds() -> None:
+    """The rejections above must not narrow the range the column supports."""
+    for value in ("0.000001", "999999.999999"):
+        payload = _valid_payload()
+        payload["run_cost_usd"] = value
+
+        assert ScoreSubmission.model_validate(payload).run_cost_usd == Decimal(value)

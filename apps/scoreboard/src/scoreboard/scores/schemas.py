@@ -181,7 +181,22 @@ class ScoreSubmission(BaseModel):
     # populated table. Once a client can send it, a direct submission arriving
     # without one is a client bug and should be REJECTED — null then means
     # "imported or legacy" only. Tracked on OME-770.
-    run_cost_usd: Decimal | None = Field(default=None, ge=0)
+    # INVARIANT: the request contract mirrors the column exactly —
+    # DECIMAL(12, 6), so six decimal places and six integer digits. `ge=0` alone
+    # was not enough and let three failures through, each reproduced live:
+    #   0.0000009 -> accepted (201) and silently stored as 0.000001, publishing a
+    #     figure the submitter never sent;
+    #   1000000   -> accepted on SQLite, but seven integer digits overflow
+    #     DECIMAL(12, 6) on Postgres, so it passed locally and would fail in
+    #     production;
+    #   1e30      -> reached the database and returned HTTP 500 instead of 422.
+    # Constraining here turns all three into field errors at the edge.
+    run_cost_usd: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=6,
+    )
 
     @field_validator("url4_expression")
     @classmethod
