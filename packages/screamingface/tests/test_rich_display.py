@@ -362,3 +362,120 @@ def test_nested_recipe_kind_reflects_the_recipe_type_not_the_class_name() -> Non
     # a renamed subclass must still read as a fusion.
     assert "nested fusion" in html
     assert "renamedfusion" not in html
+
+
+# FEATURE: connection card — a configured Client renders which Engine + Scoreboard it targets.
+# STORY: as a researcher, when I `sf.configure(...)` I want the returned Client to show, at a
+# glance, the engine + scoreboard it is wired to (and whether it is local / open / signed in),
+# instead of the opaque `<screamingface.client.Client at 0x…>` default repr.
+
+
+class _FakeClient:
+    """Structural stand-in for the connection-card renderer's read-only surface."""
+
+    def __init__(
+        self,
+        engine_url: str,
+        scoreboard_url: str,
+        *,
+        closed: bool = False,
+        authenticated: bool = False,
+    ) -> None:
+        self.engine_url = engine_url
+        self.scoreboard_url = scoreboard_url
+        self.closed = closed
+        self.authenticated = authenticated
+
+
+def test_client_repr_html_renders_the_local_connection_card() -> None:
+    client = sf.Client(
+        engine_url="http://127.0.0.1:9108",
+        scoreboard_url="http://127.0.0.1:9106",
+    )
+
+    html = cast(Any, client)._repr_html_()
+    client.close()
+
+    assert "sf-ui" in html
+    assert "sf-card" in html
+    assert "ScreamingFace client" in html  # aria-label
+    assert "ScreamingFace" in html  # title
+    assert ">client<" in html  # kicker
+    assert "sf-card__accent--solid" in html
+    assert ">engine<" in html
+    assert ">scoreboard<" in html
+    assert "http://127.0.0.1:9108" in html
+    assert "http://127.0.0.1:9106" in html
+    assert ">local<" in html
+    assert ">open<" in html
+    assert ">not signed in<" in html
+
+
+def test_client_repr_html_marks_a_hosted_engine() -> None:
+    client = sf.Client(
+        engine_url="https://fusion.dev.screamingface.ai",
+        scoreboard_url="https://leaderboard.dev.screamingface.ai",
+    )
+
+    html = cast(Any, client)._repr_html_()
+    client.close()
+
+    assert "https://fusion.dev.screamingface.ai" in html
+    assert ">hosted<" in html
+    assert ">local<" not in html
+
+
+def test_client_repr_html_reflects_a_closed_client() -> None:
+    client = sf.Client(engine_url="http://127.0.0.1:9108")
+
+    assert ">open<" in cast(Any, client)._repr_html_()
+
+    client.close()
+    closed_html = cast(Any, client)._repr_html_()
+
+    assert ">closed<" in closed_html
+    assert ">open<" not in closed_html
+
+
+def test_client_card_html_marks_a_signed_in_session() -> None:
+    # WHY: `authenticated` is only true after a hosted Cloudflare Access login, so the
+    # signed-in branch is exercised at the renderer level rather than via a live login;
+    # the not-signed-in branch is covered end-to-end by the real-Client test above.
+    from screamingface._ui.cards import client_card_html
+
+    html = client_card_html(
+        _FakeClient(
+            "https://fusion.dev.screamingface.ai",
+            "https://leaderboard.dev.screamingface.ai",
+            authenticated=True,
+        )
+    )
+
+    assert ">signed in<" in html
+    assert ">not signed in<" not in html
+
+
+def test_client_card_html_escapes_engine_and_scoreboard_origins() -> None:
+    from screamingface._ui.cards import client_card_html
+
+    html = client_card_html(_FakeClient("https://<engine>.example", "https://<scores>.example"))
+
+    assert "<engine>" not in html
+    assert "<scores>" not in html
+    assert "&lt;engine&gt;" in html
+    assert "&lt;scores&gt;" in html
+
+
+@pytest.mark.asyncio
+async def test_async_client_repr_html_renders_the_same_connection_card() -> None:
+    async with sf.AsyncClient(
+        engine_url="http://127.0.0.1:9108",
+        scoreboard_url="http://127.0.0.1:9106",
+    ) as client:
+        html = cast(Any, client)._repr_html_()
+
+    assert "sf-card" in html
+    assert ">client<" in html
+    assert "http://127.0.0.1:9108" in html
+    assert "http://127.0.0.1:9106" in html
+    assert ">local<" in html

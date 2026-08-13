@@ -45,6 +45,7 @@ def notebooks() -> dict[str, NotebookNode]:
     return {
         "00_quickstart.ipynb": _quickstart(),
         "01_client_tour.ipynb": _client_tour(),
+        "02_connection.ipynb": _connection(),
         "06_draco_full_e2e.ipynb": _draco_full_e2e(),
         "07_ifeval_e2e.ipynb": _ifeval_e2e(),
         "08_healthbench_worst30.ipynb": _healthbench_worst30_e2e(),
@@ -473,6 +474,123 @@ The asynchronous API mirrors discovery, connections, authentication, and evaluat
         ),
         nbformat.v4.new_markdown_cell("## 10. Close the explicit Client"),
         nbformat.v4.new_code_cell("client.close()\nclient.closed"),
+    )
+
+
+def _connection() -> NotebookNode:
+    """Point the Client at an Engine, then choose a credential mode — no paid call."""
+
+    return _notebook(
+        nbformat.v4.new_markdown_cell(
+            """# Configure the connection
+
+The ScreamingFace Python Client talks to two services: the **Engine** (fusion + execution) and
+the **Scoreboard** (public Leaderboards). Getting from `import screamingface as sf` to a working
+evaluation is two decisions — **where** the Client points, and **how** it is allowed to spend on
+model providers.
+
+Nothing here makes a paid model call; every runnable cell is safe. The full Client surface is in
+`01_client_tour.ipynb`; an end-to-end run is in `00_quickstart.ipynb`."""
+        ),
+        nbformat.v4.new_code_cell("import screamingface as sf"),
+        nbformat.v4.new_markdown_cell(
+            """## 1 · The two endpoints
+
+`engine_url` is the SF Engine that plans and runs evaluations; `scoreboard_url` is the Scoreboard
+that serves Leaderboards. With no arguments the Client targets the hosted development deployment.
+A Client renders as a connection card showing exactly where it points and its status —
+construction opens no network, so this is safe to display."""
+        ),
+        nbformat.v4.new_code_cell("sf.Client()"),
+        nbformat.v4.new_markdown_cell(
+            """## 2 · Point the Client at an Engine
+
+Three ways, from most implicit to most explicit.
+
+**Environment** — set before the first call; the lazy default Client reads them once. Best for CI
+and deployments:
+
+```bash
+export SCREAMINGFACE_ENGINE_URL="http://127.0.0.1:9108"
+export SCREAMINGFACE_SCOREBOARD_URL="http://127.0.0.1:9106"
+```
+
+**`sf.configure(...)`** — replace the process-wide default so every module-level call
+(`sf.leaderboards`, `sf.evaluate`, `sf.connect`) follows it. It returns that Client, which renders
+as the card below."""
+        ),
+        nbformat.v4.new_code_cell(
+            """client = sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)
+client"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """**An explicit `sf.Client(...)`** — own the instance when you need a second origin or
+deterministic lifecycle. Module-level `sf.*` keeps using the default; this one is independent, and
+closing it shows on the card."""
+        ),
+        nbformat.v4.new_code_cell(
+            """hosted = sf.Client(
+    engine_url="https://fusion.dev.screamingface.ai",
+    scoreboard_url="https://leaderboard.dev.screamingface.ai",
+)
+hosted"""
+        ),
+        nbformat.v4.new_code_cell("hosted.close()\nhosted"),
+        nbformat.v4.new_markdown_cell(
+            """## 3 · Provide credentials
+
+The Engine needs provider credentials to make model calls. There are two modes, and a deployment
+uses **exactly one**.
+
+### Option 1 · Bring your own key (BYOK)
+
+Pass a provider key straight to the Engine — no hosted login. Best for a local or self-hosted
+Engine. `sf.connect()` with no arguments opens the same panel interactively. The key goes to the
+Engine for validation and encrypted storage; the notebook never keeps it."""
+        ),
+        nbformat.v4.new_code_cell(
+            """BYOK_API_KEY = None  # e.g. "sk-or-..."; leave None to skip
+
+byok = (
+    sf.connect("openrouter", api_key=BYOK_API_KEY)
+    if BYOK_API_KEY
+    else "Set BYOK_API_KEY to connect a provider with your own key."
+)
+byok"""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """### Option 2 · Hosted credits
+
+On a hosted Engine, authenticate once with `login()` (Cloudflare Access opens in your browser).
+After login the connection card reads **signed in**, and `connect()` reveals the providers your
+hosted account can use — you spend shared credits instead of your own keys:
+
+```python
+with sf.Client(engine_url="https://your-engine.example") as session:
+    session.login(timeout=300)      # browser login
+    print(session.authenticated)    # True
+    session.connect()               # panel: providers available to your account
+```
+
+Local loopback development never needs this flow.
+
+### Not supported: BYOK + hosted credits
+
+> **One mode per deployment.** A Client uses BYOK **or** hosted credits, never both at once.
+> Local / self-hosted Engine → BYOK; a hosted ScreamingFace Engine → hosted credits after login."""
+        ),
+        nbformat.v4.new_markdown_cell(
+            """## Recap
+
+- **Where:** environment variables → `sf.configure(...)` (the module default) → an explicit
+  `sf.Client(...)` you own.
+- **How:** BYOK (`api_key=`) or hosted credits (`login()`) — one mode per deployment.
+- `sf.close()` closes the module default; `client.close()` closes an instance you own."""
+        ),
+        nbformat.v4.new_code_cell("sf.close()"),
     )
 
 

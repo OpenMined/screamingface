@@ -2,19 +2,35 @@
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Mapping, Sequence
 from html import escape
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from screamingface._ui.card_style import CARD_STYLE
 from screamingface.recipe import _recipe_kind
 
 if TYPE_CHECKING:
+    from typing import Protocol
+
     from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
     from screamingface.fusion import Fusion
     from screamingface.model import Model
     from screamingface.pipeline import Pipeline
     from screamingface.recipe import Recipe
+
+    class _ClientLike(Protocol):
+        """The read-only surface the connection card renders (sync or async Client)."""
+
+        @property
+        def engine_url(self) -> str: ...
+        @property
+        def scoreboard_url(self) -> str: ...
+        @property
+        def closed(self) -> bool: ...
+        @property
+        def authenticated(self) -> bool: ...
 
 
 def model_card_html(model: Model) -> str:
@@ -133,6 +149,26 @@ def model_details_card_html(details: ModelDetails) -> str:
     )
 
 
+def client_card_html(client: _ClientLike) -> str:
+    """Render which Engine + Scoreboard a configured Client targets, plus local status chips.
+
+    FEATURE: connection card — `sf.configure(...)`/`sf.Client(...)` render the origin they are
+    wired to instead of the opaque default repr.
+    """
+
+    fields = _field("engine", _mono(client.engine_url)) + _field(
+        "scoreboard", _mono(client.scoreboard_url)
+    )
+    status = _section("status", f"<div class='sf-chips'>{_status_chips(client)}</div>")
+    return (
+        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace client'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
+        "<div class='sf-card__head'><span class='sf-card__title'>ScreamingFace</span>"
+        "<span class='sf-card__kicker'>client</span></div>"
+        f"<div class='sf-card__grid'>{fields}</div>{status}</div>"
+    )
+
+
 def catalog_html(title: str, aria: str, count: int, rows: str) -> str:
     """Wrap escaped rows in the static fallback used outside interactive notebooks."""
 
@@ -214,6 +250,33 @@ def _chip(value: str) -> str:
 
 def _tags(chips: str) -> str:
     return f"<div class='sf-catalog__tags'>{chips}</div>"
+
+
+def _status_chips(client: _ClientLike) -> str:
+    # WHY: every chip is derived from local Client state — the card must never touch the
+    # network to render (a repr runs on every notebook display).
+    environment = "local" if _is_local_engine(client.engine_url) else "hosted"
+    lifecycle = "closed" if client.closed else "open"
+    authentication = "signed in" if client.authenticated else "not signed in"
+    return "".join(_status_chip(text) for text in (environment, lifecycle, authentication))
+
+
+def _status_chip(text: str) -> str:
+    # WHY: neutral (muted) chips keep gold rationed to the win — a client is not a "win".
+    return f"<span class='sf-chip sf-chip--muted'>{escape(text)}</span>"
+
+
+def _is_local_engine(engine_url: str) -> bool:
+    # INVARIANT: loopback / private / link-local / unspecified IPs and localhost / *.local
+    # hostnames render as "local"; everything else is "hosted".
+    host = (urlsplit(engine_url).hostname or "").lower()
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host == "localhost" or host.endswith(".local")
+    return (
+        address.is_loopback or address.is_private or address.is_link_local or address.is_unspecified
+    )
 
 
 __all__: list[str] = []
