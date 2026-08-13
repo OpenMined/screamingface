@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import ssl
 from collections.abc import AsyncIterator
-from decimal import Decimal
+from decimal import Decimal, ExtendedContext, InvalidOperation, localcontext
 from typing import Any
 
 import httpx
@@ -508,6 +508,92 @@ class TestHooksAreTotal:
 
 
 class TestBoundedEvidence:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            b'{"usage":{"cost":0.0012},"metadata":1e1000000000000000000}',
+            b'{"usage":{"cost":0.0012},"metadata":NaN}',
+            b'{"usage":{"cost":0.0012},"metadata":Infinity}',
+            b'{"usage":{"cost":0.0012},"metadata":-Infinity}',
+        ],
+        ids=["extreme-exponent", "nan", "positive-infinity", "negative-infinity"],
+    )
+    async def test_unsafe_json_numbers_cannot_fail_a_completed_response(
+        self, transport_spy: dict[str, Any], payload: bytes
+    ) -> None:
+        # INVARIANT: provider evidence is optional observation. A parser callback failure
+        # must discard the raw body, never replace the provider's completed response.
+        transport_spy["handler"] = lambda _r: httpx.Response(
+            200, content=payload, headers={"content-type": "application/json"}
+        )
+        handler = AccountingAsyncHTTPHandler()
+        collector = _collector()
+        try:
+            with bound_collector(collector):
+                collector.begin_dispatch()
+                response = await handler.post(url=_URL, json={"model": "m"})
+        finally:
+            await handler.close()
+
+        assert response is not None
+        assert response.status_code == 200
+        assert collector.open_records()[0][1] is None
+        (record,) = collector.records()
+        assert record.outcome == "succeeded"
+        assert record.http_status == 200
+        assert collector.status() == "complete"
+
+    @pytest.mark.asyncio
+    async def test_decimal_context_cannot_admit_non_finite_raw_evidence(
+        self, transport_spy: dict[str, Any]
+    ) -> None:
+        payload = b'{"usage":{"cost":0.0012},"metadata":1e1000000000000000000}'
+        transport_spy["handler"] = lambda _r: httpx.Response(
+            200, content=payload, headers={"content-type": "application/json"}
+        )
+        handler = AccountingAsyncHTTPHandler()
+        collector = _collector()
+        try:
+            with localcontext(ExtendedContext) as context, bound_collector(collector):
+                context.traps[InvalidOperation] = False
+                collector.begin_dispatch()
+                response = await handler.post(url=_URL, json={"model": "m"})
+        finally:
+            await handler.close()
+
+        assert response is not None
+        assert response.status_code == 200
+        assert collector.open_records()[0][1] is None
+
+    @pytest.mark.asyncio
+    async def test_unparseable_content_length_cannot_fail_a_completed_response(
+        self, transport_spy: dict[str, Any]
+    ) -> None:
+        transport_spy["handler"] = lambda _r: httpx.Response(
+            200,
+            content=b'{"usage":{"cost":0.0012}}',
+            headers={
+                "content-type": "application/json",
+                "content-length": "9" * 4_301,
+            },
+        )
+        handler = AccountingAsyncHTTPHandler()
+        collector = _collector()
+        try:
+            with bound_collector(collector):
+                collector.begin_dispatch()
+                response = await handler.post(url=_URL, json={"model": "m"})
+        finally:
+            await handler.close()
+
+        assert response is not None
+        assert response.status_code == 200
+        assert collector.open_records()[0][1] is None
+        (record,) = collector.records()
+        assert record.latency_ms is None
+        assert collector.status() == "partial"
+
     @pytest.mark.asyncio
     async def test_an_oversized_body_is_not_retained_and_latency_is_null(
         self, transport_spy: dict[str, Any]

@@ -998,3 +998,103 @@ Status: done
   cache metadata, mutable settings replacement, and hostile dict-subclass containment. Final verdict:
   **GO**, no remaining findings.
 - No commit or push was performed in this iteration.
+
+## Iteration — exact-cost provenance review corrections
+
+Status: blocked
+
+### Intent
+
+Close the confirmed OME-303 option-A review findings without changing the settled exact-money
+policy: accounting must never fail a completed provider response, cached money remains uncertified,
+and production raw-number carriers retain meaningful bounds coverage.
+
+### Plugin placement
+
+- `plugins/taxonomy` remains the main usage-taxonomy feature package.
+- Future independently isolated extensions use
+  `plugins/taxonomy_<subfeature_level1>[_<subfeature_level2>]`; this correction does not create one
+  because parser totality is part of the existing shared transport observer, not an independently
+  activatable taxonomy extension.
+- OpenRouter interpretation remains in `plugins/openrouter_provider`; provider semantics do not move
+  into core.
+
+### Hook and signal recalculation
+
+- The failure occurs inside the existing app-lifetime response hook before bounded raw evidence is
+  handed to taxonomy. The correct correction is to make that parser total in
+  `core/usage_accounting/hooks.py`.
+- Existing `UsageAccountingObserver.on_response_completed` already carries either bounded parsed
+  evidence or `None`; no new observer method, core signal or provider-plugin hook is required.
+- Cache provenance and money status are already expressible through `CacheReference` and
+  `DirectCost.unavailable()`; no cross-plugin extension point is required.
+- No Tortoise model, queryset, transaction, signal, configuration or migration changes.
+
+### Planned changes
+
+- Add handler-level RED regressions proving extreme Decimal exponents and non-standard non-finite
+  constants cannot fail an otherwise successful provider response, including a task-local Decimal
+  context with disabled `InvalidOperation` trapping and an unparseable declared content length.
+- Make bounded raw JSON parsing reject unsafe numeric tokens through total parser callbacks while
+  preserving ordinary JSON integers and exact `Decimal` fractions.
+- Add production-carrier mapper coverage for negative and precision bounds plus an explicit numeric
+  string-carrier policy regression, without weakening prior tests.
+- Correct the packaged-schema path and document that cache monetary evidence is unavailable
+  regardless of its post-persistence Python carrier.
+- Correct the request-cache Decimal rationale now that cached money is intentionally uncertified.
+- Record the owner-authorized prior-test and release-golden corrections made by `93f5ca96`; the
+  append-only exception is intentional and is not test tampering.
+
+### Test plan
+
+- RED: run the new handler and provider-mapper regressions before production changes.
+- GREEN: run the complete usage-accounting suite and affected request-cache tests.
+- Run the configured AIGateway gate against `93f5ca96`, using the explicit append-only skip because
+  the prior iteration's test/golden corrections were owner-authorized.
+- Obtain a two-stage independent review because this iteration protects money provenance and the
+  never-fail-observer public contract.
+
+### Acceptance
+
+- Extreme/non-finite provider JSON numbers degrade to unavailable raw evidence without changing a
+  completed HTTP response into a local failure.
+- Ordinary raw fractional money still reaches the mapper as exact `Decimal`; JSON integer money,
+  including zero, remains exact `int`.
+- Mapper tests exercise value bounds with the same `Decimal` carrier production uses and explicitly
+  pin numeric-string refusal.
+- Runtime docs resolve the packaged schema and state the conservative cache-money rule.
+- No new plugin, hook, signal, dependency, schema, migration or URL4/Engine behavior is introduced.
+
+### Outcome
+
+Status: blocked on unrelated configured-gate failure; OME-303 code review verdict: GO.
+
+- RED handler evidence: four unsafe JSON-number cases failed because an extreme exponent escaped as
+  `decimal.InvalidOperation` and `NaN`/`Infinity` constants remained in raw evidence. Two adversarial
+  follow-ups also failed: a trap-disabled Decimal context admitted `Decimal("NaN")`, and a 4,301-digit
+  `Content-Length` raised during integer conversion.
+- GREEN: raw JSON parser callbacks now reject invalid/non-finite Decimal values independently of the
+  active task-local Decimal context. Declared body lengths use bounded lexical comparison, avoiding
+  unbounded integer construction while preserving the existing unread/partial oversized-body path.
+- Added production-carrier mapper coverage for negative, integer-overflow and fractional-overflow
+  `Decimal` values plus explicit numeric-string refusal. Prior tests were not weakened or removed.
+- Corrected the packaged schema path, documented unconditional cache-money unavailability, and fixed
+  the stale request-cache Decimal rationale. Cache persistence and external number restoration are
+  unchanged.
+- Plugin/hook/signal recalculation confirmed that no new `plugins/taxonomy_<subfeature>` package,
+  core hook or cross-plugin signal is warranted. Shared transport observation remains in core,
+  taxonomy policy remains in `plugins/taxonomy`, and provider interpretation remains provider-owned.
+- No Tortoise model, queryset, transaction, signal, configuration or migration changed.
+- The owner-authorized `93f5ca96` corrections to prior contract tests and the release golden justify
+  the explicit append-only skip; this ledger records that Confidence-Gate decision.
+- Verification: complete usage-accounting suite `403 passed`; request-cache suite `29 passed`;
+  `git diff --check`, Ruff, format, Pyright and Enterprise guard passed. Coverage reached `92.26%`.
+- The configured full gate was run three times after the correction work. Each run passed all static
+  gates and every test except
+  `tests/unit/auth/test_login.py::test_unknown_user_timing_close_to_wrong_password`; the latest run
+  was `3426 passed, 46 skipped, 1 failed`. Its focused rerun passed, but three full-run failures mean
+  the canonical gate remains red and this iteration cannot be marked process-ready.
+- Independent Stage 1 review returned no findings. Stage 2 found and drove the Decimal-context and
+  pathological `Content-Length` hardening; its final rerun returned no findings and `GO` for the
+  intended code diff, while retaining the unrelated gate blocker.
+- No commit or push was performed.

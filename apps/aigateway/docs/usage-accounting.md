@@ -74,7 +74,7 @@ streaming accounting later must not buffer the complete stream or delay its firs
 ```
 
 The packaged authority for exact required fields, enums, bounds and closed-object behavior is
-`aigateway.core.usage_accounting/usage_accounting.schema.json`.
+`aigateway/plugins/taxonomy/usage_accounting.schema.json`.
 
 ## Attempt meaning
 
@@ -113,6 +113,9 @@ strings with up to 18 integer and 33 fractional digits.
 - Converted integer token evidence can remain useful with `source=provider_converted_response`.
 - If only a converted floating-point cost remains, it must not be presented as exact direct cost
   unless that carrier is independently proven lossless.
+- Cached monetary evidence is never certified as exact direct cost. A cache row contains the
+  converted provider-compatible response and cannot prove original raw-JSON provenance, regardless
+  of whether its current Python carrier is `Decimal`, `int` or `float`.
 
 Full raw JSON evidence is parsed only when decoded content is at most 256 KiB. Accounting metadata is
 also bounded: at most 64 rendered attempts and 64 KiB for the complete `_aigw` object. Bounds degrade

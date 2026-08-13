@@ -33,7 +33,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable, Mapping
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -52,6 +52,29 @@ _EVENT_STREAM = "text/event-stream"
 
 
 MAX_RAW_EVIDENCE_BYTES = 256 * 1024
+
+
+def _reject_non_finite(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def _parse_decimal(value: str) -> Decimal:
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as exc:
+        # INVARIANT: parser callbacks are accounting code. Their failures must reach
+        # _bounded_json as ordinary invalid evidence, never escape the response hook.
+        raise ValueError(f"invalid JSON number: {value}") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"non-finite JSON number: {value}")
+    return parsed
+
+
+def _declared_body_exceeds_limit(value: str) -> bool:
+    """Compare a decimal Content-Length without constructing an unbounded integer."""
+    normalized = value.lstrip("0") or "0"
+    limit = str(MAX_RAW_EVIDENCE_BYTES)
+    return len(normalized) > len(limit) or (len(normalized) == len(limit) and normalized > limit)
 
 
 def _mark_incomplete(collector: AccountingSignalTarget | None) -> None:
@@ -74,7 +97,11 @@ def _bounded_json(payload: bytes) -> dict[str, Any] | None:
     if len(payload) > MAX_RAW_EVIDENCE_BYTES:
         return None
     try:
-        parsed = json.loads(payload, parse_float=Decimal)
+        parsed = json.loads(
+            payload,
+            parse_constant=_reject_non_finite,
+            parse_float=_parse_decimal,
+        )
     except (ValueError, UnicodeDecodeError, RecursionError):
         return None
     return parsed if isinstance(parsed, dict) else None
@@ -94,7 +121,7 @@ async def _read_body(response: httpx.Response) -> tuple[dict[str, Any] | None, b
     if _EVENT_STREAM in response.headers.get("content-type", ""):
         return None, False
     declared = response.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > MAX_RAW_EVIDENCE_BYTES:
+    if declared is not None and declared.isdigit() and _declared_body_exceeds_limit(declared):
         # Refuse before reading, not after: the cap is a memory bound, and a bound
         # enforced only once the bytes are already resident is not a bound.
         return None, False

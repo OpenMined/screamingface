@@ -44,6 +44,8 @@ provider-authored direct cost, deterministic attribution, run/subtree rollups an
 - Converted integer token evidence may be retained with explicit provenance.
 - Converted floating-point money is not lossless evidence. If exact raw money is unavailable, mark
   direct cost unavailable unless the carrier is independently proven lossless.
+- Cache rows contain converted provider-compatible responses and cannot prove original raw-money
+  provenance regardless of their current Python numeric carrier. Cached direct cost is unavailable.
 - Full raw JSON parsing is currently bounded to 256 KiB of decoded content. Selective structured
   extraction from larger responses is a follow-up if live measurements justify it.
 

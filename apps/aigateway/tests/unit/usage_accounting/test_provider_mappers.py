@@ -87,6 +87,40 @@ class TestOpenRouterCost:
         assert evidence.usage.status == "complete"
         assert evidence.provider_response_id == "gen-1"
 
+    @pytest.mark.parametrize(
+        "cost",
+        [
+            Decimal("-1"),
+            Decimal("1000000000000000000"),
+            Decimal("0.1234567890123456789012345678901234"),
+        ],
+        ids=["negative", "integer-overflow", "fractional-overflow"],
+    )
+    def test_production_decimal_carriers_exercise_money_bounds(self, cost: Decimal) -> None:
+        evidence = _openrouter(
+            {
+                "id": "gen-bounded",
+                "usage": {"prompt_tokens": 2, "completion_tokens": 1, "cost": cost},
+            }
+        )
+
+        assert evidence.direct_cost.status == "invalid"
+        assert evidence.usage.status == "complete"
+        assert evidence.provider_response_id == "gen-bounded"
+
+    def test_numeric_string_cost_is_not_certified_as_exact_money(self) -> None:
+        evidence = _openrouter(
+            {
+                "id": "gen-string-cost",
+                "usage": {"prompt_tokens": 2, "completion_tokens": 1, "cost": "0.001"},
+            }
+        )
+
+        assert evidence.direct_cost.status == "invalid"
+        assert evidence.direct_cost.amount is None
+        assert evidence.usage.status == "complete"
+        assert evidence.provider_response_id == "gen-string-cost"
+
     def test_unitless_cost_details_are_bounded_audit_evidence(self) -> None:
         evidence = _openrouter(
             {
