@@ -1,9 +1,9 @@
 ---
 ticket: OME-803
-stack: py-screamingface
-status: done
+stack: screamingface
+status: in_progress
 started: 2026-08-13
-finished: 2026-08-13
+finished:
 ---
 
 # OME-803 — Consume normalized benchmark case outcomes in the Python Client
@@ -20,25 +20,22 @@ export — without recalculating Benchmark semantics.
 
 ## Planned changes
 
-- `packages/screamingface/src/screamingface/case_result.py` — `CaseStatus` type; `status`
-  and `refusal` fields on `CaseResult` (derived when omitted, validated when given);
-  `to_dict()` includes both.
-- `packages/screamingface/src/screamingface/_evaluation/results.py` — `_case_result`
-  required key set gains `status` and `refusal`; new `_case_status` literal decoder.
-- Tests: new `tests/test_case_outcome_decoding.py`; updated wire fixtures in
-  `tests/test_draco_vertical_slice.py`, `tests/test_benchmark_compilation.py`,
-  `tests/test_benchmark_variant_selection.py`, `tests/test_client_run.py`,
-  `tests/test_case_result_contract_boundaries.py`, `tests/test_case_results.py`.
+- Strictly consume all nine OME-802 Case fields and the exact nested Failure wire.
+- Preserve explicit outcomes, exact text, and string/integer Case identity in public values,
+  `.by_id()` lookup, Report serialization, file export, and the submitted URL4 receipt.
+- Present scored, refused, failed, and partial-evidence unscored Cases distinctly, including exact
+  refusal/failure detail and a reason whenever a Candidate score is withheld.
+- Pin the shared contract with DRACO, IFEval, and HealthBench fixtures plus renderer and vertical
+  slice coverage.
 
 ## Test plan
 
-- RED: `_case_result` decodes scored / refused / failed payloads carrying the new keys;
-  `status` and `refusal` are exposed on the decoded object and in `to_dict()`.
-- RED: missing `status` or `refusal` → `ExecutionError`; unsupported status text →
-  `ExecutionError`; genuinely unknown keys still rejected (strict posture kept).
-- Constructor invariants: explicit status must match the grade/refusal/failure shape;
-  a scored Case cannot carry refusal text.
-- All existing suite green after fixture updates (production decode paths only).
+- Every outcome and Benchmark family decodes and round-trips through one contract.
+- Every missing structural key, unknown key/status, malformed nested Failure, mismatched Case
+  identity, and contradictory outcome shape fails before presentation.
+- String and zero-valued Case identifiers, exact whitespace-bearing wire text, ID lookup, report
+  JSON/file export, status-driven widgets, and exact submitted URL4 preservation are covered.
+- Complete `screamingface` gates green.
 
 ## Acceptance
 
@@ -46,26 +43,23 @@ export — without recalculating Benchmark semantics.
 - Decoder required key set is byte-for-byte the CaseResult field set of
   `url4_cloud/benchmarks/contract.py` at #572 head (all nine keys unconditional).
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome (ready for review; close after merge)
 
-- **Actual files:** as planned (`case_result.py`, `_evaluation/results.py`, six test
-  files touched, one new test file).
-- **Commits:** feat(screamingface): decode Case status and refusal from
-  candidate-result.v1 (sha in PR)
-- **Gates:** 717 passed, 1 skipped; ruff check + format clean; pyright 0 errors
-  on touched files
-- **Deviations:** string `case_id` support (contract's `CaseId = StrictInt | StrictStr`)
-  deferred — every engine producer emits ints today; noted as PR follow-up.
-
-## Review fix (same unit, pre-merge)
-
-PR #574 review finding: `_resolve_case_status` mirrored the engine's outcome-shape rules
-only for the scored leg. A locally built refused `sf.CaseResult` could carry `output`
-(or an unscored grade) — shapes `contract.py::_enforce_status` rejects, so a client
-value could round-trip into a contract-invalid payload.
-
-- Planned: guard the refused leg in `_resolve_case_status` (refused ⇒ no output, no
-  grade); RED tests in `tests/test_case_outcome_decoding.py` first.
-- Outcome: guards added (`output` now passed into `_resolve_case_status`); two new
-  tests (`test_a_refused_case_cannot_carry_output`,
-  `test_a_refused_case_cannot_carry_a_grade`); full suite + gates green.
+- **Production:** strict Case/Failure decoding; shared exact-preserving Case identity validation;
+  public `CaseResult.status`/`refusal`; explicit `.cases.by_id()`; lossless Report export; and
+  status-driven refused/failed/unscored presentation with complete Failure disclosures.
+- **Tests:** three Benchmark-family contract fixtures, every Case key required, exact text/ID
+  round-trips, outcome invariants, lookup/export, UI states, withheld-score explanations, and a
+  normal evaluation receipt proving `result.url4` equals the submitted transport expression.
+- **Current verification:** 742 passed, 1 skipped; Ruff check/format, Pyright, ≥95% coverage,
+  notebook consistency, package build, and distribution inspection are all green.
+- **Append-only exception:** the gate is run with `--skip-append-only`. Existing contract fixtures
+  must add mandatory `status`/`refusal`; inherited boundary/serialization tests must adopt the
+  required full Failure shape and string IDs; the obsolete Client-only snake-case Failure-code
+  restriction is replaced by a positive test of the Engine's open non-empty contract; report tests
+  assert explicit outcome semantics; and the vertical slice records the exact submitted URL4.
+  These are contract migrations and new positive assertions, not removals that weaken coverage.
+- **Process deviation:** Khoa's initial three implementation commits existed before the branch had
+  OME-803 spec/plan files. The user had explicitly approved the design and implementation in the
+  working conversation; the missing repository artifacts were added during review. This is
+  disclosed rather than rewriting history to imply a chronology that did not occur.

@@ -118,10 +118,12 @@ def test_failed_case_retains_the_failure_without_fabricating_an_output_or_grade(
     )
 
     case = sf.CaseResult(
+        status="refused",
         case_id=2,
         input="A clinical question",
         output=None,
         finish_reason=None,
+        refusal="provider refused the request",
         grade=None,
         failures=(failure,),
         metadata={"domain": "Medicine"},
@@ -132,6 +134,7 @@ def test_failed_case_retains_the_failure_without_fabricating_an_output_or_grade(
             "stage": "candidate",
             "code": "provider_refusal",
             "message": "provider refused the request",
+            "retryable": None,
             "case_id": 2,
             "metadata": {"error_kind": "ResolutionError"},
         }
@@ -164,7 +167,7 @@ _ENVELOPE = (
 )
 
 
-def _case_with_input(value: object) -> sf.CaseResult:
+def _case_with_input(value: str) -> sf.CaseResult:
     case = _graded_case()
     return sf.CaseResult(
         case_id=case.case_id,

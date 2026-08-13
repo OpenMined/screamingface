@@ -76,6 +76,37 @@ def _failed_payload() -> dict[str, Any]:
     }
 
 
+def _ifeval_payload() -> dict[str, Any]:
+    payload = _scored_payload()
+    payload["input"] = "Write exactly three words."
+    payload["output"] = "One two three"
+    payload["grade"] = {
+        "method": "deterministic",
+        "score": 1.0,
+        "metrics": {"instructions_followed": 1},
+        "checks": [],
+    }
+    payload["metadata"] = {"benchmark": "ifeval"}
+    return payload
+
+
+def _healthbench_payload() -> dict[str, Any]:
+    payload = _scored_payload()
+    payload["input"] = (
+        '{"schema":"screamingface.candidate-input.v1","messages":'
+        '[{"role":"user","content":"I have chest pain."}]}'
+    )
+    payload["output"] = "Seek urgent medical assessment."
+    payload["grade"] = {
+        "method": "rubric",
+        "score": -0.25,
+        "metrics": {"rubrics_judged": 2},
+        "checks": [],
+    }
+    payload["metadata"] = {"benchmark": "healthbench/worst30"}
+    return payload
+
+
 @pytest.mark.parametrize(
     ("payload", "status", "refusal"),
     [
@@ -100,7 +131,127 @@ def test_decoded_outcome_survives_export() -> None:
     assert exported["refusal"] == "I can't help with that request."
 
 
-@pytest.mark.parametrize("key", ["status", "refusal"])
+def test_wire_text_and_string_identity_survive_without_normalization() -> None:
+    payload = _refused_payload()
+    payload.update(
+        {
+            "case_id": " case-1 ",
+            "input": " prompt with intentional padding ",
+            "finish_reason": " content_filter ",
+            "refusal": " exact provider refusal ",
+        }
+    )
+    failure = payload["failures"][0]
+    failure.update(
+        {
+            "message": " exact failure message ",
+            "case_id": " case-1 ",
+        }
+    )
+
+    assert _case_result(payload).to_dict() == payload
+
+
+def test_failure_code_uses_the_engine_open_nonempty_contract() -> None:
+    payload = _failed_payload()
+    payload["failures"][0]["code"] = "Provider Error"
+
+    assert _case_result(payload).failures[0].code == "Provider Error"
+
+
+def test_nested_grade_and_evidence_round_trip_the_exact_engine_contract() -> None:
+    payload = _scored_payload()
+    payload["grade"] = {
+        "method": " deterministic ",
+        "score": 1.0,
+        "metrics": {},
+        "checks": [
+            {
+                "type": " instruction ",
+                "id": " check-1 ",
+                "label": "",
+                "outcome": "MET",
+                "score": 1.0,
+                "evidence": [
+                    {
+                        "sequence": 1,
+                        "producer": {"type": "sandboxed-python", "id": " checker/custom "},
+                        "valid": True,
+                        "outcome": "PASS",
+                        "explanation": " exact explanation ",
+                        "raw_output": {"passed": True},
+                        "metadata": {},
+                    }
+                ],
+                "metadata": {},
+            }
+        ],
+    }
+
+    assert _case_result(payload).to_dict() == payload
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "message"),
+    [
+        (("grade", "score"), 1.1, "Case Grade score must be at most 1"),
+        (("grade", "checks", 0, "score"), -0.1, "Check score must be between 0 and 1"),
+        (("grade", "checks", 0, "outcome"), "PASS", "Check outcome"),
+        (("grade", "checks", 0, "evidence", 0, "outcome"), "MAYBE", "Evidence outcome"),
+    ],
+)
+def test_nested_grade_contract_rejects_values_the_engine_cannot_publish(
+    path: tuple[str | int, ...], value: object, message: str
+) -> None:
+    payload = _scored_payload()
+    payload["grade"] = {
+        "method": "rubric",
+        "score": 1.0,
+        "metrics": {},
+        "checks": [
+            {
+                "type": "criterion",
+                "id": "check-1",
+                "label": "label",
+                "outcome": "MET",
+                "score": 1.0,
+                "evidence": [
+                    {
+                        "sequence": 1,
+                        "producer": {"type": "model", "id": "judge"},
+                        "valid": True,
+                        "outcome": "PASS",
+                        "raw_output": {},
+                        "metadata": {},
+                    }
+                ],
+                "metadata": {},
+            }
+        ],
+    }
+    selected: Any = payload
+    for part in path[:-1]:
+        selected = selected[part]
+    selected[path[-1]] = value
+
+    with pytest.raises(sf.ExecutionError, match=message):
+        _case_result(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [_scored_payload(), _ifeval_payload(), _healthbench_payload()],
+    ids=["draco", "ifeval", "healthbench"],
+)
+def test_each_benchmark_family_decodes_through_the_same_case_contract(
+    payload: dict[str, Any],
+) -> None:
+    case = _case_result(payload)
+
+    assert case.to_dict() == payload
+
+
+@pytest.mark.parametrize("key", tuple(_scored_payload()))
 def test_a_case_missing_a_contract_key_is_rejected(key: str) -> None:
     payload = {name: value for name, value in _scored_payload().items() if name != key}
 
@@ -197,7 +348,7 @@ def test_a_refused_case_cannot_carry_a_grade() -> None:
         )
 
 
-def test_a_locally_built_case_derives_the_status_the_engine_would_publish() -> None:
+def test_a_locally_built_case_derives_status_without_weakening_wire_decoding() -> None:
     refused = sf.CaseResult(
         case_id=1,
         input="question",

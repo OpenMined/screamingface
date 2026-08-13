@@ -8,13 +8,20 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
-from screamingface._report_primitives import Failure, _nonblank
+from screamingface._report_primitives import (
+    CaseId,
+    Failure,
+    _case_id,
+    _nonblank_text,
+    _nonempty_text,
+)
 
 # The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
 # with url4-cloud's `benchmarks/contract.py` CANDIDATE_INPUT_SCHEMA.
 _CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
 
-type ProducerType = Literal["model", "deterministic"]
+type EvidenceOutcome = Literal["MET", "UNMET", "PASS", "FAIL"]
+type CheckOutcome = Literal["MET", "UNMET"]
 
 # The Engine's explicit per-Case outcome; kept in lock-step with url4-cloud's
 # `benchmarks/contract.py` CaseStatus.
@@ -25,13 +32,12 @@ type CaseStatus = Literal["scored", "refused", "failed"]
 class EvidenceProducer:
     """The Engine-known producer of one observed grading result."""
 
-    type: ProducerType
+    type: str
     id: str
 
     def __post_init__(self) -> None:
-        if self.type not in {"model", "deterministic"}:
-            raise ValueError("Evidence producer type must be 'model' or 'deterministic'")
-        object.__setattr__(self, "id", _nonblank(self.id, "Evidence producer id"))
+        object.__setattr__(self, "type", _nonempty_text(self.type, "Evidence producer type"))
+        object.__setattr__(self, "id", _nonempty_text(self.id, "Evidence producer id"))
 
     def to_dict(self) -> dict[str, object]:
         return {"type": self.type, "id": self.id}
@@ -44,7 +50,7 @@ class Evidence:
     sequence: int
     producer: EvidenceProducer
     valid: bool
-    outcome: object | None
+    outcome: EvidenceOutcome | None
     explanation: str | None
     raw_output: object
     _metadata: Mapping[str, object] = field(repr=False)
@@ -56,7 +62,7 @@ class Evidence:
         producer: EvidenceProducer,
         valid: bool,
         raw_output: object,
-        outcome: object | None = None,
+        outcome: EvidenceOutcome | None = None,
         explanation: str | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> None:
@@ -66,8 +72,10 @@ class Evidence:
             raise TypeError("Evidence producer must be an sf.EvidenceProducer")
         if not isinstance(valid, bool):
             raise TypeError("Evidence valid must be a boolean")
+        if outcome not in {None, "MET", "UNMET", "PASS", "FAIL"}:
+            raise ValueError("Evidence outcome must be MET, UNMET, PASS, FAIL, or None")
         if explanation is not None:
-            explanation = _nonblank(explanation, "Evidence explanation")
+            explanation = _string(explanation, "Evidence explanation")
         if not valid and (outcome is not None or explanation is not None):
             raise ValueError("invalid Evidence cannot contain an outcome or explanation")
         values = {
@@ -109,7 +117,7 @@ class Check:
     id: str
     label: str
     evidence: tuple[Evidence, ...]
-    outcome: object | None
+    outcome: CheckOutcome | None
     score: float | None
     _metadata: Mapping[str, object] = field(repr=False)
 
@@ -121,7 +129,7 @@ class Check:
         label: str,
         evidence: Sequence[Evidence],
         metadata: Mapping[str, object] | None = None,
-        outcome: object | None = None,
+        outcome: CheckOutcome | None = None,
         score: float | None = None,
     ) -> None:
         selected_evidence = tuple(evidence)
@@ -130,13 +138,15 @@ class Check:
         sequences = [item.sequence for item in selected_evidence]
         if sequences != sorted(sequences) or len(sequences) != len(set(sequences)):
             raise ValueError("Check Evidence sequences must be unique and ordered")
+        if outcome not in {None, "MET", "UNMET"}:
+            raise ValueError("Check outcome must be MET, UNMET, or None")
         values = {
-            "type": _nonblank(type, "Check type"),
-            "id": _nonblank(id, "Check id"),
-            "label": _nonblank(label, "Check label"),
+            "type": _nonempty_text(type, "Check type"),
+            "id": _nonempty_text(id, "Check id"),
+            "label": _string(label, "Check label"),
             "evidence": selected_evidence,
-            "outcome": freeze_json(outcome, "Check outcome"),
-            "score": _optional_number(score, "Check score"),
+            "outcome": outcome,
+            "score": _optional_check_score(score),
             "_metadata": freeze_mapping(metadata or {}, "Check metadata"),
         }
         for name, value in values.items():
@@ -185,8 +195,8 @@ class CaseGrade:
         if len(ids) != len(set(ids)):
             raise ValueError("Case Grade Check ids must be unique")
         values = {
-            "method": _nonblank(method, "Case Grade method"),
-            "score": _optional_number(score, "Case Grade score"),
+            "method": _nonempty_text(method, "Case Grade method"),
+            "score": _optional_case_score(score),
             "checks": selected_checks,
             "_metrics": freeze_mapping(metrics, "Case Grade metrics"),
         }
@@ -211,9 +221,9 @@ class CaseResult:
     """The complete retained result for one selected Benchmark Case."""
 
     status: CaseStatus
-    case_id: int
-    input: object
-    output: object
+    case_id: CaseId
+    input: str
+    output: str | None
     finish_reason: str | None
     refusal: str | None
     grade: CaseGrade | None
@@ -223,9 +233,9 @@ class CaseResult:
     def __init__(
         self,
         *,
-        case_id: int,
-        input: object,
-        output: object,
+        case_id: CaseId,
+        input: str,
+        output: str | None,
         finish_reason: str | None,
         grade: CaseGrade | None,
         failures: Sequence[Failure],
@@ -233,24 +243,32 @@ class CaseResult:
         status: CaseStatus | None = None,
         refusal: str | None = None,
     ) -> None:
-        if isinstance(case_id, bool) or not isinstance(case_id, int) or case_id < 1:
-            raise ValueError("Case Result case_id must be a positive integer")
+        case_id = _case_id(case_id)
+        input = _nonempty_text(input, "Case Result input")
+        if output is not None and not isinstance(output, str):
+            raise TypeError("Case Result output must be text or None")
         if grade is not None and not isinstance(grade, CaseGrade):
             raise TypeError("Case Result grade must be an sf.CaseGrade or None")
         if finish_reason is not None:
-            finish_reason = _nonblank(finish_reason, "Case Result finish_reason")
+            finish_reason = _nonblank_text(finish_reason, "Case Result finish_reason")
         if refusal is not None:
-            refusal = _nonblank(refusal, "Case Result refusal")
+            refusal = _nonblank_text(refusal, "Case Result refusal")
         selected_failures = tuple(failures)
         if any(not isinstance(item, Failure) for item in selected_failures):
             raise TypeError("Case Result failures must contain sf.Failure values")
-        _validate_case_state(grade, selected_failures)
-        status = _resolve_case_status(status, refusal, grade, output)
+        status = _validate_case_outcome(
+            status,
+            case_id,
+            refusal,
+            grade,
+            output,
+            selected_failures,
+        )
         values = {
             "status": status,
             "case_id": case_id,
-            "input": freeze_json(input, "Case Result input"),
-            "output": freeze_json(output, "Case Result output"),
+            "input": input,
+            "output": output,
             "finish_reason": finish_reason,
             "refusal": refusal,
             "grade": grade,
@@ -347,6 +365,26 @@ def _optional_number(value: object, label: str) -> float | None:
     return None if value is None else _required_number(value, label)
 
 
+def _optional_check_score(value: object) -> float | None:
+    selected = _optional_number(value, "Check score")
+    if selected is not None and not 0.0 <= selected <= 1.0:
+        raise ValueError("Check score must be between 0 and 1")
+    return selected
+
+
+def _optional_case_score(value: object) -> float | None:
+    selected = _optional_number(value, "Case Grade score")
+    if selected is not None and selected > 1.0:
+        raise ValueError("Case Grade score must be at most 1")
+    return selected
+
+
+def _string(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be text")
+    return value
+
+
 def _required_number(value: object, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"{label} must be a finite number")
@@ -356,70 +394,99 @@ def _required_number(value: object, label: str) -> float:
     return selected
 
 
-def _validate_case_state(grade: CaseGrade | None, failures: Sequence[Failure]) -> None:
-    if grade is None and not failures:
-        raise ValueError("an ungraded Case Result must contain a Failure")
-    if grade is not None and grade.score is None and not failures:
-        raise ValueError("an unscored Case Grade must contain a Case Result Failure")
-    if grade is not None and grade.score is not None and failures:
-        raise ValueError("a graded Case Result cannot contain failures")
-
-
-def _resolve_case_status(
+def _validate_case_outcome(
     status: CaseStatus | None,
+    case_id: CaseId,
     refusal: str | None,
     grade: CaseGrade | None,
     output: object,
+    failures: Sequence[Failure],
 ) -> CaseStatus:
-    """Answer "what happened to this Case?" from its fields, and refuse ambiguity.
+    """Validate one immutable value against the Engine's closed outcome contract.
 
-    Think of it as reading a verdict off the evidence. A Case ends one of three
-    ways, and the fields already tell the story: a numeric grade means the model
-    answered and was scored; refusal text means the model declined; neither means
-    something broke. The Engine ships an explicit `status` on the wire, but a
-    locally built value has none — so this function derives the verdict the same
-    way the Engine would, and the two can never disagree.
-
-    Stage 1 — derive the verdict from the evidence: numeric grade → "scored",
-    else refusal text → "refused", else "failed".
-
-    Stage 2 — reject evidence that tells two stories at once. The Engine
-    (`url4_cloud/benchmarks/contract.py::_enforce_status`) refuses these shapes,
-    so building one locally would create a payload the Engine could never have
-    published: a scored Case carrying refusal text, or a refused Case carrying
-    an output or a grade. Example: `refusal="I can't help", output="Four."` —
-    did the model refuse or answer? Rejected rather than guessed.
-
-    Stage 3 — check the caller's explicit `status` (if any) against the derived
-    verdict. It must be one of the three known words and must match; a Case
-    labeled "failed" but shaped like "scored" is rejected, not trusted.
-
-    Returns the settled status; raises ValueError on any contradiction.
+    The wire decoder always requires an explicit status. Derivation exists only for
+    directly constructed Python values, where it avoids forcing test/data authors to
+    repeat a status already unambiguously determined by the complete Case shape.
     """
 
-    # Stage 1 — derive the verdict from the evidence.
-    derived: CaseStatus = (
-        "scored"
-        if grade is not None and grade.score is not None
-        else "refused"
-        if refusal is not None
-        else "failed"
-    )
-    # Stage 2 — reject evidence that tells two stories at once (engine-forbidden shapes).
-    if derived == "scored" and refusal is not None:
-        raise ValueError("a scored Case Result cannot contain refusal text")
-    if derived == "refused" and output is not None:
-        raise ValueError("a refused Case Result cannot contain output")
-    if derived == "refused" and grade is not None:
-        raise ValueError("a refused Case Result cannot contain a grade")
-    # Stage 3 — the explicit status (when given) must match the derived verdict.
+    selected_status = _case_status(status, refusal, grade)
+    if any(failure.case_id != case_id for failure in failures):
+        raise ValueError("every Case Result Failure must reference its own case_id")
+    if selected_status == "scored":
+        _validate_scored_case(refusal, grade, output, failures)
+    elif selected_status == "refused":
+        _validate_refused_case(refusal, grade, output, failures)
+    else:
+        _validate_failed_case(refusal, grade, failures)
+    return selected_status
+
+
+def _case_status(
+    status: CaseStatus | None,
+    refusal: str | None,
+    grade: CaseGrade | None,
+) -> CaseStatus:
     if status is None:
-        return derived
+        if grade is not None and grade.score is not None:
+            return "scored"
+        return "refused" if refusal is not None else "failed"
     if status not in {"scored", "refused", "failed"}:
         raise ValueError("Case Result status must be 'scored', 'refused', or 'failed'")
-    if status != derived:
-        raise ValueError(f"Case Result status {status!r} contradicts its {derived!r} shape")
     return status
+
+
+def _validate_scored_case(
+    refusal: str | None,
+    grade: CaseGrade | None,
+    output: object,
+    failures: Sequence[Failure],
+) -> None:
+    if grade is None or grade.score is None or output is None or refusal is not None or failures:
+        raise ValueError(
+            "Case Result status 'scored' requires output and a numeric grade and cannot "
+            "carry refusal or failures"
+        )
+
+
+def _validate_refused_case(
+    refusal: str | None,
+    grade: CaseGrade | None,
+    output: object,
+    failures: Sequence[Failure],
+) -> None:
+    refusal_failures = tuple(
+        failure
+        for failure in failures
+        if failure.stage == "candidate" and failure.code == "provider_refusal"
+    )
+    if (
+        refusal is None
+        or output is not None
+        or grade is not None
+        or len(failures) != 1
+        or len(refusal_failures) != 1
+    ):
+        raise ValueError(
+            "Case Result status 'refused' requires exact refusal text, no output or grade, "
+            "and one candidate provider_refusal Failure"
+        )
+
+
+def _validate_failed_case(
+    refusal: str | None,
+    grade: CaseGrade | None,
+    failures: Sequence[Failure],
+) -> None:
+    if (
+        not failures
+        or refusal is not None
+        or any(failure.code == "provider_refusal" for failure in failures)
+        or grade is not None
+        and grade.score is not None
+    ):
+        raise ValueError(
+            "Case Result status 'failed' requires failures, no refusal, and no numeric grade"
+        )
 
 
 __all__ = ["CaseGrade", "CaseResult", "Check", "Evidence", "EvidenceProducer"]

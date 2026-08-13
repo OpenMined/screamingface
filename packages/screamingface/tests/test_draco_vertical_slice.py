@@ -185,11 +185,13 @@ class _FakeTransport:
     def __init__(self, result_payload: dict[str, object] | None = None) -> None:
         self.closed = False
         self.calls: list[str] = []
+        self.url4s: list[str] = []
         self._result_payload = deepcopy(result_payload)
 
     def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         assert on_event is None
         self.calls.append(candidate.name)
+        self.url4s.append(candidate.url4)
         return _RunOutcome(
             run_id=f"run_{candidate.name}",
             started_at=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
@@ -343,6 +345,11 @@ def _assert_case_artifact(result: sf.CandidateResult) -> None:
     assert result.to_dict()["cases"] == [_case_payload(score=0.7)]
 
 
+def _assert_transport_artifact(transport: _FakeTransport, result: sf.CandidateResult) -> None:
+    assert transport.url4s == [result.url4]
+    assert transport.closed is True
+
+
 def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     client, transport = _client()
 
@@ -375,7 +382,7 @@ def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     _assert_case_artifact(result)
     assert result.usage.input_tokens == 120
     assert result.duration_ms == 2000
-    assert transport.closed is True
+    _assert_transport_artifact(transport, result)
 
 
 def test_client_preserves_nested_candidate_metrics() -> None:
