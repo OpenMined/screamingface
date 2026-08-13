@@ -18,6 +18,7 @@ class _ConnectionPanelState:
     """Mutable presentation state owned by one connection-panel controller."""
 
     hosted: bool
+    engine_url: str
     connections: tuple[Connection, ...] = ()
     notice: str | None = None
     access_pending: bool = False
@@ -47,6 +48,13 @@ def _is_hosted_engine(engine_url: str) -> bool:
     except ValueError:
         return True
     return not (address.is_loopback or address.is_unspecified)
+
+
+def _is_screamingface_engine(engine_url: str) -> bool:
+    # INVARIANT: only ScreamingFace's own hosted Engine (the *.screamingface.ai family) earns
+    # the brand name + 😱 mark; any other remote Engine renders a neutral "Hosted Engine".
+    host = (urlsplit(engine_url).hostname or "").lower()
+    return host == "screamingface.ai" or host.endswith(".screamingface.ai")
 
 
 def _user_message(error: Exception) -> str:

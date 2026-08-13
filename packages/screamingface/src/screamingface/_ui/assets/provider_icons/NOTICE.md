@@ -22,7 +22,7 @@ or recolored logo.
 
 `codex` and `antigravity` are supported plugin providers with **no mark in
 `screamingface-brand/assets/model-logos/`**, so they render the letter-monogram tile.
-The same is true of Cloudflare, which backs the "Engine access" row (and is
+The same is true of Cloudflare, which backs the "ScreamingFace Hosted Engine" row (and is
 infrastructure, not a model provider, so it would not live under `model-logos/`
 anyway).
 

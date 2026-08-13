@@ -564,15 +564,23 @@ byok"""
         nbformat.v4.new_markdown_cell(
             """### Option 2 · Hosted credits
 
-On a hosted Engine, authenticate once with `login()` (Cloudflare Access opens in your browser).
-After login the connection card reads **signed in**, and `connect()` reveals the providers your
-hosted account can use — you spend shared credits instead of your own keys:
+On a hosted Engine, `sf.connect()` handles login for you: the panel shows a **Log in** step
+(Cloudflare Access opens in your browser), then reveals the providers your hosted account can
+use — you spend shared credits instead of your own keys.
+
+```python
+sf.configure(engine_url="https://your-engine.example")
+sf.connect()   # log in via the panel, then pick a provider
+```
+
+Prefer to script the login? Own a Client and call `login()` yourself; the connection card then
+reads **signed in**:
 
 ```python
 with sf.Client(engine_url="https://your-engine.example") as session:
     session.login(timeout=300)      # browser login
     print(session.authenticated)    # True
-    session.connect()               # panel: providers available to your account
+    session.connect()
 ```
 
 Local loopback development never needs this flow.

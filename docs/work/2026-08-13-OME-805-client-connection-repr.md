@@ -71,3 +71,33 @@ tutorial notebook teaching how to point the client at an engine and how to suppl
     covered end-to-end through real `Client`/`AsyncClient` instances.
   - Status chips are neutral (`sf-chip--muted`), keeping gold rationed to the card accent per
     SFDS v2 (a client is not "the win"); zero new CSS was added.
+
+## Follow-on folded into this unit (owner-approved during review)
+
+Relabeled the hosted-login row in the `sf.connect()` panel and simplified the notebook's
+hosted-credits section to lead with the `sf.connect()` panel (which drives the Cloudflare Access
+login itself) rather than an explicit `session.login()` block.
+
+The row label is **engine-aware**: ScreamingFace's own hosted Engine (the `*.screamingface.ai`
+family) renders **"ScreamingFace Hosted Engine"** with the **😱** mark; any other remote Engine
+renders a neutral **"Hosted Engine"** with the monogram fallback (no brand logo). This keeps the
+brand honest — a user's self-hosted engine isn't mislabeled as ScreamingFace's.
+
+- `src/screamingface/_ui/connection_state.py` — new `_is_screamingface_engine()` classifier;
+  `_ConnectionPanelState` gains an `engine_url` field.
+- `src/screamingface/_ui/connections.py` — pass `engine_url` when building the panel state.
+- `src/screamingface/_ui/connection_view.py` — `_access_meta_html(status, engine_url)` picks the
+  label + icon; new `_screaming_mark_html()` renders the 😱 mark (system emoji, per SFDS).
+- `src/screamingface/_ui/assets/provider_icons/NOTICE.md` — descriptive reference updated.
+- `tests/test_connection_panel.py` — 3 prior assertions (lines 162/532/810) updated to the new
+  labels + 😱, plus a new appended test for the non-ScreamingFace hosted engine (neutral label,
+  no mark). **The 3 prior-assertion edits modify prior tests (sdlc rule 5).** The owner approved
+  the relabel explicitly, so the change is authorized; the local `append-only` gate was passed
+  with the sanctioned `--skip-append-only` override. CI (`screamingface-tests.yml`) does not run
+  that meta-check and is unaffected — all 19 panel tests pass.
+- `scripts/build_notebooks.py` / `examples/02_connection.ipynb` — Option 2 rewritten (login is
+  panel-driven; the row label is engine-specific, so the prose no longer hard-codes it).
+
+This was folded here (rather than a new ticket) per the owner's standing preference to keep
+small follow-on UI tweaks under the in-progress unit; OME-805's scope note was widened to match.
+Re-ran `run_gates.py screamingface --skip-append-only` — all green.

@@ -84,6 +84,7 @@ class ConnectionPanel:
         hosted = _is_hosted_engine(client.engine_url)
         self._state = _ConnectionPanelState(
             hosted=hosted,
+            engine_url=client.engine_url,
             access_check_pending=(
                 hosted
                 and not client.authenticated
