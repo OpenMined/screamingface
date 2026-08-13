@@ -600,3 +600,85 @@ def test_score_submission_still_accepts_the_documented_bounds() -> None:
         payload["run_cost_usd"] = value
 
         assert ScoreSubmission.model_validate(payload).run_cost_usd == Decimal(value)
+
+
+# --- OME-770 review pass: quantize inexact, reject unstorable (spec 2.2 revision) ---
+#
+# The earlier rule ("reject anything not storable exactly") over-rejected: it
+# conflated a value BELOW representable precision, where rounding materially
+# alters a money figure, with float noise on a value that IS representable,
+# where rounding loses nothing. Spec 2.2 revision splits the two.
+
+
+@pytest.mark.parametrize(
+    ("submitted", "stored"),
+    [
+        # WHY: what a client summing per-call float costs actually sends. Rounding
+        # to 6dp loses nothing here, so rejecting it would discard a valid score
+        # over float noise once the upstream chain lands.
+        (0.07 * 3, Decimal("0.210000")),
+        ("1.23456789", Decimal("1.234568")),
+        # ROUND_HALF_UP, not truncation.
+        ("0.0000015", Decimal("0.000002")),
+        # The boundary: exactly the smallest representable unit is storable as-is.
+        ("0.000001", Decimal("0.000001")),
+        # INVARIANT (D5): an explicit zero stays zero, distinct from absent.
+        ("0", Decimal("0")),
+    ],
+)
+def test_score_submission_quantizes_an_inexact_cost(
+    submitted: float | str,
+    stored: Decimal,
+) -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = submitted
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == stored
+    # Numeric equality is not enough — the point is the stored SCALE is pinned to
+    # 6dp, which is what makes the wire form backend-independent (spec 2.4).
+    assert submission.run_cost_usd is not None
+    assert submission.run_cost_usd.as_tuple().exponent == -6
+
+
+@pytest.mark.parametrize(
+    "submitted",
+    [
+        # Above the column ceiling at any precision. These must be caught BEFORE
+        # quantizing, which raises InvalidOperation on an absurd exponent.
+        "1000000",
+        "1e30",
+        # Rounds UP past the ceiling, so the ceiling is re-checked after quantizing.
+        "999999.9999996",
+        # Not a cost.
+        "-0.01",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+    ],
+)
+def test_score_submission_rejects_an_unstorable_cost(submitted: str) -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = submitted
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+@pytest.mark.parametrize("submitted", ["0.0000009", "0.0000004", "0.0000001"])
+def test_score_submission_rejects_a_positive_cost_below_the_smallest_unit(
+    submitted: str,
+) -> None:
+    """INVARIANT (D5): quantizing must never manufacture a zero cost.
+
+    A positive cost rounded to 0.000000 would present a run that cost real money
+    as free, and land it at the cheapest end of the Pareto frontier. Values below
+    the smallest representable unit are rejected rather than rounded in either
+    direction.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = submitted
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)

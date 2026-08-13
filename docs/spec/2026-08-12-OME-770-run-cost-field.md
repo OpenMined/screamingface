@@ -64,8 +64,81 @@ only `ge=0` in place:
 | `1e30` | `500` | An input-validation failure surfacing as a server error. |
 
 Mirroring the column's `max_digits`/`decimal_places` on `ScoreSubmission` turns all three into a
-`422` field error at the edge. **A value that cannot be stored exactly must be rejected, never
-rounded** — the alternative is publishing a number nobody submitted.
+`422` field error at the edge.
+
+#### Revision (owner, 2026-08-13) — reject *unstorable*, quantize *inexact*
+
+The rule above was first written as "a value that cannot be stored exactly must be rejected, never
+rounded". Review showed that over-rejects, because it conflates two different situations:
+
+| Situation | Example | Effect of rounding | Decision |
+|---|---|---|---|
+| Below the smallest representable unit | `0.0000009` | `→ 0.000001`, an **~11% change** to a money figure | **reject (422)** |
+| Above the column ceiling | `1000000`, `1e30` | unstorable at any precision | **reject (422)** |
+| Float noise on a representable value | `0.07 * 3 == 0.21000000000000002` | `→ 0.210000`, **loses nothing** | **quantize, accept** |
+
+The third row is not hypothetical: it is what a client summing per-call float costs will send, so
+the original rule would have discarded valid scores over noise once link 3 of §1's chain lands.
+Verified: `0.21000000000000002` and `1.23456789` both returned `422` under the first rule.
+
+The rule is therefore: **reject what cannot be stored; quantize what merely arrives inexact.**
+Concretely, on `ScoreSubmission`, in this order —
+
+1. negative → `422` (`ge=0`); non-finite (`NaN`, `Infinity`) → `422`;
+2. `> 999999.999999` → `422` (unstorable — this is what catches `1000000` and `1e30`, and it must
+   run *before* quantizing, which would otherwise raise on an absurd exponent);
+3. `0 < value < 0.000001` → `422` (rounding would materially alter the figure);
+4. otherwise quantize to 6dp, `ROUND_HALF_UP`, and re-check the ceiling (`999999.9999996` rounds
+   *up* past it).
+
+**INVARIANT preserved:** step 3 means a positive cost can never be rounded down to `0.000000`.
+Without it, quantizing would manufacture a free run out of a tiny real cost and break §2.1 — the
+exact corruption that invariant exists to prevent.
+
+Quantizing at the edge has a useful side effect: every value the submission path persists is
+already at fixed scale, so the notation oddities of §2.4 never reach storage from that direction.
+
+### 2.4 Wire form — fixed-scale string (owner, 2026-08-13)
+
+Pydantic serializes `Decimal` to JSON as a **string**, and by default that string carries whatever
+scale and notation the value happens to have. Verified on the wire:
+
+| Submitted | Default JSON |
+|---|---|
+| `12.5` | `"12.5"` |
+| `1e3` | `"1E+3"` |
+| `12.5`, read back from Postgres | `"12.500000"` (the column pads; SQLite does not) |
+
+That is a **backend-dependent wire format**, and it breaks the very feature this field exists for.
+Pass 2 computes a Pareto frontier and a cheapest-run stat in JavaScript, where `<` on strings is
+lexicographic: `"10" < "9.5"` is `true`, so $1000 ranks as cheaper than $3.50 and the frontier
+marks, the chart's polyline and the summary stat all come out wrong. `1E+3` also renders literally
+in a Cost column.
+
+**Decision:** always serialize at **exactly 6 decimal places**, as a string, on every read DTO —
+`"12.500000"`, `"1000.000000"`, `null` for absent. This keeps money out of binary floating point
+end-to-end (consistent with D2), makes the wire form identical on SQLite and Postgres regardless of
+how a row was stored, and eliminates the `1E+3` form.
+
+The string does **not** make the lexicographic hazard impossible — `"1000.000000" < "3.500000"` is
+still `true`. It forces consumers to convert explicitly (`parseFloat`), which is the point: an
+explicit conversion is reviewable, whereas a bare `<` on two numbers *looks* correct. Pass 2 must
+convert before comparing, and its frontier logic must be unit-tested on values of differing integer
+width (e.g. `3.50` vs `1000.00`) precisely to catch this.
+
+Applied via one shared annotated type so the four read DTOs cannot drift — the duplication that has
+already caused two defects (§7).
+
+### 2.5 Do not compute cost aggregates in SQL
+
+On SQLite — the dev and test backend — `DECIMAL` is stored as `TEXT`, so cost comparisons in SQL are
+lexicographic. Verified: `ORDER BY run_cost_usd ASC` over $1000, $3.50 and $0.000001 returns
+`['0.000001', '1000.000000', '3.500000']`. On Postgres the same query is numerically correct.
+
+Quantizing (§2.2) does **not** fix this — fixed-scale strings still sort lexicographically. So the
+ticket's own "cheapest-run summary stat" and any `MIN()`/`order_by("run_cost_usd")` must be computed
+**in Python over `Decimal`**, not in SQL, or it will be right in production and silently wrong in
+every local run and test.
 
 ### 2.3 Trust model — self-reported, and labelled as such
 
@@ -136,7 +209,12 @@ overflow the Cost column's width. (D2)
 - A client can submit `run_cost_usd`; it persists and appears on `GET /v1/leaderboard/{id}` and on
   the per-spec history.
 - Omitting it is valid and reads back as `null`, distinct from `0`.
-- A negative cost, an over-precise cost, and an over-large cost are each rejected with a field
-  error — never rounded, never backend-dependent, never a `500`.
+- An **unstorable** cost — negative, non-finite, above the ceiling, or a positive value below the
+  smallest representable unit — is rejected with a field error, never a `500`.
+- An **inexact** cost (float noise) is quantized to 6dp and accepted; a positive cost is never
+  rounded to zero (§2.2).
+- Every read DTO emits the cost at exactly 6 decimal places, identically on SQLite and Postgres
+  (§2.4).
+- Cost aggregates are computed in Python, not SQL (§2.5).
 - Dedup behaviour is unchanged.
 - Full gates green; the migration applies cleanly and idempotently.

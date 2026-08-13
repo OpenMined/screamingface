@@ -485,7 +485,7 @@ async def test_get_spec_history_reports_an_absent_cost_as_null(
     assert response.json()["submissions"][0]["run_cost_usd"] is None
 
 
-def test_every_score_field_reaches_at_least_one_read_dto() -> None:
+async def test_every_score_field_reaches_at_least_one_read_dto() -> None:
     """Guard against the duplication that has now caused two separate bugs.
 
     RankedLeaderboardEntry, HistorySubmission and ScoreSchema each redeclare
@@ -511,3 +511,98 @@ def test_every_score_field_reaches_at_least_one_read_dto() -> None:
 
     missing = columns - exposed - internal
     assert missing == set(), f"Score columns absent from every read DTO: {sorted(missing)}"
+
+
+# --- OME-770 review pass: the wire form must be backend-independent (spec 2.4) ---
+#
+# Pydantic emits Decimal as a JSON STRING carrying whatever scale/notation the
+# value happens to have: "12.5" on SQLite, "12.500000" from a padded Postgres
+# DECIMAL, and "1E+3" for a cost submitted as 1e3. Pass 2 computes a Pareto
+# frontier and a cheapest-run stat in JS, where `<` on strings is lexicographic
+# ("10" < "9.5" is true), so an unpinned scale makes $1000 rank cheaper than
+# $3.50 and renders 1E+3 in the Cost column. Every read DTO pins it to 6dp.
+
+
+def _costed(spec_id: str, cost: str) -> ScoreSubmission:
+    """A submission carrying a raw, deliberately un-quantized cost.
+
+    `model_copy` skips validation on purpose: it puts the awkward value (1E+3,
+    12.5) into storage exactly as a legacy row or a non-submission write would,
+    so these tests exercise the read-path serializer rather than the input
+    validator that would otherwise have already normalized it.
+    """
+    return _submission(spec_id=spec_id).model_copy(update={"run_cost_usd": Decimal(cost)})
+
+
+@pytest.mark.parametrize(
+    ("submitted", "expected"),
+    [
+        ("12.5", "12.500000"),
+        # Would otherwise serialize as the literal string "1E+3".
+        ("1e3", "1000.000000"),
+        ("0.000001", "0.000001"),
+        ("0", "0.000000"),
+    ],
+)
+async def test_leaderboard_serializes_the_cost_at_a_fixed_scale(
+    async_client: httpx.AsyncClient,
+    submitted: str,
+    expected: str,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await store.submit(_costed("fixed-scale", submitted))
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entry = next(e for e in response.json()["entries"] if e["spec_id"] == "fixed-scale")
+    assert entry["run_cost_usd"] == expected
+
+
+async def test_spec_history_serializes_the_cost_at_a_fixed_scale(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await store.submit(_costed("hist-scale", "1e3"))
+
+    response = await async_client.get("/v1/leaderboard/hle/hist-scale/history")
+
+    assert response.status_code == 200
+    assert response.json()["submissions"][0]["run_cost_usd"] == "1000.000000"
+
+
+async def test_an_absent_cost_serializes_as_null_not_a_string(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT (D5): absent must stay absent on the wire — not "0.000000", and
+    # not the string "None".
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await store.submit(_submission(spec_id="null-scale"))
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    entry = next(e for e in response.json()["entries"] if e["spec_id"] == "null-scale")
+    assert entry["run_cost_usd"] is None
+
+
+# --- OME-770 review pass: the acceptance criteria name this route explicitly ---
+
+
+async def test_get_leaderboard_includes_the_run_cost(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """Only a store-level test covered this route before; the spec names it."""
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await store.submit(_costed("costed-board", "7.25"))
+    await store.submit(_submission(spec_id="uncosted-board"))
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    by_spec = {e["spec_id"]: e for e in response.json()["entries"]}
+    assert Decimal(by_spec["costed-board"]["run_cost_usd"]) == Decimal("7.25")
+    assert by_spec["uncosted-board"]["run_cost_usd"] is None

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -16,6 +15,7 @@ from scoreboard.scores.schemas import (
     BenchmarkSchema,
     FrontierResponse,
     LeaderboardEntry,
+    RunCostUsd,
     ScoreSchema,
     SubmittedBy,
 )
@@ -53,7 +53,11 @@ class RankedLeaderboardEntry(BaseModel):
     # extra="forbid", a field added to LeaderboardEntry and not here raises at
     # runtime rather than at import — a 500 on the read path, not a type error.
     # Keep the two in step.
-    run_cost_usd: Decimal | None
+    #
+    # RunCostUsd, not a bare Decimal | None: the shared type carries the
+    # fixed-6dp JSON serializer, so the wire form cannot drift between the DTOs
+    # (spec 2.4).
+    run_cost_usd: RunCostUsd
 
 
 class LeaderboardResponse(BaseModel):
@@ -80,7 +84,7 @@ class HistorySubmission(BaseModel):
     submitted_at: datetime
     submitted_by: SubmittedBy
     verified_by_screamingface: bool
-    run_cost_usd: Decimal | None
+    run_cost_usd: RunCostUsd
 
 
 class HistoryResponse(BaseModel):

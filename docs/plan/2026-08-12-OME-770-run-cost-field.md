@@ -83,6 +83,49 @@ Three findings, all verified against the running app before fixing:
    unpublished ones (`content_hash`, the FK object, the reverse relation). This turns the next
    occurrence into a failing test instead of relying on someone noticing.
 
+## Step 7 — code-review findings (2026-08-13)
+
+Five findings, all verified against the code before acting. Two carried owner decisions
+(spec §2.2 revision and §2.4); three are mechanical.
+
+### 7a — RED then GREEN: quantize inexact, reject unstorable (spec §2.2 revision)
+
+`Field(max_digits=…, decimal_places=…)` cannot express this — its constraints run *before* an
+`after` validator, so `0.21000000000000002` would be rejected before any quantizing could happen.
+So drop those two constraints from the field, keep `ge=0` and add `allow_inf_nan=False`, and put the
+ordered rule from spec §2.2 in a `field_validator`. Order matters: the ceiling check must precede
+`quantize()`, which raises `InvalidOperation` on an absurd exponent rather than returning a value.
+
+Tests: `0.21000000000000002` → stored `0.210000`; `1.23456789` → `1.234568`; `0.0000009`,
+`1000000`, `1e30`, `-1`, `NaN`, `Infinity` → `422`; `999999.9999996` → `422` (rounds up past the
+ceiling); `0` → accepted and still `0`; `0.000001` → accepted (the boundary).
+
+### 7b — RED then GREEN: fixed-scale wire form (spec §2.4)
+
+One shared `RunCostUsd` annotated type carrying a `PlainSerializer`, used by all four read DTOs so
+they cannot drift. `when_used="json"` only — `_ranked_entry` splats `entry.model_dump()` in Python
+mode and must keep receiving a `Decimal`, not a string.
+
+Tests: a cost submitted as `12.5` and one as `1e3` both read back `"12.500000"` / `"1000.000000"` on
+the leaderboard route, the history route and `GET /v1/scores/{id}`; absent stays `null`.
+
+### 7c — the raw-row loop converts only `ran_with_providers`
+
+`store.leaderboard()` builds `LeaderboardEntry(**row)` from raw pypika rows; `run_cost_usd` arrives
+as a SQLite string and survives only on Pydantic's lax `str → Decimal` coercion. Convert it through
+the field's `to_python_value` alongside `ran_with_providers`, so `rows` is already typed for anything
+that reads it before validation.
+
+### 7d — the cross-DTO guard is a sync test under an asyncio `pytestmark`
+
+Emits `PytestWarning` on every run today and becomes a hard error in a later pytest-asyncio. Make it
+`async def`.
+
+### 7e — coverage gap the review surfaced
+
+The spec's acceptance names `GET /v1/leaderboard/{id}`, but only a store-level test asserts the cost
+reaches it. Add an HTTP-level test on that route, matching the two the history route already has.
+
 ## Step 6 — gates and close
 
 `uv run .claude/scripts/run_gates.py scoreboard --base origin/main` — all green. Fill the ledger

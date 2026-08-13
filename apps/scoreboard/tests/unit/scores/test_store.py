@@ -940,3 +940,40 @@ async def test_cost_is_outside_recipe_identity_so_dedup_still_collapses(tortoise
     # a known limitation on OME-770 — the fix is requiring cost, not mutating a
     # deduplicated row.
     assert second.score.run_cost_usd == Decimal("1.00")
+
+
+# --- OME-770 review pass: raw projection rows must be fully typed (spec 2.5) ---
+
+
+async def test_the_raw_leaderboard_projection_types_every_column() -> None:
+    """INVARIANT: rows leaving the raw pypika projection are already Python-typed.
+
+    The projection bypasses the ORM, so each column has to be converted
+    explicitly. Only `ran_with_providers` was, and `run_cost_usd` reached
+    `LeaderboardEntry` as a raw SQLite string — surviving purely because Pydantic
+    coerces str -> Decimal in lax mode. That breaks the moment anything reads the
+    rows BEFORE validation, which spec 2.5 requires: the cheapest-run stat must be
+    computed in Python over Decimal, because SQLite compares this column as TEXT.
+    """
+    from scoreboard.scores.store import _to_python_rows
+
+    rows = _to_python_rows(
+        [
+            {
+                "spec_id": "s",
+                "ran_with_providers": '["openai"]',
+                "run_cost_usd": "3.5",
+            },
+            {
+                "spec_id": "t",
+                "ran_with_providers": '["openai"]',
+                "run_cost_usd": None,
+            },
+        ]
+    )
+
+    assert rows[0]["ran_with_providers"] == ["openai"]
+    assert rows[0]["run_cost_usd"] == Decimal("3.5")
+    assert isinstance(rows[0]["run_cost_usd"], Decimal)
+    # INVARIANT (D5): absent stays absent — never coerced to Decimal("0").
+    assert rows[1]["run_cost_usd"] is None

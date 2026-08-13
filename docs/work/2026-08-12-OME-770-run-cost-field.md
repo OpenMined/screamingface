@@ -183,3 +183,115 @@ pytest --cov ✓ (**184 passed, 2 skipped**, coverage 88.03% ≥ 80).
    (`client_*`, `metadata`, `ran_at_local`) plus a reverse relation as missing. Both were test
    defects, fixed in the tests.
 3. **No PR opened.** Awaiting explicit owner approval; nothing outward-facing was sent.
+
+## Code-review pass (2026-08-13) — five findings, all verified
+
+`/code-review` on the two-commit branch. I re-verified every finding against the code rather than
+accepting the report — all five were real, and **one of its proposed remedies was wrong** (see F2').
+
+### F1' — the wire form was backend-dependent (fixed; owner decision)
+
+Pydantic serializes `Decimal` to JSON as a **string** carrying whatever scale and notation the value
+has. Verified on the wire: `"12.5"` from SQLite, `"12.500000"` from a padded Postgres `DECIMAL`, and
+`"1E+3"` for a cost submitted as `1e3`.
+
+This breaks the feature the field exists for. Pass 2 computes the frontier and cheapest-run stat in
+JavaScript, where `<` on strings is lexicographic — `"10" < "9.5"` is `true`, so $1000 would rank
+cheaper than $3.50, and `1E+3` would render literally in the Cost column.
+
+**Owner chose the fixed-scale string** (over a JSON number): always exactly 6dp, keeping money out
+of binary float end-to-end and identical on both backends. Implemented as **one shared
+`RunCostUsd` annotated type** carrying a `PlainSerializer`, used by all four read DTOs — deliberately
+a type rather than four repeated fields, since that duplication has already caused two defects.
+`when_used="json"` is load-bearing: `_ranked_entry` splats `entry.model_dump()` in *python* mode and
+must keep receiving a `Decimal`.
+
+Recorded honestly in spec §2.4 and in the code: **a fixed-scale string does not make the
+lexicographic hazard impossible** (`"1000.000000" < "3.500000"` is still `true`). It forces an
+explicit `parseFloat`, which is reviewable where a bare `<` on two numbers is not. Pass 2's frontier
+logic must be unit-tested on values of differing integer width.
+
+### F2' — the review's remedy for the SQLite divergence does not work
+
+The review correctly found that SQLite stores this column as `TEXT`, so SQL-level cost comparisons
+are lexicographic, and proposed quantizing on write to "remove the divergence". **I tested that
+claim and it is false.** Quantized fixed-scale strings still sort lexicographically:
+
+```
+sorted(['1000.000000', '3.500000', '0.000001'])  -> ['0.000001', '1000.000000', '3.500000']
+ORDER BY run_cost_usd ASC (SQLite)               -> ['0.000001', '1E+3', '3.5']
+```
+
+Quantizing fixes the `1E+3` *notation* only. The correct conclusion is stronger than the review's and
+is now spec §2.5: **cost aggregates must be computed in Python over `Decimal`, never in SQL**, while
+SQLite is the dev/test backend — otherwise the ticket's own cheapest-run stat is right in production
+and silently wrong in every local run. Quantizing at the input edge (F4') does mean the submission
+path no longer *writes* odd notation, which is worth having, but it is not the fix.
+
+### F3' — the raw projection typed only one column (fixed)
+
+`_build_leaderboard_query` bypasses the ORM, and only `ran_with_providers` was converted;
+`run_cost_usd` reached `LeaderboardEntry` as a SQLite string, validating purely on Pydantic's lax
+`str → Decimal` coercion. Latent rather than broken — but §2.5 now *requires* reading these rows in
+Python before validation, which is exactly when a string would surface. Extracted `_to_python_rows`
+(a testable seam) converting every listed column, and pinned the invariant with a test.
+
+### F4' — float noise was being rejected (fixed; owner decision)
+
+`0.07 * 3 == 0.21000000000000002` returned **422** — so once a client sums per-call float costs, valid
+scores get discarded over noise. The original "reject, never round" rule was reasoned about values
+*below* representable precision (`0.0000009 → 0.000001` is an ~11% change) and does not extend to
+noise on a value that is exactly representable, where rounding loses nothing.
+
+**Owner chose quantize-≥-quantum, reject-below.** Spec §2.2 revised with the ordered rule; note the
+ordering is load-bearing — the ceiling check must precede `quantize()`, which *raises* on `1e30`
+rather than returning, and `999999.9999996` rounds *up* past the ceiling so it is re-checked after.
+`Field(max_digits=…, decimal_places=…)` had to be **removed**, because those constraints run before
+an `after` validator and would reject the very values we now accept; `allow_inf_nan=False` replaces
+what `max_digits` incidentally caught for `Infinity`.
+
+**INVARIANT preserved:** a positive cost is never rounded to `0.000000`. Without the below-quantum
+rejection, quantizing would manufacture a free run out of a real cost — the exact D5 corruption.
+
+### F5' — a sync test under an asyncio `pytestmark` (fixed, twice)
+
+`test_every_score_field_reaches_at_least_one_read_dto` was `def` under a module-level
+`pytest.mark.asyncio`: a warning today, a hard error in a later pytest-asyncio. Fixed. **I then
+introduced the identical bug in my own new store test** and caught it only by reading the warning
+output — worth noting as a recurring blind spot, not a one-off. The review also surfaced a genuine
+coverage gap: the spec's acceptance names `GET /v1/leaderboard/{id}`, but only a store-level test
+covered it. Added an HTTP-level test there.
+
+### Review-pass gates and live verification
+
+`run_gates.py scoreboard --base origin/main --skip-append-only` → ruff check ✓, ruff format ✓,
+pyright ✓, pytest --cov ✓ (**207 passed, 2 skipped**). The append-only check still flags only the
+single owner-approved line-197 widening from the previous pass; the two `async def` corrections are
+to tests added on this branch, not present on `origin/main`.
+
+Live probe through the ASGI app against a fresh SQLite database:
+
+| Input | Result |
+|---|---|
+| `12.5`, `1e3` | `201`, stored `12.500000` / `1000.000000` |
+| `0.07*3`, `1.23456789` | `201`, quantized to `0.210000` / `1.234568` |
+| `0` / absent | `201`, `0.000000` / `null` — still distinct (D5) |
+| `0.0000009`, `1000000`, `1e30`, `999999.9999996`, `-0.01`, `NaN`, `Infinity` | all `422` |
+| leaderboard + history JSON | every value fixed at 6dp; no `1E+3` |
+
+### Review-pass deviations
+
+1. **`pyright` caught my own over-narrow annotation.** I typed `_to_python_rows` as
+   `dict[str, object]` where the driver rows had been `Any`, which broke `LeaderboardEntry(**row)`
+   with 9 errors. Fixed the signature; did not add a `cast` or an ignore.
+2. **A stale comment on a prior test, deliberately left.**
+   `test_get_spec_history_includes_the_run_cost` carries a comment saying Decimal scale "is not part
+   of the contract" — true when written, superseded by §2.4, which makes the scale exactly the
+   contract. Its assertion is numeric so it still passes. Not edited, because rewording it would
+   modify a prior test for cosmetic reasons; the new `*_serializes_the_cost_at_a_fixed_scale` tests
+   carry the current rule. Same for the name
+   `test_score_submission_rejects_more_than_six_decimal_places`, now narrower than its value
+   (`0.0000009` is rejected for being below the quantum, not for its scale).
+3. **The review tool could not report through `ReportFindings`** — not available in this
+   environment; findings came back as prose and were re-verified by hand.
+4. Still **no PR opened** and nothing outward-facing sent.

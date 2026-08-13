@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
-from typing import NamedTuple, cast
+from typing import Any, NamedTuple, cast
 from uuid import UUID
 
 from pypika_tortoise.analytics import RowNumber
@@ -16,6 +16,10 @@ from tortoise.transactions import in_transaction
 
 from .models import Benchmark, IdempotencyKey, Score
 from .schemas import BenchmarkSchema, LeaderboardEntry, ScoreSchema, ScoreSubmission
+
+# INVARIANT: columns the raw leaderboard projection must convert itself. The
+# projection bypasses the ORM, so nothing else will do it.
+_RAW_ROW_FIELDS = ("ran_with_providers", "run_cost_usd")
 
 IDEMPOTENCY_TTL = timedelta(hours=24)
 
@@ -130,6 +134,30 @@ def _content_hash(submission: ScoreSubmission) -> str:
     }
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert raw projection rows to Python types, column by column.
+
+    WHY: `_build_leaderboard_query` is raw pypika, so it returns whatever the
+    driver hands back — on SQLite a DECIMAL column comes out as TEXT. Only
+    `ran_with_providers` used to be converted; `run_cost_usd` reached
+    LeaderboardEntry as a string and validated purely because Pydantic coerces
+    str -> Decimal in lax mode.
+
+    INVARIANT: rows are fully typed BEFORE validation, because spec 2.5 requires
+    the cheapest-run stat to be computed in Python over Decimal — SQLite compares
+    this column as TEXT, so `ORDER BY run_cost_usd` there ranks $1000 below $3.50.
+    Anything reading these rows ahead of the DTO must not get a string.
+    """
+    for row in rows:
+        for name in _RAW_ROW_FIELDS:
+            if name not in row:
+                continue
+            # to_python_value maps None -> None for a nullable field, keeping the
+            # absent-is-not-zero distinction (D5) intact.
+            row[name] = Score._meta.fields_map[name].to_python_value(row[name])
+    return rows
 
 
 class SubmitOutcome(NamedTuple):
@@ -350,12 +378,7 @@ class ScoreStore:
             ),
             using_db=conn,
         )
-        rows = result.rows
-        providers_field = Score._meta.fields_map["ran_with_providers"]
-        for row in rows:
-            row["ran_with_providers"] = providers_field.to_python_value(
-                row["ran_with_providers"],
-            )
+        rows = _to_python_rows(result.rows)
 
         return [LeaderboardEntry(**row) for row in rows]
 
