@@ -5,10 +5,14 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
+from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from url4_cloud.benchmarks.definition import Benchmark, candidate
+from url4_cloud.benchmarks.protocol import (
+    EVALUATION_PROTOCOL_REVISION,
+    build_evaluation_protocol,
+)
 
 BENCHMARK_ID = "ifeval"
 CASE_COUNT = 541
@@ -33,6 +37,7 @@ REVISION = hashlib.sha256(
             VERIFIER_REPOSITORY,
             VERIFIER_REVISION,
             PROTOCOL_REVISION,
+            EVALUATION_PROTOCOL_REVISION,
             CANDIDATE_RESULT_SCHEMA,
             f"candidate_web_search={CANDIDATE_WEB_SEARCH}",
         )
@@ -71,29 +76,12 @@ def _build(case_count: int) -> Node:
         ),
         intent=Text("$case_evaluation"),
     )
-    rows = iterate(
-        CASES_ROUTE,
-        body=(src(checked, name="checked", weight=0.0),),
-        intent=Text("$checked"),
-        slice=None if case_count == CASE_COUNT else (0, case_count),
-        on_error="collect",
-    )
-    row_set = expr(
-        src(rows, name="selected_rows", weight=0.0),
-        intent=Text("$selected_rows"),
-    )
-    return expr(
-        src(row_set, name="rows", weight=0.0),
-        src(
-            RelExpr(
-                path=AGGREGATE_ROUTE,
-                context="$rows",
-                intent=Text(f"aggregate:{case_count}"),
-            ),
-            name="result",
-            weight=0.0,
-        ),
-        intent=Text("$result"),
+    return build_evaluation_protocol(
+        cases_route=CASES_ROUTE,
+        case_evaluation=checked,
+        selected_case_count=case_count,
+        available_case_count=CASE_COUNT,
+        aggregate_route=AGGREGATE_ROUTE,
     )
 
 

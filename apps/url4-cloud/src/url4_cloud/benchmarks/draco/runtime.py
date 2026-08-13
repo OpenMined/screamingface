@@ -10,9 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
-from url4_cloud.benchmarks.contract import decode_candidate_invocation
 from url4_cloud.benchmarks.draco import aggregate as scoring
 from url4_cloud.benchmarks.draco import assets as protocol_assets
 from url4_cloud.benchmarks.draco import records, tasks
@@ -59,7 +57,14 @@ from url4_cloud.benchmarks.draco.definition import (
     VERDICT_ROUTE,
 )
 from url4_cloud.benchmarks.draco.verdict import bind, binding_key
-from url4_cloud.benchmarks.errors import ProviderRefusal
+from url4_cloud.benchmarks.evaluation import (
+    aggregate_endpoint,
+    candidate_answer,
+    case_evaluation_endpoint,
+    compact_json,
+    json_object,
+)
+from url4_cloud.benchmarks.evaluation import benchmark_unavailable as _unavailable
 
 
 def install_canonical(node: Url4Node, root: Path) -> None:
@@ -156,15 +161,25 @@ def _install_protocol(
     node.endpoint(tasks_route)(_task_rows(root, criterion_count, criterion_selection))
     node.endpoint(verdict_route)(_criterion_verdict)
     node.endpoint(criterion_evaluation_route)(_criterion_evaluation(judge_passes))
-    node.endpoint(case_evaluation_route)(_case_evaluation)
+    node.endpoint(case_evaluation_route)(
+        case_evaluation_endpoint(
+            label="DRACO Case evaluation",
+            item_name="Criterion evaluation",
+            bind=bind_case_evaluation,
+        )
+    )
     node.endpoint(aggregate_route)(
-        _aggregate(
-            benchmark_id,
-            benchmark_revision,
-            judge_passes,
-            criterion_count,
-            selected_cases,
-            rubrics,
+        aggregate_endpoint(
+            label="DRACO",
+            available_case_count=len(selected_cases),
+            aggregate=_aggregate(
+                benchmark_id,
+                benchmark_revision,
+                judge_passes,
+                criterion_count,
+                selected_cases,
+                rubrics,
+            ),
         )
     )
 
@@ -205,12 +220,11 @@ def _task_rows(
     def task_rows(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
-            output, finish_reason, refusal = decode_candidate_invocation(request.context)
-            if refusal is not None:
-                raise ProviderRefusal(refusal, finish_reason=finish_reason)
+            answer = candidate_answer(request.context)
+            output, finish_reason = answer.output, answer.finish_reason
             raw_cases = _read(root / "cases.json", "DRACO cases")
             criteria = tasks.load_criteria(root / "criteria", case_id)
-            rubric = _object(
+            rubric = json_object(
                 _read(root / "rubrics" / f"{case_id}.json", f"DRACO Case {case_id} rubric"),
                 f"DRACO Case {case_id} rubric",
             )
@@ -251,7 +265,7 @@ def _task_rows(
                 )
         except (OSError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
-        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+        return compact_json(result)
 
     return task_rows
 
@@ -268,14 +282,14 @@ def _criterion_verdict(request: Request) -> str:
         )
     except ValueError as exc:
         raise _unavailable(str(exc)) from exc
-    return json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+    return compact_json(record)
 
 
 def _criterion_evaluation(judge_passes: int):
     def criterion_evaluation(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
-            payload = _object(request.context, "DRACO Criterion evaluation")
+            payload = json_object(request.context, "DRACO Criterion evaluation")
             expected = (
                 "case",
                 "check",
@@ -286,11 +300,11 @@ def _criterion_evaluation(judge_passes: int):
                     "DRACO Criterion evaluation fields must be case, check, and consecutive "
                     "evidence_1..evidence_N"
                 )
-            raw_case = _embedded_object(payload["case"], "Case record")
+            raw_case = json_object(payload["case"], "Case record")
             case_record = raw_case or None
-            check_record = _embedded_object(payload["check"], "Check record")
+            check_record = json_object(payload["check"], "Check record")
             evidence = [
-                _embedded_object(payload[field], field)
+                json_object(payload[field], field)
                 for field in expected
                 if field.startswith("evidence_")
             ]
@@ -302,39 +316,9 @@ def _criterion_evaluation(judge_passes: int):
             )
         except (TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
-        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+        return compact_json(result)
 
     return criterion_evaluation
-
-
-def _case_evaluation(request: Request) -> str:
-    try:
-        case_id = tasks.positive_case_id(request.intent)
-        raw = json.loads(request.context)
-        if not isinstance(raw, list) or not raw:
-            raise ValueError("DRACO Case evaluation must be a non-empty JSON array")
-        criteria = [
-            _embedded_object(item, f"Criterion evaluation {index}")
-            for index, item in enumerate(raw, start=1)
-        ]
-        result = bind_case_evaluation(case_id, criteria)
-    except (TypeError, ValueError) as exc:
-        raise _unavailable(str(exc)) from exc
-    return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-
-
-def _object(value: str, label: str) -> dict[str, object]:
-    decoded = json.loads(value)
-    if not isinstance(decoded, dict):
-        raise ValueError(f"{label} must be a JSON object")
-    return decoded
-
-
-def _embedded_object(value: object, label: str) -> dict[str, object]:
-    decoded = json.loads(value) if isinstance(value, str) else value
-    if not isinstance(decoded, dict):
-        raise ValueError(f"{label} must decode to an object")
-    return decoded
 
 
 def _aggregate(
@@ -345,50 +329,28 @@ def _aggregate(
     selected_cases: list[dict[str, object]],
     rubrics: dict[int, dict[str, Any]],
 ):
-    def aggregate(request: Request) -> str:
-        if not request.intent.startswith("aggregate:"):
-            raise ResolutionError(
-                f"unsupported DRACO operation {request.intent!r}",
-                code="benchmark_operation_unsupported",
-                permanent=True,
-            )
-        try:
-            selected_count = _selected_count(request.intent, len(selected_cases))
-            result = scoring.aggregate(
-                request.context,
-                rubrics,
-                benchmark_id,
-                selected_cases=selected_cases[:selected_count],
-                judge_passes=judge_passes,
-                benchmark_revision=benchmark_revision,
-                criterion_count=criterion_count,
-            )
-        except (OSError, ValueError) as exc:
-            raise _unavailable(str(exc)) from exc
-        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+        return scoring.aggregate(
+            case_evaluations,
+            rubrics,
+            benchmark_id,
+            selected_cases=selected_cases[:selected_case_count],
+            judge_passes=judge_passes,
+            benchmark_revision=benchmark_revision,
+            criterion_count=criterion_count,
+        )
 
     return aggregate
 
 
-def _selected_count(intent: str, available: int) -> int:
-    raw = intent.removeprefix("aggregate:")
-    try:
-        selected = int(raw)
-    except ValueError:
-        raise ValueError("DRACO aggregate selection must be a positive integer") from None
-    if selected < 1 or selected > available:
-        raise ValueError(f"DRACO aggregate selection must be between 1 and {available}")
-    return selected
-
-
 def _select_cases(raw: str, case_ids: tuple[int, ...] | None) -> list[dict[str, object]]:
     try:
-        rows = json.loads(raw)
-        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        cases = json.loads(raw)
+        if not isinstance(cases, list) or not all(isinstance(case, dict) for case in cases):
             raise ValueError("expected a JSON array of objects")
         if case_ids is None:
-            return rows
-        by_id = {row["id"]: row for row in rows}
+            return cases
+        by_id = {case["id"]: case for case in cases}
         return [by_id[case_id] for case_id in case_ids]
     except (KeyError, TypeError, ValueError) as exc:
         raise _unavailable(f"could not select DRACO cases {case_ids}: {exc}") from exc
@@ -399,14 +361,6 @@ def _read(path: Path, label: str) -> str:
         return path.read_text(encoding="utf-8")
     except OSError as exc:
         raise _unavailable(f"could not read {label} at {str(path)!r}: {exc}") from exc
-
-
-def _unavailable(detail: str) -> ResolutionError:
-    return ResolutionError(
-        detail,
-        code="benchmark_unavailable",
-        permanent=True,
-    )
 
 
 __all__ = ["install_canonical", "install_lite", "install_smoke"]

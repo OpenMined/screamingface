@@ -11,6 +11,10 @@ from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from url4_cloud.benchmarks.definition import Benchmark, candidate
 from url4_cloud.benchmarks.draco.prompts import JUDGE_INSTRUCTIONS
 from url4_cloud.benchmarks.draco.verdict import call as criterion_verdict
+from url4_cloud.benchmarks.protocol import (
+    EVALUATION_PROTOCOL_REVISION,
+    build_evaluation_protocol,
+)
 
 BENCHMARK_ID = "draco"
 CASE_COUNT = 100
@@ -65,6 +69,7 @@ REVISION = hashlib.sha256(
             DATASET_REVISION,
             DATASET_PREPARER_REVISION,
             PROTOCOL_REVISION,
+            EVALUATION_PROTOCOL_REVISION,
             CANDIDATE_RESULT_SCHEMA,
             RETRIEVAL_POLICY_ID,
             repr(EXCLUDED_DOMAINS),
@@ -258,36 +263,13 @@ def _build_protocol(
         ),
         intent=Text("$case_evaluation"),
     )
-    rows = iterate(
-        cases_route,
-        body=(src(case_evaluation, name="graded", weight=0.0),),
-        intent=Text("$graded"),
-        slice=None if case_count == CASE_COUNT else (0, case_count),
-        on_error="collect",
+    return build_evaluation_protocol(
+        cases_route=cases_route,
+        case_evaluation=case_evaluation,
+        selected_case_count=case_count,
+        available_case_count=CASE_COUNT,
+        aggregate_route=aggregate_route,
     )
-    row_set = expr(
-        src(rows, name="selected_rows", weight=0.0),
-        intent=Text("$selected_rows"),
-    )
-    node = expr(
-        src(row_set, name="rows", weight=0.0),
-        src(
-            RelExpr(
-                path=aggregate_route,
-                # The complete row collection is the wide channel. Keeping it in context means
-                # an in-process handler receives it directly and a subprocess adapter would pipe
-                # it over stdin; it can never hit the operating system's argv size limit.
-                context="$rows",
-                # INVARIANT: the reducer receives the selection bound authored into this exact
-                # protocol. It must not infer intent from however many rows happened to survive.
-                intent=Text(f"aggregate:{case_count}"),
-            ),
-            name="result",
-            weight=0.0,
-        ),
-        intent=Text("$result"),
-    )
-    return node
 
 
 def _install_canonical(node: Url4Node, assets: Path) -> None:

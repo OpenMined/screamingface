@@ -22,6 +22,10 @@ from url4_cloud.benchmarks.definition import Benchmark, candidate
 from url4_cloud.benchmarks.healthbench import verdict
 from url4_cloud.benchmarks.healthbench.prompts import GRADER_TEMPLATE
 from url4_cloud.benchmarks.healthbench.subset import WORST30_CASE_IDS, subset_sha
+from url4_cloud.benchmarks.protocol import (
+    EVALUATION_PROTOCOL_REVISION,
+    build_evaluation_protocol,
+)
 
 BENCHMARK_ID = "healthbench/worst30"
 CASE_COUNT = len(WORST30_CASE_IDS)
@@ -56,6 +60,7 @@ REVISION = hashlib.sha256(
             DATASET,
             DATASET_REVISION,
             PROTOCOL_REVISION,
+            EVALUATION_PROTOCOL_REVISION,
             CANDIDATE_RESULT_SCHEMA,
             PREPARER_REVISION,
             subset_sha(),
@@ -199,40 +204,12 @@ def _build_protocol(
         ),
         intent=Text("$case_evaluation"),
     )
-    # Stage 1 — the outer loop: one graded row per Case; errors collect, not abort.
-    rows = iterate(
-        cases_route,
-        body=(src(case_evaluation, name="graded", weight=0.0),),
-        intent=Text("$graded"),
-        # Partial run (limit=N) takes the first N Cases; full run takes them all.
-        slice=None if case_count == total else (0, case_count),
-        on_error="collect",
-    )
-    # Materialize the row collection so the aggregate sees one value, not a stream.
-    row_set = expr(
-        src(rows, name="selected_rows", weight=0.0),
-        intent=Text("$selected_rows"),
-    )
-    # Stage 4b — the final aggregate: all Case rows → the challenge metric.
-    return expr(
-        src(row_set, name="rows", weight=0.0),
-        src(
-            RelExpr(
-                path=aggregate_route,
-                # Rows travel as CONTEXT (never argv) so a subprocess adapter would
-                # pipe them over stdin and the OS argv limit can never truncate them.
-                context="$rows",
-                # WHY the count in the intent: with ``limit=N`` the SDK compiles a
-                # SLICED expression, but the aggregate handler was installed with
-                # the full case list — the intent is the only channel that tells
-                # the reducer which prefix was actually selected, so it can score
-                # exactly those Cases and emit case_count == N.
-                intent=Text(f"aggregate:{case_count}"),
-            ),
-            name="result",
-            weight=0.0,
-        ),
-        intent=Text("$result"),
+    return build_evaluation_protocol(
+        cases_route=cases_route,
+        case_evaluation=case_evaluation,
+        selected_case_count=case_count,
+        available_case_count=total,
+        aggregate_route=aggregate_route,
     )
 
 
