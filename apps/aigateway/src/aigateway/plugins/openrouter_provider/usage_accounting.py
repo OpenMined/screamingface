@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from ..taxonomy import (
@@ -41,7 +42,6 @@ __all__ = ["cache_reference_from_cached", "normalize_openrouter_usage_accounting
 
 DIRECT_COST_UNIT = "openrouter_credits"
 DIRECT_COST_SOURCE = "openrouter.usage.cost"
-CACHED_DIRECT_COST_SOURCE = "cached_response.usage.cost"
 EXTENSION_NAMESPACE = "openrouter.response_usage"
 
 # OpenRouter exposes these provider-cost components without a documented currency/unit.
@@ -95,22 +95,43 @@ def _tokens(usage: Mapping[str, Any], source: UsageSource) -> TokenUsage:
     )
 
 
-def _direct_cost(usage: Mapping[str, Any], *, source: str) -> DirectCost:
+def _exact_raw_amount(value: object) -> str | None:
+    """Canonical money only from carriers produced by the lossless raw JSON parser."""
+    if type(value) not in (Decimal, int):
+        return None
+    return canonical_amount(value)
+
+
+def _direct_cost(usage: Mapping[str, Any], *, usage_source: UsageSource) -> DirectCost:
     if usage.get("cost") is None:
         return DirectCost.unavailable()
-    amount = canonical_amount(usage.get("cost"))
+    # INVARIANT: LiteLLM's converted monetary float has already lost its raw JSON
+    # provenance. Tokens remain useful on that fallback, but money must stay unknown.
+    if usage_source != "provider_raw_response":
+        return DirectCost.unavailable()
+    amount = _exact_raw_amount(usage.get("cost"))
     if amount is None:
         return DirectCost.invalid()
-    return DirectCost.reported(amount=amount, unit=DIRECT_COST_UNIT, source=source)
+    return DirectCost.reported(
+        amount=amount,
+        unit=DIRECT_COST_UNIT,
+        source=DIRECT_COST_SOURCE,
+    )
 
 
-def _provider_extensions(usage: Mapping[str, Any]) -> tuple[ProviderExtension, ...]:
+def _provider_extensions(
+    usage: Mapping[str, Any], usage_source: UsageSource
+) -> tuple[ProviderExtension, ...]:
     facts: list[ProviderExtensionFact] = []
     cost_details = _mapping(usage.get("cost_details")) or {}
     for name, source in _COST_DETAIL_FIELDS.items():
         if name not in cost_details:
             continue
-        amount = canonical_amount(cost_details[name])
+        amount = (
+            _exact_raw_amount(cost_details[name])
+            if usage_source == "provider_raw_response"
+            else None
+        )
         if amount is not None:
             facts.append(
                 ProviderExtensionFact(
@@ -158,10 +179,10 @@ def normalize_openrouter_usage_accounting(
         supported=True,
         usage=_tokens(usage, source),
         pricing_context=PricingContext(),
-        direct_cost=_direct_cost(usage, source=DIRECT_COST_SOURCE),
+        direct_cost=_direct_cost(usage, usage_source=source),
         response_model=response_string(raw_response, final_response, field="model"),
         provider_response_id=response_string(raw_response, final_response, field="id"),
-        provider_extensions=_provider_extensions(usage),
+        provider_extensions=_provider_extensions(usage, source),
     )
 
 
@@ -171,5 +192,4 @@ def cache_reference_from_cached(cached: Mapping[str, Any]) -> CacheReference | N
     if usage is None:
         return None
     tokens = _tokens(usage, "cached_converted_response")
-    direct = _direct_cost(usage, source=CACHED_DIRECT_COST_SOURCE)
-    return CacheReference(usage=tokens, direct_cost=direct)
+    return CacheReference(usage=tokens, direct_cost=DirectCost.unavailable())

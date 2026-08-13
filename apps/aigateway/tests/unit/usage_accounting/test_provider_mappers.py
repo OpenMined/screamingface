@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -17,6 +18,8 @@ from aigateway.plugins.openrouter_provider.usage_accounting import (
     cache_reference_from_cached,
     normalize_openrouter_usage_accounting,
 )
+from aigateway.plugins.taxonomy.collector import RequestAccountingCollector
+from aigateway.plugins.taxonomy.render import render_aigw_metadata
 
 
 def _openrouter(raw: dict[str, Any] | None, final: dict[str, Any] | None = None, **kw: Any):
@@ -41,7 +44,13 @@ def _litellm_final_usage(**usage: Any) -> dict[str, Any]:
 class TestOpenRouterCost:
     def test_usage_cost_becomes_reported_direct_cost_in_credits(self) -> None:
         cost = _openrouter(
-            {"usage": {"cost": 0.0012, "prompt_tokens": 56, "completion_tokens": 41}}
+            {
+                "usage": {
+                    "cost": Decimal("0.0012"),
+                    "prompt_tokens": 56,
+                    "completion_tokens": 41,
+                }
+            }
         ).direct_cost
         assert cost.as_json() == {
             "status": "reported",
@@ -51,7 +60,7 @@ class TestOpenRouterCost:
         }
 
     def test_credits_are_never_labelled_usd(self) -> None:
-        cost = _openrouter({"usage": {"cost": 1.5}}).direct_cost
+        cost = _openrouter({"usage": {"cost": Decimal("1.5")}}).direct_cost
         assert cost.unit == "openrouter_credits"
         assert "usd" not in cost.unit
 
@@ -84,7 +93,7 @@ class TestOpenRouterCost:
                 "usage": {
                     "cost": 1,
                     "cost_details": {
-                        "upstream_inference_cost": 0.8,
+                        "upstream_inference_cost": Decimal("0.8"),
                         "unknown_provider_text": "must-not-cross",
                     },
                 }
@@ -96,6 +105,56 @@ class TestOpenRouterCost:
         assert facts[0].value == "0.8"
         assert facts[0].unit is None
         assert "must-not-cross" not in str(evidence)
+
+    def test_converted_float_cost_and_cost_details_are_not_exact_evidence(self) -> None:
+        evidence = _openrouter(
+            None,
+            {
+                "usage": {
+                    "prompt_tokens": 56,
+                    "completion_tokens": 41,
+                    "cost": 0.12345678901234568,
+                    "cost_details": {"upstream_inference_cost": 0.1},
+                }
+            },
+        )
+
+        assert evidence.direct_cost.status == "unavailable"
+        assert evidence.provider_extensions == ()
+        assert evidence.usage.source == "provider_converted_response"
+        assert (evidence.usage.input.total, evidence.usage.output.total) == (56, 41)
+
+    def test_converted_float_never_reaches_request_subtotal(self) -> None:
+        evidence = _openrouter(
+            None,
+            {
+                "usage": {
+                    "prompt_tokens": 56,
+                    "completion_tokens": 41,
+                    "cost": 0.12345678901234568,
+                }
+            },
+        )
+        collector = RequestAccountingCollector(
+            provider="openrouter",
+            requested_model="openrouter/x/y",
+            transport="litellm_async_http",
+        )
+        collector.begin_dispatch()
+        marker = object()
+        collector.on_send_admitted(marker)
+        collector.on_response_completed(marker, status=200, raw_evidence=None)
+        collector.apply_evidence(collector.open_records()[0][0], evidence)
+
+        economics = render_aigw_metadata(
+            collector=collector,
+            supported=True,
+            cache_status="miss",
+            gateway_call_id=collector.gateway_call_id,
+        )["request_economics"]
+
+        assert economics["direct_cost_status"] == "unavailable"
+        assert economics["known_direct_cost_subtotals"] == []
 
 
 class TestOpenRouterTokens:
@@ -109,7 +168,7 @@ class TestOpenRouterTokens:
                     "completion_tokens": 41,
                     "prompt_tokens_details": {"cached_tokens": 20, "cache_write_tokens": 6},
                     "completion_tokens_details": {"reasoning_tokens": 8},
-                    "cost": 0.5,
+                    "cost": Decimal("0.5"),
                 },
             }
         )
@@ -213,7 +272,7 @@ class TestOpenRouterTokens:
 
 
 class TestOpenRouterCacheReference:
-    def test_cached_final_response_keeps_historical_usage_and_credits(self) -> None:
+    def test_cached_final_response_keeps_usage_without_claiming_exact_cost(self) -> None:
         reference = cache_reference_from_cached(
             {"usage": {"prompt_tokens": 5, "completion_tokens": 2, "cost": 0.0012}}
         )
@@ -221,8 +280,8 @@ class TestOpenRouterCacheReference:
         assert reference.coverage == "final_successful_response_only"
         assert reference.incurred_in_current_request is False
         assert reference.usage.source == "cached_converted_response"
-        assert reference.direct_cost.amount == "0.0012"
-        assert reference.direct_cost.unit == "openrouter_credits"
+        assert reference.direct_cost.status == "unavailable"
+        assert reference.direct_cost.amount is None
 
     def test_cached_body_without_usage_has_no_reference(self) -> None:
         assert cache_reference_from_cached({"choices": []}) is None

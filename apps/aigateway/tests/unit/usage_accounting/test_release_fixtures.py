@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from decimal import Decimal
 from hashlib import sha256
 from importlib.resources import files
 from typing import Any
@@ -76,7 +77,7 @@ _EXPECTED_FIXTURE_SHA256 = {
         "1f3c270ee1a39d8c7a45cfef3cfc00cb1f08d95a00695c142f746b77080e89ff"
     ),
     "bounds_overflow": ("f852cce31b8b01505dec21f0307cc80e00ab00f093a55767785ba905dc953a0e"),
-    "cache_hit_reference": ("b75a070567d9eb4384544f9e44eed97838f42e399069eee2138a0db432c37360"),
+    "cache_hit_reference": ("a27e53240082b7b6dbab6e6d8ee85239801354bf148ecadf996487c1657a413e"),
     "conversion_failure": ("5253c1d413f759de4c36653d32979de365843f92f72e47bf0f321da3e77b0713"),
     "gateway_overload_retry": ("e1fc71b761be4b72145decc49aefa93bfc311425aef50415e6ec2413c3697dd5"),
     "hidden_transport_resend": ("fc1ab28fac6a815c9adb6be955163013959dd4e28c83899c6c1d671b28b5dd8e"),
@@ -291,8 +292,8 @@ def _release_fixtures() -> dict[str, dict[str, Any]]:
         "completion_tokens": 41,
         "prompt_tokens_details": {"cached_tokens": 20, "cache_write_tokens": 6},
         "completion_tokens_details": {"reasoning_tokens": 8},
-        "cost": "0.001",
-        "cost_details": {"upstream_inference_cost": "0.0008"},
+        "cost": Decimal("0.001"),
+        "cost_details": {"upstream_inference_cost": Decimal("0.0008")},
     }
     retry_success = _openrouter_record(2, openrouter_full_usage, attempt_index=2)
     anthropic_full = _anthropic_record(
@@ -355,7 +356,7 @@ def _release_fixtures() -> dict[str, dict[str, Any]]:
             (
                 _openrouter_record(
                     1,
-                    {"prompt_tokens": 2, "cost": "0.001"},
+                    {"prompt_tokens": 2, "cost": Decimal("0.001")},
                     outcome="provider_error",
                     http_status=429,
                     failure_code="provider_status_error",
@@ -582,7 +583,11 @@ def test_release_fixture_exercises_private_input_without_publishing_it() -> None
     raw_response = {
         "id": "response-1",
         "model": "fixture-model",
-        "usage": {"prompt_tokens": 2, "completion_tokens": 1, "cost": "0.001"},
+        "usage": {
+            "prompt_tokens": 2,
+            "completion_tokens": 1,
+            "cost": Decimal("0.001"),
+        },
         "provider_debug": {"prompt": sentinel},
     }
     evidence = normalize_openrouter_usage_accounting(
@@ -604,7 +609,7 @@ def test_release_fixture_exercises_private_input_without_publishing_it() -> None
         )
     )
 
-    assert sentinel in json.dumps({"request": request_body, "response": raw_response})
+    assert sentinel in str({"request": request_body, "response": raw_response})
     assert sentinel not in json.dumps(fixture)
     Draft202012Validator(_schema()).validate(fixture)
     canonical = json.dumps(fixture, sort_keys=True, separators=(",", ":"), ensure_ascii=True)

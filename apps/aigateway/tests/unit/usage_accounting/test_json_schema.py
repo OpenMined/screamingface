@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from decimal import Decimal
 from importlib.resources import files
 from typing import Any
 
@@ -41,7 +42,11 @@ def _rendered_success() -> dict[str, Any]:
     raw = {
         "id": "gen-1",
         "model": "x/y",
-        "usage": {"prompt_tokens": 2, "completion_tokens": 1, "cost": 0.0012},
+        "usage": {
+            "prompt_tokens": 2,
+            "completion_tokens": 1,
+            "cost": Decimal("0.0012"),
+        },
     }
     collector.on_response_completed(marker, status=200, raw_evidence=raw)
     evidence: ProviderUsageAccountingEvidence = normalize_openrouter_usage_accounting(

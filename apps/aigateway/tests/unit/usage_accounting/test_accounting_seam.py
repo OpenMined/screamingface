@@ -337,9 +337,9 @@ class TestCacheHitWiring:
         assert rendered["direct_cost"]["unit"] == "openrouter_credits"
         assert body["_aigw"]["request_economics"]["observed_new_attempts"] == 0
 
-    def test_the_real_openrouter_plugin_reports_credits_from_a_cached_body(self) -> None:
-        # The end-to-end wiring with the actual plugin, not a stand-in: cached
-        # `usage.cost` must surface as credits and never as USD.
+    def test_the_real_openrouter_plugin_does_not_claim_cached_float_is_exact(self) -> None:
+        # The cache stores LiteLLM's converted response, so a historical float has no
+        # proof that it preserves the provider's original JSON number.
         body = attach_hit_metadata(
             {"id": "gen-1", "usage": {"cost": 0.0012, "prompt_tokens": 56}},
             _session(),
@@ -347,10 +347,10 @@ class TestCacheHitWiring:
         )
         reference = body["_aigw"]["usage_accounting"]["cache"]["reference"]
         assert reference["direct_cost"] == {
-            "status": "reported",
-            "amount": "0.0012",
-            "unit": "openrouter_credits",
-            "source": "cached_response.usage.cost",
+            "status": "unavailable",
+            "amount": None,
+            "unit": None,
+            "source": None,
         }
         assert reference["coverage"] == "final_successful_response_only"
         assert "usd" not in str(reference).lower()
@@ -415,7 +415,7 @@ class TestCacheHitWiring:
         assert type(body["score"]) is float
         assert cached["score"] == Decimal("1E+2")
 
-    def test_cache_accounting_reads_exact_decimal_before_restoring_response_numbers(self) -> None:
+    def test_cache_decimal_carrier_does_not_claim_original_money_provenance(self) -> None:
         cached: dict[str, Any] = {
             "id": "gen-1",
             "usage": {"cost": Decimal("0.0038799200000000002")},
@@ -424,7 +424,7 @@ class TestCacheHitWiring:
         body = attach_hit_metadata(cached, _session(), plugin=OpenRouterProviderPlugin())
 
         reference = body["_aigw"]["usage_accounting"]["cache"]["reference"]
-        assert reference["direct_cost"]["amount"] == "0.0038799200000000002"
+        assert reference["direct_cost"]["status"] == "unavailable"
         assert type(body["usage"]["cost"]) is float
         assert cached["usage"]["cost"] == Decimal("0.0038799200000000002")
 
