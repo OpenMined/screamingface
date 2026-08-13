@@ -245,7 +245,7 @@ class CaseResult:
         if any(not isinstance(item, Failure) for item in selected_failures):
             raise TypeError("Case Result failures must contain sf.Failure values")
         _validate_case_state(grade, selected_failures)
-        status = _resolve_case_status(status, refusal, grade)
+        status = _resolve_case_status(status, refusal, grade, output)
         values = {
             "status": status,
             "case_id": case_id,
@@ -369,6 +369,7 @@ def _resolve_case_status(
     status: CaseStatus | None,
     refusal: str | None,
     grade: CaseGrade | None,
+    output: object,
 ) -> CaseStatus:
     """Pin the Case's explicit outcome to the shape its grade and refusal imply.
 
@@ -376,6 +377,10 @@ def _resolve_case_status(
     same answer the Engine would (numeric grade → scored, refusal text → refused,
     otherwise failed) so the two can never disagree. An explicit status that
     contradicts the derived one is an ambiguous Case and is rejected.
+
+    INVARIANT: mirrors `url4_cloud/benchmarks/contract.py::_enforce_status` per
+    outcome leg — scored carries no refusal; refused carries no output and no
+    grade — so a locally built value can never take a shape the Engine rejects.
     """
 
     derived: CaseStatus = (
@@ -387,6 +392,10 @@ def _resolve_case_status(
     )
     if derived == "scored" and refusal is not None:
         raise ValueError("a scored Case Result cannot contain refusal text")
+    if derived == "refused" and output is not None:
+        raise ValueError("a refused Case Result cannot contain output")
+    if derived == "refused" and grade is not None:
+        raise ValueError("a refused Case Result cannot contain a grade")
     if status is None:
         return derived
     if status not in {"scored", "refused", "failed"}:

@@ -56,3 +56,16 @@ export — without recalculating Benchmark semantics.
   on touched files
 - **Deviations:** string `case_id` support (contract's `CaseId = StrictInt | StrictStr`)
   deferred — every engine producer emits ints today; noted as PR follow-up.
+
+## Review fix (same unit, pre-merge)
+
+PR #574 review finding: `_resolve_case_status` mirrored the engine's outcome-shape rules
+only for the scored leg. A locally built refused `sf.CaseResult` could carry `output`
+(or an unscored grade) — shapes `contract.py::_enforce_status` rejects, so a client
+value could round-trip into a contract-invalid payload.
+
+- Planned: guard the refused leg in `_resolve_case_status` (refused ⇒ no output, no
+  grade); RED tests in `tests/test_case_outcome_decoding.py` first.
+- Outcome: guards added (`output` now passed into `_resolve_case_status`); two new
+  tests (`test_a_refused_case_cannot_carry_output`,
+  `test_a_refused_case_cannot_carry_a_grade`); full suite + gates green.

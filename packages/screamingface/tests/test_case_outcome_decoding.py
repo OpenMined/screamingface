@@ -151,6 +151,52 @@ def test_a_scored_case_cannot_carry_refusal_text() -> None:
         )
 
 
+def test_a_refused_case_cannot_carry_output() -> None:
+    # INVARIANT: mirrors contract.py _enforce_status — a refused Case has no output,
+    # so a locally built value can never round-trip into a contract-invalid payload.
+    with pytest.raises(ValueError, match="refused"):
+        sf.CaseResult(
+            case_id=1,
+            input="question",
+            output="an answer the engine would reject",
+            finish_reason="stop",
+            refusal="I can't help with that request.",
+            grade=None,
+            failures=(
+                sf.Failure(
+                    stage="candidate",
+                    code="provider_refusal",
+                    message="the provider refused this Case",
+                    case_id=1,
+                ),
+            ),
+            metadata={},
+        )
+
+
+def test_a_refused_case_cannot_carry_a_grade() -> None:
+    # INVARIANT: mirrors contract.py _enforce_status — refusal text alongside a grade
+    # (even an unscored one) is a shape the engine rejects outright.
+    with pytest.raises(ValueError, match="refused"):
+        sf.CaseResult(
+            case_id=1,
+            input="question",
+            output=None,
+            finish_reason="stop",
+            refusal="I can't help with that request.",
+            grade=sf.CaseGrade(method="rubric", score=None, metrics={}, checks=()),
+            failures=(
+                sf.Failure(
+                    stage="candidate",
+                    code="provider_refusal",
+                    message="the provider refused this Case",
+                    case_id=1,
+                ),
+            ),
+            metadata={},
+        )
+
+
 def test_a_locally_built_case_derives_the_status_the_engine_would_publish() -> None:
     refused = sf.CaseResult(
         case_id=1,
