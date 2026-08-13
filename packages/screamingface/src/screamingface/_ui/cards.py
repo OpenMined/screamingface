@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from screamingface._ui.card_style import CARD_STYLE
 
 if TYPE_CHECKING:
-    from screamingface.discovery import Benchmark, ModelInfo
+    from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
     from screamingface.fusion import Fusion
     from screamingface.model import Model
     from screamingface.pipeline import Pipeline
@@ -104,6 +104,30 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
         "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(benchmark.title)}</span>"
         "<span class='sf-card__kicker'>benchmark</span></div>"
+        f"<div class='sf-card__grid'>{fields}</div></div>"
+    )
+
+
+def model_details_card_html(details: ModelDetails) -> str:
+    """Render only the profile fields actually held by one ModelDetails."""
+
+    # WHY: freshness collapses to a single derived word — never a fabricated freshness metric.
+    freshness = "degraded" if details.degraded else ("stale" if details.stale else "fresh")
+    fields = (
+        _field("id", _mono(details.id))
+        + _field("provider", escape(details.provider))
+        + _field("scope", escape(details.scope))
+        + _field("auth", escape(details.auth_mode))
+        + _field("parameters", escape(str(len(details.parameters))))
+        + _field("tools", escape(str(len(details.tools))))
+        + _field("transport", escape(str(len(details.transport))))
+        + _field("freshness", escape(freshness))
+    )
+    return (
+        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace model details'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(details.id)}</span>"
+        "<span class='sf-card__kicker'>model</span></div>"
         f"<div class='sf-card__grid'>{fields}</div></div>"
     )
 

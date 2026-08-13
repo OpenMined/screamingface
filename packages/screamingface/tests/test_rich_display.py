@@ -180,6 +180,38 @@ def test_model_card_renders_only_real_escaped_authoring_fields() -> None:
         assert banned not in html.lower()
 
 
+def test_model_details_card_renders_only_real_escaped_profile_fields() -> None:
+    from datetime import UTC, datetime
+
+    details = sf.ModelDetails(
+        id="openrouter/openai/gpt-5.5<script>",
+        provider="openrouter",
+        upstream_id="openai/gpt-5.5",
+        contract_id="pc_fixture",
+        scope="account_profile",
+        auth_mode="api_key",
+        context_revision="ctx_fixture",
+        source_revision=None,
+        parameters={},
+        tools={},
+        transport={},
+        observed_at=datetime(2026, 8, 5, 10, tzinfo=UTC),
+        expires_at=datetime(2026, 8, 5, 10, 5, tzinfo=UTC),
+        stale=False,
+        degraded=False,
+    )
+
+    html = cast(Any, details)._repr_html_()
+
+    assert "openrouter/openai/gpt-5.5&lt;script&gt;" in html
+    assert "account_profile" in html
+    assert "api_key" in html
+    assert "fresh" in html
+    # WHY: the card reports only fields the object actually holds — never invented metrics.
+    for banned in _FABRICATED:
+        assert banned not in html.lower()
+
+
 def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None:
     opus = sf.Model("provider/opus", name="opus")
     gpt = sf.Model("provider/gpt", name="gpt")

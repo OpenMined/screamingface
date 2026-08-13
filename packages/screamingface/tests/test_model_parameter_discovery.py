@@ -353,3 +353,62 @@ def test_models_get_rejects_malformed_v1_documents(
 
     assert caught.value.code == "invalid_catalogue"
     assert caught.value.permanent is True
+
+
+def test_model_info_repr_is_a_compact_capability_summary() -> None:
+    with _client(_engine) as client:
+        info = client.models.list()[0]
+
+    assert repr(info) == (
+        "ModelInfo('openrouter/openai/gpt-5.5', provider='openrouter', parameters=2, tools=1)"
+    )
+
+
+def test_model_details_repr_summarises_identity_and_contract_sizes() -> None:
+    with _client(_engine) as client:
+        details = client.models.get(_MODEL)
+
+    # WHY: the dataclass default repr dumps all 15 fields incl. the full nested parameter
+    # mappings; the summary identifies the profile and reports contract sizes as counts.
+    assert repr(details) == (
+        "ModelDetails('openrouter/openai/gpt-5.5', provider='openrouter', "
+        "scope='account_profile', parameters=3, tools=1, transport=1)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("freshness", "flag"),
+    [
+        (
+            {
+                "observed_at": "2026-08-05T10:00:00Z",
+                "expires_at": "2026-08-05T10:05:00Z",
+                "stale": True,
+                "degraded": False,
+            },
+            "stale=True",
+        ),
+        (
+            {"observed_at": None, "expires_at": None, "stale": False, "degraded": True},
+            "degraded=True",
+        ),
+    ],
+)
+def test_model_details_repr_surfaces_a_set_freshness_flag(
+    freshness: dict[str, Any],
+    flag: str,
+) -> None:
+    import copy
+
+    body = copy.deepcopy(_DETAILS)
+    body["freshness"] = freshness
+    client = _client(lambda request: httpx.Response(200, json=body))
+
+    with client:
+        details = client.models.get(_MODEL)
+
+    # INVARIANT: stale/degraded are mutually exclusive, so at most one flag ever appears.
+    assert repr(details) == (
+        "ModelDetails('openrouter/openai/gpt-5.5', provider='openrouter', "
+        f"scope='account_profile', parameters=3, tools=1, transport=1, {flag})"
+    )
