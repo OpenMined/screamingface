@@ -52,6 +52,12 @@ def test_the_grader_prompt_matches_reference_assembly_byte_for_byte() -> None:
     assert f"assistant: {answer}\n\n# Rubric item" in build_grader_prompt(transcript, answer, item)
 
 
+def test_the_grader_prompt_preserves_an_empty_model_output() -> None:
+    prompt = build_grader_prompt("user: answer me", "", "[1] answers")
+
+    assert "user: answer me\n\nassistant: \n\n# Rubric item" in prompt
+
+
 # --- verdict binding -----------------------------------------------------------------
 
 

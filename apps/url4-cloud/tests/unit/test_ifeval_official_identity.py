@@ -156,6 +156,7 @@ def _record(case_id: int) -> dict[str, object]:
         "attempt": 1,
         "valid": True,
         "answer": f"Answer {case_id}",
+        "refusal": None,
         "finish_reason": "stop",
         "instruction_id_list": _ORDER_SPECS[case_id]["instruction_id_list"],
         "descriptions": ["Fixture instruction"],
@@ -184,7 +185,6 @@ def test_aggregate_grades_rows_in_cases_json_order_not_sorted_ids() -> None:
     assert result["cases"][0]["output"] == "Answer 30"
     assert result["cases"][1]["output"] == "Answer 4"
 
-    # The same rows against the SORTED order mis-bind every record and cannot score.
-    misbound = aggregate(rows, _ORDER_SPECS, "ifeval", [4, 30], selected_case_count=2)
-    assert misbound["score"] is None
-    assert [case["grade"] for case in misbound["cases"]] == [None, None]
+    # The same rows against the SORTED order are corrupt, not ungradeable Cases.
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate(rows, _ORDER_SPECS, "ifeval", [4, 30], selected_case_count=2)

@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 
 import pytest
 
-from url4 import RelExpr, Text, expr, iterate, render, src
-from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.aggregation import (
     CandidateScore,
     SelectedCase,
-    collected_provider_refusal,
     failed_case_result,
     finalize_candidate_result,
     public_error,
@@ -20,7 +16,6 @@ from url4_cloud.benchmarks.aggregation import (
     scored_case_result,
 )
 from url4_cloud.benchmarks.contract import CaseGrade, CaseResult, Failure
-from url4_cloud.benchmarks.errors import ProviderRefusal
 
 
 def _scored(case_id: int) -> CaseResult:
@@ -71,7 +66,7 @@ def test_all_scored_cases_are_passed_to_the_scorer_in_stable_order() -> None:
 
     def scorer(cases: Sequence[CaseResult]) -> CandidateScore:
         observed.extend(case.case_id for case in cases)
-        return CandidateScore(score=0.75, metrics={"pass_rate": 0.5, "coverage": 1.0})
+        return CandidateScore(score=0.75, metrics={"pass_rate": 0.5})
 
     result = finalize_candidate_result(
         benchmark_id="benchmark",
@@ -84,15 +79,15 @@ def test_all_scored_cases_are_passed_to_the_scorer_in_stable_order() -> None:
     assert observed == [2, 1]
     assert [case.case_id for case in result.cases] == [2, 1]
     assert result.score == 0.75
+    assert result.coverage == 1.0
 
 
-def test_a_failed_case_skips_the_scorer_and_fails_closed() -> None:
-    called = False
+def test_a_failed_case_is_excluded_while_the_gradeable_subset_is_scored() -> None:
+    observed: list[int | str] = []
 
     def scorer(cases: Sequence[CaseResult]) -> CandidateScore:
-        nonlocal called
-        called = True
-        return CandidateScore(score=1.0, metrics={"pass_rate": 1.0, "coverage": 1.0})
+        observed.extend(case.case_id for case in cases)
+        return CandidateScore(score=1.0, metrics={"pass_rate": 1.0})
 
     result = finalize_candidate_result(
         benchmark_id="benchmark",
@@ -102,12 +97,12 @@ def test_a_failed_case_skips_the_scorer_and_fails_closed() -> None:
         scorer=scorer,
     )
 
-    assert called is False
-    assert result.score is None
-    assert result.metrics == {}
+    assert observed == [1]
+    assert result.score == 1.0
+    assert result.coverage == 0.5
 
 
-def test_a_candidate_level_failure_skips_the_scorer() -> None:
+def test_a_candidate_level_failure_does_not_erase_gradeable_case_truth() -> None:
     failure = Failure(
         stage="aggregation",
         code="asset_unavailable",
@@ -123,10 +118,11 @@ def test_a_candidate_level_failure_skips_the_scorer() -> None:
         selected_cases=_selected(1),
         cases=[_scored(1)],
         failures=[failure],
-        scorer=lambda _: pytest.fail("scorer must not run"),
+        scorer=lambda _: CandidateScore(score=1.0, metrics={"pass_rate": 1.0}),
     )
 
-    assert result.score is None
+    assert result.score == 1.0
+    assert result.coverage == 1.0
     assert result.failures == [failure]
 
 
@@ -141,7 +137,7 @@ def test_duplicate_case_identity_is_rejected_before_scoring() -> None:
         )
 
 
-def test_a_missing_selected_case_is_retained_and_fails_closed() -> None:
+def test_a_missing_selected_case_is_retained_and_lowers_coverage() -> None:
     result = finalize_candidate_result(
         benchmark_id="benchmark",
         benchmark_revision="revision",
@@ -150,12 +146,12 @@ def test_a_missing_selected_case_is_retained_and_fails_closed() -> None:
             SelectedCase(case_id=2, input="input 2", metadata={"split": "test"}),
         ],
         cases=[_scored(1)],
-        scorer=lambda _: pytest.fail("scorer must not run with incomplete selected coverage"),
+        scorer=lambda cases: CandidateScore(score=float(len(cases)), metrics={}),
     )
 
     assert [case.case_id for case in result.cases] == [1, 2]
-    assert result.score is None
-    assert result.metrics == {}
+    assert result.score == 1.0
+    assert result.coverage == 0.5
     missing = result.cases[1]
     assert missing.status == "failed"
     assert missing.input == "input 2"
@@ -163,14 +159,14 @@ def test_a_missing_selected_case_is_retained_and_fails_closed() -> None:
     assert [failure.code for failure in missing.failures] == ["case_result_missing"]
 
 
-def test_scorer_must_return_canonical_metrics() -> None:
-    with pytest.raises(ValueError, match="coverage"):
+def test_scorer_cannot_reintroduce_generic_metrics_coverage() -> None:
+    with pytest.raises(ValueError, match="metrics.coverage"):
         finalize_candidate_result(
             benchmark_id="benchmark",
             benchmark_revision="revision",
             selected_cases=_selected(1),
             cases=[_scored(1)],
-            scorer=lambda _: CandidateScore(score=1.0, metrics={"pass_rate": 1.0}),
+            scorer=lambda _: CandidateScore(score=1.0, metrics={"coverage": 1.0}),
         )
 
 
@@ -184,7 +180,7 @@ def test_finalizer_rejects_boolean_and_non_finite_scores() -> None:
                 cases=[_scored(1)],
                 scorer=lambda _, score=score: CandidateScore(
                     score=score,  # type: ignore[arg-type]
-                    metrics={"pass_rate": 1.0, "coverage": 1.0},
+                    metrics={"pass_rate": 1.0},
                 ),
             )
 
@@ -229,47 +225,25 @@ def test_finalizer_does_not_coerce_a_string_score() -> None:
             cases=[_scored(1)],
             scorer=lambda _: CandidateScore(
                 score="1",  # type: ignore[arg-type]
-                metrics={"pass_rate": 1.0, "coverage": 1.0},
+                metrics={"pass_rate": 1.0},
             ),
         )
 
 
-def test_collected_provider_refusal_preserves_exact_text_as_a_refused_case() -> None:
+def test_refused_case_constructor_preserves_exact_text_and_normal_grade() -> None:
     exact = "I can’t provide that dosage."
-    row = {
-        "error": {
-            "kind": "ProviderRefusal",
-            "message": json.dumps(
-                {"refusal": exact, "finish_reason": "content_filter"},
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
-        }
-    }
-
-    refusal = collected_provider_refusal(row)
-    assert refusal is not None
-    assert (refusal.text, refusal.finish_reason) == (exact, "content_filter")
     case = refused_case_result(
         selected_case=SelectedCase(case_id="health-7", input="Recommend a dosage.", metadata={}),
-        refusal=refusal.text,
-        finish_reason=refusal.finish_reason,
+        refusal=exact,
+        finish_reason="content_filter",
+        grade=CaseGrade(method="test", score=0.0, metrics={}, checks=[]),
     )
 
     assert case.status == "refused"
     assert case.refusal == exact
     assert case.output is None
-    assert case.grade is None
-    assert case.failures[0].code == "provider_refusal"
-
-
-def test_collected_provider_refusal_does_not_infer_from_generic_error_text() -> None:
-    assert (
-        collected_provider_refusal(
-            {"error": {"kind": "ResolutionError", "message": "provider refused"}}
-        )
-        is None
-    )
+    assert case.grade is not None and case.grade.score == 0.0
+    assert case.failures == []
 
 
 def test_public_error_keeps_safe_diagnostics_and_rejects_internal_detail() -> None:
@@ -328,29 +302,3 @@ def test_public_error_rejects_compound_credential_assignments(message: str) -> N
     )
 
     assert diagnostic.message == "Candidate Case execution failed"
-
-
-@pytest.mark.asyncio
-async def test_provider_refusal_identity_and_text_survive_url4_collection() -> None:
-    exact = "I can’t comply with that request."
-    node = Url4Node("test")
-
-    @node.endpoint("/refuse")
-    def refuse(_: Request) -> str:
-        raise ProviderRefusal(exact, finish_reason="content_filter")
-
-    refusal = expr(
-        src(RelExpr(path="/refuse", context="$item", intent=Text("run")), name="value"),
-        intent=Text("$value"),
-    )
-    expression = iterate(
-        [Text("case")],
-        body=(src(refusal, name="refusal", weight=0.0),),
-        intent=Text("$refusal"),
-        on_error="collect",
-    )
-
-    rows = json.loads((await node.evaluate(render(expression))).text)
-    refusal = collected_provider_refusal(rows[0])
-    assert refusal is not None
-    assert (refusal.text, refusal.finish_reason) == (exact, "content_filter")

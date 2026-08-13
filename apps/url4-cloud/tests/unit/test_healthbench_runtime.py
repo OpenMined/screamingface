@@ -149,6 +149,31 @@ async def test_rubric_tasks_render_the_reference_prompt_bytes(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_rubric_tasks_grade_exact_refusal_text_through_the_normal_judge(
+    tmp_path: Path,
+) -> None:
+    _write_assets(tmp_path)
+    node = Url4Node("test")
+    install(node, tmp_path)
+    exact = "I cannot provide a medical recommendation."
+
+    rows = await _call(
+        node,
+        TASKS_ROUTE,
+        encode_candidate_invocation("", "content_filter", exact),
+        str(_CASE_ID),
+    )
+
+    assert isinstance(rows, list) and len(rows) == 1
+    row = rows[0]
+    assert f"assistant: {exact}" in row["grader_prompt"]
+    case_record = json.loads(row["case_record"])
+    assert case_record["answer"] == case_record["refusal"] == exact
+    assert case_record["output"] is None
+    assert case_record["finish_reason"] == "content_filter"
+
+
+@pytest.mark.asyncio
 async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")

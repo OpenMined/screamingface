@@ -161,45 +161,49 @@ class CaseResult(_StrictWireModel):
         if any(failure.case_id != self.case_id for failure in self.failures):
             raise ValueError("every Case Failure must reference its own case_id")
         if self.status == "scored":
-            if (
-                self.grade is None
-                or self.grade.score is None
-                or self.output is None
-                or self.refusal is not None
-                or self.failures
-            ):
-                raise ValueError(
-                    "a scored Case requires output and a numeric grade and cannot carry refusal "
-                    "or failures"
-                )
-            return self
-        if self.status == "refused":
-            refusal_failures = [
-                failure
-                for failure in self.failures
-                if failure.stage == "candidate" and failure.code == "provider_refusal"
-            ]
-            if (
-                self.refusal is None
-                or self.output is not None
-                or self.grade is not None
-                or len(self.failures) != 1
-                or len(refusal_failures) != 1
-            ):
-                raise ValueError(
-                    "a refused Case requires exact refusal text, no output or grade, and one "
-                    "candidate provider_refusal Failure"
-                )
-            return self
-        if (
-            not self.failures
-            or self.refusal is not None
-            or any(failure.code == "provider_refusal" for failure in self.failures)
-            or self.grade is not None
-            and self.grade.score is not None
-        ):
-            raise ValueError("a failed Case requires failures, no refusal, and no numeric grade")
+            _require_scored_case(self)
+        elif self.status == "refused":
+            _require_refused_case(self)
+        else:
+            _require_failed_case(self)
         return self
+
+
+def _require_scored_case(case: CaseResult) -> None:
+    if (
+        case.grade is None
+        or case.grade.score is None
+        or case.output is None
+        or case.refusal is not None
+        or case.failures
+    ):
+        raise ValueError(
+            "a scored Case requires output and a numeric grade and cannot carry refusal or failures"
+        )
+
+
+def _require_refused_case(case: CaseResult) -> None:
+    if case.refusal is None or case.output is not None or case.grade is None:
+        raise ValueError(
+            "a refused Case requires exact refusal text, no output, and a Benchmark grade"
+        )
+    if case.grade.score is not None and case.failures:
+        raise ValueError("a graded refused Case cannot carry failures")
+    if case.grade.score is None and (
+        not case.failures or any(failure.stage != "grading" for failure in case.failures)
+    ):
+        raise ValueError("an ungraded refused Case requires one or more grading failures")
+
+
+def _require_failed_case(case: CaseResult) -> None:
+    if (
+        not case.failures
+        or case.refusal is not None
+        or any(failure.code == "provider_refusal" for failure in case.failures)
+        or case.grade is not None
+        and case.grade.score is not None
+    ):
+        raise ValueError("a failed Case requires failures, no refusal, and no numeric grade")
 
 
 class CandidateResult(_StrictWireModel):
@@ -212,13 +216,14 @@ class CandidateResult(_StrictWireModel):
     named validator error. Invariants enforced here, once, instead of as prose in
     three benchmarks:
 
-    - a SCORED result publishes the canonical cross-benchmark trio: `score` plus
-      `metrics["pass_rate"]` and `metrics["coverage"]`, each in [0, 1] (draco's
-      aggregate is the reference; the SDK report tiles and its low-coverage warning
-      read exactly these keys). Per-benchmark metric keys ride alongside — the
-      metrics mapping is deliberately open.
-    - an UNSCORED result (`score is None`) carries `metrics == {}` — a failed run
-      never publishes a plausible partial score.
+    - top-level `coverage` is the exact fraction of selected Cases carrying a
+      numeric Benchmark grade. Generic `metrics.coverage` is forbidden because
+      Benchmarks had used it for incompatible meanings.
+    - with any numeric Case grade, the Candidate publishes the Benchmark score
+      over exactly those Cases and may retain ungradeable failed Cases alongside it.
+      Benchmark-specific metrics remain deliberately open.
+    - with no numeric Case grade, `score is None`, `coverage == 0`, and
+      `metrics == {}` — infrastructure failure never becomes a plausible zero.
     - `case_count` is EXACT: one entry per selected Case, scored or failed.
 
     Check-level MET/UNMET outcomes are pinned by ifeval's tests but not yet enforced
@@ -235,8 +240,9 @@ class CandidateResult(_StrictWireModel):
     # WHY no lower bound: draco and ifeval scores live in [0, 1], but healthbench's
     # challenge metric is an UNCLIPPED mean over penalty-carrying rubrics — negative
     # scores are meaningful and rankable (clamping here would corrupt the metric).
-    # The canonical trio metrics (pass_rate, coverage) stay [0, 1] regardless.
+    # Top-level coverage stays in [0, 1] regardless of a Benchmark's score range.
     score: float | None = Field(le=1.0)
+    coverage: float = Field(ge=0.0, le=1.0)
     metrics: dict[str, Any]
     cases: list[CaseResult]
     failures: list[Failure]
@@ -266,27 +272,29 @@ class CandidateResult(_StrictWireModel):
         return self.model_dump(by_alias=True)
 
 
-def _canonical_metrics(metrics: Mapping[str, Any]) -> None:
-    """Validate the two cross-Benchmark scored-result metrics."""
-
-    for key in ("pass_rate", "coverage"):
-        value = metrics.get(key)
-        if isinstance(value, bool) or not isinstance(value, int | float) or not 0.0 <= value <= 1.0:
-            raise ValueError(f"a scored Candidate must publish canonical metric {key!r} in [0, 1]")
-
-
 def _candidate_outcome(result: CandidateResult) -> None:
+    if "coverage" in result.metrics:
+        raise ValueError("metrics.coverage is replaced by top-level coverage")
+    gradeable = [
+        case for case in result.cases if case.grade is not None and case.grade.score is not None
+    ]
+    expected_coverage = round(len(gradeable) / result.case_count, 4) if result.case_count else 0.0
+    if result.coverage != expected_coverage:
+        raise ValueError(
+            f"coverage must equal numeric Case grades / selected Cases ({expected_coverage})"
+        )
     if result.score is None:
         if result.metrics:
             raise ValueError("a failed or unscored Candidate cannot contain metrics")
+        if gradeable:
+            raise ValueError("an unscored Candidate cannot contain a numeric Case grade")
         if not result.failures and all(case.status == "scored" for case in result.cases):
             raise ValueError(
                 "an unscored Candidate must be explained by a non-scored Case or Failure"
             )
         return
-    if result.failures or any(case.status != "scored" for case in result.cases):
-        raise ValueError("a scored Candidate cannot contain a non-scored Case or failure")
-    _canonical_metrics(result.metrics)
+    if not gradeable:
+        raise ValueError("a scored Candidate requires at least one numeric Case grade")
 
 
 def validate_case_id(value: CaseId | None, *, optional: bool = False) -> CaseId | None:
@@ -386,6 +394,8 @@ def _validate_candidate_invocation(
     validate_finish_reason(finish_reason)
     if refusal is not None and (not isinstance(refusal, str) or not refusal.strip()):
         raise ValueError("Candidate Invocation refusal must be non-empty text or null")
+    if refusal is not None and output:
+        raise ValueError("a refused Candidate Invocation must carry an empty output")
 
 
 __all__ = [

@@ -97,12 +97,15 @@ def _case_row_from_evidence(
     *,
     output: str | None = None,
 ) -> dict[str, object]:
+    answer = output or f"Answer {case}"
     case_record = {
         "schema": CASE_SCHEMA,
         "case_id": case,
         "input": f"Question {case}",
-        "output": output or f"Answer {case}",
+        "answer": answer,
+        "output": answer,
         "finish_reason": "stop",
+        "refusal": None,
         "metadata": {},
     }
     criteria = []
@@ -151,10 +154,11 @@ def test_candidate_output_cannot_become_judge_evidence() -> None:
     )
 
     assert result["metrics"]["n_runs"] == 5
-    assert result["metrics"]["coverage"] == 1.0
+    assert result["coverage"] == 1.0
+    assert result["metrics"]["verdict_coverage"] == 1.0
 
 
-def test_coverage_diagnostics_distinguish_invalid_and_missing_verdicts() -> None:
+def test_partial_judge_evidence_scores_with_explicit_verdict_coverage() -> None:
     evidence = {
         "a1": [_verdict("a1", "MET", sequence=n) for n in range(1, 6)],
         "a2": [_verdict("a2", "MET", sequence=n) for n in range(1, 6)],
@@ -175,9 +179,11 @@ def test_coverage_diagnostics_distinguish_invalid_and_missing_verdicts() -> None
 
     case = result["cases"][0]
 
-    assert result["score"] is None
-    assert case["grade"]["score"] is None
-    assert case["failures"][0]["code"] == "insufficient_judge_coverage"
+    assert result["score"] == 1.0
+    assert result["coverage"] == 1.0
+    assert result["metrics"]["verdict_coverage"] == 0.9
+    assert case["grade"]["score"] == 1.0
+    assert case["failures"] == []
     assert {
         name: case["grade"]["metrics"][name]
         for name in (
@@ -218,7 +224,8 @@ def test_reference_coverage_floor_accepts_exactly_ninety_five_percent() -> None:
     )
 
     assert result["score"] == 1.0
-    assert result["metrics"]["coverage"] == 0.95
+    assert result["coverage"] == 1.0
+    assert result["metrics"]["verdict_coverage"] == 0.95
     assert result["cases"][0]["failures"] == []
 
 
@@ -260,7 +267,7 @@ def test_aggregate_scores_the_official_nested_payload() -> None:
     assert result["failures"] == []
 
 
-def test_extra_judge_pass_makes_the_case_unscored() -> None:
+def test_extra_judge_pass_aborts_as_protocol_corruption() -> None:
     row = _case_row(
         1,
         ("a1", ["MET"] * 6),
@@ -269,23 +276,16 @@ def test_extra_judge_pass_makes_the_case_unscored() -> None:
         ("b1", ["MET"] * 5),
     )
 
-    result = agg.aggregate(
-        json.dumps([row]),
-        rubrics={1: _RUBRIC},
-        benchmark_id="draco",
-        selected_cases=_selected_cases(1),
-    )
-
-    assert result["score"] is None
-    assert result["cases"][0]["grade"] is None
-    failure = result["cases"][0]["failures"][0]
-    assert failure["code"] == "invalid_case_evaluation"
-    assert failure["metadata"]["reason"] == (
-        "a DRACO Check cannot carry more than 5 Judge Evidence records"
-    )
+    with pytest.raises(agg.AggregateError, match="more than 5 Judge Evidence"):
+        agg.aggregate(
+            json.dumps([row]),
+            rubrics={1: _RUBRIC},
+            benchmark_id="draco",
+            selected_cases=_selected_cases(1),
+        )
 
 
-def test_a_case_id_missing_from_evidence_makes_the_case_unscored() -> None:
+def test_a_case_id_missing_from_evidence_aborts() -> None:
     """A scoreable verdict must carry the identity bound by the Engine after judging."""
     row = _case_row(
         1,
@@ -300,18 +300,16 @@ def test_a_case_id_missing_from_evidence_makes_the_case_unscored() -> None:
     assert isinstance(first_verdict, dict)
     del first_verdict["case_id"]
 
-    result = agg.aggregate(
-        json.dumps([row]),
-        rubrics={1: _RUBRIC},
-        benchmark_id="draco",
-        selected_cases=_selected_cases(1),
-    )
-
-    assert result["score"] is None
-    assert result["cases"][0]["grade"] is None
+    with pytest.raises(agg.AggregateError, match="invalid DRACO Judge Evidence"):
+        agg.aggregate(
+            json.dumps([row]),
+            rubrics={1: _RUBRIC},
+            benchmark_id="draco",
+            selected_cases=_selected_cases(1),
+        )
 
 
-def test_a_row_with_no_verdicts_is_a_failure_not_a_zero() -> None:
+def test_a_malformed_row_with_no_verdicts_aborts() -> None:
     rows = json.dumps(
         [
             _case_row(
@@ -324,20 +322,13 @@ def test_a_row_with_no_verdicts_is_a_failure_not_a_zero() -> None:
             "judge refused",
         ]
     )
-    result = agg.aggregate(
-        rows,
-        rubrics={1: _RUBRIC, 2: _RUBRIC},
-        benchmark_id="draco",
-        selected_cases=_selected_cases(1, 2),
-    )
-
-    assert result["case_count"] == 2
-    assert result["failures"] == []
-    assert result["cases"][1]["grade"] is None
-    assert len(result["cases"][1]["failures"]) == 1
-    assert result["cases"][0]["grade"]["score"] == 1.0
-    assert result["score"] is None
-    assert result["metrics"] == {}
+    with pytest.raises(agg.AggregateError, match="position 1"):
+        agg.aggregate(
+            rows,
+            rubrics={1: _RUBRIC, 2: _RUBRIC},
+            benchmark_id="draco",
+            selected_cases=_selected_cases(1, 2),
+        )
 
 
 def test_no_rows_at_all_retains_every_selected_case_as_failed() -> None:

@@ -31,7 +31,7 @@ def build_tasks(
     """Join one dynamic Candidate answer to Engine-owned, weight-free judge inputs."""
     selected_case_id = positive_case_id(case_id)
     selected_question = _text(question, "question")
-    selected_answer = _text(answer, "answer")
+    selected_answer = _answer(answer)
 
     tasks: list[dict[str, str]] = []
     for index, criterion in enumerate(criteria):
@@ -101,6 +101,12 @@ def _text(value: object, label: str) -> str:
         return require_text(value, label)
     except ValueError as exc:
         raise TasksError(str(exc)) from None
+
+
+def _answer(value: object) -> str:
+    if not isinstance(value, str):
+        raise TasksError("answer must be text")
+    return value
 
 
 __all__ = [

@@ -164,6 +164,37 @@ async def test_lite_task_route_selects_criteria_across_axes(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_lite_tasks_grade_exact_refusal_text_through_the_normal_judges(
+    tmp_path: Path,
+) -> None:
+    _assets(tmp_path / "draco")
+    node = Url4Node("test")
+    install_benchmarks(node, tmp_path)
+    exact = "I cannot answer that request."
+    expression = expr(
+        src(
+            Text(encode_candidate_invocation("", "content_filter", exact)),
+            name="candidate_result",
+            weight=0.0,
+        ),
+        src(
+            RelExpr(path=LITE_TASKS_ROUTE, context="$candidate_result", intent=Text("2")),
+            name="tasks",
+            weight=0.0,
+        ),
+        intent=Text("$tasks"),
+    )
+
+    tasks = json.loads((await node.evaluate(render(expression))).text)
+    case_record = json.loads(tasks[0]["case_record"])
+
+    assert all(task["answer"] == exact for task in tasks)
+    assert case_record["answer"] == case_record["refusal"] == exact
+    assert case_record["output"] is None
+    assert case_record["finish_reason"] == "content_filter"
+
+
+@pytest.mark.asyncio
 async def test_lite_runtime_reports_its_own_identity_and_one_judge_pass(tmp_path: Path) -> None:
     _assets(tmp_path / "draco")
     rows = []
@@ -174,8 +205,10 @@ async def test_lite_runtime_reports_its_own_identity_and_one_judge_pass(tmp_path
                 "schema": CASE_SCHEMA,
                 "case_id": case_id,
                 "input": f"Question {case_id}",
+                "answer": f"Answer {case_id}",
                 "output": f"Answer {case_id}",
                 "finish_reason": "stop",
+                "refusal": None,
                 "metadata": {"domain": "test"},
             },
         ]
@@ -242,4 +275,5 @@ async def test_lite_runtime_reports_its_own_identity_and_one_judge_pass(tmp_path
     assert result["benchmark_revision"] == DRACO_LITE.revision
     assert result["case_count"] == 2
     assert result["metrics"]["n_runs"] == 1
-    assert result["metrics"]["coverage"] == 1.0
+    assert result["coverage"] == 1.0
+    assert result["metrics"]["verdict_coverage"] == 1.0

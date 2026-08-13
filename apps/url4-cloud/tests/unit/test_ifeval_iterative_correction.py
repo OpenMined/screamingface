@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from url4 import build, render
 from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
+    AggregateError,
     aggregate_corrective,
 )
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
@@ -61,6 +64,7 @@ def _record(case_id: int, attempt: int, strict: list[bool]) -> dict[str, object]
         "attempt": attempt,
         "valid": True,
         "answer": f"Case {case_id} answer {attempt}",
+        "refusal": None,
         "finish_reason": "stop",
         "instruction_id_list": spec["instruction_id_list"],
         "descriptions": [
@@ -227,7 +231,7 @@ def test_a_never_passing_case_scores_its_last_attempt() -> None:
     assert result["metrics"]["pass_at_3"] == 0.0
 
 
-def test_a_failed_case_invalidates_the_corrective_candidate_score() -> None:
+def test_a_failed_case_is_excluded_from_the_corrective_candidate_score() -> None:
     payload = _rows(
         _evaluation(1, [True, True]),
         {
@@ -247,8 +251,8 @@ def test_a_failed_case_invalidates_the_corrective_candidate_score() -> None:
         selected_case_count=2,
     )
 
-    assert result["score"] is None
-    assert result["metrics"] == {}
+    assert result["score"] == 1.0
+    assert result["coverage"] == 0.5
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert result["cases"][1]["grade"] is None
     assert result["cases"][1]["failures"][0]["message"] == (
@@ -256,18 +260,16 @@ def test_a_failed_case_invalidates_the_corrective_candidate_score() -> None:
     )
 
 
-def test_every_failed_case_returns_null_instead_of_reporting_zero() -> None:
-    result = aggregate_corrective(
-        _rows("broken", "also broken"),
-        _SPECS,
-        SELF_CORRECTIVE_ID,
-        SELF_CORRECTIVE_REVISION,
-        _ORDER,
-        selected_case_count=2,
-    )
-
-    assert result["score"] is None
-    assert [case["grade"] for case in result["cases"]] == [None, None]
+def test_every_malformed_case_aborts_instead_of_reporting_zero() -> None:
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate_corrective(
+            _rows("broken", "also broken"),
+            _SPECS,
+            SELF_CORRECTIVE_ID,
+            SELF_CORRECTIVE_REVISION,
+            _ORDER,
+            selected_case_count=2,
+        )
 
 
 def test_all_crash_result_retains_the_collected_inner_failure() -> None:
@@ -304,21 +306,18 @@ def test_a_record_whose_instruction_ids_mismatch_the_spec_is_rejected() -> None:
         _evaluation(2, [True]),
     )
 
-    result = aggregate_corrective(
-        payload,
-        _SPECS,
-        SELF_CORRECTIVE_ID,
-        SELF_CORRECTIVE_REVISION,
-        _ORDER,
-        selected_case_count=2,
-    )
-
-    assert result["score"] is None
-    assert result["metrics"] == {}
-    assert result["cases"][0]["grade"] is None
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate_corrective(
+            payload,
+            _SPECS,
+            SELF_CORRECTIVE_ID,
+            SELF_CORRECTIVE_REVISION,
+            _ORDER,
+            selected_case_count=2,
+        )
 
 
-def test_duplicate_attempt_numbers_make_the_case_unscored() -> None:
+def test_duplicate_attempt_numbers_abort_as_protocol_corruption() -> None:
     payload = _rows(
         {
             "schema": CASE_EVALUATION_SCHEMA,
@@ -330,17 +329,15 @@ def test_duplicate_attempt_numbers_make_the_case_unscored() -> None:
         }
     )
 
-    result = aggregate_corrective(
-        payload,
-        {1: _SPECS[1]},
-        SELF_CORRECTIVE_ID,
-        SELF_CORRECTIVE_REVISION,
-        [1],
-        selected_case_count=1,
-    )
-
-    assert result["score"] is None
-    assert result["cases"][0]["grade"] is None
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate_corrective(
+            payload,
+            {1: _SPECS[1]},
+            SELF_CORRECTIVE_ID,
+            SELF_CORRECTIVE_REVISION,
+            [1],
+            selected_case_count=1,
+        )
 
 
 def test_metrics_are_flat_numbers_only() -> None:

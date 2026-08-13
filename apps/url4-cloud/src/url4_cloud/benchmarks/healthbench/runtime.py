@@ -175,12 +175,17 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
         try:
             case_id = positive_case_id(request.intent)
             answer = candidate_answer(request.context)
-            output, finish_reason = answer.output, answer.finish_reason
+            evaluator_text, finish_reason = answer.text, answer.finish_reason
             raw_cases = _read(root / "cases.json", "HealthBench cases")
             transcript = _transcript(raw_cases, case_id)
             items = _rubric_items(root, case_id)
             case_record = records.bind_case(
-                raw_cases, case_id=case_id, output=output, finish_reason=finish_reason
+                raw_cases,
+                case_id=case_id,
+                answer=evaluator_text,
+                output=answer.output,
+                refusal=answer.refusal,
+                finish_reason=finish_reason,
             )
             tasks: list[dict[str, str]] = []
             for item in items:
@@ -195,7 +200,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
                         # INVARIANT: the judge prompt is fully rendered HERE, engine-
                         # side, so its bytes match the reference `grade_sample` exactly
                         # — nothing about the prompt is assembled inside the expression.
-                        "grader_prompt": build_grader_prompt(transcript, output, rendered),
+                        "grader_prompt": build_grader_prompt(transcript, evaluator_text, rendered),
                         # Dedup: the full Case record (Candidate's whole output) rides
                         # the FIRST task only; the rest carry "{}" — case_evaluation.py
                         # hoists it back to one record per Case.

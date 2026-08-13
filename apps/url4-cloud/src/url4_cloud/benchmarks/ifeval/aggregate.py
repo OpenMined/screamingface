@@ -6,9 +6,9 @@ STORY: as a researcher, the number I publish is the IFEval paper's prompt-level 
 accuracy (arXiv:2311.07911).
 
 INVARIANT: `case_count` is EXACT (one entry per selected Case) and every scored Case has a
-real verifier record. A missing record is an operational failure rather than an incorrect
-answer: the Case is retained with its failure record and the complete Candidate fails closed
-with `score: None` and empty metrics. No accuracy is published over a surviving subset.
+real verifier record. A collected or missing operational result is retained without a grade
+and lowers top-level coverage; valid deterministic grades still publish their official score.
+Malformed or mismatched verifier envelopes abort because their identity cannot be trusted.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from typing import Any
 from url4_cloud.benchmarks.aggregation import (
     CandidateScore,
     SelectedCase,
-    collected_provider_refusal,
     failed_case_result,
     finalize_candidate_result,
     public_error,
@@ -68,8 +67,12 @@ def aggregate(
         spec = specs[case_id]
         record = _first_valid_record(raw, case_id, spec)
         if record is None:
-            case_results.append(_failed_case_result(raw, index, selected_case))
-            continue
+            if _collected_error(raw) is not None:
+                case_results.append(_failed_case_result(raw, index, selected_case))
+                continue
+            raise AggregateError(
+                f"Case result at position {index} is not a valid IFEval Case Evaluation"
+            )
         case_results.append(_case_result(selected_case, record))
     return finalize_candidate_result(
         benchmark_id=benchmark_id,
@@ -87,16 +90,9 @@ def _failed_case_result(
 ) -> CaseResult:
     """Retain one selected Case whose Candidate Invocation or Grading failed."""
 
-    if refusal := collected_provider_refusal(row):
-        return refused_case_result(
-            selected_case=selected_case,
-            refusal=refusal.text,
-            finish_reason=refusal.finish_reason,
-            metadata={"row_index": row_index},
-        )
-
-    error = row.get("error") if isinstance(row, Mapping) else None
-    error = error if isinstance(error, Mapping) else {}
+    error = _collected_error(row)
+    if error is None:  # pragma: no cover - guarded by both aggregate entry points
+        raise AssertionError("failed IFEval rows must carry a collected error")
     diagnostic = public_error(
         error,
         default_code="invalid_case_evaluation",
@@ -153,8 +149,12 @@ def aggregate_corrective(
         spec = specs[case_id]
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
-            case_results.append(_failed_case_result(raw, index, selected_case))
-            continue
+            if _collected_error(raw) is not None:
+                case_results.append(_failed_case_result(raw, index, selected_case))
+                continue
+            raise AggregateError(
+                f"Case result at position {index} is not a valid IFEval Case Evaluation"
+            )
         earliest_pass = min(
             (attempt for attempt, record in records.items() if all(record["strict"])),
             default=0,
@@ -182,6 +182,11 @@ def _reject_surplus_rows(rows: Sequence[Any], selected: Sequence[SelectedCase]) 
         raise AggregateError(
             f"aggregate received {len(rows)} rows for {len(selected)} selected Cases"
         )
+
+
+def _collected_error(row: object) -> Mapping[str, Any] | None:
+    error = row.get("error") if isinstance(row, Mapping) else None
+    return error if isinstance(error, Mapping) else None
 
 
 def _attempt_records(
@@ -383,8 +388,13 @@ def _is_bool_vector(value: object, expected_length: int) -> bool:
 
 
 def _record_content(record: Mapping[str, Any], instruction_count: int) -> bool:
+    refusal = record.get("refusal")
+    answer = record.get("answer")
     return (
-        isinstance(record.get("answer"), str)
+        isinstance(answer, str)
+        and "refusal" in record
+        and (refusal is None or isinstance(refusal, str) and bool(refusal.strip()))
+        and (refusal is None or answer == refusal)
         and "finish_reason" in record
         and (
             record["finish_reason"] is None
@@ -404,45 +414,54 @@ def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> Case
     loose = [bool(value) for value in record["loose"]]
     descriptions = record["descriptions"]
     assert isinstance(descriptions, list)
+    grade = {
+        "method": "deterministic",
+        "score": float(all(strict)),
+        "metrics": {
+            "follow_all_strict": all(strict),
+            "follow_all_loose": all(loose),
+            "strict_checks_passed": sum(strict),
+            "loose_checks_passed": sum(loose),
+        },
+        "checks": [
+            {
+                "type": "instruction",
+                "id": f"instruction-{index}",
+                "label": descriptions[index - 1],
+                # Check-level verdict in the report schema's vocabulary; the strict
+                # verifier decides it, matching the headline score. Without it a
+                # reader must dig into evidence, and the SDK renders the check as
+                # unjudged.
+                "outcome": "MET" if strict[index - 1] else "UNMET",
+                "evidence": [
+                    _verification_evidence(1, "strict", strict[index - 1]),
+                    _verification_evidence(2, "loose", loose[index - 1]),
+                ],
+                "metadata": {"instruction_index": index},
+            }
+            for index in range(1, len(strict) + 1)
+        ],
+    }
+    refusal = record.get("refusal")
+    if isinstance(refusal, str):
+        return refused_case_result(
+            selected_case=selected_case,
+            refusal=refusal,
+            finish_reason=record["finish_reason"],
+            grade=grade,
+        )
     return scored_case_result(
         selected_case=selected_case,
         output=str(record["answer"]),
         finish_reason=record["finish_reason"],
-        grade={
-            "method": "deterministic",
-            "score": float(all(strict)),
-            "metrics": {
-                "follow_all_strict": all(strict),
-                "follow_all_loose": all(loose),
-                "strict_checks_passed": sum(strict),
-                "loose_checks_passed": sum(loose),
-            },
-            "checks": [
-                {
-                    "type": "instruction",
-                    "id": f"instruction-{index}",
-                    "label": descriptions[index - 1],
-                    # Check-level verdict in the report schema's vocabulary; the strict
-                    # verifier decides it, matching the headline score. Without it a
-                    # reader must dig into evidence, and the SDK renders the check as
-                    # unjudged.
-                    "outcome": "MET" if strict[index - 1] else "UNMET",
-                    "evidence": [
-                        _verification_evidence(1, "strict", strict[index - 1]),
-                        _verification_evidence(2, "loose", loose[index - 1]),
-                    ],
-                    "metadata": {"instruction_index": index},
-                }
-                for index in range(1, len(strict) + 1)
-            ],
-        },
+        grade=grade,
     )
 
 
 def _ifeval_score(
     cases: Sequence[CaseResult], *, max_attempts: int | None = None
 ) -> CandidateScore:
-    """Apply IFEval's published accuracy formulas to complete typed Cases."""
+    """Apply IFEval's published accuracy formulas to gradeable typed Cases."""
 
     grades = [case.grade for case in cases]
     if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
@@ -464,7 +483,6 @@ def _ifeval_score(
         "prompt_level_loose_accuracy": _accuracy(loose_all),
         "inst_level_loose_accuracy": _accuracy(loose_flat),
         "pass_rate": inst_level_strict,
-        "coverage": 1.0,
     }
     if max_attempts is not None:
         metrics.update(

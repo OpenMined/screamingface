@@ -114,7 +114,7 @@ def _check(root: Path):
         try:
             case_id, attempt = _case_and_attempt(request.intent)
             candidate = candidate_answer(request.context)
-            spec, result, violations = _verification(root, case_id, candidate.output)
+            spec, result, violations = _verification(root, case_id, candidate.text)
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
         record = {
@@ -122,7 +122,8 @@ def _check(root: Path):
             "case_id": case_id,
             "attempt": attempt,
             "valid": True,
-            "answer": candidate.output,
+            "answer": candidate.text,
+            "refusal": candidate.refusal,
             "finish_reason": candidate.finish_reason,
             "instruction_id_list": spec["instruction_id_list"],
             "descriptions": grading.describe_instructions(

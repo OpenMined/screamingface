@@ -17,7 +17,7 @@ def build_evaluation_protocol(
     aggregate_route: str,
     bindings: tuple[Node, ...] = (),
 ) -> Node:
-    """Compose ordered Case evaluation and fail-closed Aggregation around one Case node."""
+    """Compose ordered Case evaluation and typed Aggregation around one Case node."""
 
     _route(cases_route, "cases_route")
     _route(aggregate_route, "aggregate_route")

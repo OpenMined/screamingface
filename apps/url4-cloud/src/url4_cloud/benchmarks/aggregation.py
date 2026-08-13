@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -22,7 +21,6 @@ from url4_cloud.benchmarks.contract import (
     CaseResult,
     Failure,
     validate_case_id,
-    validate_finish_reason,
 )
 
 
@@ -44,14 +42,6 @@ class SelectedCase(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class CandidateRefusal:
-    """Exact provider refusal fields recovered after URL4 error collection."""
-
-    text: str
-    finish_reason: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class PublicError:
     """Safe operational diagnostics suitable for the public result contract."""
 
@@ -63,7 +53,7 @@ class PublicError:
 
 @dataclass(frozen=True, slots=True)
 class CandidateScore:
-    """A Benchmark scorer's result after every selected Case graded successfully."""
+    """A Benchmark scorer's result over the finalizer's gradeable Case subset."""
 
     # HealthBench's official penalty-bearing result can be negative.
     score: float
@@ -82,7 +72,7 @@ def finalize_candidate_result(
     scorer: Scorer,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
 ) -> CandidateResult:
-    """Preserve Cases and publish a score only for a complete successful run."""
+    """Preserve Cases and score exactly the subset carrying numeric Benchmark grades."""
 
     selection = [
         case if isinstance(case, SelectedCase) else SelectedCase.model_validate(case)
@@ -132,53 +122,20 @@ def finalize_candidate_result(
         for selected in selection
     ]
 
-    complete = not typed_failures and all(case.status == "scored" for case in typed_cases)
-    scored = scorer(tuple(typed_cases)) if complete else None
+    gradeable = tuple(
+        case for case in typed_cases if case.grade is not None and case.grade.score is not None
+    )
+    scored = scorer(gradeable) if gradeable else None
     return CandidateResult(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
         case_count=len(typed_cases),
         score=scored.score if scored is not None else None,
+        coverage=round(len(gradeable) / len(typed_cases), 4) if typed_cases else 0.0,
         metrics=scored.metrics if scored is not None else {},
         cases=typed_cases,
         failures=typed_failures,
     )
-
-
-def collected_provider_refusal(row: object) -> CandidateRefusal | None:
-    """Read exact refusal fields carried through URL4's collected-error boundary."""
-
-    error = row.get("error") if isinstance(row, Mapping) else None
-    if not isinstance(error, Mapping) or error.get("kind") != "ProviderRefusal":
-        return None
-    raw = error.get("message")
-    return _decode_provider_refusal(raw) if isinstance(raw, str) else None
-
-
-def _decode_provider_refusal(raw: str) -> CandidateRefusal | None:
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        payload = None
-    fields = _provider_refusal_fields(payload)
-    return CandidateRefusal(*fields) if fields is not None else None
-
-
-def _provider_refusal_fields(payload: object) -> tuple[str, str | None] | None:
-    refusal = payload.get("refusal") if isinstance(payload, Mapping) else None
-    if (
-        not isinstance(payload, Mapping)
-        or set(payload) != {"refusal", "finish_reason"}
-        or not isinstance(refusal, str)
-        or not refusal.strip()
-    ):
-        return None
-    finish_reason = payload.get("finish_reason")
-    try:
-        typed_finish_reason = validate_finish_reason(finish_reason)
-    except ValueError:
-        return None
-    return refusal, typed_finish_reason
 
 
 def public_error(
@@ -301,10 +258,18 @@ def refused_case_result(
     *,
     selected_case: SelectedCase,
     refusal: str,
+    grade: CaseGrade | Mapping[str, Any],
     finish_reason: str | None = None,
+    failures: Sequence[Failure | Mapping[str, Any]] = (),
     metadata: Mapping[str, Any] | None = None,
 ) -> CaseResult:
-    """Construct the one canonical refused Case shape without invoking grading."""
+    """Construct a refused Case after normal Benchmark grading."""
+
+    typed_grade = grade if isinstance(grade, CaseGrade) else CaseGrade.model_validate(grade)
+    typed_failures = [
+        failure if isinstance(failure, Failure) else Failure.model_validate(failure)
+        for failure in failures
+    ]
 
     return CaseResult(
         status="refused",
@@ -313,17 +278,8 @@ def refused_case_result(
         output=None,
         finish_reason=finish_reason,
         refusal=refusal,
-        grade=None,
-        failures=[
-            Failure(
-                stage="candidate",
-                code="provider_refusal",
-                message="the provider refused this Candidate request",
-                retryable=False,
-                case_id=selected_case.case_id,
-                metadata={},
-            )
-        ],
+        grade=typed_grade,
+        failures=typed_failures,
         metadata=_case_metadata(selected_case, metadata),
     )
 
@@ -336,10 +292,8 @@ def _case_metadata(
 
 __all__ = [
     "CandidateScore",
-    "CandidateRefusal",
     "Scorer",
     "SelectedCase",
-    "collected_provider_refusal",
     "failed_case_result",
     "finalize_candidate_result",
     "public_error",

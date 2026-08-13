@@ -10,34 +10,65 @@ RUBRIC_SCHEMA = "screamingface.healthbench-rubric-record.v1"
 
 
 def bind_case(
-    raw_cases: str, *, case_id: int, output: str, finish_reason: str | None
+    raw_cases: str,
+    *,
+    case_id: int,
+    answer: str,
+    output: str | None,
+    refusal: str | None,
+    finish_reason: str | None,
 ) -> dict[str, object]:
-    """Bind one Candidate output to the Engine-owned Case selected by ``case_id``."""
+    """Bind evaluator text and exact Candidate outcome to one Engine-owned Case."""
 
     selected_id = _case_id(case_id)
-    if not isinstance(output, str) or not output.strip():
-        raise ValueError("HealthBench Candidate output must be non-empty text")
+    _validate_outcome(answer, output, refusal)
+    cases = _decode_cases(raw_cases)
+    row = next(
+        (
+            value
+            for value in cases
+            if isinstance(value, Mapping) and _optional_case_id(value.get("id")) == selected_id
+        ),
+        None,
+    )
+    if row is None:
+        raise ValueError(f"unknown HealthBench Case {selected_id}")
+    input_value = row.get("input")
+    if not isinstance(input_value, str) or not input_value.strip():
+        raise ValueError(f"HealthBench Case {selected_id} input must be non-empty text")
+    return {
+        "schema": CASE_SCHEMA,
+        "case_id": selected_id,
+        "input": input_value,
+        "answer": answer,
+        "output": output,
+        "finish_reason": finish_reason,
+        "refusal": refusal,
+        "metadata": {key: value for key, value in row.items() if key not in {"id", "input"}},
+    }
+
+
+def _validate_outcome(answer: object, output: object, refusal: object) -> None:
+    if not isinstance(answer, str):
+        raise ValueError("HealthBench Candidate answer must be text")
+    if (refusal is None) == (output is None):
+        raise ValueError("HealthBench Candidate must carry exactly one of output or refusal")
+    if refusal is not None and (
+        not isinstance(refusal, str) or not refusal.strip() or answer != refusal
+    ):
+        raise ValueError("HealthBench Candidate refusal must be exact non-empty evaluator text")
+    if output is not None and answer != output:
+        raise ValueError("HealthBench Candidate output must equal evaluator text")
+
+
+def _decode_cases(raw_cases: str) -> list[object]:
     try:
         cases = json.loads(raw_cases)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"HealthBench cases are not JSON: {exc}") from None
     if not isinstance(cases, list):
         raise ValueError("HealthBench cases must be a JSON array")
-    for row in cases:
-        if not isinstance(row, Mapping) or _optional_case_id(row.get("id")) != selected_id:
-            continue
-        input_value = row.get("input")
-        if not isinstance(input_value, str) or not input_value.strip():
-            raise ValueError(f"HealthBench Case {selected_id} input must be non-empty text")
-        return {
-            "schema": CASE_SCHEMA,
-            "case_id": selected_id,
-            "input": input_value,
-            "output": output,
-            "finish_reason": finish_reason,
-            "metadata": {key: value for key, value in row.items() if key not in {"id", "input"}},
-        }
-    raise ValueError(f"unknown HealthBench Case {selected_id}")
+    return cases
 
 
 def bind_rubric_item(

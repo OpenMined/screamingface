@@ -10,7 +10,6 @@ from typing import Any
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 from url4_cloud.benchmarks.contract import decode_candidate_invocation
-from url4_cloud.benchmarks.errors import ProviderRefusal
 
 JsonObject = dict[str, Any]
 CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
@@ -19,19 +18,24 @@ AggregateAdapter = Callable[[str, int], JsonObject]
 
 @dataclass(frozen=True, slots=True)
 class CandidateAnswer:
-    """One non-refused Candidate Invocation ready for Benchmark evaluation."""
+    """One Candidate Invocation with evaluator text and exact public outcome fields."""
 
-    output: str
+    text: str
+    output: str | None
     finish_reason: str | None
+    refusal: str | None
 
 
 def candidate_answer(value: str) -> CandidateAnswer:
-    """Decode one invocation and stop grading immediately on exact provider refusal."""
+    """Decode one invocation; refusals remain ordinary Benchmark-checkable text."""
 
     output, finish_reason, refusal = decode_candidate_invocation(value)
-    if refusal is not None:
-        raise ProviderRefusal(refusal, finish_reason=finish_reason)
-    return CandidateAnswer(output=output, finish_reason=finish_reason)
+    return CandidateAnswer(
+        text=refusal if refusal is not None else output,
+        output=None if refusal is not None else output,
+        finish_reason=finish_reason,
+        refusal=refusal,
+    )
 
 
 def case_evaluation_endpoint(

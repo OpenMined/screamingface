@@ -10,7 +10,6 @@ from url4 import RelExpr, Text, render
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import encode_candidate_invocation
-from url4_cloud.benchmarks.errors import ProviderRefusal
 from url4_cloud.benchmarks.evaluation import (
     aggregate_endpoint,
     candidate_answer,
@@ -92,14 +91,12 @@ async def test_aggregate_endpoint_validates_selection_and_passes_case_evaluation
     assert caught.value.code == "benchmark_operation_unsupported"
 
 
-def test_candidate_answer_preserves_completion_and_raises_exact_refusal() -> None:
+def test_candidate_answer_preserves_completion_and_exposes_exact_refusal_for_grading() -> None:
     answer = candidate_answer(encode_candidate_invocation("answer", "length", None))
     assert (answer.output, answer.finish_reason) == ("answer", "length")
 
-    with pytest.raises(ProviderRefusal, match="exact refusal") as caught:
-        candidate_answer(encode_candidate_invocation("", "content_filter", "exact refusal"))
-
-    assert json.loads(str(caught.value)) == {
-        "refusal": "exact refusal",
-        "finish_reason": "content_filter",
-    }
+    refused = candidate_answer(encode_candidate_invocation("", "content_filter", "exact refusal"))
+    assert refused.text == "exact refusal"
+    assert refused.output is None
+    assert refused.refusal == "exact refusal"
+    assert refused.finish_reason == "content_filter"

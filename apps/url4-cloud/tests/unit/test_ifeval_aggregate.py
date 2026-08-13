@@ -55,6 +55,7 @@ def _record(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, ob
         "attempt": 1,
         "valid": True,
         "answer": f"Answer {case_id}",
+        "refusal": None,
         "finish_reason": "stop",
         "instruction_id_list": spec["instruction_id_list"],
         "descriptions": [
@@ -96,7 +97,7 @@ def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
     # Canonical report contract: pass_rate mirrors inst-level strict accuracy and
     # coverage is (checked - fallback) / selected — all 2 cases were checked here.
     assert result["metrics"]["pass_rate"] == round(2 / 3, 4)
-    assert result["metrics"]["coverage"] == 1.0
+    assert result["coverage"] == 1.0
     assert result["case_count"] == 2
     assert result["cases"][0]["input"] == _SPECS[1]["prompt"]
     assert result["cases"][0]["output"] == "Answer 1"
@@ -125,7 +126,7 @@ def test_exact_case_evaluations_survive_the_collect_boundary() -> None:
     assert result["case_count"] == 2
 
 
-def test_a_failed_case_invalidates_the_candidate_score() -> None:
+def test_a_failed_case_is_excluded_and_lowers_candidate_coverage() -> None:
     payload = _rows(
         _evaluation(1, [True, True], [True, True]),
         {
@@ -138,8 +139,8 @@ def test_a_failed_case_invalidates_the_candidate_score() -> None:
 
     result = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
-    assert result["score"] is None
-    assert result["metrics"] == {}
+    assert result["score"] == 1.0
+    assert result["coverage"] == 0.5
     assert result["case_count"] == 2
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert result["cases"][1]["grade"] is None
@@ -148,32 +149,25 @@ def test_a_failed_case_invalidates_the_candidate_score() -> None:
     )
 
 
-def test_an_invalid_case_evaluation_is_retained_as_a_grading_failure() -> None:
+def test_an_invalid_case_evaluation_aborts_as_protocol_corruption() -> None:
     payload = _rows(
         "broken row",
         _evaluation(2, [True], [True]),
     )
 
-    result = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
-
-    assert result["score"] is None
-    assert result["metrics"] == {}
-    assert result["cases"][0]["failures"][0]["code"] == "invalid_case_evaluation"
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
 
-def test_every_failed_case_returns_null_instead_of_reporting_zero() -> None:
-    # Scoring this would hand the client a plausible 0.0 from a misconfigured assets
-    # path — draco's load_rubrics lesson.
-    result = aggregate(
-        _rows("broken", "also broken"),
-        _SPECS,
-        "ifeval",
-        _ORDER,
-        selected_case_count=2,
-    )
-
-    assert result["score"] is None
-    assert [case["grade"] for case in result["cases"]] == [None, None]
+def test_every_malformed_case_aborts_instead_of_reporting_zero() -> None:
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate(
+            _rows("broken", "also broken"),
+            _SPECS,
+            "ifeval",
+            _ORDER,
+            selected_case_count=2,
+        )
 
 
 def test_all_crash_result_retains_the_collected_inner_failure() -> None:
@@ -198,7 +192,7 @@ def test_metrics_are_flat_numbers_only() -> None:
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())
 
 
-def test_one_flake_at_realistic_size_fails_closed() -> None:
+def test_one_flake_at_realistic_size_publishes_partial_score_and_coverage() -> None:
 
     specs = {
         case_id: {
@@ -218,6 +212,7 @@ def test_one_flake_at_realistic_size_fails_closed() -> None:
             "attempt": 1,
             "valid": True,
             "answer": f"Answer {case_id}",
+            "refusal": None,
             "finish_reason": "stop",
             "instruction_id_list": ["punctuation:no_comma"],
             "descriptions": ["Instruction 1"],
@@ -232,8 +227,8 @@ def test_one_flake_at_realistic_size_fails_closed() -> None:
 
     result = aggregate(json.dumps(rows), specs, "ifeval", order, selected_case_count=10)
 
-    assert result["score"] is None
-    assert result["metrics"] == {}
+    assert result["score"] == 0.4444
+    assert result["coverage"] == 0.9
     assert result["case_count"] == 10
     assert result["cases"][9]["grade"] is None  # the flaked case, retained
 
@@ -261,13 +256,13 @@ def test_canonical_contract_metrics_are_published_for_every_scored_aggregate() -
     for result in (single_pass, corrective):
         assert 0.0 <= result["score"] <= 1.0
         assert 0.0 <= result["metrics"]["pass_rate"] <= 1.0
-        assert 0.0 <= result["metrics"]["coverage"] <= 1.0
+        assert 0.0 <= result["coverage"] <= 1.0
         # IFEval's mapping: pass_rate IS instruction-level strict accuracy.
         assert result["metrics"]["pass_rate"] == result["metrics"]["inst_level_strict_accuracy"]
-        assert result["metrics"]["coverage"] == 1.0
+        assert result["coverage"] == 1.0
 
 
-def test_a_record_for_an_unknown_case_id_is_ignored() -> None:
+def test_a_record_for_an_unknown_case_id_aborts() -> None:
     stray = dict(_record(2, [True], [True]), case_id=99)
     stray_evaluation = {
         "schema": CASE_EVALUATION_SCHEMA,
@@ -276,14 +271,8 @@ def test_a_record_for_an_unknown_case_id_is_ignored() -> None:
     }
     payload = _rows(_evaluation(1, [True, True], [True, True]), stray_evaluation)
 
-    result = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
-
-    # The stray record cannot smuggle a score into a Case its check never ran for, and
-    # the missing authentic grade cannot be recast as an incorrect answer — the Case
-    # fails the run closed while retaining the honestly graded Case.
-    assert result["score"] is None
-    assert result["metrics"] == {}
-    assert result["cases"][1]["grade"] is None
+    with pytest.raises(AggregateError, match="position 1"):
+        aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
 
 def test_non_array_payload_raises() -> None:

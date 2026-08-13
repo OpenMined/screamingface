@@ -80,8 +80,10 @@ async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Pa
         "schema": CASE_SCHEMA,
         "case_id": 1,
         "input": "Question 1",
+        "answer": "Answer 1",
         "output": "Answer 1",
         "finish_reason": "stop",
+        "refusal": None,
         "metadata": {},
     }
     check = {
