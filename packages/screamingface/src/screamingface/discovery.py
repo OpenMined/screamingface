@@ -33,6 +33,13 @@ class ModelInfo:
             _names(self.supported_tools, "Model supported_tools"),
         )
 
+    def __repr__(self) -> str:
+        return (
+            f"ModelInfo({self.id!r}, provider={self.provider!r}, "
+            f"parameters={len(self.supported_parameters)}, "
+            f"tools={len(self.supported_tools)})"
+        )
+
 
 _SCHEMA_TYPES = frozenset({"number", "integer", "string", "boolean", "array", "object"})
 _ITEM_TYPES = _SCHEMA_TYPES - {"array"}
@@ -195,6 +202,28 @@ class ModelDetails:
             if not isinstance(value, Mapping):
                 raise TypeError(f"Model {name} must be a mapping")
             object.__setattr__(self, name, MappingProxyType(dict(value)))
+
+    def __repr__(self) -> str:
+        arguments = [
+            repr(self.id),
+            f"provider={self.provider!r}",
+            f"scope={self.scope!r}",
+            f"parameters={len(self.parameters)}",
+            f"tools={len(self.tools)}",
+            f"transport={len(self.transport)}",
+        ]
+        # INVARIANT: _validate_freshness makes stale/degraded mutually exclusive, so at most
+        # one flag is ever appended; a fresh profile shows neither.
+        if self.stale:
+            arguments.append("stale=True")
+        if self.degraded:
+            arguments.append("degraded=True")
+        return f"ModelDetails({', '.join(arguments)})"
+
+    def _repr_html_(self) -> str:
+        from screamingface._ui.cards import model_details_card_html
+
+        return model_details_card_html(self)
 
 
 @dataclass(frozen=True, slots=True)
