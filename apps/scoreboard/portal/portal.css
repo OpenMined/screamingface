@@ -117,6 +117,16 @@ table .btn { white-space: nowrap; }
   .col-run { display: none; }
 }
 
+/* ---- mark column (OME-769) ------------------------------------------- */
+/* A column rather than a span inside the spec cell, so the browser handles the
+   alignment — see the WHY in benchmark.js's COLUMNS. Narrow and never wrapping:
+   it holds one mark or nothing, and currently always nothing (the SOTA medal is
+   descoped to OME-771, the frontier mark comes with OME-770). */
+.col-mark {
+  width: 1%;
+  white-space: nowrap;
+}
+
 /* ---- rail pinning: the one deliberate override in this file ---------- */
 /* WHY: style.css ships `.rail { position: relative }` plus a `.rail.stuck`
    variant its own comment documents as "(JS toggles .stuck + a spacer to hold

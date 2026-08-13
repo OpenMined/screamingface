@@ -14,10 +14,31 @@
   // direction applied the first time a column is selected.
   var COLUMNS = [
     { key: "rank", label: "Rank", sort: "number", dir: "asc", cls: "num" },
+    // The mark slot as its own column rather than a span inside the spec cell.
+    // OME-769 words it as "a spacer for non-SOTA rows so names stay aligned"; a
+    // column satisfies that goal structurally rather than by hand-tuned widths,
+    // which measurably failed (an in-cell slot sized to the badge text grew when
+    // the badge was enhanced, shifting that row's name ~64px right of the rest,
+    // and it stole width from `.cell-wrap`'s 192px cap, wrapping long spec names).
+    // Currently renders empty — see renderMarkSlot. OME-770/771 populate it.
+    { key: "__mark", label: "", sort: null, cls: "col-mark" },
+    // OME-769 asks for a "Name" column, but nothing in the payload names a
+    // fusion — `spec_id` is the only identifier (the gap catalogued in OME-772).
+    // The header stays "Spec" so it describes what the cell actually holds; the
+    // SOTA mark slot leads this cell, which is the "mark leads the name" part.
     { key: "spec_id", label: "Spec", sort: "string", dir: "asc" },
+    // Likewise "Models": `ran_with_providers` is provider names, not model
+    // identities, and providers.length > 1 is not a valid fusion/solo test.
+    // Keeping the honest label until a backend field exists.
     { key: "ran_with_providers", label: "Backends", sort: null },
+    { key: "submitted_by", label: "Author", sort: "string", dir: "asc" },
     { key: "accuracy", label: "Accuracy", sort: "number", dir: "desc", cls: "num" },
-    { key: "total_questions", label: "Questions", sort: "number", dir: "desc", cls: "num" },
+    // WHY Questions is gone: OME-769's column list is #, Name, Models, Author,
+    // Accuracy, Submitted, Run locally — Questions is not in it. Adding Author
+    // and the mark column pushed the table past its container (1205px into
+    // 958px), which put "Run Locally" — the url4 copy, the board's primary
+    // action — behind a horizontal scroll. `total_questions` is still shown on
+    // each spec's detail page, so no data is lost from the portal.
     { key: "submitted_at", label: "Submitted", sort: "date", dir: "desc" },
     { key: "verified_by_openmined", label: "Verified", sort: "bool", dir: "desc" },
     { key: "__run", label: "Run Locally", sort: null, cls: "col-run" },
@@ -79,31 +100,88 @@
     headNode.appendChild(tr);
   }
 
-  // The brand's one story color: entries tied at the best accuracy are SOTA.
+  var L = window.SFLeaderboardLogic;
+
+  // The widest accuracy bar on screen. Deliberately the best accuracy of ALL
+  // entries, verified or not — the bar is a like-for-like visual comparison of
+  // the rows present, so scaling it to the reproducible-only maximum would let
+  // an unverified row overflow its own track.
   function bestAccuracy(entries) {
     if (!entries.length) return null;
     return Math.max.apply(null, entries.map(function (e) { return e.accuracy; }));
   }
 
+  // The mark cell. Rendered on EVERY row so the column exists structurally;
+  // currently always empty.
+  //
+  // WHY empty: the SOTA medal was descoped from OME-769 in review. The medal has
+  // to name the best *reproduced* run, but `/v1/leaderboard` returns one row per
+  // spec chosen by accuracy alone (`RowNumber().over(spec_id).orderby(accuracy)`),
+  // so a spec whose top run is unverified hides its own verified run entirely.
+  // A verified 0.80 for spec A is invisible when A also has an unverified 0.90 —
+  // no client-side logic can recover it, and badging A's displayed 0.90 row as
+  // "independently reproduced" would state a different falsehood.
+  //
+  // AIDEV-NOTE: OME-771 fixes this properly by filtering the pool in the QUERY
+  // (?pool=verified), which makes the verified run a real row that can be badged
+  // truthfully; the medal lands there. OME-770's frontier mark also belongs in
+  // this cell. Until one of them ships, this column is intentionally blank.
+  function renderMarkSlot() {
+    return P.el("td", "col-mark");
+  }
+
+  // The vendored .score-cell recipe: the number plus a proportional track. Its
+  // documented markup is
+  //   <span class="score-cell"><span class="num">84.3</span>
+  //     <span class="score-track"><span class="score-fill" style="width:88%"></span></span></span>
+  // The track is decoration — the adjacent number is the accessible value, so it
+  // carries aria-hidden rather than duplicating the figure to a screen reader.
+  //
+  // AIDEV-NOTE: the `.grad` fill variant animates; it is reserved for the single
+  // hero win in the design system, so plain `.score-fill` is used per row here.
+  function renderAccuracyCell(accuracy, barMax) {
+    var td = P.el("td", "num");
+    var cell = P.el("span", "score-cell");
+    cell.appendChild(P.el("span", "num", P.formatPercent(accuracy)));
+    var track = P.el("span", "score-track");
+    track.setAttribute("aria-hidden", "true");
+    var fill = P.el("span", "score-fill");
+    fill.style.width = L.barWidth(accuracy, barMax).toFixed(1).replace(/\.0$/, "") + "%";
+    track.appendChild(fill);
+    cell.appendChild(track);
+    td.appendChild(cell);
+    return td;
+  }
+
   function renderBody(bodyNode) {
     P.clear(bodyNode);
-    var best = bestAccuracy(state.entries);
+    var barMax = bestAccuracy(state.entries);
     sortedEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
-      var isSota = best !== null && entry.accuracy === best;
-      if (isSota) tr.className = "sota";
+      // INVARIANT: this marks the row with the highest accuracy on screen — a
+      // "leading" signal, NOT a reproduction claim. SFDS defines gain as the
+      // leading-row/SOTA colour, so gold here is sanctioned, but the accessible
+      // text below must not promise reproduction: the leader is frequently
+      // unverified (the Verified column shows that per row), and the medal that
+      // *would* assert reproduction is descoped to OME-771 — see renderMarkSlot.
+      var isLeader = barMax !== null && entry.accuracy === barMax;
+      if (isLeader) tr.className = "sota";
 
       tr.appendChild(P.el("td", "num", entry.rank));
+      tr.appendChild(renderMarkSlot());
 
       var specTd = P.el("td", "cell-wrap");
       specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));
-      // Color must not be the only carrier of the sota meaning.
-      if (isSota) specTd.appendChild(P.el("span", "sr-only", " (state of the art)"));
+      // Colour must not be the only carrier of the meaning — and the wording is
+      // deliberately "highest accuracy", not "state of the art": this row may be
+      // unverified.
+      if (isLeader) specTd.appendChild(P.el("span", "sr-only", " (highest accuracy)"));
       tr.appendChild(specTd);
 
       tr.appendChild(P.el("td", null, P.formatProviders(entry.ran_with_providers)));
-      tr.appendChild(P.el("td", "num", P.formatPercent(entry.accuracy)));
-      tr.appendChild(P.el("td", "num", P.formatQuestions(entry.total_questions)));
+      // formatSubmitter already renders an em-dash for a null/blank submitter.
+      tr.appendChild(P.el("td", null, P.formatSubmitter(entry.submitted_by)));
+      tr.appendChild(renderAccuracyCell(entry.accuracy, barMax));
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
 
       var verTd = document.createElement("td");
@@ -134,7 +212,7 @@
     }
 
     var best = bestAccuracy(entries);
-    var verified = entries.filter(function (entry) { return entry.verified_by_openmined === true; }).length;
+    var verified = entries.filter(L.isReproducible).length;
     // Bare numbers: the .stats cell labels ("Specs shown", "Verified rows")
     // already carry the words.
     document.getElementById("summary-best").textContent = P.formatPercent(best);
@@ -143,9 +221,12 @@
     summaryNode.hidden = false;
   }
 
-  // Climb accuracy bars (brand viz-a direction): one row per spec, best
-  // accuracy carries the sota (gain) fill — same story color as tr.sota.
+  // Climb accuracy bars (brand viz-a direction): one row per spec, the SOTA
+  // entry carries the sota (gain) fill — same story color as tr.sota.
   // Purely visual: aria-hidden, the table is the accessible representation.
+  //
+  // The fill keys off the raw maximum accuracy, matching the row treatment in
+  // renderBody — both mean "leading", neither claims reproduction.
   function renderClimb(entries) {
     var section = document.getElementById("leaderboard-climb-section");
     var node = document.getElementById("leaderboard-climb");
@@ -156,9 +237,7 @@
     }
     var best = bestAccuracy(entries);
     P.clear(node);
-    entries
-      .slice()
-      .sort(function (a, b) { return b.accuracy - a.accuracy; })
+    L.orderRows(entries)
       .forEach(function (entry) {
         var row = P.el("div", "row");
         row.appendChild(P.el("span", "lbl", entry.spec_id));
