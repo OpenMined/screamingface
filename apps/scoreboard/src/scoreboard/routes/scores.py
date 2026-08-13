@@ -4,8 +4,14 @@ Reads are always public. Writes trust the client-supplied ``submitted_by`` free 
 default (``auth_mode=disabled``); setting ``SCOREBOARD_AUTH_MODE=cloudflare_headers``
 requires and trusts the mesh-verified `X-User-Email` identity header instead (OME-404,
 following OME-326). The verified_by_openmined response field is a separate, independent
-trust-tier signal — submitted scores default to unverified regardless of how the submitter
-was identified.
+trust-tier signal: it is unrelated to how the submitter was identified, and it is never
+settable by a client — it is absent from ScoreSubmission, so sending it is a 422.
+
+Since OME-820 it defaults to True and asserts **the run executed on OpenMined
+infrastructure** (hosted SF Engine, OpenMined's AI Gateway, OpenMined's capped keys) — NOT
+that OpenMined independently re-ran the recipe, which remains OME-414's job. That default
+is honest only while every execution path is ours; a BYOK or local run is self-reported and
+must not inherit it (OME-821).
 """
 
 from __future__ import annotations
@@ -186,7 +192,11 @@ async def submit_score(
 
 @router.get("/scores/{score_id}", response_model=ScoreSchema, responses=GET_SCORE_RESPONSES)
 async def get_score(score_id: UUID) -> ScoreSchema:
-    """Return a public score by id; inspect verified_by_openmined before trusting it."""
+    """Return a public score by id.
+
+    ``verified_by_openmined`` tells you the run executed on OpenMined infrastructure,
+    not that OpenMined independently reproduced it (OME-820).
+    """
 
     try:
         score = await Score.get_or_none(id=score_id)

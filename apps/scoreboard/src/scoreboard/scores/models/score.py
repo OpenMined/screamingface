@@ -25,7 +25,26 @@ class BaseScore(BaseScoreboardModel):
     client_name = fields.CharField(max_length=128, null=True)
     client_version = fields.CharField(max_length=64, null=True)
     client_platform = fields.CharField(max_length=32, null=True)
-    verified_by_openmined = fields.BooleanField(default=False)
+    # WHY this defaults to True: "verified" asserts **this run executed on OpenMined
+    # infrastructure** — NOT "OpenMined independently re-ran a submitted recipe".
+    # Testers run against the hosted SF Engine, through OpenMined's AI Gateway, on
+    # OpenMined's capped keys, so the numbers are already ours and there is nothing
+    # to independently reproduce. Defaulting the *reproduction* claim to True was
+    # explicitly rejected: it would assert a re-run that never happened, and once
+    # OME-414's verification service exists a defaulted row would be
+    # indistinguishable from a genuinely reproduced one (OME-820, spec 2.1/2.2).
+    #
+    # INVARIANT: this is NEVER client-settable. It is deliberately absent from
+    # ScoreSubmission, so `extra="forbid"` turns an attempt into a 422 — the board's
+    # trust signal must not be assertable by the party it exists to constrain, and
+    # the write path is public (authenticated, but public).
+    #
+    # AIDEV-NOTE: this default has an EXPIRY CONDITION. It is honest only while every
+    # execution path is ours. A BYOK run, or local/packaged execution on a user's own
+    # machine (OME-678), is self-reported and must NOT inherit it. That is OME-821,
+    # linked blocked-by this ticket — if you are adding a non-OpenMined execution
+    # path, land OME-821 with it or the board starts publishing false claims.
+    verified_by_openmined = fields.BooleanField(default=True)
     # INVARIANT: the Engine benchmark revision this score was produced against. The
     # leaderboard partitions ranking on (spec_id, benchmark_revision) so results measured
     # against different dataset/protocol revisions never rank against each other (OME-775).

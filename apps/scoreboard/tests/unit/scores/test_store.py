@@ -99,7 +99,9 @@ async def test_submit_inserts_and_returns_score(tortoise_db: None) -> None:
     assert score.correct_questions == 75
     assert score.ran_with_providers == ["openai"]
     assert score.client_name == "scoreboard-test"
-    assert score.verified_by_openmined is False
+    # OME-820: verified now defaults to True and asserts "ran on OpenMined
+    # infrastructure". Unverified stays covered by the explicit-False row test.
+    assert score.verified_by_openmined is True
     assert await Score.all().count() == 1
 
 
@@ -755,3 +757,57 @@ async def test_leaderboard_at_a_registered_revision_excludes_pre_revision_rows(
     rows = await store.leaderboard("hle")
 
     assert [row.spec_id for row in rows] == ["current"]
+# --- OME-820: verified means "ran on OpenMined infrastructure" (spec 2.1) ---
+
+
+async def test_a_new_submission_is_verified_by_default(tortoise_db: None) -> None:
+    """Monday's cohort runs on the hosted engine, our gateway, our capped keys.
+
+    Nothing independently reproduces those runs because the numbers are already
+    ours, so the default asserts execution provenance rather than reproduction.
+    """
+    store = ScoreStore()
+    await store.register_benchmark("hle", "HLE")
+
+    outcome = await store.submit(_submission(spec_id="fresh"))
+
+    assert outcome.created is True
+    assert outcome.score.verified_by_openmined is True
+
+
+async def test_pre_existing_unverified_rows_are_not_backfilled(tortoise_db: None) -> None:
+    """INVARIANT (D5): the new default applies to NEW rows only.
+
+    Some existing rows are local test submissions that genuinely did not run on
+    OpenMined infrastructure, so backfilling them would publish a falsehood.
+    """
+    benchmark = await Benchmark.create(id="hle", display_name="HLE")
+    legacy = await Score.create(
+        benchmark=benchmark,
+        spec_id="legacy",
+        url4_expression="x",
+        accuracy=0.5,
+        total_questions=2,
+        correct_questions=1,
+        ran_with_providers=["openai"],
+        verified_by_openmined=False,
+        content_hash="legacy-hash",
+    )
+
+    reread = await Score.get(id=legacy.id)
+
+    assert reread.verified_by_openmined is False
+
+
+async def test_mark_verified_stays_idempotent_on_an_already_verified_row(
+    tortoise_db: None,
+) -> None:
+    store = ScoreStore()
+    await store.register_benchmark("hle", "HLE")
+    outcome = await store.submit(_submission(spec_id="idem"))
+
+    await store.mark_verified(outcome.score.id)
+    await store.mark_verified(outcome.score.id)
+
+    reread = await Score.get(id=outcome.score.id)
+    assert reread.verified_by_openmined is True

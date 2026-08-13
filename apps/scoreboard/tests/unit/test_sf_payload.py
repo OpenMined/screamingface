@@ -84,7 +84,9 @@ async def test_sf_payload_round_trips_201(sf_client: AsyncClient) -> None:
     assert body["correct_questions"] == 810
     assert body["ran_with_providers"] == ["claude", "codex", "gemini"]
     assert body["submitted_by"] is None
-    assert body["verified_by_openmined"] is False
+    # OME-820: verified now defaults to True and asserts "ran on OpenMined
+    # infrastructure". Unverified stays covered by the explicit-False row test.
+    assert body["verified_by_openmined"] is True
     # Nested `client` on the request maps to the flat client_* read fields.
     assert body["client_name"] == "screamingface-desktop"
     assert body["client_version"] == "0.4.2"

@@ -127,7 +127,9 @@ async def test_post_score_creates_new_row_201(score_client: AsyncClient) -> None
     assert body["benchmark_id"] == "hle"
     assert body["spec_id"] == "spec-1"
     assert body["submitted_at"]
-    assert body["verified_by_openmined"] is False
+    # OME-820: verified now defaults to True and asserts "ran on OpenMined
+    # infrastructure". Unverified stays covered by the explicit-False row test.
+    assert body["verified_by_openmined"] is True
 
 
 async def test_post_score_without_idempotency_key_dedupes_identical_recipe(

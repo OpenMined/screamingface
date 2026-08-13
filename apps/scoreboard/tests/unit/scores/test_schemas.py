@@ -468,3 +468,20 @@ def test_a_null_submitter_stays_null() -> None:
     )
 
     assert json.loads(schema.model_dump_json())["submitted_by"] is None
+# --- OME-820: a client must never declare its own trust tier (spec 3) ---
+
+
+@pytest.mark.parametrize("claimed", [True, False])
+def test_score_submission_rejects_a_client_supplied_verified_flag(claimed: bool) -> None:
+    """INVARIANT: verified_by_openmined is server-side only.
+
+    The board's trust signal must never be assertable by the party it exists to
+    constrain, and the write path is public (authenticated, but public). This is
+    enforced today by extra="forbid" rather than by an explicit rule, so it is
+    pinned here: relaxing that config must break a test, not just widen the DTO.
+    """
+    payload = _valid_payload()
+    payload["verified_by_openmined"] = claimed
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
