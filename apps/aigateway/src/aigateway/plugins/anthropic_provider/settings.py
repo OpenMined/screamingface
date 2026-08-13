@@ -25,13 +25,23 @@ def _default_models() -> list[ModelEntry]:
     aigw-claude-backend plugin derives its suggestions from this list via
     ``GET /v1/models`` (SF-284), so it must NOT be copied SF-side.
 
-    Ordered newest-first within each tier (opus, sonnet, haiku). Older
+    Ordered newest-first within each tier (opus, fable, sonnet, haiku). Older
     snapshots are kept alongside the latest so existing configs pinned to
     them (e.g. the ``claude-sonnet-4-5`` default) keep routing.
+
+    OME-818: the 5.x line (opus-5 / fable-5 / sonnet-5) and the opus 4.5/4.6
+    snapshots were verified live against Anthropic ``GET /v1/models`` on
+    2026-08-13. Ids are the bare aliases (matching the existing 4-5 tier
+    convention); the ``anthropic/`` prefix lives only in ``litellm_params``.
     """
     names = [
+        "claude-opus-5",
         "claude-opus-4-8",
         "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
+        "claude-fable-5",
+        "claude-sonnet-5",
         "claude-sonnet-4-6",
         "claude-sonnet-4-5",
         "claude-haiku-4-5",

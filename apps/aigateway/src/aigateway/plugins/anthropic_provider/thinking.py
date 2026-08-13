@@ -39,10 +39,13 @@ from aigateway.core.model_parameter_contract import upstream_model_id
 from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.profile_models import AuthMode
 
-# The two registered models the installed transform still maps to a manual
-# thinking BUDGET. Everything else Anthropic registers is adaptive.
+# The registered models the installed transform still maps to a manual thinking
+# BUDGET. Everything else Anthropic registers is adaptive.
+# OME-818: claude-opus-4-5 joins the 4-5 tier here — litellm's installed transform
+# emits budget_tokens for it (the 5.x line and opus-4-6 are adaptive, so they stay out).
 MANUAL_THINKING_MODELS: frozenset[str] = frozenset(
     {
+        "claude-opus-4-5",
         "claude-sonnet-4-5",
         "claude-haiku-4-5",
     }

@@ -37,8 +37,13 @@ def test_anthropic_settings_defaults_preserve_current_values(monkeypatch) -> Non
     assert settings.keychain_account == "default"
     assert settings.bootstrap_user == "alice"
     assert [model.model_name for model in settings.models] == [
+        "claude-opus-5",
         "claude-opus-4-8",
         "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
+        "claude-fable-5",
+        "claude-sonnet-5",
         "claude-sonnet-4-6",
         "claude-sonnet-4-5",
         "claude-haiku-4-5",
@@ -46,6 +51,27 @@ def test_anthropic_settings_defaults_preserve_current_values(monkeypatch) -> Non
     # Every entry's litellm model string must be the "anthropic/"-prefixed alias
     # so the gateway routes it to the Anthropic provider.
     for model in settings.models:
+        assert model.litellm_params == {"model": f"anthropic/{model.model_name}"}
+
+
+def test_ome_818_direct_claude_ids_are_seeded(monkeypatch) -> None:
+    _clear_anthropic_env(monkeypatch)
+    settings = AnthropicPluginSettings()
+    names = [model.model_name for model in settings.models]
+    # OME-818: live-verified direct ids (Anthropic GET /v1/models, 2026-08-13).
+    for new_id in [
+        "claude-opus-5",
+        "claude-fable-5",
+        "claude-sonnet-5",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
+    ]:
+        assert new_id in names, f"{new_id} missing from seed"
+    # INVARIANT: a direct id is unprefixed + hyphenated (no dots, no 'anthropic/' on model_name);
+    # the 'anthropic/' prefix lives ONLY in litellm_params so the gateway routes to the provider.
+    for model in settings.models:
+        assert "." not in model.model_name, model.model_name
+        assert not model.model_name.startswith("anthropic/"), model.model_name
         assert model.litellm_params == {"model": f"anthropic/{model.model_name}"}
 
 

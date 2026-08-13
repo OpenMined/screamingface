@@ -48,6 +48,6 @@ No schema/model change → no migration (S1 n/a). No Tortoise → tortoise-dev n
 
 - **Actual files:** as planned — `huggingface_provider/settings.py` (+19 seeds, 5→24),
   `test_huggingface_settings.py` (+`_OME_817_ADDED` + backed-additions test), ledger, mirror.
-- **Commits:** <sha> — feat(aigateway): expand HuggingFace model seed with 19 live-verified router backends
+- **Commits:** 5f9a477b — feat(aigateway): expand HuggingFace model seed with 19 live-verified router backends
 - **Gates:** `run_gates.py aigateway` ALL GREEN (shared B+C run). HF+anthropic suites 309 passed.
 - **Deviations:** none for HF (pure addition — no prior test/fixture modified).
