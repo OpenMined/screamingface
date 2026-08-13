@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import warnings
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
@@ -26,7 +25,6 @@ from screamingface.report import (
     Report,
     Usage,
 )
-from screamingface.warnings import CoverageWarning
 
 
 def report_from_outcomes(
@@ -83,7 +81,7 @@ def _candidate_result(
 ) -> CandidateResult:
     value = _candidate_payload(evaluation, outcome)
     try:
-        score, metrics, cases, failures = _candidate_components(
+        score, coverage, metrics, cases, failures = _candidate_components(
             value,
             evaluation,
             candidate,
@@ -99,6 +97,7 @@ def _candidate_result(
             models=candidate.models,
             operations=candidate.operations,
             score=score,
+            coverage=coverage,
             metrics=metrics,
             cases=cases,
             members=tuple(
@@ -137,6 +136,7 @@ def _candidate_payload(
             "benchmark_revision",
             "case_count",
             "score",
+            "coverage",
             "metrics",
             "cases",
             "failures",
@@ -160,19 +160,20 @@ def _candidate_components(
     candidate: Candidate,
 ) -> tuple[
     float | None,
+    float,
     dict[str, object],
     tuple[CaseResult, ...],
     tuple[Failure, ...],
 ]:
     score_value = value.get("score")
     score = None if score_value is None else _number(score_value, "Candidate score")
+    coverage = _coverage(value.get("coverage"))
     metrics = _metrics(value.get("metrics"))
-    _warn_on_coverage(candidate.name, metrics)
     cases = _cases(_required(value, "cases", "Candidate result"))
     if len(cases) != evaluation.case_count:
         raise ExecutionError("SF Engine Candidate result has the wrong number of Cases")
     failures = _failures(_required(value, "failures", "Candidate result"), "Candidate failures")
-    return score, metrics, cases, failures
+    return score, coverage, metrics, cases, failures
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:
@@ -456,27 +457,13 @@ def _number(value: object, label: str) -> float:
     return float(value)
 
 
-def _warn_on_coverage(candidate_name: str, metrics: Mapping[str, object]) -> None:
-    coverage = _optional_metric(metrics, "coverage")
-    target = _optional_metric(metrics, "coverage_target")
-    if coverage is None or target is None or coverage >= target:
-        return
-    accepted = _optional_metric(metrics, "verdicts_accepted")
-    expected = _optional_metric(metrics, "verdicts_expected")
-    counts = ""
-    if accepted is not None and expected is not None:
-        counts = f"{int(accepted)}/{int(expected)} verdicts accepted; "
-    warnings.warn(
-        f"Candidate {candidate_name!r}: {counts}coverage {coverage:.1%} is below the "
-        f"Benchmark target {target:.1%}. The score excludes rejected verdicts.",
-        CoverageWarning,
-        stacklevel=3,
-    )
-
-
-def _optional_metric(metrics: Mapping[str, object], name: str) -> float | None:
-    value = metrics.get(name)
-    return None if value is None else _number(value, f"metric {name!r}")
+def _coverage(value: object) -> float:
+    selected = _number(value, "Candidate coverage")
+    if selected != selected or selected in {float("inf"), float("-inf")}:
+        raise ExecutionError("Candidate coverage must be a finite number")
+    if not 0.0 <= selected <= 1.0:
+        raise ExecutionError("Candidate coverage must be between 0 and 1")
+    return selected
 
 
 __all__: list[str] = []

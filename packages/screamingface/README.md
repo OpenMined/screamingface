@@ -363,10 +363,9 @@ catch a specific recovery class or catch `ScreamingFaceError` for every expected
 translated low-level failures remain attached through `error.__cause__` for debugging. Programmer
 errors such as invalid Python argument types retain their normal tracebacks.
 
-If a Benchmark returns both `coverage` and `coverage_target` metrics, evaluation emits the
-filterable public
-`CoverageWarning` when coverage misses that target; accepted/expected verdict counts are included
-when the Benchmark provides them. This warning does not discard the Report.
+Every `CandidateResult` exposes the Engine-owned top-level `coverage` ratio. A partial score remains
+available alongside the Cases that could not be graded, and the notebook Report panel labels the
+result as partial rather than silently presenting it as a complete evaluation.
 
 ## Ownership boundary
 

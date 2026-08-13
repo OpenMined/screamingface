@@ -204,9 +204,8 @@ class _FakeTransport:
                     "benchmark_revision": "fixture-revision",
                     "case_count": 1,
                     "score": 0.7,
-                    "metrics": {
-                        "coverage": 1.0,
-                    },
+                    "coverage": 1.0,
+                    "metrics": {},
                     "cases": [_case_payload(score=0.7)],
                     "failures": [],
                 }
@@ -378,7 +377,7 @@ def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     assert "\n" not in result.url4
     assert result.name == "haiku"
     assert result.score == 0.7
-    assert result.metrics == {"coverage": 1.0}
+    assert (result.coverage, result.metrics) == (1.0, {})
     _assert_case_artifact(result)
     assert result.usage.input_tokens == 120
     assert result.duration_ms == 2000
@@ -392,8 +391,8 @@ def test_client_preserves_nested_candidate_metrics() -> None:
         "benchmark_revision": "fixture-revision",
         "case_count": 1,
         "score": 0.7,
+        "coverage": 1.0,
         "metrics": {
-            "coverage": 1.0,
             "axis_scores": {"factual-accuracy": 0.7},
             "axis_pass_rates": {"factual-accuracy": 0.8},
         },
@@ -410,12 +409,10 @@ def test_client_preserves_nested_candidate_metrics() -> None:
         )
 
     assert report.candidates.only.metrics == {
-        "coverage": 1.0,
         "axis_scores": {"factual-accuracy": 0.7},
         "axis_pass_rates": {"factual-accuracy": 0.8},
     }
     assert json.loads(report.to_json())["candidates"][0]["metrics"] == {
-        "coverage": 1.0,
         "axis_scores": {"factual-accuracy": 0.7},
         "axis_pass_rates": {"factual-accuracy": 0.8},
     }
@@ -428,6 +425,7 @@ def test_client_retains_an_unscored_case_with_its_invalid_judge_evidence() -> No
         "benchmark_revision": "fixture-revision",
         "case_count": 1,
         "score": None,
+        "coverage": 0.0,
         "metrics": {},
         "cases": [_unscored_invalid_evidence_case_payload()],
         "failures": [],
@@ -730,7 +728,8 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
         "benchmark_revision": "fixture-revision",
         "case_count": 1,
         "score": 0.7,
-        "metrics": {"coverage": 1.0},
+        "coverage": 1.0,
+        "metrics": {},
         "cases": [_case_payload(score=0.7)],
         "failures": [],
     }
@@ -743,6 +742,10 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
         {**valid, "benchmark_revision": "wrong"},
         {**valid, "case_count": 2},
         {**valid, "score": "high"},
+        {key: value for key, value in valid.items() if key != "coverage"},
+        {**valid, "coverage": -0.1},
+        {**valid, "coverage": 1.1},
+        {**valid, "coverage": True},
         {**valid, "metrics": []},
         {**valid, "metrics": {"coverage": True}},
         {**valid, "failures": [{"code": "failed"}]},
@@ -783,7 +786,7 @@ def test_candidate_result_decoder_rejects_contract_drift() -> None:
             _candidate_result(evaluation, candidate, outcome)
 
 
-def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
+def test_candidate_result_decoder_retains_a_normally_graded_refusal() -> None:
     resource = _decode_benchmark_resource(
         BENCHMARK,
         requested_id="draco",
@@ -795,14 +798,6 @@ def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
         1,
     )
     candidate = evaluation.candidates.only
-    failure = {
-        "stage": "candidate",
-        "code": "provider_refusal",
-        "message": "provider refused the request",
-        "retryable": False,
-        "case_id": 1,
-        "metadata": {"row_index": 0},
-    }
     outcome = _RunOutcome(
         run_id="run_unscored",
         started_at=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
@@ -813,7 +808,8 @@ def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
                 "benchmark_id": "draco",
                 "benchmark_revision": "fixture-revision",
                 "case_count": 1,
-                "score": None,
+                "score": 0.0,
+                "coverage": 1.0,
                 "metrics": {},
                 "cases": [
                     {
@@ -823,8 +819,13 @@ def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
                         "output": None,
                         "finish_reason": None,
                         "refusal": "provider refused the request",
-                        "grade": None,
-                        "failures": [failure],
+                        "grade": {
+                            "method": "rubric",
+                            "score": 0.0,
+                            "metrics": {},
+                            "checks": [],
+                        },
+                        "failures": [],
                         "metadata": {},
                     }
                 ],
@@ -837,12 +838,14 @@ def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
 
     result = _candidate_result(evaluation, candidate, outcome)
 
-    assert result.score is None
+    assert result.score == 0.0
+    assert result.coverage == 1.0
     assert result.metrics == {}
-    assert result.cases[0].grade is None
+    assert result.cases[0].grade is not None
+    assert result.cases[0].grade.score == 0.0
     assert result.cases[0].status == "refused"
     assert result.cases[0].refusal == "provider refused the request"
-    assert result.cases[0].failures[0].code == "provider_refusal"
+    assert result.cases[0].failures == ()
 
 
 def test_candidate_result_decoder_retains_invalid_evidence_under_an_unscored_grade() -> None:
@@ -869,6 +872,7 @@ def test_candidate_result_decoder_retains_invalid_evidence_under_an_unscored_gra
                 "benchmark_revision": "fixture-revision",
                 "case_count": 1,
                 "score": None,
+                "coverage": 0.0,
                 "metrics": {},
                 "cases": [case],
                 "failures": [],
@@ -887,7 +891,7 @@ def test_candidate_result_decoder_retains_invalid_evidence_under_an_unscored_gra
     assert result.cases[0].failures[0].code == "no_valid_judge_verdict"
 
 
-def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None:
+def test_candidate_result_retains_engine_owned_partial_coverage() -> None:
     resource = _decode_benchmark_resource(
         BENCHMARK,
         requested_id="draco",
@@ -910,9 +914,8 @@ def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None
                 "benchmark_revision": "fixture-revision",
                 "case_count": 1,
                 "score": 0.65,
+                "coverage": 0.761,
                 "metrics": {
-                    "coverage": 0.761,
-                    "coverage_target": 0.95,
                     "verdicts_expected": 159,
                     "verdicts_accepted": 121,
                 },
@@ -924,10 +927,7 @@ def test_candidate_result_warns_when_a_benchmark_declares_low_coverage() -> None
         root_usage=None,
     )
 
-    with pytest.warns(
-        sf.CoverageWarning,
-        match="121/159 verdicts accepted.*76.1%.*target 95.0%",
-    ):
-        result = _candidate_result(evaluation, candidate, outcome)
+    result = _candidate_result(evaluation, candidate, outcome)
 
-    assert result.metrics["coverage"] == 0.761
+    assert result.coverage == 0.761
+    assert "coverage" not in result.metrics

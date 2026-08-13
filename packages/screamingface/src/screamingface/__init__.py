@@ -49,7 +49,7 @@ from screamingface.report import (
     Usage,
 )
 from screamingface.url4 import Url4
-from screamingface.warnings import CoverageWarning, EvaluationWarning
+from screamingface.warnings import EvaluationWarning
 
 __all__ = [
     "AsyncClient",
@@ -64,7 +64,6 @@ __all__ = [
     "Connection",
     "ConnectionPanel",
     "AsyncOAuthFlow",
-    "CoverageWarning",
     "close",
     "configure",
     "connect",
