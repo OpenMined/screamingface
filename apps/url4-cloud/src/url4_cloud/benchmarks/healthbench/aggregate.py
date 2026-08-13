@@ -31,11 +31,21 @@ set — becomes a visible failed Case, never a shrug.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
-from url4_cloud.benchmarks.contract import CandidateResult
+from url4_cloud.benchmarks.aggregation import (
+    CandidateScore,
+    SelectedCase,
+    collected_provider_refusal,
+    failed_case_result,
+    finalize_candidate_result,
+    public_error,
+    refused_case_result,
+    scored_case_result,
+)
+from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.healthbench.case_evaluation import CASE_EVALUATION_SCHEMA
 from url4_cloud.benchmarks.healthbench.scoring import (
     case_score,
@@ -47,34 +57,6 @@ from url4_cloud.benchmarks.healthbench.scoring import (
 
 class AggregateError(ValueError):
     """The reducer's input is unusable — raised before any scoring."""
-
-
-class CaseResult(TypedDict):
-    """One selected Case in the SDK's Case Result wire shape.
-
-    The SDK decoder requires EXACTLY these keys (see screamingface
-    ``_evaluation/results.py``); draco set the projection precedent. A scored
-    Case carries a ``grade`` (method/score/metrics/checks) and empty
-    ``failures``; a failed Case carries ``grade: None`` plus one Failure row
-    whose ``code`` names the rung of the decision ladder.
-    """
-
-    case_id: int
-    input: str | None
-    output: str | None
-    finish_reason: str | None
-    grade: dict[str, Any] | None
-    failures: list[dict[str, Any]]
-    metadata: dict[str, Any]
-
-
-class CandidateFields(TypedDict):
-    """Candidate-owned fields copied into every Case Result."""
-
-    input: str | None
-    output: str | None
-    finish_reason: str | None
-    metadata: dict[str, Any]
 
 
 def load_rubric_points(root: Path, case_id: int) -> list[int] | None:
@@ -108,6 +90,30 @@ def _points_from(decoded: object) -> list[int] | None:
     return points
 
 
+def _selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
+    try:
+        decoded = json.loads((root / "cases.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AggregateError(f"HealthBench cases are unavailable: {exc}") from None
+    if not isinstance(decoded, list):
+        raise AggregateError("HealthBench cases must be a JSON array")
+    by_id = {
+        row.get("id"): row
+        for row in decoded
+        if isinstance(row, Mapping)
+        and isinstance(row.get("id"), int)
+        and not isinstance(row.get("id"), bool)
+    }
+    selected: list[SelectedCase] = []
+    for case_id in case_ids:
+        row = by_id.get(case_id)
+        input_value = row.get("input") if isinstance(row, Mapping) else None
+        if not isinstance(input_value, str) or not input_value.strip():
+            raise AggregateError(f"HealthBench Case {case_id} has no public input")
+        selected.append(SelectedCase(case_id=case_id, input=input_value, metadata={}))
+    return selected
+
+
 def aggregate(
     raw_rows: str,
     root: Path,
@@ -131,68 +137,57 @@ def aggregate(
     and on spread (sample stdev, see ``scoring.sample_stdev``).
     """
 
-    by_case, orphan_errors = _index_rows(_decode_rows(raw_rows))
+    selected_cases = _selected_cases(root, case_ids)
+    by_case, errors_by_case = _index_rows(_decode_rows(raw_rows), case_ids)
     case_results: list[CaseResult] = []
-    scores: list[float] = []
-    judged_items = 0
-    met_items = 0
-    total_items = 0
-    invalid_replies = 0
-    for case_id in case_ids:
+    for selected in selected_cases:
+        case_id = int(selected.case_id)
         points = load_rubric_points(root, case_id)
-        total_items += len(points) if points is not None else 0
-        result, score, judged, met, invalid = _case_result(
-            case_id, by_case.get(case_id), points, orphan_errors
+        result, _, _, _, _ = _case_result(
+            selected, by_case.get(case_id), points, errors_by_case.get(case_id)
         )
         case_results.append(result)
-        judged_items += judged
-        met_items += met
-        invalid_replies += invalid
-        if score is not None:
-            scores.append(score)
-    scored_all = len(scores) == len(case_ids)
-    mean = unclipped_mean(scores) if scored_all else None
-    coverage = round(verdict_coverage(judged_items, total_items), 4)
-    # SDK rule (enforced by the CandidateResult model): an unscored Candidate must
-    # carry EMPTY metrics — when any Case failed, diagnosis lives in that Case's
-    # failures rows, not up here.
-    metrics: dict[str, Any] = {}
-    if mean is not None:
-        metrics = {
-            # HealthBench's canonical-trio mapping (contract enforced by
-            # CandidateResult; draco's aggregate is the semantic reference):
-            # pass_rate is the UNWEIGHTED criterion hit rate — met / judged rubric
-            # items, deliberately different from `score`, the point-WEIGHTED
-            # unclipped rubric mean; coverage is judged / expected rubric items,
-            # the same value long published as `verdict_coverage` (which stays —
-            # metrics are append-only).
-            "pass_rate": round(met_items / judged_items, 4) if judged_items else 0.0,
-            "coverage": coverage,
-            "scored_cases": len(scores),
-            "failed_cases": len(case_ids) - len(scores),
-            "score_sd": round(sample_stdev(scores), 4),
-            "verdict_coverage": coverage,
-            "judge_invalid_replies": invalid_replies,
-        }
-    return CandidateResult(
+    return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        case_count=len(case_results),
-        # WHY: None whenever ANY selected Case failed — a partial mean over surviving
-        # Cases would silently drop exactly the hardest rows (B1).
-        score=round(mean, 4) if mean is not None else None,
-        metrics=metrics,
-        cases=[dict(case) for case in case_results],
-        # Case-scoped failures live on their Case result rows above. This top-level
-        # list is the contract's slot for failures attributable to NO selected Case
-        # (draco precedent) — healthbench routes every failure to a Case, so it is
-        # always empty, but the SDK requires the key.
-        failures=[],
+        selected_cases=selected_cases,
+        cases=case_results,
+        scorer=_healthbench_score,
     ).as_payload()
 
 
+def _healthbench_score(cases: Sequence[CaseResult]) -> CandidateScore:
+    """Apply HealthBench's unclipped penalty-bearing reduction to complete Cases."""
+
+    grades = [case.grade for case in cases]
+    if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
+        raise AssertionError("HealthBench scorer requires complete graded Cases")
+    typed_grades = [grade for grade in grades if grade is not None and grade.score is not None]
+    scores = [float(grade.score) for grade in typed_grades if grade.score is not None]
+    judged_items = sum(int(grade.metrics["judged"]) for grade in typed_grades)
+    total_items = sum(int(grade.metrics["expected"]) for grade in typed_grades)
+    invalid_replies = sum(int(grade.metrics["invalid_replies"]) for grade in typed_grades)
+    met_items = sum(1 for grade in typed_grades for check in grade.checks if check.outcome == "MET")
+    coverage = round(verdict_coverage(judged_items, total_items), 4)
+    mean = unclipped_mean(scores)
+    if mean is None:  # pragma: no cover - a Benchmark always selects at least one Case
+        raise AssertionError("HealthBench scorer requires at least one Case")
+    return CandidateScore(
+        score=round(mean, 4),
+        metrics={
+            "pass_rate": round(met_items / judged_items, 4) if judged_items else 0.0,
+            "coverage": coverage,
+            "scored_cases": len(scores),
+            "failed_cases": 0,
+            "score_sd": round(sample_stdev(scores), 4),
+            "verdict_coverage": coverage,
+            "judge_invalid_replies": invalid_replies,
+        },
+    )
+
+
 def _case_result(
-    case_id: int,
+    selected_case: SelectedCase,
     row: Mapping[str, Any] | None,
     points: list[int] | None,
     orphan_errors: list[dict[str, Any]] | None = None,
@@ -208,30 +203,28 @@ def _case_result(
         verdicts incomplete  → "incomplete_verdicts" (judged/expected counts)
         complete, no + item  → "no_positive_points" (a baked-asset defect —
                                prepare guarantees one positive item per Case)
+        scored, no envelope  → "invalid_case_evaluation" (fully judged but the
+                               hoisted case record carries no usable output —
+                               a scored result REQUIRES one, contract rule)
         everything valid     → grade with the Case score, no failures
 
     Returns ``(case_result, score_or_None, judged_count, met_count,
     invalid_reply_count)``.
     """
 
+    case_id = int(selected_case.case_id)
     if points is None:
         failure = _failure(case_id, "grading", "missing_rubric_asset")
-        outcome = _failed_result(case_id, row, [], failure), None, 0, 0, 0
+        outcome = _failed_result(selected_case, row, [], failure), None, 0, 0, 0
     elif row is None:
         # WHY the collected_errors attachment: an on_error=collect row loses its
         # Case identity, so a mid-chain error surfaces HERE as a missing row —
         # without the orphan payloads the report would name the symptom but hide
         # the cause (exactly what happened in the first live smoke run).
-        failure = _failure(
-            case_id,
-            "candidate",
-            "missing_case_row",
-            **({"collected_errors": orphan_errors[:3]} if orphan_errors else {}),
-        )
-        outcome = _failed_result(case_id, None, [], failure), None, 0, 0, 0
+        outcome = _missing_row_outcome(selected_case, orphan_errors)
     elif "error" in row:
         failure = _failure(case_id, "candidate", "case_error", error=row["error"])
-        outcome = _failed_result(case_id, row, [], failure), None, 0, 0, 0
+        outcome = _failed_result(selected_case, row, [], failure), None, 0, 0, 0
     else:
         verdicts, invalid = _verdicts(row)
         checks = _checks(row, points)
@@ -250,17 +243,33 @@ def _case_result(
                 expected=len(points),
             )
             outcome = (
-                _failed_result(case_id, row, checks, failure),
+                _failed_result(selected_case, row, checks, failure),
+                None,
+                len(verdicts),
+                sum(verdicts.values()),
+                invalid,
+            )
+        elif _candidate_fields(row)["output"] is None:
+            # WHY: the contract forbids a scored Case without an output — a
+            # fully-judged row whose hoisted case envelope is missing or
+            # malformed must fail VISIBLY here, not trip the CaseResult
+            # validator and turn the whole Candidate run into
+            # benchmark_unavailable (one bad row destroying a paid run).
+            failure = _failure(case_id, "candidate", "invalid_case_evaluation")
+            outcome = (
+                _failed_result(selected_case, row, checks, failure),
                 None,
                 len(verdicts),
                 sum(verdicts.values()),
                 invalid,
             )
         else:
-            scored: CaseResult = {
-                "case_id": case_id,
-                **_candidate_fields(row),
-                "grade": {
+            fields = _candidate_fields(row)
+            scored = scored_case_result(
+                selected_case=selected_case,
+                output=fields["output"],
+                finish_reason=fields["finish_reason"],
+                grade={
                     "method": "rubric",
                     "score": round(score, 4),
                     "metrics": {
@@ -270,24 +279,50 @@ def _case_result(
                     },
                     "checks": checks,
                 },
-                "failures": [],
-            }
+                metadata=fields["metadata"],
+            )
             outcome = scored, score, len(verdicts), sum(verdicts.values()), invalid
     return outcome
 
 
-def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
+def _missing_row_outcome(
+    selected_case: SelectedCase, orphan_errors: list[dict[str, Any]] | None
+) -> tuple[CaseResult, None, int, int, int]:
+    refusal = next(
+        (
+            value
+            for error in orphan_errors or []
+            if (value := collected_provider_refusal(error)) is not None
+        ),
+        None,
+    )
+    if refusal is not None:
+        refused = refused_case_result(
+            selected_case=selected_case,
+            refusal=refusal.text,
+            finish_reason=refusal.finish_reason,
+        )
+        return refused, None, 0, 0, 0
+    case_id = int(selected_case.case_id)
+    failure = _failure(
+        case_id,
+        "candidate",
+        "missing_case_row",
+        **({"collected_errors": orphan_errors[:3]} if orphan_errors else {}),
+    )
+    return _failed_result(selected_case, None, [], failure), None, 0, 0, 0
+
+
+def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
     """Pull input/output/finish_reason/metadata off the hoisted Case record."""
 
     case = row.get("case") if isinstance(row, Mapping) else None
     if not isinstance(case, Mapping):
-        return {"input": None, "output": None, "finish_reason": None, "metadata": {}}
+        return {"output": None, "finish_reason": None, "metadata": {}}
     metadata = case.get("metadata")
-    input_value = case.get("input")
     output = case.get("output")
     finish_reason = case.get("finish_reason")
     return {
-        "input": input_value if isinstance(input_value, str) else None,
         "output": output if isinstance(output, str) else None,
         "finish_reason": finish_reason if isinstance(finish_reason, str) else None,
         "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
@@ -295,30 +330,34 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
 
 
 def _failed_result(
-    case_id: int,
+    selected_case: SelectedCase,
     row: Mapping[str, Any] | None,
     checks: list[dict[str, Any]],
     failure: dict[str, Any],
 ) -> CaseResult:
-    return {
-        "case_id": case_id,
-        **_candidate_fields(row),
-        "grade": (
-            None
-            if not checks
-            else {
-                # WHY a grade with score None instead of dropping the checks: the
-                # judge evidence for an incompletely-judged Case is audit material
-                # (module INVARIANT) and the grade's checks list is the contract's
-                # slot for it.
-                "method": "rubric",
-                "score": None,
-                "metrics": {},
-                "checks": checks,
-            }
-        ),
-        "failures": [failure],
-    }
+    fields = _candidate_fields(row)
+    grade = (
+        None
+        if not checks
+        else {
+            # WHY a grade with score None instead of dropping the checks: the
+            # judge evidence for an incompletely-judged Case is audit material
+            # (module INVARIANT) and the grade's checks list is the contract's
+            # slot for it.
+            "method": "rubric",
+            "score": None,
+            "metrics": {},
+            "checks": checks,
+        }
+    )
+    return failed_case_result(
+        selected_case=selected_case,
+        failures=[failure],
+        output=fields["output"],
+        finish_reason=fields["finish_reason"],
+        grade=grade,
+        metadata=fields["metadata"],
+    )
 
 
 def _checks(row: Mapping[str, Any], points: list[int]) -> list[dict[str, Any]]:
@@ -327,7 +366,7 @@ def _checks(row: Mapping[str, Any], points: list[int]) -> list[dict[str, Any]]:
     evaluations = row.get("rubric_evaluations")
     if not isinstance(evaluations, list):
         return []
-    checks: list[dict[str, Any]] = []
+    checks: dict[int, dict[str, Any]] = {}
     for evaluation in evaluations:
         if not isinstance(evaluation, Mapping):
             continue
@@ -353,15 +392,16 @@ def _checks(row: Mapping[str, Any], points: list[int]) -> list[dict[str, Any]]:
         # an invalid reply leaves the check outcome-less on purpose.
         if evidence.get("valid") is True:
             check["outcome"] = "MET" if evidence.get("criteria_met") is True else "UNMET"
-        checks.append(
-            {
-                **check,
-                "metadata": (
-                    {"points": points[rubric_id - 1]} if 1 <= rubric_id <= len(points) else {}
-                ),
-            }
-        )
-    return checks
+        # One check per rubric_id, last entry wins — the same dict-assignment
+        # dedup as _verdicts, so a duplicate judge entry (retry noise) never
+        # becomes a second check and met can never exceed judged.
+        checks[rubric_id] = {
+            **check,
+            "metadata": (
+                {"points": points[rubric_id - 1]} if 1 <= rubric_id <= len(points) else {}
+            ),
+        }
+    return list(checks.values())
 
 
 def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
@@ -372,7 +412,8 @@ def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
         "sequence": 1,
         "producer": {
             "type": str(record.get("producer_type", "model")),
-            "id": str(record.get("producer_id", "")),
+            # Even a malformed Judge reply has a known Benchmark-owned producer.
+            "id": str(record.get("producer_id") or "healthbench/judge"),
         },
         "valid": valid,
         "raw_output": str(record.get("raw_output", "")),
@@ -387,14 +428,58 @@ def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _failure(case_id: int, stage: str, code: str, **metadata: Any) -> dict[str, Any]:
+    public_metadata = _failure_metadata(metadata)
+    message = _FAILURE_MESSAGES[code]
+    retryable: bool | None = None
+    if source_error := _source_error(metadata):
+        diagnostic = public_error(
+            source_error,
+            default_code=code,
+            default_message=message,
+        )
+        message = diagnostic.message
+        retryable = diagnostic.retryable
+        public_metadata["source_error"] = {
+            "kind": diagnostic.kind,
+            "code": diagnostic.code,
+            "message": diagnostic.message,
+            "retryable": diagnostic.retryable,
+        }
     return {
         "stage": stage,
         "code": code,
-        "message": _FAILURE_MESSAGES[code],
-        "retryable": None,
+        "message": message,
+        "retryable": retryable,
         "case_id": case_id,
-        "metadata": metadata,
+        "metadata": public_metadata,
     }
+
+
+def _failure_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    public = {
+        key: value
+        for key, value in metadata.items()
+        if key in {"judged", "expected", "row_index"}
+        and isinstance(value, int)
+        and not isinstance(value, bool)
+    }
+    return public
+
+
+def _source_error(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    error = metadata.get("error")
+    if isinstance(error, Mapping):
+        return error
+    collected = metadata.get("collected_errors")
+    rows = collected[:3] if isinstance(collected, list) else []
+    return next(
+        (
+            source
+            for row in rows
+            if isinstance(row, Mapping) and isinstance((source := row.get("error")), Mapping)
+        ),
+        None,
+    )
 
 
 _FAILURE_MESSAGES = {
@@ -403,6 +488,7 @@ _FAILURE_MESSAGES = {
     "case_error": "the Case pipeline collected an error instead of an evaluation",
     "incomplete_verdicts": "not every rubric item received a valid judge verdict",
     "no_positive_points": "no judged rubric item carries positive points (baked-asset defect)",
+    "invalid_case_evaluation": "the evaluation row lacked a usable candidate envelope",
 }
 
 
@@ -411,12 +497,14 @@ def _decode_rows(raw: str) -> list[Any]:
         decoded = json.loads(raw or "")
     except ValueError as exc:
         raise AggregateError(f"HealthBench rows are not JSON: {exc}") from None
-    if not isinstance(decoded, list) or not decoded:
-        raise AggregateError("HealthBench rows must be a non-empty JSON array")
+    if not isinstance(decoded, list):
+        raise AggregateError("HealthBench rows must be a JSON array")
     return decoded
 
 
-def _index_rows(rows: list[Any]) -> tuple[dict[int, dict[str, Any]], list[dict[str, Any]]]:
+def _index_rows(
+    rows: list[Any], case_ids: tuple[int, ...]
+) -> tuple[dict[int, dict[str, Any]], dict[int, list[dict[str, Any]]]]:
     """Split rows into per-Case evaluations and identity-less orphan error rows.
 
     An ``on_error=collect`` row loses its Case identity, so it cannot be indexed;
@@ -425,23 +513,40 @@ def _index_rows(rows: list[Any]) -> tuple[dict[int, dict[str, Any]], list[dict[s
     """
 
     indexed: dict[int, dict[str, Any]] = {}
-    orphans: list[dict[str, Any]] = []
-    for entry in rows:
-        try:
-            row = json.loads(entry) if isinstance(entry, str) else entry
-        except ValueError:
-            orphans.append({"error": "unparseable row", "row_head": str(entry)[:200]})
+    errors_by_case: dict[int, list[dict[str, Any]]] = {}
+    for index, entry in enumerate(rows):
+        expected_case_id = case_ids[index] if index < len(case_ids) else None
+        row, parse_error = _row_value(entry)
+        if parse_error is not None:
+            _attach_collected_error(errors_by_case, expected_case_id, parse_error)
             continue
-        if not isinstance(row, Mapping):
+        if row is None:
             continue
         if "error" in row and "case_id" not in row:
-            orphans.append(dict(row))
+            _attach_collected_error(errors_by_case, expected_case_id, dict(row))
             continue
         if row.get("schema") == CASE_EVALUATION_SCHEMA:
             case_id = row.get("case_id")
             if isinstance(case_id, int) and not isinstance(case_id, bool):
                 indexed[case_id] = dict(row)
-    return indexed, orphans
+    return indexed, errors_by_case
+
+
+def _row_value(entry: object) -> tuple[Mapping[str, Any] | None, dict[str, Any] | None]:
+    try:
+        row = json.loads(entry) if isinstance(entry, str) else entry
+    except ValueError:
+        return None, {"error": {"kind": "InvalidCollectedRow"}}
+    return (row, None) if isinstance(row, Mapping) else (None, None)
+
+
+def _attach_collected_error(
+    target: dict[int, list[dict[str, Any]]],
+    case_id: int | None,
+    error: dict[str, Any],
+) -> None:
+    if case_id is not None:
+        target.setdefault(case_id, []).append(error)
 
 
 def _verdicts(row: Mapping[str, Any]) -> tuple[dict[int, bool], int]:

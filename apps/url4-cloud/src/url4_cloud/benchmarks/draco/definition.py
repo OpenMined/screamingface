@@ -7,6 +7,7 @@ from pathlib import Path
 
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
+from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from url4_cloud.benchmarks.definition import Benchmark, candidate
 from url4_cloud.benchmarks.draco.prompts import JUDGE_INSTRUCTIONS
 from url4_cloud.benchmarks.draco.verdict import call as criterion_verdict
@@ -64,6 +65,7 @@ REVISION = hashlib.sha256(
             DATASET_REVISION,
             DATASET_PREPARER_REVISION,
             PROTOCOL_REVISION,
+            CANDIDATE_RESULT_SCHEMA,
             RETRIEVAL_POLICY_ID,
             repr(EXCLUDED_DOMAINS),
             JUDGE_MODEL,

@@ -54,7 +54,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from url4_cloud.benchmarks.contract import CandidateResult
+from url4_cloud.benchmarks.aggregation import (
+    CandidateScore,
+    SelectedCase,
+    collected_provider_refusal,
+    finalize_candidate_result,
+    public_error,
+    refused_case_result,
+)
+from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.draco import assets
 from url4_cloud.benchmarks.draco import case_results as case_results_module
 from url4_cloud.benchmarks.draco.case_evaluation import decode_case_evaluation
@@ -130,36 +138,37 @@ def aggregate(
         or criterion_count < 1
     ):
         raise AggregateError("criterion_count must be a positive integer or None")
-    # INVARIANT: absence of evaluated Cases is an execution failure, not Candidate score zero.
-    if not rows:
-        raise AggregateError("no DRACO Case results were collected; the Candidate cannot be scored")
-    expected_cases = _validate_selected_cases(selected_cases, len(rows))
+    expected_cases = _validate_selected_cases(selected_cases)
+    if len(rows) > len(expected_cases):
+        raise AggregateError(
+            f"aggregate received {len(rows)} rows for {len(expected_cases)} selected Cases"
+        )
+    selection = [
+        SelectedCase(
+            case_id=int(case["id"]),
+            input=str(case["input"]),
+            metadata={key: value for key, value in case.items() if key not in {"id", "input"}},
+        )
+        for case in expected_cases
+    ]
 
     decoded_rows = _decode_rows(rows, expected_cases, judge_passes)
     _require_verifiable_mapping(decoded_rows)
     case_results = _aggregate_rows(decoded_rows, rubrics, judge_passes, criterion_count)
-    scored = [
-        case
-        for case in case_results
-        if isinstance((grade := case.get("grade")), Mapping)
-        and isinstance(grade.get("score"), int | float)
-        and not isinstance(grade.get("score"), bool)
-    ]
-    if len(scored) != len(case_results):
-        return CandidateResult(
-            benchmark_id=benchmark_id,
-            benchmark_revision=benchmark_revision,
-            case_count=len(case_results),
-            score=None,
-            metrics={},
-            cases=case_results,
-            failures=[],
-        ).as_payload()
-
-    return CandidateResult(
+    return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        case_count=len(case_results),
+        selected_cases=selection,
+        cases=case_results,
+        scorer=_draco_score,
+    ).as_payload()
+
+
+def _draco_score(cases: Sequence[CaseResult]) -> CandidateScore:
+    """Apply the official DRACO cross-Case reduction to complete typed Cases."""
+
+    scored = [case.model_dump() for case in cases]
+    return CandidateScore(
         score=_mean_grades(scored, "score"),
         metrics={
             "normalized_score_sd": _mean_grade_metrics(scored, "normalized_score_sd"),
@@ -179,11 +188,7 @@ def aggregate(
             "verdicts_invalid": _sum_grade_metrics(scored, "verdicts_invalid"),
             "verdicts_missing": _sum_grade_metrics(scored, "verdicts_missing"),
         },
-        cases=case_results,
-        # Case-scoped failures live on their Case Result. Candidate-level failures are reserved
-        # for failures that cannot be attributed to a selected Case.
-        failures=[],
-    ).as_payload()
+    )
 
 
 def _decode_rows(
@@ -192,7 +197,7 @@ def _decode_rows(
     judge_passes: int,
 ) -> list[_DecodedRow]:
     decoded: list[_DecodedRow] = []
-    for raw, expected_case in zip(rows, expected_cases, strict=True):
+    for raw, expected_case in zip(rows, expected_cases, strict=False):
         try:
             evaluation = decode_case_evaluation(
                 raw,
@@ -213,10 +218,29 @@ def _aggregate_rows(
     rubrics: Mapping[int, Mapping[str, Any]],
     judge_passes: int,
     criterion_count: int | None,
-) -> list[dict[str, Any]]:
-    case_results: list[dict[str, Any]] = []
+) -> list[CaseResult]:
+    case_results: list[CaseResult] = []
     for index, row in enumerate(decoded_rows):
         if not row.case_records:
+            if refusal := collected_provider_refusal(row.raw):
+                selected = SelectedCase(
+                    case_id=int(row.expected_case["id"]),
+                    input=str(row.expected_case["input"]),
+                    metadata={
+                        key: value
+                        for key, value in row.expected_case.items()
+                        if key not in {"id", "input"}
+                    },
+                )
+                case_results.append(
+                    refused_case_result(
+                        selected_case=selected,
+                        refusal=refusal.text,
+                        finish_reason=refusal.finish_reason,
+                        metadata={"row_index": index},
+                    )
+                )
+                continue
             failure = _row_failure(
                 row.raw,
                 index,
@@ -302,35 +326,22 @@ def _row_failure(
         return failure
     metadata.clear()
     metadata["row_index"] = index
-    selected = _bounded_error(error)
+    diagnostic = public_error(
+        error,
+        default_code="case_execution_failed",
+        default_message="Candidate Case execution failed",
+    )
     failure.update(
         {
             "stage": "candidate",
-            "code": selected.get("code", "case_execution_failed"),
-            "message": selected.get("message", "Candidate Case execution failed"),
-            "retryable": _retryable(error),
+            "code": diagnostic.code,
+            "message": diagnostic.message,
+            "retryable": diagnostic.retryable,
         }
     )
-    if kind := selected.get("kind"):
-        metadata["error_kind"] = kind
+    if diagnostic.kind is not None:
+        metadata["error_kind"] = diagnostic.kind
     return failure
-
-
-def _bounded_error(error: Mapping[str, Any]) -> dict[str, str]:
-    limits = {"kind": 80, "code": 80, "message": 200}
-    return {
-        field: " ".join(value.split())[:limit]
-        for field, limit in limits.items()
-        if isinstance((value := error.get(field)), str) and value.strip()
-    }
-
-
-def _retryable(error: Mapping[str, Any]) -> bool | None:
-    if isinstance(value := error.get("retryable"), bool):
-        return value
-    if isinstance(permanent := error.get("permanent"), bool):
-        return not permanent
-    return None
 
 
 def _require_verifiable_mapping(rows: Sequence[_DecodedRow]) -> None:
@@ -378,14 +389,11 @@ def _require_verifiable_mapping(rows: Sequence[_DecodedRow]) -> None:
 
 
 def _validate_selected_cases(
-    selected_cases: Sequence[Mapping[str, Any]], row_count: int
+    selected_cases: Sequence[Mapping[str, Any]],
 ) -> list[Mapping[str, Any]]:
-    if len(selected_cases) != row_count:
-        raise AggregateError(
-            f"selected Case sequence must exactly match the {row_count} collected Case results; "
-            f"got {len(selected_cases)} selections"
-        )
     expected = list(selected_cases)
+    if not expected:
+        raise AggregateError("selected Case sequence must be non-empty")
     ids: set[int] = set()
     for index, case in enumerate(expected):
         case_id = optional_integer(case.get("id")) if isinstance(case, Mapping) else None

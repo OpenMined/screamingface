@@ -8,7 +8,6 @@ import pytest
 
 from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
-    AggregateError,
     aggregate,
     aggregate_corrective,
 )
@@ -49,7 +48,7 @@ def test_swapped_known_case_records_cannot_publish_a_score() -> None:
 
     rows = json.dumps([_evaluation(2), _evaluation(1)])
 
-    result = aggregate(rows, _SPECS, "ifeval", _ORDER)
+    result = aggregate(rows, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
     assert result["score"] is None
     assert [case["grade"] for case in result["cases"]] == [None, None]
@@ -62,11 +61,14 @@ def test_swapped_known_case_records_cannot_publish_a_score() -> None:
         (aggregate_corrective, (SELF_CORRECTIVE_REVISION, _ORDER)),
     ],
 )
-def test_zero_case_ifeval_payloads_fail_loudly(reducer, extra) -> None:
-    """An empty Evaluation is an execution failure, never a plausible zero score."""
+def test_zero_row_ifeval_payloads_retain_the_selected_cases(reducer, extra) -> None:
+    result = reducer("[]", _SPECS, "ifeval", *extra, selected_case_count=2)
 
-    with pytest.raises(AggregateError, match="no IFEval rows"):
-        reducer("[]", _SPECS, "ifeval", *extra)
+    assert result["score"] is None
+    assert [case["failures"][0]["code"] for case in result["cases"]] == [
+        "case_result_missing",
+        "case_result_missing",
+    ]
 
 
 def test_truthy_text_cannot_impersonate_verifier_booleans() -> None:
@@ -79,9 +81,19 @@ def test_truthy_text_cannot_impersonate_verifier_booleans() -> None:
         ]
     )
 
-    result = aggregate(rows, _SPECS, "ifeval", _ORDER)
+    result = aggregate(rows, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
-    # The forged record leaves ITS Case ungraded (fallback); the honest case scores.
-    assert result["score"] == 1.0
-    assert result["metrics"]["cases_fallback"] == 1
+    # The forged record leaves its Case ungraded, so the Candidate fails closed.
+    assert result["score"] is None
+    assert result["metrics"] == {}
     assert result["cases"][0]["grade"] is None
+
+
+def test_a_missing_selected_row_is_retained_and_invalidates_the_score() -> None:
+    rows = json.dumps([_evaluation(1)])
+
+    result = aggregate(rows, _SPECS, "ifeval", _ORDER, selected_case_count=2)
+
+    assert result["score"] is None
+    assert [case["case_id"] for case in result["cases"]] == [1, 2]
+    assert result["cases"][1]["failures"][0]["code"] == "case_result_missing"

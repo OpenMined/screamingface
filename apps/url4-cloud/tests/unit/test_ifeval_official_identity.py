@@ -177,7 +177,7 @@ def test_aggregate_grades_rows_in_cases_json_order_not_sorted_ids() -> None:
         ]
     )
 
-    result = aggregate(rows, _ORDER_SPECS, "ifeval", [30, 4])
+    result = aggregate(rows, _ORDER_SPECS, "ifeval", [30, 4], selected_case_count=2)
 
     assert result["score"] == 1.0
     assert [case["case_id"] for case in result["cases"]] == [30, 4]
@@ -185,6 +185,6 @@ def test_aggregate_grades_rows_in_cases_json_order_not_sorted_ids() -> None:
     assert result["cases"][1]["output"] == "Answer 4"
 
     # The same rows against the SORTED order mis-bind every record and cannot score.
-    misbound = aggregate(rows, _ORDER_SPECS, "ifeval", [4, 30])
+    misbound = aggregate(rows, _ORDER_SPECS, "ifeval", [4, 30], selected_case_count=2)
     assert misbound["score"] is None
     assert [case["grade"] for case in misbound["cases"]] == [None, None]

@@ -59,6 +59,7 @@ from url4_cloud.benchmarks.draco.definition import (
     VERDICT_ROUTE,
 )
 from url4_cloud.benchmarks.draco.verdict import bind, binding_key
+from url4_cloud.benchmarks.errors import ProviderRefusal
 
 
 def install_canonical(node: Url4Node, root: Path) -> None:
@@ -206,11 +207,7 @@ def _task_rows(
             case_id = tasks.positive_case_id(request.intent)
             output, finish_reason, refusal = decode_candidate_invocation(request.context)
             if refusal is not None:
-                raise ResolutionError(
-                    "Candidate refused the DRACO Case",
-                    code="provider_refusal",
-                    permanent=True,
-                )
+                raise ProviderRefusal(refusal, finish_reason=finish_reason)
             raw_cases = _read(root / "cases.json", "DRACO cases")
             criteria = tasks.load_criteria(root / "criteria", case_id)
             rubric = _object(

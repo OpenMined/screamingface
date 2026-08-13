@@ -82,7 +82,7 @@ def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
         _evaluation(2, [True], [True]),
     )
 
-    result = aggregate(payload, _SPECS, "ifeval", _ORDER)
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
     # INVARIANT: `score` IS the paper's headline metric, prompt-level strict accuracy —
     # the leaderboard number must mean what arXiv:2311.07911 says it means.
@@ -118,18 +118,14 @@ def test_exact_case_evaluations_survive_the_collect_boundary() -> None:
         _SPECS,
         "ifeval",
         _ORDER,
+        selected_case_count=2,
     )
 
     assert result["score"] == 1.0
     assert result["case_count"] == 2
 
 
-def test_a_failed_case_is_declared_as_fallback_and_kept_out_of_the_denominator() -> None:
-    # INVARIANT: an operationally failed Case is not a legitimate incorrect answer —
-    # it never enters an accuracy denominator (which would punish the Candidate for a
-    # provider flake). It is DECLARED: retained with its failure record, counted in
-    # cases_fallback, and reflected in coverage so a reader sees exactly how much of
-    # the selection the score stands on.
+def test_a_failed_case_invalidates_the_candidate_score() -> None:
     payload = _rows(
         _evaluation(1, [True, True], [True, True]),
         {
@@ -140,12 +136,10 @@ def test_a_failed_case_is_declared_as_fallback_and_kept_out_of_the_denominator()
         },
     )
 
-    result = aggregate(payload, _SPECS, "ifeval", _ORDER)
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
-    assert result["score"] == 1.0  # over the single graded case, not 0.5 over both
-    assert result["metrics"]["cases_checked"] == 1
-    assert result["metrics"]["cases_fallback"] == 1
-    assert result["metrics"]["coverage"] == 0.5
+    assert result["score"] is None
+    assert result["metrics"] == {}
     assert result["case_count"] == 2
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert result["cases"][1]["grade"] is None
@@ -160,17 +154,23 @@ def test_an_invalid_case_evaluation_is_retained_as_a_grading_failure() -> None:
         _evaluation(2, [True], [True]),
     )
 
-    result = aggregate(payload, _SPECS, "ifeval", _ORDER)
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
-    assert result["score"] == 1.0  # the honest case scores; the broken row is fallback
-    assert result["metrics"]["coverage"] == 0.5
+    assert result["score"] is None
+    assert result["metrics"] == {}
     assert result["cases"][0]["failures"][0]["code"] == "invalid_case_evaluation"
 
 
 def test_every_failed_case_returns_null_instead_of_reporting_zero() -> None:
     # Scoring this would hand the client a plausible 0.0 from a misconfigured assets
     # path — draco's load_rubrics lesson.
-    result = aggregate(_rows("broken", "also broken"), _SPECS, "ifeval", _ORDER)
+    result = aggregate(
+        _rows("broken", "also broken"),
+        _SPECS,
+        "ifeval",
+        _ORDER,
+        selected_case_count=2,
+    )
 
     assert result["score"] is None
     assert [case["grade"] for case in result["cases"]] == [None, None]
@@ -184,7 +184,7 @@ def test_all_crash_result_retains_the_collected_inner_failure() -> None:
         }
     }
 
-    result = aggregate(_rows(failed), {1: _SPECS[1]}, "ifeval", [1])
+    result = aggregate(_rows(failed), {1: _SPECS[1]}, "ifeval", [1], selected_case_count=1)
 
     assert result["score"] is None
     assert result["cases"][0]["failures"][0]["message"] == "malformed aigateway response"
@@ -193,16 +193,12 @@ def test_all_crash_result_retains_the_collected_inner_failure() -> None:
 def test_metrics_are_flat_numbers_only() -> None:
     payload = _rows(_evaluation(2, [True], [True]))
 
-    result = aggregate(payload, {2: _SPECS[2]}, "ifeval", [2])
+    result = aggregate(payload, {2: _SPECS[2]}, "ifeval", [2], selected_case_count=1)
 
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())
 
 
-def test_coverage_scoring_at_realistic_size_absorbs_one_flake() -> None:
-    """INVARIANT: coverage-declared scoring — 10 selected, 1 failed → the score stands
-    on the 9 graded cases (here 4 passes / 9 ≈ 0.4444) with coverage 0.9 saying so.
-    One provider flake costs one case, not the run; the reader sees exactly how much
-    of the selection the number covers."""
+def test_one_flake_at_realistic_size_fails_closed() -> None:
 
     specs = {
         case_id: {
@@ -234,13 +230,10 @@ def test_coverage_scoring_at_realistic_size_absorbs_one_flake() -> None:
     rows = [evaluation(case_id, passed=case_id <= 4) for case_id in range(1, 10)]
     rows.append({"error": {"kind": "ResolutionError", "message": "provider flake"}})
 
-    result = aggregate(json.dumps(rows), specs, "ifeval", order)
+    result = aggregate(json.dumps(rows), specs, "ifeval", order, selected_case_count=10)
 
-    assert result["score"] == round(4 / 9, 4)
-    assert result["metrics"]["pass_rate"] == round(4 / 9, 4)
-    assert result["metrics"]["coverage"] == 0.9
-    assert result["metrics"]["cases_checked"] == 9
-    assert result["metrics"]["cases_fallback"] == 1
+    assert result["score"] is None
+    assert result["metrics"] == {}
     assert result["case_count"] == 10
     assert result["cases"][9]["grade"] is None  # the flaked case, retained
 
@@ -255,9 +248,14 @@ def test_canonical_contract_metrics_are_published_for_every_scored_aggregate() -
         _evaluation(1, [True, False], [True, True]),
         _evaluation(2, [True], [True]),
     )
-    single_pass = aggregate(payload, _SPECS, "ifeval", _ORDER)
+    single_pass = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
     corrective = aggregate_corrective(
-        payload, _SPECS, SELF_CORRECTIVE_ID, SELF_CORRECTIVE_REVISION, _ORDER
+        payload,
+        _SPECS,
+        SELF_CORRECTIVE_ID,
+        SELF_CORRECTIVE_REVISION,
+        _ORDER,
+        selected_case_count=2,
     )
 
     for result in (single_pass, corrective):
@@ -278,21 +276,27 @@ def test_a_record_for_an_unknown_case_id_is_ignored() -> None:
     }
     payload = _rows(_evaluation(1, [True, True], [True, True]), stray_evaluation)
 
-    result = aggregate(payload, _SPECS, "ifeval", _ORDER)
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
     # The stray record cannot smuggle a score into a Case its check never ran for, and
     # the missing authentic grade cannot be recast as an incorrect answer — the Case
-    # falls back and the run scores over the one honestly graded Case.
-    assert result["score"] == 1.0
-    assert result["metrics"]["cases_fallback"] == 1
+    # fails the run closed while retaining the honestly graded Case.
+    assert result["score"] is None
+    assert result["metrics"] == {}
     assert result["cases"][1]["grade"] is None
 
 
 def test_non_array_payload_raises() -> None:
     with pytest.raises(AggregateError):
-        aggregate('{"not": "an array"}', _SPECS, "ifeval", _ORDER)
+        aggregate(
+            '{"not": "an array"}',
+            _SPECS,
+            "ifeval",
+            _ORDER,
+            selected_case_count=2,
+        )
     with pytest.raises(AggregateError):
-        aggregate("not json at all", _SPECS, "ifeval", _ORDER)
+        aggregate("not json at all", _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
 
 def test_load_specs_raises_on_a_missing_or_empty_directory(tmp_path: Path) -> None:

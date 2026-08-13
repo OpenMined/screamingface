@@ -7,11 +7,8 @@ accuracy (arXiv:2311.07911).
 
 INVARIANT: `case_count` is EXACT (one entry per selected Case) and every scored Case has a
 real verifier record. A missing record is an operational failure rather than an incorrect
-answer: the Case is RETAINED with its failure record and counted in `cases_fallback`, never
-folded into a denominator. Scoring is coverage-declared (draco's model): accuracies run over
-graded Cases only and `metrics.coverage` says how much of the selection the score stands on.
-The Engine reports facts and gates nothing — acceptance policy lives downstream. Only a run
-with zero graded Cases is unscored (a score over nothing is undefined).
+answer: the Case is retained with its failure record and the complete Candidate fails closed
+with `score: None` and empty metrics. No accuracy is published over a surviving subset.
 """
 
 from __future__ import annotations
@@ -21,7 +18,17 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from url4_cloud.benchmarks.contract import CandidateResult
+from url4_cloud.benchmarks.aggregation import (
+    CandidateScore,
+    SelectedCase,
+    collected_provider_refusal,
+    failed_case_result,
+    finalize_candidate_result,
+    public_error,
+    refused_case_result,
+    scored_case_result,
+)
+from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
     CHECK_SCHEMA,
     decode_case_evaluation,
@@ -40,6 +47,8 @@ def aggregate(
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
     case_order: Sequence[int],
+    *,
+    selected_case_count: int,
 ) -> dict[str, Any]:
     """Reduce the row array into a `CandidateResult` — exactly one entry per row.
 
@@ -50,106 +59,65 @@ def aggregate(
     """
 
     rows = _rows(rows_json)
-    case_results: list[dict[str, Any]] = []
-    accepted: list[dict[str, Any]] = []
-    recordless_cases: list[tuple[int, int]] = []
-    for index, (raw, case_id) in enumerate(
-        zip(rows, _selected_case_ids(rows, specs, case_order), strict=True)
-    ):
+    selected = _selected_cases(specs, case_order, selected_case_count)
+    _reject_surplus_rows(rows, selected)
+    case_results: list[CaseResult] = []
+    for index, raw in enumerate(rows):
+        selected_case = selected[index]
+        case_id = int(selected_case.case_id)
         spec = specs[case_id]
         record = _first_valid_record(raw, case_id, spec)
         if record is None:
-            recordless_cases.append((index, case_id))
-            case_results.append(_failed_case_result(raw, index, case_id, spec))
+            case_results.append(_failed_case_result(raw, index, selected_case))
             continue
-        accepted.append(record)
-        case_results.append(_case_result(case_id, spec, record))
-    if not accepted:
-        return _unscored_result(benchmark_id, IFEVAL_REVISION, case_results)
-
-    strict_all = [all(record["strict"]) for record in accepted]
-    loose_all = [all(record["loose"]) for record in accepted]
-    strict_flat = [bool(value) for record in accepted for value in record["strict"]]
-    loose_flat = [bool(value) for record in accepted for value in record["loose"]]
-    inst_level_strict = _accuracy(strict_flat)
-    cases_checked = len(accepted)
-    cases_fallback = len(recordless_cases)
-    return CandidateResult(
+        case_results.append(_case_result(selected_case, record))
+    return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=IFEVAL_REVISION,
-        case_count=len(case_results),
-        score=_accuracy(strict_all),
-        metrics={
-            "inst_level_strict_accuracy": inst_level_strict,
-            "prompt_level_loose_accuracy": _accuracy(loose_all),
-            "inst_level_loose_accuracy": _accuracy(loose_flat),
-            "cases_checked": cases_checked,
-            "cases_fallback": cases_fallback,
-            # IFEval's canonical-trio mapping (contract enforced by CandidateResult):
-            # pass_rate is instruction-level strict accuracy over graded cases;
-            # coverage is graded / selected cases.
-            "pass_rate": inst_level_strict,
-            "coverage": round(cases_checked / len(case_results), 4),
-        },
+        selected_cases=selected,
         cases=case_results,
-        failures=[],
-    ).as_payload()
-
-
-def _unscored_result(
-    benchmark_id: str,
-    benchmark_revision: str,
-    cases: Sequence[Mapping[str, Any]],
-) -> dict[str, Any]:
-    """Return the complete Evaluation record without fabricating an aggregate score."""
-
-    return CandidateResult(
-        benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        case_count=len(cases),
-        score=None,
-        metrics={},
-        cases=[dict(case) for case in cases],
-        failures=[],
+        scorer=_ifeval_score,
     ).as_payload()
 
 
 def _failed_case_result(
     row: Any,
     row_index: int,
-    case_id: int,
-    spec: Mapping[str, Any],
-) -> dict[str, Any]:
+    selected_case: SelectedCase,
+) -> CaseResult:
     """Retain one selected Case whose Candidate Invocation or Grading failed."""
+
+    if refusal := collected_provider_refusal(row):
+        return refused_case_result(
+            selected_case=selected_case,
+            refusal=refusal.text,
+            finish_reason=refusal.finish_reason,
+            metadata={"row_index": row_index},
+        )
 
     error = row.get("error") if isinstance(row, Mapping) else None
     error = error if isinstance(error, Mapping) else {}
-    kind = _bounded_text(error.get("kind"), 80)
-    code = _bounded_text(error.get("code"), 80) or "invalid_case_evaluation"
-    message = _bounded_text(error.get("message"), 200) or (
-        "the Case produced no valid IFEval evaluation record"
+    diagnostic = public_error(
+        error,
+        default_code="invalid_case_evaluation",
+        default_message="the Case produced no valid IFEval evaluation record",
     )
     metadata: dict[str, Any] = {"row_index": row_index}
-    if kind is not None:
-        metadata["error_kind"] = kind
-    return {
-        "case_id": case_id,
-        "input": spec["prompt"],
-        "output": None,
-        "finish_reason": None,
-        "grade": None,
-        "failures": [
+    if diagnostic.kind is not None:
+        metadata["error_kind"] = diagnostic.kind
+    return failed_case_result(
+        selected_case=selected_case,
+        failures=[
             {
-                "stage": _failure_stage(code),
-                "code": code,
-                "message": message,
-                "retryable": _retryable(error),
-                "case_id": case_id,
+                "stage": _failure_stage(diagnostic.code),
+                "code": diagnostic.code,
+                "message": diagnostic.message,
+                "retryable": diagnostic.retryable,
+                "case_id": selected_case.case_id,
                 "metadata": metadata,
             }
         ],
-        "metadata": {},
-    }
+    )
 
 
 def _failure_stage(code: str) -> str:
@@ -158,26 +126,14 @@ def _failure_stage(code: str) -> str:
     )
 
 
-def _retryable(error: Mapping[str, Any]) -> bool | None:
-    retryable = error.get("retryable")
-    if isinstance(retryable, bool):
-        return retryable
-    permanent = error.get("permanent")
-    return not permanent if isinstance(permanent, bool) else None
-
-
-def _bounded_text(value: object, limit: int) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    return " ".join(value.split())[:limit]
-
-
 def aggregate_corrective(
     rows_json: str,
     specs: Mapping[int, Mapping[str, Any]],
     benchmark_id: str,
     benchmark_revision: str,
     case_order: Sequence[int],
+    *,
+    selected_case_count: int,
     max_attempts: int = 3,
 ) -> dict[str, Any]:
     """Reduce corrective-chain rows — one scored entry per case, pass@attempt metrics.
@@ -188,86 +144,44 @@ def aggregate_corrective(
     """
 
     rows = _rows(rows_json)
-    case_results: list[dict[str, Any]] = []
-    selected_records: list[dict[str, Any]] = []
-    recordless_cases: list[tuple[int, int]] = []
-    for index, (raw, case_id) in enumerate(
-        zip(rows, _selected_case_ids(rows, specs, case_order), strict=True)
-    ):
+    selected = _selected_cases(specs, case_order, selected_case_count)
+    _reject_surplus_rows(rows, selected)
+    case_results: list[CaseResult] = []
+    for index, raw in enumerate(rows):
+        selected_case = selected[index]
+        case_id = int(selected_case.case_id)
         spec = specs[case_id]
         records = _attempt_records(raw, case_id, spec, max_attempts)
         if not records:
-            recordless_cases.append((index, case_id))
-            case_results.append(_failed_case_result(raw, index, case_id, spec))
+            case_results.append(_failed_case_result(raw, index, selected_case))
             continue
         earliest_pass = min(
             (attempt for attempt, record in records.items() if all(record["strict"])),
             default=0,
         )
         selected_attempt = earliest_pass or max(records)
-        selected = records[selected_attempt]
-        selected_records.append(selected)
         case_results.append(
             _corrective_case(
-                case_id,
-                spec,
+                selected_case,
                 records,
                 selected_attempt,
                 earliest_pass,
             )
         )
-    if not selected_records:
-        return _unscored_result(benchmark_id, benchmark_revision, case_results)
-
-    strict_all = [all(record["strict"]) for record in selected_records]
-    loose_all = [all(record["loose"]) for record in selected_records]
-    strict_flat = [bool(value) for record in selected_records for value in record["strict"]]
-    loose_flat = [bool(value) for record in selected_records for value in record["loose"]]
-    # pass@k denominators run over graded cases only; failed cases carry no
-    # pass_attempt metadata, so .get keeps them out of the numerator too.
-    graded = len(selected_records)
-    pass_at = {
-        f"pass_at_{attempt}": (
-            round(
-                sum(
-                    1
-                    for case in case_results
-                    if case["metadata"].get("pass_attempt")
-                    and case["metadata"]["pass_attempt"] <= attempt
-                )
-                / graded,
-                4,
-            )
-            if graded
-            else 0.0
-        )
-        for attempt in range(1, max_attempts + 1)
-    }
-    inst_level_strict = _accuracy(strict_flat)
-    cases_fallback = len(recordless_cases)
-    return CandidateResult(
+    return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        case_count=len(case_results),
-        score=_accuracy(strict_all),
-        metrics={
-            "inst_level_strict_accuracy": inst_level_strict,
-            "prompt_level_loose_accuracy": _accuracy(loose_all),
-            "inst_level_loose_accuracy": _accuracy(loose_flat),
-            **pass_at,
-            "corrected_cases": sum(
-                1 for case in case_results if (case["metadata"].get("pass_attempt") or 0) > 1
-            ),
-            "cases_checked": graded,
-            "cases_fallback": cases_fallback,
-            # Same IFEval canonical-trio mapping as the single-pass reducer, over the
-            # SELECTED attempt per graded case (contract enforced by CandidateResult).
-            "pass_rate": inst_level_strict,
-            "coverage": round(graded / len(case_results), 4),
-        },
+        selected_cases=selected,
         cases=case_results,
-        failures=[],
+        scorer=lambda cases: _ifeval_score(cases, max_attempts=max_attempts),
     ).as_payload()
+
+
+def _reject_surplus_rows(rows: Sequence[Any], selected: Sequence[SelectedCase]) -> None:
+    if len(rows) > len(selected):
+        raise AggregateError(
+            f"aggregate received {len(rows)} rows for {len(selected)} selected Cases"
+        )
 
 
 def _attempt_records(
@@ -308,32 +222,34 @@ def _attempt_records(
 
 
 def _corrective_case(
-    case_id: int,
-    spec: Mapping[str, Any],
+    selected_case: SelectedCase,
     records: Mapping[int, Mapping[str, Any]],
     selected_attempt: int,
     pass_attempt: int,
-) -> dict[str, Any]:
+) -> CaseResult:
     selected = records[selected_attempt]
-    result = _case_result(case_id, spec, selected)
-    result["metadata"] = {
-        "selected_attempt": selected_attempt,
-        # 0 means no attempt passed every strict Check.
-        "pass_attempt": pass_attempt,
-        "attempts": [
-            {
-                "attempt": attempt,
-                "output": record["answer"],
-                "finish_reason": record["finish_reason"],
-                "feedback": list(record["violations"]),
-                # The judge's actual coaching for THIS attempt (authored after the
-                # previous round failed); None for attempt 1 and judge-free flows.
-                "judge_feedback": record.get("judge_feedback"),
+    result = _case_result(selected_case, selected)
+    return result.model_copy(
+        update={
+            "metadata": {
+                "selected_attempt": selected_attempt,
+                # 0 means no attempt passed every strict Check.
+                "pass_attempt": pass_attempt,
+                "attempts": [
+                    {
+                        "attempt": attempt,
+                        "output": record["answer"],
+                        "finish_reason": record["finish_reason"],
+                        "feedback": list(record["violations"]),
+                        # The judge's actual coaching for THIS attempt (authored after the
+                        # previous round failed); None for attempt 1 and judge-free flows.
+                        "judge_feedback": record.get("judge_feedback"),
+                    }
+                    for attempt, record in sorted(records.items())
+                ],
             }
-            for attempt, record in sorted(records.items())
-        ],
-    }
-    return result
+        }
+    )
 
 
 def load_specs(directory: Path) -> dict[int, dict[str, Any]]:
@@ -395,36 +311,38 @@ def _rows(rows_json: str) -> list[Any]:
         raise AggregateError(f"reducer payload is not JSON: {exc}") from None
     if not isinstance(rows, list):
         raise AggregateError(f"reducer payload must be a JSON array, got {type(rows).__name__}")
-    if not rows:
-        raise AggregateError("no IFEval rows were produced; the Candidate cannot be scored")
     return rows
 
 
-def _selected_case_ids(
-    rows: Sequence[Any],
+def _selected_cases(
     specs: Mapping[int, Mapping[str, Any]],
     case_order: Sequence[int],
-) -> list[int]:
-    """The prefix of installed Cases selected by the Benchmark's `limit` slice.
+    selected_case_count: int,
+) -> list[SelectedCase]:
+    """The exact installed Case prefix authored into the Benchmark URL4.
 
-    The slice walks ``cases.json`` in file order, so the id for collected row N is
-    ``case_order[N]``. Ids are official keys — sorting them would grade rows against
-    the wrong specs.
+    The slice walks ``cases.json`` in file order. Ids are official keys — sorting
+    them would grade rows against the wrong specs.
     """
 
-    if len(rows) > len(case_order):
-        raise AggregateError(
-            f"reducer carried {len(rows)} rows but only {len(case_order)} IFEval cases "
-            "are installed"
-        )
-    selected = list(case_order[: len(rows)])
+    if (
+        isinstance(selected_case_count, bool)
+        or not isinstance(selected_case_count, int)
+        or selected_case_count < 1
+        or selected_case_count > len(case_order)
+    ):
+        raise AggregateError(f"selected_case_count must be between 1 and {len(case_order)}")
+    selected = list(case_order[:selected_case_count])
     missing = [case_id for case_id in selected if case_id not in specs]
     if missing:
         raise AggregateError(
             f"cases.json selects case ids {missing} that have no installed instruction "
             "spec; the installed IFEval assets are incomplete"
         )
-    return selected
+    return [
+        SelectedCase(case_id=case_id, input=str(specs[case_id]["prompt"]), metadata={})
+        for case_id in selected
+    ]
 
 
 def _first_valid_record(
@@ -481,19 +399,16 @@ def _record_content(record: Mapping[str, Any], instruction_count: int) -> bool:
     )
 
 
-def _case_result(
-    case_id: int, spec: Mapping[str, Any], record: Mapping[str, Any]
-) -> dict[str, Any]:
+def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> CaseResult:
     strict = [bool(value) for value in record["strict"]]
     loose = [bool(value) for value in record["loose"]]
     descriptions = record["descriptions"]
     assert isinstance(descriptions, list)
-    return {
-        "case_id": case_id,
-        "input": spec["prompt"],
-        "output": record["answer"],
-        "finish_reason": record["finish_reason"],
-        "grade": {
+    return scored_case_result(
+        selected_case=selected_case,
+        output=str(record["answer"]),
+        finish_reason=record["finish_reason"],
+        grade={
             "method": "deterministic",
             "score": float(all(strict)),
             "metrics": {
@@ -521,9 +436,56 @@ def _case_result(
                 for index in range(1, len(strict) + 1)
             ],
         },
-        "failures": [],
-        "metadata": {},
+    )
+
+
+def _ifeval_score(
+    cases: Sequence[CaseResult], *, max_attempts: int | None = None
+) -> CandidateScore:
+    """Apply IFEval's published accuracy formulas to complete typed Cases."""
+
+    grades = [case.grade for case in cases]
+    if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
+        raise AssertionError("IFEval scorer requires complete graded Cases")
+    typed_grades = [grade for grade in grades if grade is not None]
+    strict_all = [grade.score == 1.0 for grade in typed_grades]
+    loose_all = [grade.metrics.get("follow_all_loose") is True for grade in typed_grades]
+    strict_flat = [check.outcome == "MET" for grade in typed_grades for check in grade.checks]
+    loose_flat = [
+        evidence.outcome == "PASS"
+        for grade in typed_grades
+        for check in grade.checks
+        for evidence in check.evidence
+        if evidence.metadata.get("mode") == "loose"
+    ]
+    inst_level_strict = _accuracy(strict_flat)
+    metrics: dict[str, Any] = {
+        "inst_level_strict_accuracy": inst_level_strict,
+        "prompt_level_loose_accuracy": _accuracy(loose_all),
+        "inst_level_loose_accuracy": _accuracy(loose_flat),
+        "pass_rate": inst_level_strict,
+        "coverage": 1.0,
     }
+    if max_attempts is not None:
+        metrics.update(
+            {
+                f"pass_at_{attempt}": round(
+                    sum(
+                        1
+                        for case in cases
+                        if case.metadata.get("pass_attempt")
+                        and case.metadata["pass_attempt"] <= attempt
+                    )
+                    / len(cases),
+                    4,
+                )
+                for attempt in range(1, max_attempts + 1)
+            }
+        )
+        metrics["corrected_cases"] = sum(
+            1 for case in cases if (case.metadata.get("pass_attempt") or 0) > 1
+        )
+    return CandidateScore(score=_accuracy(strict_all), metrics=metrics)
 
 
 def _verification_evidence(sequence: int, mode: str, passed: bool) -> dict[str, Any]:

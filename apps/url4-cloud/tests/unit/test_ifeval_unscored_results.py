@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from url4_cloud.benchmarks.errors import ProviderRefusal
 from url4_cloud.benchmarks.ifeval.aggregate import SCHEMA, aggregate, aggregate_corrective
 from url4_cloud.benchmarks.ifeval.corrective_policy import (
     SELF_CORRECTIVE_ID,
@@ -52,7 +53,7 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
         ]
     )
 
-    result = aggregate(payload, _SPEC, "ifeval", _ORDER)
+    result = aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
 
     assert result["score"] is None
     assert result["metrics"] == {}
@@ -60,10 +61,12 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
     assert result["failures"] == []
     assert result["cases"] == [
         {
+            "status": "failed",
             "case_id": 1,
             "input": "Answer without commas.",
             "output": None,
             "finish_reason": None,
+            "refusal": None,
             "grade": None,
             "failures": [
                 {
@@ -80,10 +83,39 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
     ]
 
 
+def test_provider_refusal_is_retained_exactly_and_skips_grading() -> None:
+    exact = "I can’t comply with that request."
+    result = aggregate(
+        json.dumps(
+            [
+                {
+                    "error": {
+                        "kind": "ProviderRefusal",
+                        "message": str(ProviderRefusal(exact, finish_reason="content_filter")),
+                    }
+                }
+            ]
+        ),
+        _SPEC,
+        "ifeval",
+        _ORDER,
+        selected_case_count=1,
+    )
+
+    case = result["cases"][0]
+    assert result["score"] is None
+    assert result["metrics"] == {}
+    assert case["status"] == "refused"
+    assert case["refusal"] == exact
+    assert case["finish_reason"] == "content_filter"
+    assert case["grade"] is None
+    assert case["failures"][0]["code"] == "provider_refusal"
+
+
 def test_nested_verifier_record_is_not_discovered_as_grading() -> None:
     payload = json.dumps([{"candidate_text": json.dumps(_valid_record())}])
 
-    result = aggregate(payload, _SPEC, "ifeval", _ORDER)
+    result = aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
 
     assert result["score"] is None
     assert result["metrics"] == {}
@@ -94,7 +126,7 @@ def test_nested_verifier_record_is_not_discovered_as_grading() -> None:
 def test_bare_check_record_is_not_a_case_evaluation_envelope() -> None:
     payload = json.dumps([_valid_record()])
 
-    result = aggregate(payload, _SPEC, "ifeval", _ORDER)
+    result = aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
 
     assert result["score"] is None
     assert result["cases"][0]["grade"] is None
@@ -120,6 +152,7 @@ def test_corrective_collected_failure_returns_a_complete_unscored_result() -> No
         SELF_CORRECTIVE_ID,
         SELF_CORRECTIVE_REVISION,
         _ORDER,
+        selected_case_count=1,
     )
 
     assert result["score"] is None
@@ -138,6 +171,7 @@ def test_corrective_nested_check_is_not_discovered_as_grading() -> None:
         SELF_CORRECTIVE_ID,
         SELF_CORRECTIVE_REVISION,
         _ORDER,
+        selected_case_count=1,
     )
 
     assert result["score"] is None

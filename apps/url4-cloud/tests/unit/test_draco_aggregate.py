@@ -340,15 +340,16 @@ def test_a_row_with_no_verdicts_is_a_failure_not_a_zero() -> None:
     assert result["metrics"] == {}
 
 
-def test_no_rows_at_all_is_an_execution_failure() -> None:
-    """INVARIANT: a run with no evaluated Cases cannot report Candidate score zero."""
-    with pytest.raises(agg.AggregateError, match="no DRACO Case results"):
-        agg.aggregate(
-            "[]",
-            rubrics={1: _RUBRIC},
-            benchmark_id="draco",
-            selected_cases=_selected_cases(1),
-        )
+def test_no_rows_at_all_retains_every_selected_case_as_failed() -> None:
+    result = agg.aggregate(
+        "[]",
+        rubrics={1: _RUBRIC},
+        benchmark_id="draco",
+        selected_cases=_selected_cases(1),
+    )
+
+    assert result["score"] is None
+    assert result["cases"][0]["failures"][0]["code"] == "case_result_missing"
 
 
 def test_all_failed_rows_retain_the_collected_execution_error() -> None:
