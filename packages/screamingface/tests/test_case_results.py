@@ -110,20 +110,20 @@ def test_case_result_recursively_freezes_benchmark_metadata() -> None:
 def test_failed_case_retains_the_failure_without_fabricating_an_output_or_grade() -> None:
     failure = sf.Failure(
         stage="candidate",
-        code="provider_refusal",
-        message="provider refused the request",
+        code="provider_error",
+        message="provider failed the request",
         retryable=None,
         case_id=2,
         metadata={"error_kind": "ResolutionError"},
     )
 
     case = sf.CaseResult(
-        status="refused",
+        status="failed",
         case_id=2,
         input="A clinical question",
         output=None,
         finish_reason=None,
-        refusal="provider refused the request",
+        refusal=None,
         grade=None,
         failures=(failure,),
         metadata={"domain": "Medicine"},
@@ -132,8 +132,8 @@ def test_failed_case_retains_the_failure_without_fabricating_an_output_or_grade(
     assert case.to_dict()["failures"] == [
         {
             "stage": "candidate",
-            "code": "provider_refusal",
-            "message": "provider refused the request",
+            "code": "provider_error",
+            "message": "provider failed the request",
             "retryable": None,
             "case_id": 2,
             "metadata": {"error_kind": "ResolutionError"},

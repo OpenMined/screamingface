@@ -38,17 +38,8 @@ def _refused_payload() -> dict[str, Any]:
         "output": None,
         "finish_reason": "stop",
         "refusal": "I can't help with that request.",
-        "grade": None,
-        "failures": [
-            {
-                "stage": "candidate",
-                "code": "provider_refusal",
-                "message": "the provider refused this Case",
-                "retryable": None,
-                "case_id": 1,
-                "metadata": {},
-            }
-        ],
+        "grade": {"method": "rubric", "score": 0.0, "metrics": {}, "checks": []},
+        "failures": [],
         "metadata": {},
     }
 
@@ -141,14 +132,6 @@ def test_wire_text_and_string_identity_survive_without_normalization() -> None:
             "refusal": " exact provider refusal ",
         }
     )
-    failure = payload["failures"][0]
-    failure.update(
-        {
-            "message": " exact failure message ",
-            "case_id": " case-1 ",
-        }
-    )
-
     assert _case_result(payload).to_dict() == payload
 
 
@@ -291,9 +274,10 @@ def test_a_status_contradicting_the_grade_shape_is_rejected() -> None:
 def test_a_scored_case_cannot_carry_refusal_text() -> None:
     with pytest.raises(ValueError, match="refusal"):
         sf.CaseResult(
+            status="scored",
             case_id=1,
             input="question",
-            output="answer",
+            output=None,
             finish_reason="stop",
             refusal="I refuse.",
             grade=sf.CaseGrade(method="rubric", score=1.0, metrics={}, checks=()),
@@ -312,22 +296,13 @@ def test_a_refused_case_cannot_carry_output() -> None:
             output="an answer the engine would reject",
             finish_reason="stop",
             refusal="I can't help with that request.",
-            grade=None,
-            failures=(
-                sf.Failure(
-                    stage="candidate",
-                    code="provider_refusal",
-                    message="the provider refused this Case",
-                    case_id=1,
-                ),
-            ),
+            grade=sf.CaseGrade(method="rubric", score=0.0, metrics={}, checks=()),
+            failures=(),
             metadata={},
         )
 
 
-def test_a_refused_case_cannot_carry_a_grade() -> None:
-    # INVARIANT: mirrors contract.py _enforce_status — refusal text alongside a grade
-    # (even an unscored one) is a shape the engine rejects outright.
+def test_a_refused_case_requires_a_grade() -> None:
     with pytest.raises(ValueError, match="refused"):
         sf.CaseResult(
             case_id=1,
@@ -335,15 +310,8 @@ def test_a_refused_case_cannot_carry_a_grade() -> None:
             output=None,
             finish_reason="stop",
             refusal="I can't help with that request.",
-            grade=sf.CaseGrade(method="rubric", score=None, metrics={}, checks=()),
-            failures=(
-                sf.Failure(
-                    stage="candidate",
-                    code="provider_refusal",
-                    message="the provider refused this Case",
-                    case_id=1,
-                ),
-            ),
+            grade=None,
+            failures=(),
             metadata={},
         )
 
@@ -355,15 +323,8 @@ def test_a_locally_built_case_derives_status_without_weakening_wire_decoding() -
         output=None,
         finish_reason=None,
         refusal="I can't help with that request.",
-        grade=None,
-        failures=(
-            sf.Failure(
-                stage="candidate",
-                code="provider_refusal",
-                message="the provider refused this Case",
-                case_id=1,
-            ),
-        ),
+        grade=sf.CaseGrade(method="rubric", score=0.0, metrics={}, checks=()),
+        failures=(),
         metadata={},
     )
 

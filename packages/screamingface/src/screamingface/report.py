@@ -167,6 +167,7 @@ class CandidateResult:
     models: tuple[str, ...]
     operations: tuple[OperationInfo, ...]
     score: float | None
+    coverage: float
     cases: _CaseResults
     members: tuple[MemberResult, ...]
     failures: tuple[Failure, ...]
@@ -186,6 +187,7 @@ class CandidateResult:
         models: Sequence[str],
         operations: Sequence[OperationInfo],
         score: float | None,
+        coverage: float,
         metrics: Mapping[str, object],
         cases: Sequence[CaseResult],
         members: Sequence[MemberResult],
@@ -195,6 +197,7 @@ class CandidateResult:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
         selected_score = _optional_number(score, "Candidate score")
+        selected_coverage = _coverage(coverage)
         metric_items = _metrics(metrics)
         if selected_score is None and metric_items:
             raise ValueError("a failed or unscored Candidate cannot contain metrics")
@@ -203,7 +206,6 @@ class CandidateResult:
             models,
             members,
             failures,
-            scored=selected_score is not None,
         )
         selected_operations = _operation_dag(operations)
         selected_cases = _CaseResults(cases)
@@ -228,6 +230,7 @@ class CandidateResult:
             "models": selected_models,
             "operations": selected_operations,
             "score": selected_score,
+            "coverage": selected_coverage,
             "cases": selected_cases,
             "members": selected_members,
             "failures": selected_failures,
@@ -257,6 +260,7 @@ class CandidateResult:
             "models": list(self.models),
             "operations": [_operation_dict(operation) for operation in self.operations],
             "score": self.score,
+            "coverage": self.coverage,
             "metrics": thaw_mapping(dict(self._metric_items)),
             "cases": [case.to_dict() for case in self.cases],
             "members": [member.to_dict() for member in self.members],
@@ -430,8 +434,6 @@ def _candidate_shape(
     models: Sequence[str],
     members: Sequence[MemberResult],
     failures: Sequence[Failure],
-    *,
-    scored: bool,
 ) -> tuple[
     RecipeKind,
     tuple[str, ...],
@@ -443,7 +445,7 @@ def _candidate_shape(
     selected_members = _members(members)
     selected_failures = _failures(failures, "Candidate")
     _validate_candidate_structure(selected_kind, selected_models, selected_members)
-    _validate_candidate_failures(selected_failures, scored=scored)
+    _validate_candidate_failures(selected_failures)
     return selected_kind, selected_models, selected_members, selected_failures
 
 
@@ -464,11 +466,9 @@ def _validate_candidate_structure(
         raise ValueError("a Fusion Candidate requires at least one direct member")
 
 
-def _validate_candidate_failures(failures: Sequence[Failure], *, scored: bool) -> None:
+def _validate_candidate_failures(failures: Sequence[Failure]) -> None:
     if any(failure.case_id is not None for failure in failures):
         raise ValueError("a Candidate Failure cannot claim a Case id")
-    if scored and failures:
-        raise ValueError("a failed Candidate cannot contain a score or metrics")
 
 
 def _time_range(start: object, end: object, *, label: str) -> tuple[datetime, datetime]:
@@ -515,12 +515,23 @@ def _optional_number(value: object, label: str) -> float | None:
     return selected
 
 
+def _coverage(value: object) -> float:
+    selected = _optional_number(value, "Candidate coverage")
+    if selected is None:
+        raise TypeError("Candidate coverage must be a finite number")
+    if not 0.0 <= selected <= 1.0:
+        raise ValueError("Candidate coverage must be between 0 and 1")
+    return selected
+
+
 def _metrics(values: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
     if not isinstance(values, Mapping):
         raise TypeError("Candidate metrics must be a mapping")
     selected: dict[str, object] = {}
     for name, value in values.items():
         normalized_name = _nonblank(name, "Candidate metric name")
+        if normalized_name == "coverage":
+            raise ValueError("Candidate metrics cannot contain top-level field 'coverage'")
         if normalized_name in selected:
             raise ValueError(f"Candidate metric name {normalized_name!r} is duplicated")
         selected[normalized_name] = value

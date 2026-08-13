@@ -317,7 +317,8 @@ class _Transport:
                     "benchmark_revision": "fixture-revision",
                     "case_count": 1,
                     "score": 0.8,
-                    "metrics": {"coverage": 1.0},
+                    "coverage": 1.0,
+                    "metrics": {},
                     "cases": [
                         {
                             "status": "scored",

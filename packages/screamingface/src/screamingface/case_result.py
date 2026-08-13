@@ -426,13 +426,13 @@ def _case_status(
     refusal: str | None,
     grade: CaseGrade | None,
 ) -> CaseStatus:
-    if status is None:
-        if grade is not None and grade.score is not None:
-            return "scored"
-        return "refused" if refusal is not None else "failed"
-    if status not in {"scored", "refused", "failed"}:
-        raise ValueError("Case Result status must be 'scored', 'refused', or 'failed'")
-    return status
+    if status is not None:
+        if status not in {"scored", "refused", "failed"}:
+            raise ValueError("Case Result status must be 'scored', 'refused', or 'failed'")
+        return status
+    if refusal is not None:
+        return "refused"
+    return "scored" if grade is not None and grade.score is not None else "failed"
 
 
 def _validate_scored_case(
@@ -454,22 +454,16 @@ def _validate_refused_case(
     output: object,
     failures: Sequence[Failure],
 ) -> None:
-    refusal_failures = tuple(
-        failure
-        for failure in failures
-        if failure.stage == "candidate" and failure.code == "provider_refusal"
-    )
-    if (
-        refusal is None
-        or output is not None
-        or grade is not None
-        or len(failures) != 1
-        or len(refusal_failures) != 1
-    ):
+    if refusal is None or output is not None or grade is None:
         raise ValueError(
-            "Case Result status 'refused' requires exact refusal text, no output or grade, "
-            "and one candidate provider_refusal Failure"
+            "Case Result status 'refused' requires exact refusal text, no output, and a grade"
         )
+    if grade.score is not None and failures:
+        raise ValueError("a graded refused Case Result cannot contain failures")
+    if grade.score is None and (
+        not failures or any(failure.stage != "grading" for failure in failures)
+    ):
+        raise ValueError("an ungraded refused Case Result requires only grading failures")
 
 
 def _validate_failed_case(

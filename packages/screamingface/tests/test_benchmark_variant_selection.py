@@ -105,6 +105,7 @@ class _RunTransport:
                     "benchmark_revision": "alternate-revision",
                     "case_count": 1,
                     "score": 1.0,
+                    "coverage": 1.0,
                     "metrics": {},
                     "cases": [
                         {

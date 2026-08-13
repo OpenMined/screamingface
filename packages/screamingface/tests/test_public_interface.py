@@ -27,7 +27,6 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "ConnectionPanel",
         "OAuthFlow",
         "AsyncOAuthFlow",
-        "CoverageWarning",
         "close",
         "configure",
         "connect",

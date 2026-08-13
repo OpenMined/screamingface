@@ -29,7 +29,7 @@ from screamingface.report import BenchmarkInfo, CandidateResult, Report
 
 _START = datetime(2026, 8, 7, 17, 28, 8, tzinfo=UTC)
 _END = datetime(2026, 8, 7, 17, 28, 28, tzinfo=UTC)
-_METRICS = {"pass_rate": 0.5, "coverage": 1.0, "verdicts_expected": 1, "verdicts_accepted": 1}
+_METRICS = {"pass_rate": 0.5, "verdicts_expected": 1, "verdicts_accepted": 1}
 _BENCHMARK = BenchmarkInfo("draco/smoke", "74c94830e8de6afd", 1)
 
 
@@ -51,6 +51,7 @@ def candidate(
     *,
     cases: tuple[CaseResult, ...] = (),
     failures: tuple[sf.Failure, ...] = (),
+    coverage: float | None = None,
 ) -> CandidateResult:
     return CandidateResult(
         benchmark=_BENCHMARK,
@@ -63,6 +64,7 @@ def candidate(
         models=["openrouter/x"],
         operations=[OperationInfo(id="op", kind="model", label="answer", depends_on=())],
         score=score,
+        coverage=(1.0 if score is not None else 0.0) if coverage is None else coverage,
         # the model forbids metrics on an unscored Candidate
         metrics=_METRICS if score is not None else {},
         cases=list(cases) or [case()],
@@ -249,7 +251,11 @@ def test_axis_and_grading_details_render_only_meaningful_differences() -> None:
     assert "of 5 verdicts" in grading
 
 
-def multi_case_report(*cases: CaseResult) -> Report:
+def multi_case_report(
+    *cases: CaseResult,
+    score: float | None = None,
+    coverage: float = 0.0,
+) -> Report:
     """A Report sized to its cases — Report validation pins case_count to the Benchmark."""
 
     benchmark = BenchmarkInfo("draco/smoke", "74c94830e8de6afd", len(cases))
@@ -264,7 +270,8 @@ def multi_case_report(*cases: CaseResult) -> Report:
         url4=inner.url4,
         models=list(inner.models),
         operations=list(inner.operations),
-        score=None,
+        score=score,
+        coverage=coverage,
         metrics={},
         cases=list(cases),
         members=[],
@@ -314,15 +321,8 @@ def refused_case(case_id: int = 154) -> CaseResult:
         input="the prompt",
         output=None,
         finish_reason="content_filter",
-        grade=None,
-        failures=[
-            sf.Failure(
-                stage="candidate",
-                code="provider_refusal",
-                message=refusal,
-                case_id=case_id,
-            )
-        ],
+        grade=CaseGrade(method="rubric", score=0.0, metrics={}, checks=[]),
+        failures=[],
         metadata={},
         status="refused",
         refusal=refusal,
@@ -374,7 +374,7 @@ def test_a_failed_case_pane_shows_the_failure_chain_not_nothing() -> None:
 
 
 def test_a_refused_case_is_named_and_shows_the_exact_provider_refusal() -> None:
-    html = body(report_html(report(candidate("m", None, cases=(refused_case(),)))))
+    html = body(report_html(report(candidate("m", 0.0, cases=(refused_case(),)))))
 
     assert "refused" in html
     assert "provider refusal" in html
@@ -421,12 +421,34 @@ def test_string_case_ids_are_escaped_in_the_rail_and_detail_pane() -> None:
     assert "<img src=x" not in html
 
 
-# WHY (OME-793): a bare dash teaches readers that dashes are meaningless; the withheld
-# score must say it is withheld and why (B1 keeps metrics empty when any case failed).
-def test_an_unscored_candidate_explains_the_withheld_score() -> None:
+# WHY (OME-694): partial Engine scoring must show exactly how much of the selected
+# Case set contributed to the aggregate rather than looking fully complete.
+def test_a_partial_candidate_explains_its_engine_owned_coverage() -> None:
+    html = body(report_html(multi_case_report(case(), failed_case(), score=1.0, coverage=0.5)))
+
+    assert "partial evaluation" in html
+    assert "score covers 50.0% of selected cases" in html
+    assert "· partial" in html
+
+
+def test_a_fully_covered_score_can_retain_a_candidate_warning_without_false_partial_copy() -> None:
+    failure = sf.Failure(
+        stage="aggregation",
+        code="safe_warning",
+        message="a non-fatal aggregate warning",
+        operation_id="op",
+    )
+    html = body(report_html(report(candidate("m", 1.0, failures=(failure,)))))
+
+    assert "complete with warnings" in html
+    assert "score covers all selected cases" in html
+    assert "ungraded cases were excluded" not in html
+
+
+def test_an_unscored_candidate_explains_why_no_score_is_available() -> None:
     html = body(report_html(multi_case_report(case(), failed_case())))
 
-    assert "score withheld" in html
+    assert "score unavailable" in html
     assert "1 of 2 cases not scored (1 failed)" in html
 
 
@@ -438,7 +460,7 @@ def test_a_candidate_level_failure_explains_a_withheld_score() -> None:
     )
     html = body(report_html(report(candidate("m", None, failures=(failure,)))))
 
-    assert "score withheld" in html
+    assert "score unavailable" in html
     assert "candidate execution reported 1 failure" in html
 
 

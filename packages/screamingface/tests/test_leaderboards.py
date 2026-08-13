@@ -145,6 +145,7 @@ def _candidate_result(
             _compiled_operation(id="op-b", kind="model", label="b", depends_on=()),
         ),
         score=score,
+        coverage=1.0,
         metrics={} if score is None else {"accuracy": score},
         cases=tuple(_case(index, value) for index, value in enumerate(case_scores, start=1)),
         members=(

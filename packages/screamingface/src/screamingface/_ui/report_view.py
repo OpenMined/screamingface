@@ -261,7 +261,14 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
 
     metrics = candidate.metrics
     usage = candidate.usage
-    state = "complete" if candidate.score is not None and not candidate.failures else "incomplete"
+    if candidate.score is None:
+        state = "incomplete"
+    elif candidate.coverage < 1.0:
+        state = "partial"
+    elif candidate.failures:
+        state = "complete with warnings"
+    else:
+        state = "complete"
     runs = _metric(metrics, "n_runs")
     # Repeat count belongs in the context line: a 7th figure would orphan a grid row.
     repeats = f" · {int(runs)} runs" if runs and runs > 1 else ""
@@ -272,9 +279,9 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
     cells = [
         _cell("score", _percent(candidate.score), score=scored),
         _cell("pass rate", _percent(_metric(metrics, "pass_rate"))),
-        _cell("coverage", _percent(_metric(metrics, "coverage"))),
+        _cell("coverage", _percent(candidate.coverage)),
         # WHY (OME-793): the two dash meanings differ — cost is "not reported by this
-        # run" (a pipeline gap), while withheld score/metrics are explained by the strip.
+        # run" (a pipeline gap), while partial or unavailable scores get explicit context.
         _cell(
             "cost",
             "—" if usage.cost_usd is None else _money(usage.cost_usd),
@@ -290,7 +297,7 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         f"<span class='sf-report__run'>{escape(_short(candidate.run_id))}</span></div>"
         f"{_models_html(candidate)}"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
-        f"{_withheld_html(candidate)}"
+        f"{_coverage_notice_html(candidate)}"
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
@@ -298,38 +305,50 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
     )
 
 
-def _withheld_html(candidate: CandidateResult) -> str:
-    """Explain the dashes: B1 withholds ALL metrics when any selected case failed.
-
-    A partial mean over surviving cases would silently drop exactly the hardest rows, so
-    the aggregate publishes nothing — this strip says that instead of leaving bare `—`s
-    (OME-793: three unexplained dashes sent readers hunting a rendering bug).
-    """
+def _coverage_notice_html(candidate: CandidateResult) -> str:
+    """Explain Engine-owned partial coverage or an unavailable aggregate score."""
 
     if candidate.score is not None:
-        return ""
-    states = tuple(_case_state(case) for case in candidate.cases)
-    incomplete = tuple(state for state in states if state in {"refused", "failed", "unscored"})
-    message = ""
-    if incomplete:
-        total = len(candidate.cases)
-        parts = tuple(
-            f"{incomplete.count(state)} {state}"
-            for state in ("refused", "failed", "unscored")
-            if state in incomplete
-        )
-        message = (
-            f"{len(incomplete)} of {total} cases not scored ({', '.join(parts)}); "
-            "metrics are published only for fully scored runs."
-        )
-    elif candidate.failures:
-        count = len(candidate.failures)
-        label = "failure" if count == 1 else "failures"
-        message = (
-            f"candidate execution reported {count} {label}; "
-            "metrics are published only for fully scored runs."
-        )
-    return f"<div class='sf-report__warn'>score withheld — {message}</div>" if message else ""
+        if candidate.coverage < 1.0:
+            heading = "partial evaluation"
+            message = (
+                "score covers "
+                f"{escape(_percent(candidate.coverage))} of selected cases; ungraded cases "
+                "were excluded by the Engine."
+            )
+        elif candidate.failures:
+            heading = "completed with warnings"
+            count = len(candidate.failures)
+            label = "warning" if count == 1 else "warnings"
+            message = (
+                f"{count} {label}; the score covers all selected cases; inspect the retained "
+                "Candidate failures for details."
+            )
+        else:
+            return ""
+    else:
+        heading = "score unavailable"
+        states = tuple(_case_state(case) for case in candidate.cases)
+        incomplete = tuple(state for state in states if state in {"refused", "failed", "unscored"})
+        message = ""
+        if incomplete:
+            total = len(candidate.cases)
+            parts = tuple(
+                f"{incomplete.count(state)} {state}"
+                for state in ("refused", "failed", "unscored")
+                if state in incomplete
+            )
+            message = (
+                f"{len(incomplete)} of {total} cases not scored ({', '.join(parts)}); "
+                "no aggregate score is available."
+            )
+        elif candidate.failures:
+            count = len(candidate.failures)
+            label = "failure" if count == 1 else "failures"
+            message = (
+                f"candidate execution reported {count} {label}; no aggregate score is available."
+            )
+    return f"<div class='sf-report__warn'>{heading} — {message}</div>" if message else ""
 
 
 def _models_html(candidate: CandidateResult) -> str:

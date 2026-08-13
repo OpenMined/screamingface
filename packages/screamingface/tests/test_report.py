@@ -43,7 +43,6 @@ def candidate(
     failures: tuple[sf.Failure, ...] = (),
     usage: sf.Usage | None = None,
 ) -> sf.CandidateResult:
-    metrics = {} if score is None else {"coverage": 1.0}
     return sf.CandidateResult(
         benchmark=benchmark(),
         run_id=f"run_{name}",
@@ -68,7 +67,8 @@ def candidate(
             ),
         ),
         score=score,
-        metrics=metrics,
+        coverage=1.0 if score is not None else 0.0,
+        metrics={},
         cases=case_results() if cases is None else cases,
         members=(),
         failures=failures,
@@ -159,17 +159,13 @@ def test_report_json_and_export_preserve_refusal_and_failure_fields(tmp_path: Pa
         output=None,
         finish_reason="stop",
         refusal="I cannot comply.",
-        grade=None,
-        failures=(
-            sf.Failure(
-                stage="candidate",
-                code="provider_refusal",
-                message="the provider refused this Case",
-                retryable=None,
-                case_id="refusal-case",
-                metadata={"provider": "fixture"},
-            ),
+        grade=sf.CaseGrade(
+            method="fixture",
+            score=0.0,
+            metrics={},
+            checks=(),
         ),
+        failures=(),
         metadata={},
     )
     failed = sf.CaseResult(
@@ -198,14 +194,8 @@ def test_report_json_and_export_preserve_refusal_and_failure_fields(tmp_path: Pa
     exported_cases = payload["candidates"][0]["cases"]
     assert exported_cases[0]["status"] == "refused"
     assert exported_cases[0]["refusal"] == "I cannot comply."
-    assert exported_cases[0]["failures"][0] == {
-        "stage": "candidate",
-        "code": "provider_refusal",
-        "message": "the provider refused this Case",
-        "retryable": None,
-        "case_id": "refusal-case",
-        "metadata": {"provider": "fixture"},
-    }
+    assert exported_cases[0]["grade"]["score"] == 0.0
+    assert exported_cases[0]["failures"] == []
     assert exported_cases[1]["status"] == "failed"
 
 
@@ -258,7 +248,8 @@ def test_report_derives_study_timing_and_complete_usage_from_candidate_runs() ->
             ),
         ),
         score=0.5,
-        metrics={"coverage": 1.0},
+        coverage=1.0,
+        metrics={},
         cases=case_results(),
         members=(),
         failures=(),
@@ -372,7 +363,8 @@ def test_scored_fusion_preserves_partial_member_failure_evidence() -> None:
             ),
         ),
         score=0.6,
-        metrics={"coverage": 1.0},
+        coverage=1.0,
+        metrics={},
         cases=case_results(),
         members=(
             sf.MemberResult(
@@ -481,7 +473,8 @@ def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:
         models=value.models,
         operations=value.operations,
         score=0.7,
-        metrics={"coverage": 0.6},
+        coverage=0.6,
+        metrics={"diagnostic": "retained"},
         cases=value.cases,
         members=(),
         failures=(),
@@ -491,7 +484,8 @@ def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:
     result = report(inconsistent)
 
     assert result.candidates.only.score == 0.7
-    assert result.candidates.only.metrics == {"coverage": 0.6}
+    assert result.candidates.only.coverage == 0.6
+    assert result.candidates.only.metrics == {"diagnostic": "retained"}
 
 
 def test_candidate_names_must_be_unique() -> None:
