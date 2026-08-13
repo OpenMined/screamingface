@@ -12,7 +12,7 @@ import pytest
 
 from aigateway.core.loader import load_plugins
 from aigateway.core.registry import ProviderRegistry
-from aigateway.core.usage_accounting._classify import (
+from aigateway.plugins.taxonomy.classify import (
     FAILURE_CODES,
     classify_conversion_failure,
     classify_transport_failure,
@@ -166,7 +166,7 @@ class TestTheVocabularyIsClosed:
 
     def test_core_classification_does_not_import_any_plugin(self) -> None:
         # The repo architecture rule, asserted rather than assumed.
-        import aigateway.core.usage_accounting._classify as classify_module
+        import aigateway.plugins.taxonomy.classify as classify_module
 
         source = classify_module.__file__
         assert source is not None

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ._types import MAX_TOKEN_COUNT, UsageSource
+from .types import MAX_TOKEN_COUNT, UsageSource
 
 
 def bounded_count(value: object) -> int | None:

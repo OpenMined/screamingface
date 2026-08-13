@@ -19,7 +19,10 @@ import pytest
 from fastapi import HTTPException
 
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
-from aigateway.core.usage_accounting import (
+from aigateway.main import _profile_index_conflict
+from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
+from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
+from aigateway.plugins.taxonomy import (
     CacheReference,
     DirectCost,
     InputTokenUsage,
@@ -29,9 +32,6 @@ from aigateway.core.usage_accounting import (
     UsageAccountingStrategy,
     new_gateway_call_id,
 )
-from aigateway.main import _profile_index_conflict
-from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
-from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.routes.chat_accounting import (
     AccountingSession,
     attach_hit_metadata,
@@ -563,7 +563,7 @@ class TestStrategyContainment:
         assert session.supported is False
         assert session.collector is None
 
-    def test_a_strategy_subclass_degrades_to_unsupported(self) -> None:
+    def test_a_strategy_subclass_degrades_to_unsupported(self, caplog) -> None:
         class _HostileStrategy(UsageAccountingStrategy):
             @property
             def is_supported(self) -> bool:
@@ -583,6 +583,7 @@ class TestStrategyContainment:
         assert session is not None
         assert session.supported is False
         assert session.collector is None
+        assert "provider usage-accounting strategy is invalid" in caplog.text
 
 
 class TestConversionFailureWiring:

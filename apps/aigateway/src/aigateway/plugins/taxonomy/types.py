@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Self
 
-from ._money import MAX_AMOUNT_FRACTIONAL_DIGITS, MAX_AMOUNT_INTEGER_DIGITS
+from .money import MAX_AMOUNT_FRACTIONAL_DIGITS, MAX_AMOUNT_INTEGER_DIGITS
 
 __all__ = [
     "SCHEMA_PROVIDER_ATTEMPT",

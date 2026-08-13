@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from aigateway.core.usage_accounting import (
+from aigateway.plugins.taxonomy import (
     CacheReference,
     CacheWriteTTL,
     DirectCost,
@@ -18,8 +18,8 @@ from aigateway.core.usage_accounting import (
     TokenUsage,
     UsageAccountingStrategy,
 )
-from aigateway.core.usage_accounting._collector import RequestAccountingCollector
-from aigateway.core.usage_accounting._render import render_aigw_metadata
+from aigateway.plugins.taxonomy.collector import RequestAccountingCollector
+from aigateway.plugins.taxonomy.render import render_aigw_metadata
 
 
 @pytest.mark.parametrize("amount", ["-1", "1e3", "01", "1.0", "0.00", "NaN"])

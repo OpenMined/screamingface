@@ -863,3 +863,67 @@ Outcome:
   full pytest+coverage: `ALL GATES GREEN`. One unrelated statistical auth timing failure passed its
   focused rerun before the successful full-gate repeat. Two-stage independent review returned
   **GO** with no findings.
+
+## Iteration — extract taxonomy plugin
+
+Status: in progress
+
+### Intent
+
+Keep AIGateway core limited to provider-neutral accounting signals, hook contracts and request-local
+observation. Move taxonomy value objects, normalization policy, rendering, schema and provider mapper
+policy into `aigateway.plugins.taxonomy`, while preserving the existing `_aigw` wire contract and
+provider behavior.
+
+### Planned changes
+
+- Add an append-only architecture test that rejects taxonomy policy under `core/usage_accounting`
+  and private module filenames in the new plugin.
+- Introduce `src/aigateway/plugins/taxonomy/` with public module filenames and a curated package API.
+- Repoint routes and provider plugins to the taxonomy plugin without broadening core dependencies.
+- Leave Tortoise models, querysets, transactions and migrations unchanged; `main.py` lifespan remains
+  responsible only for owning the app-lifetime observer resource.
+- Preserve the existing schema IDs, response fields, error behavior, cache behavior and tests.
+
+### Test plan
+
+- Prove the architecture test is RED before moving production modules.
+- Run the complete usage-accounting suite plus affected cache/provider/lifespan tests.
+- Run `uv run .claude/scripts/run_gates.py aigateway --base c41c3b58 --skip-append-only` from the
+  repository root after the refactor.
+- Obtain a two-stage independent architecture review because the move touches a public plugin/core
+  boundary and monetary evidence policy.
+
+### Acceptance
+
+- `core/usage_accounting` contains only observer signals/hooks and their lifecycle state.
+- `plugins/taxonomy` owns taxonomy types, money normalization, mappers, rendering and packaged schema.
+- No new private Python module filename is introduced, and moved private filenames are removed.
+- No behavior or wire-format regression; all configured AIGateway gates pass.
+
+### Outcome
+
+Status: done
+
+- `core/usage_accounting` now contains only the public `signals.py` and `hooks.py` modules plus
+  its curated package API. Signals contain only a structural observer protocol and request-local
+  `ContextVar` binding; hooks contain the app-lifetime LiteLLM/HTTPX observer.
+- Taxonomy collection, types, failure classification, mapper policy, money normalization,
+  rendering, request session orchestration and JSON schema moved to `plugins/taxonomy` with public
+  module filenames. `routes/chat_accounting.py` is now a thin import facade.
+- Taxonomy contributions were removed from `ProviderPluginBase`; Anthropic and OpenRouter retain
+  optional plugin-owned contributions, while unsupported or invalid contributions fail safe in the
+  taxonomy session.
+- Provider discovery now silently ignores non-provider packages without `plugin.py`, while broken
+  provider package/plugin imports remain warning-and-skip failures. Regression tests cover both
+  missing-dependency paths.
+- No Tortoise model, queryset, transaction, configuration or migration changed. The Tortoise
+  no-private-module and no-business-logic-in-signals architecture rules are satisfied.
+- RED evidence: the new architecture suite initially failed because taxonomy policy/schema lived
+  in core and `plugins/taxonomy` did not exist. Final focused verification: `388 passed`, Ruff clean,
+  Pyright `0 errors`. Final configured AIGateway gate passed Ruff, format, Pyright, Enterprise guard
+  and full pytest+coverage: `ALL GATES GREEN`.
+- Two-stage independent review found and drove fixes for loader diagnostics/exception containment,
+  whole-core relative-import enforcement, invalid-strategy observability and the duplicated raw
+  evidence bound. Final reviewer verdict: **GO**, no remaining findings.
+- No commit or push was performed in this iteration.

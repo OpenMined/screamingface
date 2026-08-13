@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 
-from aigateway.core.usage_accounting import canonical_amount, sum_amounts
+from aigateway.plugins.taxonomy import canonical_amount, sum_amounts
 
 
 class TestCanonicalAmount:

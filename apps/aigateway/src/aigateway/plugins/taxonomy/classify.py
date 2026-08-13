@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from ..http_status import valid_http_status
-from ._types import CallOutcome
+from ...core.http_status import valid_http_status
+from .types import CallOutcome
 
 __all__ = [
     "FAILURE_CODES",

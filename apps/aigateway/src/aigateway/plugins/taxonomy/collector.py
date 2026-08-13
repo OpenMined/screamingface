@@ -21,15 +21,12 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..http_status import valid_http_status
-from ._classify import FAILURE_CODES, outcome_for_status
-from ._types import (
+from ...core.http_status import valid_http_status
+from .classify import FAILURE_CODES, outcome_for_status
+from .types import (
     CallOutcome,
     CaptureStatus,
     DirectCost,
@@ -38,15 +35,7 @@ from ._types import (
     ProviderUsageAccountingEvidence,
 )
 
-__all__ = [
-    "RequestAccountingCollector",
-    "active_collector",
-    "bound_collector",
-]
-
-# A bound on how much of one provider body we keep as evidence. Raw bodies are held only
-# long enough for a mapper to read ``usage`` out of them.
-MAX_RAW_EVIDENCE_BYTES = 256 * 1024
+__all__ = ["RequestAccountingCollector", "new_gateway_call_id"]
 
 
 def _bounded_utf8(value: object, *, max_bytes: int) -> str | None:
@@ -442,28 +431,3 @@ class RequestAccountingCollector:
         if url is None:
             return True
         return str(url) == target
-
-
-_ACTIVE: ContextVar[RequestAccountingCollector | None] = ContextVar(
-    "aigw_usage_accounting_collector", default=None
-)
-
-
-def active_collector() -> RequestAccountingCollector | None:
-    """The collector for the request running on this context, if any."""
-    return _ACTIVE.get()
-
-
-@contextmanager
-def bound_collector(collector: RequestAccountingCollector) -> Iterator[RequestAccountingCollector]:
-    """Bind ``collector`` for the duration of the block, then restore the previous value.
-
-    WHY token-restoring and not ``set(None)`` on exit: FastAPI runs handlers in a task
-    whose context can be entered more than once, and clearing to ``None`` would erase an
-    outer binding rather than restore it.
-    """
-    token = _ACTIVE.set(collector)
-    try:
-        yield collector
-    finally:
-        _ACTIVE.reset(token)

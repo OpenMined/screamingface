@@ -159,7 +159,7 @@ class TestSharedHandlerLifecycle:
                 real_close = self._wrapped
                 raise RuntimeError("pool refused to close")
 
-        from aigateway.core.usage_accounting._handler import build_accounting_handler
+        from aigateway.core.usage_accounting.hooks import build_accounting_handler
 
         def _wrapped_builder() -> Any:
             return _Failing(build_accounting_handler())
@@ -191,7 +191,7 @@ class TestGatewayCallIdCorrelation:
         """
         _arrange_account(logged_in, credential_blobs)
         with (
-            caplog.at_level(logging.INFO, logger="aigateway.routes.chat_accounting"),
+            caplog.at_level(logging.INFO, logger="aigateway.plugins.taxonomy.session"),
             patch(_ANTHROPIC_DISPATCH, _Dispatch()),
         ):
             response = logged_in.post(
@@ -214,7 +214,7 @@ class TestGatewayCallIdCorrelation:
     ) -> None:
         _arrange_account(logged_in, credential_blobs)
         with (
-            caplog.at_level(logging.INFO, logger="aigateway.routes.chat_accounting"),
+            caplog.at_level(logging.INFO, logger="aigateway.plugins.taxonomy.session"),
             patch(_ANTHROPIC_DISPATCH, _Dispatch()),
         ):
             response = logged_in.post(
@@ -232,7 +232,7 @@ class TestGatewayCallIdCorrelation:
     ) -> None:
         _arrange_account(logged_in, credential_blobs)
         with (
-            caplog.at_level(logging.INFO, logger="aigateway.routes.chat_accounting"),
+            caplog.at_level(logging.INFO, logger="aigateway.plugins.taxonomy.session"),
             patch(_ANTHROPIC_DISPATCH, _Dispatch()),
         ):
             logged_in.post(

@@ -11,16 +11,13 @@ import asyncio
 
 import pytest
 
-from aigateway.core.usage_accounting import (
+from aigateway.core.usage_accounting.signals import active_collector, bound_collector
+from aigateway.plugins.taxonomy import (
     SCHEMA_PROVIDER_ATTEMPT,
     TRANSPORT_LITELLM_ASYNC_HTTP,
     ProviderUsageAccountingEvidence,
 )
-from aigateway.core.usage_accounting._collector import (
-    RequestAccountingCollector,
-    active_collector,
-    bound_collector,
-)
+from aigateway.plugins.taxonomy.collector import RequestAccountingCollector
 
 
 def _collector(provider: str = "openrouter") -> RequestAccountingCollector:

@@ -1,8 +1,9 @@
 """Discover provider plugins under `aigateway.plugins.*`.
 
-Discovery rule: every direct subpackage of `aigateway.plugins` is treated
-as a plugin. Each plugin module must expose a module-level `PLUGIN`
-attribute that is an instance of `ProviderPluginBase`.
+Discovery rule: a direct subpackage contributes a provider when it has a
+``plugin.py`` module exposing a module-level ``PLUGIN`` instance of
+``ProviderPluginBase``. Other plugin packages may contribute non-provider
+features and are ignored by this provider registry.
 
 Kept deliberately simple — no entry-points, no plugin manifests, no
 external discovery. Adding a provider = drop a folder under
@@ -12,6 +13,7 @@ external discovery. Adding a provider = drop a folder under
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import logging
 import pkgutil
 
@@ -33,9 +35,11 @@ def load_plugins(registry: ProviderRegistry, package: str = "aigateway.plugins")
             continue
         plugin_module = f"{info.name}.plugin"
         try:
+            if importlib.util.find_spec(plugin_module) is None:
+                continue
             mod = importlib.import_module(plugin_module)
         except ModuleNotFoundError:
-            logger.warning("plugin package %s has no plugin.py; skipping", info.name)
+            logger.warning("provider plugin %s has an unavailable dependency; skipping", info.name)
             continue
         plugin = getattr(mod, "PLUGIN", None)
         if not isinstance(plugin, ProviderPluginBase):

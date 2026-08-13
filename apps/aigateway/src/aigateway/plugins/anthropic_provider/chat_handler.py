@@ -81,7 +81,7 @@ def apply_anthropic_dispatch_controls(body: dict[str, Any]) -> dict[str, Any]:
 
     INVARIANT: this does NOT disable the resend inside ``AsyncHTTPHandler.post()``.
     That one is invisible to callers and is exactly why the send observer exists — see
-    ``core.usage_accounting._handler``.
+    ``core.usage_accounting.hooks``.
 
     INVARIANT: a fresh dict. The caller's body is also the body the request cache keyed,
     and mutating it here would let a dispatch control leak backwards into that identity.

@@ -38,7 +38,7 @@ from aigateway.core.standard_parameters import (
     direct_parameter_observations,
     tool_parameter_observations,
 )
-from aigateway.core.usage_accounting import (
+from aigateway.plugins.taxonomy import (
     CacheReference,
     ProviderUsageAccountingEvidence,
     UsageAccountingStrategy,
@@ -448,7 +448,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # AIDEV-NOTE (OME-303 §4.2): this field is IGNORED whenever the gateway injects
         # its own client — LiteLLM uses the client it was given, and that client's TLS
         # was fixed when it was built. For an accounted request the active TLS guarantee
-        # is ``core.usage_accounting._handler.AccountingAsyncHTTPHandler``, which pins
+        # is ``core.usage_accounting.hooks.AccountingAsyncHTTPHandler``, which pins
         # verification on its primary AND on the replacement client litellm builds
         # during its hidden retry. This line still governs the un-accounted path.
         dispatch_body["ssl_verify"] = True

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aigateway.core.usage_accounting._mapper import (
+from aigateway.plugins.taxonomy.mapper import (
     bounded_count,
     cache_write_tokens,
     final_detail_or_none,

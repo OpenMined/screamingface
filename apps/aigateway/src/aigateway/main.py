@@ -39,7 +39,7 @@ from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.secrets.factory import build_secret_store, set_active_secret_store
-from .core.usage_accounting._handler import build_accounting_handler
+from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .routes import (
     accounts,

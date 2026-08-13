@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ...core.usage_accounting import (
+from ..taxonomy import (
     CacheReference,
     CacheWriteTTL,
     DirectCost,
@@ -18,22 +18,22 @@ from ...core.usage_accounting import (
     TokenUsage,
     UsageSource,
 )
-from ...core.usage_accounting._mapper import (
+from ..taxonomy.mapper import (
     bounded_count as _int_or_none,
 )
-from ...core.usage_accounting._mapper import (
+from ..taxonomy.mapper import (
     cache_write_tokens as _cache_write_tokens,
 )
-from ...core.usage_accounting._mapper import (
+from ..taxonomy.mapper import (
     final_detail_or_none as _final_detail_or_none,
 )
-from ...core.usage_accounting._mapper import (
+from ..taxonomy.mapper import (
     mapping_or_none as _mapping,
 )
-from ...core.usage_accounting._mapper import (
+from ..taxonomy.mapper import (
     response_string,
 )
-from ...core.usage_accounting._mapper import (
+from ..taxonomy.mapper import (
     usage_and_source as _usage_and_source,
 )
 

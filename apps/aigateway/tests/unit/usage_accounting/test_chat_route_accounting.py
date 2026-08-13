@@ -24,11 +24,11 @@ from litellm.types.utils import ModelResponse, Usage
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.request_cache import RequestCacheWrite
 from aigateway.core.usage_accounting import active_collector
-from aigateway.core.usage_accounting._types import UsageAccountingStrategy
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.openrouter_provider.dispatch_errors import (
     _embedded_error_exception,
 )
+from aigateway.plugins.taxonomy.types import UsageAccountingStrategy
 
 _CHAT_PATH = "/v1/chat/completions"
 _ANTHROPIC_DISPATCH = (
@@ -640,11 +640,11 @@ class TestAnthropicRouteMapping:
         with (
             patch(_ANTHROPIC_DISPATCH, self._succeed()),
             patch(
-                "aigateway.routes.chat_accounting.new_gateway_call_id",
+                "aigateway.plugins.taxonomy.session.new_gateway_call_id",
                 return_value="call_" + "a" * 32,
             ) as allocate_unsupported_call_id,
             patch(
-                "aigateway.core.usage_accounting._collector.new_gateway_call_id",
+                "aigateway.plugins.taxonomy.collector.new_gateway_call_id",
                 return_value="call_" + "a" * 32,
             ) as allocate_supported_call_id,
         ):

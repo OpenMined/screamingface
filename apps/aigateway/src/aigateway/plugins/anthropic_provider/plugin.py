@@ -16,7 +16,7 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 from aigateway.core.standard_parameters import tool_parameter_observations
-from aigateway.core.usage_accounting import (
+from aigateway.plugins.taxonomy import (
     CacheReference,
     ProviderUsageAccountingEvidence,
     UsageAccountingStrategy,

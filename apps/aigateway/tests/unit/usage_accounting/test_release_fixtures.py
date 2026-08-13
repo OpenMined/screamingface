@@ -11,18 +11,6 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
-from aigateway.core.usage_accounting import (
-    CacheReference,
-    CacheWriteTTL,
-    DirectCost,
-    InputTokenUsage,
-    OutputTokenUsage,
-    PricingContext,
-    ProviderAttemptRecord,
-    ProviderExtension,
-    TokenUsage,
-)
-from aigateway.core.usage_accounting._render import render_aigw_metadata
 from aigateway.plugins.anthropic_provider.usage_accounting import (
     cache_reference_from_cached as anthropic_cache_reference_from_cached,
 )
@@ -36,6 +24,19 @@ from aigateway.plugins.openrouter_provider.usage_accounting import (
 from aigateway.plugins.openrouter_provider.usage_accounting import (
     normalize_openrouter_usage_accounting,
 )
+from aigateway.plugins.taxonomy import (
+    CacheReference,
+    CacheWriteTTL,
+    DirectCost,
+    InputTokenUsage,
+    OutputTokenUsage,
+    PricingContext,
+    ProviderAttemptRecord,
+    ProviderExtension,
+    TokenUsage,
+)
+from aigateway.plugins.taxonomy.render import render_aigw_metadata
+from aigateway.plugins.taxonomy.session import usage_accounting_strategy_for
 
 _CALL_ID = "call_" + "f" * 32
 
@@ -123,7 +124,7 @@ class _Collector:
 
 
 def _schema() -> dict[str, Any]:
-    resource = files("aigateway.core.usage_accounting").joinpath("usage_accounting.schema.json")
+    resource = files("aigateway.plugins.taxonomy").joinpath("usage_accounting.schema.json")
     return json.loads(resource.read_text(encoding="utf-8"))
 
 
@@ -569,7 +570,7 @@ def test_huggingface_fixtures_prove_canonical_fit_without_claiming_support(
     unpinned = release_fixtures["huggingface_unpinned_backend"]["usage_accounting"]["attempts"][0]
     assert pinned["pricing_context"]["backend"] == "hf-inference-endpoint"
     assert unpinned["pricing_context"]["backend"] is None
-    assert HuggingFaceProviderPlugin().usage_accounting_strategy().is_supported is False
+    assert usage_accounting_strategy_for(HuggingFaceProviderPlugin()).is_supported is False
 
 
 def test_release_fixture_exercises_private_input_without_publishing_it() -> None:

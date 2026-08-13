@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from aigateway.core.usage_accounting import (
+from aigateway.plugins.anthropic_provider.usage_accounting import (
+    normalize_anthropic_usage_accounting,
+)
+from aigateway.plugins.taxonomy import (
     CacheReference,
     DirectCost,
     InputTokenUsage,
@@ -13,10 +16,7 @@ from aigateway.core.usage_accounting import (
     ProviderAttemptRecord,
     TokenUsage,
 )
-from aigateway.core.usage_accounting._render import render_aigw_metadata
-from aigateway.plugins.anthropic_provider.usage_accounting import (
-    normalize_anthropic_usage_accounting,
-)
+from aigateway.plugins.taxonomy.render import render_aigw_metadata
 
 _ATTEMPT_ID = "attempt_" + "1" * 32
 _CALL_ID = "call_" + "1" * 32

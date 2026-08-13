@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
-from aigateway.core.usage_accounting import (
+from aigateway.plugins.taxonomy import (
     CacheReference,
     DirectCost,
     ProviderAttemptRecord,
@@ -18,7 +18,7 @@ from aigateway.core.usage_accounting import (
     RequestAccountingCollector,
     TokenUsage,
 )
-from aigateway.core.usage_accounting._render import (
+from aigateway.plugins.taxonomy.render import (
     MAX_METADATA_BYTES,
     METADATA_KEY,
     attach_metadata,
@@ -248,7 +248,7 @@ class TestCacheReference:
 class TestBounds:
     def test_renderer_is_total_and_schema_valid_across_generated_boundary_records(self) -> None:
         schema = json.loads(
-            files("aigateway.core.usage_accounting")
+            files("aigateway.plugins.taxonomy")
             .joinpath("usage_accounting.schema.json")
             .read_text(encoding="utf-8")
         )

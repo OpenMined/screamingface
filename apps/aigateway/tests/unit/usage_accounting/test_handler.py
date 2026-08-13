@@ -26,18 +26,16 @@ from litellm.exceptions import Timeout
 from litellm.litellm_core_utils.logging_worker import GLOBAL_LOGGING_WORKER
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
-from aigateway.core.usage_accounting import TRANSPORT_LITELLM_ASYNC_HTTP
-from aigateway.core.usage_accounting._collector import (
+from aigateway.core.usage_accounting.hooks import (
     MAX_RAW_EVIDENCE_BYTES,
-    RequestAccountingCollector,
-    bound_collector,
-)
-from aigateway.core.usage_accounting._handler import (
     AccountingAsyncHTTPHandler,
     build_accounting_handler,
 )
+from aigateway.core.usage_accounting.signals import bound_collector
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
+from aigateway.plugins.taxonomy import TRANSPORT_LITELLM_ASYNC_HTTP
+from aigateway.plugins.taxonomy.collector import RequestAccountingCollector
 
 _URL = "https://provider.example/v1/chat/completions"
 

@@ -11,10 +11,6 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 from litellm.types.utils import ModelResponse, Usage
 
-from aigateway.core.usage_accounting import ProviderUsageAccountingEvidence
-from aigateway.core.usage_accounting._classify import FAILURE_CODES
-from aigateway.core.usage_accounting._collector import RequestAccountingCollector
-from aigateway.core.usage_accounting._render import render_aigw_metadata
 from aigateway.plugins.anthropic_provider.usage_accounting import (
     cache_reference_from_cached as anthropic_cache_reference_from_cached,
 )
@@ -22,10 +18,14 @@ from aigateway.plugins.openrouter_provider.usage_accounting import (
     cache_reference_from_cached,
     normalize_openrouter_usage_accounting,
 )
+from aigateway.plugins.taxonomy import ProviderUsageAccountingEvidence
+from aigateway.plugins.taxonomy.classify import FAILURE_CODES
+from aigateway.plugins.taxonomy.collector import RequestAccountingCollector
+from aigateway.plugins.taxonomy.render import render_aigw_metadata
 
 
 def _schema() -> dict[str, Any]:
-    resource = files("aigateway.core.usage_accounting").joinpath("usage_accounting.schema.json")
+    resource = files("aigateway.plugins.taxonomy").joinpath("usage_accounting.schema.json")
     return json.loads(resource.read_text(encoding="utf-8"))
 
 

@@ -39,7 +39,7 @@ from typing import Any
 import httpx
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
-from ._collector import MAX_RAW_EVIDENCE_BYTES, RequestAccountingCollector, active_collector
+from .signals import AccountingSignalTarget, active_collector
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,10 @@ __all__ = ["AccountingAsyncHTTPHandler", "build_accounting_handler"]
 _EVENT_STREAM = "text/event-stream"
 
 
-def _mark_incomplete(collector: RequestAccountingCollector | None) -> None:
+MAX_RAW_EVIDENCE_BYTES = 256 * 1024
+
+
+def _mark_incomplete(collector: AccountingSignalTarget | None) -> None:
     """Best-effort "we missed something", which itself may never raise."""
     if collector is None:
         return
