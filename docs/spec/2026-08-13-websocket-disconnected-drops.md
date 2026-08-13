@@ -40,6 +40,26 @@ shipped chart values. Any login slower than a minute presents an expired ticket,
 refuses the handshake with 1008, and the Run dies. Because `_MAX_CANDIDATES_IN_FLIGHT`
 capabilities are minted together, one slow login fails the whole Evaluation.
 
+### T — the two halves of the transport trust different roots
+
+Found by deploying the observability below and asking the reporting user to try again. The
+Client reaches one Engine two ways, and they disagreed about certificate authorities.
+`httpx` resolves `SSL_CERT_FILE`, then `SSL_CERT_DIR`, and otherwise falls back to the
+`certifi` bundle shipped with this package. `websockets`, given no context, trusts OpenSSL's
+own CA paths. They agree while those variables are set and **diverge in the default case**,
+which is the common one — a python.org macOS build whose `Install Certificates.command` was
+never run has nothing in OpenSSL's paths at all.
+
+The Client therefore minted its capability over HTTPS successfully and then failed to open a
+WebSocket to the same host, 0.0 seconds in, with `SSLCertVerificationError`. The engine-side
+log confirms the asymmetry exactly: `POST /token 200 OK`, the catalog and benchmark reads all
+`200`, and no `ws attach` or `ws rejected` line at all — the socket never arrived.
+
+This is also the real explanation for the "local runs are unaffected" observation that framed
+OME-806 from the start. A local Engine is reached over plain `ws://`, which never negotiates
+TLS, so the split could only ever appear against a hosted Engine — and read as a property of
+being remote rather than a property of the trust store.
+
 ### The reason neither was visible
 
 The Client discards the WebSocket close code into a generic message, and the App cannot log
@@ -57,6 +77,8 @@ happening.
 - The Client's frame limit is above the Engine's result cap plus envelope and escaping, so a
   capped Report is delivered rather than refused.
 - An Access challenge is retried with a capability minted after the login, not before it.
+- The WebSocket verifies against exactly what the HTTP half verifies against, so a host the
+  Client just reached over HTTPS cannot be unreachable over WSS.
 - The Client's error carries the close code and the elapsed Run time.
 - The App records the close code, duration, and whether the connection was carrying work or
   idling — and its records actually reach a handler.
