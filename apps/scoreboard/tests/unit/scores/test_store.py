@@ -977,3 +977,29 @@ async def test_the_raw_leaderboard_projection_types_every_column() -> None:
     assert isinstance(rows[0]["run_cost_usd"], Decimal)
     # INVARIANT (D5): absent stays absent — never coerced to Decimal("0").
     assert rows[1]["run_cost_usd"] is None
+
+
+async def test_one_unreadable_cost_does_not_take_down_the_whole_board() -> None:
+    """INVARIANT: a corrupt cost degrades to null; it never fails the read path.
+
+    On SQLite the column is VARCHAR(40) with no database-level guard, so raw SQL
+    can write a value outside DECIMAL(12, 6). Converting it calls Decimal.quantize,
+    which RAISES rather than returning — and that surfaced as HTTP 500 for EVERY
+    entry on the board, not just the bad row. Verified end-to-end before this test.
+
+    The ORM path is already safe (Tortoise's own to_python_value rejects such a
+    write), and production is Postgres where the column really is DECIMAL(12, 6),
+    so this is defence for a narrow case on a public read path (spec 2.7).
+    """
+    from scoreboard.scores.store import _to_python_rows
+
+    rows = _to_python_rows(
+        [
+            {"spec_id": "good", "ran_with_providers": '["openai"]', "run_cost_usd": "3.5"},
+            {"spec_id": "corrupt", "ran_with_providers": '["openai"]', "run_cost_usd": "1E+30"},
+        ]
+    )
+
+    assert rows[0]["run_cost_usd"] == Decimal("3.5")
+    # Degraded to "cost unknown" — an already-defined state — not an exception.
+    assert rows[1]["run_cost_usd"] is None

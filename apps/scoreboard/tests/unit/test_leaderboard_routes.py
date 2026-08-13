@@ -606,3 +606,26 @@ async def test_get_leaderboard_includes_the_run_cost(
     by_spec = {e["spec_id"]: e for e in response.json()["entries"]}
     assert Decimal(by_spec["costed-board"]["run_cost_usd"]) == Decimal("7.25")
     assert by_spec["uncosted-board"]["run_cost_usd"] is None
+
+
+# --- OME-770 review pass 2: sign-zero must be normalized on READ too (spec 2.6) ---
+
+
+async def test_a_stored_negative_zero_serves_a_positive_cost(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """Normalizing only in the validator would leave already-stored rows broken.
+
+    A "-0.000000" reachable by raw SQL, or written before the rule existed, must
+    still serve "0.000000" — never a negative dollar figure on the board.
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await store.submit(_costed("neg-zero", "-0.0"))
+
+    board = await async_client.get("/v1/leaderboard/hle")
+    history = await async_client.get("/v1/leaderboard/hle/neg-zero/history")
+
+    entry = next(e for e in board.json()["entries"] if e["spec_id"] == "neg-zero")
+    assert entry["run_cost_usd"] == "0.000000"
+    assert history.json()["submissions"][0]["run_cost_usd"] == "0.000000"

@@ -559,16 +559,21 @@ def test_score_submission_keeps_four_figure_run_cost() -> None:
 # HTTP 500 rather than a 422. The column's shape has to be enforced at the edge.
 
 
-def test_score_submission_rejects_more_than_six_decimal_places() -> None:
-    """INVARIANT: never silently re-round a submitted cost.
+def test_score_submission_rounds_a_sub_quantum_cost_up() -> None:
+    """A positive cost below the smallest storable unit rounds AWAY from zero.
 
-    0.0000009 previously round-tripped as 0.000001 with a 201.
+    Rewritten (spec 2.2, second revision): this test previously asserted a 422.
+    Rejecting turned out to discard the WHOLE submission -- the accuracy result
+    with it -- and would make an almost-free run unpublishable once cost becomes
+    mandatory. Rounding up never understates the cost, so it cannot buy a place on
+    the frontier, and never yields 0.000000, so D5 still holds.
     """
     payload = _valid_payload()
     payload["run_cost_usd"] = "0.0000009"
 
-    with pytest.raises(ValidationError):
-        ScoreSubmission.model_validate(payload)
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("0.000001")
 
 
 def test_score_submission_rejects_a_cost_above_the_column_ceiling() -> None:
@@ -666,19 +671,43 @@ def test_score_submission_rejects_an_unstorable_cost(submitted: str) -> None:
         ScoreSubmission.model_validate(payload)
 
 
-@pytest.mark.parametrize("submitted", ["0.0000009", "0.0000004", "0.0000001"])
-def test_score_submission_rejects_a_positive_cost_below_the_smallest_unit(
-    submitted: str,
-) -> None:
-    """INVARIANT (D5): quantizing must never manufacture a zero cost.
+@pytest.mark.parametrize("submitted", ["0.0000009", "0.0000004", "0.0000001", "1e-9"])
+def test_a_sub_quantum_cost_never_becomes_zero(submitted: str) -> None:
+    """INVARIANT (D5): a positive cost must never be stored as zero.
 
-    A positive cost rounded to 0.000000 would present a run that cost real money
-    as free, and land it at the cheapest end of the Pareto frontier. Values below
-    the smallest representable unit are rejected rather than rounded in either
-    direction.
+    Rewritten alongside the rule change: the guard used to be a 422, and is now
+    directional rounding. What it protects is unchanged -- a run that cost real
+    money must never be published as free, which would also put it at the cheapest
+    end of the Pareto frontier.
     """
     payload = _valid_payload()
     payload["run_cost_usd"] = submitted
 
-    with pytest.raises(ValidationError):
-        ScoreSubmission.model_validate(payload)
+    stored = ScoreSubmission.model_validate(payload).run_cost_usd
+
+    assert stored == Decimal("0.000001")
+    assert stored != 0
+
+
+# --- OME-770 review pass 2: negative zero (spec 2.6) ---
+
+
+@pytest.mark.parametrize("submitted", [-0.0, "-0.0", "-0", "-0.0000000"])
+def test_score_submission_normalizes_negative_zero(submitted: float | str) -> None:
+    """`-0.0` is a real thing to receive: 0.0 * -1 and round(-1e-9, 6) both make it.
+
+    It passes ge=0 (-0 == 0) and quantize PRESERVES the sign, so it used to survive
+    as Decimal('-0.000000') and serve the string "-0.000000" -- a negative dollar
+    figure in the Cost column, and backend-dependent besides, since Postgres
+    normalizes sign-zero while SQLite keeps it.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = submitted
+
+    stored = ScoreSubmission.model_validate(payload).run_cost_usd
+
+    assert stored == 0
+    assert stored is not None
+    # Decimal(0) == Decimal("-0"), so equality cannot catch this -- check the sign.
+    assert stored.is_signed() is False
+    assert str(stored) == "0.000000"

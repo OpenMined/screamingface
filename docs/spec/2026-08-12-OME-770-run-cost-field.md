@@ -73,27 +73,59 @@ rounded". Review showed that over-rejects, because it conflates two different si
 
 | Situation | Example | Effect of rounding | Decision |
 |---|---|---|---|
-| Below the smallest representable unit | `0.0000009` | `→ 0.000001`, an **~11% change** to a money figure | **reject (422)** |
 | Above the column ceiling | `1000000`, `1e30` | unstorable at any precision | **reject (422)** |
 | Float noise on a representable value | `0.07 * 3 == 0.21000000000000002` | `→ 0.210000`, **loses nothing** | **quantize, accept** |
+| Positive, below the smallest unit | `0.0000009` | see the second revision below | **round up, accept** |
 
-The third row is not hypothetical: it is what a client summing per-call float costs will send, so
+The second row is not hypothetical: it is what a client summing per-call float costs will send, so
 the original rule would have discarded valid scores over noise once link 3 of §1's chain lands.
 Verified: `0.21000000000000002` and `1.23456789` both returned `422` under the first rule.
 
-The rule is therefore: **reject what cannot be stored; quantize what merely arrives inexact.**
-Concretely, on `ScoreSubmission`, in this order —
+#### Second revision (owner, 2026-08-13) — round a sub-quantum cost *up*, don't reject it
 
-1. negative → `422` (`ge=0`); non-finite (`NaN`, `Infinity`) → `422`;
-2. `> 999999.999999` → `422` (unstorable — this is what catches `1000000` and `1e30`, and it must
-   run *before* quantizing, which would otherwise raise on an absurd exponent);
-3. `0 < value < 0.000001` → `422` (rounding would materially alter the figure);
-4. otherwise quantize to 6dp, `ROUND_HALF_UP`, and re-check the ceiling (`999999.9999996` rounds
-   *up* past it).
+The first revision still rejected a positive cost below `0.000001`, reasoning that rounding it
+would alter a money figure by ~11%. Review surfaced the consequence: **that rejects the entire
+submission, not just the cost field.** The accuracy result — the thing the leaderboard is actually
+for — is discarded along with it, and once §4 makes cost mandatory, a genuinely almost-free run
+becomes unpublishable.
 
-**INVARIANT preserved:** step 3 means a positive cost can never be rounded down to `0.000000`.
-Without it, quantizing would manufacture a free run out of a tiny real cost and break §2.1 — the
-exact corruption that invariant exists to prevent.
+Rounding **away from zero** is strictly safer than rejecting on every axis that matters:
+
+- it **never understates** cost, so it cannot buy a place on the cost-efficiency frontier;
+- it **never yields `0.000000`**, so §2.1's absent-vs-zero invariant holds — which was the whole
+  reason the reject rule existed;
+- it **never discards a valid score**;
+- it overstates by at most `$0.000001`, which is below the precision anything downstream displays.
+
+The ordered rule on `ScoreSubmission` is therefore:
+
+1. negative → `422` (`ge=0`); non-finite (`NaN`, `±Infinity`) → `422` (`allow_inf_nan=False`);
+2. `> 999999.999999` → `422`. **Must run before quantizing**, which *raises* `InvalidOperation` on
+   an absurd exponent (`1e30`) rather than returning a value — that raise was the original `500`;
+3. `value == 0` → normalize to a **positive** `0.000000` (see §2.6);
+4. `0 < value < 0.000001` → `0.000001` (round away from zero);
+5. otherwise quantize to 6dp, `ROUND_HALF_UP`.
+
+There is no post-quantize ceiling re-check: `quantize` is monotone and `999999.999999` sits exactly
+on the 6dp grid, so anything that would round up past the ceiling is already rejected at step 2.
+An earlier draft had such a check and a test comment claiming to exercise it; both were wrong — the
+value never reached it. Verified: `Decimal("999999.9999996") > COST_CEILING` is `True`.
+
+**Residual, accepted:** a JSON number below ~`1e-308` underflows to exactly `0.0` in the float
+parse *before* the validator sees it, so it is stored as `0.000000` rather than rounded up. No real
+run cost is within 300 orders of magnitude of that, and closing it would mean refusing JSON numbers
+entirely. Noted so the guard is not mistaken for total.
+
+### 2.6 Negative zero is normalized
+
+`-0.0` is a real thing to receive: `0.0 * -1` and `round(-1e-9, 6)` both produce it, so a client
+summing signed per-call figures can send it. It passes `ge=0` (`-0 == 0`), and `quantize` preserves
+the sign, so it survived as `Decimal("-0.000000")` and served the string **`"-0.000000"`** — a
+negative dollar figure in the Cost column, and exactly the backend-dependence §2.4 exists to
+eliminate, since Postgres `numeric` normalizes it to `0.000000` while SQLite keeps the sign.
+
+Both the validator and the read serializer therefore normalize any zero to positive `0.000000`.
+Normalizing on read as well is deliberate: it also fixes rows written before this rule existed.
 
 Quantizing at the edge has a useful side effect: every value the submission path persists is
 already at fixed scale, so the notation oddities of §2.4 never reach storage from that direction.
@@ -139,6 +171,29 @@ Quantizing (§2.2) does **not** fix this — fixed-scale strings still sort lexi
 ticket's own "cheapest-run summary stat" and any `MIN()`/`order_by("run_cost_usd")` must be computed
 **in Python over `Decimal`**, not in SQL, or it will be right in production and silently wrong in
 every local run and test.
+
+### 2.7 A corrupt row must not take down the whole board
+
+On SQLite the column is `VARCHAR(40)` with no database-level guard, so a value outside
+`DECIMAL(12, 6)` can be written by **raw SQL**. Reading it then calls `Decimal.quantize`, which
+*raises* `InvalidOperation` rather than returning a value — and because that surfaces from the row
+loop, it fails `GET /v1/leaderboard/{id}` with a `500` for **every** entry, not just the bad one.
+Verified end-to-end.
+
+The exposure is narrow, and narrower than first reported: Tortoise's own `to_python_value` rejects
+such a value on write, so the whole ORM path — including `Score.create` and the `model_copy` bypass
+the tests use — is already guarded. Only raw SQL reaches it, and in production the column really is
+`DECIMAL(12, 6)`, so Postgres refuses the write outright.
+
+Still, a public read path should degrade rather than collapse: one unreadable cost becomes `null`
+("cost unknown", an already-defined state) and is logged at warning level, so the board keeps
+serving. **It is logged, never silently swallowed** — a corrupt row is a real problem that must stay
+visible.
+
+Not fixed, and deliberately: the ORM read path (`list_for_spec`) converts through the field itself
+and would still raise on such a row. Guarding it means subclassing `DecimalField`, which is
+disproportionate for a dev-only, raw-SQL-only scenario whose production configuration cannot occur.
+Recorded here rather than left implicit.
 
 ### 2.3 Trust model — self-reported, and labelled as such
 

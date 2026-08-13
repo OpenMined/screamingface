@@ -19,18 +19,31 @@ from pydantic import (
 # six integer digits, so 0.000001 through 999999.999999.
 COST_QUANTUM = Decimal("0.000001")
 COST_CEILING = Decimal("999999.999999")
+# INVARIANT: the one canonical zero — POSITIVE, at full scale. Decimal("-0") is
+# equal to this, so equality can never detect the difference; only is_signed() can.
+_ZERO_COST = Decimal("0").quantize(COST_QUANTUM)
 
 
 def _validate_run_cost(value: Decimal | None) -> Decimal | None:
-    """Reject an *unstorable* cost; quantize one that merely arrives *inexact*.
+    """Reject a cost that cannot be stored; normalize every cost that can.
 
-    WHY the split: an earlier rule rejected anything not storable exactly, which
-    conflated two different situations. A value below the smallest representable
-    unit (0.0000009) cannot be rounded without changing a money figure by ~11%, so
-    it must be rejected. Float noise on a value that IS representable
-    (0.07 * 3 == 0.21000000000000002) rounds to 0.210000 losing nothing, and
-    rejecting it would discard valid scores the moment a client starts summing
-    per-call float costs. See spec 2.2's revision.
+    Only two things are actually unstorable and therefore rejected: a negative or
+    non-finite value, and one above the column ceiling. Everything else is
+    normalized rather than refused, because a 422 here discards the WHOLE
+    submission — the accuracy result along with the cost.
+
+    WHY, in the order the rules apply:
+      * float noise on a representable value (0.07 * 3 == 0.21000000000000002) is
+        quantized to 0.210000, losing nothing. Rejecting it would discard valid
+        scores the moment a client starts summing per-call float costs;
+      * zero is canonicalized to POSITIVE zero, since -0.0 otherwise serves the
+        string "-0.000000" (spec 2.6);
+      * a positive cost below one quantum rounds AWAY from zero, never to zero
+        (spec 2.2's second revision, and the D5 invariant it protects).
+
+    AIDEV-NOTE: the bounds cannot move to Field(max_digits=..., decimal_places=...).
+    Those constraints run BEFORE this validator, so they would reject the very
+    values it exists to normalize.
     """
     if value is None:
         return None
@@ -42,22 +55,28 @@ def _validate_run_cost(value: Decimal | None) -> Decimal | None:
     # INVARIANT: the ceiling is checked BEFORE quantizing. quantize() raises on an
     # absurd exponent (1e30), which would surface as a 500 rather than a 422 —
     # the exact failure this validator exists to close.
+    #
+    # AIDEV-NOTE: there is deliberately no ceiling re-check after quantizing.
+    # quantize is monotone and COST_CEILING sits exactly on the 6dp grid, so
+    # anything that would round up past it is already rejected here. An earlier
+    # draft had that branch plus a test comment claiming to exercise it; both were
+    # wrong — the value never reached it.
     if value > COST_CEILING:
         raise ValueError(f"run_cost_usd must not exceed {COST_CEILING}")
-    # INVARIANT (D5): a positive cost is NEVER rounded to zero. Quantizing
-    # 0.0000004 down to 0.000000 would present a run that cost real money as free
-    # and put it at the cheapest end of the Pareto frontier — precisely the
-    # absent-vs-zero conflation the model documents. Reject instead of rounding.
-    if value != 0 and value < COST_QUANTUM:
-        raise ValueError(
-            f"run_cost_usd must be 0 or at least {COST_QUANTUM}; "
-            f"a smaller positive cost cannot be stored without altering it",
-        )
-    quantized = value.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP)
-    # 999999.9999996 rounds UP past the ceiling, so re-check after quantizing.
-    if quantized > COST_CEILING:
-        raise ValueError(f"run_cost_usd must not exceed {COST_CEILING}")
-    return quantized
+    if value == 0:
+        # INVARIANT: zero is always POSITIVE zero. -0.0 passes ge=0 (-0 == 0) and
+        # quantize preserves the sign, so it used to serve the string "-0.000000":
+        # a negative dollar figure, and backend-dependent besides (Postgres
+        # normalizes sign-zero, SQLite keeps it). A client summing signed per-call
+        # figures produces -0.0 from 0.0 * -1, so this is received, not theoretical.
+        return _ZERO_COST
+    # INVARIANT (D5): a positive cost is NEVER stored as zero — that would publish a
+    # run which cost real money as free and hand it the cheapest slot on the Pareto
+    # frontier. Clamping to one quantum expresses exactly that: it rounds away from
+    # zero, so the figure is never understated (it cannot buy frontier position) and
+    # the submission is never discarded, which rejecting did — the accuracy result
+    # went with it. Overstates by at most one quantum. See spec 2.2's 2nd revision.
+    return max(value.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP), COST_QUANTUM)
 
 
 def _serialize_run_cost(value: Decimal | None) -> str | None:
@@ -70,7 +89,13 @@ def _serialize_run_cost(value: Decimal | None) -> str | None:
     for: OME-770's frontier and cheapest-run stat are computed in JavaScript,
     where `<` on strings is lexicographic ("10" < "9.5" is true), so an unpinned
     scale makes $1000 rank cheaper than $3.50 and renders 1E+3 in the Cost column.
-    Quantizing on read also normalizes rows written before the validator existed.
+    Quantizing on read also normalizes the scale of rows written before the
+    validator existed, and normalizes sign-zero — without which a stored
+    "-0.000000" (reachable by raw SQL) would still serve a negative figure.
+
+    It does NOT repair a row outside DECIMAL(12, 6): quantize RAISES on those
+    rather than normalizing, which is why the row loop guards the conversion
+    (spec 2.7).
 
     AIDEV-NOTE: a fixed-scale string does not make that hazard impossible —
     "1000.000000" < "3.500000" is still true. It forces consumers to convert
@@ -80,6 +105,8 @@ def _serialize_run_cost(value: Decimal | None) -> str | None:
     """
     if value is None:
         return None
+    if value == 0:
+        return f"{_ZERO_COST:f}"
     return f"{value.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP):f}"
 
 

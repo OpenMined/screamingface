@@ -4,7 +4,7 @@ Spec: `docs/spec/2026-08-12-OME-770-run-cost-field.md` · Ledger:
 `docs/work/2026-08-12-OME-770-run-cost-field.md`
 
 **Written retroactively (2026-08-13)** alongside the spec — see that file's preamble and the
-ledger's Deviations. Steps 1–4 were executed on 2026-08-12; step 5 on 2026-08-13 in response to
+ledger's Deviations. Steps 1–5 were executed on 2026-08-12; steps 6–8 on 2026-08-13 in response to
 review findings.
 
 One SDLC unit, one stack (`scoreboard`), backend only. RED before GREEN at every step.
@@ -57,7 +57,7 @@ Then `src/scoreboard/scores/store.py` — persist in `_submission_to_kwargs` (wi
 is deliberately outside `_content_hash`), carry through `_score_to_schema` and **both** projections
 in `_build_leaderboard_query`.
 
-## Step 4a — the trap this plan originally missed
+## Step 5 — the trap this plan originally missed
 
 `src/scoreboard/routes/leaderboard.py` was **not** in the original plan and had to be added:
 `RankedLeaderboardEntry` mirrors `LeaderboardEntry` field-for-field plus `rank`, and `_ranked_entry`
@@ -65,7 +65,7 @@ splats one into the other. Because both set `extra="forbid"`, adding the field t
 produced a **500 on the read path** — not a type error, and invisible to pyright. Found by driving
 the live endpoint. Leave an `AIDEV-NOTE` on the class.
 
-## Step 5 — review findings (2026-08-13)
+## Step 6 — review findings (2026-08-13)
 
 Three findings, all verified against the running app before fixing:
 
@@ -77,13 +77,13 @@ Three findings, all verified against the running app before fixing:
    missed, so `GET .../history` silently omitted the cost the spec's acceptance criteria require.
    Add the field and map it.
 3. **A cross-DTO guard.** The `RankedLeaderboardEntry`/`HistorySubmission`/`ScoreSchema`
-   duplication has now caused **two** separate defects — a 500 (step 4a) and a silent omission
+   duplication has now caused **two** separate defects — a 500 (step 5) and a silent omission
    (finding 2). Add `test_every_score_field_reaches_at_least_one_read_dto`, asserting every `Score`
    column appears on at least one read DTO, with an explicit allowlist for the deliberately
    unpublished ones (`content_hash`, the FK object, the reverse relation). This turns the next
    occurrence into a failing test instead of relying on someone noticing.
 
-## Step 7 — code-review findings (2026-08-13)
+## Step 7 — code-review findings, pass 1 (2026-08-13)
 
 Five findings, all verified against the code before acting. Two carried owner decisions
 (spec §2.2 revision and §2.4); three are mechanical.
@@ -126,7 +126,24 @@ Emits `PytestWarning` on every run today and becomes a hard error in a later pyt
 The spec's acceptance names `GET /v1/leaderboard/{id}`, but only a store-level test asserts the cost
 reaches it. Add an HTTP-level test on that route, matching the two the history route already has.
 
-## Step 6 — gates and close
+## Step 8 — code-review pass 2 (2026-08-13)
+
+- **G1 sign-zero:** normalize any zero to a canonical positive `_ZERO_COST` in the validator **and**
+  the read serializer. Both are required — the serializer covers rows already stored. Assert
+  `is_signed()` and the rendered string, since `Decimal(0) == Decimal("-0")`.
+- **G2 corrupt row:** guard the row-loop conversion (`InvalidOperation`/`ValueError` only), degrade
+  that cost to `null`, log at warning. Do **not** guard the ORM read path — see spec 2.7.
+- **G3 dead branch:** remove the unreachable post-quantize ceiling re-check; correct the test comment
+  that claimed to exercise it.
+- **G4 sub-quantum:** round away from zero instead of rejecting, as `max(quantize(v), COST_QUANTUM)`.
+  Rewrite the two tests that asserted the old `422`.
+
+Live probe must use `SCOREBOARD_DATABASE_URL` (not `..._DB_URL`) against a **file** DB with
+`tortoise migrate` run first — lifespan does not create the schema, so `:memory:` fails with
+"no such table". Run it twice from scratch and diff the output; identical output is the only proof the
+probe is isolated.
+
+## Step 9 — gates and close
 
 `uv run .claude/scripts/run_gates.py scoreboard --base origin/main` — all green. Fill the ledger
 Outcome (actual vs planned files, gate results, deviations), then commit with `Refs: OME-770`.
@@ -135,6 +152,6 @@ Outcome (actual vs planned files, gate results, deviations), then commit with `R
 
 - **The generated migration may not satisfy this repo's lint settings as emitted.** It didn't —
   `ruff check` flagged `I001`. Fix the generated file, never relax the gate.
-- **The read-DTO duplication is a latent trap for every future field** (step 4a). Step 5's guard is
+- **The read-DTO duplication is a latent trap for every future field** (step 5). Step 6's cross-DTO guard is
   the mitigation.
 - **Pass 2 stays blocked** on links 1–3 of the spec's §1 chain regardless of this unit's outcome.

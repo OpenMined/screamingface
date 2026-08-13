@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime, timedelta
+from decimal import InvalidOperation
 from typing import Any, NamedTuple, cast
 from uuid import UUID
 
@@ -20,6 +22,8 @@ from .schemas import BenchmarkSchema, LeaderboardEntry, ScoreSchema, ScoreSubmis
 # INVARIANT: columns the raw leaderboard projection must convert itself. The
 # projection bypasses the ORM, so nothing else will do it.
 _RAW_ROW_FIELDS = ("ran_with_providers", "run_cost_usd")
+
+logger = logging.getLogger(__name__)
 
 IDEMPOTENCY_TTL = timedelta(hours=24)
 
@@ -154,9 +158,31 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for name in _RAW_ROW_FIELDS:
             if name not in row:
                 continue
-            # to_python_value maps None -> None for a nullable field, keeping the
-            # absent-is-not-zero distinction (D5) intact.
-            row[name] = Score._meta.fields_map[name].to_python_value(row[name])
+            try:
+                # to_python_value maps None -> None for a nullable field, keeping
+                # the absent-is-not-zero distinction (D5) intact.
+                row[name] = Score._meta.fields_map[name].to_python_value(row[name])
+            except (InvalidOperation, ValueError) as exc:
+                # INVARIANT: one corrupt row must never fail the whole read path.
+                # DecimalField.to_python_value quantizes, and quantize RAISES on a
+                # value outside DECIMAL(12, 6) — which surfaced as HTTP 500 for
+                # EVERY entry on the board, not just the bad one. On SQLite the
+                # column is VARCHAR(40) with no database-level guard, so raw SQL
+                # can produce this; the ORM path and Postgres both reject it on
+                # write. Degrade to "unknown", the state the schema already has.
+                #
+                # Logged at warning, never silently swallowed: a corrupt row is a
+                # real problem and has to stay visible. Specific exceptions only.
+                logger.warning(
+                    "Unreadable %s on spec_id=%s (%r); serving it as null. "
+                    "The stored value is outside DECIMAL(12, 6) and can only have "
+                    "been written by raw SQL.",
+                    name,
+                    row.get("spec_id"),
+                    row[name],
+                    exc_info=exc,
+                )
+                row[name] = None
     return rows
 
 

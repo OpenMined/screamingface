@@ -295,3 +295,120 @@ Live probe through the ASGI app against a fresh SQLite database:
 3. **The review tool could not report through `ReportFindings`** — not available in this
    environment; findings came back as prose and were re-verified by hand.
 4. Still **no PR opened** and nothing outward-facing sent.
+
+## Code-review pass 2 (2026-08-13) — four findings, all verified
+
+Second `/code-review` on the three-commit branch. Again each finding was checked against the code
+before acting, and again the report was right about the defects but **wrong in one specific**.
+
+### G1 — `-0.0` served a negative dollar figure (fixed)
+
+`-0.0` passes `ge=0` (`-0 == 0`), and `quantize` **preserves the sign**, so the field became
+`Decimal("-0.000000")` and the routes served the string **`"-0.000000"`**. Two problems at once: a
+negative cost rendered in the Cost column, and backend-dependence of exactly the kind §2.4 exists to
+eliminate, since Postgres `numeric` normalizes sign-zero while SQLite keeps it.
+
+Not theoretical — `0.0 * -1` and `round(-1e-9, 6)` both produce `-0.0`, so a client summing signed
+per-call figures sends it. Normalized to a canonical positive `_ZERO_COST` in **both** the validator
+and the read serializer. Both matter: the owner's own review note pointed at the *serializer* line,
+and fixing only the validator would have left every already-stored row broken. Chose normalizing
+over rejecting, since `-0.0` is a legitimate way to express a genuinely free run.
+
+`Decimal(0) == Decimal("-0")`, so equality cannot detect this — the tests assert `is_signed()` and
+the rendered string.
+
+### G2 — one corrupt row 500'd the entire board (fixed; report narrowed)
+
+`DecimalField.to_python_value` quantizes, and `quantize` **raises** `InvalidOperation` on a value
+outside `DECIMAL(12, 6)` rather than returning one. Verified end-to-end: a single bad row makes
+`GET /v1/leaderboard/{id}` fail with a `500` for **every** entry.
+
+**The report's reachability claim was wrong.** It said the ORM path reaches this, naming "exactly the
+`model_copy(update=...)` bypass the new tests themselves use in `_costed`". It does not: Tortoise's
+own `to_python_value` rejects such a value on `Score.create`, so `model_copy` → `store.submit` is
+already guarded. Verified both directions. Only **raw SQL** reaches it, and only on SQLite, where the
+column is `VARCHAR(40)`; production is Postgres, where the column really is `DECIMAL(12, 6)` and the
+database refuses the write.
+
+Fixed anyway — a public read path should degrade, not collapse. The row loop guards the conversion,
+degrades that one cost to `null` ("unknown", an already-defined state), and **logs at warning with
+specific exception types**; it is not silently swallowed. Recorded in spec §2.7, including what was
+deliberately *not* fixed: the ORM read path (`list_for_spec`) would still raise, and guarding it
+means subclassing `DecimalField` — disproportionate for a dev-only, raw-SQL-only scenario.
+
+The report also correctly caught that `_serialize_run_cost`'s docstring **overclaimed** — quantizing
+on read cannot "normalize rows written before the validator existed" for precisely the `1e30` case,
+because it raises. Docstring corrected.
+
+### G3 — a branch that could not execute, and a test comment that lied about it (fixed)
+
+The post-quantize ceiling re-check was unreachable: `quantize` is monotone and `COST_CEILING` sits
+exactly on the 6dp grid, so anything that would round up past it is already rejected by the
+pre-check. Verified: `Decimal("999999.9999996") > COST_CEILING` is `True`, so it never reaches the
+re-check. My test comment claimed it exercised that branch — it did not. **This is the third case
+this branch of my own commentary asserted behaviour I had not actually traced.** Dead branch removed;
+an `AIDEV-NOTE` now records why there is deliberately no re-check, and the test comment says what
+truly rejects the value.
+
+### G4 — rejecting a sub-quantum cost discarded the whole score (owner decision, changed)
+
+The report surfaced the consequence of the rule I had just written: a positive cost below
+`0.000001` returned `422`, and **a 422 rejects the entire submission** — the accuracy result, the
+thing the leaderboard exists for, along with the cost. Once §4 makes cost mandatory, a genuinely
+almost-free run becomes unpublishable.
+
+**Owner chose round-away-from-zero.** It is strictly safer than rejecting on every axis that matters:
+never understates cost (so it cannot buy frontier position), never yields `0.000000` (so D5 holds —
+which was the whole reason the reject rule existed), never discards a valid score, and overstates by
+at most one quantum. Spec §2.2 carries a second revision.
+
+Implemented as `max(quantize(value), COST_QUANTUM)` — one expression that *is* the invariant, rather
+than a special-case branch. That shape came out of a lint failure (below) and is clearer than what it
+replaced.
+
+**Residual, accepted and documented:** a JSON number below ~`1e-308` underflows to exactly `0.0` in
+the float parse *before* the validator runs, so it stores `0.000000` rather than rounding up. No real
+cost is within 300 orders of magnitude of that, and closing it would mean refusing JSON numbers
+outright. Written into §2.2 so the guard is not mistaken for total.
+
+### Two tests rewritten — the contract changed under them
+
+`test_score_submission_rejects_more_than_six_decimal_places` and
+`test_score_submission_rejects_a_positive_cost_below_the_smallest_unit` both asserted the `422` that
+G4 reversed. They encode an obsolete contract, so both were rewritten to assert the new behaviour
+(and renamed to match what they now check). Neither is on `origin/main` — both were added earlier on
+this branch — so the append-only gate does not flag them, and the change is a **strengthening**: each
+now asserts the stored value, not just that a call raised. Flagged here rather than left to the diff,
+because "a prior test changed" is exactly what that gate exists to make visible.
+
+### Pass-2 gates and live verification
+
+`run_gates.py scoreboard --base origin/main --skip-append-only` → ruff check ✓, ruff format ✓,
+pyright ✓, pytest --cov ✓ (**214 passed, 2 skipped**). Append-only still flags only the one
+owner-approved line-197 widening.
+
+| Input | Result |
+|---|---|
+| `12.5`, `1e3` | `201` → `12.500000`, `1000.000000` |
+| `0.07*3`, `1.23456789` | `201` → `0.210000`, `1.234568` |
+| `0`, `-0.0`, `-0` | `201` → `0.000000`, **unsigned** |
+| `0.0000009`, `1e-9` | `201` → `0.000001` (rounded up, never zero) |
+| absent | `201` → `null` |
+| `1000000`, `1e30`, `999999.9999996`, `-0.01`, `NaN`, `Infinity` | all `422` |
+| board scan | 10 entries, zero negative or mis-scaled values |
+
+### Pass-2 deviations
+
+1. **My live probe was not isolated, and I nearly reported from it.** I used
+   `SCOREBOARD_DB_URL`; the real setting is `SCOREBOARD_DATABASE_URL`, so the override was ignored
+   and both runs shared `apps/scoreboard/scoreboard.sqlite3`. Caught it only because two runs of one
+   script disagreed (`201` then `200` — the second was replaying the first's rows through dedup).
+   Re-verified properly: a file DB under the correct variable, `tortoise migrate` first, run twice
+   from scratch with **byte-identical output**. Two lessons worth keeping: `sqlite://:memory:` cannot
+   be used for an app-level probe because lifespan does not create the schema, and a zsh glob that
+   matches nothing aborts the whole `rm`, which is why the stray file survived my first cleanup. The
+   stray file is gitignored and has been removed.
+2. **`ruff` rejected my first implementation** (`PLR0911`, 4 returns > 3). Restructured into the
+   `max(...)` form rather than suppressing the rule — the result is genuinely better, so the gate
+   improved the code rather than merely permitting it.
+3. Still **no PR opened** and nothing outward-facing sent.
