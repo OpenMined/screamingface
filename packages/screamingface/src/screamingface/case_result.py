@@ -16,6 +16,10 @@ _CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
 
 type ProducerType = Literal["model", "deterministic"]
 
+# The Engine's explicit per-Case outcome; kept in lock-step with url4-cloud's
+# `benchmarks/contract.py` CaseStatus.
+type CaseStatus = Literal["scored", "refused", "failed"]
+
 
 @dataclass(frozen=True, slots=True)
 class EvidenceProducer:
@@ -206,10 +210,12 @@ class CaseGrade:
 class CaseResult:
     """The complete retained result for one selected Benchmark Case."""
 
+    status: CaseStatus
     case_id: int
     input: object
     output: object
     finish_reason: str | None
+    refusal: str | None
     grade: CaseGrade | None
     failures: tuple[Failure, ...]
     _metadata: Mapping[str, object] = field(repr=False)
@@ -224,6 +230,8 @@ class CaseResult:
         grade: CaseGrade | None,
         failures: Sequence[Failure],
         metadata: Mapping[str, object],
+        status: CaseStatus | None = None,
+        refusal: str | None = None,
     ) -> None:
         if isinstance(case_id, bool) or not isinstance(case_id, int) or case_id < 1:
             raise ValueError("Case Result case_id must be a positive integer")
@@ -231,15 +239,20 @@ class CaseResult:
             raise TypeError("Case Result grade must be an sf.CaseGrade or None")
         if finish_reason is not None:
             finish_reason = _nonblank(finish_reason, "Case Result finish_reason")
+        if refusal is not None:
+            refusal = _nonblank(refusal, "Case Result refusal")
         selected_failures = tuple(failures)
         if any(not isinstance(item, Failure) for item in selected_failures):
             raise TypeError("Case Result failures must contain sf.Failure values")
         _validate_case_state(grade, selected_failures)
+        status = _resolve_case_status(status, refusal, grade)
         values = {
+            "status": status,
             "case_id": case_id,
             "input": freeze_json(input, "Case Result input"),
             "output": freeze_json(output, "Case Result output"),
             "finish_reason": finish_reason,
+            "refusal": refusal,
             "grade": grade,
             "failures": selected_failures,
             "_metadata": freeze_mapping(metadata, "Case Result metadata"),
@@ -290,10 +303,12 @@ class CaseResult:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "status": self.status,
             "case_id": self.case_id,
             "input": thaw_json(self.input),
             "output": thaw_json(self.output),
             "finish_reason": self.finish_reason,
+            "refusal": self.refusal,
             "grade": None if self.grade is None else self.grade.to_dict(),
             "failures": [failure.to_dict() for failure in self.failures],
             "metadata": thaw_mapping(self._metadata),
@@ -348,6 +363,37 @@ def _validate_case_state(grade: CaseGrade | None, failures: Sequence[Failure]) -
         raise ValueError("an unscored Case Grade must contain a Case Result Failure")
     if grade is not None and grade.score is not None and failures:
         raise ValueError("a graded Case Result cannot contain failures")
+
+
+def _resolve_case_status(
+    status: CaseStatus | None,
+    refusal: str | None,
+    grade: CaseGrade | None,
+) -> CaseStatus:
+    """Pin the Case's explicit outcome to the shape its grade and refusal imply.
+
+    The Engine publishes `status` on the wire; a locally built value derives the
+    same answer the Engine would (numeric grade → scored, refusal text → refused,
+    otherwise failed) so the two can never disagree. An explicit status that
+    contradicts the derived one is an ambiguous Case and is rejected.
+    """
+
+    derived: CaseStatus = (
+        "scored"
+        if grade is not None and grade.score is not None
+        else "refused"
+        if refusal is not None
+        else "failed"
+    )
+    if derived == "scored" and refusal is not None:
+        raise ValueError("a scored Case Result cannot contain refusal text")
+    if status is None:
+        return derived
+    if status not in {"scored", "refused", "failed"}:
+        raise ValueError("Case Result status must be 'scored', 'refused', or 'failed'")
+    if status != derived:
+        raise ValueError(f"Case Result status {status!r} contradicts its {derived!r} shape")
+    return status
 
 
 __all__ = ["CaseGrade", "CaseResult", "Check", "Evidence", "EvidenceProducer"]

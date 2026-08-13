@@ -51,10 +51,12 @@ def test_case_result_serializes_every_observed_fact_losslessly() -> None:
     case = _graded_case()
 
     assert case.to_dict() == {
+        "status": "scored",
         "case_id": 1,
         "input": "What is two plus two?",
         "output": "Four.",
         "finish_reason": "stop",
+        "refusal": None,
         "grade": {
             "method": "rubric",
             "score": 1.0,

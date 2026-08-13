@@ -168,10 +168,12 @@ def _case_result(value: object) -> CaseResult:
     _keys(
         raw,
         required={
+            "status",
             "case_id",
             "input",
             "output",
             "finish_reason",
+            "refusal",
             "grade",
             "failures",
             "metadata",
@@ -186,6 +188,7 @@ def _case_result(value: object) -> CaseResult:
         raise ExecutionError("Case Result contains a Failure for another Case")
     finish_reason_value = _required(raw, "finish_reason", "Case Result")
     return CaseResult(
+        status=_case_status(raw.get("status")),
         case_id=case_id,
         input=_required(raw, "input", "Case Result"),
         output=_required(raw, "output", "Case Result"),
@@ -194,6 +197,7 @@ def _case_result(value: object) -> CaseResult:
             if finish_reason_value is None
             else _text(finish_reason_value, "Case Result finish_reason")
         ),
+        refusal=_optional_text(raw.get("refusal"), "Case Result refusal"),
         grade=grade,
         failures=failures,
         metadata=_mapping(_required(raw, "metadata", "Case Result"), "Case Result metadata"),
@@ -336,6 +340,16 @@ def _producer_type(value: object) -> Literal["model", "deterministic"]:
     if value == "deterministic":
         return "deterministic"
     raise ExecutionError("Evidence producer type is unsupported")
+
+
+def _case_status(value: object) -> Literal["scored", "refused", "failed"]:
+    if value == "scored":
+        return "scored"
+    if value == "refused":
+        return "refused"
+    if value == "failed":
+        return "failed"
+    raise ExecutionError("Case Result status is unsupported")
 
 
 def _failure_stage(value: object) -> Literal["candidate", "grading", "aggregation"]:

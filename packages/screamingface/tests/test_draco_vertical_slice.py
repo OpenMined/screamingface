@@ -114,10 +114,12 @@ BENCHMARK: dict[str, object] = {
 def _case_payload(*, score: float = 1.0) -> dict[str, object]:
     raw = '{"explanation":"The response satisfies the criterion.","criterion_status":"MET"}'
     return {
+        "status": "scored",
         "case_id": 1,
         "input": "Fixture question",
         "output": "Fixture answer",
         "finish_reason": "stop",
+        "refusal": None,
         "grade": {
             "method": "rubric",
             "score": score,
@@ -153,6 +155,7 @@ def _case_payload(*, score: float = 1.0) -> dict[str, object]:
 
 def _unscored_invalid_evidence_case_payload() -> dict[str, object]:
     case = _case_payload()
+    case["status"] = "failed"
     grade = cast(dict[str, Any], case["grade"])
     grade["score"] = None
     check = cast(list[dict[str, Any]], grade["checks"])[0]
@@ -807,10 +810,12 @@ def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
                 "metrics": {},
                 "cases": [
                     {
+                        "status": "refused",
                         "case_id": 1,
                         "input": "Fixture question",
                         "output": None,
                         "finish_reason": None,
+                        "refusal": "provider refused the request",
                         "grade": None,
                         "failures": [failure],
                         "metadata": {},
@@ -828,6 +833,8 @@ def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
     assert result.score is None
     assert result.metrics == {}
     assert result.cases[0].grade is None
+    assert result.cases[0].status == "refused"
+    assert result.cases[0].refusal == "provider refused the request"
     assert result.cases[0].failures[0].code == "provider_refusal"
 
 

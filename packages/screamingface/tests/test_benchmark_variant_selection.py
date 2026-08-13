@@ -108,10 +108,12 @@ class _RunTransport:
                     "metrics": {},
                     "cases": [
                         {
+                            "status": "scored",
                             "case_id": 1,
                             "input": "Question",
                             "output": "Answer",
                             "finish_reason": "stop",
+                            "refusal": None,
                             "grade": {
                                 "method": "deterministic",
                                 "score": 1.0,

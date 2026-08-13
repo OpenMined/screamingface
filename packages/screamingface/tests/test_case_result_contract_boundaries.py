@@ -353,10 +353,12 @@ def test_wire_case_result_rejects_a_failure_owned_by_another_case() -> None:
     with pytest.raises(sf.ExecutionError, match="another Case"):
         _case_result(
             {
+                "status": "failed",
                 "case_id": 1,
                 "input": "question",
                 "output": None,
                 "finish_reason": None,
+                "refusal": None,
                 "grade": None,
                 "failures": [
                     {

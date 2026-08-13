@@ -320,10 +320,12 @@ class _Transport:
                     "metrics": {"coverage": 1.0},
                     "cases": [
                         {
+                            "status": "scored",
                             "case_id": 1,
                             "input": "Question",
                             "output": "Answer",
                             "finish_reason": "stop",
+                            "refusal": None,
                             "grade": {
                                 "method": "fixture",
                                 "score": 0.8,
