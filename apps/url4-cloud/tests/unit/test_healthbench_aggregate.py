@@ -196,6 +196,27 @@ def test_a_negative_unclipped_mean_survives_the_contract(tmp_path: Path) -> None
     assert result["metrics"]["pass_rate"] == 1.0  # every criterion judged MET — yet negative
 
 
+def test_duplicate_judge_entries_are_noise_not_extra_credit(tmp_path: Path) -> None:
+    """INVARIANT: duplicate judge entries for one rubric_id are noise, not extra
+    credit — met must never exceed judged. ``_verdicts`` dedupes by rubric_id, so
+    ``_checks`` must emit exactly one check per rubric_id (the same entry the
+    verdict kept); a second check would push pass_rate past 1.0 and the canonical
+    metric bound would convert the ENTIRE run to benchmark_unavailable."""
+
+    _write_rubric(tmp_path, 1, [5, 3])
+    row = _case_row(1, {1: True, 2: True})
+    evaluations = row["rubric_evaluations"]
+    assert isinstance(evaluations, list)
+    # Judge retry duplication: rubric 1 arrives twice, both entries valid MET.
+    evaluations.append(json.loads(json.dumps(evaluations[0])))
+    result = aggregate(
+        json.dumps([row]), tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,)
+    )
+    assert result["metrics"]["pass_rate"] <= 1.0
+    checks = result["cases"][0]["grade"]["checks"]
+    assert [check["id"] for check in checks] == ["1", "2"]
+
+
 def test_a_missing_rubric_asset_fails_the_case_and_the_exam(tmp_path: Path) -> None:
     _write_rubric(tmp_path, 1, [7])
     _write_case(tmp_path, 2)

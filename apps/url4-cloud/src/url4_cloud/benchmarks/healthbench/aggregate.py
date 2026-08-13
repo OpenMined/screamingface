@@ -366,7 +366,7 @@ def _checks(row: Mapping[str, Any], points: list[int]) -> list[dict[str, Any]]:
     evaluations = row.get("rubric_evaluations")
     if not isinstance(evaluations, list):
         return []
-    checks: list[dict[str, Any]] = []
+    checks: dict[int, dict[str, Any]] = {}
     for evaluation in evaluations:
         if not isinstance(evaluation, Mapping):
             continue
@@ -392,15 +392,16 @@ def _checks(row: Mapping[str, Any], points: list[int]) -> list[dict[str, Any]]:
         # an invalid reply leaves the check outcome-less on purpose.
         if evidence.get("valid") is True:
             check["outcome"] = "MET" if evidence.get("criteria_met") is True else "UNMET"
-        checks.append(
-            {
-                **check,
-                "metadata": (
-                    {"points": points[rubric_id - 1]} if 1 <= rubric_id <= len(points) else {}
-                ),
-            }
-        )
-    return checks
+        # One check per rubric_id, last entry wins — the same dict-assignment
+        # dedup as _verdicts, so a duplicate judge entry (retry noise) never
+        # becomes a second check and met can never exceed judged.
+        checks[rubric_id] = {
+            **check,
+            "metadata": (
+                {"points": points[rubric_id - 1]} if 1 <= rubric_id <= len(points) else {}
+            ),
+        }
+    return list(checks.values())
 
 
 def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
