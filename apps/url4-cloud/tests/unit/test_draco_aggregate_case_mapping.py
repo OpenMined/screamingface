@@ -67,8 +67,10 @@ def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> obj
             "schema": CASE_SCHEMA,
             "case_id": case,
             "input": f"Question {case}",
+            "answer": f"Answer {case}",
             "output": f"Answer {case}",
             "finish_reason": "stop",
+            "refusal": None,
             "metadata": {},
         }
         check_record = {
@@ -88,50 +90,42 @@ def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> obj
 # --- the guard ------------------------------------------------------------------
 
 
-def test_a_short_row_set_without_bound_case_evaluations_is_unscored() -> None:
+def test_a_short_row_set_without_bound_case_evaluations_aborts() -> None:
     """The `;iteration.slice=10:20` shape — two rows against four declared cases."""
     rows = json.dumps([_row("c3"), _row("c4")])
 
-    result = agg.aggregate(
-        rows,
-        rubrics=_RUBRICS,
-        benchmark_id="draco",
-        selected_cases=_selected(3, 4),
-    )
-
-    assert result["score"] is None
-    assert [case["grade"] for case in result["cases"]] == [None, None]
+    with pytest.raises(agg.AggregateError, match="position 0"):
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(3, 4),
+        )
 
 
-def test_the_failure_names_the_invalid_case_evaluation() -> None:
+def test_the_error_names_the_invalid_case_evaluation() -> None:
     rows = json.dumps([_row("c3"), _row("c4")])
 
-    result = agg.aggregate(
-        rows,
-        rubrics=_RUBRICS,
-        benchmark_id="draco",
-        selected_cases=_selected(3, 4),
-    )
-
-    failure = result["cases"][0]["failures"][0]
-    assert failure["code"] == "invalid_case_evaluation"
-    assert failure["metadata"]["row_index"] == 0
+    with pytest.raises(agg.AggregateError, match="position 0"):
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(3, 4),
+        )
 
 
-def test_a_mixed_row_set_retains_the_unverifiable_row() -> None:
+def test_a_mixed_row_set_aborts_on_the_unverifiable_row() -> None:
     """One echoed id does not vouch for a sibling that has none."""
     rows = json.dumps([_row("c1", case=1), _row("c2")])
 
-    result = agg.aggregate(
-        rows,
-        rubrics=_RUBRICS,
-        benchmark_id="draco",
-        selected_cases=_selected(1, 2),
-    )
-
-    assert result["score"] is None
-    assert result["cases"][0]["grade"]["score"] == 1.0
-    assert result["cases"][1]["grade"] is None
+    with pytest.raises(agg.AggregateError, match="position 1"):
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(1, 2),
+        )
 
 
 # --- what the guard must NOT catch ----------------------------------------------
@@ -168,22 +162,22 @@ def test_rows_must_exactly_match_the_bound_selection() -> None:
         selected_cases=_selected(1, 2),
     )
 
-    assert result["score"] is None
+    assert result["score"] == 1.0
+    assert result["coverage"] == 0.5
     assert result["cases"][1]["failures"][0]["code"] == "case_result_missing"
 
 
-def test_a_full_row_set_without_case_evaluations_is_still_unscored() -> None:
+def test_a_full_row_set_without_case_evaluations_aborts() -> None:
     """Completeness does not make row position a durable Case identity."""
     rows = json.dumps([_row(f"c{n}") for n in (1, 2, 3, 4)])
 
-    result = agg.aggregate(
-        rows,
-        rubrics=_RUBRICS,
-        benchmark_id="draco",
-        selected_cases=_selected(1, 2, 3, 4),
-    )
-
-    assert result["score"] is None
+    with pytest.raises(agg.AggregateError, match="position 0"):
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(1, 2, 3, 4),
+        )
 
 
 def test_no_rows_at_all_fails_after_the_mapping_guard() -> None:
@@ -192,21 +186,16 @@ def test_no_rows_at_all_fails_after_the_mapping_guard() -> None:
         agg.aggregate("[]", rubrics=_RUBRICS, benchmark_id="draco", selected_cases=[])
 
 
-def test_rows_with_a_bound_case_but_no_verdict_become_failed_cases() -> None:
+def test_rows_with_malformed_verdicts_abort() -> None:
     failed = _row("c2", case=2)
     assert isinstance(failed, dict)
     failed["evidence"][0]["schema"] = "not-a-verdict"
     rows = json.dumps([_row("c1", case=1), failed])
 
-    result = agg.aggregate(
-        rows,
-        rubrics=_RUBRICS,
-        benchmark_id="draco",
-        selected_cases=_selected(1, 2),
-    )
-
-    assert result["case_count"] == 2
-    assert result["failures"] == []
-    assert result["cases"][1]["grade"] is None
-    assert len(result["cases"][1]["failures"]) == 1
-    assert result["score"] is None
+    with pytest.raises(agg.AggregateError, match="invalid DRACO Judge Evidence"):
+        agg.aggregate(
+            rows,
+            rubrics=_RUBRICS,
+            benchmark_id="draco",
+            selected_cases=_selected(1, 2),
+        )

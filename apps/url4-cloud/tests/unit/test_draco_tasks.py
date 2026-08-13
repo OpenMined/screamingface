@@ -52,3 +52,14 @@ def test_build_tasks_rejects_invalid_criterion_type() -> None:
             "A",
             [{"id": "c", "requirement": "R", "criterion_type": "unknown"}],
         )
+
+
+def test_build_tasks_sends_an_empty_model_output_to_the_normal_judge() -> None:
+    result = tasks.build_tasks(
+        1,
+        "Question",
+        "",
+        [{"id": "c", "requirement": "Required", "criterion_type": "positive"}],
+    )
+
+    assert result[0]["answer"] == ""

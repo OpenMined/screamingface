@@ -10,6 +10,20 @@ from url4_cloud.benchmarks.healthbench.verdict import SCHEMA as VERDICT_SCHEMA
 
 RUBRIC_EVALUATION_SCHEMA = "screamingface.healthbench-rubric-evaluation.v1"
 CASE_EVALUATION_SCHEMA = "screamingface.healthbench-case-evaluation.v1"
+_CASE_EVALUATION_FIELDS = frozenset({"schema", "case_id", "case", "rubric_evaluations"})
+_CASE_RECORD_FIELDS = frozenset(
+    {
+        "schema",
+        "case_id",
+        "input",
+        "answer",
+        "output",
+        "finish_reason",
+        "refusal",
+        "metadata",
+    }
+)
+_RUBRIC_EVALUATION_FIELDS = frozenset({"schema", "case_id", "rubric_id", "rubric", "evidence"})
 
 
 def bind_rubric_evaluation(
@@ -97,6 +111,94 @@ def bind_case_evaluation(
     }
 
 
+def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, Any]:
+    """Validate one exact aggregate input envelope without shape inference."""
+
+    selected = _positive(expected_case_id, "expected_case_id")
+    if not isinstance(value, Mapping) or set(value) != _CASE_EVALUATION_FIELDS:
+        raise ValueError("invalid HealthBench Case Evaluation envelope")
+    if value.get("schema") != CASE_EVALUATION_SCHEMA or value.get("case_id") != selected:
+        raise ValueError("HealthBench Case Evaluation belongs to another Case")
+
+    case = value.get("case")
+    if not isinstance(case, Mapping) or not _valid_case_record(case, selected):
+        raise ValueError("invalid HealthBench Case record")
+    raw_evaluations = value.get("rubric_evaluations")
+    if (
+        isinstance(raw_evaluations, str | bytes)
+        or not isinstance(raw_evaluations, Sequence)
+        or not raw_evaluations
+    ):
+        raise ValueError("HealthBench rubric evaluations must be a non-empty array")
+    evaluations = _decode_rubric_evaluations(raw_evaluations, selected)
+    return {
+        "schema": CASE_EVALUATION_SCHEMA,
+        "case_id": selected,
+        "case": dict(case),
+        "rubric_evaluations": evaluations,
+    }
+
+
+def _decode_rubric_evaluations(values: Sequence[object], case_id: int) -> list[dict[str, Any]]:
+    evaluations: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for index, raw in enumerate(values, start=1):
+        if not isinstance(raw, Mapping) or set(raw) != _RUBRIC_EVALUATION_FIELDS:
+            raise ValueError(f"invalid HealthBench Rubric Evaluation {index}")
+        rubric_id = raw.get("rubric_id")
+        if isinstance(rubric_id, bool) or not isinstance(rubric_id, int) or rubric_id < 1:
+            raise ValueError(f"invalid HealthBench rubric_id at position {index}")
+        if rubric_id in seen:
+            raise ValueError(f"duplicate HealthBench rubric_id {rubric_id}")
+        seen.add(rubric_id)
+        rubric = raw.get("rubric")
+        evidence = raw.get("evidence")
+        if (
+            raw.get("schema") != RUBRIC_EVALUATION_SCHEMA
+            or raw.get("case_id") != case_id
+            or not isinstance(rubric, Mapping)
+            or rubric.get("schema") != RUBRIC_SCHEMA
+            or rubric.get("case_id") != case_id
+            or rubric.get("rubric_id") != rubric_id
+            or not isinstance(evidence, Mapping)
+            or evidence.get("schema") != VERDICT_SCHEMA
+            or evidence.get("case_id") != case_id
+            or evidence.get("rubric_id") != rubric_id
+        ):
+            raise ValueError(f"inconsistent HealthBench Rubric Evaluation {index}")
+        evaluations.append(dict(raw))
+    return evaluations
+
+
+def _valid_case_record(value: Mapping[str, Any], case_id: int) -> bool:
+    if set(value) != _CASE_RECORD_FIELDS:
+        return False
+    answer = value.get("answer")
+    output = value.get("output")
+    refusal = value.get("refusal")
+    finish_reason = value.get("finish_reason")
+    return (
+        value.get("schema") == CASE_SCHEMA
+        and value.get("case_id") == case_id
+        and isinstance(value.get("input"), str)
+        and bool(value["input"].strip())
+        and isinstance(answer, str)
+        and (
+            isinstance(output, str)
+            and refusal is None
+            and answer == output
+            or output is None
+            and isinstance(refusal, str)
+            and bool(refusal.strip())
+            and answer == refusal
+        )
+        and (
+            finish_reason is None or isinstance(finish_reason, str) and bool(finish_reason.strip())
+        )
+        and isinstance(value.get("metadata"), Mapping)
+    )
+
+
 def _require_schema(value: Mapping[str, Any], schema: str, label: str) -> None:
     if not isinstance(value, Mapping) or value.get("schema") != schema:
         raise ValueError(f"{label} must carry schema {schema}")
@@ -118,4 +220,5 @@ __all__ = [
     "RUBRIC_EVALUATION_SCHEMA",
     "bind_case_evaluation",
     "bind_rubric_evaluation",
+    "decode_case_evaluation",
 ]

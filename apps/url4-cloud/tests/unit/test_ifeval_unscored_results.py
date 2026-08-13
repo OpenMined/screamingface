@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import json
 
-from url4_cloud.benchmarks.errors import ProviderRefusal
-from url4_cloud.benchmarks.ifeval.aggregate import SCHEMA, aggregate, aggregate_corrective
+import pytest
+
+from url4_cloud.benchmarks.ifeval.aggregate import (
+    SCHEMA,
+    AggregateError,
+    aggregate,
+    aggregate_corrective,
+)
+from url4_cloud.benchmarks.ifeval.case_evaluation import bind_case_evaluation
 from url4_cloud.benchmarks.ifeval.corrective_policy import (
     SELF_CORRECTIVE_ID,
     SELF_CORRECTIVE_REVISION,
@@ -30,6 +37,7 @@ def _valid_record() -> dict[str, object]:
         "attempt": 1,
         "valid": True,
         "answer": "A compliant answer",
+        "refusal": None,
         "finish_reason": "stop",
         "instruction_id_list": ["punctuation:no_comma"],
         "descriptions": ["Do not use commas."],
@@ -83,19 +91,21 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
     ]
 
 
-def test_provider_refusal_is_retained_exactly_and_skips_grading() -> None:
+def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
     exact = "I can’t comply with that request."
+    record = _valid_record()
+    record.update(
+        {
+            "answer": exact,
+            "refusal": exact,
+            "finish_reason": "content_filter",
+            "strict": [False],
+            "loose": [False],
+            "violations": ["Do not use commas."],
+        }
+    )
     result = aggregate(
-        json.dumps(
-            [
-                {
-                    "error": {
-                        "kind": "ProviderRefusal",
-                        "message": str(ProviderRefusal(exact, finish_reason="content_filter")),
-                    }
-                }
-            ]
-        ),
+        json.dumps([bind_case_evaluation(1, [record])]),
         _SPEC,
         "ifeval",
         _ORDER,
@@ -103,33 +113,27 @@ def test_provider_refusal_is_retained_exactly_and_skips_grading() -> None:
     )
 
     case = result["cases"][0]
-    assert result["score"] is None
-    assert result["metrics"] == {}
+    assert result["score"] == 0.0
+    assert result["coverage"] == 1.0
     assert case["status"] == "refused"
     assert case["refusal"] == exact
     assert case["finish_reason"] == "content_filter"
-    assert case["grade"] is None
-    assert case["failures"][0]["code"] == "provider_refusal"
+    assert case["grade"]["score"] == 0.0
+    assert case["failures"] == []
 
 
 def test_nested_verifier_record_is_not_discovered_as_grading() -> None:
     payload = json.dumps([{"candidate_text": json.dumps(_valid_record())}])
 
-    result = aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
-
-    assert result["score"] is None
-    assert result["metrics"] == {}
-    assert result["cases"][0]["grade"] is None
-    assert result["cases"][0]["failures"][0]["code"] == "invalid_case_evaluation"
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
 
 
 def test_bare_check_record_is_not_a_case_evaluation_envelope() -> None:
     payload = json.dumps([_valid_record()])
 
-    result = aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
-
-    assert result["score"] is None
-    assert result["cases"][0]["grade"] is None
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
 
 
 def test_corrective_collected_failure_returns_a_complete_unscored_result() -> None:
@@ -165,15 +169,12 @@ def test_corrective_collected_failure_returns_a_complete_unscored_result() -> No
 def test_corrective_nested_check_is_not_discovered_as_grading() -> None:
     payload = json.dumps([{"nested": {"record": _valid_record()}}])
 
-    result = aggregate_corrective(
-        payload,
-        _SPEC,
-        SELF_CORRECTIVE_ID,
-        SELF_CORRECTIVE_REVISION,
-        _ORDER,
-        selected_case_count=1,
-    )
-
-    assert result["score"] is None
-    assert result["cases"][0]["grade"] is None
-    assert result["cases"][0]["failures"][0]["code"] == "invalid_case_evaluation"
+    with pytest.raises(AggregateError, match="position 0"):
+        aggregate_corrective(
+            payload,
+            _SPEC,
+            SELF_CORRECTIVE_ID,
+            SELF_CORRECTIVE_REVISION,
+            _ORDER,
+            selected_case_count=1,
+        )

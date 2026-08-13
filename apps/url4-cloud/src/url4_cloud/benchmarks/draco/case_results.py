@@ -11,6 +11,7 @@ from url4_cloud.benchmarks.aggregation import (
 from url4_cloud.benchmarks.aggregation import (
     failed_case_result as build_failed_case_result,
 )
+from url4_cloud.benchmarks.aggregation import refused_case_result as build_refused_case_result
 from url4_cloud.benchmarks.aggregation import (
     scored_case_result as build_scored_case_result,
 )
@@ -19,8 +20,6 @@ from url4_cloud.benchmarks.draco.errors import AggregateError
 from url4_cloud.benchmarks.draco.scoring import flatten_criteria, score_case
 from url4_cloud.benchmarks.draco.validation import optional_integer
 from url4_cloud.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
-
-COVERAGE_TARGET = 0.95
 
 
 def group_runs(verdicts: Sequence[Mapping[str, Any]]) -> list[dict[str, bool]]:
@@ -100,31 +99,12 @@ def scored_case_result(
         "verdicts_invalid": max(len(records) - accepted, 0),
         "verdicts_missing": max(expected - len(records), 0),
     }
-    failures: list[dict[str, Any]] = []
-    score: float | None = scored["normalized_score"]
-    if coverage < COVERAGE_TARGET:
-        score = None
-        failures.append(
-            {
-                "stage": "grading",
-                "code": "insufficient_judge_coverage",
-                "message": (
-                    f"Judge coverage {coverage:.1%} is below the required {COVERAGE_TARGET:.0%}"
-                ),
-                "retryable": None,
-                "case_id": case_id,
-                "metadata": {
-                    "coverage": round(coverage, 4),
-                    "coverage_target": COVERAGE_TARGET,
-                },
-            }
-        )
     return _case_result(
         case_record,
-        score=score,
+        score=scored["normalized_score"],
         metrics=metrics,
         checks=_checks(case_id, rubric, check_records, records, criteria_expected),
-        failures=failures,
+        failures=[],
     )
 
 
@@ -179,8 +159,18 @@ def failed_selected_case_result(
 
 def ungraded_case_result(case_record: Mapping[str, Any], failure: Mapping[str, Any]) -> CaseResult:
     """Retain an observed Candidate answer when private grading material is unavailable."""
+    selected = _selected_case(case_record, id_key="case_id")
+    refusal = case_record.get("refusal")
+    if isinstance(refusal, str):
+        return build_refused_case_result(
+            selected_case=selected,
+            refusal=refusal,
+            finish_reason=_finish_reason(case_record.get("finish_reason")),
+            grade={"method": "rubric", "score": None, "metrics": {}, "checks": []},
+            failures=[failure],
+        )
     return build_failed_case_result(
-        selected_case=_selected_case(case_record, id_key="case_id"),
+        selected_case=selected,
         failures=[failure],
         output=str(case_record["output"]),
         finish_reason=_finish_reason(case_record.get("finish_reason")),
@@ -211,7 +201,8 @@ def _case_result(
 ) -> CaseResult:
     """Assemble the shared Case Result envelope once."""
     selected = _selected_case(case_record, id_key="case_id")
-    output = str(case_record["output"])
+    output = case_record.get("output")
+    refusal = case_record.get("refusal")
     finish_reason = _finish_reason(case_record.get("finish_reason"))
     grade = {
         "method": "rubric",
@@ -219,6 +210,16 @@ def _case_result(
         "metrics": dict(metrics),
         "checks": [dict(check) for check in checks],
     }
+    if isinstance(refusal, str):
+        return build_refused_case_result(
+            selected_case=selected,
+            refusal=refusal,
+            finish_reason=finish_reason,
+            grade=grade,
+            failures=failures,
+        )
+    if not isinstance(output, str):  # pragma: no cover - sealed by the Case record decoder
+        raise AggregateError("a non-refused DRACO Case must carry Candidate output text")
     if score is not None and not failures:
         return build_scored_case_result(
             selected_case=selected,

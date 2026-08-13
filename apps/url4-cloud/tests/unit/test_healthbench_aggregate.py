@@ -1,10 +1,4 @@
-"""HealthBench reducer — every unscorable Case is visible and poisons the exam score.
-
-INVARIANT under test (review finding B1, made worse here by negative points): a
-missing rubric asset or failed row must yield a FAILED case result that reaches the
-output AND force ``score: None`` — a silently dropped Case would inflate the mean by
-removing exactly the rows the subset exists to keep.
-"""
+"""HealthBench retains every Case and scores only complete normal rubric grades."""
 
 from __future__ import annotations
 
@@ -14,7 +8,6 @@ from typing import Any
 
 import pytest
 
-from url4_cloud.benchmarks.errors import ProviderRefusal
 from url4_cloud.benchmarks.healthbench.aggregate import (
     AggregateError,
     aggregate,
@@ -24,6 +17,7 @@ from url4_cloud.benchmarks.healthbench.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
     RUBRIC_EVALUATION_SCHEMA,
 )
+from url4_cloud.benchmarks.healthbench.records import CASE_SCHEMA, RUBRIC_SCHEMA
 from url4_cloud.benchmarks.healthbench.verdict import SCHEMA as VERDICT_SCHEMA
 
 
@@ -67,15 +61,25 @@ def _evidence(case_id: int, rubric_id: int, met: bool) -> dict[str, object]:
     }
 
 
-def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
+def _case_row(
+    case_id: int,
+    verdicts: dict[int, bool],
+    *,
+    refusal: str | None = None,
+) -> dict[str, object]:
+    output = None if refusal is not None else f"output-{case_id}"
+    answer = refusal if refusal is not None else output
     return {
         "schema": CASE_EVALUATION_SCHEMA,
         "case_id": case_id,
         "case": {
+            "schema": CASE_SCHEMA,
             "case_id": case_id,
             "input": f"input-{case_id}",
-            "output": f"output-{case_id}",
-            "finish_reason": "stop",
+            "answer": answer,
+            "output": output,
+            "finish_reason": "content_filter" if refusal is not None else "stop",
+            "refusal": refusal,
             "metadata": {},
         },
         "rubric_evaluations": [
@@ -83,7 +87,12 @@ def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
                 "schema": RUBRIC_EVALUATION_SCHEMA,
                 "case_id": case_id,
                 "rubric_id": rubric_id,
-                "rubric": {"rubric_id": rubric_id, "rubric_item": f"[1] c{rubric_id}"},
+                "rubric": {
+                    "schema": RUBRIC_SCHEMA,
+                    "case_id": case_id,
+                    "rubric_id": rubric_id,
+                    "rubric_item": f"[1] c{rubric_id}",
+                },
                 "evidence": _evidence(case_id, rubric_id, met),
             }
             for rubric_id, met in verdicts.items()
@@ -111,8 +120,8 @@ def test_fully_judged_cases_score_and_mean_unclipped(tmp_path: Path) -> None:
     )
     result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
     assert result["score"] == pytest.approx((1.0 - 0.4) / 2)
+    assert result["coverage"] == 1.0
     assert result["metrics"].get("scored_cases") == 2
-    assert result["metrics"].get("failed_cases") == 0
     assert result["metrics"].get("verdict_coverage") == 1.0
     assert _failure_codes(result) == {1: None, 2: None}
     # The check-level verdict the SDK renders from (ifeval precedent): the judge's
@@ -160,12 +169,9 @@ def test_canonical_contract_metrics_map_healthbench_semantics(tmp_path: Path) ->
     """The MAPPING is under test — presence/range is the CandidateResult model's job.
 
     pass_rate is the UNWEIGHTED criterion hit rate (met / judged), deliberately
-    different from `score`, the point-weighted unclipped mean; coverage equals the
-    long-published `verdict_coverage` (append-only, both keys stay). HealthBench's
-    all-or-nothing rule makes coverage 1.0 whenever a score exists at all — partial
-    judging forces score None with EMPTY metrics — so the SDK low-coverage warning
-    cannot fire here by construction; the keys exist for the cross-benchmark
-    contract and the report tiles.
+    different from `score`, the point-weighted unclipped mean. Top-level coverage
+    counts gradeable Cases, while verdict_coverage describes rubric completeness
+    within those grades.
     """
 
     _write_rubric(tmp_path, 1, [7, 8, -6])
@@ -179,7 +185,7 @@ def test_canonical_contract_metrics_map_healthbench_semantics(tmp_path: Path) ->
     result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
     # 2 of 4 judged criteria met (case 1: only the penalty item; case 2: its one item).
     assert result["metrics"]["pass_rate"] == pytest.approx(0.5)
-    assert result["metrics"]["coverage"] == result["metrics"]["verdict_coverage"] == 1.0
+    assert result["coverage"] == result["metrics"]["verdict_coverage"] == 1.0
     # The weighted/unweighted distinction is real: same run, different numbers.
     assert result["score"] != result["metrics"]["pass_rate"]
 
@@ -196,38 +202,34 @@ def test_a_negative_unclipped_mean_survives_the_contract(tmp_path: Path) -> None
     assert result["metrics"]["pass_rate"] == 1.0  # every criterion judged MET — yet negative
 
 
-def test_duplicate_judge_entries_are_noise_not_extra_credit(tmp_path: Path) -> None:
-    """INVARIANT: duplicate judge entries for one rubric_id are noise, not extra
-    credit — met must never exceed judged. ``_verdicts`` dedupes by rubric_id, so
-    ``_checks`` must emit exactly one check per rubric_id (the same entry the
-    verdict kept); a second check would push pass_rate past 1.0 and the canonical
-    metric bound would convert the ENTIRE run to benchmark_unavailable."""
+def test_duplicate_rubric_entries_abort_as_protocol_corruption(tmp_path: Path) -> None:
 
     _write_rubric(tmp_path, 1, [5, 3])
     row = _case_row(1, {1: True, 2: True})
     evaluations = row["rubric_evaluations"]
     assert isinstance(evaluations, list)
-    # Judge retry duplication: rubric 1 arrives twice, both entries valid MET.
     evaluations.append(json.loads(json.dumps(evaluations[0])))
-    result = aggregate(
-        json.dumps([row]), tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,)
-    )
-    assert result["metrics"]["pass_rate"] <= 1.0
-    checks = result["cases"][0]["grade"]["checks"]
-    assert [check["id"] for check in checks] == ["1", "2"]
+    with pytest.raises(AggregateError, match="duplicate HealthBench rubric_id"):
+        aggregate(
+            json.dumps([row]),
+            tmp_path,
+            benchmark_id="hb",
+            benchmark_revision="rev",
+            case_ids=(1,),
+        )
 
 
-def test_a_missing_rubric_asset_fails_the_case_and_the_exam(tmp_path: Path) -> None:
+def test_a_missing_rubric_asset_lowers_coverage_without_erasing_valid_scores(
+    tmp_path: Path,
+) -> None:
     _write_rubric(tmp_path, 1, [7])
     _write_case(tmp_path, 2)
     rows = json.dumps([_case_row(1, {1: True}), _case_row(2, {1: True})])
     result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
-    # B1: the broken Case is IN the output, and the exam refuses to publish a mean.
-    assert result["score"] is None
+    assert result["score"] == 1.0
+    assert result["coverage"] == 0.5
     assert _failure_codes(result) == {1: None, 2: "missing_rubric_asset"}
-    # SDK report rule: an unscored Candidate must carry EMPTY metrics — the
-    # per-Case failures rows are the diagnosis channel instead.
-    assert result["metrics"] == {}
+    assert result["metrics"]["scored_cases"] == 1
 
 
 def test_an_error_collected_row_fails_its_case(tmp_path: Path) -> None:
@@ -249,10 +251,11 @@ def test_an_error_collected_row_fails_its_case(tmp_path: Path) -> None:
         ]
     )
     result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
-    assert result["score"] is None
+    assert result["score"] == 1.0
+    assert result["coverage"] == 0.5
     assert _failure_codes(result)[2] == "case_error"
     failed = next(case for case in result["cases"] if case["case_id"] == 2)
-    assert failed["grade"] is None
+    assert failed["grade"]["score"] is None
     assert failed["failures"][0]["message"] == "the provider was unavailable"
     assert failed["failures"][0]["metadata"]["source_error"] == {
         "kind": "ResolutionError",
@@ -279,31 +282,20 @@ def test_partial_verdicts_never_score(tmp_path: Path) -> None:
     assert result["metrics"] == {}  # unscored → empty (SDK report rule)
 
 
-def test_a_malformed_case_envelope_fails_its_case_not_the_whole_run(tmp_path: Path) -> None:
-    """INVARIANT: one malformed row must not destroy the whole run's published result.
-
-    A fully-judged row whose hoisted ``case`` envelope is missing (or not a
-    mapping) has no usable candidate output — it must become a visible FAILED
-    Case, never reach the scored path (whose contract demands an output) and
-    never raise out of ``aggregate`` into benchmark_unavailable.
-    """
+def test_a_malformed_case_envelope_aborts_as_protocol_corruption(tmp_path: Path) -> None:
 
     _write_rubric(tmp_path, 1, [7])
     _write_rubric(tmp_path, 2, [3])
     malformed = _case_row(2, {1: True})
     del malformed["case"]  # complete verdicts, but the candidate envelope is gone
-    result = aggregate(
-        json.dumps([_case_row(1, {1: True}), malformed]),
-        tmp_path,
-        benchmark_id="hb",
-        benchmark_revision="rev",
-        case_ids=(1, 2),
-    )
-    assert result["score"] is None
-    assert _failure_codes(result) == {1: None, 2: "invalid_case_evaluation"}
-    failed = next(case for case in result["cases"] if case["case_id"] == 2)
-    assert failed["status"] == "failed"
-    assert failed["output"] is None
+    with pytest.raises(AggregateError, match="invalid HealthBench Case Evaluation"):
+        aggregate(
+            json.dumps([_case_row(1, {1: True}), malformed]),
+            tmp_path,
+            benchmark_id="hb",
+            benchmark_revision="rev",
+            case_ids=(1, 2),
+        )
 
 
 def test_invalid_judge_evidence_counts_and_fails_the_case(tmp_path: Path) -> None:
@@ -335,20 +327,7 @@ def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Pa
 
     result = aggregate(
         json.dumps(
-            [
-                {
-                    "error": {
-                        "kind": "ProviderRefusal",
-                        "message": str(ProviderRefusal(first, finish_reason="content_filter")),
-                    }
-                },
-                {
-                    "error": {
-                        "kind": "ProviderRefusal",
-                        "message": str(ProviderRefusal(second, finish_reason="content_filter")),
-                    }
-                },
-            ]
+            [_case_row(1, {1: True}, refusal=first), _case_row(2, {1: False}, refusal=second)]
         ),
         tmp_path,
         benchmark_id="hb",
@@ -356,14 +335,16 @@ def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Pa
         case_ids=(1, 2),
     )
 
-    assert result["score"] is None
-    assert result["metrics"] == {}
+    assert result["score"] == 0.5
+    assert result["coverage"] == 1.0
     assert [case["status"] for case in result["cases"]] == ["refused", "refused"]
     assert [case["refusal"] for case in result["cases"]] == [first, second]
     assert [case["finish_reason"] for case in result["cases"]] == [
         "content_filter",
         "content_filter",
     ]
+    assert [case["grade"]["score"] for case in result["cases"]] == [1.0, 0.0]
+    assert [case["failures"] for case in result["cases"]] == [[], []]
 
 
 def test_a_missing_case_row_is_visible(tmp_path: Path) -> None:
@@ -376,7 +357,8 @@ def test_a_missing_case_row_is_visible(tmp_path: Path) -> None:
         benchmark_revision="rev",
         case_ids=(1, 2),
     )
-    assert result["score"] is None
+    assert result["score"] == 1.0
+    assert result["coverage"] == 0.5
     assert _failure_codes(result)[2] == "missing_case_row"
 
 

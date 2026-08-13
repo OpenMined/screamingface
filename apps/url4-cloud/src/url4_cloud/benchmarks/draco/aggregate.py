@@ -57,10 +57,8 @@ from typing import Any
 from url4_cloud.benchmarks.aggregation import (
     CandidateScore,
     SelectedCase,
-    collected_provider_refusal,
     finalize_candidate_result,
     public_error,
-    refused_case_result,
 )
 from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.draco import assets
@@ -71,7 +69,6 @@ from url4_cloud.benchmarks.draco.errors import AggregateError as AggregateError
 from url4_cloud.benchmarks.draco.scoring import flatten_criteria as flatten_criteria
 from url4_cloud.benchmarks.draco.validation import optional_integer
 
-COVERAGE_TARGET = case_results_module.COVERAGE_TARGET
 VERDICT_SCHEMA = case_results_module.VERDICT_SCHEMA
 group_runs = case_results_module.group_runs
 valid_verdicts = case_results_module.valid_verdicts
@@ -115,11 +112,10 @@ def aggregate(
 ) -> dict[str, Any]:
     """Reduce the row array into a Candidate Result — one row per Case.
 
-    INVARIANT: a case that produced no verdicts is never scored 0.0. Scoring it zero would
+    INVARIANT: a Case that produced no valid verdicts is never scored 0.0. Scoring it zero would
     penalise the Candidate for a harness failure, the same class of error as counting an unjudged
-    criterion as UNMET. Instead the whole Candidate goes unscored: if ANY Case Result lacks a
-    numeric grade, the result carries ``score: None`` and empty ``metrics``, so a partial run can
-    never be mistaken for a complete one.
+    criterion as UNMET. The Case instead carries no numeric grade, is excluded from the official
+    reduction, and lowers the Candidate's factual top-level coverage.
 
     The Case-scoped failure is attached to its own Case Result. Candidate-level ``failures`` stays
     empty by design — it is reserved for failures that cannot be attributed to a selected Case.
@@ -165,7 +161,7 @@ def aggregate(
 
 
 def _draco_score(cases: Sequence[CaseResult]) -> CandidateScore:
-    """Apply the official DRACO cross-Case reduction to complete typed Cases."""
+    """Apply the official DRACO cross-Case reduction to gradeable typed Cases."""
 
     scored = [case.model_dump() for case in cases]
     return CandidateScore(
@@ -178,9 +174,8 @@ def _draco_score(cases: Sequence[CaseResult]) -> CandidateScore:
             "accuracy_pass_rate": _mean_optional_grade_metrics(scored, "accuracy_pass_rate"),
             "axis_scores": _mean_grade_metric_maps(scored, "axis_scores"),
             "axis_pass_rates": _mean_grade_metric_maps(scored, "axis_pass_rates"),
-            "coverage": _mean_grade_metrics(scored, "coverage"),
-            "coverage_sd": _mean_grade_metrics(scored, "coverage_sd"),
-            "coverage_target": COVERAGE_TARGET,
+            "verdict_coverage": _mean_grade_metrics(scored, "coverage"),
+            "verdict_coverage_sd": _mean_grade_metrics(scored, "coverage_sd"),
             "n_runs": max((_grade_metric(case, "n_runs") for case in scored), default=0),
             "verdicts_expected": _sum_grade_metrics(scored, "verdicts_expected"),
             "verdicts_accepted": _sum_grade_metrics(scored, "verdicts_accepted"),
@@ -222,25 +217,6 @@ def _aggregate_rows(
     case_results: list[CaseResult] = []
     for index, row in enumerate(decoded_rows):
         if not row.case_records:
-            if refusal := collected_provider_refusal(row.raw):
-                selected = SelectedCase(
-                    case_id=int(row.expected_case["id"]),
-                    input=str(row.expected_case["input"]),
-                    metadata={
-                        key: value
-                        for key, value in row.expected_case.items()
-                        if key not in {"id", "input"}
-                    },
-                )
-                case_results.append(
-                    refused_case_result(
-                        selected_case=selected,
-                        refusal=refusal.text,
-                        finish_reason=refusal.finish_reason,
-                        metadata={"row_index": index},
-                    )
-                )
-                continue
             failure = _row_failure(
                 row.raw,
                 index,
@@ -349,30 +325,9 @@ def _require_verifiable_mapping(rows: Sequence[_DecodedRow]) -> None:
 
     claimed: dict[int, int] = {}
     for index, row in enumerate(rows):
-        case_records = row.case_records
-        check_records = row.checks
-        verdicts = row.evidence
-        if not case_records and not verdicts:
+        case_id = _verified_row_case_id(row, index)
+        if case_id is None:
             continue
-        if len(case_records) != 1:
-            raise AggregateError(
-                f"Case result at position {index} must carry exactly one Engine-bound Case record; "
-                f"found {len(case_records)}"
-            )
-        ids = [
-            optional_integer(record.get("case_id"))
-            for record in (*case_records, *check_records, *verdicts)
-        ]
-        if any(case_id is None for case_id in ids):
-            raise AggregateError(
-                f"Case result at position {index} has a verdict without an Engine-bound case_id"
-            )
-        unique = {case_id for case_id in ids if case_id is not None}
-        if len(unique) != 1:
-            raise AggregateError(
-                f"Case result at position {index} carries multiple case_id values {sorted(unique)}"
-            )
-        case_id = unique.pop()
         previous = claimed.get(case_id)
         if previous is not None:
             raise AggregateError(
@@ -386,6 +341,35 @@ def _require_verifiable_mapping(rows: Sequence[_DecodedRow]) -> None:
                 f"but the selected Case is {expected_id}"
             )
         claimed[case_id] = index
+
+
+def _verified_row_case_id(row: _DecodedRow, index: int) -> int | None:
+    if row.evaluation is None:
+        error = row.raw.get("error") if isinstance(row.raw, Mapping) else None
+        if isinstance(error, Mapping):
+            return None
+        detail = f": {row.decode_error}" if row.decode_error else ""
+        raise AggregateError(
+            f"Case result at position {index} is not a valid DRACO Case Evaluation{detail}"
+        )
+    case_records = row.case_records
+    if len(case_records) != 1:  # pragma: no cover - exact decoder seals this
+        raise AggregateError(
+            f"Case result at position {index} must carry exactly one Engine-bound Case record; "
+            f"found {len(case_records)}"
+        )
+    records = (*case_records, *row.checks, *row.evidence)
+    identities = [optional_integer(record.get("case_id")) for record in records]
+    if any(case_id is None for case_id in identities):
+        raise AggregateError(
+            f"Case result at position {index} has a verdict without an Engine-bound case_id"
+        )
+    unique = {case_id for case_id in identities if case_id is not None}
+    if len(unique) != 1:
+        raise AggregateError(
+            f"Case result at position {index} carries multiple case_id values {sorted(unique)}"
+        )
+    return unique.pop()
 
 
 def _validate_selected_cases(

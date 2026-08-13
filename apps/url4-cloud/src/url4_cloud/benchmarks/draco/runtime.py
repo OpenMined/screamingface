@@ -221,7 +221,7 @@ def _task_rows(
         try:
             case_id = tasks.positive_case_id(request.intent)
             answer = candidate_answer(request.context)
-            output, finish_reason = answer.output, answer.finish_reason
+            evaluator_text, finish_reason = answer.text, answer.finish_reason
             raw_cases = _read(root / "cases.json", "DRACO cases")
             criteria = tasks.load_criteria(root / "criteria", case_id)
             rubric = json_object(
@@ -238,13 +238,15 @@ def _task_rows(
             result = tasks.build_tasks(
                 case_id,
                 tasks.load_question(root / "criteria", case_id),
-                output,
+                evaluator_text,
                 selected_criteria,
             )
             case_record = records.bind_case(
                 raw_cases,
                 case_id=case_id,
-                output=output,
+                answer=evaluator_text,
+                output=answer.output,
+                refusal=answer.refusal,
                 finish_reason=finish_reason,
             )
             for index, row in enumerate(result):

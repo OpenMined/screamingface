@@ -95,7 +95,8 @@ def _candidate(**overrides: Any) -> CandidateResult:
         "benchmark_revision": "rev",
         "case_count": 1,
         "score": 1.0,
-        "metrics": {"pass_rate": 1.0, "coverage": 1.0, "strict_accuracy": 1.0},
+        "coverage": 1.0,
+        "metrics": {"pass_rate": 1.0, "strict_accuracy": 1.0},
         "cases": [_scored_case()],
         "failures": [],
     }
@@ -112,7 +113,8 @@ def test_scored_result_serializes_the_strict_v1_shape() -> None:
         "benchmark_revision": "rev",
         "case_count": 1,
         "score": 1.0,
-        "metrics": {"pass_rate": 1.0, "coverage": 1.0, "strict_accuracy": 1.0},
+        "coverage": 1.0,
+        "metrics": {"pass_rate": 1.0, "strict_accuracy": 1.0},
         "cases": [
             {
                 "status": "scored",
@@ -209,6 +211,11 @@ def test_provider_finish_reason_is_preserved_without_a_closed_sdk_vocabulary() -
     assert decode_candidate_invocation(encoded) == ("answer", reason, None)
 
 
+def test_candidate_invocation_rejects_an_answer_and_refusal_together() -> None:
+    with pytest.raises(ValueError, match="refused Candidate Invocation"):
+        encode_candidate_invocation("answer", "content_filter", "exact refusal")
+
+
 def test_open_wire_fields_accept_only_json_values() -> None:
     for build in (
         lambda: _evidence(raw_output={"not-json"}),
@@ -218,13 +225,13 @@ def test_open_wire_fields_accept_only_json_values() -> None:
         lambda: _grade(metrics={"value": object()}),
         lambda: _failure(metadata={"value": object()}),
         lambda: _scored_case(metadata={"value": object()}),
-        lambda: _candidate(metrics={"pass_rate": 1.0, "coverage": 1.0, "value": object()}),
+        lambda: _candidate(metrics={"pass_rate": 1.0, "value": object()}),
     ):
         with pytest.raises(ValidationError, match="JSON"):
             build()
 
 
-def test_refused_case_preserves_exact_refusal_and_provider_failure() -> None:
+def test_refused_case_preserves_exact_refusal_and_normal_grade() -> None:
     refusal = "I can’t provide that dosage."
     case = CaseResult(
         status="refused",
@@ -233,20 +240,14 @@ def test_refused_case_preserves_exact_refusal_and_provider_failure() -> None:
         output=None,
         finish_reason="content_filter",
         refusal=refusal,
-        grade=None,
-        failures=[
-            _failure(
-                stage="candidate",
-                code="provider_refusal",
-                message="the provider refused this Candidate request",
-                retryable=False,
-            )
-        ],
+        grade=_grade(score=0.0),
+        failures=[],
         metadata={},
     )
 
     assert case.refusal == refusal
-    assert case.failures[0].code == "provider_refusal"
+    assert case.grade is not None and case.grade.score == 0.0
+    assert case.failures == []
     with pytest.raises(ValidationError, match="refused Case"):
         CaseResult(**{**case.model_dump(), "refusal": None})
 
@@ -300,14 +301,13 @@ def test_candidate_level_failures_must_not_claim_a_case() -> None:
         )
 
 
-def test_candidate_requires_exact_case_count_and_canonical_scored_metrics() -> None:
+def test_candidate_requires_exact_case_count_and_derived_top_level_coverage() -> None:
     with pytest.raises(ValidationError, match="case_count"):
         _candidate(case_count=2)
-    for missing in ("pass_rate", "coverage"):
-        metrics = {"pass_rate": 1.0, "coverage": 1.0}
-        del metrics[missing]
-        with pytest.raises(ValidationError, match=missing):
-            _candidate(metrics=metrics)
+    with pytest.raises(ValidationError, match="coverage"):
+        _candidate(coverage=0.5)
+    with pytest.raises(ValidationError, match="metrics.coverage"):
+        _candidate(metrics={"coverage": 1.0})
 
 
 def test_unscored_candidate_cannot_publish_plausible_partial_metrics() -> None:
@@ -322,18 +322,18 @@ def test_unscored_candidate_cannot_publish_plausible_partial_metrics() -> None:
         failures=[_failure()],
         metadata={},
     )
-    assert _candidate(score=None, metrics={}, cases=[failed]).score is None
+    assert _candidate(score=None, coverage=0.0, metrics={}, cases=[failed]).score is None
 
     with pytest.raises(ValidationError, match="unscored"):
-        _candidate(score=None, cases=[failed])
+        _candidate(score=None, coverage=0.0, cases=[failed])
 
 
-def test_unscored_candidate_requires_an_explicit_failure_or_non_scored_case() -> None:
-    with pytest.raises(ValidationError, match="must be explained"):
-        _candidate(score=None, metrics={})
+def test_unscored_candidate_cannot_retain_a_numeric_case_grade() -> None:
+    with pytest.raises(ValidationError, match="coverage|numeric Case grade"):
+        _candidate(score=None, coverage=0.0, metrics={})
 
 
-def test_candidate_score_is_unscored_when_any_case_is_not_scored() -> None:
+def test_candidate_score_can_retain_an_ungradeable_case_with_factual_coverage() -> None:
     failed = CaseResult(
         status="failed",
         case_id=7,
@@ -345,8 +345,13 @@ def test_candidate_score_is_unscored_when_any_case_is_not_scored() -> None:
         failures=[_failure()],
         metadata={},
     )
-    with pytest.raises(ValidationError, match="non-scored Case"):
-        _candidate(cases=[failed])
+    result = _candidate(
+        case_count=2,
+        coverage=0.5,
+        cases=[_scored_case(1), failed],
+    )
+    assert result.score == 1.0
+    assert result.coverage == 0.5
 
 
 def test_healthbench_negative_score_remains_valid() -> None:

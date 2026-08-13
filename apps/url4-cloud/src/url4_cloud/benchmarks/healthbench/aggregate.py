@@ -1,12 +1,12 @@
-"""Reduce collected HealthBench Case evaluations into one challenge result.
+"""Reduce trustworthy HealthBench Case evaluations into one challenge result.
 
 Think of this as the exam office totalling a stack of graded papers into one
 final grade. It receives one row per Case (the graded paper), scores each, and
 returns the exam score: the unclipped mean of the Case scores.
 
-INVARIANT — all-or-nothing: if ANY Case can't be scored, the exam score is
-``None``. Every broken Case still shows up in ``cases`` as ``status: "failed"``
-with a reason; nothing is silently skipped.
+Every selected Case stays visible. Cases with complete rubric Evidence carry
+their normal penalty-bearing grade; infrastructure failures carry no numeric
+grade, lower top-level coverage, and are excluded from the official mean.
 
 Why so strict? Two ways a lenient reducer would quietly CHEAT in the
 submitter's favor:
@@ -21,11 +21,10 @@ submitter's favor:
    the judge call failed and we defaulted to "not hit", the -3 vanishes and the
    Case scores higher than it should.
 
-Both are excluded structurally: a Case is scored only when every rubric item
-has a valid verdict (no defaults), and the mean is computed only when every
-selected Case scored (no drops). Broken input at any level — unreadable rubric
-asset, missing or error-collected row, invalid judge reply, partial verdict
-set — becomes a visible failed Case, never a shrug.
+Both failure classes stay explicit: a Case is scored only when every rubric
+item has a valid verdict (no defaults), and a missing grade is retained rather
+than converted to zero. Malformed or mismatched internal envelopes abort the
+run because their identities or contents cannot be trusted.
 """
 
 from __future__ import annotations
@@ -38,7 +37,6 @@ from typing import Any
 from url4_cloud.benchmarks.aggregation import (
     CandidateScore,
     SelectedCase,
-    collected_provider_refusal,
     failed_case_result,
     finalize_candidate_result,
     public_error,
@@ -46,7 +44,7 @@ from url4_cloud.benchmarks.aggregation import (
     scored_case_result,
 )
 from url4_cloud.benchmarks.contract import CaseResult
-from url4_cloud.benchmarks.healthbench.case_evaluation import CASE_EVALUATION_SCHEMA
+from url4_cloud.benchmarks.healthbench.case_evaluation import decode_case_evaluation
 from url4_cloud.benchmarks.healthbench.scoring import (
     case_score,
     sample_stdev,
@@ -124,12 +122,9 @@ def aggregate(
 ) -> dict[str, Any]:
     """Score every selected Case, then the exam — unclipped mean (see scoring.py).
 
-    Walks ``case_ids`` (the selection is authoritative — rows that showed up but
-    weren't selected don't count, selected Cases with no row fail visibly), scores
-    each via ``_case_result``, and only if EVERY Case scored computes the mean —
-    the all-or-nothing rule from the module docstring. The metrics block reports
-    how healthy the run was (coverage, invalid judge replies, failed Cases) so a
-    ``score: None`` is diagnosable from the result alone.
+    ``case_ids`` is authoritative. Missing or explicitly error-collected Cases
+    remain visible without a grade; valid Cases are scored with the unchanged
+    HealthBench math. The shared finalizer publishes their factual coverage.
 
     Reference counterpart: the metric aggregation in ``HealthBenchEval``
     (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py) —
@@ -157,7 +152,7 @@ def aggregate(
 
 
 def _healthbench_score(cases: Sequence[CaseResult]) -> CandidateScore:
-    """Apply HealthBench's unclipped penalty-bearing reduction to complete Cases."""
+    """Apply HealthBench's unclipped penalty-bearing reduction to gradeable Cases."""
 
     grades = [case.grade for case in cases]
     if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
@@ -176,9 +171,7 @@ def _healthbench_score(cases: Sequence[CaseResult]) -> CandidateScore:
         score=round(mean, 4),
         metrics={
             "pass_rate": round(met_items / judged_items, 4) if judged_items else 0.0,
-            "coverage": coverage,
             "scored_cases": len(scores),
-            "failed_cases": 0,
             "score_sd": round(sample_stdev(scores), 4),
             "verdict_coverage": coverage,
             "judge_invalid_replies": invalid_replies,
@@ -212,7 +205,42 @@ def _case_result(
     invalid_reply_count)``.
     """
 
+    terminal = _terminal_failure_outcome(selected_case, row, points, orphan_errors)
+    if terminal is not None:
+        return terminal
+    assert row is not None and points is not None
+    verdicts, invalid = _verdicts(row)
+    checks = _checks(row, points)
+    score = case_score(points, verdicts) if len(verdicts) == len(points) and not invalid else None
+    if score is None:
+        complete = len(verdicts) == len(points) and not invalid
+        failure = _failure(
+            int(selected_case.case_id),
+            "grading",
+            # WHY: a complete-but-unscorable Case means the baked asset lost its
+            # positive-points item (prepare guarantees one) — name it distinctly.
+            "no_positive_points" if complete else "incomplete_verdicts",
+            judged=len(verdicts),
+            expected=len(points),
+        )
+        return (
+            _failed_result(selected_case, row, checks, failure),
+            None,
+            len(verdicts),
+            sum(verdicts.values()),
+            invalid,
+        )
+    return _scored_outcome(selected_case, row, points, verdicts, checks, score, invalid)
+
+
+def _terminal_failure_outcome(
+    selected_case: SelectedCase,
+    row: Mapping[str, Any] | None,
+    points: list[int] | None,
+    orphan_errors: list[dict[str, Any]] | None,
+) -> tuple[CaseResult, float | None, int, int, int] | None:
     case_id = int(selected_case.case_id)
+    outcome: tuple[CaseResult, float | None, int, int, int] | None
     if points is None:
         failure = _failure(case_id, "grading", "missing_rubric_asset")
         outcome = _failed_result(selected_case, row, [], failure), None, 0, 0, 0
@@ -226,83 +254,52 @@ def _case_result(
         failure = _failure(case_id, "candidate", "case_error", error=row["error"])
         outcome = _failed_result(selected_case, row, [], failure), None, 0, 0, 0
     else:
-        verdicts, invalid = _verdicts(row)
-        checks = _checks(row, points)
-        score = (
-            case_score(points, verdicts) if len(verdicts) == len(points) and not invalid else None
-        )
-        if score is None:
-            complete = len(verdicts) == len(points) and not invalid
-            failure = _failure(
-                case_id,
-                "grading",
-                # WHY: a complete-but-unscorable Case means the baked asset lost its
-                # positive-points item (prepare guarantees one) — name it distinctly.
-                "no_positive_points" if complete else "incomplete_verdicts",
-                judged=len(verdicts),
-                expected=len(points),
-            )
-            outcome = (
-                _failed_result(selected_case, row, checks, failure),
-                None,
-                len(verdicts),
-                sum(verdicts.values()),
-                invalid,
-            )
-        elif _candidate_fields(row)["output"] is None:
-            # WHY: the contract forbids a scored Case without an output — a
-            # fully-judged row whose hoisted case envelope is missing or
-            # malformed must fail VISIBLY here, not trip the CaseResult
-            # validator and turn the whole Candidate run into
-            # benchmark_unavailable (one bad row destroying a paid run).
-            failure = _failure(case_id, "candidate", "invalid_case_evaluation")
-            outcome = (
-                _failed_result(selected_case, row, checks, failure),
-                None,
-                len(verdicts),
-                sum(verdicts.values()),
-                invalid,
-            )
-        else:
-            fields = _candidate_fields(row)
-            scored = scored_case_result(
-                selected_case=selected_case,
-                output=fields["output"],
-                finish_reason=fields["finish_reason"],
-                grade={
-                    "method": "rubric",
-                    "score": round(score, 4),
-                    "metrics": {
-                        "judged": len(verdicts),
-                        "expected": len(points),
-                        "invalid_replies": invalid,
-                    },
-                    "checks": checks,
-                },
-                metadata=fields["metadata"],
-            )
-            outcome = scored, score, len(verdicts), sum(verdicts.values()), invalid
+        outcome = None
     return outcome
+
+
+def _scored_outcome(
+    selected_case: SelectedCase,
+    row: Mapping[str, Any],
+    points: list[int],
+    verdicts: Mapping[int, bool],
+    checks: list[dict[str, Any]],
+    score: float,
+    invalid: int,
+) -> tuple[CaseResult, float, int, int, int]:
+    fields = _candidate_fields(row)
+    grade = {
+        "method": "rubric",
+        "score": round(score, 4),
+        "metrics": {
+            "judged": len(verdicts),
+            "expected": len(points),
+            "invalid_replies": invalid,
+        },
+        "checks": checks,
+    }
+    if fields["refusal"] is not None:
+        scored = refused_case_result(
+            selected_case=selected_case,
+            refusal=fields["refusal"],
+            finish_reason=fields["finish_reason"],
+            grade=grade,
+            metadata=fields["metadata"],
+        )
+    else:
+        scored = scored_case_result(
+            selected_case=selected_case,
+            output=fields["output"],
+            finish_reason=fields["finish_reason"],
+            grade=grade,
+            metadata=fields["metadata"],
+        )
+    return scored, score, len(verdicts), sum(verdicts.values()), invalid
 
 
 def _missing_row_outcome(
     selected_case: SelectedCase, orphan_errors: list[dict[str, Any]] | None
 ) -> tuple[CaseResult, None, int, int, int]:
-    refusal = next(
-        (
-            value
-            for error in orphan_errors or []
-            if (value := collected_provider_refusal(error)) is not None
-        ),
-        None,
-    )
-    if refusal is not None:
-        refused = refused_case_result(
-            selected_case=selected_case,
-            refusal=refusal.text,
-            finish_reason=refusal.finish_reason,
-        )
-        return refused, None, 0, 0, 0
     case_id = int(selected_case.case_id)
     failure = _failure(
         case_id,
@@ -318,13 +315,15 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
 
     case = row.get("case") if isinstance(row, Mapping) else None
     if not isinstance(case, Mapping):
-        return {"output": None, "finish_reason": None, "metadata": {}}
+        return {"output": None, "finish_reason": None, "refusal": None, "metadata": {}}
     metadata = case.get("metadata")
     output = case.get("output")
     finish_reason = case.get("finish_reason")
+    refusal = case.get("refusal")
     return {
         "output": output if isinstance(output, str) else None,
         "finish_reason": finish_reason if isinstance(finish_reason, str) else None,
+        "refusal": refusal if isinstance(refusal, str) and refusal.strip() else None,
         "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
     }
 
@@ -336,20 +335,25 @@ def _failed_result(
     failure: dict[str, Any],
 ) -> CaseResult:
     fields = _candidate_fields(row)
-    grade = (
-        None
-        if not checks
-        else {
-            # WHY a grade with score None instead of dropping the checks: the
-            # judge evidence for an incompletely-judged Case is audit material
-            # (module INVARIANT) and the grade's checks list is the contract's
-            # slot for it.
-            "method": "rubric",
-            "score": None,
-            "metrics": {},
-            "checks": checks,
-        }
-    )
+    grade = {
+        # WHY a grade with score None instead of dropping the checks: the
+        # judge evidence for an incompletely-judged Case is audit material
+        # (module INVARIANT) and the grade's checks list is the contract's
+        # slot for it.
+        "method": "rubric",
+        "score": None,
+        "metrics": {},
+        "checks": checks,
+    }
+    if fields["refusal"] is not None:
+        return refused_case_result(
+            selected_case=selected_case,
+            refusal=fields["refusal"],
+            finish_reason=fields["finish_reason"],
+            grade=grade,
+            failures=[failure],
+            metadata=fields["metadata"],
+        )
     return failed_case_result(
         selected_case=selected_case,
         failures=[failure],
@@ -505,39 +509,61 @@ def _decode_rows(raw: str) -> list[Any]:
 def _index_rows(
     rows: list[Any], case_ids: tuple[int, ...]
 ) -> tuple[dict[int, dict[str, Any]], dict[int, list[dict[str, Any]]]]:
-    """Split rows into per-Case evaluations and identity-less orphan error rows.
+    """Validate rows and split evaluations from positional collected errors.
 
     An ``on_error=collect`` row loses its Case identity, so it cannot be indexed;
     it is RETAINED as an orphan and attached to whichever selected Case ends up
     with no row (the missing_case_row failure) — the cause must never be dropped.
     """
 
+    if len(rows) > len(case_ids):
+        raise AggregateError(
+            f"aggregate received {len(rows)} rows for {len(case_ids)} selected Cases"
+        )
     indexed: dict[int, dict[str, Any]] = {}
     errors_by_case: dict[int, list[dict[str, Any]]] = {}
     for index, entry in enumerate(rows):
-        expected_case_id = case_ids[index] if index < len(case_ids) else None
-        row, parse_error = _row_value(entry)
-        if parse_error is not None:
-            _attach_collected_error(errors_by_case, expected_case_id, parse_error)
-            continue
-        if row is None:
-            continue
-        if "error" in row and "case_id" not in row:
-            _attach_collected_error(errors_by_case, expected_case_id, dict(row))
-            continue
-        if row.get("schema") == CASE_EVALUATION_SCHEMA:
-            case_id = row.get("case_id")
-            if isinstance(case_id, int) and not isinstance(case_id, bool):
-                indexed[case_id] = dict(row)
+        _index_row(entry, index, case_ids[index], indexed, errors_by_case)
     return indexed, errors_by_case
 
 
-def _row_value(entry: object) -> tuple[Mapping[str, Any] | None, dict[str, Any] | None]:
+def _index_row(
+    entry: object,
+    index: int,
+    expected_case_id: int,
+    indexed: dict[int, dict[str, Any]],
+    errors_by_case: dict[int, list[dict[str, Any]]],
+) -> None:
+    row = _row_value(entry, index)
+    error = row.get("error")
+    if error is None:
+        try:
+            indexed[expected_case_id] = decode_case_evaluation(row, expected_case_id)
+        except ValueError as exc:
+            raise AggregateError(f"Case result at position {index} is invalid: {exc}") from None
+        return
+    if not isinstance(error, Mapping):
+        raise AggregateError(f"Case result at position {index} has an invalid error")
+    claimed = row.get("case_id")
+    if claimed is not None and claimed != expected_case_id:
+        raise AggregateError(
+            f"Case result at position {index} claims case_id {claimed}, "
+            f"but the selected Case is {expected_case_id}"
+        )
+    if claimed is None:
+        _attach_collected_error(errors_by_case, expected_case_id, dict(row))
+    else:
+        indexed[expected_case_id] = dict(row)
+
+
+def _row_value(entry: object, index: int) -> Mapping[str, Any]:
     try:
         row = json.loads(entry) if isinstance(entry, str) else entry
-    except ValueError:
-        return None, {"error": {"kind": "InvalidCollectedRow"}}
-    return (row, None) if isinstance(row, Mapping) else (None, None)
+    except ValueError as exc:
+        raise AggregateError(f"Case result at position {index} is not JSON: {exc}") from None
+    if not isinstance(row, Mapping):
+        raise AggregateError(f"Case result at position {index} must be an object")
+    return row
 
 
 def _attach_collected_error(

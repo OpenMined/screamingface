@@ -201,11 +201,22 @@ def _require(condition: object, message: str) -> None:
 
 def _valid_case(value: Mapping[str, Any], case_id: int) -> bool:
     finish_reason = value.get("finish_reason")
+    answer = value.get("answer")
+    output = value.get("output")
+    refusal = value.get("refusal")
+    outcome_valid = isinstance(answer, str) and (
+        isinstance(output, str)
+        and refusal is None
+        and answer == output
+        or output is None
+        and has_text(refusal)
+        and answer == refusal
+    )
     return (
         value.get("schema") == CASE_SCHEMA
         and optional_integer(value.get("case_id")) == case_id
         and has_text(value.get("input"))
-        and has_text(value.get("output"))
+        and outcome_valid
         and (finish_reason is None or has_text(finish_reason))
         and isinstance(value.get("metadata"), Mapping)
     )

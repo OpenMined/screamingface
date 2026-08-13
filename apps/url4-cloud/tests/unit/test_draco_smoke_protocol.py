@@ -130,8 +130,10 @@ async def test_smoke_runtime_reports_its_own_identity_and_one_judge_pass(tmp_pat
         "schema": CASE_SCHEMA,
         "case_id": 1,
         "input": "Question",
+        "answer": "Answer",
         "output": "Answer",
         "finish_reason": "stop",
+        "refusal": None,
         "metadata": {},
     }
     check_record = {
@@ -177,5 +179,6 @@ async def test_smoke_runtime_reports_its_own_identity_and_one_judge_pass(tmp_pat
     assert result["benchmark_id"] == DRACO_SMOKE.id
     assert result["benchmark_revision"] == DRACO_SMOKE.revision
     assert result["metrics"]["n_runs"] == 1
-    assert result["metrics"]["coverage"] == 1.0
+    assert result["coverage"] == 1.0
+    assert result["metrics"]["verdict_coverage"] == 1.0
     assert result["metrics"]["verdicts_expected"] == 1
