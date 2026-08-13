@@ -92,13 +92,18 @@ def usage_accounting_strategy_for(plugin: object | None) -> UsageAccountingStrat
 
 def begin_accounting(
     request: Request, *, plugin: object | None, provider: str, model: str
-) -> AccountingSession:
+) -> AccountingSession | None:
     """Open a session for a non-streaming request.
 
     Called BEFORE the cache stage so a hit still renders metadata — but note that the
     collector exists only to hold records, and a hit creates none. Nothing here reads a
     credential, dispatches, or touches the request body.
     """
+    taxonomy = getattr(
+        getattr(getattr(request, "app", None), "state", None), "taxonomy_plugin", None
+    )
+    if taxonomy is not None and not taxonomy.enabled:
+        return None
     try:
         strategy = usage_accounting_strategy_for(plugin)
     except Exception:
@@ -166,6 +171,9 @@ def dispatch_body_with_accounting(
 
 def accounting_handler(request: Request) -> AccountingAsyncHTTPHandler | None:
     """The app-lifetime observed handler, if the app built one."""
+    taxonomy = getattr(request.app.state, "taxonomy_plugin", None)
+    if taxonomy is not None:
+        return taxonomy.handler
     return getattr(request.app.state, "usage_accounting_handler", None)
 
 

@@ -926,4 +926,75 @@ Status: done
 - Two-stage independent review found and drove fixes for loader diagnostics/exception containment,
   whole-core relative-import enforcement, invalid-strategy observability and the duplicated raw
   evidence bound. Final reviewer verdict: **GO**, no remaining findings.
+- This iteration is included in the follow-up OME-303 taxonomy feature-plugin commit; no push was
+  performed.
+
+## Iteration — default-enabled taxonomy feature plugin
+
+Status: in progress
+
+### Intent
+
+Make `plugins/taxonomy` an explicitly managed, default-enabled non-provider feature plugin with an
+operator opt-out, while preserving the package hierarchy `plugins/<feature>[/extensions]` and keeping
+provider discovery, provider registry and core accounting signals/hooks independent of taxonomy.
+
+### Hook and signal analysis
+
+- Existing `core/usage_accounting/signals.py` already exposes the complete request-local transport
+  observer contract taxonomy needs; no new signal is required.
+- Existing `core/usage_accounting/hooks.py` already owns app-lifetime HTTP observation and shutdown;
+  no new hook is required.
+- Enablement is taxonomy lifecycle/configuration, so it belongs in `plugins/taxonomy/plugin.py` and
+  `settings.py`, not in core and not in `ProviderPluginBase`.
+- Future isolated extensions follow `plugins/taxonomy_<subfeature>` and contribute through an explicit
+  taxonomy-owned port only when existing contributions cannot express the new behavior.
+
+### Planned changes
+
+- Add public `plugins/taxonomy/plugin.py` and `settings.py` modules.
+- Default `AIGW_TAXONOMY_ENABLED` to true and support an explicit false opt-out.
+- Let the taxonomy plugin own handler creation/closure and request activation decisions.
+- Store the active taxonomy plugin in FastAPI app state as composition-root wiring; do not add a
+  generic feature-plugin base/registry until a second non-provider feature proves the abstraction.
+- Add append-only tests for default enablement, environment opt-out, lifecycle, disabled response
+  behavior and the absence of additional core hooks/signals.
+
+### Acceptance
+
+- Taxonomy is enabled by default and current non-streaming `_aigw` behavior is unchanged.
+- `AIGW_TAXONOMY_ENABLED=false` disables handler creation, collection and `_aigw` attachment.
+- Taxonomy remains outside `ProviderRegistry` and exports no provider `PLUGIN` contract.
+- Core accounting remains exactly `signals.py` plus `hooks.py`; no new core extension point is added.
+- No Tortoise model, queryset, transaction, configuration or migration changes; all gates pass.
+
+### Outcome
+
+Status: done
+
+- Added public `plugins/taxonomy/plugin.py` and `settings.py`. `TaxonomyPluginSettings` reads
+  `AIGW_TAXONOMY_ENABLED`, defaults to true and is frozen; `TaxonomyPlugin` snapshots the startup
+  decision and owns the app-lifetime observer creation and close.
+- `main.py` remains the explicit composition root. No speculative `FeaturePluginBase` or generic
+  feature registry was introduced; taxonomy remains outside `ProviderRegistry` and exports no fake
+  provider singleton.
+- Provider discovery now scans only `*_provider` packages. This reserves `plugins/<name>` for a
+  large feature and `plugins/<name>_<subfeature>[_<detail>]` for isolated extensions without making
+  them appear as providers.
+- Hook/signal recalculation found no missing extension point. Existing request-local signals and
+  transport hooks carry every event taxonomy needs, so core accounting remains exactly
+  `signals.py`, `hooks.py` and its package API.
+- Disabled-at-startup taxonomy creates no handler or accounting session and emits no `_aigw` for
+  successful or early-error responses. The taxonomy-owned response sanitizer removes forged or
+  historical provider/cache `_aigw` before cache write/replay attachment without mutating source
+  objects or executing provider dict-subclass overrides.
+- No Tortoise model, queryset, transaction, configuration or migration changed. Public module names,
+  lifespan ownership and signal purity comply with the `tortoise-dev` architecture rules.
+- RED evidence: the new plugin tests initially failed import because `plugin.py` and `settings.py`
+  did not exist. Final focused verification: `398 passed`; Ruff and format clean; Pyright `0 errors`.
+  The final configured AIGateway gate passed Ruff, format, Pyright, Enterprise guard and full
+  pytest+coverage: `ALL GATES GREEN`.
+- Two-stage independent review found and drove fixes for startup-only enablement, forged provider and
+  cache metadata, mutable settings replacement, and hostile dict-subclass containment. Final verdict:
+  **GO**, no remaining findings.
 - No commit or push was performed in this iteration.

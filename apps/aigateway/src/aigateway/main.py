@@ -41,6 +41,7 @@ from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseReque
 from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
+from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .routes import (
     accounts,
     admin,
@@ -209,20 +210,20 @@ async def _lifespan(app):
         # per-request, so connection pooling and the default aiohttp transport are
         # preserved — a handler per call would trade production transport behaviour for
         # accounting, which plan §12 makes a stop condition.
-        app.state.usage_accounting_handler = build_accounting_handler()
+        app.state.usage_accounting_handler = app.state.taxonomy_plugin.start(
+            build_accounting_handler
+        )
 
         yield
     finally:
         # §9.12: closed explicitly here rather than left to __del__, which is not
         # guaranteed to run and cannot await. An unclosed handler leaks its connection
         # pool across TestClient lifecycles and across a reload in dev.
-        handler = getattr(app.state, "usage_accounting_handler", None)
-        if handler is not None:
-            try:
-                await handler.close()
-            except Exception:
-                logger.warning("usage accounting handler did not close cleanly")
-            app.state.usage_accounting_handler = None
+        try:
+            await app.state.taxonomy_plugin.close()
+        except Exception:
+            logger.warning("usage accounting handler did not close cleanly")
+        app.state.usage_accounting_handler = None
         await auth.close_loopback_callbacks(app)
         # Clear the process-wide active store so it does not leak across app
         # instances (e.g. multiple TestClient lifecycles in one process).
@@ -333,6 +334,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.add_exception_handler(StarletteHTTPException, _accounted_http_exception)
     app.state.settings = settings
+    app.state.taxonomy_plugin = TaxonomyPlugin()
+    app.state.usage_accounting_handler = None
     # Only the `disabled` mode makes every caller anonymous, so only it needs the loopback guard.
     # `cloudflare_headers` authenticates from the injected header and is meant to be reached over
     # network — binding it to loopback would break the deployment it exists for.

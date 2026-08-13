@@ -39,8 +39,10 @@ def test_taxonomy_plugin_owns_policy_and_schema() -> None:
         "collector.py",
         "mapper.py",
         "money.py",
+        "plugin.py",
         "render.py",
         "session.py",
+        "settings.py",
         "types.py",
         "usage_accounting.schema.json",
     }

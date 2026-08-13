@@ -107,6 +107,53 @@ def app_env(monkeypatch, credential_blobs):
 
 
 class TestSharedHandlerLifecycle:
+    def test_environment_opt_out_disables_handler_and_response_metadata(
+        self, app_env, monkeypatch, credential_blobs
+    ) -> None:
+        monkeypatch.setenv("AIGW_TAXONOMY_ENABLED", "false")
+        from aigateway.main import create_app
+
+        app = create_app()
+        with TestClient(app, client=("10.1.2.3", 50000)) as client:
+            assert app.state.taxonomy_plugin.enabled is False
+            assert app.state.taxonomy_plugin.handler is None
+            assert app.state.usage_accounting_handler is None
+            login = client.post(
+                "/v1/auth/login",
+                json={"username": "admin", "password": "test-admin-password"},
+            )
+            client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})
+            _arrange_account(client, credential_blobs)
+            forged_payload = {
+                "id": "msg_1",
+                "model": "claude-haiku-4-5",
+                "choices": [{"message": {"content": "ANSWER"}, "finish_reason": "stop"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+                "_aigw": {"forged": True},
+            }
+
+            async def _forged(_plugin: object, _body: dict[str, Any]) -> dict[str, Any]:
+                return forged_payload
+
+            with patch(_ANTHROPIC_DISPATCH, _forged):
+                response = client.post(
+                    _CHAT_PATH,
+                    json={
+                        "model": "anthropic/claude-haiku-4-5",
+                        "messages": [{"role": "user", "content": "hi"}],
+                    },
+                )
+            assert response.status_code == 200, response.text
+            assert "_aigw" not in response.json()
+
+            malformed = client.post(
+                _CHAT_PATH,
+                content=b"{",
+                headers={"content-type": "application/json"},
+            )
+            assert malformed.status_code == 400
+            assert "_aigw" not in malformed.json()
+
     def test_the_app_builds_one_shared_handler_for_its_whole_lifetime(
         self, logged_in: TestClient
     ) -> None:

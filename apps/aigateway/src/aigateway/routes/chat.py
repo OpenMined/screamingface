@@ -345,7 +345,10 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # `observed_new_attempts` is 0. Limited cached-final-response evidence is
         # explicitly not current spend. Metadata goes on a COPY:
         # `cache_outcome.response` is the store's replayed row.
-        return attach_hit_metadata(cache_outcome.response, accounting, plugin=plugin)
+        cached_response = request.app.state.taxonomy_plugin.sanitize_provider_response(
+            cache_outcome.response
+        )
+        return attach_hit_metadata(cached_response, accounting, plugin=plugin)
 
     # ==================================================================
     # STAGE 2 — a miss or a bypass: resolve identity and dispatch.
@@ -497,6 +500,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         credential_name=credential_name,
         auth_type=auth_type,
     )
+    result = request.app.state.taxonomy_plugin.sanitize_provider_response(result)
 
     # STAGE 3 — fill the global entry this request missed on.
     # INVARIANT: only a MISS on an eligible request writes (``should_store``). A

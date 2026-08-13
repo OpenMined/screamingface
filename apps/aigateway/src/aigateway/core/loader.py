@@ -1,9 +1,9 @@
 """Discover provider plugins under `aigateway.plugins.*`.
 
-Discovery rule: a direct subpackage contributes a provider when it has a
+Discovery rule: direct ``*_provider`` subpackages contribute providers through a
 ``plugin.py`` module exposing a module-level ``PLUGIN`` instance of
-``ProviderPluginBase``. Other plugin packages may contribute non-provider
-features and are ignored by this provider registry.
+``ProviderPluginBase``. Other feature packages and their ``<name>_<subfeature>``
+extensions are outside this provider registry.
 
 Kept deliberately simple — no entry-points, no plugin manifests, no
 external discovery. Adding a provider = drop a folder under
@@ -31,7 +31,7 @@ def load_plugins(registry: ProviderRegistry, package: str = "aigateway.plugins")
         return
 
     for info in pkgutil.iter_modules(pkg.__path__, prefix=f"{package}."):
-        if not info.ispkg:
+        if not info.ispkg or not info.name.rsplit(".", 1)[-1].endswith("_provider"):
             continue
         plugin_module = f"{info.name}.plugin"
         try:

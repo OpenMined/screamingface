@@ -195,6 +195,23 @@ class TestActivation:
         assert metadata["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
         assert metadata["request_economics"]["schema"] == "aigw.request_economics"
 
+    def test_cached_provider_metadata_cannot_impersonate_taxonomy(
+        self, credential_blobs, chat_client
+    ) -> None:
+        _arrange_account(chat_client, credential_blobs)
+        store = _install(chat_client, _Store())
+        with patch(_ANTHROPIC_DISPATCH, _Dispatch()):
+            first = chat_client.post(_CHAT_PATH, json=_chat_body())
+        assert first.status_code == 200, first.text
+        stored = next(iter(store.rows.values()))
+        stored["_aigw"] = {"forged": True}
+
+        second = chat_client.post(_CHAT_PATH, json=_chat_body())
+
+        assert second.status_code == 200, second.text
+        assert second.json()["_aigw"] != {"forged": True}
+        assert second.json()["_aigw"]["usage_accounting"]["cache"]["status"] == "hit"
+
     def test_an_unknown_legacy_header_value_is_ignored(self, credential_blobs, chat_client) -> None:
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
