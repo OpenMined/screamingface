@@ -37,6 +37,29 @@ def _default_model_slugs() -> list[str]:
         "huggingface/deepseek-ai/DeepSeek-R1:novita",
         "huggingface/google/gemma-2-2b-it:featherless-ai",
         "huggingface/meta-llama/Llama-3.1-8B-Instruct:nscale",
+        # OME-817: text-generation models the unified router serves as chat, each pinned to a
+        # live `:provider` backend. Verified against router.huggingface.co/v1/models on
+        # 2026-08-13 (re-verify at release); embeddings / GGUF quants / self-host-only weights
+        # from the source catalog were dropped because the router does not serve them.
+        "huggingface/moonshotai/Kimi-K3:deepinfra",
+        "huggingface/Qwen/Qwen3.8-2.4T-A95B:together",
+        "huggingface/zai-org/GLM-5.2:deepinfra",
+        "huggingface/deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
+        "huggingface/tencent/Hy3:deepinfra",
+        "huggingface/thinkingmachines/Inkling:together",
+        "huggingface/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16:deepinfra",
+        "huggingface/MiniMaxAI/MiniMax-M3:deepinfra",
+        "huggingface/meta-models/Muse-Glimmer-30B:together",
+        "huggingface/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16:fireworks-ai",
+        "huggingface/openai/gpt-oss-20b:deepinfra",
+        "huggingface/meta-llama/Llama-4-Scout-17B-16E-Instruct:nscale",
+        "huggingface/google/gemma-4-31B-it:deepinfra",
+        "huggingface/XiaomiMiMo/MiMo-V2.5:deepinfra",
+        "huggingface/microsoft/phi-4:deepinfra",
+        "huggingface/thinkingmachines/Inkling-Small:together",
+        "huggingface/google/gemma-3-4b-it:deepinfra",
+        "huggingface/CohereLabs/c4ai-command-a-03-2025:cohere",
+        "huggingface/deepseek-ai/DeepSeek-R1-Distill-Llama-8B:nscale",
     ]
 
 
