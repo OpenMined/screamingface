@@ -371,18 +371,33 @@ def _resolve_case_status(
     grade: CaseGrade | None,
     output: object,
 ) -> CaseStatus:
-    """Pin the Case's explicit outcome to the shape its grade and refusal imply.
+    """Answer "what happened to this Case?" from its fields, and refuse ambiguity.
 
-    The Engine publishes `status` on the wire; a locally built value derives the
-    same answer the Engine would (numeric grade → scored, refusal text → refused,
-    otherwise failed) so the two can never disagree. An explicit status that
-    contradicts the derived one is an ambiguous Case and is rejected.
+    Think of it as reading a verdict off the evidence. A Case ends one of three
+    ways, and the fields already tell the story: a numeric grade means the model
+    answered and was scored; refusal text means the model declined; neither means
+    something broke. The Engine ships an explicit `status` on the wire, but a
+    locally built value has none — so this function derives the verdict the same
+    way the Engine would, and the two can never disagree.
 
-    INVARIANT: mirrors `url4_cloud/benchmarks/contract.py::_enforce_status` per
-    outcome leg — scored carries no refusal; refused carries no output and no
-    grade — so a locally built value can never take a shape the Engine rejects.
+    Stage 1 — derive the verdict from the evidence: numeric grade → "scored",
+    else refusal text → "refused", else "failed".
+
+    Stage 2 — reject evidence that tells two stories at once. The Engine
+    (`url4_cloud/benchmarks/contract.py::_enforce_status`) refuses these shapes,
+    so building one locally would create a payload the Engine could never have
+    published: a scored Case carrying refusal text, or a refused Case carrying
+    an output or a grade. Example: `refusal="I can't help", output="Four."` —
+    did the model refuse or answer? Rejected rather than guessed.
+
+    Stage 3 — check the caller's explicit `status` (if any) against the derived
+    verdict. It must be one of the three known words and must match; a Case
+    labeled "failed" but shaped like "scored" is rejected, not trusted.
+
+    Returns the settled status; raises ValueError on any contradiction.
     """
 
+    # Stage 1 — derive the verdict from the evidence.
     derived: CaseStatus = (
         "scored"
         if grade is not None and grade.score is not None
@@ -390,12 +405,14 @@ def _resolve_case_status(
         if refusal is not None
         else "failed"
     )
+    # Stage 2 — reject evidence that tells two stories at once (engine-forbidden shapes).
     if derived == "scored" and refusal is not None:
         raise ValueError("a scored Case Result cannot contain refusal text")
     if derived == "refused" and output is not None:
         raise ValueError("a refused Case Result cannot contain output")
     if derived == "refused" and grade is not None:
         raise ValueError("a refused Case Result cannot contain a grade")
+    # Stage 3 — the explicit status (when given) must match the derived verdict.
     if status is None:
         return derived
     if status not in {"scored", "refused", "failed"}:
