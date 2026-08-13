@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import ssl
 import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -73,6 +74,9 @@ class Url4CloudTransport:
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
         self._http = httpx.Client(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
+        # INVARIANT: built from the same source as the client above, so the two halves of
+        # this transport can never verify against different roots.
+        self._ssl = _websocket_ssl_context(engine_url)
         self._active_lock = Lock()
         self._active_tokens: set[str] = set()
 
@@ -96,6 +100,7 @@ class Url4CloudTransport:
                         open_timeout=30,
                         close_timeout=10,
                         max_size=_MAX_FRAME_BYTES,
+                        ssl=self._ssl,
                     ) as websocket:
                         return self._run_connected(
                             websocket,
@@ -195,6 +200,8 @@ class AsyncUrl4CloudTransport:
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
         self._http = httpx.AsyncClient(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
+        # INVARIANT: see the synchronous twin — one trust store for HTTP and WebSocket.
+        self._ssl = _websocket_ssl_context(engine_url)
         self._active_tokens: set[str] = set()
 
     async def cancel_active(self) -> None:
@@ -265,6 +272,7 @@ class AsyncUrl4CloudTransport:
                     open_timeout=30,
                     close_timeout=10,
                     max_size=_MAX_FRAME_BYTES,
+                    ssl=self._ssl,
                 ) as websocket:
                     return await self._run_connected(
                         websocket,
@@ -535,6 +543,36 @@ def _raise_response(response: httpx.Response, operation: str) -> None:
         permanent=response.status_code < 500,
         details=problem if media_type == "application/problem+json" else None,
     )
+
+
+def _websocket_ssl_context(engine_url: str) -> ssl.SSLContext | None:
+    """The trust store the WebSocket must use: the one the HTTP half already uses.
+
+    WHY this cannot be left to `websockets`: given no context it builds one with
+    `ssl.create_default_context()`, which trusts OpenSSL's own CA paths. `httpx` resolves
+    `SSL_CERT_FILE`, then `SSL_CERT_DIR`, and otherwise falls back to the `certifi` bundle
+    installed with this package. The two therefore agree only while those environment
+    variables are set — and diverge in the DEFAULT case, where `httpx` trusts `certifi` and
+    `websockets` trusts whatever OpenSSL was compiled to look at. A python.org macOS build
+    whose ``Install Certificates.command`` was never run has nothing there at all.
+
+    The split is invisible until it isn't: the Client mints its capability over HTTPS, which
+    succeeds against `certifi`, and then fails to open a WebSocket to the SAME host with
+    `SSLCertVerificationError`. A local Engine is reached over plain `ws://`, which never
+    negotiates TLS, so this only ever appeared against a hosted Engine — and read as a
+    property of being remote rather than a property of the trust store.
+
+    Deferring to `httpx` rather than naming `certifi` here is deliberate: the invariant worth
+    holding is that the two halves agree, including about the environment, not that either
+    one trusts a particular bundle.
+
+    Returns ``None`` for a plain-HTTP Engine, because `websockets` refuses a context on a
+    ``ws://`` URI.
+    """
+
+    if urlsplit(engine_url).scheme != "https":
+        return None
+    return httpx.create_ssl_context()
 
 
 def _websocket_url(engine_url: str, token: str) -> str:
