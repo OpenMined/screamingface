@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 (2026-08-13)
+
+Baseline-only release. `0.1.0` and `0.1.1` were both uploaded to PyPI by hand rather than by
+`release-screamingface.yml`, so this repository never recorded `0.1.1`. This entry realigns the
+recorded version with what PyPI already serves; there is no code change between `0.1.0` and
+`0.1.1` in this repository. The next release cut by release-please (`0.1.2`) is the first
+published through the Trusted Publishing pipeline.
+
 ## 0.1.0 (2026-08-13)
 
 
