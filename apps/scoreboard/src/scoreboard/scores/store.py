@@ -52,6 +52,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         verified_by_screamingface=model.verified_by_screamingface,
         metadata=model.metadata,
         openness_override=model.openness_override,
+        run_cost_usd=model.run_cost_usd,
     )
 
 
@@ -88,6 +89,10 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "client_version": submission.client.version if submission.client else None,
         "client_platform": submission.client.platform if submission.client else None,
         "metadata": submission.metadata,
+        # Deliberately absent from _content_hash: cost is a property of one
+        # execution, not of the recipe. Two runs of the same recipe can cost
+        # different amounts and must still dedup to a single row (OME-391).
+        "run_cost_usd": submission.run_cost_usd,
         "content_hash": content_hash,
     }
 
@@ -169,6 +174,7 @@ def _build_leaderboard_query(
             scores.submitted_by,
             scores.verified_by_screamingface,
             scores.url4_expression,
+            scores.run_cost_usd,
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
@@ -189,6 +195,7 @@ def _build_leaderboard_query(
             ranked.submitted_by,
             ranked.verified_by_screamingface,
             ranked.url4_expression,
+            ranked.run_cost_usd,
         )
         .where(ranked.rn == 1)
         .orderby(ranked.accuracy, order=Order.desc)

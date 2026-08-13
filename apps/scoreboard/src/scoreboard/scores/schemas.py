@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -169,6 +170,18 @@ class ScoreSubmission(BaseModel):
     # (D-SCORE-006). Persisted onto the flat client_* columns by the store.
     client: ClientInfo | None = None
     metadata: dict[str, Any] | None = None
+    # INVARIANT: absent (None) means "no cost was reported" and is NOT the same as
+    # 0. A fully cache-served run genuinely costing nothing is a legitimate 0, so
+    # OME-770's Pareto frontier must exclude None rather than rank it as the
+    # cheapest entry. Decimal, not float — this is money.
+    #
+    # AIDEV-NOTE: optional only because nothing emits a run cost yet (OME-303 is
+    # unmerged, the Engine does not roll per-call cost into a run total, and the
+    # Client has no field for it), and because the column lands on an already
+    # populated table. Once a client can send it, a direct submission arriving
+    # without one is a client bug and should be REJECTED — null then means
+    # "imported or legacy" only. Tracked on OME-770.
+    run_cost_usd: Decimal | None = Field(default=None, ge=0)
 
     @field_validator("url4_expression")
     @classmethod
@@ -255,6 +268,7 @@ class ScoreSchema(BaseModel):
     # FEATURE: OME-323 — manual open/closed correction; None defers to the
     # classification registry. Operator-only, never set via ScoreSubmission.
     openness_override: Literal["open", "closed"] | None = None
+    run_cost_usd: Decimal | None
 
 
 class LeaderboardEntry(BaseModel):
@@ -274,6 +288,10 @@ class LeaderboardEntry(BaseModel):
     submitted_by: SubmittedBy
     verified_by_screamingface: bool
     url4_expression: str
+    # Self-reported and unverifiable: re-running a submission tells us what *we*
+    # paid, not what the submitter paid. Exposed so the board can show it, but it
+    # must be presented with its provenance and never as a verified figure.
+    run_cost_usd: Decimal | None
 
 
 class BaselineSchema(BaseModel):

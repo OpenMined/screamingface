@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -487,3 +488,63 @@ def test_score_submission_rejects_a_client_supplied_verified_flag(claimed: bool)
 
     with pytest.raises(ValidationError):
         ScoreSubmission.model_validate(payload)
+# --- OME-770: run cost on a submission ------------------------------------
+# A cost is optional, and its ABSENCE is a distinct state from a zero cost:
+# absent means "we were never told", zero means "this run genuinely cost
+# nothing" (a fully cache-served run — the goal OME-767 is chasing). The
+# Pareto frontier in OME-770 would put an unknown-cost row at the cheapest
+# end if these two ever collapsed together, so the distinction is pinned here.
+
+
+def test_score_submission_accepts_a_run_cost() -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "12.50"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("12.50")
+
+
+def test_score_submission_without_a_run_cost_is_none_not_zero() -> None:
+    submission = ScoreSubmission.model_validate(_valid_payload())
+
+    assert submission.run_cost_usd is None
+
+
+def test_score_submission_accepts_a_genuinely_zero_run_cost() -> None:
+    """A fully cache-served run costs 0 — that is data, not a missing value."""
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "0"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("0")
+    assert submission.run_cost_usd is not None
+
+
+def test_score_submission_rejects_a_negative_run_cost() -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "-0.01"
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_score_submission_keeps_sub_cent_run_cost_precision() -> None:
+    """A smoke run can cost fractions of a cent; rounding it to 2dp loses it."""
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "0.000123"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("0.000123")
+
+
+def test_score_submission_keeps_four_figure_run_cost() -> None:
+    """The other end of the range — a real DRACO rerun was quoted at $3-4k."""
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "4210.75"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("4210.75")

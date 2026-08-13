@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -47,6 +48,12 @@ class RankedLeaderboardEntry(BaseModel):
     submitted_by: SubmittedBy
     verified_by_screamingface: bool
     url4_expression: str
+    # AIDEV-NOTE: this class mirrors LeaderboardEntry field-for-field plus `rank`,
+    # and `_ranked_entry` splats one into the other. Because both set
+    # extra="forbid", a field added to LeaderboardEntry and not here raises at
+    # runtime rather than at import — a 500 on the read path, not a type error.
+    # Keep the two in step.
+    run_cost_usd: Decimal | None
 
 
 class LeaderboardResponse(BaseModel):

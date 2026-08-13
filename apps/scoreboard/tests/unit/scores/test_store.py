@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from tortoise import Tortoise
@@ -874,3 +875,68 @@ def test_no_migration_backfills_the_verified_column() -> None:
         f"migration(s) may backfill verified_by_screamingface: {offenders}. "
         "Existing rows must keep the value they were created with (OME-820 D5)."
     )
+# --- OME-770: run cost through the store -----------------------------------
+
+
+async def test_run_cost_persists_and_reads_back_on_the_leaderboard(tortoise_db: None) -> None:
+    await Benchmark.create(id="hle", display_name="HLE")
+    store = ScoreStore()
+    submission = _submission(spec_id="costed")
+    submission = submission.model_copy(update={"run_cost_usd": Decimal("3.500000")})
+
+    await store.submit(submission)
+    entries = await store.leaderboard("hle")
+
+    assert entries[0].run_cost_usd == Decimal("3.500000")
+
+
+async def test_a_submission_without_a_cost_reads_back_none_not_zero(tortoise_db: None) -> None:
+    """INVARIANT: unreported cost must stay distinguishable from a free run.
+
+    OME-770's Pareto frontier would rank an unknown-cost entry as the cheapest
+    submission if these ever collapsed into 0.
+    """
+    await Benchmark.create(id="hle", display_name="HLE")
+    store = ScoreStore()
+
+    await store.submit(_submission(spec_id="uncosted"))
+    entries = await store.leaderboard("hle")
+
+    assert entries[0].run_cost_usd is None
+
+
+async def test_a_zero_cost_run_reads_back_as_zero(tortoise_db: None) -> None:
+    """A fully cache-served run costs 0 — data, not a missing value."""
+    await Benchmark.create(id="hle", display_name="HLE")
+    store = ScoreStore()
+    submission = _submission(spec_id="free").model_copy(update={"run_cost_usd": Decimal("0")})
+
+    await store.submit(submission)
+    entries = await store.leaderboard("hle")
+
+    assert entries[0].run_cost_usd == Decimal("0")
+    assert entries[0].run_cost_usd is not None
+
+
+async def test_cost_is_outside_recipe_identity_so_dedup_still_collapses(tortoise_db: None) -> None:
+    """INVARIANT: cost is a property of an execution, not of the recipe.
+
+    Two submissions identical except for their cost are the same recipe and must
+    dedup to one row — pinning that run_cost_usd stays out of content_hash, which
+    OME-391's dedup guarantee depends on.
+    """
+    await Benchmark.create(id="hle", display_name="HLE")
+    store = ScoreStore()
+    base = _submission(spec_id="same-recipe")
+
+    first = await store.submit(base.model_copy(update={"run_cost_usd": Decimal("1.00")}))
+    second = await store.submit(base.model_copy(update={"run_cost_usd": Decimal("99.00")}))
+
+    assert first.created is True
+    assert second.created is False
+    assert second.score.id == first.score.id
+    assert await Score.all().count() == 1
+    # The stored row keeps the FIRST cost; the second is discarded. Documented as
+    # a known limitation on OME-770 — the fix is requiring cost, not mutating a
+    # deduplicated row.
+    assert second.score.run_cost_usd == Decimal("1.00")
