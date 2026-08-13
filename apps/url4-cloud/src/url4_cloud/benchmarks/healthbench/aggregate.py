@@ -203,6 +203,9 @@ def _case_result(
         verdicts incomplete  → "incomplete_verdicts" (judged/expected counts)
         complete, no + item  → "no_positive_points" (a baked-asset defect —
                                prepare guarantees one positive item per Case)
+        scored, no envelope  → "invalid_case_evaluation" (fully judged but the
+                               hoisted case record carries no usable output —
+                               a scored result REQUIRES one, contract rule)
         everything valid     → grade with the Case score, no failures
 
     Returns ``(case_result, score_or_None, judged_count, met_count,
@@ -239,6 +242,20 @@ def _case_result(
                 judged=len(verdicts),
                 expected=len(points),
             )
+            outcome = (
+                _failed_result(selected_case, row, checks, failure),
+                None,
+                len(verdicts),
+                sum(verdicts.values()),
+                invalid,
+            )
+        elif _candidate_fields(row)["output"] is None:
+            # WHY: the contract forbids a scored Case without an output — a
+            # fully-judged row whose hoisted case envelope is missing or
+            # malformed must fail VISIBLY here, not trip the CaseResult
+            # validator and turn the whole Candidate run into
+            # benchmark_unavailable (one bad row destroying a paid run).
+            failure = _failure(case_id, "candidate", "invalid_case_evaluation")
             outcome = (
                 _failed_result(selected_case, row, checks, failure),
                 None,
@@ -470,6 +487,7 @@ _FAILURE_MESSAGES = {
     "case_error": "the Case pipeline collected an error instead of an evaluation",
     "incomplete_verdicts": "not every rubric item received a valid judge verdict",
     "no_positive_points": "no judged rubric item carries positive points (baked-asset defect)",
+    "invalid_case_evaluation": "the evaluation row lacked a usable candidate envelope",
 }
 
 

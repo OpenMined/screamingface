@@ -258,6 +258,33 @@ def test_partial_verdicts_never_score(tmp_path: Path) -> None:
     assert result["metrics"] == {}  # unscored → empty (SDK report rule)
 
 
+def test_a_malformed_case_envelope_fails_its_case_not_the_whole_run(tmp_path: Path) -> None:
+    """INVARIANT: one malformed row must not destroy the whole run's published result.
+
+    A fully-judged row whose hoisted ``case`` envelope is missing (or not a
+    mapping) has no usable candidate output — it must become a visible FAILED
+    Case, never reach the scored path (whose contract demands an output) and
+    never raise out of ``aggregate`` into benchmark_unavailable.
+    """
+
+    _write_rubric(tmp_path, 1, [7])
+    _write_rubric(tmp_path, 2, [3])
+    malformed = _case_row(2, {1: True})
+    del malformed["case"]  # complete verdicts, but the candidate envelope is gone
+    result = aggregate(
+        json.dumps([_case_row(1, {1: True}), malformed]),
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1, 2),
+    )
+    assert result["score"] is None
+    assert _failure_codes(result) == {1: None, 2: "invalid_case_evaluation"}
+    failed = next(case for case in result["cases"] if case["case_id"] == 2)
+    assert failed["status"] == "failed"
+    assert failed["output"] is None
+
+
 def test_invalid_judge_evidence_counts_and_fails_the_case(tmp_path: Path) -> None:
     _write_rubric(tmp_path, 1, [7])
     row = _case_row(1, {1: True})
