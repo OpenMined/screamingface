@@ -46,7 +46,11 @@ def case(*, checks: tuple[Check, ...] = (), score: float | None = 0.0) -> CaseRe
 
 
 def candidate(
-    name: str, score: float | None, *, cases: tuple[CaseResult, ...] = ()
+    name: str,
+    score: float | None,
+    *,
+    cases: tuple[CaseResult, ...] = (),
+    failures: tuple[sf.Failure, ...] = (),
 ) -> CandidateResult:
     return CandidateResult(
         benchmark=_BENCHMARK,
@@ -63,7 +67,7 @@ def candidate(
         metrics=_METRICS if score is not None else {},
         cases=list(cases) or [case()],
         members=[],
-        failures=[],
+        failures=failures,
         usage=sf.Usage(input_tokens=3449, output_tokens=2340),
     )
 
@@ -270,12 +274,12 @@ def multi_case_report(*cases: CaseResult) -> Report:
     return Report(benchmark=benchmark, case_count=len(cases), candidates=[sized])
 
 
-def failed_case(case_id: int = 153) -> CaseResult:
+def failed_case(case_id: int | str = 153) -> CaseResult:
     """A Case the Engine could not grade — the OME-793 incident shape."""
 
     return CaseResult(
         case_id=case_id,
-        input=None,
+        input="input unavailable",
         output=None,
         finish_reason=None,
         grade=None,
@@ -301,6 +305,52 @@ def failed_case(case_id: int = 153) -> CaseResult:
     )
 
 
+def refused_case(case_id: int = 154) -> CaseResult:
+    """A provider refusal is a scored zero outcome, not missing infrastructure."""
+
+    refusal = "I cannot provide an answer to that request."
+    return CaseResult(
+        case_id=case_id,
+        input="the prompt",
+        output=None,
+        finish_reason="content_filter",
+        grade=None,
+        failures=[
+            sf.Failure(
+                stage="candidate",
+                code="provider_refusal",
+                message=refusal,
+                case_id=case_id,
+            )
+        ],
+        metadata={},
+        status="refused",
+        refusal=refusal,
+    )
+
+
+def unscored_case(case_id: int = 155) -> CaseResult:
+    """A failed grader may preserve partial evidence without producing a score."""
+
+    return CaseResult(
+        case_id=case_id,
+        input="the prompt",
+        output=None,
+        finish_reason=None,
+        grade=CaseGrade(method="rubric", score=None, metrics={}, checks=[]),
+        failures=[
+            sf.Failure(
+                stage="grading",
+                code="no_valid_judge_verdict",
+                message="no valid Judge verdict was produced",
+                case_id=case_id,
+            )
+        ],
+        metadata={},
+        status="failed",
+    )
+
+
 # WHY (OME-793): an infra failure must never present as a wrong answer — the badge is the
 # first thing a reader trusts, and "incorrect" on a never-graded case misreports the run.
 def test_a_failed_case_is_not_painted_as_incorrect() -> None:
@@ -323,6 +373,25 @@ def test_a_failed_case_pane_shows_the_failure_chain_not_nothing() -> None:
     assert "input unavailable" in html
 
 
+def test_a_refused_case_is_named_and_shows_the_exact_provider_refusal() -> None:
+    html = body(report_html(report(candidate("m", None, cases=(refused_case(),)))))
+
+    assert "refused" in html
+    assert "provider refusal" in html
+    assert "I cannot provide an answer to that request." in html
+    assert "incorrect" not in html
+    assert "sf-badge--warn" in html
+
+
+def test_partial_grading_evidence_is_presented_as_unscored_not_incorrect() -> None:
+    html = body(report_html(report(candidate("m", None, cases=(unscored_case(),)))))
+
+    assert "unscored" in html
+    assert "no_valid_judge_verdict" in html
+    assert "incorrect" not in html
+    assert "sf-badge--warn" in html
+
+
 # WHY (OME-793): three identical banner lines with no ids forced readers into raw JSON;
 # grouping keeps the count while naming every case.
 def test_the_failure_banner_names_cases_and_groups_identical_failures() -> None:
@@ -333,8 +402,23 @@ def test_the_failure_banner_names_cases_and_groups_identical_failures() -> None:
     assert "cases 153, 149, 418" in banner
     assert "missing_case_row" in banner
     assert "ResolutionError: malformed aigateway response" in banner
-    # Grouped: the shared message appears ONCE in the banner, not three times.
-    assert banner.count("no evaluation row for this Case reached the aggregate") == 1
+    # Grouped summary first; the disclosure retains every exact Failure payload.
+    summary = banner.split("<details>", 1)[0]
+    assert summary.count("no evaluation row for this Case reached the aggregate") == 1
+    assert "&quot;case_id&quot;: 153" in banner
+
+
+def test_failure_summary_preserves_zero_as_a_real_case_id() -> None:
+    banner = _failures_html(multi_case_report(failed_case(0)))
+
+    assert "case 0" in banner
+
+
+def test_string_case_ids_are_escaped_in_the_rail_and_detail_pane() -> None:
+    html = body(report_html(multi_case_report(failed_case("<img src=x onerror=alert(1)>"))))
+
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
+    assert "<img src=x" not in html
 
 
 # WHY (OME-793): a bare dash teaches readers that dashes are meaningless; the withheld
@@ -343,7 +427,19 @@ def test_an_unscored_candidate_explains_the_withheld_score() -> None:
     html = body(report_html(multi_case_report(case(), failed_case())))
 
     assert "score withheld" in html
-    assert "1 of 2 cases failed" in html
+    assert "1 of 2 cases not scored (1 failed)" in html
+
+
+def test_a_candidate_level_failure_explains_a_withheld_score() -> None:
+    failure = sf.Failure(
+        stage="aggregation",
+        code="orphan_rows",
+        message="aggregate received rows for an unknown Case",
+    )
+    html = body(report_html(report(candidate("m", None, failures=(failure,)))))
+
+    assert "score withheld" in html
+    assert "candidate execution reported 1 failure" in html
 
 
 def test_an_absent_cost_says_it_was_not_reported() -> None:
@@ -369,13 +465,19 @@ def test_empty_cases_and_untrusted_failures_have_safe_markup() -> None:
         cast(
             Report,
             SimpleNamespace(
-                failures=(SimpleNamespace(stage="run", message="<script>failed</script>"),)
+                failures=(
+                    sf.Failure(
+                        stage="aggregation",
+                        code="unsafe_text",
+                        message="<script>failed</script>",
+                    ),
+                )
             ),
         )
     )
 
     assert "1 failure" in html
-    assert "run · &lt;script&gt;failed&lt;/script&gt;" in html
+    assert "aggregation · unsafe_text — &lt;script&gt;failed&lt;/script&gt;" in html
     assert "<script>" not in html
 
 

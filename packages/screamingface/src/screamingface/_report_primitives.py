@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -11,6 +10,7 @@ from typing import Literal
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
 
 type FailureStage = Literal["candidate", "grading", "aggregation"]
+type CaseId = int | str
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -67,7 +67,7 @@ class Failure:
     message: str
     retryable: bool | None
     operation_id: str | None
-    case_id: int | str | None
+    case_id: CaseId | None
     metadata: Mapping[str, object]
 
     def __init__(
@@ -78,18 +78,15 @@ class Failure:
         message: str,
         retryable: bool | None = None,
         operation_id: str | None = None,
-        case_id: int | str | None = None,
+        case_id: CaseId | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> None:
         if stage not in {"candidate", "grading", "aggregation"}:
             raise ValueError("Failure stage must be 'candidate', 'grading', or 'aggregation'")
-        selected_code = _nonblank(code, "Failure code")
-        if re.fullmatch(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", selected_code) is None:
-            raise ValueError("Failure code must be lowercase snake_case")
         values = {
             "stage": stage,
-            "code": selected_code,
-            "message": _nonblank(message, "Failure message"),
+            "code": _nonempty_text(code, "Failure code"),
+            "message": _nonempty_text(message, "Failure message"),
             "retryable": _optional_retryable(retryable),
             "operation_id": _optional_operation_id(operation_id),
             "case_id": _failure_case_id(case_id),
@@ -103,15 +100,12 @@ class Failure:
             "stage": self.stage,
             "code": self.code,
             "message": self.message,
+            "retryable": self.retryable,
+            "case_id": self.case_id,
+            "metadata": thaw_mapping(self.metadata),
         }
-        if self.retryable is not None:
-            value["retryable"] = self.retryable
         if self.operation_id is not None:
             value["operation_id"] = self.operation_id
-        if self.case_id is not None:
-            value["case_id"] = self.case_id
-        if self.metadata:
-            value["metadata"] = thaw_mapping(self.metadata)
         return value
 
 
@@ -125,18 +119,10 @@ def _optional_operation_id(value: object) -> str | None:
     return None if value is None else _nonblank(value, "Failure operation_id")
 
 
-def _failure_case_id(value: object) -> int | str | None:
-    if isinstance(value, bool):
-        raise TypeError("Failure case_id must be a positive integer, string, or None")
-    if isinstance(value, int):
-        if value < 1:
-            raise ValueError("Failure case_id must be a positive integer, string, or None")
-        return value
-    if isinstance(value, str):
-        return _nonblank(value, "Failure case_id")
+def _failure_case_id(value: object) -> CaseId | None:
     if value is None:
         return None
-    raise TypeError("Failure case_id must be a positive integer, string, or None")
+    return _case_id(value, "Failure case_id")
 
 
 def _optional_count(value: object, label: str) -> int | None:
@@ -167,6 +153,30 @@ def _nonblank(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a non-empty string")
     return value.strip()
+
+
+def _nonempty_text(value: object, label: str) -> str:
+    """Validate min-length text while preserving the exact wire value."""
+
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} must be a non-empty string")
+    return value
+
+
+def _nonblank_text(value: object, label: str) -> str:
+    """Validate visible text while preserving leading and trailing whitespace."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be a non-empty string")
+    return value
+
+
+def _case_id(value: object, label: str = "Case Result case_id") -> CaseId:
+    if isinstance(value, bool) or not isinstance(value, int | str):
+        raise TypeError(f"{label} must be a non-boolean integer or non-blank string")
+    if isinstance(value, str) and not value.strip():
+        raise ValueError(f"{label} must be a non-boolean integer or non-blank string")
+    return value
 
 
 def _duration(value: object, label: str) -> int | None:

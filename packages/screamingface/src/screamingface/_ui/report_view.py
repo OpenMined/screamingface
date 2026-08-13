@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
 from collections.abc import Mapping
 from decimal import Decimal
@@ -307,14 +308,28 @@ def _withheld_html(candidate: CandidateResult) -> str:
 
     if candidate.score is not None:
         return ""
-    failed = sum(1 for case in candidate.cases if case.grade is None)
-    if not failed:
-        return ""
-    total = len(candidate.cases)
-    return (
-        f"<div class='sf-report__warn'>score withheld — {failed} of {total} cases failed; "
-        "metrics are published only for fully scored runs.</div>"
-    )
+    states = tuple(_case_state(case) for case in candidate.cases)
+    incomplete = tuple(state for state in states if state in {"refused", "failed", "unscored"})
+    message = ""
+    if incomplete:
+        total = len(candidate.cases)
+        parts = tuple(
+            f"{incomplete.count(state)} {state}"
+            for state in ("refused", "failed", "unscored")
+            if state in incomplete
+        )
+        message = (
+            f"{len(incomplete)} of {total} cases not scored ({', '.join(parts)}); "
+            "metrics are published only for fully scored runs."
+        )
+    elif candidate.failures:
+        count = len(candidate.failures)
+        label = "failure" if count == 1 else "failures"
+        message = (
+            f"candidate execution reported {count} {label}; "
+            "metrics are published only for fully scored runs."
+        )
+    return f"<div class='sf-report__warn'>score withheld — {message}</div>" if message else ""
 
 
 def _models_html(candidate: CandidateResult) -> str:
@@ -457,12 +472,25 @@ def _failures_html(report: Report) -> str:
         groups.setdefault(key, []).append(item)
     lines = "\n".join(_failure_line(key, items) for key, items in groups.items())
     count = f"{len(failures)} failure" + ("" if len(failures) == 1 else "s")
-    return f"<div class='sf-report__fail' role='alert'>{escape(count)}\n{escape(lines)}</div>"
+    details = json.dumps(
+        [item.to_dict() for item in failures],
+        ensure_ascii=False,
+        indent=2,
+    )
+    return (
+        f"<div class='sf-report__fail' role='alert'>{escape(count)}\n{escape(lines)}</div>"
+        "<details><summary>failure details</summary>"
+        f"<pre class='sf-report__pre'>{escape(details)}</pre></details>"
+    )
 
 
 def _failure_line(key: tuple[str, str, str], items: list[Any]) -> str:
     stage, code, message = key
-    case_ids = [str(value) for value in (getattr(item, "case_id", None) for item in items) if value]
+    case_ids = [
+        str(value)
+        for value in (getattr(item, "case_id", None) for item in items)
+        if value is not None
+    ]
     # A failure with no code and no case identity keeps the plain `stage · message` shape.
     if not code and not case_ids:
         return f"{stage} · {message}"
@@ -553,15 +581,28 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
     # WHY (OME-793): a failed case gets the warning mark, never the incorrect ✗ — the rail
     # must not present an infra failure as a graded wrong answer.
     mark = (
-        "sf-mark" + {"passed": "", "incorrect": " sf-mark--bad", "failed": " sf-mark--warn"}[state]
+        "sf-mark"
+        + {
+            "passed": "",
+            "incorrect": " sf-mark--bad",
+            "refused": " sf-mark--warn",
+            "failed": " sf-mark--warn",
+            "unscored": " sf-mark--warn",
+        }[state]
     )
-    glyph = {"passed": "&check;", "incorrect": "&times;", "failed": "!"}[state]
+    glyph = {
+        "passed": "&check;",
+        "incorrect": "&times;",
+        "refused": "!",
+        "failed": "!",
+        "unscored": "?",
+    }[state]
     who = f" <span class='sf-rail__who'>{escape(candidate.name)}</span>" if show_who else ""
     preview = _clip(case.prompt_preview, 90) if case.input is not None else "input unavailable"
     return (
         f"<label class='sf-rail__item' for='{item}'>"
         f"<span class='{mark}' aria-hidden='true'>{glyph}</span>"
-        f"<span class='sf-rail__id'>case {case.case_id}</span>{who}"
+        f"<span class='sf-rail__id'>case {escape(str(case.case_id))}</span>{who}"
         f"<span class='sf-rail__q'>{escape(preview)}</span></label>"
     )
 
@@ -570,8 +611,8 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
     state = _case_state(case)
     # WHY (OME-793): tri-state verdict — "failed" (warning) is neither correct nor
     # incorrect; the case was never graded, and the badge must say so.
-    if state == "failed":
-        verdict = _badge("failed", good=False, warn=True)
+    if state in {"refused", "failed", "unscored"}:
+        verdict = _badge(state, good=False, warn=True)
     else:
         verdict = _badge("correct" if state == "passed" else "incorrect", good=state == "passed")
     grade = case.grade
@@ -585,6 +626,12 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
     answer_html = (
         f"<div class='sf-detail__k'>answer</div><pre class='sf-report__pre'>{escape(answer)}</pre>"
         if answer
+        else ""
+    )
+    refusal_html = (
+        "<div class='sf-detail__k'>provider refusal</div>"
+        f"<pre class='sf-report__pre'>{escape(case.refusal)}</pre>"
+        if case.refusal is not None
         else ""
     )
     # A non-"stop" finish is a quality signal in its own right: a truncated answer can
@@ -607,9 +654,10 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
         )
     return (
         "<div class='sf-pane'><div class='sf-pane__h'>"
-        f"<span class='sf-report__case-id'>case {case.case_id} · "
+        f"<span class='sf-report__case-id'>case {escape(str(case.case_id))} · "
         f"{escape(candidate.name)}</span>{verdict}{finish_html}</div>{tags_html}"
-        f"{question}{answer_html}{_case_failures_html(case)}{checks_head}{checks}</div>"
+        f"{question}{answer_html}{refusal_html}{_case_failures_html(case)}"
+        f"{checks_head}{checks}</div>"
     )
 
 
@@ -622,9 +670,16 @@ def _case_failures_html(case: CaseResult) -> str:
         f"{failure.stage} · {failure.code} — {failure.message}{_first_collected_error(failure)}"
         for failure in case.failures
     )
+    details = json.dumps(
+        [failure.to_dict() for failure in case.failures],
+        ensure_ascii=False,
+        indent=2,
+    )
     return (
         "<div class='sf-detail__k'>failures</div>"
         f"<div class='sf-report__fail'>{escape(lines)}</div>"
+        "<details><summary>failure details</summary>"
+        f"<pre class='sf-report__pre'>{escape(details)}</pre></details>"
     )
 
 
@@ -640,14 +695,12 @@ def _case_passed(case: CaseResult) -> bool:
 
 
 def _case_state(case: CaseResult) -> str:
-    """Tri-state outcome: 'failed' (never graded) is distinct from 'incorrect' (graded, bad).
+    """Present the Engine outcome without re-deriving it from Benchmark semantics."""
 
-    INVARIANT (OME-793): grade is None ⇒ the Engine produced no verdict for this case —
-    the model contract guarantees such a case carries failures explaining why.
-    """
-
-    if case.grade is None:
-        return "failed"
+    if case.status == "refused":
+        return "refused"
+    if case.status == "failed":
+        return "unscored" if case.grade is not None else "failed"
     return "passed" if _case_passed(case) else "incorrect"
 
 

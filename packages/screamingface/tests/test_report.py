@@ -39,6 +39,7 @@ def candidate(
     *,
     url4: str | None = None,
     score: float | None = 0.5,
+    cases: tuple[sf.CaseResult, ...] | None = None,
     failures: tuple[sf.Failure, ...] = (),
     usage: sf.Usage | None = None,
 ) -> sf.CandidateResult:
@@ -68,7 +69,7 @@ def candidate(
         ),
         score=score,
         metrics=metrics,
-        cases=case_results(),
+        cases=case_results() if cases is None else cases,
         members=(),
         failures=failures,
         usage=usage or sf.Usage(input_tokens=100, output_tokens=20, cost_usd="0.12"),
@@ -126,6 +127,86 @@ def test_only_returns_the_single_candidate() -> None:
     opus = candidate("opus")
 
     assert report(opus).candidates.only is opus
+
+
+def test_candidate_cases_keep_order_and_use_explicit_identity_lookup() -> None:
+    first = case_results()[0]
+    second = sf.CaseResult(
+        status="scored",
+        case_id="healthbench-case-2",
+        input="Question two",
+        output="Answer two",
+        finish_reason="stop",
+        grade=sf.CaseGrade(method="fixture", score=1.0, metrics={}, checks=()),
+        failures=(),
+        metadata={},
+    )
+    cases = candidate("opus", cases=(first, second)).cases
+
+    assert cases[0] is first
+    assert cases[1] is second
+    assert cases.by_id(1) is first
+    assert cases.by_id("healthbench-case-2") is second
+    with pytest.raises(KeyError, match="unknown Case id"):
+        cases.by_id("missing")
+
+
+def test_report_json_and_export_preserve_refusal_and_failure_fields(tmp_path: Path) -> None:
+    refused = sf.CaseResult(
+        status="refused",
+        case_id="refusal-case",
+        input="A request",
+        output=None,
+        finish_reason="stop",
+        refusal="I cannot comply.",
+        grade=None,
+        failures=(
+            sf.Failure(
+                stage="candidate",
+                code="provider_refusal",
+                message="the provider refused this Case",
+                retryable=None,
+                case_id="refusal-case",
+                metadata={"provider": "fixture"},
+            ),
+        ),
+        metadata={},
+    )
+    failed = sf.CaseResult(
+        status="failed",
+        case_id=2,
+        input="Another request",
+        output=None,
+        finish_reason=None,
+        grade=None,
+        failures=(
+            sf.Failure(
+                stage="candidate",
+                code="provider_error",
+                message="the provider was unavailable",
+                retryable=True,
+                case_id=2,
+                metadata={},
+            ),
+        ),
+        metadata={},
+    )
+    value = report(candidate("opus", score=None, cases=(refused, failed)))
+
+    selected = value.export(tmp_path / "report.json")
+    payload = json.loads(selected.read_text(encoding="utf-8"))
+    exported_cases = payload["candidates"][0]["cases"]
+    assert exported_cases[0]["status"] == "refused"
+    assert exported_cases[0]["refusal"] == "I cannot comply."
+    assert exported_cases[0]["failures"][0] == {
+        "stage": "candidate",
+        "code": "provider_refusal",
+        "message": "the provider refused this Case",
+        "retryable": None,
+        "case_id": "refusal-case",
+        "metadata": {"provider": "fixture"},
+    }
+    assert exported_cases[1]["status"] == "failed"
 
 
 def test_candidate_result_preserves_its_operation_map_in_portable_json() -> None:
@@ -203,7 +284,7 @@ def test_report_flattens_candidate_failures_without_duplicating_them_on_the_wire
         message="The model timed out.",
         retryable=True,
         operation_id="op_opus",
-        case_id="case-2",
+        case_id=None,
     )
     value = report(candidate("opus", score=None, failures=(owned,)))
 
@@ -242,6 +323,7 @@ def test_failure_serializes_the_locked_domain_contract() -> None:
         "retryable": True,
         "operation_id": "op_grade_1",
         "case_id": "case-42",
+        "metadata": {},
     }
 
 

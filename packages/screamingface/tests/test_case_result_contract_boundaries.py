@@ -51,16 +51,17 @@ def _grade() -> sf.CaseGrade:
 
 
 def _failure_value() -> sf.Failure:
-    return sf.Failure(stage="candidate", code="provider_error", message="provider failed")
+    return sf.Failure(
+        stage="candidate",
+        code="provider_error",
+        message="provider failed",
+        case_id=1,
+    )
 
 
 @pytest.mark.parametrize(
     ("factory", "message"),
     [
-        (
-            lambda: sf.EvidenceProducer(type=cast(Any, "unsupported"), id="judge"),
-            "producer type",
-        ),
         (
             lambda: sf.Evidence(sequence=0, producer=_producer(), valid=True, raw_output="answer"),
             "positive integer",
@@ -94,6 +95,16 @@ def _failure_value() -> sf.Failure:
             "invalid Evidence",
         ),
         (
+            lambda: sf.Evidence(
+                sequence=1,
+                producer=_producer(),
+                valid=True,
+                outcome=cast(Any, "UNKNOWN"),
+                raw_output="answer",
+            ),
+            "Evidence outcome",
+        ),
+        (
             lambda: sf.Check(
                 type="criterion",
                 id="criterion-1",
@@ -112,6 +123,16 @@ def _failure_value() -> sf.Failure:
             "unique and ordered",
         ),
         (
+            lambda: sf.Check(
+                type="criterion",
+                id="criterion-1",
+                label="label",
+                evidence=(),
+                outcome=cast(Any, "PASS"),
+            ),
+            "Check outcome",
+        ),
+        (
             lambda: sf.CaseGrade(
                 method="rubric", score=1.0, metrics={}, checks=cast(Any, (object(),))
             ),
@@ -128,7 +149,7 @@ def _failure_value() -> sf.Failure:
         ),
         (
             lambda: sf.CaseResult(
-                case_id=0,
+                case_id="",
                 input="question",
                 output="answer",
                 finish_reason="stop",
@@ -136,7 +157,19 @@ def _failure_value() -> sf.Failure:
                 failures=(),
                 metadata={},
             ),
-            "positive integer",
+            "non-blank string",
+        ),
+        (
+            lambda: sf.CaseResult(
+                case_id=1,
+                input="question",
+                output=cast(Any, 42),
+                finish_reason="stop",
+                grade=_grade(),
+                failures=(),
+                metadata={},
+            ),
+            "output must be text",
         ),
         (
             lambda: sf.CaseResult(
@@ -172,7 +205,7 @@ def _failure_value() -> sf.Failure:
                 failures=(),
                 metadata={},
             ),
-            "ungraded",
+            "status 'failed'",
         ),
         (
             lambda: sf.CaseResult(
@@ -184,7 +217,7 @@ def _failure_value() -> sf.Failure:
                 failures=(),
                 metadata={},
             ),
-            "unscored Case Grade",
+            "status 'failed'",
         ),
         (
             lambda: sf.CaseResult(
@@ -196,7 +229,20 @@ def _failure_value() -> sf.Failure:
                 failures=(_failure_value(),),
                 metadata={},
             ),
-            "graded Case Result",
+            "status 'scored'",
+        ),
+        (
+            lambda: sf.CaseResult(
+                case_id=1,
+                input="question",
+                output="answer",
+                finish_reason="stop",
+                grade=_grade(),
+                failures=(),
+                metadata={},
+                status=cast(Any, "unknown"),
+            ),
+            "Case Result status",
         ),
         (
             lambda: sf.Check(
@@ -270,7 +316,6 @@ def test_wire_failure_decoder_accepts_each_stage_and_case_id_shape() -> None:
                 "code": "provider_error",
                 "message": "provider failed",
                 "retryable": False,
-                "operation_id": "op_1",
                 "case_id": case_id,
                 "metadata": {},
             }
@@ -300,6 +345,12 @@ def test_wire_evidence_decoder_accepts_a_deterministic_producer() -> None:
     assert evidence.producer.type == "deterministic"
 
 
+def test_evidence_producer_type_is_open_nonempty_engine_text() -> None:
+    producer = sf.EvidenceProducer(type="sandboxed-python", id="checker/custom")
+
+    assert producer.to_dict() == {"type": "sandboxed-python", "id": "checker/custom"}
+
+
 @pytest.mark.parametrize(
     ("factory", "message"),
     [
@@ -316,7 +367,7 @@ def test_wire_evidence_decoder_accepts_a_deterministic_producer() -> None:
         (lambda: _positive_integer(True, "sequence"), "positive integer"),
         (lambda: _text(" ", "label"), "non-empty text"),
         (lambda: _number(True, "score"), "must be numeric"),
-        (lambda: _producer_type("unsupported"), "producer type is unsupported"),
+        (lambda: _producer_type(""), "producer type must be non-empty"),
         (lambda: _failure_stage("planning"), "Failure stage is unsupported"),
         (lambda: _failure_case_id(True), "case_id must be"),
         (
@@ -338,6 +389,8 @@ def test_wire_evidence_decoder_accepts_a_deterministic_producer() -> None:
                     "code": "provider_error",
                     "message": "provider failed",
                     "retryable": "yes",
+                    "case_id": None,
+                    "metadata": {},
                 }
             ),
             "retryable must be boolean or null",
@@ -350,20 +403,24 @@ def test_wire_case_result_decoder_rejects_ambiguous_values(factory: Any, message
 
 
 def test_wire_case_result_rejects_a_failure_owned_by_another_case() -> None:
-    with pytest.raises(sf.ExecutionError, match="another Case"):
+    with pytest.raises(sf.ExecutionError, match="reference its own case_id"):
         _case_result(
             {
+                "status": "failed",
                 "case_id": 1,
                 "input": "question",
                 "output": None,
                 "finish_reason": None,
+                "refusal": None,
                 "grade": None,
                 "failures": [
                     {
                         "stage": "candidate",
                         "code": "provider_error",
                         "message": "provider failed",
+                        "retryable": None,
                         "case_id": 2,
+                        "metadata": {},
                     }
                 ],
                 "metadata": {},

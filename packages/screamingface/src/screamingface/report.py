@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, overload
 
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._named_values import _NamedValues
 from screamingface._operation_projection import _operation_dict, _require_operation_references
 from screamingface._report_primitives import (
+    CaseId,
     Failure,
     Usage,
+    _case_id,
     _duration,
     _nonblank,
     _usage,
@@ -90,6 +92,67 @@ class MemberResult:
         }
 
 
+class _CaseResults(Sequence[CaseResult]):
+    """Ordered Case Results with explicit identity lookup.
+
+    Integer ``[]`` access remains ordinary sequence position. Domain identity is
+    intentionally spelled ``by_id(...)`` so an integer Case ID can never be
+    mistaken for an index.
+    """
+
+    __slots__ = ("_by_id", "_items")
+
+    def __init__(self, values: Sequence[CaseResult]) -> None:
+        if isinstance(values, str | bytes) or not isinstance(values, Sequence):
+            raise TypeError("Candidate cases must be an ordered sequence")
+        items = tuple(values)
+        if any(not isinstance(value, CaseResult) for value in items):
+            raise TypeError("Candidate cases must contain sf.CaseResult values")
+        if not items:
+            raise ValueError("a Candidate Result requires at least one Case Result")
+        by_id: dict[CaseId, CaseResult] = {}
+        for item in items:
+            if item.case_id in by_id:
+                raise ValueError(f"duplicate Candidate Case Result id {item.case_id!r}")
+            by_id[item.case_id] = item
+        self._items = items
+        self._by_id = MappingProxyType(by_id)
+
+    @overload
+    def __getitem__(self, index: int) -> CaseResult: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[CaseResult, ...]: ...
+
+    def __getitem__(self, index: int | slice) -> CaseResult | tuple[CaseResult, ...]:
+        return self._items[index]
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __iter__(self) -> Iterator[CaseResult]:
+        return iter(self._items)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, _CaseResults):
+            return self._items == other._items
+        if isinstance(other, Sequence):
+            return self._items == tuple(other)
+        return NotImplemented
+
+    def __repr__(self) -> str:
+        return repr(self._items)
+
+    def by_id(self, case_id: CaseId) -> CaseResult:
+        """Return the Case with this domain ID without treating integers as positions."""
+
+        selected = _case_id(case_id)
+        try:
+            return self._by_id[selected]
+        except KeyError:
+            raise KeyError(f"unknown Case id {selected!r}") from None
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class CandidateResult:
     """One independently executed Candidate outcome; a higher score is always better."""
@@ -104,7 +167,7 @@ class CandidateResult:
     models: tuple[str, ...]
     operations: tuple[OperationInfo, ...]
     score: float | None
-    cases: tuple[CaseResult, ...]
+    cases: _CaseResults
     members: tuple[MemberResult, ...]
     failures: tuple[Failure, ...]
     usage: Usage
@@ -143,7 +206,7 @@ class CandidateResult:
             scored=selected_score is not None,
         )
         selected_operations = _operation_dag(operations)
-        selected_cases = _case_results(cases)
+        selected_cases = _CaseResults(cases)
         _require_operation_references(
             selected_operations,
             selected_members,
@@ -362,20 +425,6 @@ def _members(values: Sequence[MemberResult]) -> tuple[MemberResult, ...]:
     return selected
 
 
-def _case_results(values: Sequence[CaseResult]) -> tuple[CaseResult, ...]:
-    if isinstance(values, str | bytes) or not isinstance(values, Sequence):
-        raise TypeError("Candidate cases must be an ordered sequence")
-    selected = tuple(values)
-    if any(not isinstance(value, CaseResult) for value in selected):
-        raise TypeError("Candidate cases must contain sf.CaseResult values")
-    if not selected:
-        raise ValueError("a Candidate Result requires at least one Case Result")
-    ids = [value.case_id for value in selected]
-    if len(ids) != len(set(ids)):
-        raise ValueError("Candidate Case Result ids must be unique")
-    return selected
-
-
 def _candidate_shape(
     kind: object,
     models: Sequence[str],
@@ -393,19 +442,33 @@ def _candidate_shape(
     selected_models = _models(models, "Candidate")
     selected_members = _members(members)
     selected_failures = _failures(failures, "Candidate")
-    if selected_kind == "model":
-        if len(selected_models) != 1:
-            raise ValueError("a Model Candidate must contain exactly one model route")
-        if selected_members:
-            raise ValueError("a Model Candidate cannot contain members")
-    elif selected_kind == "pipeline":
-        if selected_members:
-            raise ValueError("a Pipeline Candidate cannot contain direct Fusion members")
-    elif not selected_members:
-        raise ValueError("a Fusion Candidate requires at least one direct member")
-    if scored and selected_failures:
-        raise ValueError("a failed Candidate cannot contain a score or metrics")
+    _validate_candidate_structure(selected_kind, selected_models, selected_members)
+    _validate_candidate_failures(selected_failures, scored=scored)
     return selected_kind, selected_models, selected_members, selected_failures
+
+
+def _validate_candidate_structure(
+    kind: RecipeKind,
+    models: Sequence[str],
+    members: Sequence[MemberResult],
+) -> None:
+    if kind == "model":
+        if len(models) != 1:
+            raise ValueError("a Model Candidate must contain exactly one model route")
+        if members:
+            raise ValueError("a Model Candidate cannot contain members")
+    elif kind == "pipeline":
+        if members:
+            raise ValueError("a Pipeline Candidate cannot contain direct Fusion members")
+    elif not members:
+        raise ValueError("a Fusion Candidate requires at least one direct member")
+
+
+def _validate_candidate_failures(failures: Sequence[Failure], *, scored: bool) -> None:
+    if any(failure.case_id is not None for failure in failures):
+        raise ValueError("a Candidate Failure cannot claim a Case id")
+    if scored and failures:
+        raise ValueError("a failed Candidate cannot contain a score or metrics")
 
 
 def _time_range(start: object, end: object, *, label: str) -> tuple[datetime, datetime]:

@@ -114,10 +114,12 @@ BENCHMARK: dict[str, object] = {
 def _case_payload(*, score: float = 1.0) -> dict[str, object]:
     raw = '{"explanation":"The response satisfies the criterion.","criterion_status":"MET"}'
     return {
+        "status": "scored",
         "case_id": 1,
         "input": "Fixture question",
         "output": "Fixture answer",
         "finish_reason": "stop",
+        "refusal": None,
         "grade": {
             "method": "rubric",
             "score": score,
@@ -153,6 +155,7 @@ def _case_payload(*, score: float = 1.0) -> dict[str, object]:
 
 def _unscored_invalid_evidence_case_payload() -> dict[str, object]:
     case = _case_payload()
+    case["status"] = "failed"
     grade = cast(dict[str, Any], case["grade"])
     grade["score"] = None
     check = cast(list[dict[str, Any]], grade["checks"])[0]
@@ -182,11 +185,13 @@ class _FakeTransport:
     def __init__(self, result_payload: dict[str, object] | None = None) -> None:
         self.closed = False
         self.calls: list[str] = []
+        self.url4s: list[str] = []
         self._result_payload = deepcopy(result_payload)
 
     def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         assert on_event is None
         self.calls.append(candidate.name)
+        self.url4s.append(candidate.url4)
         return _RunOutcome(
             run_id=f"run_{candidate.name}",
             started_at=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
@@ -340,6 +345,11 @@ def _assert_case_artifact(result: sf.CandidateResult) -> None:
     assert result.to_dict()["cases"] == [_case_payload(score=0.7)]
 
 
+def _assert_transport_artifact(transport: _FakeTransport, result: sf.CandidateResult) -> None:
+    assert transport.url4s == [result.url4]
+    assert transport.closed is True
+
+
 def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     client, transport = _client()
 
@@ -372,7 +382,7 @@ def test_client_evaluates_the_complete_draco_vertical_slice() -> None:
     _assert_case_artifact(result)
     assert result.usage.input_tokens == 120
     assert result.duration_ms == 2000
-    assert transport.closed is True
+    _assert_transport_artifact(transport, result)
 
 
 def test_client_preserves_nested_candidate_metrics() -> None:
@@ -807,10 +817,12 @@ def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
                 "metrics": {},
                 "cases": [
                     {
+                        "status": "refused",
                         "case_id": 1,
                         "input": "Fixture question",
                         "output": None,
                         "finish_reason": None,
+                        "refusal": "provider refused the request",
                         "grade": None,
                         "failures": [failure],
                         "metadata": {},
@@ -828,6 +840,8 @@ def test_candidate_result_decoder_retains_an_unscored_failed_case() -> None:
     assert result.score is None
     assert result.metrics == {}
     assert result.cases[0].grade is None
+    assert result.cases[0].status == "refused"
+    assert result.cases[0].refusal == "provider refused the request"
     assert result.cases[0].failures[0].code == "provider_refusal"
 
 

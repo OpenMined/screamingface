@@ -158,16 +158,6 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
             "operation_id",
         ),
         (
-            lambda: sf.Failure(
-                stage="candidate",
-                code="Gateway Timeout",
-                message="x",
-                retryable=False,
-                operation_id="op_1",
-            ),
-            "lowercase snake_case",
-        ),
-        (
             lambda: sf.CandidateResult(
                 benchmark=benchmark(),
                 run_id="run",

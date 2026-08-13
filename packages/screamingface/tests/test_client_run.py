@@ -181,10 +181,12 @@ class _ReplayTransport:
                     "metrics": {},
                     "cases": [
                         {
+                            "status": "scored",
                             "case_id": 1,
                             "input": "Fixture question",
                             "output": "Fixture answer",
                             "finish_reason": "stop",
+                            "refusal": None,
                             "grade": {
                                 "method": "fixture",
                                 "score": 1.0,
