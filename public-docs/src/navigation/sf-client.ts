@@ -32,6 +32,7 @@ export const sfClientNavigation: NavEntry[] = [
         children: [
           { title: 'Models', path: '/sf-client/guides/models' },
           { title: 'Fusions', path: '/sf-client/guides/fusions' },
+          { title: 'Pipelines', path: '/sf-client/guides/pipelines' },
         ],
       },
       { title: 'Benchmarks', path: '/sf-client/guides/benchmarks' },

@@ -24,59 +24,70 @@ sf.Model("openrouter/openai/gpt-5.5", name="gpt-hot", params={"temperature": 0.9
 const modelRunOut = `Model('openrouter/openai/gpt-5.5', name='gpt-hot', params={'temperature': 0.9})`
 
 const fusionSig = `sf.Fusion(
-    members: Sequence[Recipe],
+    members: Sequence[str | Recipe],
     *,
     name: str | None = None,
-    reducer: Reducer | None = None,
+    synthesizer: str | Recipe,
 )`
 
 const fusionRun = `opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5", name="gpt-hot")
 
-sf.Fusion([opus, gpt], reducer=sf.reducers.Model(model="openrouter/openai/gpt-5.5"))`
-const fusionRunOut = `Fusion(['claude-opus-4.8', 'gpt-hot'], reducer=Model(model='openrouter/openai/gpt-5.5'))`
+sf.Fusion([opus, gpt], synthesizer="openrouter/openai/gpt-5.5")`
+const fusionRunOut = `Fusion(['claude-opus-4.8', 'gpt-hot'], synthesizer=Model('openrouter/openai/gpt-5.5'))`
 
-const correctiveSig = `sf.CorrectiveEnsemble(
-    members: Sequence[Model],
+const pipelineSig = `sf.Pipeline(
+    stages: Sequence[str | Recipe],
     *,
-    judge: Model,
     name: str | None = None,
 )`
 
-const correctiveRun = `sf.CorrectiveEnsemble([opus, gpt], judge=opus)`
-const correctiveRunOut = `CorrectiveEnsemble(['claude-opus-4.8', 'gpt-hot'], judge='claude-opus-4.8')`
+const pipelineRun = `draft = sf.Model("openrouter/openai/gpt-5.5")
+review = sf.Model("openrouter/anthropic/claude-opus-4.8")
 
-const identity = `sf.Model("openrouter/openai/gpt-5.5") == sf.Model("openrouter/openai/gpt-5.5")`
-const identityOut = `False`
+sf.Pipeline([draft, review], name="review-chain")`
+const pipelineRunOut = `Pipeline(['gpt-5.5', 'claude-opus-4.8'], name='review-chain')`
+
+const thenRun = `draft.then(review)`
+const thenRunOut = `Pipeline(['gpt-5.5', 'claude-opus-4.8'])`
+
+const equality = `a = sf.Model("openrouter/openai/gpt-5.5")
+b = sf.Model("openrouter/openai/gpt-5.5")
+
+a == b`
+const equalityOut = `True`
 </script>
 
 <template>
   <DocLayout
     title="Recipes"
-    description="Recipe, Model, Fusion and CorrectiveEnsemble: the things you evaluate."
+    description="Recipe, Model, Fusion and Pipeline: the things you evaluate."
     :navigation="navigation"
     :version="version"
   >
     <p>
       A recipe describes how to produce one answer, and is what a benchmark grades. This page covers
       <code>Model</code> for a single model route, <code>Fusion</code> for several members combined
-      by a reducer, <code>CorrectiveEnsemble</code> for members that check their own drafts
-      against the benchmark's verifier, and <code>Recipe</code>, the abstract type the other three
-      satisfy.
+      by a synthesizer, <code>Pipeline</code> for members chained in series, and
+      <code>Recipe</code>, the abstract type the other three satisfy.
     </p>
 
     <p>
       All three constructible recipes are frozen and hold no client, so building one issues no
-      network request and can be done before connecting to anything.
+      network request and can be done before connecting to anything. Recipes nest: a
+      <code>Fusion</code> or <code>Pipeline</code> can contain a <code>Model</code>, a
+      <code>Fusion</code> or a <code>Pipeline</code>, in any combination.
     </p>
 
     <Note>
-      Recipes compare by identity, not by value. Two separately constructed recipes with identical
-      arguments are not equal, so they cannot be used interchangeably as dictionary keys or in sets.
+      Recipes compare by value. Two recipes built with identical arguments are equal, and
+      <RouterLink to="/learn/engine">the engine</RouterLink> treats them as one candidate. Give a
+      <code>Model</code> an explicit <code>name</code> when you mean an independent sample — then
+      they differ. Recipes are also unhashable, so they cannot be dictionary keys or set members.
     </Note>
 
     <div class="not-prose">
-      <NbCell :count="1" :code="identity"><NbTextOut :text="identityOut" /></NbCell>
+      <NbCell :count="1" :code="equality"><NbTextOut :text="equalityOut" /></NbCell>
     </div>
 
     <h2>Recipe</h2>
@@ -84,10 +95,14 @@ const identityOut = `False`
     <p>
       <code>Recipe</code> is the abstract base the other three inherit and cannot itself be
       instantiated. It exists so that a parameter accepting any recipe can be annotated, and so that
-      a <code>Fusion</code> can hold a mixed sequence of members.
+      a <code>Fusion</code> or <code>Pipeline</code> can hold a mixed sequence of members.
     </p>
 
-    <p>Its only public attribute is <code>name</code>, a <code>str</code> every recipe carries.</p>
+    <p>
+      Its only public attribute is <code>name</code>, a <code>str</code> every recipe carries. It
+      also provides <code>.then()</code>, the builder that appends a stage and returns a
+      <code>Pipeline</code> (see <a href="#pipeline">Pipeline</a> below).
+    </p>
 
     <p>Calling <code>sf.Recipe()</code> raises:</p>
 
@@ -131,7 +146,7 @@ const identityOut = `False`
           <td>
             Label used in reports and on the leaderboard. Defaults to the segment of the route after
             the last <code>/</code>, so <code>openrouter/openai/gpt-5.5</code> becomes
-            <code>gpt-5.5</code>.
+            <code>gpt-5.5</code>. An explicit name also marks the Model as an independent sample.
           </td>
         </tr>
         <tr>
@@ -147,9 +162,11 @@ const identityOut = `False`
           <td><code>Mapping&nbsp;|&nbsp;None</code></td>
           <td>
             Generation overrides such as <code>temperature</code>. Values must be <code>str</code>,
-            <code>int</code>, <code>float</code> or <code>bool</code>, and floats must be finite. At
-            execution time these are merged over the SDK defaults <code>reasoning="low"</code> and
-            <code>max_output_tokens=4096</code>.
+            <code>int</code>, <code>float</code> or <code>bool</code>, and floats must be finite.
+            Only the parameters you set are sent — the SDK adds no default generation parameters.
+            Transport, tool and benchmark-protocol names (for example <code>model</code>,
+            <code>messages</code>, <code>tools</code>, <code>web_search</code>) are reserved and
+            rejected.
           </td>
         </tr>
       </tbody>
@@ -189,6 +206,10 @@ const identityOut = `False`
           <td>A <code>params</code> value is not a scalar, or a float is not finite</td>
           <td><code>TypeError</code> / <code>ValueError</code></td>
         </tr>
+        <tr>
+          <td>A <code>params</code> name is reserved, or a name or value cannot be encoded</td>
+          <td><code>ValueError</code></td>
+        </tr>
       </tbody>
     </table>
 
@@ -199,10 +220,11 @@ const identityOut = `False`
     <h2>Fusion</h2>
 
     <p>
-      A <code>Fusion</code> combines two or more members: each answers, then a reducer combines
-      their answers into the final one. That final answer is what the benchmark grades.
-      See the <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> for the
-      reasoning behind the design.
+      A <code>Fusion</code> combines members: each member answers in parallel, then a
+      <strong>synthesizer</strong> reads their answers and produces the single final one. That final
+      answer is what the benchmark grades. See the
+      <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> for the reasoning behind
+      the design.
     </p>
 
     <CodeBlock :code="fusionSig" language="python" />
@@ -220,10 +242,11 @@ const identityOut = `False`
       <tbody>
         <tr>
           <td><code>members</code></td>
-          <td><code>Sequence[Recipe]</code></td>
+          <td><code>Sequence[str&nbsp;|&nbsp;Recipe]</code></td>
           <td>
-            At least two <code>Model</code> or <code>Fusion</code> values, in order. A
-            <code>Fusion</code> may hold another <code>Fusion</code>, so ensembles nest.
+            One or more members, in order — a route string, <code>Model</code>,
+            <code>Fusion</code> or <code>Pipeline</code>. Because a member may itself be a
+            <code>Fusion</code> or <code>Pipeline</code>, ensembles nest.
           </td>
         </tr>
         <tr>
@@ -235,13 +258,12 @@ const identityOut = `False`
           </td>
         </tr>
         <tr>
-          <td><code>reducer</code></td>
-          <td><code>Reducer&nbsp;|&nbsp;None</code></td>
+          <td><code>synthesizer</code></td>
+          <td><code>str&nbsp;|&nbsp;Recipe</code></td>
           <td>
-            How the members are combined, an <code>sf.reducers</code> value.
-            <code>Model(model,&nbsp;prompt=…,&nbsp;params=…)</code> has a model write the final
-            answer; <code>MajorityVote()</code> picks by agreement, with no extra model call.
-            Defaults to a model reducer.
+            <strong>Required, keyword-only.</strong> A route string or any recipe — a
+            <code>Model</code>, <code>Fusion</code> or <code>Pipeline</code> — that reads the
+            members' answers and writes the final one. There is no default.
           </td>
         </tr>
       </tbody>
@@ -250,8 +272,10 @@ const identityOut = `False`
     <h3>Attributes</h3>
 
     <p>
-      <code>members</code> is a <code>tuple</code> in the order you gave it. <code>name</code> and
-      <code>reducer</code> read back the resolved shape.
+      <code>members</code> is a <code>tuple</code> in the order you gave it. <code>name</code> reads
+      back the resolved label, and <code>synthesizer</code> reads back the recipe you passed (a
+      route string is normalized to a <code>Model</code>). There is no <code>reducer</code>
+      attribute.
     </p>
 
     <h3>Raises</h3>
@@ -265,19 +289,27 @@ const identityOut = `False`
       </thead>
       <tbody>
         <tr>
-          <td>Fewer than two members</td>
-          <td><code>ValueError: a Fusion requires at least two members</code></td>
+          <td>No <code>synthesizer</code> is given</td>
+          <td><code>TypeError: missing a required keyword-only argument: 'synthesizer'</code></td>
         </tr>
         <tr>
-          <td>Two members share a name</td>
-          <td><code>ValueError: duplicate Fusion member name '…'</code></td>
+          <td>The members are empty</td>
+          <td><code>ValueError: a Fusion requires at least one member</code></td>
         </tr>
         <tr>
+          <td><code>members</code> is not an ordered sequence (for example a bare route string)</td>
           <td>
-            A member is not a <code>Model</code> or <code>Fusion</code>, including a
-            <code>CorrectiveEnsemble</code>
+            <code
+              >TypeError: Fusion members must be an ordered sequence of model routes or
+              Recipes</code
+            >
           </td>
-          <td><code>TypeError: Fusion members must be sf.Model or sf.Fusion values</code></td>
+        </tr>
+        <tr>
+          <td>A member or the synthesizer is not a route string or a supported recipe</td>
+          <td>
+            <code>TypeError: … must be a model route or sf.Model, sf.Fusion, or sf.Pipeline</code>
+          </td>
         </tr>
       </tbody>
     </table>
@@ -286,23 +318,17 @@ const identityOut = `False`
       <NbCell :count="3" :code="fusionRun"><NbTextOut :text="fusionRunOut" /></NbCell>
     </div>
 
-    <h2>CorrectiveEnsemble</h2>
+    <h2 id="pipeline">Pipeline</h2>
 
     <p>
-      A <code>CorrectiveEnsemble</code> runs its members in parallel and has the benchmark's own
-      verifier check every draft. Each member then gets a bounded number of retries against the
-      violations it caused, and a judge model picks between the drafts that passed. Nothing is
-      blended: the winning draft is returned verbatim.
+      A <code>Pipeline</code> runs its stages in series: the first stage answers the case, and each
+      later stage receives the previous stage's answer as its input. The last stage's answer is what
+      the benchmark grades. See the
+      <RouterLink to="/sf-client/guides/pipelines">Pipelines guide</RouterLink> for serial and
+      recursive composition.
     </p>
 
-    <Note>
-      This recipe needs a benchmark that advertises <code>check</code>, <code>select</code> and
-      <code>finalize</code> verifier actions, such as <code>ifeval</code>. Evaluating it against any
-      other benchmark raises a <code>PlanningError</code> with code
-      <code>benchmark_without_verifier</code>. The retry cap is three attempts per member.
-    </Note>
-
-    <CodeBlock :code="correctiveSig" language="python" />
+    <CodeBlock :code="pipelineSig" language="python" />
 
     <h3>Parameters</h3>
 
@@ -316,26 +342,20 @@ const identityOut = `False`
       </thead>
       <tbody>
         <tr>
-          <td><code>members</code></td>
-          <td><code>Sequence[Model]</code></td>
+          <td><code>stages</code></td>
+          <td><code>Sequence[str&nbsp;|&nbsp;Recipe]</code></td>
           <td>
-            Two to four Models. <code>Fusion</code> is rejected, because the verifier grades each
-            member's raw draft and a reducer would hide those drafts.
-          </td>
-        </tr>
-        <tr>
-          <td><code>judge</code></td>
-          <td><code>Model</code></td>
-          <td>
-            Required keyword argument. The model that picks between drafts that passed the verifier.
+            One or more stages, in order — a route string or any recipe. An
+            <em>unnamed</em> nested <code>Pipeline</code> is flattened into the surrounding stage
+            sequence; a <em>named</em> one is kept as a single stage.
           </td>
         </tr>
         <tr>
           <td><code>name</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            Defaults to the member names joined with <code>+</code> followed by
-            <code>(corrective)</code>.
+            Defaults to the stage names joined with <code>-&gt;</code>, for example
+            <code>gpt-5.5-&gt;claude-opus-4.8</code>.
           </td>
         </tr>
       </tbody>
@@ -344,8 +364,9 @@ const identityOut = `False`
     <h3>Attributes</h3>
 
     <p>
-      <code>members</code> is a <code>tuple[Model, ...]</code>, <code>judge</code> is the Model you
-      passed, and <code>name</code> is the resolved label.
+      <code>stages</code> is a <code>tuple</code> in canonical order, and <code>name</code> reads
+      back the resolved label. <code>recipe.then(next)</code> — available on every recipe — is the
+      builder equivalent: it appends a stage and returns a new <code>Pipeline</code>.
     </p>
 
     <h3>Raises</h3>
@@ -359,22 +380,28 @@ const identityOut = `False`
       </thead>
       <tbody>
         <tr>
-          <td>Fewer than two or more than four members</td>
-          <td><code>ValueError: CorrectiveEnsemble needs 2-4 members, got N</code></td>
+          <td>The stages are empty</td>
+          <td><code>ValueError: a Pipeline requires at least one stage</code></td>
         </tr>
         <tr>
-          <td>A member is not a <code>Model</code></td>
-          <td><code>TypeError: CorrectiveEnsemble members must be sf.Model values</code></td>
+          <td><code>stages</code> is not an ordered sequence (for example a bare route string)</td>
+          <td>
+            <code
+              >TypeError: Pipeline stages must be an ordered sequence of model routes or
+              Recipes</code
+            >
+          </td>
         </tr>
         <tr>
-          <td>The judge is not a <code>Model</code></td>
-          <td><code>TypeError: CorrectiveEnsemble judge must be an sf.Model</code></td>
+          <td><code>.then()</code> is given something other than a route string or recipe</td>
+          <td><code>TypeError: Pipeline stage must be …</code></td>
         </tr>
       </tbody>
     </table>
 
     <div class="not-prose">
-      <NbCell :count="4" :code="correctiveRun"><NbTextOut :text="correctiveRunOut" /></NbCell>
+      <NbCell :count="4" :code="pipelineRun"><NbTextOut :text="pipelineRunOut" /></NbCell>
+      <NbCell :count="5" :code="thenRun"><NbTextOut :text="thenRunOut" /></NbCell>
     </div>
   </DocLayout>
 </template>

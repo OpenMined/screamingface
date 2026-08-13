@@ -13,9 +13,9 @@ const basic = `import screamingface as sf
 opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 
-pair = sf.Fusion([opus, gpt])
+pair = sf.Fusion([opus, gpt], synthesizer="openrouter/anthropic/claude-opus-4.8")
 pair`
-const basicOut = `Fusion(['claude-opus-4.8', 'gpt-5.5'])`
+const basicOut = `Fusion(['claude-opus-4.8', 'gpt-5.5'], synthesizer=Model('openrouter/anthropic/claude-opus-4.8'))`
 
 const inspect = `pair.name, [m.name for m in pair.members]`
 const inspectOut = `('claude-opus-4.8+gpt-5.5', ['claude-opus-4.8', 'gpt-5.5'])`
@@ -23,41 +23,45 @@ const inspectOut = `('claude-opus-4.8+gpt-5.5', ['claude-opus-4.8', 'gpt-5.5'])`
 const synth = `sf.Fusion(
     [opus, gpt],
     name="pair-gpt-synth",
-    reducer=sf.reducers.Model(model="openrouter/openai/gpt-5.5"),
+    synthesizer=sf.Model(
+        "openrouter/openai/gpt-5.5",
+        prompt="Write the final answer from the drafts.",
+    ),
 )`
-const synthOut = `Fusion(['claude-opus-4.8', 'gpt-5.5'], name='pair-gpt-synth', reducer=Model(model='openrouter/openai/gpt-5.5'))`
+const synthOut = `Fusion(['claude-opus-4.8', 'gpt-5.5'], name='pair-gpt-synth', synthesizer=Model('openrouter/openai/gpt-5.5', prompt='Write the final answer from the drafts.'))`
 
 const nested = `haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
 
-sf.Fusion([pair, haiku], name="nested")`
-const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name='nested')`
+sf.Fusion([pair, haiku], name="nested", synthesizer="openrouter/openai/gpt-5.5")`
+const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name='nested', synthesizer=Model('openrouter/openai/gpt-5.5'))`
 </script>
 
 <template>
   <DocLayout
     title="Fusions"
-    description="Combine two or more members into one answer through a reducer."
+    description="Combine members into one answer through a synthesizer."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      A <strong>Fusion</strong> asks several members the same question, then a
-      <strong>reducer</strong> reads their answers and produces the single final one. That final
+      A <strong>Fusion</strong> asks its members the same question, then a
+      <strong>synthesizer</strong> reads their answers and produces the single final one. That final
       answer is what the benchmark grades, so a Fusion competes in exactly the same column as a solo
       <RouterLink to="/sf-client/guides/models">Model</RouterLink>.
     </p>
 
     <p>
-      How the reducer decides is configurable. It can be a model, for example a judge that reads the
-      candidate answers and writes the winner, or your own code that inspects the answers and decides
-      how to pick or combine them.
+      The synthesizer is itself a recipe. It is usually a model that reads the candidate answers and
+      writes the winner, but it can be a
+      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> or even another Fusion — so
+      the way answers are combined is as composable as the members themselves.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
       <svg
         viewBox="0 0 680 236"
         role="img"
-        aria-label="A fusion sends one question to several members; a reducer combines their answers into the single answer the benchmark grades."
+        aria-label="A fusion sends one question to several members; a synthesizer combines their answers into the single answer the benchmark grades."
         style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
       >
         <defs>
@@ -104,11 +108,11 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
           <text x="230" y="48">member 1</text>
           <text x="230" y="122">member 2</text>
           <text x="230" y="196">member 3</text>
-          <text x="445" y="114">reducer</text>
+          <text x="445" y="114">synthesizer</text>
           <text x="620" y="122">answer</text>
         </g>
         <text x="445" y="132" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
-          model · vote · code
+          a model or any recipe
         </text>
       </svg>
       <figcaption
@@ -121,8 +125,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
           margin-top: var(--space-3);
         "
       >
-        Members answer the same question; the reducer combines them into the one answer the benchmark
-        grades.
+        Members answer the same question; the synthesizer combines them into the one answer the
+        benchmark grades.
       </figcaption>
     </figure>
 
@@ -132,8 +136,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
 
     <ul>
       <li>Combine two or more Models into one candidate.</li>
-      <li>Choose the reducer, and how a model reducer is prompted.</li>
-      <li>Nest a Fusion inside another Fusion.</li>
+      <li>Choose the synthesizer, and how a model synthesizer is prompted.</li>
+      <li>Nest a Fusion or a Pipeline inside a Fusion.</li>
       <li>Read back the members and the resolved name.</li>
     </ul>
 
@@ -148,24 +152,22 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
       </thead>
       <tbody>
         <tr>
-          <td><code>sf.Fusion(members, *, name=None, reducer=None)</code></td>
+          <td><code>sf.Fusion(members, *, name=None, synthesizer)</code></td>
           <td>
-            Combines at least two members behind a reducer that reads their answers and produces the
-            single final answer the benchmark grades.
+            Combines members behind a synthesizer that reads their answers and produces the single
+            final answer the benchmark grades. The synthesizer is required.
           </td>
         </tr>
         <tr>
+          <td><code>synthesizer=</code> (route string or recipe)</td>
           <td>
-            <code>sf.reducers.Model(model, *, prompt=None, params=None)</code> ·
-            <code>sf.reducers.MajorityVote()</code>
-          </td>
-          <td>
-            The reducers you pass to <code>reducer=</code>: <code>Model</code> has a model synthesise
-            the answer; <code>MajorityVote</code> picks by agreement, with no extra model call.
+            Any recipe: a route string or <code>sf.Model</code> has a model write the final answer;
+            an <RouterLink to="/sf-client/guides/pipelines"><code>sf.Pipeline</code></RouterLink> or
+            nested <code>sf.Fusion</code> composes a multi-step synthesis.
           </td>
         </tr>
         <tr>
-          <td><code>.name</code> · <code>.members</code> · <code>.reducer</code></td>
+          <td><code>.name</code> · <code>.members</code> · <code>.synthesizer</code></td>
           <td>Read back the resolved shape, including the members and the resolved name.</td>
         </tr>
         <tr>
@@ -179,16 +181,16 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
 
     <h3>1 · Combine two models</h3>
 
-    <p>Members come first and positionally.</p>
+    <p>Members come first and positionally; the synthesizer is a required keyword argument.</p>
 
     <div class="not-prose">
       <NbCell :count="1" :code="basic"><NbTextOut :text="basicOut" /></NbCell>
     </div>
 
     <p>
-      A Fusion needs <strong>at least two</strong> members and their names must be unique: one
-      member is not a fusion, and two identically named ones could not be told apart in a report.
-      Both raise immediately, at construction.
+      A Fusion always needs an explicit <code>synthesizer</code> — there is no default — and at
+      least one member. Omitting the synthesizer, or passing an empty member list, raises
+      immediately at construction.
     </p>
 
     <h3>2 · Read the resolved name</h3>
@@ -202,14 +204,16 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
       <NbCell :count="2" :code="inspect"><NbTextOut :text="inspectOut" /></NbCell>
     </div>
 
-    <h3>3 · Choose the reducer</h3>
+    <h3>3 · Choose the synthesizer</h3>
 
     <p>
-      The <strong>reducer</strong> decides how the members' answers become one. Pass a reducer from
-      <RouterLink to="/learn/engine"><code>sf.reducers</code></RouterLink>: <code>Model</code> has a
-      model read the answers and write the final one, while <code>MajorityVote</code> picks the
-      most-agreed answer with no extra model call. Swapping the reducer is the main lever a Fusion
-      has: the same members with a different reducer is a different candidate, worth measuring as one.
+      The <strong>synthesizer</strong> decides how the members' answers become one, and it is itself
+      a recipe. Pass a route string or an <code>sf.Model</code> to have a model read the drafts and
+      write the final answer, or pass an
+      <RouterLink to="/sf-client/guides/pipelines"><code>sf.Pipeline</code></RouterLink> or nested
+      <code>sf.Fusion</code> for a multi-step synthesis. Swapping the synthesizer is the main lever
+      a Fusion has: the same members with a different synthesizer is a different candidate, worth
+      measuring as one.
     </p>
 
     <div class="not-prose">
@@ -217,17 +221,16 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     </div>
 
     <p>
-      A model reducer carries its own <code>prompt</code> and <code>params</code>
-      (<code>sf.reducers.Model(model, prompt=…, params=…)</code>): they control how the final answer
-      is written, separately from how the members answer. Give a member its own prompt by setting it
-      on that Model.
+      A model synthesizer carries its own <code>prompt</code> and <code>params</code>: they control
+      how the final answer is written, separately from how the members answer. Give a member its own
+      prompt by setting it on that Model.
     </p>
 
     <h3>4 · Nest a fusion</h3>
 
     <p>
-      A member may itself be a Fusion, so a pair can become a member of a larger fusion. The inner
-      Fusion appears under its own resolved name.
+      A member may itself be a Fusion or a Pipeline, so a pair can become a member of a larger
+      fusion. The inner recipe appears under its own resolved name.
     </p>
 
     <div class="not-prose">
@@ -235,8 +238,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     </div>
 
     <p>
-      Members must be Models or Fusions. A corrective ensemble cannot be a member: it grades its own
-      members' raw drafts, which a surrounding reducer would have already replaced.
+      Members must be recipes — a <code>Model</code>, <code>Fusion</code> or <code>Pipeline</code>,
+      or a route string that is normalized to a <code>Model</code>.
     </p>
 
     <h2>Links</h2>
@@ -244,7 +247,7 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/00_quickstart.ipynb"
+          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>00_quickstart.ipynb</code></a

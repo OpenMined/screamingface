@@ -39,6 +39,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/guides/FusionsPage.vue'),
     },
     {
+      path: '/sf-client/guides/pipelines',
+      name: 'sf-client-guides-pipelines',
+      component: () => import('@/pages/sf-client/guides/PipelinesPage.vue'),
+    },
+    {
       path: '/sf-client/guides/benchmarks',
       name: 'sf-client-guides-benchmarks',
       component: () => import('@/pages/sf-client/guides/BenchmarksPage.vue'),
