@@ -168,7 +168,8 @@ def _scoreboard_hint(scoreboard_url: str | None) -> str:
     hostname = urlsplit(scoreboard_url).hostname if scoreboard_url is not None else None
     if hostname in {"localhost", "127.0.0.1", "::1"}:
         return (
-            "Start the local stack with `just stack-up`, or configure a different `scoreboard_url`."
+            "Start the local stack with `screamingface up`, or configure a different "
+            "`scoreboard_url`."
         )
     return (
         "Check that the configured Scoreboard is reachable, "

@@ -76,12 +76,12 @@ def _local_stack_cell() -> NotebookNode:
 From a terminal in `packages/screamingface/`:
 
 ```bash
-just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
-just stack-status
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
 ```
 
-Use `just stack-logs` to inspect startup failures and `just stack-down` when finished. Stack
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
 management stays outside the notebook so **Run All** never starts or stops local services."""
     )
 
@@ -115,12 +115,12 @@ Report, publish its Candidate Result, and replay its URL4. The wider interface i
 From a terminal in `packages/screamingface/`:
 
 ```bash
-just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
-just stack-status
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
 ```
 
-Use `just stack-logs` to inspect startup failures and `just stack-down` when finished. Stack
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
 management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
@@ -247,12 +247,12 @@ Every state-changing or paid example is either descriptive or guarded off by def
 From a terminal in `packages/screamingface/`:
 
 ```bash
-just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
-just stack-status
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
 ```
 
-Use `just stack-logs` to inspect startup failures and `just stack-down` when finished. Stack
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
 management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf"""),
@@ -656,12 +656,12 @@ where `sf.CorrectiveLoop` is the protocol from
 From a terminal in `packages/screamingface/`:
 
 ```bash
-just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
-just stack-status
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
 ```
 
-Use `just stack-logs` to inspect startup failures and `just stack-down` when finished. Stack
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
 management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
@@ -780,15 +780,15 @@ This notebook evaluates DRACO using new models (August 2026) and fusions of thes
 From a terminal in `packages/screamingface/`:
 
 ```bash
-just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
-just stack-status
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
 ```
 
-Use `just stack-logs` to inspect startup failures and `just stack-down` when finished. Stack
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
 management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_markdown_cell("""\
-Export `TAVILY_API_KEY` before `just stack-up`: the Gemini, Kimi, DeepSeek, and
+Export `TAVILY_API_KEY` before `screamingface up`: the Gemini, Kimi, DeepSeek, and
 Qwen answer routes use its guarded tool loop, and the Engine fails before model spend when that
 required retrieval mechanism is unavailable."""),
         nbformat.v4.new_code_cell("""\
@@ -916,12 +916,12 @@ Can a fusion of open-weights models improve on the baseline across the 157 harde
 From a terminal in `packages/screamingface/`:
 
 ```bash
-just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
-just stack-status
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
 ```
 
-Use `just stack-logs` to inspect startup failures and `just stack-down` when finished. Stack
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
 management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
@@ -1025,14 +1025,14 @@ Every installed Benchmark advertises whether its check surface is free or paid:
 From a terminal in `packages/screamingface/`:
 
 ```bash
-just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
-just stack-status
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
 ```
 
-Use `just stack-logs` to inspect startup failures and `just stack-down` when finished.
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
 
-For DRACO, export `TAVILY_API_KEY` before `just stack-up`: the answer routes use its guarded
+For DRACO, export `TAVILY_API_KEY` before `screamingface up`: the answer routes use its guarded
 tool loop, and the Engine fails before model spend when that retrieval mechanism is missing.
 """),
         nbformat.v4.new_code_cell("""\
