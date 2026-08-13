@@ -92,6 +92,11 @@ filterwarnings = [
     "error::DeprecationWarning:screamingface",
 ]
 
+[tool.coverage.run]
+# The SDK test job intentionally installs only the notebook extra. The optional
+# runtime is exercised by its clean-wheel and live-stack integration checks.
+omit = ["src/screamingface/_runtime/*"]
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.409",
