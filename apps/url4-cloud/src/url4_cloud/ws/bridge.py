@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
+import time
 from collections.abc import Callable
 from datetime import datetime
 from typing import Protocol
@@ -34,6 +36,24 @@ from url4_cloud import notices
 Clock = Callable[[], datetime]
 
 _InboundEvent = AttachEvent | StopEvent
+
+_logger = logging.getLogger(__name__)
+
+
+def _closure_of(cause: BaseException) -> str:
+    """Name how a connection ended, in the terms that separate its possible causes.
+
+    WHY this is worth recording: a dropped Run stream reaches the researcher as one
+    message no matter what caused it. The close code is what tells an oversized frame
+    (1009, the client refusing what we sent) apart from a proxy draining a listener or a
+    Pod going away (1006/1001), and the App is the only place that observes it — the
+    client cannot report a close it never received.
+    """
+
+    if isinstance(cause, WebSocketDisconnect):
+        reason = f" {cause.reason!r}" if cause.reason else ""
+        return f"client close {cause.code}{reason}"
+    return f"send failed: {type(cause).__name__}"
 
 
 class TopicSession(Protocol):
@@ -134,6 +154,13 @@ class Bridge:
         self._out: asyncio.Queue[OutboundFrame] = asyncio.Queue(maxsize=OUTBOUND_QUEUE_MAX_FRAMES)
         self._stop = asyncio.Event()
         self._sub: asyncio.Task[None] | None = None
+        # Enough to attribute a drop without keeping any of the run's payload: how the
+        # socket ended, how long it lasted, and whether it was carrying work or idling.
+        # A long connection with only heartbeats reads as an idle cut; a short one that
+        # ended right after real frames reads as the peer refusing what it was sent.
+        self._closure = "no close observed"
+        self._frames_sent = 0
+        self._heartbeats_sent = 0
 
     def _offer(self, frame: OutboundFrame) -> None:
         """Queue an advisory frame, dropping it if the client is already too far behind.
@@ -163,6 +190,7 @@ class Bridge:
         non-blocking, drop-if-behind path every other advisory frame takes.
         """
         self._sessions.add_notifier(self._topic, self._offer)
+        opened = time.monotonic()
         inbound = asyncio.ensure_future(self._inbound())
         writer = asyncio.ensure_future(self._writer())
         try:
@@ -170,6 +198,14 @@ class Bridge:
         finally:
             self._sessions.remove_notifier(self._topic, self._offer)
             await self._teardown(inbound, writer)
+            _logger.info(
+                "ws stream ended topic=%s duration_s=%.1f frames=%d heartbeats=%d outcome=%s",
+                self._topic,
+                time.monotonic() - opened,
+                self._frames_sent,
+                self._heartbeats_sent,
+                self._closure,
+            )
 
     async def _inbound(self) -> None:
         # INVARIANT: `_stop` is set in `finally` regardless of how this loop exits, so
@@ -189,8 +225,8 @@ class Bridge:
                     )
                     continue
                 await self._handle(event)
-        except WebSocketDisconnect:
-            pass
+        except WebSocketDisconnect as exc:
+            self._closure = _closure_of(exc)
         finally:
             self._stop.set()
 
@@ -200,6 +236,11 @@ class Bridge:
         else queues an `unsupported` error frame.
         """
         if isinstance(event, AttachEvent):
+            _logger.info(
+                "ws attach topic=%s from_sequence=%s",
+                self._topic,
+                event.data.from_sequence,
+            )
             # ORDER MATTERS, and only in this direction: the declaration is recorded before the
             # subscription is (re)started, so a run cannot be scheduled — nor a replayed frame
             # delivered — under a policy the session state has not seen yet.
@@ -305,8 +346,15 @@ class Bridge:
         """
         try:
             await _send(self._ws, event)
-        except (WebSocketDisconnect, RuntimeError):
+        except (WebSocketDisconnect, RuntimeError) as exc:
+            self._closure = _closure_of(exc)
             return False
+        # Counted on the way OUT, not on creation: only a frame that actually left the
+        # socket says anything about what the peer received before it went away.
+        if isinstance(event, HeartbeatEvent):
+            self._heartbeats_sent += 1
+        else:
+            self._frames_sent += 1
         return True
 
     async def _teardown(self, *tasks: asyncio.Task[None]) -> None:
