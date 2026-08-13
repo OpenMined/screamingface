@@ -20,6 +20,8 @@ boot instead of silently booting a web server that nothing will ever dial.
 
 import argparse
 
+from url4_cloud.logs import configure as configure_logging
+
 _PORT = 9108
 
 
@@ -90,6 +92,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     sub.add_parser("run", help="execute one url4 expression from the environment, then exit")
     args = parser.parse_args(argv)
+
+    # BEFORE dispatch, and for every mode: a Job's logs are as load-bearing as the control
+    # plane's, and neither `uvicorn.run` nor `run_main` configures anything for this package.
+    configure_logging()
 
     if args.mode == "run":
         _run()

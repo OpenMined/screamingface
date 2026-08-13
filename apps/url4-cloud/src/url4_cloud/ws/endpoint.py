@@ -3,6 +3,7 @@ the caller's topic, then hands the accepted socket off to `Bridge` for the
 duration of the connection.
 """
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket
@@ -18,6 +19,8 @@ router = APIRouter()
 _SUBPROTOCOL = "cloudevents.json"
 _POLICY_VIOLATION = 1008
 _INTERNAL_ERROR = 1011
+
+_logger = logging.getLogger(__name__)
 
 
 def _default_clock() -> datetime:
@@ -63,6 +66,14 @@ async def ws_endpoint(websocket: WebSocket, ticket: str | None = None) -> None:
     """
     topic = _ticket_topic(websocket, ticket)
     if topic is None:
+        # WHY worth a log line: this is invisible from the client, which sees only a
+        # refused handshake. A burst of these says capabilities are arriving stale —
+        # the ticket's `iat_window_s` is short enough that anything delaying the
+        # connect (a Cloudflare Access login, a suspended host) outlives it.
+        _logger.info(
+            "ws rejected reason=%s",
+            "missing ticket" if ticket is None else "unverifiable ticket",
+        )
         await websocket.close(code=_POLICY_VIOLATION)
         return
     stream: EventConsumer | None = websocket.app.state.stream

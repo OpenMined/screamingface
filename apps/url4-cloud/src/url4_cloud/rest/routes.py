@@ -9,6 +9,7 @@ first.
 """
 
 import asyncio
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -39,6 +40,8 @@ from url4_cloud.rest.interest import SubscriberGate
 from url4_cloud.rest.sessions import RunSessions
 
 router = APIRouter()
+
+_logger = logging.getLogger(__name__)
 
 _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "failed": (502, "Bad Gateway", "the run failed"),
@@ -174,6 +177,15 @@ async def _schedule(
             profile=profile,
             identity=identity,
             cache=cache,
+        )
+        # The expression itself is the caller's, and may carry prompts — its LENGTH is
+        # enough to tell a large Evaluation from a smoke run when reading back a failure.
+        _logger.info(
+            "run scheduled topic=%s url4_chars=%d profile=%s cache=%s",
+            topic,
+            len(url4),
+            profile,
+            cache,
         )
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
@@ -477,6 +489,7 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             title="Forbidden",
             detail="the capability token is not authorized for that topic",
         )
+    _logger.info("run stop requested topic=%s", sub)
     await deps.job_runner.stop(sub)
     # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
     # stream empties it but leaves the stream object, its consumer state and its filestore
