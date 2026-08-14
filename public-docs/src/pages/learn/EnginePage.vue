@@ -10,7 +10,17 @@ const point = `import screamingface as sf
 
 sf.configure(engine_url="http://127.0.0.1:9108")   # the Client talks only to an Engine`
 
-const health = `curl http://127.0.0.1:9108/healthz`
+const install = `pip install "screamingface[runtime,notebook]"`
+
+const prepare = `screamingface prepare draco`
+
+const up = `screamingface up`
+
+const status = `screamingface status`
+
+const down = `screamingface down`
+
+const tavily = `export TAVILY_API_KEY="tvly-..."`
 </script>
 
 <template>
@@ -80,16 +90,47 @@ const health = `curl http://127.0.0.1:9108/healthz`
 
     <h2>Running one</h2>
 
+    <p>Install the client with the local runtime and notebook widgets:</p>
+
+    <CodeBlock :code="install" language="bash" />
+
+    <p>Prepare DRACO once before running it locally:</p>
+
+    <CodeBlock :code="prepare" language="bash" />
+
     <p>
-      Point the Client at an Engine with one call. The Client's local default is
+      Start the local Engine with <code>screamingface up</code>. It listens on
+      <code>http://127.0.0.1:9108</code>, and <code>status</code> and <code>down</code> inspect or
+      stop the same local runtime:
+    </p>
+
+    <CodeBlock :code="up" language="bash" />
+
+    <CodeBlock :code="status" language="bash" />
+
+    <CodeBlock :code="down" language="bash" />
+
+    <p>
+      Point the Client at that Engine with one call. The Client's local default is
       <code>http://127.0.0.1:9108</code>, so you can omit the argument while working locally:
     </p>
 
     <CodeBlock :code="point" language="python" />
 
-    <p>A health check confirms it is up before you spend anything:</p>
+    <p>
+      If your benchmark or candidate prompts need web research, check what your provider routes can
+      do. Some routes expose provider-native web search. Others are plain model calls. When the
+      routes you plan to use do not provide search themselves, give your own Engine a Tavily key so
+      it has a search backend:
+    </p>
 
-    <CodeBlock :code="health" language="bash" />
+    <CodeBlock :code="tavily" language="bash" />
+
+    <p>
+      The Tavily key belongs with the Engine, not in notebook code. Model-provider keys still go
+      through the connection flow; Tavily only supplies web search when the selected providers do
+      not.
+    </p>
 
     <p>
       The same Engine runs three ways: <strong>bundled</strong> invisibly inside the Client and

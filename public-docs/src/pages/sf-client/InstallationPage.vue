@@ -3,7 +3,6 @@ import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import Collapsible from '@/components/ui/Collapsible.vue'
-import Note from '@/components/ui/Note.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import { SF_ENGINE_URL } from '@/lib/engine'
 import {
@@ -11,8 +10,7 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-const pypiNotebook = `!pip install "screamingface[notebook]"`
-const pypiTerminal = `uv pip install "screamingface[notebook]"`
+const install = `pip install "screamingface[runtime,notebook]"`
 
 const verify = `import screamingface as sf
 
@@ -28,29 +26,17 @@ client.authenticated    # True once the token arrives`
 
 const connectCode = `sf.connect()   # the provider panel`
 
-const gateway = `cd apps/aigateway
-uv sync
-uv run aigateway migrate
-
-AIGW_AUTH_MODE=disabled AIGW_OPENROUTER_ENABLED=true \\
-  uv run uvicorn aigateway.main:app --port 9105`
-
-const assets = `cd apps/url4-cloud
-uv sync
-uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare \\
-  --out /tmp/screamingface-benchmark-assets/ifeval`
-
-const engine = `URL4_BENCHMARK_ASSETS=/tmp/screamingface-benchmark-assets \\
-  uv run url4-cloud serve --local`
+const prepareDraco = `screamingface prepare draco`
 
 const localPoint = `sf.configure(engine_url="http://127.0.0.1:9108")`
 
-const health = `curl -sf http://localhost:9105/healthz      # {"status":"ok"}
-curl -s  http://localhost:9108/v1/benchmarks   # draco, ifeval`
+const engineUp = `screamingface up`
 
-const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;print(certifi.where())") \\
-  uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare \\
-  --out /tmp/screamingface-benchmark-assets/ifeval`
+const engineStatus = `screamingface status`
+
+const engineDown = `screamingface down`
+
+const tavily = `export TAVILY_API_KEY="tvly-..."`
 </script>
 
 <template>
@@ -81,15 +67,9 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
 
     <h2>1 · Install the client</h2>
 
-    <p>Python <strong>3.12 or newer</strong>. In a notebook, one cell:</p>
+    <p>Python <strong>3.12 or newer</strong>. Install the client, local runtime, and notebook UI:</p>
 
-    <div class="not-prose">
-      <NbCell :count="1" :code="pypiNotebook" />
-    </div>
-
-    <p>Or from a terminal:</p>
-
-    <CodeBlock :code="pypiTerminal" language="bash" />
+    <CodeBlock :code="install" language="bash" />
 
     <p>
       Prefer to install from source? Install it the same way from the
@@ -99,10 +79,9 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
     </p>
 
     <p>
-      The <code>[notebook]</code> extra pulls ipywidgets and jupyterlab, which is what makes
-      <code>sf.connect()</code> render a live panel instead of static text. Drop it if you are
-      writing scripts. Everything else, including
-      <RouterLink to="/learn/url4"><code>url4</code></RouterLink>, resolves automatically.
+      The <code>[runtime]</code> extra installs the local Engine and its helper commands. The
+      <code>[notebook]</code> extra pulls ipywidgets and jupyterlab, which is what makes
+      <code>sf.connect()</code> render a live panel instead of static text.
     </p>
 
     <p>A quick check that it worked:</p>
@@ -118,38 +97,36 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
     <h3>Option A: Run your own engine</h3>
 
     <p>
-      The local path runs everything on your machine, on your own keys, with no account and no
-      login. Clone the
-      <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener"
-        >repository</a
-      >, start two small services, and point the client at them.
+      The local path runs the Engine on your machine, on your own keys, with no account and no
+      login. You do not need a source checkout.
     </p>
 
-    <h4>AI Gateway</h4>
-
-    <p>Holds your provider keys. One command starts it:</p>
-
-    <CodeBlock :code="gateway" language="bash" />
-
-    <h4>Benchmark assets</h4>
+    <h4>Prepare DRACO</h4>
 
     <p>
-      The Engine reads datasets from disk rather than downloading them at runtime, so a run cannot
-      silently use a different revision than you expect. Prepare them once:
+      DRACO uses fixed benchmark assets. Prepare them once before the first local run so the Engine
+      does not download benchmark data while it is evaluating:
     </p>
 
-    <Note>
-      On macOS, if this fails with <code>CERTIFICATE_VERIFY_FAILED</code>, the one-line fix is in
-      the FAQ below.
-    </Note>
+    <CodeBlock :code="prepareDraco" language="bash" />
 
-    <CodeBlock :code="assets" language="bash" />
+    <h4>Start the Engine</h4>
 
-    <h4>The Engine</h4>
+    <p>
+      <code>screamingface up</code> starts the local Engine on
+      <code>http://127.0.0.1:9108</code>. It also starts the local provider gateway that holds your
+      keys.
+    </p>
 
-    <p>Executes runs, serving on <code>127.0.0.1:9108</code>, loopback only.</p>
+    <CodeBlock :code="engineUp" language="bash" />
 
-    <CodeBlock :code="engine" language="bash" />
+    <h4>Check or stop it</h4>
+
+    <p>Use the same command group to inspect or stop the local runtime:</p>
+
+    <CodeBlock :code="engineStatus" language="bash" />
+
+    <CodeBlock :code="engineDown" language="bash" />
 
     <h4>Point the client at it</h4>
 
@@ -159,9 +136,22 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
 
     <p>No login step: a local engine advertises no Cloudflare Access.</p>
 
-    <h4>Check it works</h4>
+    <h4>Web search for your own Engine</h4>
 
-    <CodeBlock :code="health" language="bash" />
+    <p>
+      DRACO is a research benchmark, so some model calls need web search. If the provider routes you
+      are using already include their own web-search tool, the Engine can use that. If they do not,
+      give the Engine a Tavily key so it has a search backend to call:
+    </p>
+
+    <CodeBlock :code="tavily" language="bash" />
+
+    <p>
+      Put the key in the environment where <code>screamingface up</code> runs, or in the local
+      Engine environment file if you use one. This is separate from model-provider credentials such
+      as OpenRouter or Anthropic. Those keys pay for model calls; Tavily gives the Engine a web
+      search tool when the chosen provider cannot do search itself.
+    </p>
 
     <h3>Option B: Reach a hosted engine</h3>
 
@@ -199,30 +189,25 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
 
     <h2>Frequently Asked Questions</h2>
 
-    <Collapsible title='AI Gateway crashes with "no such table: secret_master_keys"'>
+    <Collapsible title="The Engine is not reachable">
       <p>
-        It started before its migrations ran. A fresh install has no schema until you apply them.
-        Stop it, run <code>uv run aigateway migrate</code>, and start it again.
+        Run <code>screamingface status</code>. If it is stopped, start it with
+        <code>screamingface up</code>. If it reports an unhealthy process, stop it with
+        <code>screamingface down</code> and start it again.
       </p>
     </Collapsible>
 
-    <Collapsible title="A valid provider key is rejected">
+    <Collapsible title="Do I need Tavily?">
       <p>
-        The OpenRouter plugin ships disabled, so AI Gateway refuses the key regardless of whether it
-        is good. Restart with <code>AIGW_OPENROUTER_ENABLED=true</code>.
+        Only if your chosen providers do not offer web search for the routes you are using. DRACO
+        can ask models to do research. A route with native web search can handle that itself; a plain
+        text-only route needs the Engine to call a separate search provider. Tavily fills that role.
       </p>
       <p>
-        Worth knowing, because the error names the credential rather than the configuration. It is
-        easy to spend a while checking a key that was never the problem.
+        Hosted engines may already have search configured by the operator. For your own Engine, put
+        <code>TAVILY_API_KEY</code> in the environment before <code>screamingface up</code> when you
+        need that fallback.
       </p>
-    </Collapsible>
-
-    <Collapsible title="CERTIFICATE_VERIFY_FAILED while preparing benchmark assets">
-      <p>
-        A macOS Python without a CA bundle, so the dataset download cannot verify TLS. Point that
-        one command at certifi's bundle:
-      </p>
-      <CodeBlock :code="certs" language="bash" />
     </Collapsible>
 
     <Collapsible title="Do I have to run my own engine?">
