@@ -10,13 +10,8 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
     aggregate,
-    aggregate_corrective,
 )
 from url4_cloud.benchmarks.ifeval.case_evaluation import bind_case_evaluation
-from url4_cloud.benchmarks.ifeval.corrective_policy import (
-    SELF_CORRECTIVE_ID,
-    SELF_CORRECTIVE_REVISION,
-)
 
 _SPEC = {
     1: {
@@ -139,47 +134,3 @@ def test_bare_check_record_is_not_a_case_evaluation_envelope() -> None:
 
     with pytest.raises(AggregateError, match="position 0"):
         aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
-
-
-def test_corrective_collected_failure_returns_a_complete_unscored_result() -> None:
-    payload = json.dumps(
-        [
-            {
-                "error": {
-                    "kind": "ResolutionError",
-                    "code": "provider_error",
-                    "message": "the provider was unavailable",
-                    "permanent": True,
-                }
-            }
-        ]
-    )
-
-    result = aggregate_corrective(
-        payload,
-        _SPEC,
-        SELF_CORRECTIVE_ID,
-        SELF_CORRECTIVE_REVISION,
-        _ORDER,
-        selected_case_count=1,
-    )
-
-    assert result["score"] is None
-    assert result["metrics"] == {}
-    assert result["case_count"] == 1
-    assert result["cases"][0]["grade"] is None
-    assert result["cases"][0]["failures"][0]["code"] == "provider_error"
-
-
-def test_corrective_nested_check_is_not_discovered_as_grading() -> None:
-    payload = json.dumps([{"nested": {"record": _valid_record()}}])
-
-    with pytest.raises(AggregateError, match="position 0"):
-        aggregate_corrective(
-            payload,
-            _SPEC,
-            SELF_CORRECTIVE_ID,
-            SELF_CORRECTIVE_REVISION,
-            _ORDER,
-            selected_case_count=1,
-        )

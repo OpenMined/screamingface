@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable
 
-from url4 import Expression, RelExpr, Source, Text, build
+from url4 import Expression, Source, Text, build
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
 from screamingface._evaluation.model import (
@@ -23,8 +23,8 @@ from screamingface._evaluation.topology import (
 )
 from screamingface.events import Event
 from screamingface.report import Report
-
-_REFERENCE = re.compile(r"\$(model_\d+|synthesis_\d+)")
+from screamingface.url4 import _calls as _url4_calls
+from screamingface.url4 import _validate_topology
 
 
 def evaluate_url4_sync(
@@ -106,28 +106,27 @@ def _candidate_from_url4(value: str) -> Candidate:
     if not isinstance(candidate, Expression) or not isinstance(candidate.intent, Text):
         raise ValueError("Evaluation URL4 contains an invalid embedded Candidate expression")
 
-    calls = _candidate_calls(candidate)
-    final = _final_binding(candidate.intent.value, calls)
-    selected = _dependency_closure(final, calls)
     topology = _topology_from_expression(candidate)
-    return _candidate_from_topology(url4, topology, calls, final, selected)
+    parsed_calls = _url4_calls(candidate)
+    calls = {name: (call.model, call.dependencies) for name, call in parsed_calls.items()}
+    final = _final_binding(candidate.intent.value, calls, topology)
+    _validate_topology(candidate, topology, parsed_calls, final)
+    selected = (
+        set(_topology_bindings(topology))
+        if topology.kind in {"corrective_loop", "self_corrective"}
+        else _dependency_closure(final, calls)
+    )
+    return _candidate_from_topology(url4, topology, calls, selected)
 
 
 def _candidate_from_topology(
     url4: str,
     topology: _RecipeTopology,
     calls: dict[str, tuple[str, tuple[str, ...]]],
-    final: str,
     selected: set[str],
 ) -> Candidate:
     bindings = _topology_bindings(topology)
-    if topology.binding != final or set(bindings) != set(calls):
-        raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
-    # INVARIANT: the inert topology metadata must agree with the executable calls —
-    # each call's parsed `$`-references equal the walker's context dependencies.
-    for name, (_, context_dependencies) in calls.items():
-        if bindings[name].context_dependencies != context_dependencies:
-            raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
+    corrective = topology.kind in {"corrective_loop", "self_corrective"}
     fusion_names = _direct_fusion_output_names(topology)
     operations = tuple(
         _compiled_operation(
@@ -141,7 +140,7 @@ def _candidate_from_topology(
                 f"op_{dependency}" for dependency in bindings[name].operation_dependencies
             ),
         )
-        for name in calls
+        for name in bindings
         if name in selected
     )
     members = (
@@ -154,13 +153,18 @@ def _candidate_from_topology(
             )
             for member in topology.members
         )
-        if topology.kind == "fusion"
+        if topology.kind in {"fusion", "corrective_loop"}
         else ()
+    )
+    models = (
+        tuple(dict.fromkeys(calls[name][0] for name in bindings))
+        if corrective
+        else _models(topology.binding, calls)
     )
     return _compiled_candidate(
         name=topology.name,
         kind=topology.kind,
-        models=_models(final, calls),
+        models=models,
         url4=url4,
         operations=operations,
         members=members,
@@ -200,25 +204,24 @@ def _candidate_text(root: object) -> str:
 
 
 def _candidate_calls(candidate: Expression) -> dict[str, tuple[str, tuple[str, ...]]]:
-    calls: dict[str, tuple[str, tuple[str, ...]]] = {}
-    for node in candidate.sources:
-        if not isinstance(node, Source) or not isinstance(node.value, RelExpr):
-            continue
-        name = node.name
-        if name is None or not re.fullmatch(r"(?:model|synthesis)_\d+", name):
-            continue
-        dependencies = tuple(dict.fromkeys(_REFERENCE.findall(node.value.context or "")))
-        calls[name] = (node.value.path.removeprefix("/"), dependencies)
-    if not calls:
-        raise ValueError("Evaluation URL4 contains no executable Candidate model calls")
-    return calls
+    return {name: (call.model, call.dependencies) for name, call in _url4_calls(candidate).items()}
 
 
-def _final_binding(intent: str, calls: dict[str, tuple[str, tuple[str, ...]]]) -> str:
-    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+)", intent)
-    if match is None or match.group(1) not in calls:
+def _final_binding(
+    intent: str,
+    calls: dict[str, tuple[str, tuple[str, ...]]],
+    topology: _RecipeTopology,
+) -> str:
+    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+|loop_candidate)", intent)
+    if match is None:
         raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
-    return match.group(1)
+    selected = match.group(1)
+    if topology.kind in {"corrective_loop", "self_corrective"}:
+        if selected != topology.binding:
+            raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
+    elif selected not in calls:
+        raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
+    return selected
 
 
 def _dependency_closure(

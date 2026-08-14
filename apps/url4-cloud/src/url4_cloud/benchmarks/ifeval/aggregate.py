@@ -122,61 +122,6 @@ def _failed_case_result(
     )
 
 
-def aggregate_corrective(
-    rows_json: str,
-    specs: Mapping[int, Mapping[str, Any]],
-    benchmark_id: str,
-    benchmark_revision: str,
-    case_order: Sequence[int],
-    *,
-    selected_case_count: int,
-    max_attempts: int = 3,
-) -> dict[str, Any]:
-    """Reduce corrective-chain rows — one scored entry per case, pass@attempt metrics.
-
-    Selection mirrors the LANL protocol for a single candidate: the EARLIEST attempt
-    whose strict checks all pass is the case's answer; a case that never passes is
-    scored on its last recorded attempt.
-    """
-
-    rows = _rows(rows_json)
-    selected = _selected_cases(specs, case_order, selected_case_count)
-    _reject_surplus_rows(rows, selected)
-    case_results: list[CaseResult] = []
-    for index, raw in enumerate(rows):
-        selected_case = selected[index]
-        case_id = int(selected_case.case_id)
-        spec = specs[case_id]
-        records = _attempt_records(raw, case_id, spec, max_attempts)
-        if not records:
-            if _collected_error(raw) is not None:
-                case_results.append(_failed_case_result(raw, index, selected_case))
-                continue
-            raise AggregateError(
-                f"Case result at position {index} is not a valid IFEval Case Evaluation"
-            )
-        earliest_pass = min(
-            (attempt for attempt, record in records.items() if all(record["strict"])),
-            default=0,
-        )
-        selected_attempt = earliest_pass or max(records)
-        case_results.append(
-            _corrective_case(
-                selected_case,
-                records,
-                selected_attempt,
-                earliest_pass,
-            )
-        )
-    return finalize_candidate_result(
-        benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        selected_cases=selected,
-        cases=case_results,
-        scorer=lambda cases: _ifeval_score(cases, max_attempts=max_attempts),
-    ).as_payload()
-
-
 def _reject_surplus_rows(rows: Sequence[Any], selected: Sequence[SelectedCase]) -> None:
     if len(rows) > len(selected):
         raise AggregateError(
@@ -187,74 +132,6 @@ def _reject_surplus_rows(rows: Sequence[Any], selected: Sequence[SelectedCase]) 
 def _collected_error(row: object) -> Mapping[str, Any] | None:
     error = row.get("error") if isinstance(row, Mapping) else None
     return error if isinstance(error, Mapping) else None
-
-
-def _attempt_records(
-    row: Any,
-    case_id: int,
-    spec: Mapping[str, Any],
-    max_attempts: int,
-) -> dict[int, dict[str, Any]]:
-    """Every valid declared attempt in this exact Case Evaluation, keyed by number.
-
-    INVARIANT: a Candidate that echoes a forged record into its answer text cannot
-    self-grade. Aggregation never searches nested values: the root envelope and every
-    attempt must bind to THIS Case and its private instruction id list.
-    """
-
-    expected_ids = list(_instruction_ids(spec))
-    records: dict[int, dict[str, Any]] = {}
-    attempts = decode_case_evaluation(row, case_id)
-    if attempts is None:
-        return records
-    for record in attempts:
-        attempt = _as_int(record.get("attempt"))
-        strict = record.get("strict")
-        loose = record.get("loose")
-        if (
-            record.get("valid") is True
-            and _as_int(record.get("case_id")) == case_id
-            and record.get("instruction_id_list") == expected_ids
-            and attempt is not None
-            and 1 <= attempt <= max_attempts
-            and attempt not in records
-            and _is_bool_vector(strict, len(expected_ids))
-            and _is_bool_vector(loose, len(expected_ids))
-            and _record_content(record, len(expected_ids))
-        ):
-            records[attempt] = record
-    return records
-
-
-def _corrective_case(
-    selected_case: SelectedCase,
-    records: Mapping[int, Mapping[str, Any]],
-    selected_attempt: int,
-    pass_attempt: int,
-) -> CaseResult:
-    selected = records[selected_attempt]
-    result = _case_result(selected_case, selected)
-    return result.model_copy(
-        update={
-            "metadata": {
-                "selected_attempt": selected_attempt,
-                # 0 means no attempt passed every strict Check.
-                "pass_attempt": pass_attempt,
-                "attempts": [
-                    {
-                        "attempt": attempt,
-                        "output": record["answer"],
-                        "finish_reason": record["finish_reason"],
-                        "feedback": list(record["violations"]),
-                        # The judge's actual coaching for THIS attempt (authored after the
-                        # previous round failed); None for attempt 1 and judge-free flows.
-                        "judge_feedback": record.get("judge_feedback"),
-                    }
-                    for attempt, record in sorted(records.items())
-                ],
-            }
-        }
-    )
 
 
 def load_specs(directory: Path) -> dict[int, dict[str, Any]]:
@@ -458,9 +335,7 @@ def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> Case
     )
 
 
-def _ifeval_score(
-    cases: Sequence[CaseResult], *, max_attempts: int | None = None
-) -> CandidateScore:
+def _ifeval_score(cases: Sequence[CaseResult]) -> CandidateScore:
     """Apply IFEval's published accuracy formulas to gradeable typed Cases."""
 
     grades = [case.grade for case in cases]
@@ -484,25 +359,6 @@ def _ifeval_score(
         "inst_level_loose_accuracy": _accuracy(loose_flat),
         "pass_rate": inst_level_strict,
     }
-    if max_attempts is not None:
-        metrics.update(
-            {
-                f"pass_at_{attempt}": round(
-                    sum(
-                        1
-                        for case in cases
-                        if case.metadata.get("pass_attempt")
-                        and case.metadata["pass_attempt"] <= attempt
-                    )
-                    / len(cases),
-                    4,
-                )
-                for attempt in range(1, max_attempts + 1)
-            }
-        )
-        metrics["corrected_cases"] = sum(
-            1 for case in cases if (case.metadata.get("pass_attempt") or 0) > 1
-        )
     return CandidateScore(score=_accuracy(strict_all), metrics=metrics)
 
 
@@ -539,7 +395,6 @@ __all__ = [
     "SCHEMA",
     "AggregateError",
     "aggregate",
-    "aggregate_corrective",
     "load_case_order",
     "load_specs",
 ]

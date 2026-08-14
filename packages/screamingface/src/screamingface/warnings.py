@@ -2,7 +2,7 @@
 
 
 class EvaluationWarning(UserWarning):
-    """An Evaluation completed, but a reported quality condition needs attention."""
+    """An Evaluation planning or result condition needs the caller's attention."""
 
 
 __all__ = ["EvaluationWarning"]

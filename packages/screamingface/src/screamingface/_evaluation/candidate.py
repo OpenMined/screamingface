@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from url4 import Node, RelExpr, RenderError, Text, expr, render, src, struct
 
@@ -25,6 +25,7 @@ from screamingface._evaluation.topology import (
     _RecipeTopology,
     _topology_source,
 )
+from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
 from screamingface.fusion import Fusion
 from screamingface.model import Model
@@ -32,10 +33,15 @@ from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 
+if TYPE_CHECKING:
+    from screamingface._evaluation.benchmark import _CheckSurface
+
+type _CandidateKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
+
 
 @dataclass(frozen=True, slots=True)
 class _CompiledCandidate:
-    kind: Literal["model", "fusion", "pipeline"]
+    kind: _CandidateKind
     url4: str
     models: tuple[str, ...]
     operations: tuple[OperationInfo, ...]
@@ -48,17 +54,26 @@ class _ResolvedRecipe:
     reference: str
     operation_id: str
     name: str
-    kind: Literal["model", "fusion", "pipeline"]
+    kind: _CandidateKind
     models: tuple[str, ...]
     topology: _RecipeTopology
     members: tuple[_ResolvedRecipe, ...] = ()
 
 
-def compile_candidate(recipe: Recipe) -> _CompiledCandidate:
-    """Compile one complete, benchmark-independent Recipe into Candidate URL4."""
+def compile_candidate(
+    recipe: Recipe,
+    *,
+    check_surface: _CheckSurface | None = None,
+) -> _CompiledCandidate:
+    """Compile one complete, benchmark-independent Recipe into Candidate URL4.
+
+    ``check_surface`` is the ONE benchmark-supplied compilation input: a
+    corrective loop renders the manifest's advertised check route into its
+    check steps (never a hardcoded path). Non-loop Recipes ignore it.
+    """
 
     try:
-        return _CandidateCompiler().compile(recipe)
+        return _CandidateCompiler(check_surface=check_surface).compile(recipe)
     except RenderError as exc:
         raise PlanningError(
             "The SDK could not encode Candidate generation parameters for the SF Engine",
@@ -71,16 +86,24 @@ def compile_candidate(recipe: Recipe) -> _CompiledCandidate:
 class _CandidateCompiler:
     """Compile one immutable Recipe while preserving every declared invocation position."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, check_surface: _CheckSurface | None = None) -> None:
         self._sources: list[Node] = []
         self._operations: list[OperationInfo] = []
         self._parameter_assignments: list[_ModelParameterAssignment] = []
         self._active: set[int] = set()
         self._model_count = 0
         self._synthesis_count = 0
+        self._check_surface = check_surface
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
-        root = self._recipe(recipe)
+        # Corrective loops are ROOT-ONLY by construction (member/judge positions
+        # reject them), so this dispatch is the single loop entry point.
+        if isinstance(recipe, CorrectiveLoop | SelfCorrective):
+            from screamingface._evaluation.corrective import _compile_corrective
+
+            root = _compile_corrective(self, recipe, self._check_surface)
+        else:
+            root = self._recipe(recipe)
         members = (
             tuple(
                 _member_projection(
@@ -91,7 +114,7 @@ class _CandidateCompiler:
                 )
                 for member, resolved in zip(recipe.members, root.members, strict=True)
             )
-            if isinstance(recipe, Fusion)
+            if isinstance(recipe, Fusion | CorrectiveLoop)
             else ()
         )
         sources = [*self._sources, _topology_source(root.topology)]
@@ -103,6 +126,32 @@ class _CandidateCompiler:
             members=members,
             parameter_assignments=tuple(self._parameter_assignments),
         )
+
+    def _append_source(self, value: Node) -> None:
+        """Attach one source owned by a composite compiler extension."""
+
+        self._sources.append(value)
+
+    def _capture_recipe(
+        self,
+        recipe: Recipe,
+        *,
+        input_context: str,
+        input_dependencies: tuple[str, ...] = (),
+        synthesis: bool,
+    ) -> tuple[_ResolvedRecipe, tuple[Node, ...]]:
+        """Compile a nested Recipe and detach its sources for isolated placement."""
+
+        start = len(self._sources)
+        resolved = self._recipe(
+            recipe,
+            input_context=input_context,
+            input_dependencies=input_dependencies,
+            synthesis=synthesis,
+        )
+        captured = tuple(self._sources[start:])
+        del self._sources[start:]
+        return resolved, captured
 
     def _recipe(
         self,

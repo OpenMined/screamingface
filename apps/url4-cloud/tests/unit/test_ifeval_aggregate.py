@@ -11,7 +11,6 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
     aggregate,
-    aggregate_corrective,
     load_specs,
 )
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
@@ -19,10 +18,6 @@ from url4_cloud.benchmarks.ifeval.case_evaluation import (
     bind_case_evaluation,
 )
 from url4_cloud.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
-from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    SELF_CORRECTIVE_ID,
-    SELF_CORRECTIVE_REVISION,
-)
 
 _SPECS = {
     1: {
@@ -193,7 +188,6 @@ def test_metrics_are_flat_numbers_only() -> None:
 
 
 def test_one_flake_at_realistic_size_publishes_partial_score_and_coverage() -> None:
-
     specs = {
         case_id: {
             "key": 1000 + case_id,
@@ -243,23 +237,14 @@ def test_canonical_contract_metrics_are_published_for_every_scored_aggregate() -
         _evaluation(1, [True, False], [True, True]),
         _evaluation(2, [True], [True]),
     )
-    single_pass = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
-    corrective = aggregate_corrective(
-        payload,
-        _SPECS,
-        SELF_CORRECTIVE_ID,
-        SELF_CORRECTIVE_REVISION,
-        _ORDER,
-        selected_case_count=2,
-    )
+    result = aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
-    for result in (single_pass, corrective):
-        assert 0.0 <= result["score"] <= 1.0
-        assert 0.0 <= result["metrics"]["pass_rate"] <= 1.0
-        assert 0.0 <= result["coverage"] <= 1.0
-        # IFEval's mapping: pass_rate IS instruction-level strict accuracy.
-        assert result["metrics"]["pass_rate"] == result["metrics"]["inst_level_strict_accuracy"]
-        assert result["coverage"] == 1.0
+    assert 0.0 <= result["score"] <= 1.0
+    assert 0.0 <= result["metrics"]["pass_rate"] <= 1.0
+    assert 0.0 <= result["coverage"] <= 1.0
+    # IFEval's mapping: pass_rate IS instruction-level strict accuracy.
+    assert result["metrics"]["pass_rate"] == result["metrics"]["inst_level_strict_accuracy"]
+    assert result["coverage"] == 1.0
 
 
 def test_a_record_for_an_unknown_case_id_aborts() -> None:

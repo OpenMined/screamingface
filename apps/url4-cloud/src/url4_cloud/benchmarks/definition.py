@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from url4 import Node, RelExpr, build, expr, render, src, text
 from url4.peer.server import Url4Node
@@ -15,6 +16,7 @@ from url4_cloud.retrieval_policy import normalize_excluded_domains
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
+type CheckCost = Literal["free", "paid"]
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)*")
 _VARIANT = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -22,6 +24,38 @@ _VARIANT = re.compile(r"[a-z0-9][a-z0-9._-]*")
 
 def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
     """Default installer for a protocol that needs no private routes or assets."""
+
+
+@dataclass(frozen=True, slots=True)
+class CheckSurface:
+    """One benchmark's advertised mid-run checking capability (OME-796).
+
+    A loop recipe compiled client-side writes `check_route` into its check
+    steps (never a hardcoded path) and budgets by `expected_check_cost`. An
+    ABSENT surface means the benchmark cannot check mid-run — the client's
+    preflight refuses a loop recipe before any money moves, and for MCQ-style
+    benchmarks that refusal is correct behavior, not a gap (pass/fail feedback
+    over a handful of options is an elimination attack).
+    """
+
+    check_route: str
+    feedback_intent: str
+    expected_check_cost: CheckCost
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.check_route, str) or not self.check_route.startswith("/"):
+            raise ValueError("CheckSurface check_route must be an absolute route path")
+        if not isinstance(self.feedback_intent, str) or not self.feedback_intent.strip():
+            raise ValueError("CheckSurface feedback_intent must be non-empty text")
+        if self.expected_check_cost not in {"free", "paid"}:
+            raise ValueError("CheckSurface expected_check_cost must be 'free' or 'paid'")
+
+    def as_block(self) -> dict[str, str]:
+        return {
+            "check_route": self.check_route,
+            "feedback_intent": self.feedback_intent,
+            "expected_check_cost": self.expected_check_cost,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +75,7 @@ class Benchmark:
     case_count: int
     build: Callable[[int], Node]
     install: BenchmarkInstaller = _no_routes
+    check_surface: CheckSurface | None = None
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -68,7 +103,7 @@ class Benchmark:
         }
 
     def _metadata(self) -> dict[str, object]:
-        return {
+        metadata: dict[str, object] = {
             "id": self.id,
             "variant": self.variant,
             "title": self.title,
@@ -76,6 +111,9 @@ class Benchmark:
             "revision": self.revision,
             "case_count": self.case_count,
         }
+        if self.check_surface is not None:
+            metadata["check_surface"] = self.check_surface.as_block()
+        return metadata
 
     def protocol(self, selected_case_count: int) -> Node:
         """Build and type-check one exact selection without rendering it prematurely."""
@@ -170,4 +208,11 @@ def _as_text(value: Node | str) -> str:
     return value if isinstance(value, str) else render(value)
 
 
-__all__ = ["CANDIDATE_REF", "Benchmark", "BenchmarkInstaller", "candidate", "link_candidate"]
+__all__ = [
+    "CANDIDATE_REF",
+    "Benchmark",
+    "BenchmarkInstaller",
+    "CheckSurface",
+    "candidate",
+    "link_candidate",
+]

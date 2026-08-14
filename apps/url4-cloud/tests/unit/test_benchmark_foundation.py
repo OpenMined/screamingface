@@ -23,7 +23,7 @@ from url4_cloud.benchmarks import (
     candidate,
     link_candidate,
 )
-from url4_cloud.benchmarks.candidate import install_candidate_invocation
+from url4_cloud.benchmarks.candidate_adapter import install_candidate_invocation
 from url4_cloud.benchmarks.contract import (
     CANDIDATE_BINDING,
     CANDIDATE_ROUTE,

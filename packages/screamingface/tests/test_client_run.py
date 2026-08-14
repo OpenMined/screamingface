@@ -17,6 +17,7 @@ from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
+from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import Candidate
 
@@ -66,6 +67,25 @@ assert FUSION_CANDIDATE_URL4 is not None
 FUSION_REPLAY_URL4 = render(
     expr(
         src(text(FUSION_CANDIDATE_URL4), name="candidate", weight=0.0),
+        src("fixture", name="result", weight=0.0),
+        intent=text("$result"),
+    )
+)
+CORRECTIVE_CANDIDATE_URL4 = compile_candidate(
+    sf.CorrectiveLoop(
+        ["provider/member-a", "provider/member-b"],
+        judge="provider/judge",
+        max_rounds=2,
+    ),
+    check_surface=_CheckSurface(
+        check_route="/benchmarks/ifeval/revision-1/check-surface",
+        feedback_intent="feedback",
+        expected_check_cost="free",
+    ),
+).url4
+CORRECTIVE_REPLAY_URL4 = render(
+    expr(
+        src(text(CORRECTIVE_CANDIDATE_URL4), name="candidate", weight=0.0),
         src("fixture", name="result", weight=0.0),
         intent=text("$result"),
     )
@@ -270,6 +290,61 @@ def test_evaluate_url4_reconstructs_the_embedded_fusion_projection() -> None:
         "model",
         "synthesis",
     ]
+
+
+def test_evaluate_url4_replays_a_corrective_recipe_without_recompiling_it() -> None:
+    def corrective_engine(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [
+                        _model_row("provider/member-a"),
+                        _model_row("provider/member-b"),
+                        _model_row("provider/judge"),
+                    ],
+                },
+            )
+        return _engine(request)
+
+    transport = _ReplayTransport()
+    with sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(corrective_engine),
+        run_transport=transport,
+    ) as client:
+        report = client.evaluate(CORRECTIVE_REPLAY_URL4, progress=False)
+
+    assert transport.candidate is not None
+    assert transport.candidate.url4 == CORRECTIVE_REPLAY_URL4
+    candidate = report.candidates.only
+    assert candidate.kind == "corrective_loop"
+    assert candidate.models == (
+        "provider/member-a",
+        "provider/member-b",
+        "provider/judge",
+    )
+
+
+def test_evaluate_url4_rejects_a_corrective_retry_call_hidden_from_its_recipe() -> None:
+    first, rest = CORRECTIVE_REPLAY_URL4.split("/provider/member-a", 1)
+    tampered_evaluation = (
+        first + "/provider/member-a" + rest.replace("/provider/member-a", "/provider/hidden", 1)
+    )
+    transport = _ReplayTransport()
+
+    with (
+        sf.Client(
+            engine_url="https://engine.example",
+            http_transport=httpx.MockTransport(_engine),
+            run_transport=transport,
+        ) as client,
+        pytest.raises(ValueError, match="does not match its Recipe metadata"),
+    ):
+        client.evaluate(sf.Url4(tampered_evaluation), progress=False)
+
+    assert transport.candidate is None
 
 
 @pytest.mark.parametrize("options", [{"benchmark": "draco/smoke"}, {"limit": 1}])

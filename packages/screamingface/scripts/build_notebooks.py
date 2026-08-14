@@ -483,19 +483,26 @@ The asynchronous API mirrors discovery, connections, authentication, and evaluat
 def _ifeval_e2e() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell(
-            """# IFEval: canonical, self-corrective, and LANL ensemble
+            """# IFEval: the protocol grid — solo and panel, with and without correction
 
 IFEval contains 541 instruction-following prompts with deterministic checks for requirements such
 as word counts, required sections, and forbidden punctuation. Grading uses the vendored official
 verifier and makes no grading-model calls.
 
-This notebook compares three independently revisioned Engine protocols:
+This notebook runs the SAME benchmark (`ifeval`) across a 2x2 protocol grid, varying exactly one
+dimension at a time:
 
-- `ifeval` invokes the complete Candidate once and grades its final answer.
-- `ifeval/self-corrective` gives deterministic failure feedback to the complete Candidate for up
-  to three attempts.
-- `ifeval/lanl-ensemble` invokes each direct Fusion member, stops when a member passes, and uses
-  the configured synthesizer route only for benchmark-owned coaching or exact tie-breaking.
+|                | solo                    | panel                                     |
+|----------------|-------------------------|-------------------------------------------|
+| **no loop**    | plain `sf.Model`        | `sf.Fusion` (drafts blended once)         |
+| **corrective** | `sf.SelfCorrective`     | `sf.CorrectiveLoop` (drafts checked, best |
+|                | (self-coached retries)  | passing draft submitted verbatim)         |
+
+The corrective recipes work on ANY benchmark that advertises a check surface in its manifest —
+IFEval's is free (deterministic verifier), so a loop here spends only on members and the judge.
+Members draft, the check marks each draft, the first passing draft is submitted word-for-word,
+and a no-pass round buys one coaching call plus a retry, up to `max_rounds` (a cost cap, not a
+target).
 
 Every evaluation cell below performs paid Candidate calls. Start with `limit=1`, inspect the
 Reports, and increase the selection deliberately."""
@@ -510,8 +517,8 @@ sf.connect()"""
             """## Define Candidate-owned answer and synthesis policy
 
 An explicit synthesizer `sf.Model` makes its whole-Fusion prompt and generation parameters
-visible. The LANL protocol keeps that Model's route and parameters but replaces the ordinary
-blending prompt with its own revisioned coaching and selection instructions."""
+visible. The corrective recipes reuse the same routes: the judge model tie-breaks between
+passing drafts and coaches failed rounds under the loop's own revisioned instructions."""
         ),
         nbformat.v4.new_code_cell(
             """ANSWER_PROMPT = (
@@ -549,45 +556,71 @@ panel = sf.Fusion(
 )
 [kimi, panel]"""
         ),
-        nbformat.v4.new_markdown_cell("## 1. Canonical solo baseline"),
+        nbformat.v4.new_markdown_cell("## 1. Solo, no loop — canonical baseline"),
         nbformat.v4.new_code_cell(
             """canonical_solo = sf.evaluate(kimi, benchmark="ifeval", limit=1)
 canonical_solo"""
         ),
-        nbformat.v4.new_markdown_cell("## 2. Canonical whole-Fusion synthesis"),
+        nbformat.v4.new_markdown_cell("## 2. Panel, no loop — whole-Fusion synthesis"),
         nbformat.v4.new_code_cell(
             """canonical_fusion = sf.evaluate(panel, benchmark="ifeval", limit=1)
 canonical_fusion"""
         ),
-        nbformat.v4.new_markdown_cell("## 3. Self-corrective Candidate"),
+        nbformat.v4.new_markdown_cell(
+            """## 3. Solo, corrective — `sf.SelfCorrective`
+
+The same model re-sits the exam up to three times, authoring its own study notes from the
+check surface's sanitized feedback between sittings. A first-round pass costs one draft and
+one free check — nothing else."""
+        ),
         nbformat.v4.new_code_cell(
             """self_corrective = sf.evaluate(
-    sf.Model(
-        "openrouter/moonshotai/kimi-k2.6",
-        prompt=ANSWER_PROMPT,
-        params={"max_tokens": 16384},
-    ),
-    benchmark="ifeval/self-corrective",
+    sf.SelfCorrective(kimi, max_rounds=3),
+    benchmark="ifeval",
     limit=1,
 )
 self_corrective"""
         ),
-        nbformat.v4.new_markdown_cell("## 4. LANL early-exit ensemble"),
+        nbformat.v4.new_markdown_cell(
+            """## 4. Panel, corrective — `sf.CorrectiveLoop`
+
+Both members draft in parallel; the first passing draft is submitted verbatim (the judge only
+tie-breaks between multiple passers and coaches a no-pass round). Switching this loop to another
+check-capable benchmark is one changed `benchmark=` line — the loop itself is
+benchmark-independent."""
+        ),
         nbformat.v4.new_code_cell(
-            """lanl_ensemble = sf.evaluate(
-    panel,
-    benchmark="ifeval/lanl-ensemble",
+            """corrective_loop = sf.evaluate(
+    sf.CorrectiveLoop([haiku, gemini], judge=kimi, max_rounds=3),
+    benchmark="ifeval",
     limit=1,
 )
-lanl_ensemble"""
+corrective_loop"""
         ),
-        nbformat.v4.new_markdown_cell("## Compare complete portable artifacts"),
+        nbformat.v4.new_markdown_cell(
+            """## Compare the grid
+
+Four complete portable artifacts — same benchmark, same models, one protocol dimension varied
+at a time. Read score against cost: the corrective column's spend scales with how many rounds
+each case actually bought."""
+        ),
+        nbformat.v4.new_code_cell(
+            """{
+    name: {"score": report.candidates[0].score, "usage": report.usage.to_dict()}
+    for name, report in {
+        "canonical_solo": canonical_solo,
+        "canonical_fusion": canonical_fusion,
+        "self_corrective": self_corrective,
+        "corrective_loop": corrective_loop,
+    }.items()
+}"""
+        ),
         nbformat.v4.new_code_cell(
             """{
     "canonical_solo": canonical_solo.to_dict(),
     "canonical_fusion": canonical_fusion.to_dict(),
     "self_corrective": self_corrective.to_dict(),
-    "lanl_ensemble": lanl_ensemble.to_dict(),
+    "corrective_loop": corrective_loop.to_dict(),
 }"""
         ),
     )

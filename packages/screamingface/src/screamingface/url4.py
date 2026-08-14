@@ -5,11 +5,32 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from url4 import Expression, Iteration, Node, RelExpr, RelUrl, Source, Text, Url4Error, build, walk
+from url4 import (
+    Expression,
+    Iteration,
+    Node,
+    RelExpr,
+    RelUrl,
+    Source,
+    Text,
+    Url4Error,
+    build,
+    render,
+    walk,
+)
+from url4.core.nodes import children
 
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
-from screamingface._evaluation.topology import _RecipeTopology, _topology_from_expression
+from screamingface._evaluation.topology import (
+    _RecipeTopology,
+    _topology_bindings,
+    _topology_from_expression,
+)
+
+if TYPE_CHECKING:
+    from screamingface.recipe import Recipe
 
 _BINDING = re.compile(r"(?:model|synthesis)_\d+")
 _REFERENCE = re.compile(r"\$(model_\d+|synthesis_\d+)")
@@ -19,6 +40,13 @@ _BENCHMARK_ROUTE = re.compile(
 )
 _INTEGER = re.compile(r"-?(?:0|[1-9]\d*)")
 _FLOAT = re.compile(r"-?(?:(?:0|[1-9]\d*)\.\d+|(?:0|[1-9]\d*)[eE][+-]?\d+)")
+_NESTED_RECIPE_ROUTES = frozenset(
+    {
+        "/ensemble/corrective/v1/member",
+        "/ensemble/corrective/v1/role",
+    }
+)
+_DEFAULT_CORRECTIVE_ROUNDS = 3
 
 
 class Url4(str):
@@ -53,9 +81,9 @@ def _to_python(value: str) -> str:
         raise ValueError(f"URL4 must be valid URL4: {exc}") from exc
     candidate, linked = _candidate_expression(root)
     calls = _calls(candidate)
-    final = _final_binding(candidate, calls)
     topology = _topology_from_expression(candidate)
-    _validate_topology(topology, calls, final)
+    final = _final_binding(candidate, calls, topology)
+    _validate_topology(candidate, topology, calls, final)
     lines = _render_topology(topology, calls, indent=0)
     lines[0] = f"candidate = {lines[0]}"
     source = ["import screamingface as sf", "", *lines]
@@ -83,7 +111,7 @@ def _candidate_expression(root: Node) -> tuple[Expression, bool]:
 
 def _calls(candidate: Expression) -> dict[str, _Call]:
     calls: dict[str, _Call] = {}
-    for node in candidate.sources:
+    for node in _executable_nodes(candidate):
         if (
             not isinstance(node, Source)
             or node.name is None
@@ -106,13 +134,53 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
     return calls
 
 
-def _final_binding(candidate: Expression, calls: dict[str, _Call]) -> str:
+def _executable_nodes(value: Node):
+    """Walk static nodes plus URL4 bodies carried as executable loop data."""
+
+    yield value
+    for child in children(value):
+        yield from _executable_nodes(child)
+    if isinstance(value, Iteration):
+        try:
+            if value.intent is None:
+                raise ValueError("URL4 Candidate iteration body has no result intent")
+            body = build(f"({value.body})!{value.intent}")
+        except Url4Error as exc:
+            raise ValueError("URL4 Candidate contains an invalid iteration body") from exc
+        yield from _executable_nodes(body)
+    if (
+        isinstance(value, RelExpr)
+        and value.path in _NESTED_RECIPE_ROUTES
+        and isinstance(value.intent, Text)
+    ):
+        try:
+            nested = build(value.intent.value)
+        except Url4Error as exc:
+            raise ValueError("URL4 Candidate contains an invalid nested Recipe") from exc
+        yield from _executable_nodes(nested)
+
+
+def _final_binding(
+    candidate: Expression,
+    calls: dict[str, _Call],
+    topology: _RecipeTopology,
+) -> str:
     if not isinstance(candidate.intent, Text):
         raise ValueError("URL4 Candidate has an unsupported result binding")
-    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+)", candidate.intent.value)
-    if match is None or match.group(1) not in calls:
+    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+|loop_candidate)", candidate.intent.value)
+    if match is None:
         raise ValueError("URL4 Candidate has an unsupported result binding")
-    return match.group(1)
+    selected = match.group(1)
+    if topology.kind in {"corrective_loop", "self_corrective"}:
+        if selected != topology.binding or not _has_binding(candidate, selected):
+            raise ValueError("URL4 Candidate has an unsupported result binding")
+    elif selected not in calls:
+        raise ValueError("URL4 Candidate has an unsupported result binding")
+    return selected
+
+
+def _has_binding(value: Expression, name: str) -> bool:
+    return any(isinstance(node, Source) and node.name == name for node in value.sources)
 
 
 def _render_model(
@@ -146,16 +214,56 @@ def _render_topology(
 ) -> list[str]:
     if value.kind == "model":
         assert value.role is not None
-        return _render_model(
+        lines = _render_model(
             calls[value.binding],
             role=value.role,
             explicit_name=value.name,
             indent=indent,
             force_name=value.named,
         )
-    if value.kind == "pipeline":
-        return _render_pipeline_topology(value, calls, indent=indent)
-    return _render_fusion_topology(value, calls, indent=indent)
+    elif value.kind == "pipeline":
+        lines = _render_pipeline_topology(value, calls, indent=indent)
+    elif value.kind in {"corrective_loop", "self_corrective"}:
+        lines = _render_corrective_topology(value, calls, indent=indent)
+    else:
+        lines = _render_fusion_topology(value, calls, indent=indent)
+    return lines
+
+
+def _render_corrective_topology(
+    value: _RecipeTopology,
+    calls: dict[str, _Call],
+    *,
+    indent: int,
+) -> list[str]:
+    prefix = " " * indent
+    if value.kind == "self_corrective":
+        member = value.members[0]
+        lines = [f"{prefix}sf.SelfCorrective("]
+        rendered = _render_topology(member, calls, indent=indent + 4)
+        rendered[-1] += ","
+        lines.extend(rendered)
+        if value.name != member.name:
+            lines.append(f"{prefix}    name={value.name!r},")
+    else:
+        assert value.judge is not None
+        lines = [f"{prefix}sf.CorrectiveLoop(", f"{prefix}    ["]
+        for member in value.members:
+            rendered = _render_topology(member, calls, indent=indent + 8)
+            rendered[-1] += ","
+            lines.extend(rendered)
+        lines.append(f"{prefix}    ],")
+        inferred_name = "+".join(member.name for member in value.members)
+        if value.name != inferred_name:
+            lines.append(f"{prefix}    name={value.name!r},")
+        judge = _render_topology(value.judge, calls, indent=indent + 4)
+        judge[0] = f"{prefix}    judge={judge[0].lstrip()}"
+        judge[-1] += ","
+        lines.extend(judge)
+    if value.max_rounds != _DEFAULT_CORRECTIVE_ROUNDS:
+        lines.append(f"{prefix}    max_rounds={value.max_rounds!r},")
+    lines.append(f"{prefix})")
+    return lines
 
 
 def _render_pipeline_topology(
@@ -204,59 +312,106 @@ def _render_fusion_topology(
 
 
 def _validate_topology(
+    candidate: Expression,
     value: _RecipeTopology,
     calls: dict[str, _Call],
     final: str,
 ) -> None:
     if value.binding != final:
         raise ValueError("URL4 Candidate Recipe topology does not match its result binding")
-    bindings: set[str] = set()
-    _validate_topology_node(value, calls, input_dependencies=(), bindings=bindings)
-    if bindings != set(calls):
+    if value.kind in {"corrective_loop", "self_corrective"}:
+        _validate_compiled_corrective(candidate, value, calls)
+        return
+    bindings = _topology_bindings(value)
+    if set(bindings) != set(calls):
         raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+    for name, binding in bindings.items():
+        if calls[name].dependencies != binding.context_dependencies:
+            raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
 
 
-def _validate_topology_node(
-    value: _RecipeTopology,
+def _validate_compiled_corrective(
+    candidate: Expression,
+    topology: _RecipeTopology,
     calls: dict[str, _Call],
-    *,
-    input_dependencies: tuple[str, ...],
-    bindings: set[str],
 ) -> None:
+    """Fail closed unless the executable loop exactly recompiles from its rider.
+
+    Corrective Recipes statically unroll repeated member and judge calls. Their
+    public topology intentionally describes each reusable Recipe once, so a
+    subset check cannot prove that later rounds execute the same Recipes. The
+    compiler is the protocol's one authoritative implementation: reconstruct
+    the public Recipe from the rider and its declared calls, recompile it, and
+    require byte-identical canonical URL4 before showing editable Python.
+    """
+
+    from screamingface._evaluation.benchmark import _CheckSurface
+    from screamingface._evaluation.candidate import compile_candidate
+
+    recipe = _recipe_from_topology(topology, calls)
+    assert topology.check_route is not None
+    expected = compile_candidate(
+        recipe,
+        check_surface=_CheckSurface(
+            check_route=topology.check_route,
+            feedback_intent="replay-validation",
+            expected_check_cost="free",
+        ),
+    ).url4
+    if render(candidate) != expected:
+        raise ValueError("URL4 Candidate does not match its Recipe metadata")
+
+
+def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe:
+    """Reconstruct one inert public Recipe without evaluating generated Python."""
+
+    from screamingface.corrective import CorrectiveLoop, SelfCorrective
+    from screamingface.fusion import Fusion
+    from screamingface.model import Model
+    from screamingface.pipeline import Pipeline
+
     if value.kind == "model":
         call = calls.get(value.binding)
-        if call is None or call.dependencies != input_dependencies:
+        if call is None:
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
-        bindings.add(value.binding)
-        return
-    if value.kind == "pipeline":
-        dependencies = input_dependencies
-        for stage in value.stages:
-            _validate_topology_node(
-                stage,
-                calls,
-                input_dependencies=dependencies,
-                bindings=bindings,
-            )
-            dependencies = (stage.binding,)
-        return
-    assert value.synthesizer is not None
-    for member in value.members:
-        _validate_topology_node(
-            member,
-            calls,
-            input_dependencies=input_dependencies,
-            bindings=bindings,
+        selected = Model(
+            call.model,
+            name=value.name if value.named else None,
+            prompt=call.prompt,
+            params=_editable_params(call),
         )
-    synthesis_dependencies = tuple(
-        dict.fromkeys((*input_dependencies, *(member.binding for member in value.members)))
-    )
-    _validate_topology_node(
-        value.synthesizer,
-        calls,
-        input_dependencies=synthesis_dependencies,
-        bindings=bindings,
-    )
+    elif value.kind == "pipeline":
+        selected = Pipeline(
+            [_recipe_from_topology(stage, calls) for stage in value.stages],
+            name=value.name if value.named else None,
+        )
+    elif value.kind == "fusion":
+        assert value.synthesizer is not None
+        inferred_name = "+".join(member.name for member in value.members)
+        selected = Fusion(
+            [_recipe_from_topology(member, calls) for member in value.members],
+            name=value.name if value.name != inferred_name else None,
+            synthesizer=_recipe_from_topology(value.synthesizer, calls),
+        )
+    elif value.kind == "self_corrective":
+        assert value.max_rounds is not None
+        member = _recipe_from_topology(value.members[0], calls)
+        selected = SelfCorrective(
+            member,
+            name=value.name if value.name != member.name else None,
+            max_rounds=value.max_rounds,
+        )
+    else:
+        assert value.max_rounds is not None
+        assert value.judge is not None
+        inferred_name = "+".join(member.name for member in value.members)
+        selected = CorrectiveLoop(
+            [_recipe_from_topology(member, calls) for member in value.members],
+            name=value.name if value.name != inferred_name else None,
+            judge=_recipe_from_topology(value.judge, calls),
+            max_rounds=value.max_rounds,
+        )
+    return selected
 
 
 def _editable_params(call: _Call) -> dict[str, str | int | float | bool]:

@@ -10,10 +10,8 @@ from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
     aggregate,
-    aggregate_corrective,
 )
 from url4_cloud.benchmarks.ifeval.case_evaluation import bind_case_evaluation
-from url4_cloud.benchmarks.ifeval.iterative_correction import SELF_CORRECTIVE_REVISION
 
 _SPECS = {
     1: {"prompt": "No commas.", "instruction_id_list": ["punctuation:no_comma"]},
@@ -54,15 +52,8 @@ def test_swapped_known_case_records_cannot_publish_a_score() -> None:
         aggregate(rows, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
 
-@pytest.mark.parametrize(
-    ("reducer", "extra"),
-    [
-        (aggregate, (_ORDER,)),
-        (aggregate_corrective, (SELF_CORRECTIVE_REVISION, _ORDER)),
-    ],
-)
-def test_zero_row_ifeval_payloads_retain_the_selected_cases(reducer, extra) -> None:
-    result = reducer("[]", _SPECS, "ifeval", *extra, selected_case_count=2)
+def test_zero_row_ifeval_payloads_retain_the_selected_cases() -> None:
+    result = aggregate("[]", _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
     assert result["score"] is None
     assert [case["failures"][0]["code"] for case in result["cases"]] == [

@@ -17,10 +17,6 @@ from url4_cloud.benchmarks.ifeval.definition import (
     IFEVAL,
     ROUTE_PREFIX,
 )
-from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    IFEVAL_LANL_ENSEMBLE,
-    IFEVAL_SELF_CORRECTIVE,
-)
 from url4_cloud.benchmarks.ifeval.runtime import install
 
 
@@ -121,18 +117,14 @@ def test_canonical_resource_packs_the_check_before_aggregation() -> None:
     assert url4.count(CASE_EVALUATION_ROUTE) == 1
 
 
-def test_self_corrective_resource_packs_attempts_before_aggregation() -> None:
-    url4 = IFEVAL_SELF_CORRECTIVE.resource(1)["url4"]
-
+def test_canonical_ifeval_reproduces_the_paper_protocol() -> None:
+    # One Candidate invocation, one check, one aggregation — the protocol of
+    # Zhou et al. (arXiv:2311.07911), so scores compare to published results.
+    resource = IFEVAL.resource(1)
+    url4 = resource["url4"]
     assert isinstance(url4, str)
-    assert url4.count(CASE_EVALUATION_ROUTE) == 1
 
-
-def test_lanl_ensemble_resource_packs_attempts_before_aggregation() -> None:
-    from url4_cloud.benchmarks.ifeval.corrective_policy import LANL_ENVELOPE_ROUTE
-
-    url4 = IFEVAL_LANL_ENSEMBLE.resource(1)["url4"]
-
-    assert isinstance(url4, str)
-    # The lanl-ensemble packs its gated attempt chain via its own envelope route.
-    assert url4.count(LANL_ENVELOPE_ROUTE) == 1
+    assert IFEVAL.variant == "canonical"
+    assert url4.count("/candidate") == 1
+    assert url4.count(CHECK_ROUTE) == 1
+    assert "!'aggregate:1'" in url4
