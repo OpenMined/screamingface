@@ -799,15 +799,33 @@ async def test_pre_existing_unverified_rows_are_not_backfilled(tortoise_db: None
     assert reread.verified_by_openmined is False
 
 
-async def test_mark_verified_stays_idempotent_on_an_already_verified_row(
+async def test_mark_verified_flips_a_false_row_and_is_idempotent(
     tortoise_db: None,
 ) -> None:
+    """Starts from an explicit False row so the transition is actually exercised.
+
+    An earlier version of this test submitted a row (which now defaults to True) and
+    asserted True afterwards — it would have passed even if mark_verified() did nothing
+    at all. Found in review of OME-820.
+    """
+    benchmark = await Benchmark.create(id="hle", display_name="HLE")
+    score = await Score.create(
+        benchmark=benchmark,
+        spec_id="idem",
+        url4_expression="x",
+        accuracy=0.5,
+        total_questions=2,
+        correct_questions=1,
+        ran_with_providers=["openai"],
+        verified_by_openmined=False,
+        content_hash="idem-hash",
+    )
     store = ScoreStore()
-    await store.register_benchmark("hle", "HLE")
-    outcome = await store.submit(_submission(spec_id="idem"))
 
-    await store.mark_verified(outcome.score.id)
-    await store.mark_verified(outcome.score.id)
+    await store.mark_verified(score.id)
+    after_first = await Score.get(id=score.id)
+    await store.mark_verified(score.id)
+    after_second = await Score.get(id=score.id)
 
-    reread = await Score.get(id=outcome.score.id)
-    assert reread.verified_by_openmined is True
+    assert after_first.verified_by_openmined is True
+    assert after_second.verified_by_openmined is True

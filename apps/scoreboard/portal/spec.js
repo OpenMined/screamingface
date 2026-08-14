@@ -17,9 +17,6 @@
     tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
     tr.appendChild(P.el("td", "num", P.formatPercent(s.accuracy)));
     tr.appendChild(P.el("td", "num", P.formatQuestions(s.total_questions)));
-    var verTd = document.createElement("td");
-    verTd.appendChild(P.createVerifiedBadge(s.verified_by_openmined));
-    tr.appendChild(verTd);
     return tr;
   }
 

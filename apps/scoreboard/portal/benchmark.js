@@ -40,7 +40,6 @@
     // action — behind a horizontal scroll. `total_questions` is still shown on
     // each spec's detail page, so no data is lost from the portal.
     { key: "submitted_at", label: "Submitted", sort: "date", dir: "desc" },
-    { key: "verified_by_openmined", label: "Verified", sort: "bool", dir: "desc" },
     { key: "__run", label: "Run Locally", sort: null, cls: "col-run" },
   ];
 
@@ -184,10 +183,6 @@
       tr.appendChild(renderAccuracyCell(entry.accuracy, barMax));
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
 
-      var verTd = document.createElement("td");
-      verTd.appendChild(P.createVerifiedBadge(entry.verified_by_openmined));
-      tr.appendChild(verTd);
-
       var runTd = document.createElement("td");
       runTd.className = "col-run";
       // Guard like spec.js: a missing expression renders as absence, never as
@@ -212,12 +207,13 @@
     }
 
     var best = bestAccuracy(entries);
-    var verified = entries.filter(L.isReproducible).length;
-    // Bare numbers: the .stats cell labels ("Specs shown", "Verified rows")
-    // already carry the words.
+    // OME-820: the "Verified rows" stat is gone, not relabelled. verified_by_openmined
+    // now defaults to true for every submission as a placeholder, so the count read
+    // "N of N" on every board — a statistic with no information in it. The column, the
+    // badge and this stat all return with OME-821, which gives the flag a real signal.
+    // Bare numbers: the .stats cell labels ("Specs shown") already carry the words.
     document.getElementById("summary-best").textContent = P.formatPercent(best);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
-    document.getElementById("summary-verified").textContent = verified.toLocaleString();
     summaryNode.hidden = false;
   }
 

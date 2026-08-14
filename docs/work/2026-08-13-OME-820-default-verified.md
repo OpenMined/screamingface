@@ -163,3 +163,73 @@ I initially proposed three options and a redesign. The owner pushed back that th
 overcomplicated, and was right about the code: the change is a flag flip plus two sentences
 of copy. The reviewer's finding 2 was real, but it did not require redesigning the semantics
 — only withdrawing an overclaim.
+
+## Review pass 2 (2026-08-14) — Dmitry's CHANGES_REQUESTED on #588
+
+Submitted 11:59Z, two hours *after* the claim-withdrawal commit (09:51Z), so it reviewed the
+revised version — his opening line confirms it. Four points, all verified before acting.
+
+| Point | Evidence | Verdict |
+|---|---|---|
+| Green `✓ verified` badge on board + spec pages | `main.js:186`, called from `benchmark.js:110`, `spec.js:21` | valid |
+| "Verified rows" counter and sortable column | `benchmark.js:22`, `:215`; label in `benchmark.html:49` | valid |
+| `verified` chip + "verified only" filter in the client | `leaderboard_view.py:117`, `:219` | valid |
+| `mark_verified` test would pass if the function did nothing | my own test started from a row already `True` | valid |
+
+### Why hide rather than relabel
+
+Owner chose hide. The deciding argument was not simplicity: **relabelling cannot fix two of
+the four widgets.** The "Verified rows" counter and the "verified only" filter are broken
+because the value is now *uniform*, not because the word is wrong. A counter that always
+reads "N of N" and a filter that removes nothing convey nothing however they are labelled.
+Relabelling would have been a partial hide plus two naming decisions plus the same rework
+when `OME-821` lands.
+
+### Portal changes (this PR)
+
+- `benchmark.js` — dropped the `verified_by_openmined` column, the badge cell, and the
+  stat computation.
+- `benchmark.html` — dropped the "Verified rows" `.stats` cell.
+- `spec.js` / `spec.html` — dropped the badge cell and its `<th>`.
+- `main.js` — `createVerifiedBadge` **kept, unused**, with an `AIDEV-NOTE` saying nothing
+  calls it and not to re-wire it before `OME-821`. Deleting it would make `OME-821` rewrite
+  rendering it can otherwise restore.
+
+Verified after the edits: body rows have 8 cells for 8 `COLUMNS` entries, and `spec.html`
+has 4 headers for 4 cells. My first alignment check reported a mismatch — that was my own
+regex counting `<thead>` as a `<th>` and the header-row builder as a body cell, not a real
+defect.
+
+### The test fix, and proof it now tests something
+
+Rewrote `test_mark_verified_stays_idempotent_on_an_already_verified_row` as
+`test_mark_verified_flips_a_false_row_and_is_idempotent`, starting from an explicit `False`
+row and asserting after each of two calls.
+
+Then **proved it falsifiable**: neutered `mark_verified()` to `return` and confirmed the test
+FAILS; restored and confirmed it passes. The old version would have passed against the
+neutered function. Same failure mode I recorded on `OME-798` two days ago — an assertion that
+passes for the wrong reason.
+
+### Scope split
+
+The client half is a different component, so per `CLAUDE.md` rule 8 it is its own ticket:
+**`OME-832`**, filed Urgent. **#588 must not merge before it** — otherwise the notebook view
+that Monday's cohort sees in Colab shows a verified chip on every row against a board that has
+withdrawn the claim. Recorded on both tickets.
+
+### Linear updated, as he asked
+
+`OME-820` and `OME-821` both still described verified as "ran on OpenMined infrastructure".
+Both titles and descriptions rewritten. `OME-821`'s scope grew: it is no longer "carve out
+BYOK/local from an established claim" but "give the field its first real meaning".
+
+**Gates:** `run_gates.py scoreboard --base origin/main --skip-append-only` → ruff check ✓,
+ruff format ✓, pyright ✓, pytest --cov ✓. Portal logic tests: **14 passed** (run manually —
+the gate entry for them is on `OME-798`'s branch, #595, not this one).
+
+### Deviation
+
+Rebased onto `origin/main` first, 11 commits. Before that this branch predated #569, so its
+`benchmark.js` still had the `Questions` column #569 removed — editing the portal here without
+rebasing would have conflicted with what is already on `main`.
