@@ -60,6 +60,14 @@ class _DisplayRow:
     kind: str
     accuracy: float
     questions: int | None
+    # AIDEV-NOTE: UNUSED since OME-832. Its readers were the data-verified attribute
+    # and the `verified` chip, both removed because verified_by_openmined became
+    # uniform and asserted nothing (OME-820). `_candidate_row` still populates it, so
+    # nothing in ruff, pyright or coverage will notice it going stale. Parked
+    # deliberately for OME-821, which gives the flag a real signal and restores both
+    # readers. Do NOT key new presentation on it before then — a row's value says
+    # nothing today, and doing so would reintroduce the inert trust signal this
+    # change removed.
     verified: bool | None
     python_source: str | None
     source_url: str | None
@@ -99,10 +107,6 @@ def leaderboard_html(board: Leaderboard) -> str:
     rows = _board_rows(values)
     if not rows:
         rows = "<div class='sf-lb__empty'>No scores have been published yet.</div>"
-    verify_action = (
-        "this.closest('.sf-lb').querySelectorAll('[data-verified=false]').forEach((row)=>{"
-        "row.hidden=this.checked})"
-    )
     title = escape(board.benchmark.display_name)
     benchmark_id = escape(board.benchmark.id)
     return (
@@ -112,9 +116,10 @@ def leaderboard_html(board: Leaderboard) -> str:
         "<div class='sf-lb__controls'><span class='sf-lb__field'>"
         "<span class='sf-lb__field-label'>benchmark:</span>"
         f"<span class='sf-lb__field-value'>{title}</span></span>"
-        "<label class='sf-lb__checkbox'><input type='checkbox' "
-        f"onchange=\"{verify_action}\"><span class='sf-lb__checkbox-box'></span>"
-        "<span>verified only</span></label></div></div>"
+        # OME-832: the "verified only" checkbox lived here. Removed, not relabelled —
+        # verified_by_openmined is uniform since OME-820, so no row carries
+        # data-verified=false and the control removed nothing. OME-821 restores it.
+        "</div></div>"
         "<div class='sf-lb__table' role='table'>"
         "<div class='sf-lb__row sf-lb__row--head' role='row'>"
         "<span role='columnheader'>#</span><span role='columnheader'>entry</span>"
@@ -186,7 +191,8 @@ def _board_rows(values: Sequence[_DisplayRow]) -> str:
 def _board_row(value: _DisplayRow, rank: int, maximum: float) -> str:
     winner = rank == 1
     classes = "sf-lb__row" + (" sf-lb__row--winner" if winner else "")
-    verified = "" if value.verified is None else f" data-verified='{str(value.verified).lower()}'"
+    # OME-832: data-verified is no longer emitted. Its only reader was the removed
+    # "verified only" filter handler; nothing else in the package consumes it.
     chip = _row_chip(value)
     fill_class = "sf-lb__score-fill"
     if winner:
@@ -199,7 +205,7 @@ def _board_row(value: _DisplayRow, rank: int, maximum: float) -> str:
     questions = "—" if value.questions is None else str(value.questions)
     icon = "😱" if value.python_source is not None else "●"
     return (
-        f"<div class='{classes}' role='row'{verified}>"
+        f"<div class='{classes}' role='row'>"
         f"<span class='sf-lb__rank' role='cell'>{rank}</span>"
         "<span class='sf-lb__entry' role='cell'>"
         f"<span class='sf-lb__icon' aria-hidden='true'>{icon}</span>"
@@ -215,9 +221,21 @@ def _board_row(value: _DisplayRow, rank: int, maximum: float) -> str:
 
 
 def _row_chip(value: _DisplayRow) -> str:
-    if value.verified:
-        return "<span class='sf-lb__chip'>verified</span>"
-    if value.python_source is None:
+    """The baseline chip, and nothing else.
+
+    INVARIANT: only an imported single-Model row may wear this chip. The predicate is
+    `kind`, NOT `python_source is None` — `_baseline_row` sets kind="single" and
+    `_candidate_row` sets kind="candidate", whereas forkability is a property of the
+    url4 expression and says nothing about where a row came from.
+
+    WHY that matters: this used to read `if value.verified: … ; if value.python_source is
+    None: baseline`. The verified branch was removed in OME-832 because the flag became
+    uniform and asserted nothing (OME-820). Deleting it alone would have let a candidate
+    with an unforkable url4 fall through and be labelled "baseline" — presenting a
+    community submission as an imported reference, a worse error than the one being
+    fixed. It already did that for *unverified* such candidates, which this also fixes.
+    """
+    if value.kind == "single":
         return "<span class='sf-lb__chip'>baseline</span>"
     return ""
 

@@ -50,6 +50,9 @@ LEADERBOARD_STYLE = """<style>
   border-bottom:1px solid var(--sf-lb-line-2);padding:0 4px 8px}
 .sf-lb__field-label{color:var(--sf-lb-ink-2);white-space:nowrap}
 .sf-lb__field-value{font-weight:500;color:var(--sf-lb-ink)}
+/* OME-832: .sf-lb__checkbox is unused. Its control was removed (OME-820) and
+   returns with OME-821, so the rules are kept rather than re-added. This comment
+   ships to the reader in page source, hence the brevity. */
 .sf-lb__checkbox{display:inline-flex;align-items:center;gap:8px;margin-left:auto;
   color:var(--sf-lb-ink-2);cursor:pointer}
 .sf-lb__checkbox input{position:absolute;opacity:0;width:1px;height:1px}
