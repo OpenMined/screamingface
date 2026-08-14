@@ -5,7 +5,14 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    field_validator,
+    model_validator,
+)
 
 # INVARIANT: a baseline's metadata is operator-supplied (via the import CLI, not a
 # public HTTP endpoint) but still bounded, so one bad import can't make
@@ -34,6 +41,45 @@ def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] |
     if len(json.dumps(value)) > _METADATA_MAX_BYTES:
         raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
     return value
+
+
+def _publish_submitter(value: str | None) -> str | None:
+    """Publish the local part of an email, never the domain.
+
+    WHY: since OME-404 this field holds the mesh-verified address from the Cloudflare
+    Access identity header, and the read API is PUBLIC and unauthenticated — a
+    harvester can pull every submitter's address straight out of
+    `GET /v1/leaderboard/{id}`. Stripping in the portal would have looked correct
+    while leaving the JSON exposed, so the trim lives here, where every consumer
+    (portal, SDK notebook view, anything future) is served from one place.
+
+    INVARIANT: this is a SERIALIZER, not a validator. The stored value keeps its
+    domain so OpenMined can still contact a submitter and audit which verified
+    identity produced a score. Do NOT move this onto ScoreSubmission — that carries
+    the value inbound, and trimming there would write the truncated form to the
+    database irreversibly.
+
+    AIDEV-NOTE: this is a stopgap, not privacy. `filip.boltuzic` still names a
+    person, `first.last@domain` is trivially reconstructed, and
+    trask@openmined.org and trask@gmail.com both render `trask` — two testers on
+    different domains become indistinguishable on a board that attributes credit.
+    A real username field is the fix; OME-772 records that none exists (OME-834).
+    """
+    if value is None or "@" not in value:
+        return value
+    # The domain is whatever follows the LAST "@".
+    local = value.rsplit("@", 1)[0]
+    # An empty local part would render as a missing submitter; keep the original.
+    return local or value
+
+
+# INVARIANT: the ONE definition of how a submitter reaches a client, shared by every
+# read DTO so the four cannot drift. `when_used="json"` is deliberate — _ranked_entry
+# splats entry.model_dump() in PYTHON mode and must keep receiving the stored value.
+SubmittedBy = Annotated[
+    str | None,
+    PlainSerializer(_publish_submitter, return_type=str | None, when_used="json"),
+]
 
 
 class ClientInfo(BaseModel):
@@ -165,7 +211,7 @@ class ScoreSchema(BaseModel):
     benchmark_revision: str | None
     spec_id: str
     url4_expression: str
-    submitted_by: str | None
+    submitted_by: SubmittedBy
     submitted_at: datetime
     accuracy: float
     total_questions: int
@@ -196,7 +242,7 @@ class LeaderboardEntry(BaseModel):
     total_questions: int
     ran_with_providers: list[str]
     submitted_at: datetime
-    submitted_by: str | None
+    submitted_by: SubmittedBy
     verified_by_openmined: bool
     url4_expression: str
 

@@ -14,7 +14,7 @@ from tortoise.exceptions import OperationalError
 from scoreboard.config import Settings
 from scoreboard.main import create_app
 from scoreboard.routes.scores import MISSING_IDENTITY_DETAIL
-from scoreboard.scores.models import Benchmark, IdempotencyKey
+from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.store import ScoreStore
 
 pytestmark = pytest.mark.asyncio
@@ -312,8 +312,17 @@ async def test_post_score_with_identity_header_stores_header_email(
 
     assert response.status_code == 201
     # WHY: the header always wins over whatever the request body claims — a caller
-    # cannot submit under another person's name.
-    assert response.json()["submitted_by"] == "researcher@example.test"
+    # cannot submit under another person's name. The body claimed "someone-else", so
+    # seeing the header's identity here still proves that.
+    #
+    # OME-834: the published form is the local part only — the read API is public and
+    # unauthenticated, so the domain is withheld to keep addresses out of scrapers.
+    assert response.json()["submitted_by"] == "researcher"
+    # ...and the row keeps the full address, which is what this test's name claims and
+    # the response alone never verified. OpenMined must still be able to contact and
+    # audit the verified identity behind a score (OME-404).
+    stored = await Score.get(id=response.json()["id"])
+    assert stored.submitted_by == "researcher@example.test"
 
 
 async def test_post_score_missing_identity_header_returns_401(

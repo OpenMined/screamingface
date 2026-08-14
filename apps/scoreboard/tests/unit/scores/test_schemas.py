@@ -347,3 +347,83 @@ def test_baseline_schema_rejects_oversized_metadata() -> None:
 
     with pytest.raises(ValidationError):
         BaselineSchema.model_validate(payload)
+
+
+# --- OME-834: publish only the local part of a submitter's email ---
+
+
+@pytest.mark.parametrize(
+    ("stored", "published"),
+    [
+        # The request: an address must not be harvestable from the public API.
+        ("trask@openmined.org", "trask"),
+        ("filip.boltuzic@openmined.org", "filip.boltuzic"),
+        # In authMode: disabled this field is client-supplied free text, so a value
+        # that is not an address passes through rather than being mangled.
+        ("tester", "tester"),
+        ("", ""),
+        # The domain is whatever follows the LAST "@".
+        ("a@b@openmined.org", "a@b"),
+        # An empty local part would render as a missing submitter, so keep the
+        # original instead of emitting "".
+        ("@openmined.org", "@openmined.org"),
+    ],
+)
+def test_score_schema_publishes_only_the_local_part(stored: str, published: str) -> None:
+    import json
+
+    from scoreboard.scores.schemas import ScoreSchema
+
+    schema = ScoreSchema(
+        id=uuid4(),
+        version=1,
+        benchmark_id="hle",
+        spec_id="spec-1",
+        url4_expression="x",
+        submitted_by=stored,
+        submitted_at=datetime(2026, 8, 14, 12, tzinfo=UTC),
+        accuracy=0.5,
+        total_questions=2,
+        correct_questions=1,
+        ran_with_providers=["openai"],
+        ran_at_local=None,
+        client_name=None,
+        client_version=None,
+        client_platform=None,
+        verified_by_openmined=True,
+        metadata=None,
+    )
+
+    assert json.loads(schema.model_dump_json())["submitted_by"] == published
+    # INVARIANT: only the WIRE form is trimmed. The value in memory — and therefore
+    # the value written to and read from the database — keeps its domain, so
+    # OpenMined can still contact and audit a submitter (OME-404).
+    assert schema.submitted_by == stored
+
+
+def test_a_null_submitter_stays_null() -> None:
+    import json
+
+    from scoreboard.scores.schemas import ScoreSchema
+
+    schema = ScoreSchema(
+        id=uuid4(),
+        version=1,
+        benchmark_id="hle",
+        spec_id="spec-1",
+        url4_expression="x",
+        submitted_by=None,
+        submitted_at=datetime(2026, 8, 14, 12, tzinfo=UTC),
+        accuracy=0.5,
+        total_questions=2,
+        correct_questions=1,
+        ran_with_providers=["openai"],
+        ran_at_local=None,
+        client_name=None,
+        client_version=None,
+        client_platform=None,
+        verified_by_openmined=True,
+        metadata=None,
+    )
+
+    assert json.loads(schema.model_dump_json())["submitted_by"] is None

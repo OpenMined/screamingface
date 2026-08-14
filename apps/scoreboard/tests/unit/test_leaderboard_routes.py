@@ -367,3 +367,49 @@ async def test_get_frontier_reflects_real_submissions(
     assert body["current"]["label"] == "spec-2"
     assert body["current"]["openness"] == "closed"
     assert len(body["trend"]) == 2
+# --- OME-834: no read path may publish a harvestable address ---
+
+
+async def test_read_paths_publish_only_the_local_part(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The API is public and unauthenticated, so this is where it has to happen.
+
+    Stripping in the portal would leave every address in the JSON.
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await store.submit(
+        _submission(spec_id="stripped", submitted_by="trask@openmined.org"),
+    )
+
+    board = await async_client.get("/v1/leaderboard/hle")
+    history = await async_client.get("/v1/leaderboard/hle/stripped/history")
+
+    entry = next(e for e in board.json()["entries"] if e["spec_id"] == "stripped")
+    assert entry["submitted_by"] == "trask"
+    assert history.json()["submissions"][0]["submitted_by"] == "trask"
+    # No domain anywhere in either payload.
+    assert "openmined.org" not in board.text
+    assert "openmined.org" not in history.text
+
+
+async def test_the_database_still_holds_the_full_address(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT (D2): only the WIRE form is trimmed.
+
+    OpenMined must still be able to contact a submitter and audit which verified
+    identity produced a score (OME-404). This is the assertion that stops a future
+    "simplification" from moving the strip onto ScoreSubmission, which would write
+    the truncated form to the database irreversibly.
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)
+    outcome = await store.submit(
+        _submission(spec_id="stored-full", submitted_by="trask@openmined.org"),
+    )
+
+    row = await Score.get(id=outcome.score.id)
+
+    assert row.submitted_by == "trask@openmined.org"
