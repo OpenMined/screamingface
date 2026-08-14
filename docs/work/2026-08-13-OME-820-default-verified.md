@@ -233,3 +233,49 @@ the gate entry for them is on `OME-798`'s branch, #595, not this one).
 Rebased onto `origin/main` first, 11 commits. Before that this branch predated #569, so its
 `benchmark.js` still had the `Questions` column #569 removed — editing the portal here without
 rebasing would have conflicted with what is already on `main`.
+
+## Review pass 3 (2026-08-14) — three findings, all valid, two were mine
+
+| Finding | Verified how | Verdict |
+|---|---|---|
+| P1 — SDK still badges rows | `leaderboard_view.py:102-117`, `:217-219` | Valid, **already fixed** by `OME-832` / PR #601 (opened before this review arrived). Both PRs carry the sequencing note. |
+| P2 — copy references the deleted column | `benchmark.html:43` and four other strings | **Valid, my error** |
+| P2 — summary strip leaves an empty third | `style.css:568` `repeat(3,1fr)`; summary now has 2 cards | **Valid, my error** |
+
+The reviewer's design-contract citations both check out: `SKILL.md:155` defines `.badge-verified` as
+trust, and `SKILL.md:8-16` states *"AI should be honest; the surface should feel honest too."*
+
+### The copy fix — five strings, not one
+
+I fixed a code/copy contradiction in the previous pass and **introduced a new one in the same
+commit**: the note I wrote said *"the Verified column does not yet distinguish rows"*, written
+before the decision to remove that column, and never revisited. Same class of error, one commit
+later.
+
+Sweeping for it found four more, one beyond what the review listed:
+
+- `benchmark.html:43` — the "Verified column" reference (mine)
+- `index.html:35` — the landing lead: "verification status … stay attached to every row", now false
+- `benchmark.html:7`, `index.html:7` — meta descriptions
+- **`spec.html:7`** — meta description, on the very page whose Verified column this PR removes.
+  Not named in the review; found by grepping rather than by reading the diff.
+
+Final sweep: no `verif` string remains in any portal HTML except the honest "self-reported" copy.
+
+### The grid fix — scoped, because style.css is vendored
+
+`portal.css`'s own header states it *"Extends — never overrides — tokens.css + style.css"*, so the
+vendored `.stats { grid-template-columns: repeat(3,1fr) }` at `style.css:568` is not edited. Added
+`.stats--two` in `portal.css` and the class on the summary div.
+
+Checked rather than assumed:
+
+- **Specificity is equal** (one class each), so source order decides — and `benchmark.html` loads
+  `portal.css` (line 13) after `style.css` (line 12). The modifier wins.
+- **The other two `.stats` strips are untouched**: `spec.html` and `index.html` each have **3**
+  cards and keep plain `.stats`. Only the benchmark summary has 2. My first count said "1 card" for
+  each — that was a non-greedy regex stopping at a nested `</div>`, not a real finding.
+- The existing `620px` rule in `style.css` already collapses to one column, so only the wide case
+  needed a modifier.
+
+**Gates:** ruff check ✓, ruff format ✓, pyright ✓, pytest --cov ✓. Portal logic tests: 14 passed.
