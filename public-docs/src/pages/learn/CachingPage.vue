@@ -30,8 +30,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
         a fusion that reuses its members is far cheaper than the number of candidates suggests.
       </li>
       <li>
-        <strong>Across runs:</strong> re-running an evaluation only pays for calls that are new. If
-        a run fails partway, restarting it charges you only for the work that had not completed.
+        <strong>Across runs:</strong> re-running an evaluation pays only for the calls that are new
+        to it. A run that failed partway is worth restarting, because the calls that already
+        completed come back from the cache instead of being bought twice.
       </li>
     </ul>
 
@@ -52,14 +53,14 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      The shared cache also propagates to <strong>local</strong> engines: entries from the hosted
-      cache are uploaded into your local cache, so a run the community has already paid for is a
-      cache hit on your own machine too, even when you run everything yourself.
+      The shared cache belongs to the hosted engine. A local engine keeps its own cache, which makes
+      your reruns cheap but starts empty and stays yours. Running everything yourself means giving
+      up the community's hits, and that is the real trade against the local path's independence.
     </p>
 
     <h2>Where the compute comes from</h2>
 
-    <p>There are two ways to run, and they differ only in who supplies the compute.</p>
+    <p>There are two ways to run. They differ in who supplies the compute and which cache you draw from.</p>
 
     <ul>
       <li>
@@ -68,7 +69,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       </li>
       <li>
         <strong>Hosted.</strong> Use an engine we operate. It carries the shared cache, and we
-        provide subsidized compute to chosen cohorts so that verifying and exploring stays cheap.
+        subsidize compute for chosen cohorts so that verifying and exploring stays cheap.
       </li>
     </ul>
 
@@ -90,17 +91,6 @@ import { learnNavigation as navigation } from '@/navigation/learn'
             orient="auto"
           >
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
-          </marker>
-          <marker
-            id="cc-arrow-a"
-            viewBox="0 0 8 8"
-            refX="7"
-            refY="4"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto"
-          >
-            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--accent)" />
           </marker>
         </defs>
         <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#cc-arrow)">
@@ -145,24 +135,6 @@ import { learnNavigation as navigation } from '@/navigation/learn'
           <text x="140" y="147">your machine · your keys</text>
           <text x="540" y="147">we run it · subsidized</text>
         </g>
-        <path
-          d="M444 214 H210"
-          style="stroke: var(--accent); stroke-width: 1.25; fill: none; stroke-dasharray: 5 3"
-          marker-end="url(#cc-arrow-a)"
-        />
-        <text
-          x="327"
-          y="205"
-          text-anchor="middle"
-          style="
-            fill: var(--accent);
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-          "
-        >
-          propagates to local
-        </text>
       </svg>
       <figcaption
         style="
@@ -174,8 +146,8 @@ import { learnNavigation as navigation } from '@/navigation/learn'
           margin-top: var(--space-3);
         "
       >
-        Same protocol, two engines; the hosted engine's shared community cache propagates into your
-        local cache, so prior runs stay cache hits on your own machine.
+        Same protocol, two engines. A local engine keeps its own cache; the hosted engine carries
+        the shared community cache.
       </figcaption>
     </figure>
 

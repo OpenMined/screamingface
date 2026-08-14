@@ -6,8 +6,8 @@ import type { NavEntry } from '@/composables/useDocNavigation'
 // nothing else changes.
 export const sfClientVersion = {
   prefix: 'Based on state at commit',
-  label: 'e387aefd',
-  url: 'https://github.com/OpenMined/screamingface/commit/e387aefd311b1f4f057a0858fdf4c363f145bddb',
+  label: 'b698fcff',
+  url: 'https://github.com/OpenMined/screamingface/commit/b698fcffd20d3dbe19c17a7b6654e302adeaf6ee',
 }
 
 // ScreamingFace Client sidebar (OME-666). A group labels its children and is
@@ -32,10 +32,12 @@ export const sfClientNavigation: NavEntry[] = [
         children: [
           { title: 'Models', path: '/sf-client/guides/models' },
           { title: 'Fusions', path: '/sf-client/guides/fusions' },
+          { title: 'Pipelines', path: '/sf-client/guides/pipelines' },
         ],
       },
       { title: 'Benchmarks', path: '/sf-client/guides/benchmarks' },
       { title: 'Running an evaluation', path: '/sf-client/guides/running-an-evaluation' },
+      { title: 'Leaderboards', path: '/sf-client/guides/leaderboards' },
       { title: 'Reproduce & share (URL4)', path: '/sf-client/guides/reproduce-and-share' },
     ],
   },

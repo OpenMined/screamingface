@@ -10,7 +10,11 @@ const point = `import screamingface as sf
 
 sf.configure(engine_url="http://127.0.0.1:9108")   # the Client talks only to an Engine`
 
-const health = `curl http://127.0.0.1:9108/healthz`
+const runLocal = `pip install "screamingface[runtime]"
+screamingface prepare draco   # benchmark data, once
+screamingface up              # engine, gateway, scoreboard on loopback`
+
+const health = `screamingface status`
 </script>
 
 <template>
@@ -23,21 +27,27 @@ const health = `curl http://127.0.0.1:9108/healthz`
       The Engine is the runtime that runs
       <RouterLink to="/learn/url4">url4</RouterLink> expressions. The
       <RouterLink to="/sf-client">Client</RouterLink> never calls a model provider itself. It hands
-      a url4 expression to an Engine, and the Engine does the work: it schedules the graph, reaches
-      the providers, and streams back usage and the result. Because it sits between you and the
-      providers, it is also the system's <strong>trust boundary</strong>: the one place that holds
-      your keys.
+      a url4 expression to an Engine. The Engine does the work: schedules the graph, reaches the
+      providers, and streams back usage and the result. Because it sits between you and the
+      providers, it is also the system's <strong>trust boundary</strong>, the one place that holds
+      both your credentials and the benchmark answer keys.
+    </p>
+
+    <p>
+      You mostly will not touch it directly. The
+      <RouterLink to="/sf-client">Client</RouterLink> talks to it for you, and the only decision
+      that usually matters is which Engine to point at.
     </p>
 
     <h2>How it executes</h2>
 
     <p>
       At its core is a <strong>demand-driven, memoized DAG executor</strong>. Demand-driven means it
-      works backwards from the result, so it only runs the nodes that result actually needs. Memoized
-      means a value shared by several branches is computed exactly once, not repeated. Independent
-      nodes run at the same time; the first failure cancels the others rather than letting a broken
-      run drift on, and the number of calls running at once is capped so a wide fan-out can't
-      overwhelm the providers.
+      works backwards from the result, so it only runs the nodes that result actually needs.
+      Memoized means a value shared by several branches is computed exactly once, not repeated.
+      Independent nodes run at the same time. The first failure cancels the others rather than
+      letting a broken run drift on. The number of calls running at once is capped so a wide fan-out
+      can't overwhelm the providers.
     </p>
 
     <p>
@@ -55,10 +65,17 @@ const health = `curl http://127.0.0.1:9108/healthz`
 
     <p>
       The Engine holds what must not leak. Provider credentials are handed to it once and stored
-      encrypted at rest (AES-256-GCM) by the AI gateway's credential store; they are never returned
-      to the client. Benchmark answer keys and grading stay engine-side too. Prompts go out to the
-      models, but the answers and grading rules do not. That separation is what makes a verified
-      result meaningful rather than self-reported.
+      encrypted at rest (AES-256-GCM) by the AI gateway's credential store, and are never returned
+      to the client. Benchmark answer keys, rubrics, and grading stay engine-side. That separation
+      is what makes a score mean something: the code being graded cannot read the answers it is
+      being graded against, and neither can the person who wrote it.
+    </p>
+
+    <p>
+      Be clear about the direction this runs, though. The boundary protects the answer keys and your
+      credentials, not the content of your prompts. Whatever you put into a prompt is sent to the
+      model provider you chose, exactly as any other API call would send it. If you are evaluating
+      against sensitive material, that material reaches the provider.
     </p>
 
     <ul>
@@ -81,30 +98,43 @@ const health = `curl http://127.0.0.1:9108/healthz`
     <h2>Running one</h2>
 
     <p>
-      Point the Client at an Engine with one call. The Client's local default is
-      <code>http://127.0.0.1:9108</code>, so you can omit the argument while working locally:
+      Your own Engine ships in the client package, behind the <code>runtime</code> extra. Three
+      commands install it, fetch the benchmark data it reads from disk, and start it:
+    </p>
+
+    <CodeBlock :code="runLocal" language="bash" />
+
+    <p>
+      That serves the Engine on <code>127.0.0.1:9108</code>, alongside the gateway that holds your
+      provider keys and a local scoreboard. <code>screamingface status</code> reports each of the
+      three, and <code>screamingface down</code> stops them. The
+      <RouterLink to="/sf-client/installation">Installation</RouterLink> guide covers the rest,
+      including when a local Engine needs its own web-search key.
+    </p>
+
+    <CodeBlock :code="health" language="bash" />
+
+    <p>
+      Point the Client at an Engine with one call. Its default is a hosted Engine, so a local one is
+      always named explicitly:
     </p>
 
     <CodeBlock :code="point" language="python" />
-
-    <p>A health check confirms it is up before you spend anything:</p>
-
-    <CodeBlock :code="health" language="bash" />
 
     <p>
       The same Engine runs three ways: <strong>bundled</strong> invisibly inside the Client and
       <RouterLink to="/learn/url4-sdk">SDK</RouterLink>, <strong>self-hosted</strong> for a team
       that wants the whole system inside its own walls, or <strong>hosted</strong> for shared,
-      subsidised capacity that we run. The cloud deployment (Kubernetes Jobs, a streaming event bus,
+      subsidized capacity that we run. The cloud deployment (Kubernetes Jobs, a streaming event bus,
       a Helm chart) lives in
       <a :href="`${GH_TREE}/apps/url4-cloud`" target="_blank" rel="noopener"
         ><code>apps/url4-cloud</code></a
-      >; a local run needs none of it.
+      >. A local run needs none of it.
     </p>
 
     <blockquote>
-      The Engine is not a router. A router picks one model per call, the Engine composes many into a
-      graph. It is not open compute either: hosted capacity is subsidised for chosen cohorts, and
+      The Engine is not a router. A router picks one model per call. The Engine composes many into a
+      graph. It is not open compute either: hosted capacity is subsidized for chosen cohorts, and
       self-hosting is on your own hardware.
     </blockquote>
 

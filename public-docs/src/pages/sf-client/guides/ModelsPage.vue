@@ -25,15 +25,19 @@ const policy = `sf.Model(
 const policyOut = `Model('openrouter/openai/gpt-5.5', prompt='Answer concisely.', params={'reasoning': 'high'})`
 
 const listing = `sf.models.list()`
-const listingOut = `ModelInfo(id='anthropic/claude-opus-4-8', provider='anthropic')
-ModelInfo(id='anthropic/claude-haiku-4-5', provider='anthropic')
-ModelInfo(id='codex/gpt-5.5', provider='codex')
-ModelInfo(id='gemini-cli/gemini-2.5-pro', provider='gemini-cli')
-ModelInfo(id='huggingface/deepseek-ai/DeepSeek-R1:novita', provider='huggingface')
-ModelInfo(id='openrouter/anthropic/claude-opus-4.8', provider='openrouter')
-ModelInfo(id='openrouter/openai/gpt-5.5', provider='openrouter')
-ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
+const listingOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)
+ModelInfo('anthropic/claude-haiku-4-5', provider='anthropic', parameters=9, tools=2)
+ModelInfo('codex/gpt-5.5', provider='codex', parameters=4, tools=1)
+ModelInfo('gemini-cli/gemini-2.5-pro', provider='gemini-cli', parameters=4, tools=1)
+ModelInfo('huggingface/deepseek-ai/DeepSeek-R1:novita', provider='huggingface', parameters=7, tools=0)
+ModelInfo('openrouter/anthropic/claude-opus-4.8', provider='openrouter', parameters=12, tools=2)
+ModelInfo('openrouter/openai/gpt-5.5', provider='openrouter', parameters=12, tools=2)
+ModelInfo('openrouter/google/gemini-3.1-pro-preview', provider='openrouter', parameters=12, tools=2)
 …   # 29 entries across 6 providers on this engine`
+
+const details = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
+gpt.parameters["reasoning"].enabled, "web_search" in gpt.tools`
+const detailsOut = `(True, True)`
 </script>
 
 <template>
@@ -62,6 +66,7 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
       <li>Name a Model so two samples of the same route stay distinguishable.</li>
       <li>Override the answer prompt and generation parameters.</li>
       <li>List the routes this engine can actually reach.</li>
+      <li>Read one route's profile to see which parameters and tools it supports.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -86,6 +91,13 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
           <td>
             Lists the routes this engine can reach as <code>sf.ModelInfo</code> values, spanning
             every provider the engine knows.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.models.get(model_id)</code></td>
+          <td>
+            Returns one route's <code>sf.ModelDetails</code> profile: which parameters and tools it
+            supports, and whether the profile is current.
           </td>
         </tr>
         <tr>
@@ -154,12 +166,25 @@ ModelInfo(id='openrouter/google/gemini-3.1-pro-preview', provider='openrouter')
       retyping it.
     </p>
 
+    <h3>5 · Check that a route accepts your policy</h3>
+
+    <p>
+      <code>sf.models.get(id)</code> returns the fuller <code>sf.ModelDetails</code> profile for one
+      route: each parameter with its schema and whether the gateway currently projects it, the tools
+      and transports it supports, and whether the profile is stale. Consulting it is how you learn
+      that <code>params={"reasoning": "high"}</code> will be honoured before a run spends anything.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="5" :code="details"><NbTextOut :text="detailsOut" /></NbCell>
+    </div>
+
     <h2>Links</h2>
 
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/00_quickstart.ipynb"
+          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>00_quickstart.ipynb</code></a

@@ -13,21 +13,14 @@ import {
 const listRun = `import screamingface as sf
 
 client = sf.Client()
-[(b.id, b.case_count) for b in client.benchmarks.list()]`
-const listRunOut = `[('draco', 100), ('ifeval', 541)]`
-
-const casesSig = `Benchmark.cases(limit: int = 50, offset: int = 0)`
-
-const casesRun = `ifeval = client.benchmarks.get("ifeval")
-ifeval.cases(limit=3)`
-const casesRunOut = `Cases(3 of 541, offset=0)`
-
-const caseRun = `case = ifeval.cases(limit=1)[0]
-case.id, case.input[:60]`
-const caseRunOut = `(1, 'Write a 300+ word summary of the wikipedia page "https://en.')`
+[(b.id, b.variant, b.case_count) for b in client.benchmarks.list()]`
+const listRunOut = `[('draco', 'canonical', 100), ('draco/lite', 'lite', 2), ('ifeval', 'canonical', 541), ('ifeval/self-corrective', 'self-corrective', 541)]`
 
 const modelsRun = `client.models.list()[0]`
-const modelsRunOut = `ModelInfo(id='anthropic/claude-opus-4-8', provider='anthropic')`
+const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)`
+
+const detailsRun = `client.models.get("anthropic/claude-opus-4-8")`
+const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='chat', parameters=9, tools=2, transport=3)`
 </script>
 
 <template>
@@ -39,9 +32,9 @@ const modelsRunOut = `ModelInfo(id='anthropic/claude-opus-4-8', provider='anthro
   >
     <p>
       A benchmark is a fixed set of cases, owned by the Engine and pinned by a revision. This page
-      covers <code>Benchmark</code> itself, alongside <code>CaseInfo</code> for a single case inside
-      it, <code>BenchmarkInfo</code> for the compact identity a report keeps of it, and
-      <code>ModelInfo</code> for the model routes the Engine can run it against. See the
+      covers <code>Benchmark</code> itself, alongside <code>BenchmarkInfo</code> for the compact
+      identity a report keeps of it, and <code>ModelInfo</code> for the model routes the Engine can
+      run it against. See the
       <RouterLink to="/sf-client/guides/benchmarks">Benchmarks guide</RouterLink> for choosing which
       benchmark to run.
     </p>
@@ -57,8 +50,10 @@ const modelsRunOut = `ModelInfo(id='anthropic/claude-opus-4-8', provider='anthro
 
     <p>
       A <code>Benchmark</code> is the Engine's record of one benchmark, carrying its identity, its
-      size, and access to its public cases. <code>client.benchmarks.get(id)</code> returns a single
-      benchmark and <code>client.benchmarks.list()</code> returns every benchmark the Engine offers.
+      size, and what it measures. <code>client.benchmarks.get(id)</code> returns a single benchmark
+      and <code>client.benchmarks.list()</code> returns every benchmark the Engine offers. Protocol
+      variants are separate entries with their own ids, so the list holds <code>ifeval</code> beside
+      <code>ifeval/self-corrective</code>.
     </p>
 
     <div class="not-prose">
@@ -80,8 +75,17 @@ const modelsRunOut = `ModelInfo(id='anthropic/claude-opus-4-8', provider='anthro
           <td><code>id</code></td>
           <td><code>str</code></td>
           <td>
-            Stable identifier, such as <code>ifeval</code>. This is what you pass as
-            <code>benchmark=</code> when evaluating.
+            Stable identifier, such as <code>ifeval</code> or <code>draco/lite</code>. This is what
+            you pass as <code>benchmark=</code> when evaluating.
+          </td>
+        </tr>
+        <tr>
+          <td><code>variant</code></td>
+          <td><code>str</code></td>
+          <td>
+            Which protocol of the underlying benchmark this entry runs, such as
+            <code>canonical</code>, <code>lite</code> or <code>self-corrective</code>. It names the
+            protocol; the <code>id</code> is what selects it.
           </td>
         </tr>
         <tr>
@@ -113,81 +117,12 @@ const modelsRunOut = `ModelInfo(id='anthropic/claude-opus-4-8', provider='anthro
       </tbody>
     </table>
 
-    <h3>cases()</h3>
-
-    <CodeBlock :code="casesSig" language="python" />
-
-    <p>
-      This method fetches one page of the benchmark's public cases from the Engine and returns them
-      as a sequence of <code>CaseInfo</code> values supporting indexing, slicing, iteration and
-      <code>len()</code>. Within a notebook the sequence renders as a table, and as a searchable
-      table where the <code>notebook</code> extra is installed.
-    </p>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Meaning</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>limit</code></td>
-          <td><code>int</code></td>
-          <td>How many cases to fetch. Defaults to 50.</td>
-        </tr>
-        <tr>
-          <td><code>offset</code></td>
-          <td><code>int</code></td>
-          <td>How many cases to skip first. Defaults to 0.</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="not-prose">
-      <NbCell :count="2" :code="casesRun"><NbTextOut :text="casesRunOut" /></NbCell>
-    </div>
-
-    <p>
-      This is a live call, so it raises <code>PlanningError</code> when the Engine cannot serve the
-      benchmark's case data.
-    </p>
-
-    <h2>CaseInfo</h2>
-
-    <p>
-      A <code>CaseInfo</code> is one public case from a benchmark, carrying its identifier and the
-      exact text a candidate receives. Nothing further crosses the Engine boundary: grading criteria
-      and rubrics remain on the Engine, so a case's answer key cannot be read through this value.
-    </p>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Meaning</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>id</code></td>
-          <td><code>int</code></td>
-          <td>Position within the benchmark, counting from 1.</td>
-        </tr>
-        <tr>
-          <td><code>input</code></td>
-          <td><code>str</code></td>
-          <td>The prompt text for this case.</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="not-prose">
-      <NbCell :count="3" :code="caseRun"><NbTextOut :text="caseRunOut" /></NbCell>
-    </div>
+    <Note>
+      A <code>Benchmark</code> carries no case data. The client cannot page a benchmark's prompts,
+      because the cases and their answer keys stay on the Engine. Case text becomes visible after a
+      run, through the <code>CaseResult</code> values on
+      <RouterLink to="/sf-client/api/reports">CandidateResult.cases</RouterLink>.
+    </Note>
 
     <h2>BenchmarkInfo</h2>
 
@@ -265,26 +200,48 @@ const modelsRunOut = `ModelInfo(id='anthropic/claude-opus-4-8', provider='anthro
           <td><code>str</code></td>
           <td>Which provider serves the route.</td>
         </tr>
+        <tr>
+          <td><code>supported_parameters</code></td>
+          <td><code>tuple[str, ...]</code></td>
+          <td>
+            Which request parameters this route accepts, such as <code>temperature</code>. Passing
+            one it does not accept fails before the run.
+          </td>
+        </tr>
+        <tr>
+          <td><code>supported_tools</code></td>
+          <td><code>tuple[str, ...]</code></td>
+          <td>Which tools it can use, such as <code>web_search</code>.</td>
+        </tr>
       </tbody>
     </table>
 
     <div class="not-prose">
-      <NbCell :count="4" :code="modelsRun"><NbTextOut :text="modelsRunOut" /></NbCell>
+      <NbCell :count="2" :code="modelsRun"><NbTextOut :text="modelsRunOut" /></NbCell>
+    </div>
+
+    <p>
+      <code>client.models.get(id)</code> returns the fuller <code>ModelDetails</code> profile for
+      one route: every parameter with its schema and whether the gateway currently projects it, the
+      tool and transport capabilities, and whether the profile is stale or degraded. In a notebook
+      it renders as a card.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="3" :code="detailsRun"><NbTextOut :text="detailsRunOut" /></NbCell>
     </div>
 
     <h2>Validation</h2>
 
     <p>
-      All four types validate their arguments on construction, so a malformed value cannot exist.
-      Blank strings raise <code>ValueError</code>, non-strings raise <code>TypeError</code>, and the
-      integer fields reject zero and negative values, which is why <code>case_count</code> and a
-      case <code>id</code> are always positive:
+      All three types validate their arguments on construction, so a malformed value cannot exist.
+      Blank strings raise <code>ValueError</code>, non-strings raise <code>TypeError</code>, and
+      <code>case_count</code> rejects zero and negative values:
     </p>
 
     <CodeBlock
-      code="ValueError: Case id must be a positive integer
-ValueError: Case input must be a non-empty string
-ValueError: Benchmark case_count must be a positive integer
+      code="ValueError: Benchmark case_count must be a positive integer
+ValueError: Benchmark variant must be a non-empty string
 ValueError: Model id must be a non-empty string"
       language="text"
     />

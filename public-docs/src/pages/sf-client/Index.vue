@@ -17,7 +17,7 @@ sf.configure(engine_url="${SF_ENGINE_URL}")
 
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 flash = sf.Model("openrouter/google/gemini-3-flash-preview")
-fusion = sf.Fusion([gpt, flash])
+fusion = sf.Fusion([gpt, flash], synthesizer="openrouter/openai/gpt-5.5")
 
 # Score the solo model beside the fusion, on the same cases.
 report = sf.evaluate([gpt, fusion], benchmark="ifeval", limit=3)
@@ -34,82 +34,106 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     :version="version"
   >
     <p>
-      ScreamingFace is an open-source Python client for building <strong>fusions</strong>: several
-      models answering the same question, combined into one. You compose a fusion from providers you
-      already have keys for, evaluate it against a real benchmark, and read how it did, in a
-      notebook.
+      ScreamingFace is an open-source Python client for composing model ensembles, which it calls
+      <strong>fusions</strong>, and evaluating them against research benchmarks. You build a fusion
+      from providers you already hold keys for, evaluate it, and read back a score together with
+      what the run cost. The benchmark answer keys and the grading stay on the engine, so the code
+      being scored is never the code doing the scoring.
     </p>
 
     <p>
-      Why bother? A fusion can score higher than any single model in it. In a reproduction of the
-      <strong>DRACO</strong> deep-research benchmark, the strongest fusion reached
-      <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model, a
-      <strong>+8.4-point</strong> gain, and five separate fusions beat every individual model (<a
+      The reason to compose at all is that a fusion can score higher than any of the models inside
+      it. In a reproduction of the <strong>DRACO</strong> deep-research benchmark, the strongest
+      fusion reached <strong>68.6%</strong> where the best single model reached
+      <strong>60.2%</strong>, and five separate fusions beat every individual model (<a
         href="https://andrewtrask.substack.com/p/6-weeks-ago-frontier-ai-labs-lost"
         target="_blank"
         rel="noopener"
         >published results</a
-      >). The effect appears in the literature too, such as
+      >). The effect is reported elsewhere as well, for instance in
       <em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em> (Skurikhin
-      et al., Los Alamos). It is not magic: the gains come from genuine diversity between models,
-      and it can bring visible improvements and significant cost reductions.
+      et al., Los Alamos). It appears to come from genuine diversity between the models rather than
+      from any single one of them.
     </p>
 
-    <h2>How the stack helps you</h2>
+    <p>
+      Evaluation is nondeterministic, so a single comparison is one sample rather than a settled
+      result. The point of the tooling is that you can re-run any of this yourself and see what you
+      get.
+    </p>
+
+    <h2>What the client gives you</h2>
 
     <ul>
       <li>
-        <strong>One interface, every provider.</strong> Bring your own keys and compose across open
-        and closed models.
+        <strong>Grading you did not perform yourself.</strong> Benchmark answer keys, rubrics, and
+        judges live on the engine and are never returned to the client, so a score does not rest on
+        trusting whoever produced it.
       </li>
       <li>
-        <strong>Honest measurement.</strong> Every run reports accuracy alongside its tokens, cost,
-        and time, graded against a fixed benchmark so the comparison is fair.
+        <strong>A reproducible artifact for every run.</strong> Each evaluation compiles to one
+        <RouterLink to="/learn/url4">url4</RouterLink> expression recording the models, their
+        parameters, and the benchmark revision that was used. Anyone holding it can run the same
+        evaluation.
       </li>
       <li>
-        <strong>Reproducible from one line.</strong> Every run compiles to a single
-        <RouterLink to="/learn/url4">url4</RouterLink> expression you can share.
+        <strong>Your own providers.</strong> You connect the API keys you already have, and calls
+        are billed to your own accounts rather than resold to you.
       </li>
       <li>
-        <strong>Cheap to repeat.</strong> Calls are cached, and a shared community cache makes
-        re-running prior work nearly free.
+        <strong>Exploration you pay for once.</strong> Every model response is
+        <RouterLink to="/learn/caching">cached</RouterLink> against its exact request, so comparing
+        many fusion candidates over one benchmark is billed only for the calls that have not been
+        made before. A model shared between two candidates answers once, and swapping a single
+        member re-uses what the others already produced.
       </li>
       <li>
-        <strong>Build on what others did.</strong> Because anyone can reproduce a published run from
-        its url4, you can start from someone else's result, iterate on it, and push the frontier
-        further.
+        <strong>Cost reported alongside accuracy.</strong> Tokens, spend, and duration stream while
+        the run is in progress and are totalled per model and per fusion, so the price of a gain is
+        visible at the same time as the gain.
+      </li>
+      <li>
+        <strong>Earlier work you can build on.</strong> Recipes published to the leaderboard can be
+        imported, modified, and re-run, and on a hosted engine the cache is shared across the
+        community, so repeating someone else's run usually costs a fraction of the original.
       </li>
     </ul>
 
     <h2>What url4 is</h2>
 
     <p>
-      A <strong>url4</strong> is a one-line, human-readable expression that captures a whole run:
-      the models, how they combine, and the benchmark, in a single shareable string. Hand someone
-      the url4 and they reproduce the exact result. It is the receipt for a run.
+      A <strong>url4</strong> is a single-line expression describing a composed system: which models
+      take part, how their answers are combined, and what each one is asked to do. It serves as both
+      the record of what ran and the instruction for running it again, which is what lets a
+      published result carry its own method instead of describing it in prose.
     </p>
 
     <h2>Two ways to run</h2>
 
     <p>
-      You point the client at an <RouterLink to="/learn/engine">engine</RouterLink>, the runtime
-      that does the work. There are two ways to get one:
+      The client never calls a model provider itself. It sends work to an
+      <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
+      benchmark answer keys and performs the grading. You can point it at either of two, and the
+      choice is a genuine trade rather than a formality.
     </p>
 
     <ul>
       <li>
-        <strong>Local.</strong> Run the engine on your own machine, on your own keys. There is no
-        middleman on the local path.
+        <strong>A local engine</strong> ships with the toolkit and runs on your own machine, using
+        your keys and its own cache. Nothing is hosted and no third party sits between you and your
+        providers, but the cache starts empty and you supply the compute.
       </li>
       <li>
-        <strong>Hosted.</strong> Use an engine we operate, which adds subsidized compute for chosen
-        cohorts and the shared cache.
+        <strong>A hosted engine</strong> runs the same software as a service, which adds the shared
+        community cache and subsidized compute for selected cohorts. In exchange, your prompts and
+        your stored credentials are handled by an engine we operate.
       </li>
     </ul>
 
     <p>
-      The client code is the same either way; only the engine URL changes. The
-      <RouterLink to="/sf-client/installation">Installation</RouterLink> guide covers both.
+      Client code is identical either way and only the engine URL differs, so the decision is
+      reversible. The <RouterLink to="/sf-client/installation">Installation</RouterLink> guide
+      covers both.
     </p>
 
     <h2>The smallest example</h2>
@@ -119,18 +143,19 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     </div>
 
     <p>
-      <code>score</code> is each candidate's accuracy on the same cases, and higher is always
-      better. There is no separate baseline or gain. The comparison <em>is</em> putting the solo
-      model and the fusion in one run and reading both numbers.
+      <code>score</code> is each candidate's accuracy over the same cases, where higher is better.
+      The report carries no baseline or gain field, because the comparison is simply that you ran
+      the solo model and the fusion in one call and can read both numbers.
     </p>
 
     <h2>How it works</h2>
 
     <p>
-      The client talks only to the <strong>ScreamingFace Engine</strong>, never to model providers
-      directly. Each evaluation compiles to one <strong>url4</strong> expression, and that
-      expression is the contract between them: the engine resolves it, and anyone holding it can
-      reproduce the run.
+      The client compiles your recipe into one <strong>url4</strong> expression and hands it to the
+      <strong>engine</strong>. The engine resolves that expression, calls each model, applies the
+      benchmark's grader, and streams usage back while the run proceeds. What returns is the set of
+      scores, any failures, and the total cost. Because the url4 travels with the result, someone
+      else can repeat the evaluation and compare what they get against what you reported.
     </p>
   </DocLayout>
 </template>

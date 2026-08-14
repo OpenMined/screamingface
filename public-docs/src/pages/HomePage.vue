@@ -27,7 +27,7 @@ const docs = [
     title: 'Learn more',
     to: '/learn',
     kicker: 'concepts',
-    desc: 'Architecture, the url4 protocol, the ScreamingFace Engine, and the url4 SDK.',
+    desc: 'Architecture, the url4 protocol and SDK, the engine and its trust boundary, caching, and the leaderboard.',
   },
 ]
 
@@ -44,9 +44,9 @@ const GITHUB = 'https://github.com/OpenMined'
         <span class="hero__title-2">Reproduce every run from one line.</span>
       </h1>
       <p class="lead">
-        ScreamingFace is an open toolkit for composing model <em>fusions</em> that outperform any
-        single model. Push the frontier together, in the open, while every result stays trivial to
-        reproduce for everyone.
+        ScreamingFace is an open toolkit for composing model <em>fusions</em>: several models
+        answering together, graded against a real research benchmark. Every run reproduces from a
+        single line, on your own keys.
       </p>
 
       <div class="actions">

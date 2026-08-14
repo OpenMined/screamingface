@@ -24,25 +24,25 @@ const metrics = `dict(c.metrics)`
 const metricsOut = `{'inst_level_strict_accuracy': 1.0,
  'prompt_level_loose_accuracy': 1.0,
  'inst_level_loose_accuracy': 1.0,
- 'pass_at_1': 1.0,
- 'pass_at_2': 1.0,
- 'pass_at_3': 1.0,
- 'corrected_cases': 0.0,
- 'cases_checked': 3.0,
- 'cases_fallback': 0.0}`
+ 'pass_rate': 1.0}`
 
 const many = `opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 
-sf.evaluate([opus, gpt, sf.Fusion([opus, gpt])], benchmark="draco", limit=1)`
+sf.evaluate(
+    [opus, gpt, sf.Fusion([opus, gpt], synthesizer="openrouter/openai/gpt-5.5")],
+    benchmark="draco",
+    limit=1,
+)`
 
-const compare = `corr = sf.evaluate(haiku, benchmark="ifeval", limit=3)
-base = sf.evaluate(haiku, benchmark="ifeval", limit=3, method="single_pass")
+const compare = `base = sf.evaluate(haiku, benchmark="ifeval", limit=3)
+corr = sf.evaluate(haiku, benchmark="ifeval/self-corrective", limit=3)
 
-{"corrective":  {"score": corr.candidates.only.score, "tokens": corr.usage.output_tokens},
- "single_pass": {"score": base.candidates.only.score, "tokens": base.usage.output_tokens}}`
-const compareOut = `{'corrective': {'score': 1.0, 'tokens': 3686},
- 'single_pass': {'score': 1.0, 'tokens': 1167}}`
+{"canonical":       {"score": base.candidates.only.score, "tokens": base.usage.output_tokens},
+ "self-corrective": {"score": corr.candidates.only.score, "tokens": corr.usage.output_tokens,
+                     "corrected": corr.candidates.only.metrics["corrected_cases"]}}`
+const compareOut = `{'canonical': {'score': 1.0, 'tokens': 1167},
+ 'self-corrective': {'score': 1.0, 'tokens': 3686, 'corrected': 0.0}}`
 
 const usage = `report.usage`
 const usageOut = `Usage(input_tokens=3691, output_tokens=3686, cache_read_tokens=0,
@@ -70,15 +70,15 @@ client.close()`
     :version="version"
   >
     <p>
-      <code>sf.evaluate()</code> is the one call that spends money. You hand it candidates and a
-      benchmark id; it compiles each candidate against that benchmark's pinned protocol, runs them
+      <code>sf.evaluate()</code> is the one call that costs money. You give it candidates and a
+      benchmark id. It compiles each candidate against that benchmark's protocol, runs them
       concurrently on <RouterLink to="/learn/engine">the engine</RouterLink>, and returns a single
       <code>Report</code>.
     </p>
 
     <p>
-      Everything expensive is on the far side of this call. Validation happens first and entirely.
-      An unknown benchmark, an unreachable route, a malformed candidate all fail
+      Everything expensive happens inside this call, but validation happens first and in full. An
+      unknown benchmark, an unreachable route, or a malformed candidate all fail
       <strong>before the first paid request</strong>.
     </p>
 
@@ -148,14 +148,14 @@ client.close()`
       </figcaption>
     </figure>
 
-    <h2>What you can do with it</h2>
+    <h2>What you can do</h2>
 
     <ul>
-      <li>Evaluate one candidate, or several in one run.</li>
-      <li>Cap how many cases run with <code>limit</code>.</li>
-      <li>Choose a protocol variant with <code>method</code>.</li>
-      <li>Watch the run as it happens, or silence the progress display.</li>
-      <li>Run against an explicit client, synchronously or with <code>await</code>.</li>
+      <li>Evaluate one candidate, or run several at once.</li>
+      <li>Cap the number of cases with <code>limit</code>.</li>
+      <li>Pick a protocol variant by naming its own benchmark id.</li>
+      <li>Watch the run live, or turn off the progress display.</li>
+      <li>Use an explicit client, sync or with <code>await</code>.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -169,16 +169,16 @@ client.close()`
       </thead>
       <tbody>
         <tr>
-          <td><code>sf.evaluate(candidates, *, benchmark, limit=None, method=None, on_event=None, progress=None)</code></td>
-          <td>Runs one or many candidates against a benchmark's pinned protocol concurrently and returns a single <code>sf.Report</code>, validating fully before the first paid request.</td>
+          <td><code>sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None)</code></td>
+          <td>Runs one or more candidates against a benchmark's protocol concurrently, returning a single <code>sf.Report</code>. Validates everything before the first paid request.</td>
         </tr>
         <tr>
           <td><code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code></td>
-          <td>The same call on an explicit client you hold yourself, synchronously or with <code>await</code>, which is the only way to address two engines from one process.</td>
+          <td>Same call on an explicit client you manage yourself, sync or with <code>await</code>. Only way to talk to two engines from one process.</td>
         </tr>
         <tr>
           <td><code>sf.configure(engine_url=…)</code></td>
-          <td>Repoints the shared client once so every later <code>sf.evaluate()</code> call uses that engine.</td>
+          <td>Repoints the shared client so every later <code>sf.evaluate()</code> call uses that engine.</td>
         </tr>
         <tr>
           <td><code>sf.close()</code></td>
@@ -192,8 +192,8 @@ client.close()`
     <h3>1 · Evaluate one candidate</h3>
 
     <p>
-      The benchmark id is <strong>required</strong>: there is no default and no implicit choice.
-      <code>limit</code> caps the case count, and it is your main cost control.
+      The benchmark id is <strong>required</strong>, with no default and no implicit choice.
+      <code>limit</code> caps the case count and is your main cost control.
     </p>
 
     <div class="not-prose">
@@ -201,15 +201,15 @@ client.close()`
     </div>
 
     <p>
-      The repr is a summary: which benchmark, which candidates, and whether anything failed.
-      <code>ok</code> is <code>True</code> only when no candidate and no member recorded a failure.
+      The repr is a summary: which benchmark, which candidates, whether anything failed.
+      <code>ok</code> is <code>True</code> only when no candidate and no member had a failure.
     </p>
 
     <h3>2 · Read the score</h3>
 
     <p>
-      Scores live on candidates, not on the report: a report may hold several. With one candidate,
-      <code>.only</code> is the direct way to it.
+      Scores live on candidates rather than on the report, since a report can hold several. With one
+      candidate, <code>.only</code> gets you right to it.
     </p>
 
     <div class="not-prose">
@@ -217,13 +217,13 @@ client.close()`
     </div>
 
     <p>
-      Note the two case counts. <code>report.case_count</code> is how many cases <em>ran</em>;
+      Notice the two case counts: <code>report.case_count</code> is how many cases <em>ran</em>;
       <code>report.benchmark.case_count</code> is how many the benchmark has. Running 3 of 541 is a
-      smoke test, and the report says so rather than letting you forget.
+      smoke test, and the report keeps both numbers visible so that stays obvious later.
     </p>
 
     <p>
-      <code>score</code> is always higher-is-better and may be <code>None</code> if a candidate
+      <code>score</code> is always higher-is-better, and can be <code>None</code> if a candidate
       failed. Benchmark-specific diagnostics live under <code>metrics</code>:
     </p>
 
@@ -231,13 +231,20 @@ client.close()`
       <NbCell :count="3" :code="metrics"><NbTextOut :text="metricsOut" /></NbCell>
     </div>
 
+    <p>
+      Read <code>coverage</code> beside the score. It is the fraction of the selected cases the
+      score was computed from, and anything below <code>1.0</code> means the engine graded only part
+      of the run and the score describes that part. A candidate can also finish with both a score
+      and entries in <code>failures</code>, which is a completed run carrying warnings worth
+      reading rather than a broken one.
+    </p>
+
     <h3>3 · Evaluate several at once</h3>
 
     <p>
-      Pass a list. Every candidate runs against the same pinned exam in the same call, which is what
-      makes the comparison fair, and it is the only way to compare, because a report has no
-      "baseline" or "gain" field. You put the solo model and the fusion in one run and read both
-      scores.
+      Pass a list. Every candidate runs against the same pinned exam in the same call. That's what
+      makes the comparison fair. It's the only way to compare, because a report has no "baseline" or
+      "gain" field. You put the solo model and the fusion in one run and read both scores.
     </p>
 
     <div class="not-prose">
@@ -252,8 +259,9 @@ client.close()`
     <h3>4 · Compare two protocols</h3>
 
     <p>
-      Because a <code>method</code> is a different pinned protocol, comparing them is two runs. This
-      is IFEval's retry chain against its single-pass baseline, on the same three cases:
+      Because each protocol variant is a separate benchmark id, comparing them is two runs. This is
+      IFEval's canonical single-pass protocol against its self-corrective retry chain on the same
+      three cases:
     </p>
 
     <div class="not-prose">
@@ -262,9 +270,10 @@ client.close()`
 
     <p>
       An honest result: identical scores, <strong>3.2× the output tokens</strong>. On this slice the
-      retry loop bought nothing: <code>corrected_cases</code> above is <code>0.0</code>, meaning no
-      case failed first and passed later. That is what a three-case sample of a capable model looks
-      like, and it is the reason to run more cases before concluding anything.
+      retry loop bought nothing. <code>corrected_cases</code>, a metric only the corrective variants
+      report, is <code>0.0</code>, meaning no case failed first and passed later. That is what a
+      three-case sample of a capable model looks like, and it is the reason to run more cases before
+      concluding anything.
     </p>
 
     <h3>5 · Read what it cost</h3>
@@ -295,9 +304,10 @@ client.close()`
     <h3>7 · Point at the engine</h3>
 
     <p>
-      <code>sf.evaluate()</code> never asks where the engine is, so it falls back to your own
-      machine: <code>http://127.0.0.1:9108</code>. Against a hosted engine that fails, so name it
-      once with <code>sf.configure()</code> and every later call uses it.
+      <code>sf.evaluate()</code> never asks where the engine is. Left unconfigured it falls back to
+      <code>DEFAULT_ENGINE_URL</code>, a hosted engine, which is not what you want when the engine
+      you mean is your own, so name it once with <code>sf.configure()</code> and every later call
+      uses it.
     </p>
 
     <p>
@@ -324,10 +334,10 @@ client.close()`
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/05_draco_e2e.ipynb"
+          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/05_draco_lite_e2e.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook: <code>05_draco_e2e.ipynb</code></a
+          >Companion notebook: <code>05_draco_lite_e2e.ipynb</code></a
         >
       </li>
     </ul>

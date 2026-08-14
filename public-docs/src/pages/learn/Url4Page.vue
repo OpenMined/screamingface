@@ -26,15 +26,25 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
     :navigation="navigation"
   >
     <p>
-      <strong>url4</strong> is a grammar and a protocol for saying <em>given these sources, do this</em>. It
-      packages a set of sources, an intent, and the metadata to run them into a single line of text:
-      <code>(data)!intent</code>. That line is also an <strong>address</strong>: hand it to the
-      <RouterLink to="/learn/engine">Engine</RouterLink> and it resolves. So everything you build in
-      the <RouterLink to="/sf-client">Client</RouterLink>, a single model, a
-      <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>, or a whole benchmark run,
-      compiles to one url4 string. You can log it, diff it, share it, reproduce it, and call it again
-      exactly like a single model. That reuse is the point: a Fusion you like is not a one-off, its
-      url4 is a callable, reproducible artifact you can drop into any workflow.
+      <strong>url4</strong> is a grammar and a protocol for saying
+      <em>given these sources, do this</em>. It packs the sources, the intent, and everything needed
+      to run them into one line of text: <code>(data)!intent</code>.
+    </p>
+
+    <p>
+      Everything you build in the <RouterLink to="/sf-client">Client</RouterLink> compiles to one of
+      these, whether it is a single model, a
+      <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>, or a whole benchmark run. The
+      line is also an <strong>address</strong>: hand it to the
+      <RouterLink to="/learn/engine">Engine</RouterLink> and it resolves, the way a URL resolves.
+    </p>
+
+    <p>
+      That is what makes a composed system shareable at all. A model is easy to pass around because
+      it is a thing with a name; an ensemble usually is not, because it lives as glue code in
+      somebody's notebook. url4 gives it a name you can copy. A Fusion you like stops being a
+      one-off and becomes an artifact you can log, diff, publish, and call again like any single
+      model.
     </p>
 
     <h2>Two layers</h2>
@@ -89,16 +99,17 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
     <h2>How it runs</h2>
 
     <p>
-      A url4 string is parsed by a recursive-descent parser into a frozen syntax tree, then lowered
-      to a <strong>typed DAG</strong>. Independent nodes run in parallel; named and positional
-      references become the edges between them; iteration compiles to map nodes and a reduce. The
-      graph is demand-driven, so only the nodes a result depends on are ever scheduled.
+      Parsing a url4 string produces a syntax tree, which is then lowered to a
+      <strong>typed DAG</strong>. Independent nodes run in parallel, and the references you wrote
+      (<code>$a</code>, <code>$1</code>) become the edges between them. The graph is demand-driven,
+      so only the nodes your result actually depends on get scheduled.
     </p>
 
     <p>
-      The text form and the tree are two views of the same thing: rendering a tree back to text is
-      the certified inverse of parsing it, so <code>url4.build(url4.render(node))</code> returns the
-      original tree. That round-trip is what lets a run be logged, shared, and replayed exactly.
+      Text and tree are two views of the same thing, and converting between them loses nothing in
+      either direction: <code>url4.build(url4.render(node))</code> gives back the tree you started
+      with. That guarantee is what lets a run be logged, shared, and replayed exactly rather than
+      approximately.
     </p>
 
     <CodeBlock :code="roundtrip" language="python" />
@@ -107,31 +118,36 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
 
     <p>
       Because the whole request lives in one URI, the Engine treats a url4 expression the way
-      <code>http</code> treats a URL: as an address it resolves. The call is idempotent and
-      cacheable, since the same expression always describes the same work, and that is exactly what
-      lets you <em>reuse</em> it. Save a Fusion's url4, hand it to an
-      <RouterLink to="/learn/engine">Engine</RouterLink>, and it runs like any other model call. A
-      source inside one expression can be the result of another expression on another node, so
-      fusions compose into larger pipelines without anyone unpacking them.
+      <code>http</code> treats a URL: as an address it resolves. The same expression always
+      describes the same work, which makes the call cacheable and safe to repeat. Save a Fusion's
+      url4, hand it to an <RouterLink to="/learn/engine">Engine</RouterLink>, and it runs like any
+      other model call. A source inside one expression can be the result of another expression on
+      another node, so fusions nest into larger systems without anyone having to unpack them.
     </p>
 
     <p>
-      This is why the request is a URI and not out-of-band configuration. Standard HTTP
-      infrastructure, gateways, caches, and logs, can route and trace the request without
-      understanding the grammar, and the attribution and governance metadata travels
-      <em>with</em> the request rather than alongside it. To serve and call a url4 node yourself,
-      see the <RouterLink to="/learn/url4-sdk">url4 SDK</RouterLink>, which exposes the same shape
-      the Engine does.
+      Putting the request in the URI rather than in out-of-band configuration has a practical
+      payoff: ordinary HTTP infrastructure such as gateways, caches, and logs can route and trace it
+      without understanding the grammar, and attribution metadata travels <em>with</em> the request
+      instead of beside it. To serve and call a url4 node yourself, see the
+      <RouterLink to="/learn/url4-sdk">url4 SDK</RouterLink>, which exposes the same shape the
+      Engine does.
     </p>
 
     <h2>Why it exists</h2>
 
     <p>
-      Every run compiles to one canonical url4 string: loggable, inspectable, and re-runnable. It is
-      the audit trail: import a url4 and you hold the whole system and its benchmark run, not a
-      description of it. Model outputs still vary between runs, so the numbers will not match to the
-      decimal; the expression pins down the <em>definition</em> of the run, not its results.
-      Stability is the promise: a url4 written today is meant to run tomorrow.
+      Every run compiles to one canonical url4 string, and that string is the audit trail. Import it
+      and you hold the system itself along with its benchmark run, not a description of either. It
+      is also what the <RouterLink to="/learn/leaderboard">Leaderboard</RouterLink> stores next to a
+      rank, which is how a published result stays checkable.
+    </p>
+
+    <p>
+      Be careful about what it pins down, though. Model outputs vary between runs, so replaying an
+      expression will not reproduce the numbers to the decimal. What the expression fixes is the
+      <em>definition</em> of the run, not its results. Stability is the promise on top of that: a
+      url4 written today is meant to run tomorrow.
     </p>
 
     <blockquote>

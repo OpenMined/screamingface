@@ -9,15 +9,16 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-const read = `opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
-gpt = sf.Model("openrouter/openai/gpt-5.5")
+const read = `c = report.candidates.only
+c.url4          # the exact expression the engine ran
 
-opus.url4                     # a single model's plan
-sf.Fusion([opus, gpt]).url4   # a fusion's plan`
+# Or build one from a string somebody handed you.
+sf.Url4("(candidate='…compiled url4…')!'$model_0'")`
 
 const remix = `plan = report.candidates["frontier-trio"].url4   # or any url4 string you were given
-candidate = sf.from_url4(plan)                    # rebuild it as a runnable candidate
-sf.evaluate([candidate], benchmark="draco-lite@1")`
+
+plan.to_python()    # editable sf.Model / sf.Fusion / sf.Pipeline code, no spend
+sf.evaluate(plan)   # or replay it exactly as it ran, benchmark included`
 
 const ops = `c = report.candidates.only
 len(c.operations), [o.kind for o in c.operations]`
@@ -42,15 +43,15 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <p>
       Every candidate result carries a <RouterLink to="/learn/url4"><code>url4</code></RouterLink>
       string: the complete expression <RouterLink to="/learn/engine">the engine</RouterLink>
-      executed. Not a summary of it, not a log of it: the plan itself, the thing that ran. Your
-      candidate, the benchmark's routes, the retry prompts, and the pinned protocol revision, all in
-      one line of text you can read, diff, and send to someone.
+      actually ran. Not a summary, not a log. The plan itself. Your candidate, the benchmark's
+      routes, retry prompts, protocol revision, all in one line of text you can read, diff, and send
+      to others.
     </p>
 
     <p>
-      The shape is always <code>(sources)!intent</code>: the inputs in parentheses, then what to do
-      with them after the <code>!</code>. A source can itself be another url4, so the format is
-      recursive, which makes fusions easy to compose.
+      The shape is always <code>(sources)!intent</code>: inputs in parentheses, then what to do with
+      them after the <code>!</code>. A source can itself be another url4, so the format is
+      recursive, which is how a fusion nests inside a larger expression without special handling.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -172,29 +173,28 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <p>
       A <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> reads the same way, with more
       members (<code>member_2</code>, <code>member_3</code>, …) and a <code>recipe_answer</code>
-      step, the reducer that reads the members and writes the synthesis, before
-      <code>recipe_result</code>. Nothing is hidden: the routes, parameters, prompts, and the pinned
-      protocol are all in the line. See <RouterLink to="/learn/url4">url4</RouterLink> for the full
-      grammar and protocol.
+      step (the synthesizer that reads members and writes the synthesis) before
+      <code>recipe_result</code>. Nothing is held back from the line: the routes, the parameters,
+      the prompts, and the pinned protocol are all written into it. See
+      <RouterLink to="/learn/url4">url4</RouterLink> for the full grammar and protocol.
     </p>
 
     <p>
-      This is what makes a result auditable. A score on its own is a claim; a score with its url4
-      shows exactly what produced it. And because the expression is also an address the engine
-      resolves, that same string reruns the evaluation, or calls the fusion like a single model, in
-      any workflow you drop it into. See <RouterLink to="/learn/url4">url4</RouterLink> for the
-      protocol itself.
+      This makes results auditable. A score alone is just a claim. A score with its url4 shows
+      exactly what produced it. And since the expression is also an address the engine can resolve,
+      that same string reruns the evaluation or calls the fusion like a single model, in whatever
+      workflow you use. See <RouterLink to="/learn/url4">url4</RouterLink> for the protocol itself.
     </p>
 
-    <h2>What you can do with it</h2>
+    <h2>What you can do</h2>
 
     <ul>
-      <li>Read the <code>url4</code> of any model or fusion, before or after a run.</li>
-      <li>Create a new candidate from a <code>url4</code> string, then run or remix it.</li>
-      <li>Read what actually executed, including defaults you never set.</li>
-      <li>Confirm which benchmark revision the run was pinned to.</li>
+      <li>Read the <code>url4</code> that any candidate in a report actually ran.</li>
+      <li>Turn a <code>url4</code> string back into editable code, then rerun or remix it.</li>
+      <li>See what actually ran, including defaults you never set.</li>
+      <li>Check which benchmark revision the run used.</li>
       <li>Inspect the operation graph a candidate compiled to.</li>
-      <li>Serialise a whole report and hand it over.</li>
+      <li>Serialize a whole report and pass it along.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -208,28 +208,32 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
       </thead>
       <tbody>
         <tr>
-          <td><code>Model.url4</code> · <code>Fusion.url4</code></td>
-          <td>The plan a candidate compiles to, available before any run and free to inspect.</td>
+          <td><code>sf.Url4(text)</code></td>
+          <td>
+            Wrap a url4 string you were given, so a copied expression becomes the same first-class
+            value a report hands back.
+          </td>
         </tr>
         <tr>
-          <td><code>sf.from_url4(url4)</code></td>
+          <td><code>Url4.to_python()</code></td>
           <td>
-            Rebuild a runnable candidate from a url4 string, so a shared expression becomes a Model
-            or Fusion you can evaluate or remix.
+            Reconstruct editable <code>sf.Model</code> / <code>sf.Fusion</code> /
+            <code>sf.Pipeline</code> code from an expression, including the
+            <code>sf.evaluate(...)</code> line when the url4 embeds a benchmark. Local and free.
           </td>
         </tr>
         <tr>
           <td><code>CandidateResult.url4</code></td>
           <td>
-            The complete expression the engine executed, a string you can read, diff, and rerun.
+            The complete expression the engine ran, as a string you can read, diff, and rerun.
           </td>
         </tr>
         <tr>
           <td><code>CandidateResult.operations</code></td>
           <td>
-            The same plan as structured data: a DAG of <code>sf.OperationInfo</code> values, each
-            with an <code>id</code>, <code>kind</code>, <code>label</code> and
-            <code>depends_on</code> edges.
+            Same plan as structured data: a DAG of <code>sf.OperationInfo</code> values, each with
+            <code>id</code>, <code>kind</code>, <code>label</code>, and <code>depends_on</code>
+            edges.
           </td>
         </tr>
         <tr>
@@ -255,9 +259,11 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <h3>1 · Read a url4</h3>
 
     <p>
-      Every candidate has a <code>url4</code>. A constructed Model or Fusion already carries its
-      plan, before any run and free to inspect, and a completed run carries the exact expression
-      that executed as <code>report.candidates[name].url4</code>.
+      A url4 comes from a completed run. Each candidate in a report carries the expression that
+      actually executed as <code>report.candidates[name].url4</code>. A Recipe on its own does not
+      have one yet, because the benchmark's routes and pinned revision are only linked in at
+      evaluation time. If somebody sends you an expression as plain text, wrap it in
+      <code>sf.Url4()</code> to get the same object back.
     </p>
 
     <div class="not-prose">
@@ -265,19 +271,21 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     </div>
 
     <p>
-      Each returns the full expression, the shape annotated above: the routes, the parameters, the
-      answer prompt, and, after a run, the pinned benchmark revision. It can run to a few thousand
-      characters even for a small run, because it spells out everything the SDK filled in for you,
-      but all of it is readable.
+      What you get back is the full expression in the shape annotated above: the routes, the
+      parameters, the answer prompt, and the pinned benchmark revision. Even a small run can produce
+      a few thousand characters, because everything the SDK filled in on your behalf is written out
+      explicitly, but all of it is meant to be read.
     </p>
 
-    <h3>2 · Create a candidate from a url4</h3>
+    <h3>2 · Turn a url4 back into code</h3>
 
     <p>
-      Because a <code>url4</code> is a complete plan, you can turn one back into a runnable
-      candidate. <code>sf.from_url4()</code> rebuilds a Model or Fusion from any url4 string, whether
-      you read it off your own run or someone handed it to you, so you can rerun it, or change one
-      thing and remix it into the next attempt.
+      Because a <code>url4</code> is a complete plan, it converts back into the recipe that produced
+      it. <code>to_python()</code> reconstructs the <code>sf.Model</code>, <code>sf.Fusion</code>,
+      and <code>sf.Pipeline</code> calls, nested as they originally were, so you can edit one part
+      and run the result as your own next attempt. It costs nothing, since it is a local
+      transformation rather than a run. Passing the expression to
+      <code>sf.evaluate()</code> instead replays it as it stands, which does spend.
     </p>
 
     <div class="not-prose">
@@ -341,7 +349,7 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/OME-605-screamingface-client-v1/packages/screamingface/examples/07_ifeval_e2e.ipynb"
+          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/07_ifeval_e2e.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>07_ifeval_e2e.ipynb</code></a
