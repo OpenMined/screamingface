@@ -62,9 +62,19 @@ def _record(
 
 
 def _answer(invocation: str) -> str:
-    output, _finish_reason, refusal = decode_candidate_invocation(invocation)
+    outcome = json.loads(invocation)
+    output, _finish_reason, refusal = decode_candidate_invocation(outcome["invocation"])
     assert refusal is None
     return output
+
+
+def _outcome(answer: str, *, round: int = 1, passed: bool = True) -> dict[str, object]:
+    return {
+        "schema": "screamingface.corrective-outcome.v1",
+        "invocation": encode_candidate_invocation(answer, "stop", None),
+        "round": round,
+        "passed": passed,
+    }
 
 
 _PASS = _record(passed=True, satisfaction=1.0, answer="passing answer")
@@ -378,15 +388,20 @@ async def test_select_requires_exactly_round_and_tie() -> None:
 @pytest.mark.asyncio
 async def test_answer_returns_the_selection_when_the_continuation_is_empty() -> None:
     node = _node()
-    reply = await _call(node, ANSWER_ROUTE, {"selected": "round one", "next": []}, "1")
-    assert reply == "round one"
+    reply = await _call(node, ANSWER_ROUTE, {"selected": _outcome("round one"), "next": []}, "1")
+    assert _answer(reply) == "round one"
 
 
 @pytest.mark.asyncio
 async def test_answer_prefers_the_continuation_outcome_when_one_exists() -> None:
     node = _node()
-    reply = await _call(node, ANSWER_ROUTE, {"selected": "round one", "next": ["round two"]}, "1")
-    assert reply == "round two"
+    reply = await _call(
+        node,
+        ANSWER_ROUTE,
+        {"selected": _outcome("round one"), "next": [_outcome("round two", round=2)]},
+        "1",
+    )
+    assert _answer(reply) == "round two"
 
 
 @pytest.mark.asyncio
@@ -398,7 +413,7 @@ async def test_answer_treats_blank_continuation_text_as_empty() -> None:
     def collapse(request) -> str:
         return request.context
 
-    payload = json.dumps({"selected": "round one", "next": ""}, separators=(",", ":"))
+    payload = json.dumps({"selected": _outcome("round one"), "next": ""}, separators=(",", ":"))
     result = await node.evaluate(
         render(
             expr(
@@ -408,14 +423,19 @@ async def test_answer_treats_blank_continuation_text_as_empty() -> None:
             )
         )
     )
-    assert result.text == "round one"
+    assert _answer(result.text) == "round one"
 
 
 @pytest.mark.asyncio
 async def test_answer_rejects_a_multi_outcome_continuation() -> None:
     node = _node()
     with pytest.raises(ResolutionError, match="at most one"):
-        await _call(node, ANSWER_ROUTE, {"selected": "one", "next": ["two", "three"]}, "1")
+        await _call(
+            node,
+            ANSWER_ROUTE,
+            {"selected": _outcome("one"), "next": [_outcome("two"), _outcome("three")]},
+            "1",
+        )
 
 
 # --- (3) the port record contract -------------------------------------------------

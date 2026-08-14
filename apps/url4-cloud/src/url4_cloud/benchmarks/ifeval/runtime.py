@@ -79,6 +79,11 @@ def _check(root: Path):
             "answer": candidate.text,
             "refusal": candidate.refusal,
             "finish_reason": candidate.finish_reason,
+            "execution": (
+                None
+                if candidate.execution is None
+                else candidate.execution.model_dump(by_alias=True)
+            ),
             "instruction_id_list": spec["instruction_id_list"],
             "descriptions": grading.describe_instructions(
                 instruction_id_list=spec["instruction_id_list"],

@@ -140,6 +140,8 @@ class CaseResult(_StrictWireModel):
     output: str | None
     finish_reason: str | None
     refusal: str | None
+    stop_reason: Literal["passed", "max_rounds"] | None = None
+    rounds_executed: int | None = Field(default=None, ge=1)
     grade: CaseGrade | None
     failures: list[Failure]
     metadata: dict[str, Any]
@@ -165,6 +167,8 @@ class CaseResult(_StrictWireModel):
 
     @model_validator(mode="after")
     def _enforce_status(self) -> CaseResult:
+        if (self.stop_reason is None) != (self.rounds_executed is None):
+            raise ValueError("stop_reason and rounds_executed must be present together")
         if any(failure.case_id != self.case_id for failure in self.failures):
             raise ValueError("every Case Failure must reference its own case_id")
         if self.status == "scored":
@@ -174,6 +178,40 @@ class CaseResult(_StrictWireModel):
         else:
             _require_failed_case(self)
         return self
+
+
+class CorrectiveExecution(_StrictWireModel):
+    """The final, benchmark-neutral execution outcome of one corrective Recipe."""
+
+    schema_version: Literal["screamingface.corrective-execution.v1"] = Field(
+        default="screamingface.corrective-execution.v1", alias="schema"
+    )
+    stop_reason: Literal["passed", "max_rounds"]
+    rounds_executed: int = Field(ge=1)
+
+
+def is_valid_corrective_execution(value: object) -> bool:
+    """Whether a nullable value is one complete corrective execution envelope."""
+
+    if value is None:
+        return True
+    try:
+        validate_corrective_execution(value)
+    except ValueError:
+        return False
+    return True
+
+
+def validate_corrective_execution(value: object) -> CorrectiveExecution:
+    """Decode the exact versioned envelope accepted at Engine wire boundaries."""
+
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != {"schema", "stop_reason", "rounds_executed"}
+        or value.get("schema") != "screamingface.corrective-execution.v1"
+    ):
+        raise ValueError("corrective execution has an invalid shape or schema")
+    return CorrectiveExecution.model_validate(value)
 
 
 def _require_scored_case(case: CaseResult) -> None:
@@ -400,6 +438,7 @@ def encode_candidate_invocation(
     output: str,
     finish_reason: str | None,
     refusal: str | None,
+    execution: CorrectiveExecution | None = None,
 ) -> str:
     """Encode one Candidate answer without discarding its provider-originated outcome."""
 
@@ -410,28 +449,44 @@ def encode_candidate_invocation(
             "output": output,
             "finish_reason": finish_reason,
             "refusal": refusal,
+            "execution": None if execution is None else execution.model_dump(by_alias=True),
         },
         ensure_ascii=False,
         separators=(",", ":"),
     )
 
 
-def decode_candidate_invocation(value: str) -> tuple[str, str | None, str | None]:
-    """Decode and validate the internal value returned by the Candidate adapter."""
-
+def _candidate_invocation_payload(value: str) -> Mapping[str, Any]:
     try:
         decoded = json.loads(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Candidate Invocation result is not JSON: {exc}") from None
     if not isinstance(decoded, Mapping) or decoded.get("schema") != CANDIDATE_INVOCATION_SCHEMA:
         raise ValueError("Candidate Invocation result has an unsupported schema")
-    if set(decoded) != {"schema", "output", "finish_reason", "refusal"}:
+    if set(decoded) != {"schema", "output", "finish_reason", "refusal", "execution"}:
         raise ValueError("Candidate Invocation result has an invalid shape")
+    execution = decoded["execution"]
+    if execution is not None:
+        validate_corrective_execution(execution)
+    return decoded
+
+
+def decode_candidate_invocation(value: str) -> tuple[str, str | None, str | None]:
+    """Decode and validate the internal value returned by the Candidate adapter."""
+
+    decoded = _candidate_invocation_payload(value)
     output = decoded["output"]
     finish_reason = decoded["finish_reason"]
     refusal = decoded["refusal"]
     _validate_candidate_invocation(output, finish_reason, refusal)
     return output, finish_reason, refusal
+
+
+def decode_candidate_execution(value: str) -> CorrectiveExecution | None:
+    """Decode the optional execution provenance carried by a Candidate Invocation."""
+
+    execution = _candidate_invocation_payload(value)["execution"]
+    return None if execution is None else validate_corrective_execution(execution)
 
 
 def _validate_candidate_invocation(
@@ -459,15 +514,19 @@ __all__ = [
     "CaseGrade",
     "CaseResult",
     "CandidateResult",
+    "CorrectiveExecution",
     "Check",
     "Evidence",
     "EvidenceProducer",
     "Failure",
     "PROVIDER_REFUSAL_PLACEHOLDER",
     "candidate_coverage",
+    "decode_candidate_execution",
     "decode_candidate_invocation",
     "encode_candidate_invocation",
+    "is_valid_corrective_execution",
     "validate_candidate_outcome",
+    "validate_corrective_execution",
     "validate_case_id",
     "validate_finish_reason",
 ]

@@ -31,6 +31,7 @@ def _scored_row(case_id: int) -> dict[str, object]:
             "output": f"Answer {case_id}",
             "finish_reason": "stop",
             "refusal": None,
+            "execution": None,
             "metadata": {},
         },
         {
@@ -107,6 +108,8 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
         "output": None,
         "finish_reason": None,
         "refusal": None,
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": None,
         "failures": expected_failure,
         "metadata": {},
@@ -159,6 +162,31 @@ def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
     assert case["failures"] == []
 
 
+def test_corrective_execution_provenance_reaches_the_case_result() -> None:
+    row = _scored_row(1)
+    case_record = row["case"]
+    assert isinstance(case_record, dict)
+    case_record["execution"] = {
+        "schema": "screamingface.corrective-execution.v1",
+        "stop_reason": "max_rounds",
+        "rounds_executed": 3,
+    }
+
+    result = agg.aggregate(
+        json.dumps([row]),
+        {1: _RUBRIC},
+        "draco",
+        selected_cases=_selected(1),
+        judge_passes=1,
+    )
+
+    case = result["cases"][0]
+    assert case["stop_reason"] == "max_rounds"
+    assert case["rounds_executed"] == 3
+    assert case["grade"]["score"] == 1.0
+    assert case["failures"] == []
+
+
 def test_missing_selected_case_rubric_retains_the_case_and_lowers_coverage() -> None:
     result = agg.aggregate(
         json.dumps([_scored_row(1), _scored_row(2)]),
@@ -179,6 +207,8 @@ def test_missing_selected_case_rubric_retains_the_case_and_lowers_coverage() -> 
         "output": "Answer 2",
         "finish_reason": "stop",
         "refusal": None,
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": None,
         "failures": [
             {
@@ -215,6 +245,7 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
         "output": "Answer 1",
         "finish_reason": "stop",
         "refusal": None,
+        "execution": None,
         "metadata": {},
     }
     check = {

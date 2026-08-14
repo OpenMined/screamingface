@@ -34,6 +34,7 @@ def _valid_record() -> dict[str, object]:
         "answer": "A compliant answer",
         "refusal": None,
         "finish_reason": "stop",
+        "execution": None,
         "instruction_id_list": ["punctuation:no_comma"],
         "descriptions": ["Do not use commas."],
         "strict": [True],
@@ -70,6 +71,8 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
             "output": None,
             "finish_reason": None,
             "refusal": None,
+            "stop_reason": None,
+            "rounds_executed": None,
             "grade": None,
             "failures": [
                 {

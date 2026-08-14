@@ -27,7 +27,7 @@ from url4_cloud.benchmarks.aggregation import (
     refused_case_result,
     scored_case_result,
 )
-from url4_cloud.benchmarks.contract import CaseResult
+from url4_cloud.benchmarks.contract import CaseResult, is_valid_corrective_execution
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
     CHECK_SCHEMA,
     decode_case_evaluation,
@@ -278,6 +278,8 @@ def _record_content(record: Mapping[str, Any], instruction_count: int) -> bool:
             or isinstance(record["finish_reason"], str)
             and bool(record["finish_reason"].strip())
         )
+        and "execution" in record
+        and is_valid_corrective_execution(record["execution"])
         and isinstance(record.get("descriptions"), list)
         and len(record["descriptions"]) == instruction_count
         and all(isinstance(value, str) and value for value in record["descriptions"])
@@ -326,12 +328,14 @@ def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> Case
             refusal=refusal,
             finish_reason=record["finish_reason"],
             grade=grade,
+            execution=record["execution"],
         )
     return scored_case_result(
         selected_case=selected_case,
         output=str(record["answer"]),
         finish_reason=record["finish_reason"],
         grade=grade,
+        execution=record["execution"],
     )
 
 

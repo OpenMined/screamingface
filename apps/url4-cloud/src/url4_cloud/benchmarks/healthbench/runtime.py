@@ -195,6 +195,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
                 output=answer.output,
                 refusal=answer.refusal,
                 finish_reason=finish_reason,
+                execution=answer.execution,
             )
             tasks: list[dict[str, str]] = []
             for item in items:

@@ -11,7 +11,10 @@ from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.draco import assets as draco_assets
-from url4_cloud.benchmarks.draco.case_evaluation import CASE_EVALUATION_SCHEMA
+from url4_cloud.benchmarks.draco.case_evaluation import (
+    CASE_EVALUATION_SCHEMA,
+    bind_criterion_evaluation,
+)
 from url4_cloud.benchmarks.draco.definition import (
     CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
@@ -84,6 +87,7 @@ async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Pa
         "output": "Answer 1",
         "finish_reason": "stop",
         "refusal": None,
+        "execution": None,
         "metadata": {},
     }
     check = {
@@ -124,6 +128,41 @@ async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Pa
         "checks": [check],
         "evidence": [verdict],
     }
+
+
+def test_case_record_requires_explicit_execution_provenance() -> None:
+    case = {
+        "schema": CASE_SCHEMA,
+        "case_id": 1,
+        "input": "Question 1",
+        "answer": "Answer 1",
+        "output": "Answer 1",
+        "finish_reason": "stop",
+        "refusal": None,
+        "metadata": {},
+    }
+    check = {
+        "schema": CHECK_SCHEMA,
+        "case_id": 1,
+        "criterion_id": "c1",
+        "criterion_type": "positive",
+        "requirement": "Be correct",
+    }
+    evidence = {
+        "schema": VERDICT_SCHEMA,
+        "case_id": 1,
+        "criterion_id": "c1",
+        "sequence": 1,
+        "producer_type": "model",
+        "producer_id": "fixture-judge",
+        "valid": True,
+        "explanation": "The requirement is met.",
+        "criterion_status": "MET",
+        "raw_output": '{"criterion_status":"MET"}',
+    }
+
+    with pytest.raises(ValueError, match="invalid Case record"):
+        bind_criterion_evaluation(1, case, check, [evidence])
 
 
 def test_install_fails_atomically_when_assets_are_missing(tmp_path: Path) -> None:

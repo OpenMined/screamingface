@@ -57,6 +57,8 @@ def test_case_result_serializes_every_observed_fact_losslessly() -> None:
         "output": "Four.",
         "finish_reason": "stop",
         "refusal": None,
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": {
             "method": "rubric",
             "score": 1.0,

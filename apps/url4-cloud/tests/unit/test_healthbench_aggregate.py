@@ -66,6 +66,7 @@ def _case_row(
     verdicts: dict[int, bool],
     *,
     refusal: str | None = None,
+    execution: dict[str, object] | None = None,
 ) -> dict[str, object]:
     output = None if refusal is not None else f"output-{case_id}"
     answer = refusal if refusal is not None else output
@@ -80,6 +81,7 @@ def _case_row(
             "output": output,
             "finish_reason": "content_filter" if refusal is not None else "stop",
             "refusal": refusal,
+            "execution": execution,
             "metadata": {},
         },
         "rubric_evaluations": [
@@ -145,6 +147,8 @@ def test_fully_judged_cases_score_and_mean_unclipped(tmp_path: Path) -> None:
         "output",
         "finish_reason",
         "refusal",
+        "stop_reason",
+        "rounds_executed",
         "grade",
         "failures",
         "metadata",
@@ -345,6 +349,27 @@ def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Pa
     ]
     assert [case["grade"]["score"] for case in result["cases"]] == [1.0, 0.0]
     assert [case["failures"] for case in result["cases"]] == [[], []]
+
+
+def test_corrective_execution_provenance_reaches_the_case_result(tmp_path: Path) -> None:
+    _write_rubric(tmp_path, 1, [7])
+    execution = {
+        "schema": "screamingface.corrective-execution.v1",
+        "stop_reason": "passed",
+        "rounds_executed": 2,
+    }
+
+    result = aggregate(
+        json.dumps([_case_row(1, {1: True}, execution=execution)]),
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1,),
+    )
+
+    case = result["cases"][0]
+    assert case["stop_reason"] == "passed"
+    assert case["rounds_executed"] == 2
 
 
 def test_a_missing_case_row_is_visible(tmp_path: Path) -> None:

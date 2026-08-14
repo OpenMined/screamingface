@@ -134,6 +134,7 @@ async def test_smoke_runtime_reports_its_own_identity_and_one_judge_pass(tmp_pat
         "output": "Answer",
         "finish_reason": "stop",
         "refusal": None,
+        "execution": None,
         "metadata": {},
     }
     check_record = {

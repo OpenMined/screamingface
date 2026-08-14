@@ -23,7 +23,14 @@ from screamingface._ui.report_view import (
     _tokens_total,
     report_html,
 )
-from screamingface.case_result import CaseGrade, CaseResult, Check, Evidence, EvidenceProducer
+from screamingface.case_result import (
+    CaseGrade,
+    CaseResult,
+    Check,
+    Evidence,
+    EvidenceProducer,
+    StopReason,
+)
 from screamingface.operation import OperationInfo
 from screamingface.report import BenchmarkInfo, CandidateResult, Report
 
@@ -33,7 +40,13 @@ _METRICS = {"pass_rate": 0.5, "verdicts_expected": 1, "verdicts_accepted": 1}
 _BENCHMARK = BenchmarkInfo("draco/smoke", "74c94830e8de6afd", 1)
 
 
-def case(*, checks: tuple[Check, ...] = (), score: float | None = 0.0) -> CaseResult:
+def case(
+    *,
+    checks: tuple[Check, ...] = (),
+    score: float | None = 0.0,
+    stop_reason: StopReason | None = None,
+    rounds_executed: int | None = None,
+) -> CaseResult:
     return CaseResult(
         case_id=1,
         input="the prompt",
@@ -42,6 +55,8 @@ def case(*, checks: tuple[Check, ...] = (), score: float | None = 0.0) -> CaseRe
         grade=CaseGrade(method="rubric", score=score, metrics={}, checks=list(checks)),
         failures=[],
         metadata={},
+        stop_reason=stop_reason,
+        rounds_executed=rounds_executed,
     )
 
 
@@ -381,6 +396,14 @@ def test_a_refused_case_is_named_and_shows_the_exact_provider_refusal() -> None:
     assert "I cannot provide an answer to that request." in html
     assert "incorrect" not in html
     assert "sf-badge--warn" in html
+
+
+def test_a_corrective_case_names_why_and_when_the_loop_stopped() -> None:
+    corrective = case(stop_reason="passed", rounds_executed=2)
+
+    html = body(report_html(report(candidate("m", 1.0, cases=(corrective,)))))
+
+    assert "loop · passed · 2 rounds" in html
 
 
 def test_partial_grading_evidence_is_presented_as_unscored_not_incorrect() -> None:

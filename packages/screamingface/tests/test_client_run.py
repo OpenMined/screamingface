@@ -208,6 +208,8 @@ class _ReplayTransport:
                             "output": "Fixture answer",
                             "finish_reason": "stop",
                             "refusal": None,
+                            "stop_reason": None,
+                            "rounds_executed": None,
                             "grade": {
                                 "method": "fixture",
                                 "score": 1.0,

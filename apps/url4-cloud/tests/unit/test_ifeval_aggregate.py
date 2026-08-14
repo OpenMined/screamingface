@@ -52,6 +52,7 @@ def _record(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, ob
         "answer": f"Answer {case_id}",
         "refusal": None,
         "finish_reason": "stop",
+        "execution": None,
         "instruction_id_list": spec["instruction_id_list"],
         "descriptions": [
             f"Instruction {index}" for index in range(1, len(spec["instruction_id_list"]) + 1)
@@ -208,6 +209,7 @@ def test_one_flake_at_realistic_size_publishes_partial_score_and_coverage() -> N
             "answer": f"Answer {case_id}",
             "refusal": None,
             "finish_reason": "stop",
+            "execution": None,
             "instruction_id_list": ["punctuation:no_comma"],
             "descriptions": ["Instruction 1"],
             "strict": [passed],

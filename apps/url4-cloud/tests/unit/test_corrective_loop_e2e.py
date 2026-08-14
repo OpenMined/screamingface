@@ -76,6 +76,7 @@ def _respond(
     member_a_first_round_passes: bool,
     member_b_first_round_passes: bool,
     member_b_refuses: bool,
+    member_b_retry_passes: bool,
 ):
     """Deterministic panel: member-a never passes; member-b improves on coaching."""
 
@@ -84,7 +85,11 @@ def _respond(
         if "telling yourself" in content:
             return "Use lowercase and drop the comma."
         coached = "Judge feedback:" in content or "Feedback:" in content
-        return _PASS_ANSWER if coached or member_b_first_round_passes else _HALF_ANSWER
+        return (
+            _PASS_ANSWER
+            if member_b_first_round_passes or coached and member_b_retry_passes
+            else _HALF_ANSWER
+        )
 
     def respond(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -119,6 +124,7 @@ async def _run(
     member_a_first_round_passes: bool = False,
     member_b_first_round_passes: bool,
     member_b_refuses: bool = False,
+    member_b_retry_passes: bool = True,
 ) -> tuple[dict[str, object], list[tuple[str, str]]]:
     _assets(tmp_path / "ifeval")
     calls: list[tuple[str, str]] = []
@@ -129,6 +135,7 @@ async def _run(
                 member_a_first_round_passes=member_a_first_round_passes,
                 member_b_first_round_passes=member_b_first_round_passes,
                 member_b_refuses=member_b_refuses,
+                member_b_retry_passes=member_b_retry_passes,
             )
         ),
         base_url="http://aigateway.test",
@@ -183,6 +190,8 @@ async def test_a_round_one_pass_costs_exactly_the_member_calls(tmp_path: Path) -
     assert case["status"] == "scored"
     # INVARIANT: the selected answer is a member answer VERBATIM.
     assert case["output"] == _PASS_ANSWER
+    assert case["stop_reason"] == "passed"
+    assert case["rounds_executed"] == 1
     assert [model for model, _ in calls] == ["prov/member-a", "prov/member-b"]
 
 
@@ -201,6 +210,8 @@ async def test_a_selected_provider_refusal_is_graded_and_published_verbatim(
     assert case["output"] is None
     assert case["refusal"] == _PASS_ANSWER
     assert case["finish_reason"] == "content_filter"
+    assert case["stop_reason"] == "passed"
+    assert case["rounds_executed"] == 1
     grade = case["grade"]
     assert isinstance(grade, dict)
     assert grade["score"] == 1.0
@@ -223,6 +234,8 @@ async def test_a_provider_refusal_does_not_abort_a_passing_sibling(
     assert case["status"] == "scored"
     assert case["output"] == _PASS_ANSWER
     assert case["refusal"] is None
+    assert case["stop_reason"] == "passed"
+    assert case["rounds_executed"] == 1
     assert case["failures"] == []
     # Both texts pass the benchmark checker, so the generic tie-break path runs;
     # the refusal remains a normal checked member rather than aborting the panel.
@@ -237,6 +250,8 @@ async def test_a_no_pass_round_buys_one_coaching_call_and_a_retry(tmp_path: Path
     )
     assert result["score"] == 1.0
     assert _first_case(result)["output"] == _PASS_ANSWER
+    assert _first_case(result)["stop_reason"] == "passed"
+    assert _first_case(result)["rounds_executed"] == 2
     models = [model for model, _ in calls]
     # Round 1 (a+b, no passer) -> judge coaching -> round 2 (a+b, b passes).
     assert sorted(models[:2]) == ["prov/member-a", "prov/member-b"]
@@ -262,3 +277,16 @@ async def test_self_corrective_coaches_itself_between_rounds(tmp_path: Path) -> 
     assert models == ["prov/member-b", "prov/member-b", "prov/member-b"]
     assert "telling yourself" in calls[1][1]
     assert "Feedback:" in calls[2][1]
+
+
+async def test_a_never_passing_loop_reports_its_round_limit(tmp_path: Path) -> None:
+    result, _calls = await _run(
+        tmp_path,
+        "corrective_loop_candidate.url4",
+        member_b_first_round_passes=False,
+        member_b_retry_passes=False,
+    )
+
+    case = _first_case(result)
+    assert case["stop_reason"] == "max_rounds"
+    assert case["rounds_executed"] == 2

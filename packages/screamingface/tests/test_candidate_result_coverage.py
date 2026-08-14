@@ -99,6 +99,8 @@ def test_a_refusal_is_normally_graded_without_a_synthetic_failure() -> None:
         "output": None,
         "finish_reason": "content_filter",
         "refusal": "I cannot answer that request.",
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": {
             "method": "deterministic",
             "score": 0.0,
@@ -126,6 +128,8 @@ def test_a_refusal_whose_grading_failed_retains_only_grading_failures() -> None:
         "output": None,
         "finish_reason": "content_filter",
         "refusal": "I cannot answer that request.",
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": {
             "method": "deterministic",
             "score": None,

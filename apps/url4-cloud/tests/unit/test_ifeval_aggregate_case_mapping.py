@@ -31,6 +31,7 @@ def _record(case_id: int) -> dict[str, object]:
         "answer": f"Answer {case_id}",
         "refusal": None,
         "finish_reason": "stop",
+        "execution": None,
         "instruction_id_list": _SPECS[case_id]["instruction_id_list"],
         "descriptions": ["Fixture instruction"],
         "strict": [True],

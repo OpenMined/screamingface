@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -19,6 +19,7 @@ from url4_cloud.benchmarks.contract import (
     CaseGrade,
     CaseId,
     CaseResult,
+    CorrectiveExecution,
     Failure,
     candidate_coverage,
     validate_case_id,
@@ -207,10 +208,12 @@ def scored_case_result(
     finish_reason: str | None,
     grade: CaseGrade | Mapping[str, Any],
     metadata: Mapping[str, Any] | None = None,
+    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
 ) -> CaseResult:
     """Construct one scored Case without exposing the wire envelope to adapters."""
 
     typed_grade = grade if isinstance(grade, CaseGrade) else CaseGrade.model_validate(grade)
+    stop_reason, rounds_executed = _execution_fields(execution)
     return CaseResult(
         status="scored",
         case_id=selected_case.case_id,
@@ -218,6 +221,8 @@ def scored_case_result(
         output=output,
         finish_reason=finish_reason,
         refusal=None,
+        stop_reason=stop_reason,
+        rounds_executed=rounds_executed,
         grade=typed_grade,
         failures=[],
         metadata=_case_metadata(selected_case, metadata),
@@ -232,6 +237,7 @@ def failed_case_result(
     finish_reason: str | None = None,
     grade: CaseGrade | Mapping[str, Any] | None = None,
     metadata: Mapping[str, Any] | None = None,
+    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
 ) -> CaseResult:
     """Construct one failed Case while retaining any safe partial grading evidence."""
 
@@ -242,6 +248,7 @@ def failed_case_result(
         failure if isinstance(failure, Failure) else Failure.model_validate(failure)
         for failure in failures
     ]
+    stop_reason, rounds_executed = _execution_fields(execution)
     return CaseResult(
         status="failed",
         case_id=selected_case.case_id,
@@ -249,6 +256,8 @@ def failed_case_result(
         output=output,
         finish_reason=finish_reason,
         refusal=None,
+        stop_reason=stop_reason,
+        rounds_executed=rounds_executed,
         grade=typed_grade,
         failures=typed_failures,
         metadata=_case_metadata(selected_case, metadata),
@@ -263,6 +272,7 @@ def refused_case_result(
     finish_reason: str | None = None,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
     metadata: Mapping[str, Any] | None = None,
+    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
 ) -> CaseResult:
     """Construct a refused Case after normal Benchmark grading."""
 
@@ -271,6 +281,7 @@ def refused_case_result(
         failure if isinstance(failure, Failure) else Failure.model_validate(failure)
         for failure in failures
     ]
+    stop_reason, rounds_executed = _execution_fields(execution)
 
     return CaseResult(
         status="refused",
@@ -279,6 +290,8 @@ def refused_case_result(
         output=None,
         finish_reason=finish_reason,
         refusal=refusal,
+        stop_reason=stop_reason,
+        rounds_executed=rounds_executed,
         grade=typed_grade,
         failures=typed_failures,
         metadata=_case_metadata(selected_case, metadata),
@@ -289,6 +302,19 @@ def _case_metadata(
     selected_case: SelectedCase, metadata: Mapping[str, Any] | None
 ) -> dict[str, Any]:
     return {**selected_case.metadata, **dict(metadata or {})}
+
+
+def _execution_fields(
+    execution: CorrectiveExecution | Mapping[str, Any] | None,
+) -> tuple[Literal["passed", "max_rounds"] | None, int | None]:
+    if execution is None:
+        return None, None
+    typed = (
+        execution
+        if isinstance(execution, CorrectiveExecution)
+        else CorrectiveExecution.model_validate(execution)
+    )
+    return typed.stop_reason, typed.rounds_executed
 
 
 __all__ = [
