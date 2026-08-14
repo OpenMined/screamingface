@@ -31,21 +31,47 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _PLUGINS = _REPO_ROOT / "apps/aigateway/src/aigateway/plugins"
 _RUNNER_CONFIG = _REPO_ROOT / "apps/url4-cloud/url4.toml"
 
-# (source file, the assigned name holding the slug list, the gateway's id prefix).
-# WHY anthropic has no prefix: its ModelEntry.model_name is the BARE slug — the `anthropic/`
-# prefix appears only in litellm_params, so `/v1/models` advertises `claude-haiku-4-5`.
+# (source file, the assigned name holding the slug list, the plugin's `custom_llm_provider`).
+#
+# INVARIANT: the third field is the PROVIDER NAME, never a pre-computed prefix string. The
+# gateway derives every public id through one universal rule (`canonical_model_id`), mirrored
+# below in `_canonical` — so this table states only what the rule needs as input.
+#
+# AIDEV-NOTE: this used to carry a hand-written prefix per provider, with anthropic's set to ""
+# on the belief that `/v1/models` advertised bare `claude-haiku-4-5`. `canonical_model_id` has
+# no such exemption — it prefixes unless the slug already starts with `<provider>/` — so the
+# gateway served `anthropic/claude-haiku-4-5` while url4.toml declared the bare form, all five
+# Anthropic routes silently dropped out of the projected catalog, and the declared default_route
+# failed with `model must be provider-prefixed`. Twenty-six tests passed throughout (OME-795).
+# Do not reintroduce a per-provider prefix column: four independent guesses drift, one rule
+# cannot.
 _SLUG_SOURCES = (
-    ("anthropic_provider/settings.py", "names", ""),
-    ("codex_provider/models.py", "_MODEL_SLUGS", "codex/"),
-    ("gemini_provider/models.py", "_MODEL_SLUGS", "gemini-cli/"),
-    ("antigravity_provider/settings.py", "names", "antigravity/"),
+    ("anthropic_provider/settings.py", "names", "anthropic"),
+    ("codex_provider/models.py", "_MODEL_SLUGS", "codex"),
+    ("gemini_provider/models.py", "_MODEL_SLUGS", "gemini-cli"),
+    ("antigravity_provider/settings.py", "names", "antigravity"),
 )
 
-# (source file, the function whose `return [...]` holds the slugs, the gateway's id prefix).
+# (source file, the function whose `return [...]` holds the slugs, the `custom_llm_provider`).
 # WHY a separate table: these slugs are returned by a default-factory function rather than
-# bound to a module-level name, so the assignment scan below cannot see them. WHY the prefix is
-# empty: OpenRouter's seeds are already spelled as full gateway ids (`openrouter/<author>/…`).
-_RETURNED_SLUG_SOURCES = (("openrouter_provider/settings.py", "_default_model_slugs", ""),)
+# bound to a module-level name, so the assignment scan below cannot see them. OpenRouter's seeds
+# are already spelled as full gateway ids (`openrouter/<author>/…`), which is precisely the
+# already-prefixed case `_canonical` leaves alone.
+_RETURNED_SLUG_SOURCES = (
+    ("openrouter_provider/settings.py", "_default_model_slugs", "openrouter"),
+)
+
+
+def _canonical(provider: str, slug: str) -> str:
+    """The public id aigateway advertises for ``slug``, by aigateway's own rule.
+
+    INVARIANT: mirrors `aigateway.core.model_capabilities.canonical_model_id` — keep the slug
+    when it already begins with ``<provider>/``, otherwise prefix it. aigateway is a separate uv
+    project and is NOT installed here, so this is a mirror rather than an import; it is one line
+    of one rule, which is the smallest surface that can go stale.
+    """
+    prefix = f"{provider}/"
+    return slug if slug.startswith(prefix) else f"{prefix}{slug}"
 
 
 def _string_list_assigned_to(source: Path, name: str) -> tuple[str, ...]:
@@ -87,15 +113,21 @@ def _string_list_returned_by(source: Path, name: str) -> tuple[str, ...]:
 
 def _aigateway_model_ids() -> set[str]:
     ids: set[str] = set()
-    for relative, name, prefix in _SLUG_SOURCES:
+    for relative, name, provider in _SLUG_SOURCES:
         source = _PLUGINS / relative
         assert source.is_file(), f"{source} moved — update _SLUG_SOURCES"
-        ids.update(prefix + slug for slug in _string_list_assigned_to(source, name))
-    for relative, name, prefix in _RETURNED_SLUG_SOURCES:
+        ids.update(_canonical(provider, slug) for slug in _string_list_assigned_to(source, name))
+    for relative, name, provider in _RETURNED_SLUG_SOURCES:
         source = _PLUGINS / relative
         assert source.is_file(), f"{source} moved — update _RETURNED_SLUG_SOURCES"
-        ids.update(prefix + slug for slug in _string_list_returned_by(source, name))
+        ids.update(_canonical(provider, slug) for slug in _string_list_returned_by(source, name))
     return ids
+
+
+def _declared_default_route() -> str:
+    """The `default_route` url4.toml names, without its leading slash."""
+    with _RUNNER_CONFIG.open("rb") as handle:
+        return str(tomllib.load(handle)["aigateway"]["default_route"]).lstrip("/")
 
 
 def _declared_models() -> tuple[str, ...]:
@@ -115,10 +147,28 @@ def test_the_guard_actually_finds_the_plugin_registries() -> None:
     ids = _aigateway_model_ids()
 
     assert len(ids) >= 10
-    assert "claude-haiku-4-5" in ids
+    # Anthropic is prefixed like every other provider — `canonical_model_id` has no exemption.
+    assert "anthropic/claude-haiku-4-5" in ids
     assert "codex/gpt-5.5" in ids
     # The returned-list extractor is the one that would silently contribute nothing.
     assert "openrouter/openai/gpt-5.5" in ids
+
+
+def test_the_canonical_rule_prefixes_once_and_only_once() -> None:
+    # INVARIANT: the mirrored rule is idempotent — an already-qualified slug (OpenRouter's
+    # seeds) must survive untouched, or every OpenRouter id would gain a second prefix.
+    assert _canonical("anthropic", "claude-haiku-4-5") == "anthropic/claude-haiku-4-5"
+    assert _canonical("openrouter", "openrouter/openai/gpt-5.5") == "openrouter/openai/gpt-5.5"
+    assert _canonical("codex", _canonical("codex", "gpt-5.5")) == "codex/gpt-5.5"
+
+
+def test_the_declared_default_route_is_a_declared_model() -> None:
+    """INVARIANT: the fan-out reduce dispatches here, so it must name a route that resolves.
+
+    A default_route that no `[[aigateway.models]]` entry declares is unreachable: it fails at
+    the gateway inside a user's expression rather than at boot (OME-795).
+    """
+    assert _declared_default_route() in set(_declared_models())
 
 
 def test_every_declared_model_exists_in_aigateway() -> None:
