@@ -19,7 +19,7 @@ from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
 )
-from url4_cloud.benchmarks.draco.check_surface import check_surface
+from url4_cloud.benchmarks.draco.check_policy import draco_check
 from url4_cloud.benchmarks.draco.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
@@ -69,6 +69,7 @@ from url4_cloud.benchmarks.evaluation import (
     json_object,
 )
 from url4_cloud.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from url4_cloud.benchmarks.rubric_check import check_surface
 
 
 def install_canonical(node: Url4Node, root: Path) -> None:
@@ -174,8 +175,7 @@ def _install_protocol(
         check_surface(
             node,
             root,
-            criterion_count=criterion_count,
-            selection=criterion_selection,
+            draco_check(criterion_count=criterion_count, selection=criterion_selection),
         )
     )
     node.endpoint(verdict_route)(_criterion_verdict)

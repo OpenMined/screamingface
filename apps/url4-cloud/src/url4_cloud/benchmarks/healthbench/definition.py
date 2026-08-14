@@ -18,7 +18,7 @@ import hashlib
 
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from url4_cloud.benchmarks.definition import Benchmark, candidate
+from url4_cloud.benchmarks.definition import Benchmark, CheckSurface, candidate
 from url4_cloud.benchmarks.healthbench import verdict
 from url4_cloud.benchmarks.healthbench.prompts import GRADER_TEMPLATE
 from url4_cloud.benchmarks.healthbench.subset import WORST30_CASE_IDS, subset_sha
@@ -72,6 +72,9 @@ REVISION = hashlib.sha256(
         )
     ).encode()
 ).hexdigest()[:16]
+# The pass criterion of the mid-run check surface (OME-830). Declared here rather than
+# in check_policy, which reads this module for the judge pinning.
+CHECK_CRITERION = "healthbench-pass.v1"
 ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
 CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 TASKS_ROUTE = f"{ROUTE_PREFIX}/rubric-tasks"
@@ -79,6 +82,7 @@ VERDICT_ROUTE = f"{ROUTE_PREFIX}/rubric-verdict"
 RUBRIC_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/rubric-evaluation"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
 
 
 def _build(case_count: int) -> Node:
@@ -237,6 +241,12 @@ HEALTHBENCH_WORST30 = Benchmark(
     case_count=CASE_COUNT,
     build=_build,
     install=_install,
+    # Every check is a Judge call over the case rubric, so the loop's cost is real.
+    check_surface=CheckSurface(
+        check_route=CHECK_SURFACE_ROUTE,
+        feedback_intent="feedback",
+        expected_check_cost="paid",
+    ),
 )
 
 

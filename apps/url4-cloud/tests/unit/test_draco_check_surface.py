@@ -25,14 +25,9 @@ import pytest
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
-from url4_cloud.benchmarks.contract import encode_candidate_invocation
-from url4_cloud.benchmarks.draco.check_surface import (
-    CHECK_CRITERION,
-    CHECK_INSTRUCTIONS,
-    CHECK_THRESHOLD,
-    check_surface,
-)
+from url4_cloud.benchmarks.draco.check_policy import CHECK_THRESHOLD, draco_check
 from url4_cloud.benchmarks.draco.definition import (
+    CHECK_CRITERION,
     CHECK_SURFACE_ROUTE,
     DRACO,
     DRACO_LITE,
@@ -40,6 +35,7 @@ from url4_cloud.benchmarks.draco.definition import (
     JUDGE_MODEL,
 )
 from url4_cloud.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
+from url4_cloud.benchmarks.rubric_check import CHECK_INSTRUCTIONS, check_surface
 
 _QUESTION = "Explain why the sky looks blue."
 # Distinctive requirement text: the leak test asserts none of it ever reaches feedback.
@@ -98,8 +94,7 @@ def _node(
         check_surface(
             node,
             tmp_path / "draco",
-            criterion_count=criterion_count,
-            selection=selection,  # type: ignore[arg-type]
+            draco_check(criterion_count=criterion_count, selection=selection),  # type: ignore[arg-type]
         )
     )
     return node, seen
@@ -135,12 +130,7 @@ async def _call(node: Url4Node, payload: object, intent: str) -> str:
 
 
 async def _check(node: Url4Node, answer: str) -> dict[str, object]:
-    invocation = encode_candidate_invocation(answer, "stop", None)
-    return await _check_invocation(node, invocation)
-
-
-async def _check_invocation(node: Url4Node, invocation: str) -> dict[str, object]:
-    reply = await _call(node, {"input": _QUESTION, "invocation": invocation}, "check")
+    reply = await _call(node, {"input": _QUESTION, "answer": answer}, "check")
     record = json.loads(reply)
     assert isinstance(record, dict)
     return record
@@ -153,27 +143,13 @@ async def _check_invocation(node: Url4Node, invocation: str) -> dict[str, object
 async def test_a_strong_answer_passes_with_its_weighted_score(tmp_path: Path) -> None:
     node, _ = _node(tmp_path, [_verdicts("c1", "c2", "c3")])
     record = await _check(node, "a good answer")
-    invocation = encode_candidate_invocation("a good answer", "stop", None)
     assert record == {
         "schema": CHECK_SURFACE_SCHEMA,
         "passed": True,
         "satisfaction": 1.0,
         "feedback": "",
         "answer": "a good answer",
-        "invocation": invocation,
     }
-
-
-@pytest.mark.asyncio
-async def test_a_provider_refusal_is_graded_as_its_exact_invocation_text(tmp_path: Path) -> None:
-    node, seen = _node(tmp_path, [_verdicts("c1")])
-    invocation = encode_candidate_invocation("", "content_filter", "I cannot answer that.")
-
-    record = await _check_invocation(node, invocation)
-
-    assert record["answer"] == "I cannot answer that."
-    assert record["invocation"] == invocation
-    assert "I cannot answer that." in seen[0].context
 
 
 @pytest.mark.asyncio
@@ -406,42 +382,21 @@ async def test_the_feedback_intent_extracts_the_sanitized_text(tmp_path: Path) -
 async def test_an_unknown_input_is_a_bounded_failure(tmp_path: Path) -> None:
     node, _ = _node(tmp_path, [])
     with pytest.raises(ResolutionError, match="no DRACO case"):
-        await _call(
-            node,
-            {
-                "input": "some other question",
-                "invocation": encode_candidate_invocation("x", "stop", None),
-            },
-            "check",
-        )
+        await _call(node, {"input": "some other question", "answer": "x"}, "check")
 
 
 @pytest.mark.asyncio
 async def test_a_malformed_payload_is_a_bounded_failure(tmp_path: Path) -> None:
     node, _ = _node(tmp_path, [])
-    with pytest.raises(ResolutionError, match="input and invocation"):
-        await _call(node, {"invocation": encode_candidate_invocation("x", "stop", None)}, "check")
-
-
-@pytest.mark.asyncio
-async def test_an_invalid_candidate_invocation_is_a_bounded_failure(tmp_path: Path) -> None:
-    node, _ = _node(tmp_path, [])
-    with pytest.raises(ResolutionError, match="Candidate Invocation is invalid"):
-        await _call(node, {"input": _QUESTION, "invocation": "not-json"}, "check")
+    with pytest.raises(ResolutionError, match="input and answer"):
+        await _call(node, {"answer": "x"}, "check")
 
 
 @pytest.mark.asyncio
 async def test_an_unknown_intent_is_rejected(tmp_path: Path) -> None:
     node, _ = _node(tmp_path, [])
     with pytest.raises(ResolutionError, match="unsupported"):
-        await _call(
-            node,
-            {
-                "input": _QUESTION,
-                "invocation": encode_candidate_invocation("x", "stop", None),
-            },
-            "grade",
-        )
+        await _call(node, {"input": _QUESTION, "answer": "x"}, "grade")
 
 
 # --- variant criterion selection --------------------------------------------------

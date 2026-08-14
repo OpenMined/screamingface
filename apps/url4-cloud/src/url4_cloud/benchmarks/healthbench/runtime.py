@@ -41,11 +41,13 @@ from url4_cloud.benchmarks.healthbench.case_evaluation import (
     bind_case_evaluation,
     bind_rubric_evaluation,
 )
+from url4_cloud.benchmarks.healthbench.check_policy import HEALTHBENCH_CHECK
 from url4_cloud.benchmarks.healthbench.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
     CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
+    CHECK_SURFACE_ROUTE,
     JUDGE_MODEL,
     REVISION,
     RUBRIC_EVALUATION_ROUTE,
@@ -55,6 +57,7 @@ from url4_cloud.benchmarks.healthbench.definition import (
 )
 from url4_cloud.benchmarks.healthbench.prompts import build_grader_prompt, render_rubric_item
 from url4_cloud.benchmarks.healthbench.verdict import bind, binding_key
+from url4_cloud.benchmarks.rubric_check import check_surface
 
 
 def install(node: Url4Node, root: Path) -> None:
@@ -74,6 +77,7 @@ def install(node: Url4Node, root: Path) -> None:
         rubric_evaluation_route=RUBRIC_EVALUATION_ROUTE,
         case_evaluation_route=CASE_EVALUATION_ROUTE,
         aggregate_route=AGGREGATE_ROUTE,
+        check_surface_route=CHECK_SURFACE_ROUTE,
         benchmark_id=BENCHMARK_ID,
         benchmark_revision=REVISION,
         case_ids=WORST30_CASE_IDS,
@@ -90,6 +94,7 @@ def _install_protocol_once(
     rubric_evaluation_route: str,
     case_evaluation_route: str,
     aggregate_route: str,
+    check_surface_route: str,
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
@@ -99,6 +104,10 @@ def _install_protocol_once(
     routes = frozenset(node.processor_routes())
     endpoints = (
         (tasks_route, _rubric_tasks(root, case_ids)),
+        # The mid-run check surface the corrective loop consumes. It closes over `node`
+        # so the judge route resolves per request — installation must still work in a
+        # world holding no model routes.
+        (check_surface_route, check_surface(node, root, HEALTHBENCH_CHECK)),
         (verdict_route, _rubric_verdict),
         (rubric_evaluation_route, _rubric_evaluation),
         (
