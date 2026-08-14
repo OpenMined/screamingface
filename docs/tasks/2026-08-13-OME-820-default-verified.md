@@ -9,16 +9,18 @@ created: 2026-08-13
 closed:
 ---
 
-# Default new leaderboard submissions to verified (ran on OpenMined infrastructure)
+# Default new leaderboard submissions to verified as a placeholder
 
 Action item from the 2026-08-13 dev huddle (`[52:20]`). `verified_by_openmined` defaults to `False`
 and no route can ever set it, so with `OME-414` unstaffed the board reads "unverified" on every row
 permanently.
 
-The change is one character; the decision is what the flag then claims. Owner decision: **verified
-means "this run executed on OpenMined infrastructure"** — true for the Monday cohort, who run on the
-hosted engine through OpenMined's gateway and capped keys. Flipping the default while keeping the
-old "we reproduced this" meaning was rejected as publishing a reproduction that never happened.
+The change is one character; the decision is what the flag then claims. **Revised 2026-08-14 after
+review:** an earlier version of this ticket said verified means "this run executed on OpenMined
+infrastructure". Nothing supports that — the SDK takes independent engine and scoreboard URLs, the
+chart ships `authMode: disabled`, and `submit()` never sets the field, so a submission is an
+unattested client payload. The claim is **withdrawn**: the default asserts **nothing**. It exists so
+the board does not read "unverified" on every row while no verification exists. See spec §2.1a.
 
 Client-settability stays forbidden, and existing rows are not backfilled.
 

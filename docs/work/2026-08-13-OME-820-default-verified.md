@@ -343,3 +343,23 @@ Final sweep across `.py`, `.js`, `.html` and `.md`: the only remaining mentions 
 Three review passes in a row found the same class of defect — code and prose drifting apart — because
 each sweep was scoped to the file types I had just edited. The lesson worth keeping is to grep the
 *claim*, not the *file type*.
+
+## Review pass 5 (2026-08-14) — two fixes, both mine
+
+- **`README.md:3` said `url4` twice and contradicted its own reading order.** My previous edit
+  replaced the opening clause but left the old trailing one, so the sentence read "...keeps the `url4`
+  needed to re-run it. […] Every entry carries its `url4` and can be re-run". Removed the leftover.
+  Notable because it happened *inside* the commit that fixed the same class of defect.
+- **The `docs/tasks` mirror still carried the withdrawn claim, including in its title.** I revised the
+  Linear ticket and the spec but never the repo mirror — which `CLAUDE.md` treats as the per-issue
+  source of truth, so whoever picks up `OME-821` would have built on a provenance guarantee that does
+  not exist. Title and body now match spec §2.1a.
+
+The third finding on this PR (the SDK still badges every row) is `OME-832` / #601, already open. The
+merge-order note on both PRs covers it.
+
+Two items the reviewer raised and I deliberately left: `benchmark.js`'s `type === "bool"` compare
+branch is now unreachable, but `OME-771` restores a sortable status column and would re-add it; and
+`test_no_migration_backfills_the_verified_column` is a substring heuristic that could false-positive
+on a future migration touching this column for an unrelated reason — an over-strict guard on an
+irreversible data change is the right side to err on.
