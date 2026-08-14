@@ -22,7 +22,7 @@ import httpx
 import pytest
 
 from url4_cloud.benchmarks import BenchmarkRegistry, link_candidate
-from url4_cloud.benchmarks.candidate import install_candidate_invocation
+from url4_cloud.benchmarks.candidate_adapter import install_candidate_invocation
 from url4_cloud.benchmarks.draco.definition import DRACO_SMOKE, JUDGE_MODEL
 from url4_cloud.benchmarks.ensemble import install_corrective_runtime
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world

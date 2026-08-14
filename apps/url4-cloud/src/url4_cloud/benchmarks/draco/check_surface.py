@@ -50,7 +50,7 @@ from url4_cloud.benchmarks.draco.check_policy import (
 from url4_cloud.benchmarks.draco.definition import JUDGE_MODEL, JUDGE_PARAMS
 from url4_cloud.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from url4_cloud.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from url4_cloud.benchmarks.evaluation import compact_json, json_object
+from url4_cloud.benchmarks.evaluation import candidate_answer, compact_json, json_object
 
 _JUDGE_ROUTE = "/" + JUDGE_MODEL.removeprefix("/")
 
@@ -73,7 +73,7 @@ def check_surface(
             return _surface_feedback(request.context)
         if request.intent != "check":
             raise _unsupported("DRACO check surface", request.intent)
-        question, answer = _payload(request.context)
+        question, invocation, answer = _payload(request.context)
         case_id = _case_by_input(root, question)
         rubric = _rubric(root, case_id)
         try:
@@ -89,21 +89,26 @@ def check_surface(
             "satisfaction": satisfaction,
             "feedback": _area_feedback(criteria, verdicts),
             "answer": answer,
+            "invocation": invocation,
         }
         return compact_json(record)
 
     return check
 
 
-def _payload(value: object) -> tuple[str, str]:
+def _payload(value: object) -> tuple[str, str, str]:
     payload = json_object(value, "DRACO check surface")
-    if set(payload) != {"input", "answer"}:
-        raise _unavailable("DRACO check surface context must carry exactly input and answer")
+    if set(payload) != {"input", "invocation"}:
+        raise _unavailable("DRACO check surface context must carry exactly input and invocation")
     question = payload["input"]
-    answer = payload["answer"]
-    if not isinstance(question, str) or not isinstance(answer, str):
-        raise _unavailable("DRACO check surface input and answer must be text")
-    return question, answer
+    invocation = payload["invocation"]
+    if not isinstance(question, str) or not isinstance(invocation, str):
+        raise _unavailable("DRACO check surface input and invocation must be text")
+    try:
+        answer = candidate_answer(invocation).text
+    except (TypeError, ValueError) as exc:
+        raise _unavailable(f"DRACO check surface Candidate Invocation is invalid: {exc}") from exc
+    return question, invocation, answer
 
 
 def _case_by_input(root: Path, question: str) -> int:
