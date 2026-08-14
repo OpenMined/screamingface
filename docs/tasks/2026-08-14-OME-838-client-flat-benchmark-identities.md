@@ -11,6 +11,5 @@ parent: OME-836
 # Align Client examples and local catalogue with flat benchmark identities
 
 Remove Client `Benchmark.variant` decoding and all smoke/lite examples, use canonical DRACO with
-explicit limits, and rename the HealthBench challenge throughout the Client and public docs. Keep
-Leaderboard identities flat, reject partial-result publication, and synchronize the local
-Scoreboard seed to the exact public catalogue without deleting stored results.
+explicit limits, and rename the HealthBench challenge throughout the Client and normal package
+docs. Keep Benchmark identities flat across discovery, compilation, examples, and URL4 replay.

@@ -43,7 +43,7 @@ Bennett already flagged, one release later.
 | D3 | Font delivery | **Self-hosted**, via v2's `fonts.css`. Drop the `fonts.googleapis.com` `<link>` tags in `index.html`/`benchmark.html` — v2 does not use the Google Fonts CDN. |
 | D4 | Data source | **Scoreboard's own API** (`GET /v1/benchmarks`, `GET /v1/leaderboard/{id}`) — already live, already what `data.js`/`benchmark.js` call today. OME-768's ticket text says "pull... from the SF engine"; read as loose phrasing for "the backend," not the separate `screamingface-engine` component, since no such catalog endpoint exists there and scoreboard's already serves this. **Flagged to Irina for a one-line confirmation before merge**, not blocking spec approval. |
 | D5 | Scope boundary vs. OME-769 | The per-benchmark table ships **empty** (structure only) in this unit — rows, ranking, and the SOTA medal are OME-769's job. Don't pre-build submission-row rendering here even though it's tempting once the shell exists. |
-| D6 | Benchmark scope | **Revised by OME-836 (2026-08-14).** Public benchmark IDs are flat complete identities; DRACO lite/smoke are retired and the HealthBench challenge is `healthbench-worst30`. OME-776's slash-transport workaround is therefore superseded rather than implemented. This unit remains generic and renders whatever `/v1/benchmarks` returns. |
+| D6 | Benchmark scope | **Resolved 2026-08-11, same morning.** Keelan self-filed `OME-775` (register DRACO/IFEval/**HealthBench** — one more than this ticket's original scope — in scoreboard; its own acceptance criteria names OME-768 directly) and `OME-776` (scoreboard's `{benchmark_id}` path routes don't survive slash-containing canonical IDs like `draco/lite` — a real risk given this unit's tab strip/deep-linking/count-fetch all hit that route). Both set as `blockedBy` on OME-768. This unit's code stays generic (renders whatever `/v1/benchmarks` returns, never hardcodes an id) — full end-to-end verification with real data waits on both landing, not just OME-775. |
 | D7 | `--gain` usage | Anywhere the current v1 portal code uses `--gain` to mean "success" (verified-style green), migrate to `--success-*` per the v1→v2 bridge note — do not let it silently flip to gold. |
 | D8 | Empty state — zero benchmarks | Landing shows an explicit empty-state message ("No benchmarks registered yet"), not a blank table or an infinite loading spinner. Reuses the existing `#benchmark-status` live-region pattern already in `index.html`, re-skinned to v2. |
 | D9 | Empty state — unknown `?id=` | `benchmark.html` shows a "Benchmark not found" state with a link back to the landing catalog — not a broken/blank shell, not a silent redirect. |
@@ -57,7 +57,7 @@ Bennett already flagged, one release later.
   nothing on `Benchmark` is explicitly a subtitle. Best guess is `description`, but this is
   Irina's/design's call, not ours to assume silently — **ask her directly** before building the
   row template.
-- ~~**DRACO/IFEval registration ownership**~~ — resolved, see D6 (`OME-775`/`OME-836`, Keelan).
+- ~~**DRACO/IFEval registration ownership**~~ — resolved, see D6 (`OME-775`/`OME-776`, Keelan).
 - **D4's "SF engine" wording** — one-line Slack confirmation with Irina before merge, not before
   starting (low risk either way; scoreboard's API is the only live source that matches the rest
   of the ticket's acceptance criteria).

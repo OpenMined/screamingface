@@ -124,10 +124,9 @@ BENCHMARK_ID = "draco"'''
         nbformat.v4.new_markdown_cell(
             """## 1 · Leaderboards
 
-Leaderboard discovery reads from the Scoreboard and does not require a provider connection.
-`just stack-up` registers the local `draco` Leaderboard, so discovery,
-evaluation, and publication use the same Benchmark id. Both values render as interactive,
-brand-system notebook widgets."""
+Leaderboard discovery reads from the independently seeded Scoreboard and does not require a
+provider connection. Its registered boards may differ from the Engine's Benchmark catalogue.
+Both values render as interactive, brand-system notebook widgets."""
         ),
         nbformat.v4.new_code_cell("leaderboards = sf.leaderboards.list()\nleaderboards"),
         nbformat.v4.new_code_cell(
@@ -146,9 +145,9 @@ hosted Engine the panel asks for Cloudflare Access login first."""
 
 `limit=1` selects one Case from canonical DRACO. The Benchmark still applies every rubric
 criterion and all five canonical Judge passes, so this is an authentic one-Case rehearsal—not a
-weakened smoke protocol. It is **not** comparable with a complete 100-Case DRACO result and cannot
-be published to the canonical Leaderboard. Grading can still make many paid calls; run it
-deliberately. While it runs, the live panel shows progress, model calls, tokens and cost."""
+weakened smoke protocol. It is **not** comparable with a complete 100-Case DRACO result. Grading
+can still make many paid calls; run it deliberately. While it runs, the live panel shows progress,
+model calls, tokens and cost."""
         ),
         nbformat.v4.new_code_cell(
             """candidate = sf.Model("openrouter/google/gemini-3-flash-preview")
@@ -166,13 +165,11 @@ directory."""
         nbformat.v4.new_code_cell("report"),
         nbformat.v4.new_code_cell("artifact_path = report.export()\nartifact_path"),
         nbformat.v4.new_markdown_cell(
-            """## 5 · Publish and retrieve a complete run
+            """## 5 · Publish and retrieve
 
 Publication accepts the evaluated `CandidateResult` directly. It derives the Benchmark id,
 compiled URL4, models, accuracy counts, timestamps, and idempotency key from that immutable
-result. The Scoreboard ranks complete Benchmark runs only, so the one-Case rehearsal above is not
-publishable. This opt-in cell runs all 100 DRACO Cases before submission; **Run All** never changes
-the Scoreboard unless you deliberately set the flag.
+result. Publication is independently opt-in so **Run All** never changes the Scoreboard.
 
 The local Scoreboard accepts writes without login. Hosted deployments may require an
 edge-verified identity or keep score submission closed."""
@@ -180,13 +177,8 @@ edge-verified identity or keep score submission closed."""
         nbformat.v4.new_code_cell(
             """PUBLISH_RESULT = False
 
-complete_report = sf.evaluate(candidate, benchmark=BENCHMARK_ID) if PUBLISH_RESULT else None
-submission = (
-    sf.leaderboards.submit(complete_report.candidates.only) if complete_report is not None else None
-)
-submission if submission is not None else (
-    "Set PUBLISH_RESULT = True to run and publish the complete Benchmark."
-)"""
+submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH_RESULT else None
+submission if submission is not None else ("Set PUBLISH_RESULT = True to publish this result.")"""
         ),
         nbformat.v4.new_code_cell(
             "published_score = sf.leaderboards.get_score(submission.id) if submission is not None "

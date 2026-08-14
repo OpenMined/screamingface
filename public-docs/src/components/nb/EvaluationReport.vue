@@ -12,7 +12,7 @@ const props = withDefaults(
   defineProps<{
     /** e.g. "16 candidates" */
     title: string
-    /** e.g. "draco" */
+    /** e.g. "draco/lite" */
     benchmark?: string
     phase?: RunPhase
     /** e.g. "4M 51S" */

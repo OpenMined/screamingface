@@ -36,13 +36,13 @@ sf.evaluate(
 )`
 
 const compare = `base = sf.evaluate(haiku, benchmark="ifeval", limit=3)
-self_corrective = sf.SelfCorrective(haiku, max_rounds=3)
-corr = sf.evaluate(self_corrective, benchmark="ifeval", limit=3)
+corr = sf.evaluate(haiku, benchmark="ifeval/self-corrective", limit=3)
 
 {"canonical":       {"score": base.candidates.only.score, "tokens": base.usage.output_tokens},
- "self-corrective": {"score": corr.candidates.only.score, "tokens": corr.usage.output_tokens}}`
+ "self-corrective": {"score": corr.candidates.only.score, "tokens": corr.usage.output_tokens,
+                     "corrected": corr.candidates.only.metrics["corrected_cases"]}}`
 const compareOut = `{'canonical': {'score': 1.0, 'tokens': 1167},
- 'self-corrective': {'score': 1.0, 'tokens': 3686}}`
+ 'self-corrective': {'score': 1.0, 'tokens': 3686, 'corrected': 0.0}}`
 
 const usage = `report.usage`
 const usageOut = `Usage(input_tokens=3691, output_tokens=3686, cache_read_tokens=0,
@@ -102,10 +102,7 @@ client.close()`
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <g
-          style="stroke: var(--text-2); stroke-width: 1.25; fill: none"
-          marker-end="url(#ev-arrow)"
-        >
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#ev-arrow)">
           <path d="M164 66 C 206 66, 206 100, 246 100" />
           <path d="M164 140 C 206 140, 206 100, 246 100" />
           <path d="M450 100 H534" />
@@ -156,7 +153,7 @@ client.close()`
     <ul>
       <li>Evaluate one candidate, or run several at once.</li>
       <li>Cap the number of cases with <code>limit</code>.</li>
-      <li>Compare Model, Fusion, Pipeline, and corrective Candidate Recipes on the same exam.</li>
+      <li>Pick a protocol variant by naming its own benchmark id.</li>
       <li>Watch the run live, or turn off the progress display.</li>
       <li>Use an explicit client, sync or with <code>await</code>.</li>
     </ul>
@@ -172,31 +169,16 @@ client.close()`
       </thead>
       <tbody>
         <tr>
-          <td>
-            <code
-              >sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None)</code
-            >
-          </td>
-          <td>
-            Runs one or more candidates against a benchmark's protocol concurrently, returning a
-            single <code>sf.Report</code>. Validates everything before the first paid request.
-          </td>
+          <td><code>sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None)</code></td>
+          <td>Runs one or more candidates against a benchmark's protocol concurrently, returning a single <code>sf.Report</code>. Validates everything before the first paid request.</td>
         </tr>
         <tr>
-          <td>
-            <code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code>
-          </td>
-          <td>
-            Same call on an explicit client you manage yourself, sync or with <code>await</code>.
-            Only way to talk to two engines from one process.
-          </td>
+          <td><code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code></td>
+          <td>Same call on an explicit client you manage yourself, sync or with <code>await</code>. Only way to talk to two engines from one process.</td>
         </tr>
         <tr>
           <td><code>sf.configure(engine_url=…)</code></td>
-          <td>
-            Repoints the shared client so every later <code>sf.evaluate()</code> call uses that
-            engine.
-          </td>
+          <td>Repoints the shared client so every later <code>sf.evaluate()</code> call uses that engine.</td>
         </tr>
         <tr>
           <td><code>sf.close()</code></td>
@@ -237,7 +219,7 @@ client.close()`
     <p>
       Notice the two case counts: <code>report.case_count</code> is how many cases <em>ran</em>;
       <code>report.benchmark.case_count</code> is how many the benchmark has. Running 3 of 541 is a
-      small rehearsal, and the report keeps both numbers visible so that stays obvious later.
+      smoke test, and the report keeps both numbers visible so that stays obvious later.
     </p>
 
     <p>
@@ -253,8 +235,8 @@ client.close()`
       Read <code>coverage</code> beside the score. It is the fraction of the selected cases the
       score was computed from, and anything below <code>1.0</code> means the engine graded only part
       of the run and the score describes that part. A candidate can also finish with both a score
-      and entries in <code>failures</code>, which is a completed run carrying warnings worth reading
-      rather than a broken one.
+      and entries in <code>failures</code>, which is a completed run carrying warnings worth
+      reading rather than a broken one.
     </p>
 
     <h3>3 · Evaluate several at once</h3>
@@ -274,11 +256,12 @@ client.close()`
       is graded by five judge passes, so even <code>limit=1</code> is a real spend.
     </p>
 
-    <h3>4 · Compare two Candidate strategies</h3>
+    <h3>4 · Compare two protocols</h3>
 
     <p>
-      Candidate construction and benchmark evaluation are independent. This compares a plain Model
-      with a self-corrective Recipe against the same IFEval cases, checker, and aggregation:
+      Because each protocol variant is a separate benchmark id, comparing them is two runs. This is
+      IFEval's canonical single-pass protocol against its self-corrective retry chain on the same
+      three cases:
     </p>
 
     <div class="not-prose">
@@ -287,8 +270,10 @@ client.close()`
 
     <p>
       An honest result: identical scores, <strong>3.2× the output tokens</strong>. On this slice the
-      retry loop bought nothing. That is what a three-case sample of a capable model looks like, and
-      it is the reason to run more cases before concluding anything.
+      retry loop bought nothing. <code>corrected_cases</code>, a metric only the corrective variants
+      report, is <code>0.0</code>, meaning no case failed first and passed later. That is what a
+      three-case sample of a capable model looks like, and it is the reason to run more cases before
+      concluding anything.
     </p>
 
     <h3>5 · Read what it cost</h3>
@@ -349,10 +334,10 @@ client.close()`
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/06_draco_full_e2e.ipynb"
+          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/05_draco_lite_e2e.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook: <code>06_draco_full_e2e.ipynb</code></a
+          >Companion notebook: <code>05_draco_lite_e2e.ipynb</code></a
         >
       </li>
     </ul>

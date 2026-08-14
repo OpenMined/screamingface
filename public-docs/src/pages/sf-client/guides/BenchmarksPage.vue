@@ -11,26 +11,27 @@ import {
 const listing = `import screamingface as sf
 
 for b in sf.benchmarks.list():
-    print(b.id, "|", b.case_count, "cases |", b.revision)`
-const listingOut = `draco | 100 cases | 1c58b3085912e304
-healthbench-worst30 | 157 cases | 6cd57aee171fbdc4
-ifeval | 541 cases | 0b88a52b5f10a6d9`
+    print(b.id, "|", b.variant, "|", b.case_count, "cases |", b.revision)`
+const listingOut = `draco | canonical | 100 cases | defbb6efdae69211
+draco/lite | lite | 2 cases | 6a1c04b9c7f21d83
+draco/smoke | smoke | 1 cases | b2f7d5e10a9c4468
+ifeval | canonical | 541 cases | 22ca96fe77b0f7de
+ifeval/self-corrective | self-corrective | 541 cases | 047f1de449639c61
+ifeval/lanl-ensemble | lanl-ensemble | 541 cases | 9c3ba82f5d0e7716
+healthbench/worst30 | worst30 | 30 cases | 41e8c96d2b7a5f30`
 
 const card = `ifeval = sf.benchmarks.get("ifeval")
 ifeval`
-const cardOut = `Benchmark(id='ifeval', title='IFEval',
+const cardOut = `Benchmark(id='ifeval', variant='canonical', title='IFEval',
 description='The canonical 541-prompt instruction-following benchmark
 (https://arxiv.org/abs/2311.07911), graded by deterministic strict and loose
 verification. Each Case invokes the Candidate exactly once. Case ids are the
 official IFEval keys; one pinned-dataset row (key 2785) is patched to the
 official harness prompt, whose text matches its graded constraints.',
-revision='0b88a52b5f10a6d9', case_count=541)`
+revision='22ca96fe77b0f7de', case_count=541)`
 
-const strategies = `model = sf.Model("openrouter/anthropic/claude-haiku-4.5")
-corrective = sf.SelfCorrective(model, max_rounds=3)
-
-plain = sf.evaluate(model, benchmark="ifeval", limit=3)
-retried = sf.evaluate(corrective, benchmark="ifeval", limit=3)`
+const variants = `sf.benchmarks.get("ifeval").revision, sf.benchmarks.get("ifeval/self-corrective").revision`
+const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
 </script>
 
 <template>
@@ -43,9 +44,9 @@ retried = sf.evaluate(corrective, benchmark="ifeval", limit=3)`
     <p>
       A <strong>benchmark</strong> is the exam. It is owned entirely by
       <RouterLink to="/learn/engine">the engine</RouterLink> and it owns everything about how
-      candidates are judged: which cases exist, in what order they are asked, which judge model
-      grades them, how grades become a score. Your candidate answers; it does not get a say in any
-      of that.
+      candidates are judged: which cases exist, in what order they are asked,
+      which judge model grades them, how grades become a score. Your candidate answers; it does not
+      get a say in any of that.
     </p>
 
     <p>
@@ -59,7 +60,7 @@ retried = sf.evaluate(corrective, benchmark="ifeval", limit=3)`
     <ul>
       <li>List the benchmarks this engine publishes.</li>
       <li>Read one's identity card: size, revision, and what it actually measures.</li>
-      <li>Use <code>limit=</code> to rehearse on fewer cases without changing the protocol.</li>
+      <li>Pick a protocol variant, which is a benchmark id of its own.</li>
       <li>Check that two results are comparable by comparing revisions.</li>
     </ul>
 
@@ -75,31 +76,19 @@ retried = sf.evaluate(corrective, benchmark="ifeval", limit=3)`
       <tbody>
         <tr>
           <td><code>sf.benchmarks.list()</code></td>
-          <td>
-            Lists every benchmark this engine publishes, a free discovery request that calls no
-            model.
-          </td>
+          <td>Lists every benchmark this engine publishes, a free discovery request that calls no model.</td>
         </tr>
         <tr>
           <td><code>sf.benchmarks.get(benchmark_id)</code></td>
-          <td>Fetches one benchmark's identity card by its flat id.</td>
+          <td>Fetches one benchmark's identity card. A protocol variant has its own id, such as <code>ifeval/self-corrective</code>, and its own revision.</td>
         </tr>
         <tr>
-          <td>
-            <code>sf.Benchmark</code> <code>.id</code> <code>.title</code> <code>.description</code>
-            <code>.revision</code> <code>.case_count</code>
-          </td>
-          <td>
-            The identity card itself: its id, what it measures, the opaque revision hash of the
-            pinned protocol, and its size.
-          </td>
+          <td><code>sf.Benchmark</code> <code>.id</code> <code>.variant</code> <code>.title</code> <code>.description</code> <code>.revision</code> <code>.case_count</code></td>
+          <td>The identity card itself: its id, which protocol that id runs, what it measures, the opaque revision hash of the pinned protocol, and its size.</td>
         </tr>
         <tr>
           <td><code>sf.BenchmarkInfo</code></td>
-          <td>
-            The pinned subset a report carries, so an old result still names the exact revision it
-            ran against.
-          </td>
+          <td>The pinned subset a report carries, so an old result still names the exact revision it ran against.</td>
         </tr>
       </tbody>
     </table>
@@ -119,12 +108,14 @@ retried = sf.evaluate(corrective, benchmark="ifeval", limit=3)`
     </div>
 
     <p>
-      Three benchmarks, each with one public identity, and they differ in what grading costs.
+      Three benchmarks, listed once per protocol, and they differ in what grading costs.
       <strong>DRACO</strong> is 100 deep-research tasks graded by a judge model
       (<code>openrouter/google/gemini-3.1-pro-preview</code>) with five independent passes per
-      criterion. <strong>IFEval</strong> is 541 instruction-following prompts checked by a
-      deterministic verifier, so its grading is <strong>free</strong> and only the answers cost
-      anything. <strong>HealthBench</strong> exposes the worst-30% subset, rubric-graded by a judge.
+      criterion: the grading itself is the expensive part, which is why the <code>lite</code> and
+      <code>smoke</code> entries exist for cheap directional runs. <strong>IFEval</strong> is 541
+      instruction-following prompts checked by a deterministic verifier, so its grading is
+      <strong>free</strong> and only the answers cost anything. <strong>HealthBench</strong> exposes
+      the worst-30% subset, rubric-graded by a judge.
     </p>
 
     <h3>2 · Read the identity card</h3>
@@ -139,23 +130,25 @@ retried = sf.evaluate(corrective, benchmark="ifeval", limit=3)`
       name later points at a newer snapshot, your report still names the revision it actually ran.
     </p>
 
-    <h3>3 · Keep Candidate strategy separate</h3>
+    <h3>3 · Pick a protocol variant</h3>
 
     <p>
-      The benchmark remains the fixed exam. A Model, Fusion, Pipeline, SelfCorrective, or
-      CorrectiveLoop is the Candidate strategy taking that exam. Changing the Recipe does not invent
-      another benchmark id; the report records both the benchmark revision and the compiled
-      Candidate topology explicitly.
+      Some benchmarks publish more than one protocol, and each one is a separate id rather than a
+      flag on a shared exam. <code>ifeval</code> is the canonical protocol: one answer, one
+      deterministic check, and the only IFEval entry comparable to published numbers.
+      <code>ifeval/self-corrective</code> lets the candidate read the verifier's complaints and
+      retry, bounded at three attempts, and <code>ifeval/lanl-ensemble</code> reproduces the
+      Skurikhin et al. early-exit ensemble protocol.
     </p>
 
     <div class="not-prose">
-      <NbCell :count="3" :code="strategies" />
+      <NbCell :count="3" :code="variants"><NbTextOut :text="variantsOut" /></NbCell>
     </div>
 
     <p>
-      Both runs use the same IFEval cases, checker, and aggregation. They differ only in how the
-      Candidate produces one answer. Use <code>limit=</code> for a smaller rehearsal; it selects
-      fewer cases but never weakens the benchmark's checking or scoring protocol.
+      Notice the revisions differ. A variant is a <strong>different pinned protocol</strong>, with a
+      different cost and a score that means something different. Comparing a self-corrective score
+      against a canonical one is a mistake the revisions let you catch.
     </p>
 
     <h3>4 · Know what discovery will not tell you</h3>

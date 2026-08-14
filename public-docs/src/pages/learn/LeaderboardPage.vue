@@ -110,16 +110,15 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
 
     <CodeBlock :code="read" language="python" />
 
-    <p>To publish a complete benchmark result you ran yourself:</p>
+    <p>To publish a result you ran yourself:</p>
 
     <CodeBlock :code="publish" language="python" />
 
     <p>
       <code>submit()</code> takes a candidate out of a
       <RouterLink to="/sf-client/api/reports">Report</RouterLink>, so you can only publish something
-      you actually evaluated. The Client rejects partial runs because their scores are not
-      comparable with the canonical board. To start from an existing entry instead, read its url4
-      back as code, or hand it straight to the engine:
+      you actually evaluated. To start from an existing entry instead, read its url4 back as code,
+      or hand it straight to the engine:
     </p>
 
     <CodeBlock :code="remix" language="python" />

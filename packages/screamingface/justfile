@@ -98,8 +98,8 @@ stack-up:
     }
     (
         cd {{repo}}/apps/scoreboard
-        .venv/bin/python -m scoreboard.seed --exact --benchmarks-json \
-            '[{"id":"draco","display_name":"DRACO","description":"Canonical DRACO benchmark"},{"id":"ifeval","display_name":"IFEval","description":"Canonical instruction-following benchmark"},{"id":"healthbench-worst30","display_name":"HealthBench Worst-30%","description":"HealthBench Professional hardest-30% challenge"}]'
+        .venv/bin/python -m scoreboard.seed --benchmarks-json \
+            '[{"id":"draco/smoke","display_name":"DRACO Smoke","description":"Local end-to-end development protocol"}]'
     )
     if [ "$start_gateway" = 1 ]; then
         # AUTH DISABLED = anonymous loopback mode; no admin bootstrap, key stored under

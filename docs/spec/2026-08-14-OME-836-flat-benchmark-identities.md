@@ -41,13 +41,8 @@ limit=1` is one canonical DRACO case—not the retired cheap smoke protocol.
 ## Removal boundary
 
 All DRACO lite/smoke definitions, route constants, revision hashes, runtime installers, public
-tests, docs, notebooks, and local Scoreboard seed identities are deleted. Shared canonical
-DRACO machinery remains only where canonical DRACO uses it.
-
-The local Scoreboard seed is an exact declaration of the same three identities. It removes stale
-unreferenced registrations and refuses loudly rather than deleting a registration that owns scores
-or baselines. A developer with results under a retired identity must intentionally migrate them or
-use a fresh local database.
+tests, docs, and notebooks are deleted. Shared canonical DRACO machinery remains only where
+canonical DRACO uses it.
 
 The HealthBench challenge keeps its existing 157-case selection, grading, scoring, and revision
 inputs. Only its public identity and revision-pinned route prefix change to
@@ -56,12 +51,8 @@ inputs. Only its public identity and revision-pinned route prefix change to
 ## Acceptance
 
 - Engine discovery returns exactly the three flat IDs above and no `variant` field.
-- Retired IDs fail as unknown; they are not translated.
+- Hierarchical IDs fail flat-ID validation; they are never translated.
 - Client discovery has no `Benchmark.variant` attribute.
 - Generated examples use canonical DRACO plus explicit limits and the flat HealthBench ID.
-- Partial evaluations cannot be submitted through the Client to a canonical Leaderboard; the
-  quickstart's opt-in publication path performs a complete run.
-- Local Scoreboard discovery contains the exact three identities on a fresh or safely synchronised
-  database.
-- Public docs expose the same three identities and teach corrective behavior as Client Recipes.
+- Package docs expose the same three identities and teach corrective behavior as Client Recipes.
 - URL4 Cloud and ScreamingFace gates are green.

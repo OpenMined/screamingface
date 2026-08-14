@@ -193,9 +193,9 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
           <td><code>benchmark</code></td>
           <td><code>str</code></td>
           <td>
-            A flat benchmark id, such as <code>ifeval</code>, <code>draco</code>, or
-            <code>healthbench-worst30</code>. Required keyword argument. Candidate behavior belongs
-            to the Recipe passed through <code>candidates</code>, not to the benchmark id.
+            The benchmark id, such as <code>ifeval</code>. A protocol variant is its own id, such as
+            <code>ifeval/self-corrective</code>, and it pins a different revision, so it changes
+            what the result is comparable to. Required keyword argument.
           </td>
         </tr>
         <tr>

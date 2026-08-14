@@ -28,13 +28,9 @@ Coordinate one atomic public identity cleanup across URL4 Cloud and the Screamin
 ## Outcome
 
 - **Actual files:** OME-836 spec/plan/task mirrors; URL4 Cloud benchmark definitions/runtime;
-  ScreamingFace discovery, Leaderboard validation, examples, tests, and docs; exact local
-  Scoreboard seeding; public Client documentation.
+  ScreamingFace discovery, examples, tests, and normal package docs.
 - **Commits:** this branch's squash-ready OME-836 implementation commit.
-- **Gates:** URL4 Cloud, ScreamingFace, and Scoreboard stack gates green; public-docs Prettier,
-  ESLint, Vue type-check, and production build green.
+- **Gates:** URL4 Cloud and ScreamingFace stack gates green.
 - **Deviations:** append-only checking was skipped intentionally because the accepted removal
   deletes variant tests and obsolete notebooks. The repo-wide audit expanded the Client child to
-  remove stale curated demos and public docs that still advertised retired identities. A final
-  review also restored canonical DRACO cache-slot guards, rejected partial Leaderboard
-  publication, and made exact local seeding fail safely around stored results.
+  remove stale curated demos. A final review also restored canonical DRACO cache-slot guards.

@@ -12,7 +12,6 @@ from uuid import UUID
 
 import httpx
 
-from screamingface._benchmark_identity import benchmark_id as _benchmark_id
 from screamingface._ui.leaderboard_view import LeaderboardCatalog
 from screamingface.errors import LeaderboardError
 from screamingface.leaderboard import (
@@ -314,11 +313,6 @@ def _decode_score(payload: object) -> LeaderboardScore:
 def _submission(candidate_result: CandidateResult) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
-    if len(candidate_result.cases) != candidate_result.benchmark.case_count:
-        raise ValueError(
-            "Leaderboard submission requires a complete Benchmark run "
-            f"({len(candidate_result.cases)}/{candidate_result.benchmark.case_count} Cases)"
-        )
     accuracy, correct_questions = _accuracy_result(candidate_result)
     return {
         "version": 1,
@@ -493,6 +487,15 @@ def _optional_timestamp(value: object, label: str) -> datetime | None:
 def _timestamp_text(value: datetime) -> str:
     text = value.isoformat()
     return text[:-6] + "Z" if text.endswith("+00:00") else text
+
+
+def _benchmark_id(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("benchmark_id must be a string")
+    selected = value.strip().removeprefix("/")
+    if not selected:
+        raise ValueError("benchmark_id must be non-empty")
+    return selected
 
 
 def _score_id(value: object) -> UUID:
