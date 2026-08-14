@@ -36,6 +36,33 @@ OpenMined's AI Gateway, on OpenMined's capped keys. The numbers were produced by
 there is nothing to independently reproduce — the claim is not weaker than "reproduced", it is a
 *different and directly verifiable* claim.
 
+### 2.1a Revision after review (2026-08-14) — the claim is withdrawn, not weakened
+
+Review found §2.1 unsupportable. Two P1 findings, both verified against the code:
+
+1. **Nothing attests execution provenance.** The SDK takes independent `engine_url` and
+   `scoreboard_url` (`client.py:45-51`), and the chart ships `authMode: disabled` with no
+   override in `values-prod.yaml`. A submission is an unattested client payload, and
+   `_submission_to_kwargs` never sets this field, so the default applies to all of them.
+   "Ran on OpenMined infrastructure" was an assumption about how the cohort would use the
+   system, not a property the write path establishes.
+2. **The portal already published the stronger claim.** `index.html:41` and
+   `benchmark.html:42` both read *"'Verified' means OpenMined independently reproduced the
+   run."* With `default=True` every row would be badged under that definition — the exact
+   claim §2.2 rejects, shipping in the same commit.
+
+**Revised decision.** The default stays `True`, and it now asserts **nothing**. It is a
+placeholder that keeps the board from reading "unverified" on every row while no
+verification exists. The public copy on both portal pages was rewritten in the same commit
+to say scores are self-reported and that the column does not yet distinguish rows.
+
+The load-bearing rule is now: **this default and that copy change together.** If one says
+verified and the other does not, the board publishes a false claim.
+
+Finding 1's underlying gap is not fixed here and is not fixable without an attestation
+mechanism that does not exist. It is `OME-821`. What changed is that the board no longer
+claims something it cannot support.
+
 ### 2.2 Alternatives rejected
 
 | Alternative | Why rejected |

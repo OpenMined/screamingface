@@ -7,11 +7,10 @@ following OME-326). The verified_by_openmined response field is a separate, inde
 trust-tier signal: it is unrelated to how the submitter was identified, and it is never
 settable by a client — it is absent from ScoreSubmission, so sending it is a 422.
 
-Since OME-820 it defaults to True and asserts **the run executed on OpenMined
-infrastructure** (hosted SF Engine, OpenMined's AI Gateway, OpenMined's capped keys) — NOT
-that OpenMined independently re-ran the recipe, which remains OME-414's job. That default
-is honest only while every execution path is ours; a BYOK or local run is self-reported and
-must not inherit it (OME-821).
+Since OME-820 it defaults to True as a temporary placeholder that asserts **nothing**.
+Nothing re-runs submissions (OME-414), and nothing attests where a run executed, so the
+public portal states that scores are self-reported and that the column does not yet
+distinguish rows. OME-821 replaces it with a real distinction.
 """
 
 from __future__ import annotations
@@ -194,8 +193,8 @@ async def submit_score(
 async def get_score(score_id: UUID) -> ScoreSchema:
     """Return a public score by id.
 
-    ``verified_by_openmined`` tells you the run executed on OpenMined infrastructure,
-    not that OpenMined independently reproduced it (OME-820).
+    ``verified_by_openmined`` carries no verification claim yet: nothing re-runs
+    submissions and nothing attests execution provenance (OME-820, OME-821).
     """
 
     try:

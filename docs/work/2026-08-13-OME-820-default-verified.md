@@ -115,3 +115,51 @@ RED first:
    `AIDEV-NOTE` pointing at it. Local packaging (`OME-678`, PR #559) was reported at the same huddle
    as landing by EOD, so this is days away, not hypothetical — the PR body must say so.
 5. **No PR opened yet** — awaiting owner approval; nothing outward-facing sent.
+
+## Review pass (2026-08-14) — two P1 findings, both valid
+
+Assessed before acting; every premise verified against the code.
+
+| Claim | Verified how | Result |
+|---|---|---|
+| SDK allows independent engine/scoreboard URLs | `client.py:45-51` | True — separate kwargs, separate defaults |
+| Production inherits `authMode: disabled` | `values.yaml:41`, `values-prod.yaml` | True — no override key |
+| `submit()` omits the field | `_submission_to_kwargs` | True — 15 keys, none of them this one |
+| Portal claims independent reproduction | `index.html:41`, `benchmark.html:42` | True, verbatim |
+
+### What was wrong with my design
+
+D1 said verified means "ran on OpenMined infrastructure", justified by asserting the cohort
+runs on the hosted stack. That is an assumption about usage, not something the write path
+establishes. My own spec §3 forbids a *client* declaring its trust tier; defaulting to True
+had the server assert a tier it cannot verify, which is worse because it looks
+authoritative.
+
+Finding 2 was the merge-stopper: the portal defined the badge as a rerun, so the default
+would have published a false claim on every row, in the same commit that rejected it.
+
+### The fix (owner chose option A)
+
+Kept it to four lines of substance rather than redesigning:
+
+- `portal/index.html` and `portal/benchmark.html` — the reproduction claim is withdrawn.
+  Both now say scores are self-reported and the column does not yet distinguish rows.
+- `models/score.py` and `routes/scores.py` — docstrings corrected. The field asserts
+  **nothing**; it is a placeholder. Both carry the invariant that the default and the
+  portal copy must change together.
+
+Confirmed: only two files ever made the reproduction claim, and **no test pinned that
+wording**, so nothing else had to move.
+
+Not fixed, deliberately: finding 1's attestation gap. It needs a mechanism that does not
+exist (`OME-821`). What changed is that the board no longer claims what it cannot support.
+
+**Gates:** `run_gates.py scoreboard --base origin/main --skip-append-only` → ruff check ✓,
+ruff format ✓, pyright ✓, pytest --cov ✓. ALL GATES GREEN.
+
+### Deviation
+
+I initially proposed three options and a redesign. The owner pushed back that this was
+overcomplicated, and was right about the code: the change is a flag flip plus two sentences
+of copy. The reviewer's finding 2 was real, but it did not require redesigning the semantics
+— only withdrawing an overclaim.
