@@ -9,7 +9,7 @@ from screamingface._evaluation.candidate import (
     _CompiledCandidate,
     compile_candidate,
 )
-from screamingface._evaluation.linking import link_candidate
+from screamingface._evaluation.linking import _prepare_benchmark
 from screamingface._evaluation.model import (
     _compiled_candidate,
     _compiled_evaluation,
@@ -26,10 +26,10 @@ def compile_evaluation(
     """Compile all Candidates locally against one selected Benchmark."""
 
     compiled = tuple(compile_candidate(recipe) for recipe in recipes)
-    linked = tuple(
-        link_candidate(value.url4, resource.url4)
-        for recipe, value in zip(recipes, compiled, strict=True)
-    )
+    # WHY: the Benchmark is identical for every Candidate — parse it once and bind
+    # each compiler-produced (already canonical) Candidate expression into it.
+    prepared = _prepare_benchmark(resource.url4)
+    linked = tuple(prepared.bind(value.url4) for value in compiled)
     candidates = []
     for recipe, value, result in zip(recipes, compiled, linked, strict=True):
         candidates.append(

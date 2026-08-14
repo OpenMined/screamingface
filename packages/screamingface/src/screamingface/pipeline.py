@@ -39,9 +39,13 @@ class Pipeline(Recipe):
 
     def __repr__(self) -> str:
         stages = ", ".join(repr(stage.name) for stage in self.stages)
-        inferred_name = "->".join(stage.name for stage in self.stages)
         arguments = [f"[{stages}]"]
-        if self.name != inferred_name:
+        # WHY: explicit naming is behavioral, not cosmetic — a named Pipeline keeps its
+        # grouping when nested instead of flattening, and `_is_named` participates in
+        # equality. The repr therefore shows `name=` whenever the value was explicitly
+        # named, even when it equals the inferred name, so equal-looking reprs never
+        # hide unequal values.
+        if self._is_named:
             arguments.append(f"name={self.name!r}")
         return f"Pipeline({', '.join(arguments)})"
 

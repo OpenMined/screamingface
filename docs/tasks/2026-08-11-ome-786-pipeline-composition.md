@@ -1,12 +1,12 @@
 ---
 id: OME-786
 linear_url: https://linear.app/openmined/issue/OME-786/support-serial-pipelines-and-recursively-composed-candidates-in-the
-status: In Progress
+status: Done
 type: Feature
 priority: P1
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-11
-closed:
+closed: 2026-08-12
 ---
 
 # Support serial Pipelines and recursively composed Candidates in the Python Client

@@ -86,3 +86,48 @@ def test_similarly_named_plumbing_is_not_a_candidate_binding() -> None:
         link_candidate(_candidate_url4(), benchmark)
 
     assert caught.value.code == "invalid_benchmark_resource"
+
+
+def test_rendered_surface_guard_refuses_unbound_candidate_references() -> None:
+    from screamingface._evaluation.linking import _require_candidate_references_bound
+
+    # INVARIANT: every $candidate* reference in the SHIPPED artifact resolves to a
+    # binding — checked on the rendered surface so it stays representation-independent
+    # insurance against walker blindness, failing at plan time instead of after spend.
+    _require_candidate_references_bound("(answer:0.0:/x(q)!'$candidate')!'$answer'")
+    _require_candidate_references_bound("literal '$$candidate_member_1' stays escaped")
+
+    with pytest.raises(sf.PlanningError, match="does not bind") as caught:
+        _require_candidate_references_bound("(answer:0.0:/x(q)!'$candidate_member_1')!''")
+
+    assert caught.value.code == "candidate_shape_mismatch"
+
+
+def test_the_benchmark_expression_is_parsed_once_for_a_whole_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from screamingface._evaluation import linking
+
+    benchmark = "(answer:0.0:/candidate(question)!'$candidate')!'$answer'"
+    candidate = _candidate_url4()
+    expected = link_candidate(candidate, benchmark).url4
+
+    calls = 0
+    real = linking.build
+
+    def counting(value: str) -> object:
+        nonlocal calls
+        calls += 1
+        return real(value)
+
+    monkeypatch.setattr(linking, "build", counting)
+
+    # WHY: the benchmark is loop-invariant across an Evaluation's candidates, and
+    # compiler-produced candidate text is already canonical — one parse total.
+    prepared = linking._prepare_benchmark(benchmark)
+    first = prepared.bind(candidate)
+    second = prepared.bind(candidate)
+
+    assert calls == 1
+    assert first.url4 == expected
+    assert second.url4 == expected

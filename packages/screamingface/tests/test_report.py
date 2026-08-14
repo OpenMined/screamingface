@@ -503,3 +503,105 @@ def test_report_representation_is_a_compact_run_summary() -> None:
     value = report(candidate("opus"), candidate("gpt"))
 
     assert repr(value) == ("Report(benchmark='draco@1', candidates=['opus', 'gpt'], ok=True)")
+
+
+def test_duplicate_member_display_names_do_not_fail_a_finished_run() -> None:
+    # INVARIANT: fail-before-spend — Report construction happens AFTER the paid
+    # evaluation, so a cosmetic display-name collision (same model via two
+    # providers) must never raise here; members stay keyed by operation_id.
+    value = sf.CandidateResult(
+        benchmark=benchmark(),
+        run_id="run_same_model_twice",
+        started_at=datetime(2026, 7, 25, 16, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 25, 16, 0, 2, tzinfo=UTC),
+        name="gpt-5.5+gpt-5.5",
+        kind="fusion",
+        url4="(@)!'same model, two providers'",
+        models=("openrouter/openai/gpt-5.5", "azure/openai/gpt-5.5", "provider/synth"),
+        operations=(
+            _compiled_operation(
+                id="op_model_1", kind="model", label="gpt-5.5 answer", depends_on=()
+            ),
+            _compiled_operation(
+                id="op_model_2", kind="model", label="gpt-5.5 answer", depends_on=()
+            ),
+            _compiled_operation(
+                id="op_synthesis_1",
+                kind="synthesis",
+                label="gpt-5.5+gpt-5.5 synthesis",
+                depends_on=("op_model_1", "op_model_2"),
+            ),
+        ),
+        score=0.5,
+        coverage=1.0,
+        metrics={},
+        cases=case_results(),
+        members=(
+            sf.MemberResult(
+                operation_id="op_model_1",
+                name="gpt-5.5",
+                kind="model",
+                models=("openrouter/openai/gpt-5.5",),
+                failures=None,
+                duration_ms=None,
+                usage=None,
+            ),
+            sf.MemberResult(
+                operation_id="op_model_2",
+                name="gpt-5.5",
+                kind="model",
+                models=("azure/openai/gpt-5.5",),
+                failures=None,
+                duration_ms=None,
+                usage=None,
+            ),
+        ),
+        failures=(),
+        usage=sf.Usage(input_tokens=200, output_tokens=20),
+    )
+
+    result = report(value)
+
+    assert tuple(member.name for member in result.candidates.only.members) == (
+        "gpt-5.5",
+        "gpt-5.5",
+    )
+
+    with pytest.raises(ValueError, match="operation IDs must be unique"):
+        sf.CandidateResult(
+            **{
+                **{
+                    "benchmark": benchmark(),
+                    "run_id": "run_same_model_twice",
+                    "started_at": datetime(2026, 7, 25, 16, 0, tzinfo=UTC),
+                    "completed_at": datetime(2026, 7, 25, 16, 0, 2, tzinfo=UTC),
+                    "name": "gpt-5.5+gpt-5.5",
+                    "kind": "fusion",
+                    "url4": "(@)!'same model, two providers'",
+                    "models": ("openrouter/openai/gpt-5.5", "provider/synth"),
+                    "operations": (
+                        _compiled_operation(
+                            id="op_model_1", kind="model", label="a", depends_on=()
+                        ),
+                    ),
+                    "score": 0.5,
+                    "coverage": 1.0,
+                    "metrics": {},
+                    "cases": case_results(),
+                    "members": tuple(
+                        sf.MemberResult(
+                            operation_id="op_model_1",
+                            name="gpt-5.5",
+                            kind="model",
+                            models=("openrouter/openai/gpt-5.5",),
+                            failures=None,
+                            duration_ms=None,
+                            usage=None,
+                        )
+                        for _ in range(2)
+                    ),
+                    "failures": (),
+                    "usage": sf.Usage(),
+                }
+            }
+        )

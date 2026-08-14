@@ -155,3 +155,20 @@ def test_recipe_values_have_structural_equality_and_are_unhashable() -> None:
     assert left == right
     with pytest.raises(TypeError, match="unhashable"):
         hash(left)
+
+
+def test_explicit_naming_is_visible_even_when_it_matches_the_inferred_name() -> None:
+    unnamed = sf.Pipeline(["provider/a", "provider/b"])
+    named = sf.Pipeline(["provider/a", "provider/b"], name="a->b")
+
+    # WHY: the spec keeps an explicitly named nested Pipeline grouped instead of
+    # flattening it, so namedness is behavioral — equality AND repr must show it.
+    assert named != unnamed
+    assert repr(unnamed) == "Pipeline(['a', 'b'])"
+    assert repr(named) == "Pipeline(['a', 'b'], name='a->b')"
+    assert sf.Pipeline([named, "provider/c"]).stages == (named, sf.Model("provider/c"))
+    assert sf.Pipeline([unnamed, "provider/c"]).stages == (
+        sf.Model("provider/a"),
+        sf.Model("provider/b"),
+        sf.Model("provider/c"),
+    )

@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 
-from url4 import Iteration, Text, VarRef, build, expr, render, src, text
+from url4 import Iteration, Node, Text, VarRef, build, expr, render, src, text
 
 from screamingface.errors import PlanningError
 
@@ -21,9 +21,37 @@ class _LinkedCandidate:
     url4: str
 
 
-def link_candidate(candidate_url4: str, benchmark_url4: str) -> _LinkedCandidate:
-    """Bind the sole public Candidate seam without interpreting Benchmark behavior."""
+@dataclass(frozen=True, slots=True)
+class _PreparedBenchmark:
+    """One parsed-and-validated Benchmark expression, reusable across Candidates.
 
+    WHY: the Benchmark is loop-invariant across an Evaluation's Candidates — parse
+    and reference-scan it once, then bind each compiled Candidate's canonical text.
+    """
+
+    node: Node
+
+    def bind(self, candidate_url4: str) -> _LinkedCandidate:
+        """Bind one canonical Candidate expression text into this Benchmark."""
+
+        binding = src(text(candidate_url4), name="candidate", weight=0.0)
+        rendered = render(expr(binding, self.node, intent=text("")))
+        _require_candidate_references_bound(rendered)
+        return _LinkedCandidate(url4=rendered)
+
+
+def link_candidate(candidate_url4: str, benchmark_url4: str) -> _LinkedCandidate:
+    """Bind the sole public Candidate seam without interpreting Benchmark behavior.
+
+    Canonicalizes arbitrary caller Candidate text through build+render; the internal
+    Evaluation path calls ``_prepare_benchmark(...).bind(...)`` directly because the
+    compiler's output is already canonical.
+    """
+
+    return _prepare_benchmark(benchmark_url4).bind(render(build(candidate_url4)))
+
+
+def _prepare_benchmark(benchmark_url4: str) -> _PreparedBenchmark:
     benchmark = build(benchmark_url4)
     references = _text_references(benchmark)
     if _WHOLE_CANDIDATE not in references:
@@ -50,15 +78,35 @@ def link_candidate(candidate_url4: str, benchmark_url4: str) -> _LinkedCandidate
             code="candidate_shape_mismatch",
             permanent=True,
         )
-
-    candidate = build(candidate_url4)
-    binding = src(text(render(candidate)), name="candidate", weight=0.0)
     if isinstance(benchmark, Iteration):
         benchmark = expr(
             src(benchmark, name="benchmark_result", weight=0.0),
             intent=text("$benchmark_result"),
         )
-    return _LinkedCandidate(url4=render(expr(binding, benchmark, intent=text(""))))
+    return _PreparedBenchmark(node=benchmark)
+
+
+def _require_candidate_references_bound(rendered: str) -> None:
+    """Refuse to ship a linked artifact that still names something nothing binds.
+
+    INVARIANT: every ``$candidate*`` reference in the shipped artifact resolves to the
+    one ``candidate`` binding emitted above. This is checked on the RENDERED surface
+    rather than the parsed tree on purpose: ``_text_references`` reasons over an AST
+    where a reference has several shapes and the node set can grow upstream, while
+    ``render`` collapses them all into one form. The check is therefore
+    representation-independent — it closes the whole class of walker-blindness bugs
+    rather than the one shape that motivated it, and it turns a mid-Run failure into
+    a plan-time one, before the Candidate has been paid for.
+    """
+
+    unresolved = _references(rendered) - {_WHOLE_CANDIDATE}
+    if unresolved:
+        names = ", ".join(sorted(unresolved))
+        raise PlanningError(
+            f"Benchmark URL4 references {names}, which this Candidate does not bind",
+            code="candidate_shape_mismatch",
+            permanent=True,
+        )
 
 
 def _text_references(value: object) -> set[str]:

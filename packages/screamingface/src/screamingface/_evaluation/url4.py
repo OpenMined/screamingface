@@ -16,7 +16,11 @@ from screamingface._evaluation.model import (
     _member_projection,
 )
 from screamingface._evaluation.results import report_from_url4_outcome
-from screamingface._evaluation.topology import _RecipeTopology, _topology_from_expression
+from screamingface._evaluation.topology import (
+    _RecipeTopology,
+    _topology_bindings,
+    _topology_from_expression,
+)
 from screamingface.events import Event
 from screamingface.report import Report
 
@@ -116,21 +120,26 @@ def _candidate_from_topology(
     final: str,
     selected: set[str],
 ) -> Candidate:
-    nodes = _topology_model_nodes(topology)
-    if topology.binding != final or set(nodes) != set(calls):
+    bindings = _topology_bindings(topology)
+    if topology.binding != final or set(bindings) != set(calls):
         raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
-    _validate_topology_dependencies(topology, calls, input_dependencies=())
+    # INVARIANT: the inert topology metadata must agree with the executable calls —
+    # each call's parsed `$`-references equal the walker's context dependencies.
+    for name, (_, context_dependencies) in calls.items():
+        if bindings[name].context_dependencies != context_dependencies:
+            raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
     fusion_names = _direct_fusion_output_names(topology)
-    dependencies = _topology_operation_dependencies(topology)
     operations = tuple(
         _compiled_operation(
             id=f"op_{name}",
-            kind=nodes[name].role or "model",
+            kind=bindings[name].node.role or "model",
             label=(
-                f"{fusion_names.get(name, nodes[name].name)} "
-                f"{'synthesis' if nodes[name].role == 'synthesis' else 'answer'}"
+                f"{fusion_names.get(name, bindings[name].node.name)} "
+                f"{'synthesis' if bindings[name].node.role == 'synthesis' else 'answer'}"
             ),
-            depends_on=tuple(f"op_{dependency}" for dependency in dependencies[name]),
+            depends_on=tuple(
+                f"op_{dependency}" for dependency in bindings[name].operation_dependencies
+            ),
         )
         for name in calls
         if name in selected
@@ -158,62 +167,6 @@ def _candidate_from_topology(
     )
 
 
-def _topology_model_nodes(value: _RecipeTopology) -> dict[str, _RecipeTopology]:
-    selected: dict[str, _RecipeTopology] = {}
-
-    def visit(node: _RecipeTopology) -> None:
-        if node.kind == "model":
-            previous = selected.setdefault(node.binding, node)
-            if previous != node:
-                raise ValueError("Evaluation URL4 has conflicting Recipe topology metadata")
-            return
-        children = node.stages if node.kind == "pipeline" else node.members
-        for child in children:
-            visit(child)
-        if node.synthesizer is not None:
-            visit(node.synthesizer)
-
-    visit(value)
-    return selected
-
-
-def _validate_topology_dependencies(
-    value: _RecipeTopology,
-    calls: dict[str, tuple[str, tuple[str, ...]]],
-    *,
-    input_dependencies: tuple[str, ...],
-) -> None:
-    if value.kind == "model":
-        if calls[value.binding][1] != input_dependencies:
-            raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
-        return
-    if value.kind == "pipeline":
-        dependencies = input_dependencies
-        for stage in value.stages:
-            _validate_topology_dependencies(
-                stage,
-                calls,
-                input_dependencies=dependencies,
-            )
-            dependencies = (stage.binding,)
-        return
-    for member in value.members:
-        _validate_topology_dependencies(
-            member,
-            calls,
-            input_dependencies=input_dependencies,
-        )
-    assert value.synthesizer is not None
-    synthesis_dependencies = tuple(
-        dict.fromkeys((*input_dependencies, *(member.binding for member in value.members)))
-    )
-    _validate_topology_dependencies(
-        value.synthesizer,
-        calls,
-        input_dependencies=synthesis_dependencies,
-    )
-
-
 def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
     selected: dict[str, str] = {}
 
@@ -229,30 +182,6 @@ def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
                 selected[node.binding] = node.name
 
     visit(value)
-    return selected
-
-
-def _topology_operation_dependencies(
-    value: _RecipeTopology,
-) -> dict[str, tuple[str, ...]]:
-    selected: dict[str, tuple[str, ...]] = {}
-
-    def visit(node: _RecipeTopology, upstream: tuple[str, ...]) -> None:
-        if node.kind == "model":
-            selected[node.binding] = upstream
-            return
-        if node.kind == "pipeline":
-            dependencies = upstream
-            for stage in node.stages:
-                visit(stage, dependencies)
-                dependencies = (stage.binding,)
-            return
-        for member in node.members:
-            visit(member, upstream)
-        assert node.synthesizer is not None
-        visit(node.synthesizer, tuple(member.binding for member in node.members))
-
-    visit(value, ())
     return selected
 
 

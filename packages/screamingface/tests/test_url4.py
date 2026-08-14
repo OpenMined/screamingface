@@ -353,3 +353,57 @@ def test_url4_conversion_requires_the_canonical_recipe_descriptor() -> None:
 
     with pytest.raises(ValueError, match="missing required Recipe metadata"):
         value.to_python()
+
+
+def test_topology_bindings_separate_context_references_from_operation_edges() -> None:
+    from screamingface._evaluation.topology import (
+        _RecipeTopology,
+        _topology_bindings,
+    )
+
+    topology = _RecipeTopology(
+        kind="pipeline",
+        name="draft->panel",
+        binding="synthesis_1",
+        stages=(
+            _RecipeTopology(kind="model", name="draft", binding="model_1", role="model"),
+            _RecipeTopology(
+                kind="fusion",
+                name="panel",
+                binding="synthesis_1",
+                members=(_RecipeTopology(kind="model", name="a", binding="model_2", role="model"),),
+                synthesizer=_RecipeTopology(
+                    kind="model",
+                    name="synth",
+                    binding="synthesis_1",
+                    role="synthesis",
+                ),
+            ),
+        ),
+    )
+
+    bindings = _topology_bindings(topology)
+
+    # WHY: one walker, two dependency notions — context references mirror the
+    # rendered call's `$` references (a fusion synthesizer sees upstream input AND
+    # members), while operation edges mirror the compiler's DAG (members only).
+    assert set(bindings) == {"model_1", "model_2", "synthesis_1"}
+    assert bindings["model_1"].context_dependencies == ()
+    assert bindings["model_1"].operation_dependencies == ()
+    assert bindings["model_2"].context_dependencies == ("model_1",)
+    assert bindings["model_2"].operation_dependencies == ("model_1",)
+    assert bindings["synthesis_1"].context_dependencies == ("model_1", "model_2")
+    assert bindings["synthesis_1"].operation_dependencies == ("model_2",)
+    assert bindings["synthesis_1"].node.role == "synthesis"
+
+    conflicting = _RecipeTopology(
+        kind="pipeline",
+        name="twice",
+        binding="model_1",
+        stages=(
+            _RecipeTopology(kind="model", name="one", binding="model_1", role="model"),
+            _RecipeTopology(kind="model", name="two", binding="model_1", role="model"),
+        ),
+    )
+    with pytest.raises(ValueError, match="conflicting Recipe topology"):
+        _topology_bindings(conflicting)

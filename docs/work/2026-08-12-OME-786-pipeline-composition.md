@@ -1,9 +1,9 @@
 ---
 ticket: OME-786
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-08-12
-finished:
+finished: 2026-08-12
 ---
 
 # OME-786 — serial Pipeline and recursive Candidate composition

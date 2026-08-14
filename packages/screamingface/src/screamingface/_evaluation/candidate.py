@@ -79,8 +79,8 @@ class _CandidateCompiler:
         self._model_count = 0
         self._synthesis_count = 0
 
-    def compile(self, recipe: Recipe, *, synthesis_root: bool = False) -> _CompiledCandidate:
-        root = self._recipe(recipe, synthesis=synthesis_root)
+    def compile(self, recipe: Recipe) -> _CompiledCandidate:
+        root = self._recipe(recipe)
         members = (
             tuple(
                 _member_projection(
@@ -355,16 +355,6 @@ def _fusion_context(input_context: str, members: tuple[_ResolvedRecipe, ...]) ->
             }
         )
     )
-
-
-def _recipe_kind(recipe: Recipe) -> Literal["model", "fusion", "pipeline"]:
-    if isinstance(recipe, Model):
-        return "model"
-    if isinstance(recipe, Fusion):
-        return "fusion"
-    if isinstance(recipe, Pipeline):
-        return "pipeline"
-    raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
 
 
 def _required_topology(value: _ResolvedRecipe) -> _RecipeTopology:
