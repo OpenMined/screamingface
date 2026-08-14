@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import NoReturn, cast
+from typing import Literal, NoReturn, cast
 
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
@@ -13,6 +13,7 @@ from screamingface.errors import PlanningError
 
 _BENCHMARK_SCHEMA = "screamingface.benchmark.v1"
 _CHECK_COSTS = frozenset({"free", "paid"})
+type _CheckCost = Literal["free", "paid"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +27,7 @@ class _CheckSurface:
 
     check_route: str
     feedback_intent: str
-    expected_check_cost: str
+    expected_check_cost: _CheckCost
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +101,7 @@ def _check_surface(value: object) -> _CheckSurface | None:
     return _CheckSurface(
         check_route=check_route,
         feedback_intent=feedback_intent,
-        expected_check_cost=cost,
+        expected_check_cost=cast(_CheckCost, cost),
     )
 
 

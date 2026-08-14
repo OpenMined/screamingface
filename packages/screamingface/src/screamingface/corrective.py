@@ -17,10 +17,9 @@ from typing import Any, ClassVar
 from screamingface.recipe import Recipe, _name, _recipe
 
 # The structural floor is a PANEL rule (a corrective panel needs >=2 drafts to
-# select between); the ceiling is the judge's letter-picker mechanism cap.
-# Mirrors the engine's ensemble policy — a transport contract, not a preference.
+# select between). The former four-member ceiling belonged to the LANL variant,
+# not to this benchmark-independent Recipe.
 _MIN_MEMBERS = 2
-_MAX_MEMBERS = 4
 _DEFAULT_MAX_ROUNDS = 3
 
 
@@ -128,8 +127,8 @@ def _members(values: object) -> tuple[Recipe, ...]:
             "CorrectiveLoop members must be an ordered sequence of model routes or Recipes"
         )
     selected = tuple(_recipe(value, "CorrectiveLoop member") for value in values)
-    if not _MIN_MEMBERS <= len(selected) <= _MAX_MEMBERS:
-        raise ValueError(f"a CorrectiveLoop requires {_MIN_MEMBERS} to {_MAX_MEMBERS} members")
+    if len(selected) < _MIN_MEMBERS:
+        raise ValueError(f"a CorrectiveLoop requires at least {_MIN_MEMBERS} members")
     return selected
 
 

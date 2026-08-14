@@ -327,6 +327,26 @@ def test_evaluate_url4_replays_a_corrective_recipe_without_recompiling_it() -> N
     )
 
 
+def test_evaluate_url4_rejects_a_corrective_retry_call_hidden_from_its_recipe() -> None:
+    first, rest = CORRECTIVE_REPLAY_URL4.split("/provider/member-a", 1)
+    tampered_evaluation = (
+        first + "/provider/member-a" + rest.replace("/provider/member-a", "/provider/hidden", 1)
+    )
+    transport = _ReplayTransport()
+
+    with (
+        sf.Client(
+            engine_url="https://engine.example",
+            http_transport=httpx.MockTransport(_engine),
+            run_transport=transport,
+        ) as client,
+        pytest.raises(ValueError, match="does not match its Recipe metadata"),
+    ):
+        client.evaluate(sf.Url4(tampered_evaluation), progress=False)
+
+    assert transport.candidate is None
+
+
 @pytest.mark.parametrize("options", [{"benchmark": "draco/smoke"}, {"limit": 1}])
 def test_evaluate_url4_rejects_recompilation_options(options: dict[str, object]) -> None:
     transport = _ReplayTransport()

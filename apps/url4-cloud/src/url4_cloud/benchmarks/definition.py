@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from url4 import Node, RelExpr, build, expr, render, src, text
 from url4.peer.server import Url4Node
@@ -15,6 +16,7 @@ from url4_cloud.retrieval_policy import normalize_excluded_domains
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
+type CheckCost = Literal["free", "paid"]
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)*")
 _VARIANT = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -38,7 +40,7 @@ class CheckSurface:
 
     check_route: str
     feedback_intent: str
-    expected_check_cost: str
+    expected_check_cost: CheckCost
 
     def __post_init__(self) -> None:
         if not isinstance(self.check_route, str) or not self.check_route.startswith("/"):

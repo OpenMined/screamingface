@@ -127,6 +127,32 @@ class _CandidateCompiler:
             parameter_assignments=tuple(self._parameter_assignments),
         )
 
+    def _append_source(self, value: Node) -> None:
+        """Attach one source owned by a composite compiler extension."""
+
+        self._sources.append(value)
+
+    def _capture_recipe(
+        self,
+        recipe: Recipe,
+        *,
+        input_context: str,
+        input_dependencies: tuple[str, ...] = (),
+        synthesis: bool,
+    ) -> tuple[_ResolvedRecipe, tuple[Node, ...]]:
+        """Compile a nested Recipe and detach its sources for isolated placement."""
+
+        start = len(self._sources)
+        resolved = self._recipe(
+            recipe,
+            input_context=input_context,
+            input_dependencies=input_dependencies,
+            synthesis=synthesis,
+        )
+        captured = tuple(self._sources[start:])
+        del self._sources[start:]
+        return resolved, captured
+
     def _recipe(
         self,
         recipe: Recipe,

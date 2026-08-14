@@ -28,7 +28,10 @@ benchmark-independent capability:
 ## Contracts
 
 - **Check-surface port** (per benchmark, behind its adapter):
-  `check(answer) → { passed: bool, feedback: sanitized text, satisfaction: float ∈ [0,1] }`.
+  `check({input, invocation}) → {schema, passed: bool, feedback: sanitized text,
+  satisfaction: float ∈ [0,1], answer: str, invocation: str}`.
+  `invocation` is the exact refusal-safe Candidate Invocation envelope; the adapter grades
+  the same `answer` that selection can later publish, and malformed mismatches fail closed.
   - `passed` typed bool at the port; graded benchmarks convert behind the adapter.
   - `feedback` sanitized by contract (sealed-envelope rule; IFEval #528 precedent — every
     adapter ships a leak test). DRACO: axis-level only. HealthBench: theme-level only.
@@ -38,11 +41,12 @@ benchmark-independent capability:
 - **Pass criteria are named + revisioned** scoring semantics: `draco-pass.v1` =
   normalized weighted rubric score (clipped [0,1]) ≥ 0.7; satisfaction = same score.
   Proposed by us; reviewed in-PR (Keelan), not pre-decided.
-- **Client API**: one role arg `judge=` (selector/coach are internal roles enforced by
+- **Client interface**: one role arg `judge=` (selector/coach are internal roles enforced by
   prompts/gates; a split is a future backward-compatible addition). No `stop_when=`.
   `max_rounds` is a cost cap. Root-only recipes (inside Pipeline/Fusion the benchmark is
   undefined → compile-time rejection). Member floor ≥ 2 structural; LANL's 2–4 is a
-  variant parameter, not inherited.
+  variant parameter, not inherited. Generic member labels are unbounded lowercase base-26
+  (`a`…`z`, `aa`…), while actual execution limits remain Engine capabilities.
 - **Preflight (fail-before-spend)**: loop recipe + manifest without `check_surface` →
   `PlanningError("benchmark does not support mid-run checking", permanent)` before any
   paid call; `expected_check_cost: "paid"` surfaces expected check spend
@@ -53,7 +57,7 @@ benchmark-independent capability:
 - **Reporting**: per-case `stop_reason` + `rounds_executed` (generalizing
   `pass_attempt`/`selected_attempt`).
 - **Failure semantics kept from shipped precedents**: never-passes → last attempt scored;
-  tie → judge letter pick; tie-of-tie → first member (deterministic — reproducibility);
+  tie → judge label pick; tie-of-tie → first member (deterministic — reproducibility);
   judge/member failure → case fallback, coverage-declared.
 - **MCQ benchmarks get NO check surface** (pass/fail feedback over 4 options is an
   elimination attack); preflight refusal is correct behavior.

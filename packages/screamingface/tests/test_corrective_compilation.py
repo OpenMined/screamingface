@@ -18,6 +18,7 @@ from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.corrective import (
     ANSWER_ROUTE,
+    CORRECTIVE_FLOW,
     CORRECTIVE_PROTOCOL_REVISION,
     GATE_ROUTE,
     JUDGE_FEEDBACK_INSTRUCTION,
@@ -107,6 +108,19 @@ def test_member_and_judge_prompts_carry_the_protocol_prose() -> None:
     assert SELF_FEEDBACK_INSTRUCTION not in compiled.url4
 
 
+def test_client_owned_protocol_prose_stays_safe_and_revisioned() -> None:
+    for prose in (
+        RETRY_INSTRUCTION,
+        SELF_FEEDBACK_INSTRUCTION,
+        JUDGE_FEEDBACK_INSTRUCTION,
+        TIE_BREAK_INSTRUCTION,
+    ):
+        assert "'" not in prose
+        assert "," not in prose
+    assert "STOPS" in CORRECTIVE_FLOW
+    assert "verbatim" in CORRECTIVE_FLOW
+
+
 def test_solo_compiles_self_coaching_instead_of_a_judge() -> None:
     compiled = compile_candidate(sf.SelfCorrective("prov/a"), check_surface=_SURFACE)
     assert compiled.kind == "self_corrective"
@@ -131,6 +145,36 @@ def test_models_cover_members_and_judge() -> None:
 def test_member_projections_describe_the_round_one_panel() -> None:
     compiled = compile_candidate(_loop(), check_surface=_SURFACE)
     assert [member.name for member in compiled.members] == ["a", "b"]
+
+
+def test_member_labels_extend_beyond_the_retired_lanl_ceiling() -> None:
+    compiled = compile_candidate(
+        sf.CorrectiveLoop(
+            ["prov/a", "prov/b", "prov/c", "prov/d", "prov/e"],
+            judge="prov/j",
+            max_rounds=1,
+        ),
+        check_surface=_SURFACE,
+    )
+
+    assert "loop_member_1_e" in compiled.url4
+    assert "loop_check_1_e" in compiled.url4
+    assert compiled.url4.count(f"{MEMBER_ROUTE}(") == 5
+
+
+def test_member_labels_remain_unique_after_z() -> None:
+    compiled = compile_candidate(
+        sf.CorrectiveLoop(
+            [f"prov/member-{index}" for index in range(27)],
+            judge="prov/j",
+            max_rounds=1,
+        ),
+        check_surface=_SURFACE,
+    )
+
+    assert "loop_member_1_z" in compiled.url4
+    assert "loop_member_1_aa" in compiled.url4
+    assert compiled.url4.count(f"{MEMBER_ROUTE}(") == 27
 
 
 def test_compiling_without_a_check_surface_fails_before_rendering() -> None:

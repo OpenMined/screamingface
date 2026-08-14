@@ -384,6 +384,28 @@ def test_url4_conversion_rejects_topology_metadata_that_disagrees_with_the_calls
         invalid.to_python()
 
 
+def test_corrective_url4_reconstruction_rejects_an_undeclared_retry_model() -> None:
+    value = _corrective_url4(
+        sf.CorrectiveLoop(
+            ["provider/a", "provider/b"],
+            judge="provider/judge",
+            max_rounds=2,
+        )
+    )
+    # Round-two calls are executable even though the public topology describes
+    # the reusable member Recipe once. Reconstruction must therefore validate
+    # the complete compiled protocol, not merely the topology's first bindings.
+    before_retry, retry_and_after = value.split("/provider/a", 1)
+    invalid = sf.Url4(
+        before_retry
+        + "/provider/a"
+        + retry_and_after.replace("/provider/a", "/provider/undeclared", 1)
+    )
+
+    with pytest.raises(ValueError, match="does not match its Recipe metadata"):
+        invalid.to_python()
+
+
 @pytest.mark.parametrize(
     ("metadata", "message"),
     [

@@ -21,6 +21,7 @@ from screamingface._evaluation.benchmark import (
 from screamingface._evaluation.runner import _evaluation_inputs, _validate_check_surface
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import PlanningError
+from screamingface.warnings import EvaluationWarning
 
 _CHECK_BLOCK = {
     "check_route": "/benchmarks/ifeval/abc123/check-surface",
@@ -125,6 +126,22 @@ def test_a_loop_with_an_advertised_surface_passes_preflight() -> None:
         expected_check_cost="free",
     )
     _validate_check_surface((loop,), "quizbench", _bare_resource(surface))
+
+
+def test_a_paid_surface_warns_with_the_maximum_check_call_count() -> None:
+    loop = sf.CorrectiveLoop(
+        ["prov/a", "prov/b", "prov/c"],
+        judge="prov/j",
+        max_rounds=2,
+    )
+    surface = _CheckSurface(
+        check_route="/benchmarks/quizbench/r1/check-surface",
+        feedback_intent="feedback",
+        expected_check_cost="paid",
+    )
+
+    with pytest.warns(EvaluationWarning, match="60 paid check calls"):
+        _validate_check_surface((loop,), "quizbench", _bare_resource(surface))
 
 
 def test_corrective_recipes_are_public_evaluation_inputs() -> None:

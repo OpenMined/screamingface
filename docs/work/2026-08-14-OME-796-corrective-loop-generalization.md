@@ -15,18 +15,20 @@ into `benchmarks/ifeval/` as two registry variants and is uncompilable from the 
 (the engine's `_build_lanl` emits a two-hole `$candidate_members`/`$candidate_synthesizer`
 shape the linker rejects with `candidate_shape_mismatch`). After this unit: the loop
 machinery lives in generic `benchmarks/ensemble/` behind a check-surface port
-(`check(answer) → {passed, feedback, satisfaction}`), benchmarks advertise
+(`check({input, invocation}) → {schema, passed, feedback, satisfaction, answer, invocation}`), benchmarks advertise
 `check_surface` in their manifest, and `sf.CorrectiveLoop` / `sf.SelfCorrective` compile
 the whole loop client-side into ONE `$candidate`. IFEval (free deterministic check),
 DRACO (`draco-pass.v1`, score ≥ 0.7, paid), and HealthBench (second rubric customer →
 `rubric_check` registry component extraction) are the three adapters.
 
-Design source of record: OME-796 issue body ("Design resolution 2026-08-14") +
-`.dk/plans/2026-08-13-ome796-corrective-loop-generalization.md` (untracked working copy).
+Design source of record: OME-796 issue body ("Design resolution 2026-08-14") plus
+`docs/spec/2026-08-14-OME-796-corrective-loop-generalization.md` and
+`docs/plan/2026-08-14-OME-796-corrective-loop-generalization.md`.
 
 ## Planned changes
 
-ONE PR, staged commits (stage 0 → 4):
+Staged delivery: PR #597 (stage 0), PR #598 (stages 1–2), PR #599 (stage 3),
+and PR #600 (stage 4):
 
 - Stage 0 (client pre-cleanup, PR #571 findings): `packages/screamingface/src/screamingface/`
   `report.py` (drop duplicate-name rejection; disambiguate display), `_evaluation/url4.py` +
@@ -86,16 +88,17 @@ OME-801/802/803/804 extraction PRs) — re-verify every touch point before editi
   runner,model,url4}.py`, `__init__.py`; notebook 07 rebuilt as the 2×2 grid; new
   `tests/{test_corrective_recipes,test_corrective_compilation,
   test_check_surface_preflight}.py`.
-- **Commits:** `9f47489a` (stage 1, engine), `70627b6c` (stage 2, client),
-  `78c1f8a4` (cross-stack e2e + transport goldens). Stage 0 landed separately as
-  PR #597 (`OME-826`); this branch is stacked on its head.
-- **Gates:** url4-cloud ALL GREEN (Ruff, format, Pyright, layering, pytest
-  1408p/5s with cov≥80); screamingface ALL GREEN (Ruff, format, Pyright, pytest
-  825p/1s with cov≥95, check_notebooks, build, check_distribution). Append-only
+- **Commits:** the five Khoa-authored stage commits remain intact on PR #598, followed by
+  review commits that complete public execution/replay, refusal integrity, scalable panel
+  labels, paid-check disclosure, and transport-golden rebaking. Stage 0 landed separately
+  as PR #597 (`OME-826`); PR #598 is rebased directly onto `main`.
+- **Gates:** url4-cloud ALL GREEN (Ruff, format, Pyright, layering, full tests with
+  coverage≥80); screamingface ALL GREEN (Ruff, format, Pyright, full tests with
+  coverage≥95, check_notebooks, build, check_distribution). Append-only
   check skipped deliberately for the plan-approved variant retirement (deleted
   variant tests are named in the stage-1 commit).
 - **Deviations:**
-  1. **Check port is input-addressed** (`check({input, answer})`, new
+  1. **Check port is input-addressed and refusal-safe** (`check({input, invocation})`, new
      `/benchmarks/ifeval/<rev>/check-surface` route) — a black-box `$candidate`
      only sees `$input`, so the plan's implied case-addressed check was
      unimplementable; the adapter resolves the case by exact prompt text.
@@ -114,8 +117,8 @@ OME-801/802/803/804 extraction PRs) — re-verify every touch point before editi
   6. **SelfCorrective gates its rounds (early exit)** — deliberate improvement
      over the retired engine variant's unconditional three attempts.
   7. **Stages 3–4 (DRACO/HealthBench adapters) intentionally NOT in this PR**
-     per Khoa's 2026-08-14 instruction ("corrective loop only"); the plan's
-     stage 3/4 sections remain open under `OME-827`.
+     per Khoa's 2026-08-14 instruction ("corrective loop only"); they are owned by
+     OME-829/PR #599 and OME-830/PR #600.
   8. TDD inverted for the client loop renderer (url4 render-rule discovery
      forced iteration); behavior locked afterwards by the compilation tests and
      the engine-side e2e with client-rendered goldens.

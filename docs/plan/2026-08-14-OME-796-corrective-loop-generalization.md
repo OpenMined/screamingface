@@ -1,19 +1,19 @@
-# Plan — OME-796: one PR, staged commits (stage 0 → 4)
+# Plan — OME-796: staged delivery across the owning work items
 
 Spec: `docs/spec/2026-08-14-OME-796-corrective-loop-generalization.md` · Ledger:
 `docs/work/2026-08-14-OME-796-corrective-loop-generalization.md` · Branch:
-`OME-796-corrective-loop` (worktree `.trees/OME-796-corrective-loop`).
+`OME-796-corrective-loop` (review worktree `/private/tmp/sf-OME-796-corrective-loop`).
 
-**Delivery decision (Khoa): ONE PR.** Stages = the commit sequence, each independently
-green; draft PR opens after stage 1 so CI runs the whole way. Escape hatch: stages 3–4
-split out as a follow-up PR if the `draco-pass.v1` review stalls.
+**Delivery record:** stage 0 landed separately in PR #597; stages 1–2 are PR #598;
+the DRACO adapter is PR #599 and the HealthBench adapter is PR #600. Each PR remains
+owned by its named work item and is rebased onto `main` as its prerequisite merges.
 
 **Recon caveat**: file:line references were surveyed at `617441da`; main is now
 `40096845` (includes the OME-801/802/803/804 extraction merges) — **re-verify every touch
 point against the worktree before editing**; the shapes below are the contract, the lines
 are hints.
 
-## Stage 0 — client pre-cleanup (PR #571 review findings) · OME-828
+## Stage 0 — client pre-cleanup (merged PR #597) · OME-826
 
 All in `packages/screamingface/`:
 
@@ -33,7 +33,7 @@ All in `packages/screamingface/`:
 
 Gate: existing suite green; goldens byte-identical.
 
-## Stage 1 — engine lift + port + manifest + retirement · OME-827
+## Stage 1 — engine lift + port + manifest + retirement (PR #598) · OME-827
 
 `apps/url4-cloud/src/url4_cloud/benchmarks/`:
 
@@ -41,7 +41,8 @@ Gate: existing suite green; goldens byte-identical.
    member-record/answer, gate, select, envelope), `ifeval/iterative_correction.py`
    (expression builders), `corrective_policy.py` (routes/prose; revision scheme moves and
    re-hashes). Every `CHECK_ROUTE` reference becomes a port parameter.
-2. Port: benchmark adapters implement `check(answer) → {passed, feedback, satisfaction}`;
+2. Port: benchmark adapters implement
+   `check({input, invocation}) → {schema, passed, feedback, satisfaction, answer, invocation}`;
    `_strict_satisfaction` computation moves behind IFEval's adapter (fraction of
    instructions satisfied); generic code reads the number.
 3. Manifest: `check_surface` block emitted by `definition.py` metadata/resource and served
@@ -53,7 +54,7 @@ Gate: existing suite green; goldens byte-identical.
 
 Gate: url4-cloud suite + migrated substrate tests (parameterized by a stub check surface).
 
-## Stage 2 — client recipes + compilation + preflight + notebook 07 · OME-828
+## Stage 2 — client recipes + compilation + preflight + notebook 07 (PR #598) · OME-828
 
 `packages/screamingface/`:
 
@@ -75,7 +76,7 @@ Gate: url4-cloud suite + migrated substrate tests (parameterized by a stub check
 Gate: compile goldens (byte-identical), preflight tests, construction validation, notebook
 check green against local stack (free models only).
 
-## Stage 3 — DRACO adapter + notebook cell · OME-827
+## Stage 3 — DRACO adapter + notebook cell (PR #599) · OME-829
 
 1. DRACO check route: one judge pass over the case rubric for a single answer (paid).
 2. `draco-pass.v1`: passed = normalized weighted score (clipped [0,1]) ≥ 0.7; satisfaction
@@ -87,7 +88,7 @@ check green against local stack (free models only).
 5. DRACO notebook corrective cell (one changed line vs notebook 07; prints preflight spend
    estimate; mock stack default).
 
-## Stage 4 — HealthBench adapter + `rubric_check` extraction · OME-827
+## Stage 4 — HealthBench adapter + `rubric_check` extraction (PR #600) · OME-830
 
 1. HealthBench adapter written against the DRACO shape → extract the shared part as the
    `rubric_check` registry component with named args (rubric source, threshold — clamped

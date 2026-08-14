@@ -28,13 +28,17 @@ def test_corrective_loop_accepts_an_explicit_name() -> None:
 def test_corrective_loop_enforces_the_member_floor() -> None:
     # WHY 2: a corrective PANEL needs at least two drafts to select between —
     # one member is SelfCorrective's shape, not a degenerate panel.
-    with pytest.raises(ValueError, match="2 to 4 members"):
+    with pytest.raises(ValueError, match="at least 2 members"):
         sf.CorrectiveLoop(["prov/a"], judge="prov/j")
 
 
-def test_corrective_loop_enforces_the_letter_mechanism_ceiling() -> None:
-    with pytest.raises(ValueError, match="2 to 4 members"):
-        sf.CorrectiveLoop(["prov/a", "prov/b", "prov/c", "prov/d", "prov/e"], judge="prov/j")
+def test_corrective_loop_does_not_inherit_the_lanl_four_member_ceiling() -> None:
+    loop = sf.CorrectiveLoop(
+        ["prov/a", "prov/b", "prov/c", "prov/d", "prov/e"],
+        judge="prov/j",
+    )
+
+    assert [member.name for member in loop.members] == ["a", "b", "c", "d", "e"]
 
 
 def test_corrective_loop_requires_a_judge() -> None:

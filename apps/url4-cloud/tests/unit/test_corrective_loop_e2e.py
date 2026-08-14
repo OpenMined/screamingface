@@ -73,6 +73,7 @@ def _chat(content: str) -> httpx.Response:
 def _respond(
     calls: list[tuple[str, str]],
     *,
+    member_a_first_round_passes: bool,
     member_b_first_round_passes: bool,
     member_b_refuses: bool,
 ):
@@ -104,7 +105,7 @@ def _respond(
             )
         replies = {
             "prov/judge": "Remove the comma and write everything in lowercase.",
-            "prov/member-a": _FAIL_ANSWER,
+            "prov/member-a": _PASS_ANSWER if member_a_first_round_passes else _FAIL_ANSWER,
         }
         return _chat(replies.get(model) or _member_b(content))
 
@@ -115,6 +116,7 @@ async def _run(
     tmp_path: Path,
     candidate_file: str,
     *,
+    member_a_first_round_passes: bool = False,
     member_b_first_round_passes: bool,
     member_b_refuses: bool = False,
 ) -> tuple[dict[str, object], list[tuple[str, str]]]:
@@ -124,6 +126,7 @@ async def _run(
         transport=httpx.MockTransport(
             _respond(
                 calls,
+                member_a_first_round_passes=member_a_first_round_passes,
                 member_b_first_round_passes=member_b_first_round_passes,
                 member_b_refuses=member_b_refuses,
             )
@@ -203,6 +206,27 @@ async def test_a_selected_provider_refusal_is_graded_and_published_verbatim(
     assert grade["score"] == 1.0
     assert case["failures"] == []
     assert [model for model, _ in calls] == ["prov/member-a", "prov/member-b"]
+
+
+async def test_a_provider_refusal_does_not_abort_a_passing_sibling(
+    tmp_path: Path,
+) -> None:
+    result, calls = await _run(
+        tmp_path,
+        "corrective_loop_candidate.url4",
+        member_a_first_round_passes=True,
+        member_b_first_round_passes=False,
+        member_b_refuses=True,
+    )
+    assert result["score"] == 1.0
+    case = _first_case(result)
+    assert case["status"] == "scored"
+    assert case["output"] == _PASS_ANSWER
+    assert case["refusal"] is None
+    assert case["failures"] == []
+    # Both texts pass the benchmark checker, so the generic tie-break path runs;
+    # the refusal remains a normal checked member rather than aborting the panel.
+    assert [model for model, _ in calls] == ["prov/member-a", "prov/member-b", "prov/judge"]
 
 
 async def test_a_no_pass_round_buys_one_coaching_call_and_a_retry(tmp_path: Path) -> None:

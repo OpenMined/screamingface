@@ -342,28 +342,50 @@ def _validate_check_surface(
     benchmark: str,
     resource: _BenchmarkResource,
 ) -> None:
-    """Fail a loop recipe on a check-less benchmark BEFORE any compile or spend.
+    """Settle loop Recipes against a benchmark's check surface before spend.
 
-    INVARIANT (fail-before-spend): this runs right after the free benchmark
-    fetch — an MCQ-style benchmark deliberately advertises no check surface
-    (pass/fail feedback over a handful of options is an elimination attack),
-    and that refusal must cost nothing.
+    A missing surface fails closed. A paid surface declares the maximum number
+    of benchmark-owned check calls so the caller sees the cost multiplier before
+    Candidate compilation or model dispatch.
     """
+
+    import warnings
 
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
     from screamingface.errors import PlanningError
+    from screamingface.warnings import EvaluationWarning
 
     loops = tuple(value for value in values if isinstance(value, CorrectiveLoop | SelfCorrective))
-    if not loops or resource.check_surface is not None:
+    if not loops:
         return
-    names = ", ".join(repr(value.name) for value in loops)
-    raise PlanningError(
-        f"Benchmark {benchmark!r} does not support mid-run checking, so corrective "
-        f"candidate(s) {names} cannot run on it",
-        code="check_surface_missing",
-        permanent=True,
-        details={"benchmark": benchmark, "candidates": [value.name for value in loops]},
+    surface = resource.check_surface
+    if surface is None:
+        names = ", ".join(repr(value.name) for value in loops)
+        raise PlanningError(
+            f"Benchmark {benchmark!r} does not support mid-run checking, so corrective "
+            f"candidate(s) {names} cannot run on it",
+            code="check_surface_missing",
+            permanent=True,
+            details={"benchmark": benchmark, "candidates": [value.name for value in loops]},
+        )
+    if surface.expected_check_cost != "paid":
+        return
+    per_case = sum(value.max_rounds * _loop_member_count(value) for value in loops)
+    maximum = per_case * resource.case_count
+    warnings.warn(
+        f"Benchmark {benchmark!r} may make up to {maximum} paid check calls "
+        f"({per_case} per case x {resource.case_count} cases), in addition to the "
+        "Candidate's own model calls. Passing earlier uses fewer calls; each check "
+        "may retry according to the benchmark's policy.",
+        EvaluationWarning,
+        stacklevel=3,
     )
+
+
+def _loop_member_count(recipe: Recipe) -> int:
+    from screamingface.corrective import CorrectiveLoop
+
+    return len(recipe.members) if isinstance(recipe, CorrectiveLoop) else 1
 
 
 def _evaluation_inputs(

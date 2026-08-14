@@ -5,12 +5,32 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from url4 import Expression, Iteration, Node, RelExpr, RelUrl, Source, Text, Url4Error, build, walk
+from url4 import (
+    Expression,
+    Iteration,
+    Node,
+    RelExpr,
+    RelUrl,
+    Source,
+    Text,
+    Url4Error,
+    build,
+    render,
+    walk,
+)
 from url4.core.nodes import children
 
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
-from screamingface._evaluation.topology import _RecipeTopology, _topology_from_expression
+from screamingface._evaluation.topology import (
+    _RecipeTopology,
+    _topology_bindings,
+    _topology_from_expression,
+)
+
+if TYPE_CHECKING:
+    from screamingface.recipe import Recipe
 
 _BINDING = re.compile(r"(?:model|synthesis)_\d+")
 _REFERENCE = re.compile(r"\$(model_\d+|synthesis_\d+)")
@@ -63,7 +83,7 @@ def _to_python(value: str) -> str:
     calls = _calls(candidate)
     topology = _topology_from_expression(candidate)
     final = _final_binding(candidate, calls, topology)
-    _validate_topology(topology, calls, final)
+    _validate_topology(candidate, topology, calls, final)
     lines = _render_topology(topology, calls, indent=0)
     lines[0] = f"candidate = {lines[0]}"
     source = ["import screamingface as sf", "", *lines]
@@ -292,6 +312,7 @@ def _render_fusion_topology(
 
 
 def _validate_topology(
+    candidate: Expression,
     value: _RecipeTopology,
     calls: dict[str, _Call],
     final: str,
@@ -299,75 +320,98 @@ def _validate_topology(
     if value.binding != final:
         raise ValueError("URL4 Candidate Recipe topology does not match its result binding")
     if value.kind in {"corrective_loop", "self_corrective"}:
-        expected = set(_topology_model_bindings(value))
-        if not expected.issubset(calls):
-            raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+        _validate_compiled_corrective(candidate, value, calls)
         return
-    bindings: set[str] = set()
-    _validate_topology_node(value, calls, input_dependencies=(), bindings=bindings)
-    if bindings != set(calls):
+    bindings = _topology_bindings(value)
+    if set(bindings) != set(calls):
         raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+    for name, binding in bindings.items():
+        if calls[name].dependencies != binding.context_dependencies:
+            raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
 
 
-def _topology_model_bindings(value: _RecipeTopology):
-    if value.kind == "model":
-        yield value.binding
-        return
-    if value.kind == "pipeline":
-        for stage in value.stages:
-            yield from _topology_model_bindings(stage)
-        return
-    for member in value.members:
-        yield from _topology_model_bindings(member)
-    if value.kind == "fusion":
-        assert value.synthesizer is not None
-        yield from _topology_model_bindings(value.synthesizer)
-    elif value.kind == "corrective_loop":
-        assert value.judge is not None
-        yield from _topology_model_bindings(value.judge)
-
-
-def _validate_topology_node(
-    value: _RecipeTopology,
+def _validate_compiled_corrective(
+    candidate: Expression,
+    topology: _RecipeTopology,
     calls: dict[str, _Call],
-    *,
-    input_dependencies: tuple[str, ...],
-    bindings: set[str],
 ) -> None:
+    """Fail closed unless the executable loop exactly recompiles from its rider.
+
+    Corrective Recipes statically unroll repeated member and judge calls. Their
+    public topology intentionally describes each reusable Recipe once, so a
+    subset check cannot prove that later rounds execute the same Recipes. The
+    compiler is the protocol's one authoritative implementation: reconstruct
+    the public Recipe from the rider and its declared calls, recompile it, and
+    require byte-identical canonical URL4 before showing editable Python.
+    """
+
+    from screamingface._evaluation.benchmark import _CheckSurface
+    from screamingface._evaluation.candidate import compile_candidate
+
+    recipe = _recipe_from_topology(topology, calls)
+    assert topology.check_route is not None
+    expected = compile_candidate(
+        recipe,
+        check_surface=_CheckSurface(
+            check_route=topology.check_route,
+            feedback_intent="replay-validation",
+            expected_check_cost="free",
+        ),
+    ).url4
+    if render(candidate) != expected:
+        raise ValueError("URL4 Candidate does not match its Recipe metadata")
+
+
+def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe:
+    """Reconstruct one inert public Recipe without evaluating generated Python."""
+
+    from screamingface.corrective import CorrectiveLoop, SelfCorrective
+    from screamingface.fusion import Fusion
+    from screamingface.model import Model
+    from screamingface.pipeline import Pipeline
+
     if value.kind == "model":
         call = calls.get(value.binding)
-        if call is None or call.dependencies != input_dependencies:
+        if call is None:
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
-        bindings.add(value.binding)
-        return
-    if value.kind == "pipeline":
-        dependencies = input_dependencies
-        for stage in value.stages:
-            _validate_topology_node(
-                stage,
-                calls,
-                input_dependencies=dependencies,
-                bindings=bindings,
-            )
-            dependencies = (stage.binding,)
-        return
-    assert value.synthesizer is not None
-    for member in value.members:
-        _validate_topology_node(
-            member,
-            calls,
-            input_dependencies=input_dependencies,
-            bindings=bindings,
+        selected = Model(
+            call.model,
+            name=value.name if value.named else None,
+            prompt=call.prompt,
+            params=_editable_params(call),
         )
-    synthesis_dependencies = tuple(
-        dict.fromkeys((*input_dependencies, *(member.binding for member in value.members)))
-    )
-    _validate_topology_node(
-        value.synthesizer,
-        calls,
-        input_dependencies=synthesis_dependencies,
-        bindings=bindings,
-    )
+    elif value.kind == "pipeline":
+        selected = Pipeline(
+            [_recipe_from_topology(stage, calls) for stage in value.stages],
+            name=value.name if value.named else None,
+        )
+    elif value.kind == "fusion":
+        assert value.synthesizer is not None
+        inferred_name = "+".join(member.name for member in value.members)
+        selected = Fusion(
+            [_recipe_from_topology(member, calls) for member in value.members],
+            name=value.name if value.name != inferred_name else None,
+            synthesizer=_recipe_from_topology(value.synthesizer, calls),
+        )
+    elif value.kind == "self_corrective":
+        assert value.max_rounds is not None
+        member = _recipe_from_topology(value.members[0], calls)
+        selected = SelfCorrective(
+            member,
+            name=value.name if value.name != member.name else None,
+            max_rounds=value.max_rounds,
+        )
+    else:
+        assert value.max_rounds is not None
+        assert value.judge is not None
+        inferred_name = "+".join(member.name for member in value.members)
+        selected = CorrectiveLoop(
+            [_recipe_from_topology(member, calls) for member in value.members],
+            name=value.name if value.name != inferred_name else None,
+            judge=_recipe_from_topology(value.judge, calls),
+            max_rounds=value.max_rounds,
+        )
+    return selected
 
 
 def _editable_params(call: _Call) -> dict[str, str | int | float | bool]:

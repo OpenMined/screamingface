@@ -10,13 +10,13 @@ parent: OME-796
 
 # Lift corrective-loop substrate into generic ensemble module behind a check-surface port
 
-Engine side of the OME-796 design resolution (stages 1+3+4 of the one-PR plan): move the
-loop machinery from `benchmarks/ifeval/` into generic `benchmarks/ensemble/`; define the
-check-surface port (`check(answer) → {passed, feedback, satisfaction}`); advertise
+Engine substrate of the OME-796 design resolution (stage 1, delivered in PR #598): move
+the loop machinery from `benchmarks/ifeval/` into generic `benchmarks/ensemble/`; define
+the refusal-safe check-surface port
+(`check({input, invocation}) → {passed, feedback, satisfaction, answer, invocation}`); advertise
 `check_surface` in the `screamingface.benchmark.v1` manifest; retire the
-`ifeval/lanl-ensemble` + `ifeval/self-corrective` registry variants; ship the IFEval
-(`deterministic_check`), DRACO (`draco-pass.v1`), and HealthBench adapters, extracting the
-`rubric_check` registry component at the third customer (deletion test: args only).
+`ifeval/lanl-ensemble` + `ifeval/self-corrective` registry variants; and ship the IFEval
+deterministic adapter. DRACO and HealthBench adapters are owned by OME-829 and OME-830.
 
 Design source: OME-796 issue body ("Design resolution 2026-08-14") + attached diagrams.
-Ledger: `docs/work/2026-08-14-OME-796-corrective-loop-generalization.md`
+Ledger: `docs/work/2026-08-14-OME-827-ensemble-module-check-port.md`

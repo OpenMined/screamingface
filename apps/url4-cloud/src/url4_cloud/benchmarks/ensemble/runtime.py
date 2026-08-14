@@ -43,12 +43,11 @@ from url4_cloud.benchmarks.ensemble.policy import (
     ANSWER_ROUTE,
     CHECK_SURFACE_SCHEMA,
     GATE_ROUTE,
-    MAX_MEMBERS,
-    MEMBER_LETTERS,
     MEMBER_ROUTE,
     RESULT_ROUTE,
     ROLE_ROUTE,
     SELECT_ROUTE,
+    member_labels,
 )
 from url4_cloud.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from url4_cloud.benchmarks.evaluation import compact_json, json_array, json_object
@@ -121,9 +120,8 @@ def _gate(request: Request) -> str:
     drafts a judge must pick among: the passers when two or more passed, or
     (final attempt only) the never-pass drafts tied on maximal satisfaction.
 
-    INVARIANT: this endpoint is pure data -> data. The semantics of its
-    decisions are CORRECTIVE_FLOW, hashed into the protocol revision; the
-    expression can only show THAT a gate sits here, not what it decides.
+    INVARIANT: this endpoint is pure data -> data. Its decision-table tests pin
+    what the expression cannot show: what each gate decides.
     """
 
     kind, attempt, max_rounds = _gate_intent(request.intent)
@@ -156,14 +154,14 @@ def _gate(request: Request) -> str:
 
 
 def _select(request: Request) -> str:
-    """Select the round's representative Candidate Invocation per CORRECTIVE_FLOW.
+    """Select the round's representative Candidate Invocation.
 
     Rules, in order:
     1. Exactly one passer -> that answer; no judge involved.
-    2. Two or more passers -> the tie-break judge's letter chooses among the
-       PASSERS; an invalid or missing letter falls back to the first passer.
+    2. Two or more passers -> the tie-break judge's label chooses among the
+       PASSERS; an invalid or missing label falls back to the first passer.
     3. No passer -> maximal satisfaction; an exact tie defers to the judge's
-       letter among the tied, else the first tied answer stands.
+       label among the tied, else the first tied answer stands.
 
     INVARIANT: the selected envelope always carries a member's exact answer or
     refusal text. Selection can choose but never rewrite, and it preserves the
@@ -174,16 +172,16 @@ def _select(request: Request) -> str:
     if set(payload) != {"round", "tie"}:
         raise _unavailable("corrective selection payload must carry exactly round and tie")
     members = _round_records(payload["round"], "selection round")
-    letter = _tie_letter(payload["tie"], members)
+    label = _tie_label(payload["tie"], members)
     passers = [member for member in members if member["passed"]]
     if len(passers) == 1:
         chosen = passers[0]
     elif passers:
-        chosen = _by_letter(passers, letter) or passers[0]
+        chosen = _by_label(passers, label) or passers[0]
     else:
         best = max(member["satisfaction"] for member in members)
         tied = [member for member in members if member["satisfaction"] == best]
-        chosen = tied[0] if len(tied) == 1 else (_by_letter(tied, letter) or tied[0])
+        chosen = tied[0] if len(tied) == 1 else (_by_label(tied, label) or tied[0])
     invocation = chosen["invocation"]
     assert isinstance(invocation, str)
     return invocation
@@ -248,17 +246,17 @@ def _gate_intent(intent: str) -> tuple[str, int, int]:
 
 
 def _round_records(value: object, label: str) -> list[dict[str, Any]]:
-    """Decode one round: an object mapping consecutive member letters to records."""
+    """Decode one round: an object mapping consecutive member labels to records."""
 
     payload = json_object(value, label)
-    if not 1 <= len(payload) <= MAX_MEMBERS:
-        raise _unavailable(f"{label} must carry 1..{MAX_MEMBERS} member records")
-    expected = tuple(MEMBER_LETTERS[: len(payload)])
+    if not payload:
+        raise _unavailable(f"{label} must carry at least one member record")
+    expected = member_labels(len(payload))
     if tuple(payload) != expected:
-        raise _unavailable(f"{label} member letters must be consecutive from {MEMBER_LETTERS[0]!r}")
+        raise _unavailable(f"{label} member labels must be consecutive from 'a'")
     return [
-        _surface_record(payload[letter], f"{label} member {letter!r}", key=letter.upper())
-        for letter in expected
+        _surface_record(payload[key], f"{label} member {key!r}", key=key.upper())
+        for key in expected
     ]
 
 
@@ -330,30 +328,30 @@ def _invocation(value: object, label: str) -> tuple[str, str | None, str | None]
         raise _unavailable(f"{label} has an invalid Candidate Invocation: {exc}") from exc
 
 
-def _tie_letter(value: object, members: list[dict[str, Any]]) -> str | None:
-    """The judge's letter from the 0-or-1-item tie-pick collection, if any."""
+def _tie_label(value: object, members: list[dict[str, Any]]) -> str | None:
+    """The judge's label from the 0-or-1-item tie-pick collection, if any."""
 
     items = json_array(value, "tie picks") if value not in (None, "") else []
     if not items:
         return None
     selected = {member["key"]: member for member in members}
-    return _judge_letter(items[0], selected)
+    return _judge_label(items[0], selected)
 
 
-def _by_letter(pool: list[dict[str, Any]], letter: str | None) -> dict[str, Any] | None:
-    if letter is None:
+def _by_label(pool: list[dict[str, Any]], label: str | None) -> dict[str, Any] | None:
+    if label is None:
         return None
     for member in pool:
-        if member["key"] == letter:
+        if member["key"] == label:
             return member
     return None
 
 
-def _judge_letter(reply: object, selected: Mapping[str, object]) -> str | None:
-    """Accept only an unambiguous single-letter judge reply; prose gets no vote.
+def _judge_label(reply: object, selected: Mapping[str, object]) -> str | None:
+    """Accept only an unambiguous member-label judge reply; prose gets no vote.
 
-    A letter names a member answer (``a`` = member 1's answer, ``b`` = member
-    2's, and so on). Anything else — prose, an empty reply, a letter outside
+    A label names a member answer (``a`` = member 1's answer, ``b`` = member
+    2's, and so on). Anything else — prose, an empty reply, a label outside
     the answer set — returns None so `_select`'s deterministic fallbacks apply.
     """
 
@@ -361,7 +359,7 @@ def _judge_letter(reply: object, selected: Mapping[str, object]) -> str | None:
     if not raw:
         return None
     token = raw.split()[0].strip(".,:;!()[]'\"")
-    return token if len(token) == 1 and token in selected else None
+    return token if token in selected else None
 
 
 def _positive_int(value: object, label: str) -> int:

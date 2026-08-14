@@ -24,6 +24,7 @@ from screamingface._evaluation.topology import (
 from screamingface.events import Event
 from screamingface.report import Report
 from screamingface.url4 import _calls as _url4_calls
+from screamingface.url4 import _validate_topology
 
 
 def evaluate_url4_sync(
@@ -106,38 +107,26 @@ def _candidate_from_url4(value: str) -> Candidate:
         raise ValueError("Evaluation URL4 contains an invalid embedded Candidate expression")
 
     topology = _topology_from_expression(candidate)
-    calls = _candidate_calls(candidate)
+    parsed_calls = _url4_calls(candidate)
+    calls = {name: (call.model, call.dependencies) for name, call in parsed_calls.items()}
     final = _final_binding(candidate.intent.value, calls, topology)
+    _validate_topology(candidate, topology, parsed_calls, final)
     selected = (
         set(_topology_bindings(topology))
         if topology.kind in {"corrective_loop", "self_corrective"}
         else _dependency_closure(final, calls)
     )
-    return _candidate_from_topology(url4, topology, calls, final, selected)
+    return _candidate_from_topology(url4, topology, calls, selected)
 
 
 def _candidate_from_topology(
     url4: str,
     topology: _RecipeTopology,
     calls: dict[str, tuple[str, tuple[str, ...]]],
-    final: str,
     selected: set[str],
 ) -> Candidate:
     bindings = _topology_bindings(topology)
     corrective = topology.kind in {"corrective_loop", "self_corrective"}
-    call_bindings = set(calls)
-    topology_bindings = set(bindings)
-    if topology.binding != final or (
-        not topology_bindings.issubset(call_bindings)
-        if corrective
-        else topology_bindings != call_bindings
-    ):
-        raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
-    # INVARIANT: the inert topology metadata must agree with the executable calls —
-    # each call's parsed `$`-references equal the walker's context dependencies.
-    for name, (_, context_dependencies) in calls.items():
-        if not corrective and bindings[name].context_dependencies != context_dependencies:
-            raise ValueError("Evaluation URL4 Recipe topology does not match its model calls")
     fusion_names = _direct_fusion_output_names(topology)
     operations = tuple(
         _compiled_operation(
@@ -170,7 +159,7 @@ def _candidate_from_topology(
     models = (
         tuple(dict.fromkeys(calls[name][0] for name in bindings))
         if corrective
-        else _models(final, calls)
+        else _models(topology.binding, calls)
     )
     return _compiled_candidate(
         name=topology.name,

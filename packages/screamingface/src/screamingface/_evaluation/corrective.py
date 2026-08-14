@@ -16,7 +16,7 @@ round k (1..max_rounds), in execution order:
 3. Every draft is checked mid-run via the manifest's `check_route` (never a
    hardcoded path) — the check-surface record carries passed/satisfaction/
    feedback, sanitized behind the benchmark's adapter.
-4. The round object (letter -> record) feeds the generic engine gates:
+4. The round object (member label -> record) feeds the generic engine gates:
    `tie:k:R` (0-or-1 judge tie-break), the verbatim SELECT, and `continue:k:R`
    whose 0-or-1 payload gates the next round's entire subtree — an empty gate
    means the deeper rounds NEVER execute, which is what makes `max_rounds` a
@@ -28,9 +28,10 @@ Worked example (2 members, max_rounds=3, round 1 has a passer): 2 member calls
 + 2 checks + gate/select data calls; the continuation iterate sees [] and the
 other 4 member calls + 3 judge calls never run.
 
-Everything under `# Transport contract` mirrors the engine's ensemble policy
-byte-for-byte: the client renders these routes and prompts into expressions the
-engine executes, so any drift is a protocol change on BOTH sides.
+The routes and schemas under `# Transport contract` mirror the Engine's
+ensemble policy. Loop prose is Client-owned because the Client renders it into
+the executable expression; the protocol revision below identifies both the
+Engine route version and that Client-authored behavior.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ from screamingface.errors import PlanningError
 if TYPE_CHECKING:
     from screamingface._evaluation.benchmark import _CheckSurface
     from screamingface._evaluation.candidate import _CandidateCompiler, _ResolvedRecipe
+    from screamingface.recipe import Recipe
 
 # --- Transport contract (mirrors url4_cloud.benchmarks.ensemble.policy) -----------
 
@@ -60,9 +62,8 @@ ROLE_ROUTE = f"{_CORRECTIVE_PREFIX}/role"
 RESULT_ROUTE = f"{_CORRECTIVE_PREFIX}/result"
 CHECK_SURFACE_SCHEMA = "screamingface.check-surface.v1"
 CHECK_INTENT = "check"
-MEMBER_LETTERS = "abcd"
 _MIN_MEMBERS = 2
-_MAX_MEMBERS = 4
+MEMBER_LABEL_SCHEME = "lowercase-base26"
 _NESTED_INPUT_REF = "$_sf_recipe_input"
 
 RETRY_INSTRUCTION = (
@@ -80,7 +81,7 @@ JUDGE_FEEDBACK_INSTRUCTION = (
 )
 TIE_BREAK_INSTRUCTION = (
     "Every candidate answer already satisfies the requirements. Pick the best-written "
-    "one. Reply with exactly one letter naming your pick and nothing else."
+    "one. Reply with exactly one candidate label and nothing else."
 )
 
 CORRECTIVE_FLOW = (
@@ -88,13 +89,13 @@ CORRECTIVE_FLOW = (
     "attempt with >=1 passing check STOPS the case; the judge tie-breaks only among "
     "passers of the stopping attempt; judge feedback is authored only for a no-pass "
     "attempt; a case that never passes selects the answer with maximal check "
-    "satisfaction, judge tie-break on exact ties; the selected Candidate Invocation "
+    "satisfaction, judge label tie-break on exact ties; the selected Candidate Invocation "
     "is always one member outcome verbatim, including provider refusal identity"
 )
 
-# Computed with the engine's exact formula — run records carry this protocol
-# revision (via the recipe topology) alongside the benchmark revision embedded
-# in the check route, so a loop result self-identifies its semantics.
+# Run records carry this Client-owned protocol revision (via the Recipe
+# topology) alongside the benchmark revision embedded in the check route, so a
+# loop result self-identifies both its composition and checking semantics.
 CORRECTIVE_PROTOCOL_REVISION = hashlib.sha256(
     "\n".join(
         (
@@ -102,7 +103,7 @@ CORRECTIVE_PROTOCOL_REVISION = hashlib.sha256(
             CORRECTIVE_FLOW,
             CHECK_SURFACE_SCHEMA,
             str(_MIN_MEMBERS),
-            str(_MAX_MEMBERS),
+            MEMBER_LABEL_SCHEME,
             RETRY_INSTRUCTION,
             SELF_FEEDBACK_INSTRUCTION,
             JUDGE_FEEDBACK_INSTRUCTION,
@@ -150,7 +151,7 @@ class _LoopRenderer:
         self._members = (recipe.member,) if isinstance(recipe, SelfCorrective) else recipe.members
         self._judge = recipe.member if isinstance(recipe, SelfCorrective) else recipe.judge
         self._max_rounds = recipe.max_rounds
-        self._letters = MEMBER_LETTERS[: len(self._members)]
+        self._labels = _member_labels(len(self._members))
         self._round_one_members: tuple[_ResolvedRecipe, ...] = ()
         self._judge_models: tuple[str, ...] = ()
         self._judge_topology: _RecipeTopology | None = None
@@ -172,7 +173,7 @@ class _LoopRenderer:
         # expression keeps every iteration in grammar-parsed (safe) position and
         # gives the candidate a single result binding.
         inner = Expression(sources=tuple(sources), intent=Text("$loop_result"))
-        self._compiler._sources.append(src(inner, name="loop_candidate", weight=0.0))
+        self._compiler._append_source(src(inner, name="loop_candidate", weight=0.0))
         reference = "$loop_candidate"
         members = self._round_one_members
         models = _ordered_unique(
@@ -205,14 +206,14 @@ class _LoopRenderer:
         # Stage 2 — every member drafts.
         resolved_members: list[_ResolvedRecipe] = []
         for index, member in enumerate(self._members):
-            letter = self._letters[index]
-            context = self._member_context(attempt, letter, coach_reference)
+            label = self._labels[index]
+            context = self._member_context(attempt, label, coach_reference)
             resolved, captured = self._captured(
                 member,
                 input_context=_NESTED_INPUT_REF,
                 synthesis=False,
             )
-            invocation = f"loop_member_{attempt}_{letter}"
+            invocation = f"loop_member_{attempt}_{label}"
             sources.extend(
                 self._invocation_sources(
                     resolved,
@@ -231,7 +232,7 @@ class _LoopRenderer:
                         context=render(struct({"input": "$input", "invocation": f"${invocation}"})),
                         intent=Text(CHECK_INTENT),
                     ),
-                    name=f"loop_check_{attempt}_{letter}",
+                    name=f"loop_check_{attempt}_{label}",
                     weight=0.0,
                 )
             )
@@ -241,7 +242,7 @@ class _LoopRenderer:
         # Stage 4 — the round object the generic gates and select consume.
         sources.append(
             src(
-                struct({letter: f"$loop_check_{attempt}_{letter}" for letter in self._letters}),
+                struct({label: f"$loop_check_{attempt}_{label}" for label in self._labels}),
                 name=f"loop_round_{attempt}",
                 weight=0.0,
             )
@@ -315,13 +316,13 @@ class _LoopRenderer:
     def _member_context(
         self,
         attempt: int,
-        letter: str,
+        label: str,
         coach_reference: str | None,
     ) -> str:
         if attempt == 1:
             return "$input"
         assert coach_reference is not None
-        previous_answer = f"$loop_check_{attempt - 1}_{letter}.answer"
+        previous_answer = f"$loop_check_{attempt - 1}_{label}.answer"
         if self._solo:
             return (
                 "$input"
@@ -346,7 +347,7 @@ class _LoopRenderer:
 
         if self._solo:
             # A one-member round has no tie to break; the select endpoint treats
-            # empty tie text as "no judge letter" and its deterministic rules apply.
+            # empty tie text as "no judge label" and its deterministic rules apply.
             return ""
         gate_name = f"loop_tie_gate_{attempt}"
         sources.append(
@@ -415,11 +416,11 @@ class _LoopRenderer:
         """
 
         if self._solo:
-            letter = self._letters[0]
+            label = self._labels[0]
             context = (
                 "$input"
-                f" | Your answer: $loop_check_{attempt}_{letter}.answer"
-                f" | Verification feedback: $loop_check_{attempt}_{letter}.feedback"
+                f" | Your answer: $loop_check_{attempt}_{label}.answer"
+                f" | Verification feedback: $loop_check_{attempt}_{label}.feedback"
                 f" | {SELF_FEEDBACK_INSTRUCTION}"
             )
         else:
@@ -455,30 +456,25 @@ class _LoopRenderer:
 
     def _captured(
         self,
-        recipe: object,
+        recipe: Recipe,
         *,
         input_context: str,
         synthesis: bool,
         input_dependencies: tuple[str, ...] = (),
-    ) -> tuple[_ResolvedRecipe, list[Node]]:
+    ) -> tuple[_ResolvedRecipe, tuple[Node, ...]]:
         """Compile one Recipe and detach its sources for nested placement."""
 
-        compiler = self._compiler
-        start = len(compiler._sources)
-        resolved = compiler._recipe(
-            recipe,  # type: ignore[arg-type]
+        return self._compiler._capture_recipe(
+            recipe,
             input_context=input_context,
             input_dependencies=input_dependencies,
             synthesis=synthesis,
         )
-        captured = list(compiler._sources[start:])
-        del compiler._sources[start:]
-        return resolved, captured
 
     def _invocation_sources(
         self,
         resolved: _ResolvedRecipe,
-        captured: list[Node],
+        captured: tuple[Node, ...],
         *,
         route: str,
         input_context: str,
@@ -536,6 +532,21 @@ def _structured_context(value: dict[str, object]) -> str:
     return render(src(struct(value), name="payload"))
 
 
+def _member_labels(count: int) -> tuple[str, ...]:
+    """Return stable lowercase labels: a..z, aa..az, ba..."""
+
+    return tuple(_member_label(index) for index in range(count))
+
+
+def _member_label(index: int) -> str:
+    value = index + 1
+    selected = ""
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        selected = chr(ord("a") + remainder) + selected
+    return selected
+
+
 __all__ = [
     "ANSWER_ROUTE",
     "CHECK_INTENT",
@@ -545,7 +556,7 @@ __all__ = [
     "GATE_ROUTE",
     "JUDGE_FEEDBACK_INSTRUCTION",
     "MEMBER_ROUTE",
-    "MEMBER_LETTERS",
+    "MEMBER_LABEL_SCHEME",
     "RETRY_INSTRUCTION",
     "RESULT_ROUTE",
     "ROLE_ROUTE",

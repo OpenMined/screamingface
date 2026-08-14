@@ -10,7 +10,7 @@ The check-surface port record replaces both the old "PASSED" feedback sentinel
 (each benchmark computes `satisfaction` behind its adapter; the gate/select
 just read the number). The tests here pin, in order: (1) the engine semantics
 the design rests on — an empty gate collection means the gated body NEVER
-executes; (2) each endpoint's decision table (CORRECTIVE_FLOW); (3) the port
+executes; (2) each endpoint's decision table; (3) the port
 record contract itself.
 """
 
@@ -30,12 +30,8 @@ from url4_cloud.benchmarks.contract import (
 from url4_cloud.benchmarks.ensemble.policy import (
     ANSWER_ROUTE,
     CHECK_SURFACE_SCHEMA,
-    CORRECTIVE_FLOW,
     GATE_ROUTE,
-    MAX_MEMBERS,
-    MEMBER_LETTERS,
-    MIN_MEMBERS,
-    PROSE_CONSTANTS,
+    MEMBER_LABEL_SCHEME,
     SELECT_ROUTE,
 )
 from url4_cloud.benchmarks.ensemble.runtime import install_corrective_runtime
@@ -165,7 +161,7 @@ async def test_a_no_pass_round_runs_the_gated_body_exactly_once() -> None:
     assert json.loads(result.text) == [{"probed": True}]
 
 
-# --- (2) the gate decision table (CORRECTIVE_FLOW) --------------------------------
+# --- (2) the gate decision table --------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -257,11 +253,35 @@ async def test_gate_rejects_an_unknown_intent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gate_rejects_more_members_than_letters() -> None:
+async def test_gate_accepts_members_beyond_the_retired_lanl_ceiling() -> None:
     round_records = {letter: _record(passed=False, satisfaction=0.0) for letter in "abcde"}
     node = _node()
-    with pytest.raises(ResolutionError, match=f"1..{MAX_MEMBERS}"):
-        await _call(node, GATE_ROUTE, round_records, "continue:1:3")
+    reply = await _call(node, GATE_ROUTE, round_records, "continue:1:3")
+
+    assert json.loads(reply) == [{"attempt": 2}]
+
+
+@pytest.mark.asyncio
+async def test_select_accepts_a_multi_character_member_label() -> None:
+    labels = tuple(chr(ord("a") + index) for index in range(26)) + ("aa",)
+    round_records = {
+        label: _record(
+            passed=label == "aa",
+            satisfaction=1.0 if label == "aa" else 0.0,
+            answer=f"answer {label}",
+        )
+        for label in labels
+    }
+    node = _node()
+
+    reply = await _call(
+        node,
+        SELECT_ROUTE,
+        {"round": round_records, "tie": []},
+        "1",
+    )
+
+    assert _answer(reply) == "answer aa"
 
 
 @pytest.mark.asyncio
@@ -443,27 +463,5 @@ async def test_gate_rejects_answer_text_that_disagrees_with_its_invocation() -> 
         await _call(node, GATE_ROUTE, {"a": mismatched, "b": _FAIL}, "continue:1:3")
 
 
-# --- prose + flow invariants ------------------------------------------------------
-
-
-def test_prose_constants_stay_quote_and_comma_free() -> None:
-    # INVARIANT: URL4 context prose ships unescaped — a single quote corrupts the
-    # rendered expression's re-parse and a top-level comma splits the context into
-    # slots. Every prompt the client compiles into a loop expression obeys this.
-    for prose in PROSE_CONSTANTS:
-        assert "'" not in prose
-        assert "," not in prose
-
-
-def test_the_flow_contract_names_the_loop_semantics() -> None:
-    # The control flow lives in deterministic endpoints, not visible URL4 structure,
-    # so the flow sentence — hashed into the protocol revision — is what pins it.
-    assert "STOPS" in CORRECTIVE_FLOW
-    assert "tie-break" in CORRECTIVE_FLOW
-    assert "verbatim" in CORRECTIVE_FLOW
-    assert "satisfaction" in CORRECTIVE_FLOW
-
-
-def test_the_member_bounds_are_the_letter_mechanism_caps() -> None:
-    assert MIN_MEMBERS == 2
-    assert MAX_MEMBERS == len(MEMBER_LETTERS)
+def test_the_member_floor_is_structural_not_a_label_mechanism_cap() -> None:
+    assert MEMBER_LABEL_SCHEME == "lowercase-base26"
