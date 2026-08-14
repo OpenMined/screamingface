@@ -27,6 +27,7 @@ from url4_cloud.benchmarks.candidate import install_candidate_invocation
 from url4_cloud.benchmarks.contract import (
     CANDIDATE_BINDING,
     CANDIDATE_ROUTE,
+    PROVIDER_REFUSAL_PLACEHOLDER,
     decode_candidate_invocation,
 )
 from url4_cloud.config import Settings
@@ -689,6 +690,42 @@ async def test_provider_refusal_is_a_normal_candidate_envelope() -> None:
         "",
         "content_filter",
         "safety policy",
+    )
+
+
+async def test_a_null_text_refusal_still_publishes_as_a_refusal() -> None:
+    """A content-filter turn normally carries NO refusal text; without the placeholder it
+    would encode as output="" refusal=None — indistinguishable from a legitimate empty
+    answer, so the judge would grade it and publish a scored plausible-zero. A provider
+    refusal must NEVER be publishable as an ordinary scored answer (OME-825)."""
+
+    def refusal(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"content": None, "refusal": None},
+                        "finish_reason": "content_filter",
+                    }
+                ]
+            },
+        )
+
+    benchmark = _benchmark()
+    client, world = await _world(BenchmarkRegistry((benchmark,)), [], response=refusal)
+    model = RelExpr(path="/provider/model", context="$input", intent=text("answer"))
+
+    try:
+        result = await world.node.evaluate(_candidate_call(model, web_search=False))
+    finally:
+        await world.aclose()
+        await client.aclose()
+
+    assert decode_candidate_invocation(result.text) == (
+        "",
+        "content_filter",
+        PROVIDER_REFUSAL_PLACEHOLDER,
     )
 
 

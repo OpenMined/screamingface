@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal, cast
 
 from pydantic import (
@@ -25,6 +25,13 @@ CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
 CANDIDATE_RESULT_SCHEMA = "screamingface.candidate-result.v1"
 CANDIDATE_MESSAGE_ROLES = frozenset({"system", "developer", "user", "assistant"})
+# The graded marker for a provider refusal that arrived without refusal text (the normal
+# content-filter shape). Precedent: HealthBench's official harness grades the literal
+# marker "No response (bad request)." for provider errors — a named marker string graded
+# as the answer keeps the event visible instead of publishing a plausible-zero empty
+# answer, and keeps the refused path (status, grading, coverage) identical to a refusal
+# that did carry text.
+PROVIDER_REFUSAL_PLACEHOLDER = "No refusal text (provider refused the request)."
 CaseId = StrictInt | StrictStr
 Outcome = Literal["MET", "UNMET", "PASS", "FAIL"]
 FailureStage = Literal["candidate", "grading", "aggregation"]
@@ -196,10 +203,14 @@ def _require_refused_case(case: CaseResult) -> None:
 
 
 def _require_failed_case(case: CaseResult) -> None:
+    # WHY no provider_refusal Failure-code check: no producer can emit one. The Candidate
+    # adapter converts the runner's provider_refusal error into an ordinary refused
+    # invocation before it can become a Failure, and url4's on_error=collect envelope
+    # carries only kind+message — collected error codes always fall back to the
+    # aggregate defaults. Refusals reach this contract only through `case.refusal`.
     if (
         not case.failures
         or case.refusal is not None
-        or any(failure.code == "provider_refusal" for failure in case.failures)
         or case.grade is not None
         and case.grade.score is not None
     ):
@@ -272,13 +283,25 @@ class CandidateResult(_StrictWireModel):
         return self.model_dump(by_alias=True)
 
 
+def candidate_coverage(cases: Sequence[CaseResult], case_count: int) -> float:
+    """The exact fraction of selected Cases carrying a numeric Benchmark grade.
+
+    The ONE copy of the coverage formula: `finalize_candidate_result` produces with it
+    and `_candidate_outcome` validates against it, so producer and validator cannot
+    drift (they used to be two hand-synchronized `round(..., 4)` expressions).
+    """
+
+    gradeable = sum(1 for case in cases if case.grade is not None and case.grade.score is not None)
+    return round(gradeable / case_count, 4) if case_count else 0.0
+
+
 def _candidate_outcome(result: CandidateResult) -> None:
     if "coverage" in result.metrics:
         raise ValueError("metrics.coverage is replaced by top-level coverage")
     gradeable = [
         case for case in result.cases if case.grade is not None and case.grade.score is not None
     ]
-    expected_coverage = round(len(gradeable) / result.case_count, 4) if result.case_count else 0.0
+    expected_coverage = candidate_coverage(result.cases, result.case_count)
     if result.coverage != expected_coverage:
         raise ValueError(
             f"coverage must equal numeric Case grades / selected Cases ({expected_coverage})"
@@ -344,6 +367,33 @@ def _finite_score(value: object) -> object:
     if isinstance(value, int | float) and not math.isfinite(value):
         raise ValueError("score must be a finite number or null")
     return value
+
+
+def validate_candidate_outcome(
+    answer: object,
+    output: object,
+    refusal: object,
+    *,
+    benchmark: str,
+) -> None:
+    """Validate the evaluator-text/output/refusal triple every benchmark record binds.
+
+    The ONE copy of the outcome-triple invariant (it used to live byte-identically in
+    draco and healthbench records, with a drifted third variant in ifeval): the answer
+    is the evaluator text, exactly one of output/refusal is carried, and the answer
+    equals whichever one is present. `benchmark` only labels the error messages.
+    """
+
+    if not isinstance(answer, str):
+        raise ValueError(f"{benchmark} Candidate answer must be text")
+    if (refusal is None) == (output is None):
+        raise ValueError(f"{benchmark} Candidate must carry exactly one of output or refusal")
+    if refusal is not None and (
+        not isinstance(refusal, str) or not refusal.strip() or answer != refusal
+    ):
+        raise ValueError(f"{benchmark} Candidate refusal must be exact non-empty evaluator text")
+    if output is not None and answer != output:
+        raise ValueError(f"{benchmark} Candidate output must equal evaluator text")
 
 
 def encode_candidate_invocation(
@@ -413,8 +463,11 @@ __all__ = [
     "Evidence",
     "EvidenceProducer",
     "Failure",
+    "PROVIDER_REFUSAL_PLACEHOLDER",
+    "candidate_coverage",
     "decode_candidate_invocation",
     "encode_candidate_invocation",
+    "validate_candidate_outcome",
     "validate_case_id",
     "validate_finish_reason",
 ]

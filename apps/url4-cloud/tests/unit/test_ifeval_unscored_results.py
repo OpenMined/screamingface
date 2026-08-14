@@ -78,7 +78,12 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
             "grade": None,
             "failures": [
                 {
-                    "stage": "candidate",
+                    # WHY stage "grading": one IFEval row spans invocation AND checking,
+                    # and engine-collected url4 error rows carry no code (kind+message
+                    # only), so a code-prefix stage guess could never fire on real rows —
+                    # the aggregate now reports the one stage it actually knows: the row
+                    # produced no valid evaluation record.
+                    "stage": "grading",
                     "code": "provider_error",
                     "message": "the provider was unavailable",
                     "retryable": False,

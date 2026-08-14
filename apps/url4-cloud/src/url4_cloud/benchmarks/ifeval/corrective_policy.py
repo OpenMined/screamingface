@@ -52,7 +52,7 @@ LANL_FLOW = (
     "stopping attempt; judge feedback is authored only for a no-pass attempt; a case "
     "that never passes selects the answer with maximal strict-satisfaction fraction, "
     "judge tie-break on exact ties; the selected answer is always a member answer "
-    "verbatim"
+    "verbatim, carrying the member's refusal marking"
 )
 
 # Every prose constant and shape bound defines score meaning and therefore revision identity.
@@ -70,7 +70,10 @@ SELF_CORRECTIVE_REVISION = hashlib.sha256(
 # The reproduction of Skurikhin et al. §2 (the early-exit ensemble). The paper does
 # not publish its judge prompts, so ours are named revision inputs; the control flow
 # is pinned by LANL_FLOW.
-LANL_PROTOCOL_REVISION = "lanl-early-exit-ensemble-v1"
+# v2: member records carry the check record's refusal, and selection re-encodes the
+# chosen member's refusal instead of erasing it — an all-refuse Case publishes as
+# refused, never as a scored output holding refusal prose.
+LANL_PROTOCOL_REVISION = "lanl-early-exit-ensemble-v2"
 LANL_ENSEMBLE_REVISION = hashlib.sha256(
     "\n".join(
         (

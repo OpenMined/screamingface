@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
+from url4_cloud.benchmarks.contract import validate_candidate_outcome
 from url4_cloud.benchmarks.draco.validation import (
     optional_integer,
     require_positive_integer,
@@ -28,7 +29,7 @@ def bind_case(
     """Bind evaluator text and exact Candidate outcome to one Engine-owned Case."""
 
     selected_id = require_positive_integer(case_id, "case_id")
-    _validate_outcome(answer, output, refusal)
+    validate_candidate_outcome(answer, output, refusal, benchmark="DRACO")
     cases = _decode_cases(raw_cases)
     row = next(
         (
@@ -53,19 +54,6 @@ def bind_case(
         "refusal": refusal,
         "metadata": {key: value for key, value in row.items() if key not in {"id", "input"}},
     }
-
-
-def _validate_outcome(answer: object, output: object, refusal: object) -> None:
-    if not isinstance(answer, str):
-        raise ValueError("DRACO Candidate answer must be text")
-    if (refusal is None) == (output is None):
-        raise ValueError("DRACO Candidate must carry exactly one of output or refusal")
-    if refusal is not None and (
-        not isinstance(refusal, str) or not refusal.strip() or answer != refusal
-    ):
-        raise ValueError("DRACO Candidate refusal must be exact non-empty evaluator text")
-    if output is not None and answer != output:
-        raise ValueError("DRACO Candidate output must equal evaluator text")
 
 
 def _decode_cases(raw_cases: str) -> list[object]:

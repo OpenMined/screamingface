@@ -8,6 +8,7 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.contract import (
     CANDIDATE_ROUTE,
+    PROVIDER_REFUSAL_PLACEHOLDER,
     encode_candidate_invocation,
 )
 from url4_cloud.model_outcomes import (
@@ -59,6 +60,14 @@ class _CandidateInvocation:
                             code="candidate_contract_error",
                             permanent=True,
                         ) from exc
+                    # WHY the placeholder: a content-filter turn normally carries NULL
+                    # refusal text (see runner/model_response.py). Encoding it verbatim
+                    # would produce output="" refusal=None — indistinguishable from a
+                    # legitimate empty answer, so the judge would grade it and publish a
+                    # scored plausible-zero. The provider DID signal refusal; only its
+                    # text is missing, so a named marker keeps the refused path intact.
+                    if not outcome.refusal:
+                        outcome = ModelOutcome(outcome.finish_reason, PROVIDER_REFUSAL_PLACEHOLDER)
                     return _encode_candidate_invocation("", outcome)
         except RetrievalPolicyError as exc:
             raise ResolutionError(

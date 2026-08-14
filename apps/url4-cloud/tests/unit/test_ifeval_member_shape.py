@@ -43,7 +43,7 @@ def _assets(root: Path) -> None:
     )
 
 
-def _members(*values: tuple[str, str]) -> list[dict[str, str]]:
+def _members(*values: tuple[str, str]) -> list[dict[str, str | None]]:
     return [
         {
             "key": chr(65 + index),
@@ -52,13 +52,14 @@ def _members(*values: tuple[str, str]) -> list[dict[str, str]]:
             "expression": f"/provider/member-{index + 1}",
             "answer": answer,
             "finish_reason": "stop",
+            "refusal": None,
             "feedback": feedback,
         }
         for index, (answer, feedback) in enumerate(values)
     ]
 
 
-async def _select(tmp_path: Path, members: list[dict[str, str]], pick: str) -> str:
+async def _select(tmp_path: Path, members: list[dict[str, str | None]], pick: str) -> str:
     """Call the LANL select with a never-pass round tied on satisfaction, so the
     judge's letter (or its rejection) is the only thing deciding the outcome."""
 
