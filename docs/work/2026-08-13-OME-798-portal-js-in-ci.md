@@ -99,3 +99,45 @@ assertions. Verified by observation, not by reading YAML:
 4. **`#516` edits the same workflow file** and is awaiting review. Distinct steps, so a trivial
    merge; whichever lands second rebases.
 5. No PR opened at the time of writing this section.
+
+## Review pass (2026-08-14) — four findings, all valid
+
+| Finding | Fix |
+|---|---|
+| The explicit path guards renames but **not additions** — a new test file silently never runs | new `tests/unit/test_portal_ci_wiring.py` |
+| The gates now need local Node, undocumented | `working-in-this-repo` + scoreboard README |
+| `setup-node@v6` while five other workflows use `@v7`, and the comment reads as forbidding a bump | bumped to `@v7`, comment clarified |
+| The JS step ran before pytest, so a JS failure buried the real cause | moved after pytest |
+
+### The additions hole — the sharpest of the four
+
+D2 accepted that a later test file would not run until named. The reviewer's point is that this is
+**the same "believed tested" failure the explicit path was chosen to avoid**, just relocated: a renamed
+file fails loudly, an added one is silently ignored at both call sites.
+
+Fixed without reopening the worse hole. A glob would close additions but exit `0` with `pass 0` when
+it matches nothing, so the invocation stays explicit and a **test** now enforces completeness: every
+`tests/portal/*.test.js` must appear by name in both `scoreboard-tests.yml` and `.claude/sdlc.local.md`.
+It also asserts the directory is non-empty, so it cannot pass vacuously.
+
+**Proven falsifiable:** created `tests/portal/zz_new.test.js` and both parametrised cases failed
+naming it (`does not run: ['zz_new.test.js']`); removed it and all three passed.
+
+### The Node prerequisite
+
+`working-in-this-repo` listed scoreboard as Python/uv only and called aigateway-ui "the repo's only
+non-Python stack" — both now false, so a Python-only dev would have hit `node: command not found` and
+a gate failure naming no prerequisite. The stack row, its note, and the aigateway-ui claim are
+corrected, and the scoreboard README's Development block now shows the command.
+
+Worth recording: the reviewer also observed that "local gates and CI cannot disagree" is true of the
+**command string**, not the **runtime** — CI pins Node 24, local uses whatever is installed. The docs
+now say so rather than implying parity.
+
+### Step order
+
+As an earlier step, a JS failure left `results.xml`/`coverage.xml` unwritten, so both `if: always()`
+reporter steps failed on missing paths — three red steps burying one real cause. The JS step now runs
+after pytest.
+
+**Gates:** all six green, including the new wiring test.
