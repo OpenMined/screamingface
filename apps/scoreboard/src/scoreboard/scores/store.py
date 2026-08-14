@@ -12,7 +12,7 @@ from pypika_tortoise.analytics import RowNumber
 from pypika_tortoise.enums import Order
 from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import Tortoise
-from tortoise.exceptions import IntegrityError
+from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.query_api import execute_pypika
 from tortoise.transactions import in_transaction
 
@@ -22,6 +22,9 @@ from .schemas import BenchmarkSchema, LeaderboardEntry, ScoreSchema, ScoreSubmis
 # INVARIANT: columns the raw leaderboard projection must convert itself. The
 # projection bypasses the ORM, so nothing else will do it.
 _RAW_ROW_FIELDS = ("ran_with_providers", "run_cost_usd")
+# Columns whose DTO type admits None, so an unreadable value can degrade in place.
+# Anything not listed here forces the row to be dropped instead — see _to_python_rows.
+_NULLABLE_RAW_FIELDS = frozenset({"run_cost_usd"})
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +157,9 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     this column as TEXT, so `ORDER BY run_cost_usd` there ranks $1000 below $3.50.
     Anything reading these rows ahead of the DTO must not get a string.
     """
+    kept: list[dict[str, Any]] = []
     for row in rows:
+        drop = False
         for name in _RAW_ROW_FIELDS:
             if name not in row:
                 continue
@@ -162,28 +167,55 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 # to_python_value maps None -> None for a nullable field, keeping
                 # the absent-is-not-zero distinction (D5) intact.
                 row[name] = Score._meta.fields_map[name].to_python_value(row[name])
-            except (InvalidOperation, ValueError) as exc:
+            except (InvalidOperation, ValueError, FieldError) as exc:
                 # INVARIANT: one corrupt row must never fail the whole read path.
                 # DecimalField.to_python_value quantizes, and quantize RAISES on a
                 # value outside DECIMAL(12, 6) — which surfaced as HTTP 500 for
                 # EVERY entry on the board, not just the bad one. On SQLite the
                 # column is VARCHAR(40) with no database-level guard, so raw SQL
                 # can produce this; the ORM path and Postgres both reject it on
-                # write. Degrade to "unknown", the state the schema already has.
+                # write. FieldError is in the tuple because JSONField raises it and
+                # it is NOT a ValueError (found in review) — so corrupt JSON in
+                # ran_with_providers used to 500 the board despite this guard.
                 #
                 # Logged at warning, never silently swallowed: a corrupt row is a
                 # real problem and has to stay visible. Specific exceptions only.
-                logger.warning(
-                    "Unreadable %s on spec_id=%s (%r); serving it as null. "
-                    "The stored value is outside DECIMAL(12, 6) and can only have "
-                    "been written by raw SQL.",
-                    name,
-                    row.get("spec_id"),
-                    row[name],
-                    exc_info=exc,
-                )
-                row[name] = None
-    return rows
+                if name in _NULLABLE_RAW_FIELDS:
+                    # Degrade to "unknown", a state the schema already models.
+                    logger.warning(
+                        "Unreadable %s on spec_id=%s (%r); serving it as null. The "
+                        "stored value is outside the column's type and can only have "
+                        "been written by raw SQL.",
+                        name,
+                        row.get("spec_id"),
+                        row[name],
+                        exc_info=exc,
+                    )
+                    row[name] = None
+                else:
+                    # INVARIANT: a non-nullable column cannot degrade. LeaderboardEntry
+                    # types ran_with_providers as list[str], so None would fail
+                    # validation and re-raise the 500 this guard exists to prevent. The
+                    # only options are dropping the row or serving nothing, and one
+                    # unreadable row must not cost every other row on the board.
+                    #
+                    # This DOES silently change what the board shows — a corrupt row
+                    # disappears rather than appearing broken — which is why it is
+                    # logged at WARNING with the spec_id, so the omission is traceable.
+                    logger.warning(
+                        "Unreadable %s on spec_id=%s (%r); DROPPING the row from this "
+                        "response because the column is not nullable. The board will "
+                        "be short one entry until the stored value is repaired.",
+                        name,
+                        row.get("spec_id"),
+                        row[name],
+                        exc_info=exc,
+                    )
+                    drop = True
+                    break
+        if not drop:
+            kept.append(row)
+    return kept
 
 
 class SubmitOutcome(NamedTuple):

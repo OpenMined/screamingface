@@ -654,7 +654,9 @@ def test_score_submission_quantizes_an_inexact_cost(
         # quantizing, which raises InvalidOperation on an absurd exponent.
         "1000000",
         "1e30",
-        # Rounds UP past the ceiling, so the ceiling is re-checked after quantizing.
+        # Above the ceiling already, so the pre-quantize check rejects it. There is
+        # deliberately NO post-quantize re-check — quantize is monotone and the ceiling
+        # sits exactly on the 6dp grid, so nothing can round up past it.
         "999999.9999996",
         # Not a cost.
         "-0.01",
@@ -711,3 +713,23 @@ def test_score_submission_normalizes_negative_zero(submitted: float | str) -> No
     # Decimal(0) == Decimal("-0"), so equality cannot catch this -- check the sign.
     assert stored.is_signed() is False
     assert str(stored) == "0.000000"
+
+
+def test_a_json_number_below_the_float_floor_is_a_documented_residual() -> None:
+    """A JSON *number* under ~1e-308 underflows to 0.0 before the validator sees it.
+
+    Pinned rather than fixed: pydantic parses a JSON number through f64, so by the time
+    _validate_run_cost runs the value IS zero and is indistinguishable from a genuine
+    free run. The clamp therefore cannot fire. Quoting the same value keeps full
+    precision and DOES clamp, so the accepted result depends on whether the client
+    quotes it — recorded here so the asymmetry is visible rather than surprising.
+
+    No real run cost is within 300 orders of magnitude of this, and closing it would
+    mean refusing JSON numbers outright (found in review of OME-770).
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = 1e-400  # a NUMBER, not a string
+    assert ScoreSubmission.model_validate(payload).run_cost_usd == Decimal("0.000000")
+
+    payload["run_cost_usd"] = "1e-400"  # the same value, quoted
+    assert ScoreSubmission.model_validate(payload).run_cost_usd == Decimal("0.000001")

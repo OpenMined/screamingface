@@ -107,7 +107,13 @@ def _serialize_run_cost(value: Decimal | None) -> str | None:
         return None
     if value == 0:
         return f"{_ZERO_COST:f}"
-    return f"{value.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP):f}"
+    # INVARIANT (D5) on the READ side too: a positive cost must never be published as
+    # zero. The validator clamps on the way in, but a row written by raw SQL — or
+    # before the validator existed — can hold a sub-quantum positive, and quantizing
+    # alone would render it "0.000000", i.e. a run that cost money shown as free.
+    # Found in review: stored Decimal("4E-7") serialized to "0.000000".
+    quantized = max(value.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP), COST_QUANTUM)
+    return f"{quantized:f}"
 
 
 # INVARIANT: the ONE definition of the cost's wire form, shared by every read DTO.

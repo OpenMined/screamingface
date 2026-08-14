@@ -412,3 +412,53 @@ owner-approved line-197 widening.
    `max(...)` form rather than suppressing the rule — the result is genuinely better, so the gate
    improved the code rather than merely permitting it.
 3. Still **no PR opened** and nothing outward-facing sent.
+
+## Review pass 3 (2026-08-14) — three findings, all valid
+
+| Finding | Verified how | Verdict |
+|---|---|---|
+| `_to_python_rows` cannot catch `FieldError` | `issubclass(FieldError, ValueError)` → **False** | **valid — the guard did not guard** |
+| D5 has a read-side hole and a number/string asymmetry | ran the validator and serializer directly | valid |
+| A test comment claims a post-quantize ceiling re-check | grepped `test_schemas.py:519` | valid — **and I had recorded removing it** |
+
+### The guard that did not guard
+
+`JSONField.to_python_value` raises Tortoise's `FieldError`, whose MRO is
+`FieldError → BaseORMException → Exception`. It is **not** a `ValueError`, so corrupt JSON in
+`ran_with_providers` fell straight through `except (InvalidOperation, ValueError)` and 500'd the whole
+leaderboard — precisely the failure the guard was written to prevent, and the comment above it claimed
+to prevent.
+
+`ran_with_providers` also cannot degrade: `LeaderboardEntry` types it `list[str]`, so nulling it would
+fail validation and re-raise the same 500. So the policy is now explicit, keyed on a
+`_NULLABLE_RAW_FIELDS` set:
+
+* nullable column (`run_cost_usd`) → degrade to `None`, keep the row;
+* non-nullable column (`ran_with_providers`) → **drop the row**, keep the board.
+
+**This silently changes what the board shows** — a corrupt row disappears rather than appearing
+broken. That is a real trade-off, taken because one unreadable row must not cost every other row, and
+mitigated by logging at WARNING with the `spec_id` so the omission is traceable. Flagged to the owner
+rather than buried.
+
+### D5's read-side hole
+
+`_serialize_run_cost(Decimal("4E-7"))` returned `"0.000000"` — a stored positive sub-quantum cost
+published as free. The validator clamps on the way in, but a row written by raw SQL, or before the
+validator existed, bypasses it. The serializer now applies the same `max(quantized, COST_QUANTUM)`
+clamp.
+
+The input-side asymmetry is **not fixable and is now pinned by a test**: pydantic parses a JSON
+*number* through f64, so `1e-400` is already `0.0` before the validator runs and is indistinguishable
+from a genuine free run, while `"1e-400"` keeps precision and clamps to `0.000001`. The accepted value
+therefore depends on whether the client quotes it. Recorded so the asymmetry is visible rather than
+surprising; no real cost is within 300 orders of magnitude.
+
+### The comment I said I had removed
+
+`test_schemas.py:519` still read "Rounds UP past the ceiling, so the ceiling is re-checked after
+quantizing." A previous Deviations note in this very ledger claimed that comment had been removed
+alongside the dead branch. **The branch went; the comment stayed.** Corrected, and worth stating
+plainly: a ledger entry asserting a cleanup is not evidence the cleanup happened.
+
+**Gates:** ruff check ✓, ruff format ✓, pyright ✓, pytest --cov ✓ (**216 passed, 2 skipped**).

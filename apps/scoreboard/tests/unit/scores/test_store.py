@@ -1003,3 +1003,39 @@ async def test_one_unreadable_cost_does_not_take_down_the_whole_board() -> None:
     assert rows[0]["run_cost_usd"] == Decimal("3.5")
     # Degraded to "cost unknown" — an already-defined state — not an exception.
     assert rows[1]["run_cost_usd"] is None
+
+
+async def test_corrupt_json_drops_the_row_instead_of_failing_the_board() -> None:
+    """FieldError is NOT a ValueError, so the original guard could not catch it.
+
+    JSONField.to_python_value raises tortoise FieldError on invalid JSON, which fell
+    straight through `except (InvalidOperation, ValueError)` and 500'd the whole
+    leaderboard — the exact failure that guard exists to prevent (found in review).
+
+    ran_with_providers cannot degrade to None: LeaderboardEntry types it as list[str],
+    so nulling it would fail validation and re-raise the 500. The row is dropped, and
+    logged at WARNING so the omission is traceable.
+    """
+    from scoreboard.scores.store import _to_python_rows
+
+    rows = _to_python_rows(
+        [
+            {"spec_id": "good", "ran_with_providers": '["openai"]', "run_cost_usd": "3.5"},
+            {"spec_id": "bad-json", "ran_with_providers": "{not json", "run_cost_usd": "1.0"},
+        ]
+    )
+
+    assert [row["spec_id"] for row in rows] == ["good"]
+    assert rows[0]["ran_with_providers"] == ["openai"]
+
+
+async def test_an_unreadable_cost_degrades_but_keeps_the_row() -> None:
+    """A nullable column degrades in place; only a non-nullable one costs the row."""
+    from scoreboard.scores.store import _to_python_rows
+
+    rows = _to_python_rows(
+        [{"spec_id": "bad-cost", "ran_with_providers": '["openai"]', "run_cost_usd": "1E+30"}]
+    )
+
+    assert [row["spec_id"] for row in rows] == ["bad-cost"]
+    assert rows[0]["run_cost_usd"] is None
