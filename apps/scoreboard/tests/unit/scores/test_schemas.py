@@ -367,6 +367,17 @@ def test_baseline_schema_rejects_oversized_metadata() -> None:
         # An empty local part would render as a missing submitter, so keep the
         # original instead of emitting "".
         ("@openmined.org", "@openmined.org"),
+        # OME-834 review: a BLANK local part is the dangerous case. " " is not empty,
+        # so the earlier `local or value` guard let it through — and the SDK's _text
+        # rejects blank-after-strip, raising LeaderboardError for the WHOLE board.
+        (" @openmined.org", " @openmined.org"),
+        ("\t@openmined.org", "\t@openmined.org"),
+        # OME-834 review: free text containing "@" is not an address. Truncating it
+        # contradicts the pass-through contract and loses meaning.
+        ("Team A @ OpenMined", "Team A @ OpenMined"),
+        ("me @ openmined.org", "me @ openmined.org"),
+        # A domain with no dot is not a public address; leave handles alone.
+        ("user@github", "user@github"),
     ],
 )
 def test_score_schema_publishes_only_the_local_part(stored: str, published: str) -> None:

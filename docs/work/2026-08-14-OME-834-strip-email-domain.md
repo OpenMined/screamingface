@@ -102,3 +102,41 @@ RED first:
 4. **Verified no other consumer pins a full address.** The SDK's `researcher@example.com` occurrences
    are its own request fixtures and constructed objects, not assertions against a live response, so
    `packages/screamingface` needed no change.
+
+## Review pass (2026-08-14) — two findings, both valid, both mine
+
+| Finding | Verified how | Verdict |
+|---|---|---|
+| `" @openmined.org"` publishes `" "`, and the SDK rejects blank text | ran `_publish_submitter`; read `leaderboards.py:445` | **valid, and the worst blast radius found anywhere today** |
+| `"Team A @ OpenMined"` publishes `"Team A "` | same | valid — contradicted my own D4 |
+
+### Why the first one matters more than its size
+
+`_text` is `if not isinstance(value, str) or not value.strip(): _invalid(...)`. A single space passes
+my `local or value` guard (it is truthy) and then fails the SDK's blank check, so **one row with a
+leading space in the submitted email would raise `LeaderboardError` for every SDK client reading that
+whole board**. `authMode: disabled` is the chart default, and this field is unvalidated free text
+there, so the value is reachable — not theoretical.
+
+### The fix
+
+Gate on address shape rather than the presence of `@`: no whitespace anywhere, non-blank local part,
+dotted domain. Verified behaviour after the change:
+
+| Input | Output |
+|---|---|
+| `trask@openmined.org` | `trask` |
+| `filip.boltuzic@openmined.org` | `filip.boltuzic` |
+| `a@b@openmined.org` | `a@b` |
+| `tester`, `""`, `None` | unchanged |
+| `@openmined.org`, `" @openmined.org"`, `"\t@openmined.org"` | unchanged |
+| `"Team A @ OpenMined"`, `"me @ openmined.org"` | unchanged |
+| `user@github` | unchanged — a handle, not a dotted-domain address |
+
+Spec §3a records the revision.
+
+### Deviation
+
+My original guard, `local or value`, tested for *empty* when the hazard was *blank*. The lesson is
+narrow and worth keeping: for a field that another service validates with `.strip()`, an emptiness
+check is not the same as a blankness check.

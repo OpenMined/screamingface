@@ -65,12 +65,21 @@ def _publish_submitter(value: str | None) -> str | None:
     different domains become indistinguishable on a board that attributes credit.
     A real username field is the fix; OME-772 records that none exists (OME-834).
     """
-    if value is None or "@" not in value:
+    # Only trim something that actually looks like ONE address. Anything else is free
+    # text that happens to contain "@", and truncating it loses meaning. Gating on the
+    # bare presence of "@" was the original bug (OME-834 review):
+    #   " @openmined.org"     -> " "        a BLANK submitter, not an empty one, so a
+    #                                       `local or value` guard did not catch it —
+    #                                       and the SDK's _text rejects blank-after-
+    #                                       strip, raising LeaderboardError for the
+    #                                       WHOLE board off one poisoned row.
+    #   "Team A @ OpenMined"  -> "Team A "  free text silently truncated.
+    if value is None or "@" not in value or any(char.isspace() for char in value):
         return value
-    # The domain is whatever follows the LAST "@".
-    local = value.rsplit("@", 1)[0]
-    # An empty local part would render as a missing submitter; keep the original.
-    return local or value
+    local, _, domain = value.rpartition("@")
+    # A public address needs a non-blank local part and a dotted domain. `user@github`
+    # is a handle, not an address, so it passes through untouched.
+    return local if local.strip() and "." in domain else value
 
 
 # INVARIANT: the ONE definition of how a submitter reaches a client, shared by every

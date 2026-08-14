@@ -35,8 +35,26 @@ The strip belongs where every consumer is served: the **read DTOs**.
 | `tester` (no `@`) | `tester` | in `authMode: disabled` this is client-supplied free text, not necessarily an email |
 | `a@b@openmined.org` | `a@b` | the domain is what follows the **last** `@` |
 | `@openmined.org` | `@openmined.org` | an empty local part would render as a missing submitter; keep the original instead |
+| `" @openmined.org"` | unchanged | **a BLANK local part is the dangerous case** — see §3a |
+| `"Team A @ OpenMined"` | unchanged | free text containing `@` is not an address |
+| `user@github` | unchanged | a handle, not a public address (no dotted domain) |
 | `null` | `null` | absent stays absent |
 | `""` | `""` | unchanged |
+
+### 3a Revision after review (2026-08-14) — gate on address shape, not on "@"
+
+The first implementation trimmed whenever `@` appeared and guarded the result with
+`local or value`. Two holes, both verified:
+
+* `" @openmined.org"` yields `" "`. That is **blank, not empty**, so the guard missed it — and the
+  SDK's `_text` (`_scoreboard/leaderboards.py:445`) rejects blank-after-strip, raising
+  `LeaderboardError` for the **entire board**. One poisoned row would break every SDK client's read.
+  In the default `authMode: disabled` this field is unvalidated free text, so that value is
+  reachable.
+* `"Team A @ OpenMined"` yielded `"Team A "`, contradicting the pass-through rule above.
+
+The rule is now: trim only what looks like **one address** — no whitespace anywhere, a non-blank
+local part, and a dotted domain. Everything else passes through untouched.
 
 **Storage is untouched.** `Score.submitted_by` keeps the full address. OpenMined must still be able
 to contact a submitter and audit which verified identity produced a score, which stripping on write
