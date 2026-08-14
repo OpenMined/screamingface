@@ -130,6 +130,24 @@ def test_json_status_is_stable_and_redacts_the_owner_token(
     assert json.loads(output)["schema"] == "screamingface.runtime-status.v1"
 
 
+def test_down_never_signals_an_unverified_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    cli._write_state(config, {"pid": os.getpid(), "owner_token": "stale"})
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: False)
+
+    cli._down(config)
+
+    assert "no owned ScreamingFace runtime was stopped" in capsys.readouterr().out
+    assert not config.state_path.exists()
+
+
+def test_connection_diagnostic_requires_an_active_connection() -> None:
+    assert not cli._has_connections({"data": [{"provider": "codex", "status": "not_connected"}]})
+    assert cli._has_connections({"data": [{"provider": "codex", "status": "connected"}]})
+
+
 def test_logs_rejects_negative_tail(tmp_path: Path) -> None:
     config = RuntimeConfig(data_dir=tmp_path)
 

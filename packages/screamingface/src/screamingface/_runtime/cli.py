@@ -217,7 +217,11 @@ def _serve(config: RuntimeConfig, token: str, *, foreground: bool) -> None:
     from screamingface._runtime.runtime_logging import capture_runtime_log
 
     with capture_runtime_log(config.log_path, foreground=foreground):
-        _serve_logged(config, token)
+        try:
+            _serve_logged(config, token)
+        except Exception as exc:
+            print(f"SCREAMINGFACE_RUNTIME_ERROR {exc}", file=sys.stderr, flush=True)
+            raise
 
 
 def _serve_logged(config: RuntimeConfig, token: str) -> None:
@@ -257,6 +261,8 @@ def _run_server(config: RuntimeConfig, shutdown: threading.Event) -> None:
 def _down(config: RuntimeConfig) -> None:
     state = _read_state(config)
     if not state:
+        if config.state_path.exists():
+            raise RuntimeError(f"invalid runtime state: {config.state_path}")
         print("ScreamingFace is not running.")
         return
     if not _verify_owner(state):
@@ -299,10 +305,13 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
 
 def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     state = _read_state(config)
+    state_valid = not config.state_path.exists() or state is not None
     services = _state_services(state) if state else config.services
     health = _health(services)
     owned = bool(state and _verify_owner(state))
-    if owned and all(health.values()):
+    if not state_valid:
+        label, code = "invalid runtime state", 1
+    elif owned and all(health.values()):
         label, code = "running", 0
     elif owned:
         label, code = "partially healthy", 1
@@ -315,6 +324,7 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
             "schema": "screamingface.runtime-status.v1",
             "status": label.replace(" ", "_"),
             "ownership_verified": owned,
+            "state_valid": state_valid,
             "pid": state.get("pid") if state else None,
             "started_at": state.get("started_at") if state else None,
             "data_dir": str(config.data_dir),
@@ -359,7 +369,7 @@ def _logs(  # noqa: C901, PLR0912, PLR0915
                     print(line, end="", flush=True)
                 continue
             current = _file_identity(config.log_path)
-            if current != identity:
+            if current != identity and current != (-1, -1):
                 stream.close()
                 stream = config.log_path.open(encoding="utf-8", errors="replace")
                 identity = current
@@ -385,7 +395,10 @@ def _log_line_matches(line: str, service: str) -> bool:
 
 
 def _file_identity(path: Path) -> tuple[int, int]:
-    stat = path.stat()
+    try:
+        stat = path.stat()
+    except OSError:
+        return -1, -1
     return stat.st_dev, stat.st_ino
 
 
@@ -540,11 +553,16 @@ def _get_json(url: str) -> object:
 
 def _has_connections(payload: object) -> bool:
     if isinstance(payload, list):
-        return bool(payload)
-    if isinstance(payload, dict):
+        entries = payload
+    elif isinstance(payload, dict):
         data = payload.get("data")
-        return isinstance(data, list) and bool(data)
-    return False
+        entries = data if isinstance(data, list) else []
+    else:
+        return False
+    return any(
+        isinstance(entry, dict) and entry.get("status") not in {None, "not_connected"}
+        for entry in entries
+    )
 
 
 def _benchmark_status(config: RuntimeConfig, name: str) -> str:  # noqa: PLR0911
