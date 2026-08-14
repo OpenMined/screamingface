@@ -13,7 +13,7 @@ finished:
 Give DRACO the check surface the OME-796 loop substrate consumes, so
 `sf.CorrectiveLoop(..., benchmark="draco")` runs — the first PAID check and the proof
 that loop × new benchmark = one benchmark-side adapter, zero engine/client loop code.
-Stacked on branch `OME-796-corrective-loop` (PR #598); lands as its own PR.
+Rebased directly onto `main` after prerequisite PR #598 merged; lands as its own PR.
 
 ## Planned changes
 
@@ -25,8 +25,8 @@ Stacked on branch `OME-796-corrective-loop` (PR #598); lands as its own PR.
   [0,1]) ≥ 0.7; satisfaction = that score. The criterion id is a named constant carried
   in the check route (→ manifest + every compiled url4 + topology rider).
 - Feedback policy v1: axis-level only, never criterion text; #528-shaped leak test.
-- Judge hygiene: the answer participates in the exact request; failed/empty verdicts never
-  cached; in-flight checks capped (reuse DRACO's existing judge plumbing).
+- Judge hygiene: the answer participates in the exact request; unusable replies retry on
+  distinct bounded request keys; in-flight checks inherit the Engine run-wide I/O cap.
 - Manifest: `check_surface` with `expected_check_cost: "paid"` on the DRACO benchmarks.
 - Client (small rider): preflight surfaces expected paid-check spend (EvaluationWarning
   with the rounds × members formula) when `expected_check_cost == "paid"`.
@@ -60,14 +60,14 @@ Stacked on branch `OME-796-corrective-loop` (PR #598); lands as its own PR.
   `draco/runtime.py` (register the endpoint per variant, closing over `node`); new
   `tests/unit/test_draco_check_surface.py` (28) + `tests/unit/test_draco_corrective_loop_e2e.py`
   (4) + `tests/unit/data/draco_corrective_loop_candidate.url4`. client —
-  `_evaluation/runner.py` (paid-check spend warning); `scripts/build_notebooks.py`
-  + regenerated `examples/05_draco_lite_e2e.ipynb` (corrective cell); new
-  `tests/test_paid_check_spend.py` (5).
-- **Commits:** see branch `OME-829-draco-check-adapter` (stacked on
-  `OME-796-corrective-loop`).
-- **Gates:** url4-cloud ALL GREEN (1437 passed / 5 skipped, cov ≥80);
-  screamingface ALL GREEN (824 passed / 1 skipped, cov ≥95, notebooks, build,
-  distribution). Append-only skipped: no prior test modified — new files only.
+  `scripts/build_notebooks.py` + regenerated `examples/05_draco_lite_e2e.ipynb`
+  (corrective cell); new `tests/test_paid_check_spend.py` (5) pins the paid-check
+  warning implementation that landed with prerequisite PR #598.
+- **Commits:** see branch `OME-829-draco-check-adapter`, rebased directly onto `main`.
+- **Gates:** url4-cloud ALL GREEN (Ruff, format, Pyright, layering, full tests with
+  coverage ≥80); screamingface ALL GREEN (Ruff, format, Pyright, full tests with
+  coverage ≥95, notebooks, build, distribution). Both append-only checks pass
+  against `origin/main`.
 - **Deviations:**
   1. **One batched judge pass, not one call per criterion.** Canonical DRACO
      judges each criterion in its own call (5 passes x median 38 criteria). At
@@ -92,3 +92,6 @@ Stacked on branch `OME-796-corrective-loop` (PR #598); lands as its own PR.
   6. Judge-call hygiene uses the answer-bearing prompt as exact cache identity and
      varies a bounded prompt marker on retry. It never forwards invented
      `check_salt` / `check_attempt` parameters through AI Gateway.
+  7. The Client warning reports the check-surface invocation ceiling and explicitly
+     notes benchmark-owned retries; the current manifest cost vocabulary does not
+     claim an exact provider-attempt total.

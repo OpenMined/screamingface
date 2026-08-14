@@ -751,9 +751,10 @@ gets back names only the rubric **areas** that fell short — never a criterion,
 is the answer key.
 
 > **Spend warning:** unlike IFEval, every DRACO check is a paid Judge call. A two-member,
-> three-round loop checks up to 6 times per Case *on top of* the members' own answers, so the SDK
-> warns with the ceiling before the first request. Leave `RUN_CORRECTIVE = False` unless you mean
-> to spend."""
+> three-round loop invokes the check surface up to 6 times per Case *on top of* the members' own
+> answers. Each check can retry according to DRACO's bounded policy, so the SDK warns with both
+> the check ceiling and that retry caveat before the first request. Leave `RUN_CORRECTIVE = False`
+> unless you mean to spend."""
         ),
         nbformat.v4.new_code_cell(
             """RUN_CORRECTIVE = False

@@ -8,6 +8,7 @@ ceiling from a warning at planning time — not from the invoice afterwards.
 from __future__ import annotations
 
 import warnings
+from typing import Literal
 
 import pytest
 
@@ -20,7 +21,7 @@ from screamingface.warnings import EvaluationWarning
 _URL4 = "(answer:0.0:/candidate?q=(question)!'$candidate')!'$answer'"
 
 
-def _resource(cost: str, *, case_count: int = 100) -> _BenchmarkResource:
+def _resource(cost: Literal["free", "paid"], *, case_count: int = 100) -> _BenchmarkResource:
     return _BenchmarkResource(
         info=BenchmarkInfo(id="draco", revision="r1", case_count=case_count),
         case_count=case_count,
@@ -35,19 +36,19 @@ def _resource(cost: str, *, case_count: int = 100) -> _BenchmarkResource:
 
 def test_a_paid_surface_warns_with_the_check_ceiling() -> None:
     loop = sf.CorrectiveLoop(["prov/a", "prov/b"], judge="prov/j", max_rounds=3)
-    with pytest.warns(EvaluationWarning, match="paid judge call") as caught:
+    with pytest.warns(EvaluationWarning, match="600 paid check calls") as caught:
         _validate_check_surface((loop,), "draco", _resource("paid", case_count=100))
     message = str(caught[0].message)
     # 2 members x 3 rounds = 6 checks per case, x 100 cases.
-    assert "600 check calls" in message
     assert "6 per case" in message
+    assert "may retry according to the benchmark's policy" in message
 
 
 def test_the_ceiling_counts_one_member_for_a_solo_loop() -> None:
     solo = sf.SelfCorrective("prov/a", max_rounds=2)
     with pytest.warns(EvaluationWarning) as caught:
         _validate_check_surface((solo,), "draco", _resource("paid", case_count=10))
-    assert "20 check calls" in str(caught[0].message)
+    assert "20 paid check calls" in str(caught[0].message)
 
 
 def test_several_loops_bill_together() -> None:
@@ -58,7 +59,7 @@ def test_several_loops_bill_together() -> None:
     with pytest.warns(EvaluationWarning) as caught:
         _validate_check_surface(loops, "draco", _resource("paid", case_count=5))
     # (2x2) + (1x2) = 6 checks per case, x 5 cases.
-    assert "30 check calls" in str(caught[0].message)
+    assert "30 paid check calls" in str(caught[0].message)
 
 
 def test_a_free_surface_stays_silent() -> None:
