@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -352,7 +352,10 @@ def test_leaderboard_rich_display_uses_the_brand_board_with_only_real_fields() -
     assert "single/model" in html
     assert "82.0" in html
     assert "61.0" in html
-    assert "verified only" in html
+    # OME-832: the "verified only" control was removed. verified_by_openmined became
+    # uniform in OME-820, so the checkbox filtered nothing. Inverted rather than
+    # deleted so it still catches the control being re-added before OME-821.
+    assert "verified only" not in html
     assert "data-python=" in html
     assert "candidate = sf.Model(" in html
     assert "&#x27;openrouter/model&#x27;" in html
@@ -786,3 +789,81 @@ def test_empty_and_unforkable_leaderboards_have_complete_widget_states() -> None
 
     assert "<span class='sf-lb__chip'>verified</span>" not in forkable_html
     assert ">fork</button>" in forkable_html
+
+
+# --- OME-832: the notebook view must not present an inert flag as trust ---
+
+
+def _chip_board(*, verified: bool, forkable: bool) -> sf.Leaderboard:
+    """One candidate plus one baseline, so both chip paths are exercised."""
+    entry = sf.LeaderboardEntry(
+        rank=1,
+        spec_id="fusion/alpha",
+        accuracy=0.9,
+        total_questions=10,
+        ran_with_providers=("openrouter",),
+        submitted_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
+        submitted_by="tester@openmined.org",
+        verified_by_openmined=verified,
+        url4=sf.Url4(_linked_url4() if forkable else "(@)!'not a ScreamingFace candidate'"),
+    )
+    baseline = sf.LeaderboardBaseline(
+        id=uuid4(),
+        benchmark_id="draco",
+        model_name="single/model",
+        accuracy=0.6,
+        source="LMArena",
+        source_url="https://example.invalid/board",
+        imported_at=datetime(2026, 8, 1, 10, tzinfo=UTC),
+        metadata=None,
+    )
+    return sf.Leaderboard(
+        benchmark=sf.LeaderboardInfo(
+            id="draco",
+            display_name="DRACO",
+            description=None,
+            dataset_url=None,
+            created_at=datetime(2026, 8, 1, 10, tzinfo=UTC),
+        ),
+        entries=(entry,),
+        baselines=(baseline,),
+    )
+
+
+@pytest.mark.parametrize("verified", [True, False])
+@pytest.mark.parametrize("forkable", [True, False])
+def test_leaderboard_view_shows_no_verification_ui(verified: bool, forkable: bool) -> None:
+    """OME-820 made verified_by_openmined uniform, so it conveys nothing.
+
+    The chip would appear on every row and the "verified only" checkbox would remove
+    nothing, because no row carries data-verified=false any more.
+    """
+    html = cast(Any, _chip_board(verified=verified, forkable=forkable))._repr_html_()
+
+    assert "verified only" not in html
+    # The MARKUP, not the class name: LEADERBOARD_STYLE is inlined into the same string
+    # and still carries the .sf-lb__checkbox rules, kept unused for OME-821 (D5). Dead
+    # CSS renders no control.
+    assert "<label class='sf-lb__checkbox'>" not in html
+    assert "<input type='checkbox'" not in html
+    assert "data-verified" not in html
+    assert "<span class='sf-lb__chip'>verified</span>" not in html
+
+
+@pytest.mark.parametrize("verified", [True, False])
+def test_a_candidate_is_never_labelled_baseline(verified: bool) -> None:
+    """INVARIANT: only an imported single-Model row may wear the baseline chip.
+
+    `_row_chip` used to fall through to the baseline branch on `python_source is None`.
+    Simply deleting the verified branch would therefore label a candidate with no
+    forkable url4 as "baseline" — presenting a community submission as an imported
+    reference, which is a worse error than the one being fixed. The predicate must key
+    on `kind`, not on forkability.
+    """
+    html = cast(Any, _chip_board(verified=verified, forkable=False))._repr_html_()
+
+    # The candidate row carries its spec_id; the baseline row carries the model name.
+    candidate_row = html.split("fusion/alpha")[1].split("</div>")[0]
+
+    assert "baseline" not in candidate_row
+    assert "<span class='sf-lb__chip'>baseline</span>" in html  # the real baseline still has it
