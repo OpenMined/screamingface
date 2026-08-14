@@ -70,3 +70,27 @@ the corrected matrix, per the ticket's own explicit Verify section.
   matching the ticket's own explicit Verify section rather than an invented unit test.
   `--skip-append-only` used only because the flag is orthogonal to this change (no test
   files touched at all); not a weakening of that gate.
+
+## Review pass (2026-08-14) — three findings, all valid
+
+| Finding | Fix |
+|---|---|
+| `dorny/test-reporter` name is static while the job is a 2-leg matrix | interpolate `(${{ matrix.python-version }})` |
+| the coverage step runs once per leg, so twice concurrently on a PR | guard to the 3.12 leg |
+| the `audit_dependabot_ignores.py` AIDEV-NOTE cites scoreboard as *the* scalar case | re-pointed |
+
+**The reporter name mattered more than it looks:** both legs published identically-named check runs,
+so a 3.13-only failure was indistinguishable from the passing 3.12 report — which defeats the entire
+point of adding the 3.13 leg. Both sibling workflows the PR claims to match "exactly" already
+interpolate the version; this one didn't.
+
+**The coverage step** had no `continue-on-error`, so two concurrent runs risk a create/update race
+failing the step on an otherwise-green PR, on top of duplicate comments. Guarded to 3.12 — the
+shipped floor in `requires-python`, so it is the leg whose number to publish.
+
+**The stale note is a case of this PR invalidating its own justification.** The note explained why the
+scalar branch exists by naming scoreboard as the scalar case — and this PR is what gave scoreboard a
+list. Verified the branch is still needed before re-pointing rather than deleting: `charts.yml:59`,
+`url4-tests.yml:113` and `url4-cloud-tests.yml:102` all still pin a scalar.
+
+**Gates:** all green.

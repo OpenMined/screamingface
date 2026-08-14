@@ -68,13 +68,20 @@ jobs:
         uses: dorny/test-reporter@v3
         if: always()
         with:
-          name: Scoreboard Test Results
+          name: Scoreboard Test Results (${{ matrix.python-version }})
           path: apps/scoreboard/results.xml
           reporter: java-junit
 
+      # ONE leg only. Without the version guard the matrix runs this twice
+      # concurrently on a PR: two coverage comments, plus a create/update race that
+      # can fail the step (it has no continue-on-error) on an otherwise-green PR.
+      # 3.12 is the shipped floor in pyproject's requires-python, so it is the leg
+      # whose number to publish.
       - name: Coverage report
         uses: orgoro/coverage@v3.3
-        if: always() && github.event_name == 'pull_request'
+        if: >-
+          always() && github.event_name == 'pull_request'
+          && matrix.python-version == '3.12'
         with:
           coverageFile: apps/scoreboard/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}

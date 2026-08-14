@@ -165,11 +165,16 @@ def probe_ci_matrix(blocker: dict, floor: tuple[int, int | None]) -> tuple[bool,
         if isinstance(node, dict):
             for k, v in node.items():
                 if k == key:
-                    # AIDEV-NOTE: both shapes occur and BOTH must be read. aigateway and
-                    # url4-cloud use a matrix list ["3.12","3.13"]; scoreboard pins a scalar
-                    # "3.12". An earlier version handled only the list and fell through to
-                    # "no matrix -> still blocking" for scoreboard — the right answer by
-                    # accident, which is the kind of thing that silently rots later.
+                    # AIDEV-NOTE: both shapes occur and BOTH must be read. The test
+                    # matrices use a list ["3.12","3.13"]; a scalar "3.12" still appears on
+                    # single-version jobs (url4-cloud's conformance job, and any workflow
+                    # that pins one interpreter deliberately). An earlier version handled
+                    # only the list and fell through to "no matrix -> still blocking",
+                    # which was the right answer by accident.
+                    #
+                    # Corrected in OME-750: this note used to cite scoreboard as THE
+                    # scalar case, and that PR is what gave scoreboard a list. The scalar
+                    # branch is still needed — just not for that reason.
                     vals = v if isinstance(v, list) else [v]
                     for x in vals:
                         s = str(x)
