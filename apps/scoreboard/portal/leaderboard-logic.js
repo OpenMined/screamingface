@@ -37,10 +37,15 @@
   // never did, which is exactly what the page's own disclaimer denies.
   //
   // AIDEV-NOTE: `verified_by_openmined` is the only reproducibility signal the
-  // Scoreboard API exposes today. OME-771 intends to source this from the SF
-  // engine instead ("have we run this URL4 before" — i.e. a global-cache hit).
-  // When that lands, change the predicate on the next line and nothing else:
-  // the tests pin the invariant above, not the current source of the signal.
+  // Scoreboard API exposes today, and since OME-820 it is a placeholder that
+  // asserts NOTHING — it defaults to true for every submission, so this predicate
+  // currently returns true for every row and `?pool=verified` would narrow the
+  // pool to everything. That is why nothing calls these functions yet.
+  //
+  // OME-771 intends to source the signal from the SF engine instead ("have we run
+  // this URL4 before" — i.e. a global-cache hit), and OME-821 gives the field a
+  // real meaning. When either lands, change the predicate on the next line and
+  // nothing else: the tests pin the invariant above, not the source of the signal.
   function isReproducible(entry) {
     return entry.verified_by_openmined === true;
   }

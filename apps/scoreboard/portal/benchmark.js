@@ -160,9 +160,10 @@
       // INVARIANT: this marks the row with the highest accuracy on screen — a
       // "leading" signal, NOT a reproduction claim. SFDS defines gain as the
       // leading-row/SOTA colour, so gold here is sanctioned, but the accessible
-      // text below must not promise reproduction: the leader is frequently
-      // unverified (the Verified column shows that per row), and the medal that
-      // *would* assert reproduction is descoped to OME-771 — see renderMarkSlot.
+      // text below must not promise reproduction. Nothing here is reproduced:
+      // no service re-runs submissions (OME-414) and the verification UI was
+      // withdrawn in OME-820, so there is no per-row signal to point at. The
+      // medal that *would* assert reproduction is descoped to OME-771.
       var isLeader = barMax !== null && entry.accuracy === barMax;
       if (isLeader) tr.className = "sota";
 

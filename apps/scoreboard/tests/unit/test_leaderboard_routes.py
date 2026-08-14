@@ -108,8 +108,9 @@ async def test_get_leaderboard_returns_ranked_best_score_per_spec(
     assert [entry["spec_id"] for entry in body["entries"]] == ["spec-b", "spec-a", "spec-c"]
     assert [entry["accuracy"] for entry in body["entries"]] == [0.95, 0.9, 0.7]
     assert body["entries"][0]["ran_with_providers"] == ["openai", "gemini"]
-    # OME-820: verified now defaults to True and asserts "ran on OpenMined
-    # infrastructure". Unverified stays covered by the explicit-False row test.
+    # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
+    # nothing re-runs submissions and nothing attests where a run executed. The
+    # False case stays covered by the explicit-False row test.
     assert body["entries"][0]["verified_by_openmined"] is True
     assert body["entries"][1]["url4_expression"] == "url4://benchmark/hle/spec-a/0.9"
 

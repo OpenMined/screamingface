@@ -189,13 +189,20 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
   .rail .rail-nav { flex: 0 0 100%; margin-right: 0; gap: var(--space-3); }
 }
 /* ---- two-card summary strip (OME-820) ------------------------------ */
-/* style.css sets `.stats { grid-template-columns: repeat(3,1fr) }` and is
-   vendored, so it is not edited. The leaderboard summary lost its third metric
-   ("Verified rows") when the verification UI was withdrawn — verified_by_openmined
-   became uniform and the count read "N of N". Without this modifier the bordered
-   strip renders two cards across two thirds of its width with an empty third at
-   desktop sizes; the 620px rule in style.css already collapses to one column, so
-   only the wide case needs it. Scoped to a new class so every other three-card
-   `.stats` strip is untouched. OME-821 restores the third metric and this class
-   comes off with it. */
-.stats--two { grid-template-columns: repeat(2, 1fr); }
+/* style.css sets `.stats { grid-template-columns: repeat(3,1fr) }` and is vendored,
+   so it is not edited. The leaderboard summary lost its third metric ("Verified
+   rows") when the verification UI was withdrawn — verified_by_openmined became
+   uniform and the count read "N of N". Without a modifier the bordered strip
+   renders two cards across two thirds of its width, leaving an empty third.
+   Scoped to a new class so every other three-card `.stats` strip is untouched.
+   OME-821 restores the third metric and this class comes off with it.
+
+   INVARIANT: this MUST stay inside a min-width query. style.css collapses `.stats`
+   to one column at max-width 620px, but a media query adds NO specificity — both
+   rules are a single class, and portal.css loads after style.css, so an
+   unconditional `.stats--two` wins at every viewport and phones get two cramped
+   side-by-side cards instead of a stack. 621px is the complement of that 620px
+   breakpoint; if the vendored breakpoint moves, this must move with it. */
+@media (min-width: 621px) {
+  .stats--two { grid-template-columns: repeat(2, 1fr); }
+}

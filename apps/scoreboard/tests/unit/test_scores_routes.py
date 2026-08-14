@@ -127,8 +127,9 @@ async def test_post_score_creates_new_row_201(score_client: AsyncClient) -> None
     assert body["benchmark_id"] == "hle"
     assert body["spec_id"] == "spec-1"
     assert body["submitted_at"]
-    # OME-820: verified now defaults to True and asserts "ran on OpenMined
-    # infrastructure". Unverified stays covered by the explicit-False row test.
+    # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
+    # nothing re-runs submissions and nothing attests where a run executed. The
+    # False case stays covered by the explicit-False row test.
     assert body["verified_by_openmined"] is True
 
 

@@ -279,3 +279,67 @@ Checked rather than assumed:
   needed a modifier.
 
 **Gates:** ruff check ✓, ruff format ✓, pyright ✓, pytest --cov ✓. Portal logic tests: 14 passed.
+
+## Review pass 4 (2026-08-14) — /code-review, six findings, five mine
+
+| # | Finding | Verdict |
+|---|---|---|
+| F1 | `.stats--two` defeats the mobile collapse | **valid — real bug I introduced** |
+| F2 | SDK still badges every row | valid, already fixed by `OME-832` / #601 |
+| F3 | the no-backfill test cannot fail for D5 | valid |
+| F4 | seven comments still claim "ran on OpenMined infrastructure" | valid |
+| F5 | stale JS prose referencing the deleted column | valid |
+| F6 | `README.md` still claims "verified by re-run" | valid |
+
+### F1 — and it contradicted my own ledger
+
+`style.css:573` collapses `.stats` to one column inside `@media (max-width: 620px)`. A media query
+adds **no specificity**: both rules are a single class, and `portal.css` loads after `style.css`, so
+an unconditional `.stats--two` won at *every* viewport. Phones got two cramped cards.
+
+The uncomfortable part: I used the source-order argument two bullets earlier in the previous entry to
+prove the modifier wins, then asserted the mobile rule still applied. I applied the rule and then
+ignored it.
+
+Fixed by wrapping in `@media (min-width: 621px)`, and **measured in Chrome against the real
+stylesheets** rather than reasoned about:
+
+| Width | With the fix | With the old unconditional rule |
+|---|---|---|
+| 500px | **1 column**, 466px | **2 columns**, 233px each |
+| 1200px | 2 columns, 479px each | same |
+| 1200px, 3-card strips | 3 columns, untouched | untouched |
+
+### F3 — replaced an unfalsifiable test with a real guard
+
+`tortoise_db` builds the schema from the models via `tortoise_test_context`, so **migration files
+never execute under pytest**. The runtime test could not have caught a data migration flipping
+existing rows, which is exactly what D5 forbids.
+
+Rather than delete it, its docstring now states what it actually covers ("the column can still hold
+False") and points at a new guard, `test_no_migration_backfills_the_verified_column`, which reads the
+migration sources and fails on an `UPDATE`/`RunPython`/`RunSQL` touching the column. It also asserts
+the file list is non-empty, so it cannot pass vacuously.
+
+**Proven falsifiable:** planted a migration containing
+`UPDATE scores SET verified_by_openmined = 1` and confirmed the guard fails naming the file, then
+removed it and confirmed green.
+
+### F4, F5, F6 — the same mistake in three more places
+
+The previous pass swept `*.html` only. Corrected: four inline test comments, two `test_store.py`
+docstrings and a section header, `benchmark.js`'s reference to the deleted column,
+`leaderboard-logic.js`'s reasoning (which assumed a mixed board and a `?pool=verified` that narrows
+anything — under the new default it selects everything), and `README.md`'s "ranked and verified by
+re-run, not just claimed".
+
+Final sweep across `.py`, `.js`, `.html` and `.md`: the only remaining mentions are *denials*
+("nothing attests execution provenance"), which are correct.
+
+**Gates:** ruff check ✓, ruff format ✓, pyright ✓, pytest --cov ✓. Portal logic tests: 14 passed.
+
+### Deviation
+
+Three review passes in a row found the same class of defect — code and prose drifting apart — because
+each sweep was scoped to the file types I had just edited. The lesson worth keeping is to grep the
+*claim*, not the *file type*.

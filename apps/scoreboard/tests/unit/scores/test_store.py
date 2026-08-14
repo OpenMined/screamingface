@@ -99,8 +99,9 @@ async def test_submit_inserts_and_returns_score(tortoise_db: None) -> None:
     assert score.correct_questions == 75
     assert score.ran_with_providers == ["openai"]
     assert score.client_name == "scoreboard-test"
-    # OME-820: verified now defaults to True and asserts "ran on OpenMined
-    # infrastructure". Unverified stays covered by the explicit-False row test.
+    # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
+    # nothing re-runs submissions and nothing attests where a run executed. The
+    # False case stays covered by the explicit-False row test.
     assert score.verified_by_openmined is True
     assert await Score.all().count() == 1
 
@@ -761,10 +762,11 @@ async def test_leaderboard_at_a_registered_revision_excludes_pre_revision_rows(
 
 
 async def test_a_new_submission_is_verified_by_default(tortoise_db: None) -> None:
-    """Monday's cohort runs on the hosted engine, our gateway, our capped keys.
+    """The default exists so the board does not read "unverified" on every row.
 
-    Nothing independently reproduces those runs because the numbers are already
-    ours, so the default asserts execution provenance rather than reproduction.
+    It asserts nothing: no service re-runs submissions (OME-414) and nothing
+    attests where a run executed — the SDK takes independent engine and scoreboard
+    URLs, and the chart ships authMode: disabled. OME-821 gives it a real meaning.
     """
     store = ScoreStore()
     await store.register_benchmark("hle", "HLE")
@@ -776,10 +778,14 @@ async def test_a_new_submission_is_verified_by_default(tortoise_db: None) -> Non
 
 
 async def test_pre_existing_unverified_rows_are_not_backfilled(tortoise_db: None) -> None:
-    """INVARIANT (D5): the new default applies to NEW rows only.
+    """The column can still hold False, so a row is not forced true on read.
 
-    Some existing rows are local test submissions that genuinely did not run on
-    OpenMined infrastructure, so backfilling them would publish a falsehood.
+    NOTE ON SCOPE: this does NOT prove D5 ("no backfill"). `tortoise_db` builds the
+    schema from the models via `tortoise_test_context`, so migration files never
+    execute in tests — a future data migration flipping existing rows would leave
+    this green. D5 is guarded separately by
+    `test_no_migration_backfills_the_verified_column`, which reads the migration
+    files themselves. Found in review of OME-820.
     """
     benchmark = await Benchmark.create(id="hle", display_name="HLE")
     legacy = await Score.create(
@@ -829,3 +835,36 @@ async def test_mark_verified_flips_a_false_row_and_is_idempotent(
 
     assert after_first.verified_by_openmined is True
     assert after_second.verified_by_openmined is True
+
+
+def test_no_migration_backfills_the_verified_column() -> None:
+    """INVARIANT (D5): no migration may flip existing rows' verified_by_openmined.
+
+    This is the real D5 guard. The runtime test above cannot provide it: `tortoise_db`
+    builds the schema from the models via `tortoise_test_context`, so migration files
+    never execute under pytest and a data migration would go unnoticed.
+
+    Reading the migration sources instead makes the invariant falsifiable — adding an
+    UPDATE on this column fails here. WHY it matters: rows created before OME-820 were
+    genuinely not verified (some are local test submissions), so backfilling them to
+    True would publish a claim about runs nobody checked.
+    """
+    from pathlib import Path
+
+    import scoreboard.scores.migrations as migrations_pkg
+
+    directory = Path(migrations_pkg.__file__).parent
+    sources = sorted(p for p in directory.glob("*.py") if p.name != "__init__.py")
+    assert sources, "no migration files found — the guard would pass vacuously"
+
+    offenders = [
+        path.name
+        for path in sources
+        if "verified_by_openmined" in (text := path.read_text())
+        and any(word in text.lower() for word in ("update", "runpython", "runsql"))
+    ]
+
+    assert offenders == [], (
+        f"migration(s) may backfill verified_by_openmined: {offenders}. "
+        "Existing rows must keep the value they were created with (OME-820 D5)."
+    )
