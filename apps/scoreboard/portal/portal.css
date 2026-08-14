@@ -158,3 +158,23 @@ table .btn { white-space: nowrap; }
   -webkit-mask: none;
   mask: none;
 }
+
+/* ---- masthead nav links (OME-839) ---------------------------------- */
+/* Adopted from the leaderboard-mvp design, which defines these in its own board.css —
+   they are NOT in the vendored style.css, so they belong here.
+   WHY the group is a container and not three bare anchors: the theme toggle is
+   `position: fixed; right: var(--space-5)` (style.css:58 — it pins itself because the
+   rail's sticky is defeated by the page's overflow-x clipping), so it takes NO flex space
+   and the rail will happily lay links out underneath it. Measured in Chrome, "◐ light"
+   is 55px wide, and the collisions were real in both directions:
+     1200px — the mockup's 32px end margin left `docs` overlapping the toggle by 23px;
+      375px — the rail wraps (style.css:667) and `github` landed under the toggle.
+   A container fixes both: --space-11 reserves the toggle's footprint on desktop, and
+   `flex: 0 0 100%` moves the whole group onto its own wrapped line on mobile, where the
+   toggle only ever shares row one. */
+.rail .rail-nav { display: flex; gap: var(--space-4); margin-right: var(--space-11); }
+.rail .rail-link { color: var(--ink-2); text-decoration: none; }
+.rail .rail-link:hover { color: var(--ink); }
+@media (max-width: 620px) {
+  .rail .rail-nav { flex: 0 0 100%; margin-right: 0; gap: var(--space-3); }
+}

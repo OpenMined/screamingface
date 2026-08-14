@@ -23,7 +23,13 @@
   <div class="rail">
     <span class="brand"><span class="m">😱</span> screamingface</span><span class="sep">/</span>
     <nav class="crumbs"><a href="index.html" class="here">portal</a></nav>
-    <span class="spacer"></span><button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
+    <span class="spacer"></span>
+    <nav class="rail-nav" aria-label="Site">
+      <a class="rail-link" href="index.html#benchmarks">benchmarks</a>
+      <a class="rail-link" href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener">github</a>
+      <a class="rail-link" href="https://docs.screamingface.ai" target="_blank" rel="noopener">docs</a>
+    </nav>
+    <button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
   </div>
 
   <div class="wrap wide">
@@ -32,7 +38,7 @@
       <h1>Results you can rerun, not just read.</h1>
     </header>
 
-    <p class="lead">Public benchmark results for specs you can inspect and rerun locally. Accuracy, providers, verification status, and the exact run link stay attached to every row.</p>
+    <p class="lead">A <em>fusion</em> is one or more models scored on a public benchmark.</p>
 
     <p><a href="https://screamingface.ai/">Install screamingface — one command</a></p>
 
@@ -49,7 +55,9 @@
       <div class="s"><span class="k">Newest benchmark</span><div class="v" id="stat-newest">—</div></div>
     </div>
 
-    <h2>Benchmarks</h2>
+    <h2 id="benchmarks">Benchmarks</h2>
+
+    <p class="faint">Pick a benchmark to open its leaderboard. Inside, you can tab across all benchmarks.</p>
 
     <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
 
@@ -68,6 +76,7 @@
     </div>
 
     <div class="foot">
+      <span>😱 screamingface</span>
       <span><a href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>
     </div>
   </div>
