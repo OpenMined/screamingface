@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -31,7 +31,7 @@ from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.url4 import Url4
 
-type RecipeKind = Literal["model", "fusion", "pipeline"]
+type RecipeKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -388,14 +388,22 @@ class Report:
         return report_html(self)
 
 
+_RECIPE_KINDS: dict[str, RecipeKind] = {
+    "model": "model",
+    "fusion": "fusion",
+    "pipeline": "pipeline",
+    "corrective_loop": "corrective_loop",
+    "self_corrective": "self_corrective",
+}
+
+
 def _kind(value: object, label: str) -> RecipeKind:
-    if value == "model":
-        return "model"
-    if value == "fusion":
-        return "fusion"
-    if value == "pipeline":
-        return "pipeline"
-    raise ValueError(f"{label} kind must be 'model', 'fusion', or 'pipeline'")
+    if isinstance(value, str) and value in _RECIPE_KINDS:
+        return _RECIPE_KINDS[value]
+    raise ValueError(
+        f"{label} kind must be 'model', 'fusion', 'pipeline', 'corrective_loop', "
+        "or 'self_corrective'"
+    )
 
 
 def _models(values: Sequence[str], label: str) -> tuple[str, ...]:
@@ -455,16 +463,47 @@ def _validate_candidate_structure(
     models: Sequence[str],
     members: Sequence[MemberResult],
 ) -> None:
-    if kind == "model":
-        if len(models) != 1:
-            raise ValueError("a Model Candidate must contain exactly one model route")
-        if members:
-            raise ValueError("a Model Candidate cannot contain members")
-    elif kind == "pipeline":
-        if members:
-            raise ValueError("a Pipeline Candidate cannot contain direct Fusion members")
-    elif not members:
+    _STRUCTURE_RULES[kind](models, members)
+
+
+def _validate_model_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
+    if len(models) != 1:
+        raise ValueError("a Model Candidate must contain exactly one model route")
+    if members:
+        raise ValueError("a Model Candidate cannot contain members")
+
+
+def _validate_fusion_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
+    if not members:
         raise ValueError("a Fusion Candidate requires at least one direct member")
+
+
+def _validate_pipeline_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
+    if members:
+        raise ValueError("a Pipeline Candidate cannot contain direct Fusion members")
+
+
+def _validate_corrective_loop_candidate(
+    models: Sequence[str], members: Sequence[MemberResult]
+) -> None:
+    if len(members) < 2:
+        raise ValueError("a CorrectiveLoop Candidate requires at least two members")
+
+
+def _validate_self_corrective_candidate(
+    models: Sequence[str], members: Sequence[MemberResult]
+) -> None:
+    if members:
+        raise ValueError("a SelfCorrective Candidate cannot contain members")
+
+
+_STRUCTURE_RULES: dict[RecipeKind, Callable[[Sequence[str], Sequence[MemberResult]], None]] = {
+    "model": _validate_model_candidate,
+    "fusion": _validate_fusion_candidate,
+    "pipeline": _validate_pipeline_candidate,
+    "corrective_loop": _validate_corrective_loop_candidate,
+    "self_corrective": _validate_self_corrective_candidate,
+}
 
 
 def _validate_candidate_failures(failures: Sequence[Failure]) -> None:

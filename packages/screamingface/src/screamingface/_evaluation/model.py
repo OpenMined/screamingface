@@ -18,7 +18,7 @@ from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 
-type CandidateKind = Literal["model", "fusion", "pipeline"]
+type CandidateKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,14 +285,22 @@ def _positive_count(value: object, label: str) -> int:
     return value
 
 
+_CANDIDATE_KINDS: dict[str, CandidateKind] = {
+    "model": "model",
+    "fusion": "fusion",
+    "pipeline": "pipeline",
+    "corrective_loop": "corrective_loop",
+    "self_corrective": "self_corrective",
+}
+
+
 def _candidate_kind(value: object) -> CandidateKind:
-    if value == "model":
-        return "model"
-    if value == "fusion":
-        return "fusion"
-    if value == "pipeline":
-        return "pipeline"
-    raise ValueError("Candidate kind must be 'model', 'fusion', or 'pipeline'")
+    if isinstance(value, str) and value in _CANDIDATE_KINDS:
+        return _CANDIDATE_KINDS[value]
+    raise ValueError(
+        "Candidate kind must be 'model', 'fusion', 'pipeline', 'corrective_loop', "
+        "or 'self_corrective'"
+    )
 
 
 def _nonblank(value: object, label: str) -> str:

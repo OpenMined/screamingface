@@ -60,6 +60,7 @@ def evaluate_sync(
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = load_benchmark(benchmark, limit)
+    _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
     catalog = load_models()
     _validate_required_models(evaluation, catalog.models)
@@ -99,6 +100,7 @@ async def evaluate_async(
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = await load_benchmark(benchmark, limit)
+    _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
     catalog = await load_models()
     _validate_required_models(evaluation, catalog.models)
@@ -332,6 +334,35 @@ def _validate_required_models(
         code="model_unavailable",
         permanent=True,
         details={"models": list(missing)},
+    )
+
+
+def _validate_check_surface(
+    values: Sequence[Recipe],
+    benchmark: str,
+    resource: _BenchmarkResource,
+) -> None:
+    """Fail a loop recipe on a check-less benchmark BEFORE any compile or spend.
+
+    INVARIANT (fail-before-spend): this runs right after the free benchmark
+    fetch — an MCQ-style benchmark deliberately advertises no check surface
+    (pass/fail feedback over a handful of options is an elimination attack),
+    and that refusal must cost nothing.
+    """
+
+    from screamingface.corrective import CorrectiveLoop, SelfCorrective
+    from screamingface.errors import PlanningError
+
+    loops = tuple(value for value in values if isinstance(value, CorrectiveLoop | SelfCorrective))
+    if not loops or resource.check_surface is not None:
+        return
+    names = ", ".join(repr(value.name) for value in loops)
+    raise PlanningError(
+        f"Benchmark {benchmark!r} does not support mid-run checking, so corrective "
+        f"candidate(s) {names} cannot run on it",
+        code="check_surface_missing",
+        permanent=True,
+        details={"benchmark": benchmark, "candidates": [value.name for value in loops]},
     )
 
 

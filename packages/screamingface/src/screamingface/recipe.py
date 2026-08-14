@@ -56,7 +56,9 @@ def _recipe(value: object, label: str) -> Recipe:
     return value
 
 
-def _recipe_kind(value: Recipe) -> Literal["model", "fusion", "pipeline"]:
+def _recipe_kind(
+    value: Recipe,
+) -> Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]:
     """The single authority mapping a Recipe value to its kind.
 
     WHY: kinds are the Recipe's type, never its Python class name — a renamed
@@ -64,16 +66,24 @@ def _recipe_kind(value: Recipe) -> Literal["model", "fusion", "pipeline"]:
     Recipe kinds) reads this one function instead of forking its own mapping.
     """
 
+    from screamingface.corrective import CorrectiveLoop, SelfCorrective
     from screamingface.fusion import Fusion
     from screamingface.model import Model
     from screamingface.pipeline import Pipeline
 
-    if isinstance(value, Model):
-        return "model"
-    if isinstance(value, Fusion):
-        return "fusion"
-    if isinstance(value, Pipeline):
-        return "pipeline"
+    kinds: tuple[
+        tuple[type, Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]],
+        ...,
+    ] = (
+        (Model, "model"),
+        (Fusion, "fusion"),
+        (Pipeline, "pipeline"),
+        (CorrectiveLoop, "corrective_loop"),
+        (SelfCorrective, "self_corrective"),
+    )
+    for recipe_type, kind in kinds:
+        if isinstance(value, recipe_type):
+            return kind
     raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
 
 

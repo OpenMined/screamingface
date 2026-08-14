@@ -25,7 +25,9 @@ def compile_evaluation(
 ) -> _Evaluation:
     """Compile all Candidates locally against one selected Benchmark."""
 
-    compiled = tuple(compile_candidate(recipe) for recipe in recipes)
+    compiled = tuple(
+        compile_candidate(recipe, check_surface=resource.check_surface) for recipe in recipes
+    )
     # WHY: the Benchmark is identical for every Candidate — parse it once and bind
     # each compiler-produced (already canonical) Candidate expression into it.
     prepared = _prepare_benchmark(resource.url4)

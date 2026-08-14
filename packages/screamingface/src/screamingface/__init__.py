@@ -5,6 +5,7 @@ from screamingface._default_client import close, configure, connect, disconnect,
 from screamingface._ui.connections import ConnectionPanel
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
+from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.discovery import (
     Benchmark,
     BenchmarkInfo,
@@ -63,6 +64,7 @@ __all__ = [
     "Client",
     "Connection",
     "ConnectionPanel",
+    "CorrectiveLoop",
     "AsyncOAuthFlow",
     "close",
     "configure",
@@ -99,6 +101,7 @@ __all__ = [
     "Recipe",
     "Report",
     "ScreamingFaceError",
+    "SelfCorrective",
     "Usage",
     "Url4",
     "benchmarks",

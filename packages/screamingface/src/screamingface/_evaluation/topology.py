@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -11,8 +12,10 @@ from url4 import Expression, Node, Source, Text, src
 
 _SCHEMA = "screamingface.recipe.v1"
 _SOURCE_NAME = "_sf_recipe"
-_BINDING = re.compile(r"(?:model|synthesis)_\d+")
-type _TopologyKind = Literal["model", "fusion", "pipeline"]
+# A corrective loop nests its whole gated chain as one inner expression bound
+# under loop_candidate (OME-796); everything else stays model_N / synthesis_N.
+_BINDING = re.compile(r"(?:model|synthesis)_\d+|loop_candidate")
+type _TopologyKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
 type _OperationRole = Literal["model", "synthesis"]
 
 
@@ -28,6 +31,13 @@ class _RecipeTopology:
     members: tuple[_RecipeTopology, ...] = ()
     synthesizer: _RecipeTopology | None = None
     stages: tuple[_RecipeTopology, ...] = ()
+    # Corrective-loop identity (OME-796): the judge role, the cost cap, the
+    # check route compiled against (carries the benchmark revision), and the
+    # loop protocol revision — run records self-describe with no new mechanism.
+    judge: _RecipeTopology | None = None
+    max_rounds: int | None = None
+    check_route: str | None = None
+    protocol: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +94,11 @@ def _topology_bindings(value: _RecipeTopology) -> dict[str, _TopologyBinding]:
                 stage_context = (stage.binding,)
                 stage_operations = (stage.binding,)
             return
+        if node.kind in {"corrective_loop", "self_corrective"}:
+            # WHY: replay decoding rejects loop candidates before walking (their
+            # gated rounds nest calls the flat call scan cannot see), so reaching
+            # this branch means a consumer forgot that contract.
+            raise ValueError("corrective-loop URL4 replay is not supported yet")
         for member in node.members:
             visit(member, context, operations)
         assert node.synthesizer is not None
@@ -131,6 +146,10 @@ def _encode_topology(value: _RecipeTopology) -> str:
 
 
 def _encode_node(value: _RecipeTopology) -> dict[str, object]:
+    return _ENCODERS[value.kind](value)
+
+
+def _encode_model(value: _RecipeTopology) -> dict[str, object]:
     if value.kind == "model":
         assert value.role is not None
         return {
@@ -140,14 +159,46 @@ def _encode_node(value: _RecipeTopology) -> dict[str, object]:
             "named": value.named,
             "role": value.role,
         }
-    if value.kind == "pipeline":
-        return {
-            "binding": value.binding,
-            "kind": value.kind,
-            "name": value.name,
-            "named": value.named,
-            "stages": [_encode_node(stage) for stage in value.stages],
-        }
+    raise AssertionError("model encoder received a non-model node")
+
+
+def _encode_pipeline(value: _RecipeTopology) -> dict[str, object]:
+    return {
+        "binding": value.binding,
+        "kind": value.kind,
+        "name": value.name,
+        "named": value.named,
+        "stages": [_encode_node(stage) for stage in value.stages],
+    }
+
+
+def _encode_corrective_loop(value: _RecipeTopology) -> dict[str, object]:
+    assert value.judge is not None
+    return {
+        "binding": value.binding,
+        "check_route": value.check_route,
+        "judge": _encode_node(value.judge),
+        "kind": value.kind,
+        "max_rounds": value.max_rounds,
+        "members": [_encode_node(member) for member in value.members],
+        "name": value.name,
+        "protocol": value.protocol,
+    }
+
+
+def _encode_self_corrective(value: _RecipeTopology) -> dict[str, object]:
+    return {
+        "binding": value.binding,
+        "check_route": value.check_route,
+        "kind": value.kind,
+        "max_rounds": value.max_rounds,
+        "member": _encode_node(value.members[0]),
+        "name": value.name,
+        "protocol": value.protocol,
+    }
+
+
+def _encode_fusion(value: _RecipeTopology) -> dict[str, object]:
     assert value.synthesizer is not None
     return {
         "binding": value.binding,
@@ -156,6 +207,15 @@ def _encode_node(value: _RecipeTopology) -> dict[str, object]:
         "name": value.name,
         "synthesizer": _encode_node(value.synthesizer),
     }
+
+
+_ENCODERS: dict[str, Callable[[_RecipeTopology], dict[str, object]]] = {
+    "model": _encode_model,
+    "pipeline": _encode_pipeline,
+    "fusion": _encode_fusion,
+    "corrective_loop": _encode_corrective_loop,
+    "self_corrective": _encode_self_corrective,
+}
 
 
 def _decode_node(value: object) -> _RecipeTopology:
@@ -168,6 +228,8 @@ def _decode_node(value: object) -> _RecipeTopology:
         "model": _decode_model,
         "pipeline": _decode_pipeline,
         "fusion": _decode_fusion,
+        "corrective_loop": _decode_corrective_loop,
+        "self_corrective": _decode_self_corrective,
     }.get(kind if isinstance(kind, str) else "")
     if decoder is None:
         raise ValueError("URL4 Candidate has invalid Recipe topology metadata")
@@ -238,6 +300,73 @@ def _decode_fusion(
         members=members,
         synthesizer=synthesizer,
     )
+
+
+def _decode_corrective_loop(
+    value: dict[object, object],
+    name: str,
+    binding: str,
+) -> _RecipeTopology:
+    expected = {
+        "binding",
+        "check_route",
+        "judge",
+        "kind",
+        "max_rounds",
+        "members",
+        "name",
+        "protocol",
+    }
+    if set(value) != expected:
+        raise ValueError("URL4 Candidate has invalid CorrectiveLoop topology metadata")
+    members_value = value["members"]
+    if not isinstance(members_value, list):
+        raise ValueError("URL4 Candidate has invalid CorrectiveLoop topology metadata")
+    members = tuple(_decode_node(member) for member in members_value)
+    if len(members) < 2:
+        raise ValueError("URL4 Candidate has invalid CorrectiveLoop topology metadata")
+    return _RecipeTopology(
+        kind="corrective_loop",
+        name=name,
+        binding=binding,
+        members=members,
+        judge=_decode_node(value["judge"]),
+        max_rounds=_max_rounds(value["max_rounds"]),
+        check_route=_check_route(value["check_route"]),
+        protocol=_text(value["protocol"]),
+    )
+
+
+def _decode_self_corrective(
+    value: dict[object, object],
+    name: str,
+    binding: str,
+) -> _RecipeTopology:
+    expected = {"binding", "check_route", "kind", "max_rounds", "member", "name", "protocol"}
+    if set(value) != expected:
+        raise ValueError("URL4 Candidate has invalid SelfCorrective topology metadata")
+    return _RecipeTopology(
+        kind="self_corrective",
+        name=name,
+        binding=binding,
+        members=(_decode_node(value["member"]),),
+        max_rounds=_max_rounds(value["max_rounds"]),
+        check_route=_check_route(value["check_route"]),
+        protocol=_text(value["protocol"]),
+    )
+
+
+def _max_rounds(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("URL4 Candidate has invalid corrective topology metadata")
+    return value
+
+
+def _check_route(value: object) -> str:
+    selected = _text(value)
+    if not selected.startswith("/"):
+        raise ValueError("URL4 Candidate has invalid corrective topology metadata")
+    return selected
 
 
 def _text(value: object) -> str:

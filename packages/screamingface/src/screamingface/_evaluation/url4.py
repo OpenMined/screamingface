@@ -106,11 +106,34 @@ def _candidate_from_url4(value: str) -> Candidate:
     if not isinstance(candidate, Expression) or not isinstance(candidate.intent, Text):
         raise ValueError("Evaluation URL4 contains an invalid embedded Candidate expression")
 
+    _reject_corrective_replay(candidate)
     calls = _candidate_calls(candidate)
     final = _final_binding(candidate.intent.value, calls)
     selected = _dependency_closure(final, calls)
     topology = _topology_from_expression(candidate)
     return _candidate_from_topology(url4, topology, calls, final, selected)
+
+
+def _reject_corrective_replay(candidate: Expression) -> None:
+    """Refuse corrective-loop artifacts with a named reason, not a shape error.
+
+    WHY: the flat call scan below cannot see the model calls a loop nests inside
+    its gated `iterate` bodies, so replay validation would report a misleading
+    topology mismatch. Extending replay to gated candidates is follow-up work;
+    until then the refusal names the actual limitation. A malformed topology
+    falls through to the ordinary validation path unchanged.
+    """
+
+    try:
+        topology = _topology_from_expression(candidate)
+    except ValueError:
+        return
+    if topology.kind in {"corrective_loop", "self_corrective"}:
+        raise ValueError(
+            "Evaluation URL4 contains a corrective-loop Candidate; URL4 replay does "
+            "not support gated corrective candidates yet — re-run the evaluation "
+            "from its Recipe instead"
+        )
 
 
 def _candidate_from_topology(

@@ -12,6 +12,21 @@ from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import PlanningError
 
 _BENCHMARK_SCHEMA = "screamingface.benchmark.v1"
+_CHECK_COSTS = frozenset({"free", "paid"})
+
+
+@dataclass(frozen=True, slots=True)
+class _CheckSurface:
+    """One benchmark's advertised mid-run checking capability (OME-796).
+
+    A loop recipe compiles ``check_route`` into its check steps; an ABSENT
+    surface means the benchmark cannot check mid-run and the runner's preflight
+    refuses a loop recipe before any money moves.
+    """
+
+    check_route: str
+    feedback_intent: str
+    expected_check_cost: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +34,7 @@ class _BenchmarkResource:
     info: BenchmarkInfo
     case_count: int
     url4: str
+    check_surface: _CheckSurface | None = None
 
 
 def _decode_benchmark_resource(
@@ -56,6 +72,35 @@ def _decode_benchmark_resource(
             else min(requested_limit, installed_case_count)
         ),
         url4=url4,
+        check_surface=_check_surface(resource.get("check_surface")),
+    )
+
+
+def _check_surface(value: object) -> _CheckSurface | None:
+    """Decode the optional check-surface block; absent = no mid-run checking."""
+
+    if value is None:
+        return None
+    block = _wire_mapping(value, "Benchmark check_surface", _invalid)
+    if set(block) != {"check_route", "feedback_intent", "expected_check_cost"}:
+        _invalid(
+            "Benchmark check_surface must carry exactly check_route, feedback_intent, "
+            "and expected_check_cost"
+        )
+    check_route = _wire_text(block.get("check_route"), "Benchmark check_route", _invalid)
+    if not check_route.startswith("/"):
+        _invalid("Benchmark check_route must be an absolute route path")
+    feedback_intent = _wire_text(
+        block.get("feedback_intent"), "Benchmark feedback_intent", _invalid
+    )
+    cost = block.get("expected_check_cost")
+    if cost not in _CHECK_COSTS:
+        _invalid("Benchmark expected_check_cost must be 'free' or 'paid'")
+    assert isinstance(cost, str)
+    return _CheckSurface(
+        check_route=check_route,
+        feedback_intent=feedback_intent,
+        expected_check_cost=cost,
     )
 
 
