@@ -8,6 +8,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 from collections.abc import Iterator, Mapping
 from types import FrameType
 from typing import Any, Protocol
@@ -15,11 +16,6 @@ from typing import Any, Protocol
 from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
 
-SERVICES = {
-    "gateway": "http://127.0.0.1:9105",
-    "scoreboard": "http://127.0.0.1:9106",
-    "engine": "http://127.0.0.1:9108",
-}
 STARTUP_TIMEOUT_SECONDS = 90.0
 
 
@@ -45,14 +41,14 @@ def require_runtime_extra() -> None:
         ) from exc
 
 
-async def run(config: RuntimeConfig) -> None:
+async def run(config: RuntimeConfig, shutdown_event: threading.Event | None = None) -> None:
     require_runtime_extra()
     config.data_dir.mkdir(parents=True, exist_ok=True)
     await _migrate(config)
     gateway, engine = _build_apps(config)
     servers = (
-        _server(gateway, 9105, "AI Gateway"),
-        _server(engine, 9108, "Engine"),
+        _server(gateway, config.gateway_port, "AI Gateway"),
+        _server(engine, config.engine_port, "Engine"),
     )
     if getattr(sys, "frozen", False):
         scoreboard_command = [
@@ -60,6 +56,8 @@ async def run(config: RuntimeConfig) -> None:
             "--data-dir",
             str(config.data_dir),
             "--scoreboard-child",
+            "--scoreboard-port",
+            str(config.scoreboard_port),
         ]
     else:
         scoreboard_command = [
@@ -69,10 +67,18 @@ async def run(config: RuntimeConfig) -> None:
             "--data-dir",
             str(config.data_dir),
             "_scoreboard",
+            "--scoreboard-port",
+            str(config.scoreboard_port),
         ]
     scoreboard = subprocess.Popen(scoreboard_command)
     try:
-        await _supervise(servers, scoreboard=scoreboard)
+        await _supervise(
+            servers,
+            scoreboard=scoreboard,
+            scoreboard_port=config.scoreboard_port,
+            services=config.services,
+            shutdown_event=shutdown_event,
+        )
     finally:
         if scoreboard.poll() is None:
             scoreboard.terminate()
@@ -106,7 +112,7 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object]:
     gateway = create_gateway_app(
         GatewaySettings(
             host="127.0.0.1",
-            port=9105,
+            port=config.gateway_port,
             database_url=SecretStr(config.gateway_database_url),
             auth_mode="disabled",
         )
@@ -114,10 +120,11 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object]:
     run_env: Mapping[str, str] = {
         **os.environ,
         job_env.RUNNER_CONFIG: str(config.runner_config),
+        job_env.AIGATEWAY_BASE_URL: config.services["gateway"],
         "URL4_BENCHMARK_ASSETS": str(config.assets_dir),
     }
     engine = create_local_app(
-        settings=EngineSettings(aigateway_base_url=SERVICES["gateway"]),
+        settings=EngineSettings(aigateway_base_url=config.services["gateway"]),
         env=run_env,
     )
     return gateway, engine
@@ -141,13 +148,15 @@ def run_scoreboard(config: RuntimeConfig) -> None:
     asyncio.run(_run(scoreboard_seed_json(BUILTIN_BENCHMARKS)))
     settings = Settings(
         host="127.0.0.1",
-        port=9106,
+        port=config.scoreboard_port,
         database_url=config.scoreboard_database_url,
         auth_mode="disabled",
         portal_dir=portal_dir,
         portal_artifacts_dir=artifacts_dir,
     )
-    uvicorn.run(create_app(settings), host="127.0.0.1", port=9106, log_level="info")
+    uvicorn.run(
+        create_app(settings), host="127.0.0.1", port=config.scoreboard_port, log_level="info"
+    )
 
 
 def _server(app: object, port: int, name: str) -> Server:
@@ -185,17 +194,29 @@ def _embedded_server_type():
 _EmbeddedServer = _embedded_server_type()
 
 
-async def _supervise(  # noqa: PLR0915
-    servers: tuple[Server, ...], *, scoreboard: subprocess.Popen[bytes]
+async def _supervise(  # noqa: C901, PLR0912, PLR0915
+    servers: tuple[Server, ...],
+    *,
+    scoreboard: subprocess.Popen[bytes],
+    scoreboard_port: int,
+    services: Mapping[str, str],
+    shutdown_event: threading.Event | None,
 ) -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     with _signal_handlers(loop, stop):
         tasks = tuple(asyncio.create_task(server.serve()) for server in servers)
         stop_task = asyncio.create_task(stop.wait())
+        external_stop_task = (
+            asyncio.create_task(asyncio.to_thread(shutdown_event.wait))
+            if shutdown_event is not None
+            else None
+        )
         try:
             async with asyncio.timeout(STARTUP_TIMEOUT_SECONDS):
-                while not all(server.started for server in servers) or not _port_open(9106):
+                while not all(server.started for server in servers) or not _port_open(
+                    scoreboard_port
+                ):
                     if scoreboard.poll() is not None:
                         raise RuntimeError("Scoreboard stopped during startup")
                     failed = next((task for task in tasks if task.done()), None)
@@ -205,14 +226,15 @@ async def _supervise(  # noqa: PLR0915
                     await asyncio.sleep(0.01)
             print(
                 "SCREAMINGFACE_RUNTIME_READY "
-                + json.dumps({"services": SERVICES}, separators=(",", ":"), sort_keys=True),
+                + json.dumps({"services": services}, separators=(",", ":"), sort_keys=True),
                 flush=True,
             )
             scoreboard_task = asyncio.create_task(asyncio.to_thread(scoreboard.wait))
-            done, _ = await asyncio.wait(
-                (*tasks, stop_task, scoreboard_task), return_when=asyncio.FIRST_COMPLETED
-            )
-            if stop_task not in done:
+            waiters = (*tasks, stop_task, scoreboard_task)
+            if external_stop_task is not None:
+                waiters = (*waiters, external_stop_task)
+            done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+            if stop_task not in done and external_stop_task not in done:
                 if scoreboard_task in done:
                     raise RuntimeError("Scoreboard stopped unexpectedly")
                 failed = next(task for task in tasks if task in done)
@@ -225,6 +247,10 @@ async def _supervise(  # noqa: PLR0915
             stop_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await stop_task
+            if external_stop_task is not None:
+                external_stop_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await external_stop_task
 
 
 def _port_open(port: int) -> bool:

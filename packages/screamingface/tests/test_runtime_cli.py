@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ from screamingface._runtime.config import RuntimeConfig
 def test_parser_exposes_public_commands() -> None:
     parser = cli._parser()
 
-    for command in ("up", "down", "status", "logs", "prepare"):
+    for command in ("up", "down", "restart", "status", "logs", "prepare"):
         assert parser.parse_args([command]).command == command
 
 
@@ -35,6 +36,32 @@ def test_runtime_data_is_user_scoped(tmp_path: Path) -> None:
     assert config.assets_dir == tmp_path / "benchmark-assets"
 
 
+def test_runtime_ports_are_configurable_and_unique(tmp_path: Path) -> None:
+    config = RuntimeConfig(
+        data_dir=tmp_path, gateway_port=19105, scoreboard_port=19106, engine_port=19108
+    )
+
+    assert config.services == {
+        "gateway": "http://127.0.0.1:19105",
+        "scoreboard": "http://127.0.0.1:19106",
+        "engine": "http://127.0.0.1:19108",
+    }
+    with pytest.raises(ValueError, match="unique"):
+        RuntimeConfig(data_dir=tmp_path, gateway_port=19105, scoreboard_port=19105)
+
+
+def test_port_configuration_prefers_flags_then_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SCREAMINGFACE_GATEWAY_PORT", "18105")
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path), "up", "--gateway-port", "19105"])
+
+    config = cli._config(args)
+
+    assert config.gateway_port == 19105
+    assert config.scoreboard_port == 9106
+
+
 def test_owned_state_is_removed_but_foreign_state_is_preserved(tmp_path: Path) -> None:
     config = RuntimeConfig(data_dir=tmp_path)
     config.state_path.write_text(json.dumps({"pid": 42, "owner_token": "ours"}))
@@ -48,12 +75,59 @@ def test_owned_state_is_removed_but_foreign_state_is_preserved(tmp_path: Path) -
 def test_state_is_written_atomically_with_private_permissions(tmp_path: Path) -> None:
     config = RuntimeConfig(data_dir=tmp_path)
 
-    cli._write_state(config, 42, "secret")
+    cli._write_state(config, {"pid": 42, "owner_token": "secret"})
 
     assert json.loads(config.state_path.read_text()) == {"pid": 42, "owner_token": "secret"}
     if os.name != "nt":
         assert config.state_path.stat().st_mode & 0o777 == 0o600
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_control_endpoint_proves_identity_and_accepts_authenticated_shutdown() -> None:
+    stopped = threading.Event()
+    server = cli._control_server("ours", stopped)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    state: dict[str, object] = {
+        "pid": os.getpid(),
+        "owner_token": "ours",
+        "control_url": f"http://127.0.0.1:{server.server_port}",
+    }
+    try:
+        assert cli._verify_owner(state)
+        foreign = dict(state)
+        foreign["owner_token"] = "theirs"
+        assert not cli._verify_owner(foreign)
+        cli._request_shutdown(state)
+        assert stopped.wait(1)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_json_status_is_stable_and_redacts_the_owner_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    state = {
+        "schema_version": 1,
+        "pid": 42,
+        "started_at": "now",
+        "owner_token": "secret",
+        "services": config.services,
+    }
+    cli._write_state(config, state)
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: True)
+    monkeypatch.setattr(cli, "_health", lambda services: dict.fromkeys(services, True))
+
+    assert cli._print_status(config, json_output=True) == 0
+
+    output = capsys.readouterr().out
+    assert "secret" not in output
+    assert json.loads(output)["schema"] == "screamingface.runtime-status.v1"
 
 
 def test_logs_rejects_negative_tail(tmp_path: Path) -> None:
