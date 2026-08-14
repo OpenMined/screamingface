@@ -52,6 +52,11 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     _add_data_dir(logs)
     logs.add_argument("--tail", type=int, default=100)
     logs.add_argument("--no-follow", action="store_true")
+    logs.add_argument(
+        "--service",
+        choices=("all", "gateway", "scoreboard", "engine", "supervisor"),
+        default="all",
+    )
     prepare = commands.add_parser("prepare", help="Download benchmark assets")
     _add_data_dir(prepare)
     prepare.add_argument("benchmark", nargs="?", choices=_BENCHMARKS)
@@ -61,6 +66,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     serve = commands.add_parser("_serve", help=argparse.SUPPRESS)
     _add_data_dir(serve)
     serve.add_argument("--owner-token", required=True)
+    serve.add_argument("--background", action="store_true")
     _add_port_options(serve)
     scoreboard = commands.add_parser("_scoreboard", help=argparse.SUPPRESS)
     _add_data_dir(scoreboard)
@@ -98,7 +104,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
         elif args.command == "status":
             raise SystemExit(_print_status(config, json_output=args.json_output))
         elif args.command == "logs":
-            _logs(config, tail=args.tail, follow=not args.no_follow)
+            _logs(config, tail=args.tail, follow=not args.no_follow, service=args.service)
         elif args.command == "doctor":
             raise SystemExit(_doctor(config))
         elif args.command == "prepare":
@@ -110,7 +116,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
                 force=args.force,
             )
         elif args.command == "_serve":
-            _serve(config, args.owner_token)
+            _serve(config, args.owner_token, foreground=not args.background)
         elif args.command == "_scoreboard":
             from screamingface._runtime.server import run_scoreboard
 
@@ -168,10 +174,9 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     config.data_dir.mkdir(parents=True, exist_ok=True)
     token = os.urandom(16).hex()
     if foreground:
-        _serve(config, token)
+        _serve(config, token, foreground=True)
         return
 
-    log = config.log_path.open("a", encoding="utf-8")
     command = [
         sys.executable,
         "-m",
@@ -181,6 +186,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
         "_serve",
         "--owner-token",
         token,
+        "--background",
         "--gateway-port",
         str(config.gateway_port),
         "--scoreboard-port",
@@ -191,12 +197,11 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     process = subprocess.Popen(
         command,
         stdin=subprocess.DEVNULL,
-        stdout=log,
-        stderr=subprocess.STDOUT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         start_new_session=True,
         close_fds=True,
     )
-    log.close()
     try:
         _wait_ready(process, config, timeout=90)
     except Exception:
@@ -208,7 +213,14 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     _print_urls(config.services, config.log_path)
 
 
-def _serve(config: RuntimeConfig, token: str) -> None:
+def _serve(config: RuntimeConfig, token: str, *, foreground: bool) -> None:
+    from screamingface._runtime.runtime_logging import capture_runtime_log
+
+    with capture_runtime_log(config.log_path, foreground=foreground):
+        _serve_logged(config, token)
+
+
+def _serve_logged(config: RuntimeConfig, token: str) -> None:
     shutdown = threading.Event()
     control = _control_server(token, shutdown)
     started_at = datetime.now(UTC).isoformat()
@@ -321,22 +333,60 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     return code
 
 
-def _logs(config: RuntimeConfig, *, tail: int, follow: bool) -> None:
+def _logs(  # noqa: C901, PLR0912, PLR0915
+    config: RuntimeConfig, *, tail: int, follow: bool, service: str = "all"
+) -> None:
     if tail < 0:
         raise RuntimeError("--tail must be zero or greater")
     if not config.log_path.exists():
         raise RuntimeError(f"no runtime log exists at {config.log_path}")
-    with config.log_path.open(encoding="utf-8", errors="replace") as stream:
-        for line in deque(stream, maxlen=tail):
-            print(line, end="")
-        if not follow:
-            return
+    history: deque[str] = deque(maxlen=tail)
+    for path in _log_paths(config.log_path):
+        with path.open(encoding="utf-8", errors="replace") as stream:
+            history.extend(line for line in stream if _log_line_matches(line, service))
+    for line in history:
+        print(line, end="")
+    if not follow:
+        return
+    stream = config.log_path.open(encoding="utf-8", errors="replace")
+    stream.seek(0, 2)
+    identity = _file_identity(config.log_path)
+    try:
         while True:
             line = stream.readline()
             if line:
-                print(line, end="", flush=True)
-            else:
-                time.sleep(0.2)
+                if _log_line_matches(line, service):
+                    print(line, end="", flush=True)
+                continue
+            current = _file_identity(config.log_path)
+            if current != identity:
+                stream.close()
+                stream = config.log_path.open(encoding="utf-8", errors="replace")
+                identity = current
+                continue
+            time.sleep(0.2)
+    finally:
+        stream.close()
+
+
+def _log_paths(path: Path) -> tuple[Path, ...]:
+    from screamingface._runtime.runtime_logging import LOG_BACKUPS
+
+    rotated = tuple(
+        candidate
+        for index in range(LOG_BACKUPS, 0, -1)
+        if (candidate := path.with_name(f"{path.name}.{index}")).exists()
+    )
+    return (*rotated, path)
+
+
+def _log_line_matches(line: str, service: str) -> bool:
+    return service == "all" or f"[{service}]" in line
+
+
+def _file_identity(path: Path) -> tuple[int, int]:
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino
 
 
 def _prepare(

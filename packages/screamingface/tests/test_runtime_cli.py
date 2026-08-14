@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from screamingface._runtime import cli
+from screamingface._runtime import cli, runtime_logging
 from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig
 
@@ -135,6 +135,36 @@ def test_logs_rejects_negative_tail(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="zero or greater"):
         cli._logs(config, tail=-1, follow=False)
+
+
+def test_runtime_log_prefixes_services_and_rotates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "runtime.log"
+    monkeypatch.setattr(runtime_logging, "MAX_LOG_BYTES", 100)
+    monkeypatch.setattr(runtime_logging, "LOG_BACKUPS", 2)
+    log = runtime_logging.RuntimeLog(path)
+
+    with runtime_logging.log_service("engine"):
+        log.write("first engine line\n")
+        log.write("x" * 100 + "\n")
+    with runtime_logging.log_service("gateway"):
+        log.write("gateway line\n")
+    log.close()
+
+    rendered = "".join(candidate.read_text() for candidate in cli._log_paths(path))
+    assert "[engine] first engine line" in rendered
+    assert "[gateway] gateway line" in rendered
+    assert path.with_name("runtime.log.1").exists()
+
+
+def test_logs_filter_by_service(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    config.log_path.write_text("time [engine] one\ntime [gateway] two\n")
+
+    cli._logs(config, tail=10, follow=False, service="engine")
+
+    assert capsys.readouterr().out == "time [engine] one\n"
 
 
 def test_benchmark_manifest_distinguishes_prepared_stale_and_incomplete(

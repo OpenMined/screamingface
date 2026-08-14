@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
+from screamingface._runtime.runtime_logging import log_service
 
 STARTUP_TIMEOUT_SECONDS = 90.0
 
@@ -70,7 +71,9 @@ async def run(config: RuntimeConfig, shutdown_event: threading.Event | None = No
             "--scoreboard-port",
             str(config.scoreboard_port),
         ]
-    scoreboard = subprocess.Popen(scoreboard_command)
+    scoreboard = subprocess.Popen(
+        scoreboard_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    )
     try:
         await _supervise(
             servers,
@@ -205,7 +208,8 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     with _signal_handlers(loop, stop):
-        tasks = tuple(asyncio.create_task(server.serve()) for server in servers)
+        tasks = tuple(asyncio.create_task(_serve_service(server)) for server in servers)
+        scoreboard_log_task = asyncio.create_task(_relay_scoreboard_output(scoreboard))
         stop_task = asyncio.create_task(stop.wait())
         external_stop_task = (
             asyncio.create_task(asyncio.to_thread(shutdown_event.wait))
@@ -251,6 +255,23 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
                 external_stop_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await external_stop_task
+            scoreboard_log_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scoreboard_log_task
+
+
+async def _serve_service(server: Server) -> None:
+    name = getattr(server, "name", "supervisor").lower().replace("ai ", "")
+    with log_service(name):
+        await server.serve()
+
+
+async def _relay_scoreboard_output(scoreboard: subprocess.Popen[bytes]) -> None:
+    if scoreboard.stdout is None:
+        return
+    with log_service("scoreboard"):
+        while line := await asyncio.to_thread(scoreboard.stdout.readline):
+            print(line.decode(errors="replace").rstrip(), flush=True)
 
 
 def _port_open(port: int) -> bool:
