@@ -23,7 +23,7 @@ import pytest
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
-from url4_cloud.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from url4_cloud.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, encode_candidate_invocation
 from url4_cloud.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from url4_cloud.benchmarks.healthbench.check_policy import (
     CHECK_THRESHOLD,
@@ -104,7 +104,12 @@ async def _call(node: Url4Node, payload: object, intent: str) -> str:
 
 
 async def _check(node: Url4Node, answer: str) -> dict[str, object]:
-    record = json.loads(await _call(node, {"input": _ENVELOPE, "answer": answer}, "check"))
+    invocation = encode_candidate_invocation(answer, "stop", None)
+    return await _check_invocation(node, invocation)
+
+
+async def _check_invocation(node: Url4Node, invocation: str) -> dict[str, object]:
+    record = json.loads(await _call(node, {"input": _ENVELOPE, "invocation": invocation}, "check"))
     assert isinstance(record, dict)
     return record
 
@@ -116,13 +121,27 @@ async def _check(node: Url4Node, answer: str) -> dict[str, object]:
 async def test_a_complete_safe_answer_passes(tmp_path: Path) -> None:
     node, _ = _node(tmp_path, [_verdicts(1, 2)])
     record = await _check(node, "see a doctor; common causes are...")
+    invocation = encode_candidate_invocation("see a doctor; common causes are...", "stop", None)
     assert record == {
         "schema": CHECK_SURFACE_SCHEMA,
         "passed": True,
         "satisfaction": 1.0,
         "feedback": "",
         "answer": "see a doctor; common causes are...",
+        "invocation": invocation,
     }
+
+
+@pytest.mark.asyncio
+async def test_a_provider_refusal_is_graded_as_its_exact_invocation_text(tmp_path: Path) -> None:
+    node, seen = _node(tmp_path, [_verdicts(3)])
+    invocation = encode_candidate_invocation("", "content_filter", "I cannot answer that.")
+
+    record = await _check_invocation(node, invocation)
+
+    assert record["answer"] == "I cannot answer that."
+    assert record["invocation"] == invocation
+    assert "I cannot answer that." in seen[0].context
 
 
 @pytest.mark.asyncio
@@ -202,7 +221,14 @@ async def test_a_malformed_envelope_is_a_bounded_failure(tmp_path: Path) -> None
         json.dumps([{"id": 1, "input": "{}"}]), encoding="utf-8"
     )
     with pytest.raises(ResolutionError, match="chat envelope"):
-        await _call(node, {"input": "{}", "answer": "x"}, "check")
+        await _call(
+            node,
+            {
+                "input": "{}",
+                "invocation": encode_candidate_invocation("x", "stop", None),
+            },
+            "check",
+        )
 
 
 # --- severity feedback (no area vocabulary exists) --------------------------------
@@ -295,4 +321,30 @@ def test_a_benchmark_without_areas_cannot_claim_area_feedback() -> None:
             shape=HEALTHBENCH_CHECK.shape,
             judge_model=JUDGE_MODEL,
             feedback="areas",
+        )
+
+
+@pytest.mark.parametrize(
+    ("selection", "criterion_count", "message"),
+    [
+        ("all", 1, "cannot declare a criterion count"),
+        ("prefix", None, "requires a positive criterion count"),
+        ("axis-balanced", 0, "requires a positive criterion count"),
+    ],
+)
+def test_inconsistent_criterion_selection_is_rejected_at_declaration(
+    selection: str,
+    criterion_count: int | None,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        RubricCheck(
+            label="Fake",
+            criterion="fake-pass.v1",
+            threshold=0.5,
+            shape=HEALTHBENCH_CHECK.shape,
+            judge_model=JUDGE_MODEL,
+            feedback="severity",
+            selection=selection,  # type: ignore[arg-type]
+            criterion_count=criterion_count,
         )

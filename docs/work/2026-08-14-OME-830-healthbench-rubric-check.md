@@ -18,7 +18,7 @@ example is a guess). Stacked on `OME-829-draco-check-adapter`; lands as its own 
 
 - New shared `benchmarks/rubric_check.py`: the marking work every rubric benchmark
   repeats — input-addressed case resolution, rubric reading through a declared
-  shape, one weight-blind judge pass with answer-hash salting and bounded retries,
+  shape, one weight-blind judge pass with exact-request identity and bounded retries,
   clamped weighted scoring, sanitized feedback, the closed port record.
 - Migrate DRACO onto it: `draco/check_policy.py` becomes a declaration,
   `draco/check_surface.py` is deleted, behavior byte-identical (stage-3 tests keep
@@ -53,15 +53,17 @@ example is a guess). Stacked on `OME-829-draco-check-adapter`; lands as its own 
   component); new `healthbench/check_policy.py` (declaration only),
   `healthbench/definition.py` (+ route, `CheckSurface`), `healthbench/runtime.py`
   (registers the endpoint); new `tests/unit/test_healthbench_check_surface.py` (15);
-  `tests/unit/test_draco_check_surface.py` (import line + one construction line).
+  `tests/unit/test_draco_check_surface.py` (shared-adapter import/construction plus
+  the Candidate Invocation contract inherited from OME-829).
   client — `scripts/build_notebooks.py` + regenerated
   `examples/08_healthbench_worst30.ipynb`.
 - **Commits:** see branch `OME-830-healthbench-rubric-check`.
-- **Gates:** url4-cloud ALL GREEN (1452 passed / 5 skipped, cov ≥80); screamingface
-  ALL GREEN (824 passed / 1 skipped, cov ≥95, notebooks, build, distribution).
-  Append-only skipped: the only prior-test edit is `test_draco_check_surface.py`'s
-  import block plus one construction line — every assertion is untouched, which is
-  precisely what proves the migration preserved behavior.
+- **Gates:** url4-cloud ALL GREEN (lint, format, types, layering, full tests,
+  coverage ≥80); screamingface ALL GREEN (lint, format, types, full tests,
+  coverage ≥95, notebooks, build, distribution).
+  Append-only skipped: `test_draco_check_surface.py` must move to the shared
+  adapter and preserve the exact Candidate Invocation rather than the lossy answer
+  projection. The focused DRACO, HealthBench, and corrective-loop suite is green.
 - **Deviations:**
   1. **`healthbench-pass.v1` threshold is 0.5, not DRACO's 0.7.** This is the
      worst-30% subset, where strong baselines average negative; a 0.7 bar would
@@ -82,3 +84,7 @@ example is a guess). Stacked on `OME-829-draco-check-adapter`; lands as its own 
   5. No HealthBench cross-stack e2e: its protocol needs the full 157-case frozen
      asset set, and the DRACO e2e already proves the client→engine loop path on a
      paid surface. The HealthBench adapter is covered by unit + deletion tests.
+  6. **Check bookkeeping is not a model parameter.** The Candidate answer already
+     participates in the exact gateway request. A retry varies a bounded prompt
+     marker instead of forwarding invented `check_salt` / `check_attempt` provider
+     parameters, which AI Gateway correctly rejects.

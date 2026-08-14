@@ -21,9 +21,9 @@ Per check, in execution order:
    sees `$input`, so the check is input-addressed, never case-id addressed.
 2. **Read + select criteria** through the shape (a variant may grade a subset;
    the check must score the SAME subset or satisfaction and score diverge).
-3. **One judge pass**, weight-blind, salted with the answer hash so a provider
-   cache cannot serve one draft's verdict for another. An unusable reply retries
-   on a fresh cache slot, then fails the check.
+3. **One judge pass**, weight-blind. The answer is part of the exact request, so
+   one draft's cached verdict cannot serve another; an unusable reply retries
+   with a bounded marker in the prompt, then fails the check.
 4. **Score**: `clamp(sum of met weights / sum of positive weights)`. Penalties
    (negative weights) only subtract — they are not points a draft can win.
 5. **Sanitize** the shortfall to the benchmark's declared vocabulary. Requirement
@@ -42,10 +42,9 @@ check semantics are pinned by the pass criterion's own name (`<benchmark>-pass.v
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -55,10 +54,10 @@ from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from url4_cloud.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from url4_cloud.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from url4_cloud.benchmarks.evaluation import compact_json, json_object
+from url4_cloud.benchmarks.evaluation import candidate_answer, compact_json, json_object
 
 # One judge call plus two retries. A retry exists for unusable REPLIES, never to
-# shop for a better verdict — the prompt is identical and only the cache slot moves.
+# shop for a better verdict — only a bounded retry marker changes.
 CHECK_ATTEMPTS = 3
 CHECK_INTENT = "check"
 FEEDBACK_INTENT = "feedback"
@@ -115,11 +114,19 @@ class RubricCheck:
     question: QuestionStyle = "text"
     criterion_count: int | None = None
     selection: CriterionSelection = "all"
-    _: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.threshold <= 1.0:
             raise ValueError(f"{self.label} check threshold must sit in [0, 1]")
+        if self.selection == "all":
+            if self.criterion_count is not None:
+                raise ValueError("all-criteria selection cannot declare a criterion count")
+        elif (
+            isinstance(self.criterion_count, bool)
+            or not isinstance(self.criterion_count, int)
+            or self.criterion_count < 1
+        ):
+            raise ValueError(f"{self.selection} selection requires a positive criterion count")
         if self.feedback == "areas" and not self.shape.area_fields:
             raise ValueError(
                 f"{self.label} cannot speak area-level feedback: its rubric shape "
@@ -149,7 +156,7 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
             return _surface_feedback(config, request.context)
         if request.intent != CHECK_INTENT:
             raise _unsupported(f"{config.label} check surface", request.intent)
-        question, answer = _payload(config, request.context)
+        question, invocation, answer = _payload(config, request.context)
         case_id = _case_by_input(config, root, question)
         criteria = _criteria(config, root, case_id)
         verdicts = await _judged(
@@ -168,6 +175,7 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
                 "satisfaction": satisfaction,
                 "feedback": _feedback(config, criteria, verdicts),
                 "answer": answer,
+                "invocation": invocation,
             }
         )
 
@@ -177,17 +185,23 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
 # --- inputs -----------------------------------------------------------------------
 
 
-def _payload(config: RubricCheck, value: object) -> tuple[str, str]:
+def _payload(config: RubricCheck, value: object) -> tuple[str, str, str]:
     payload = json_object(value, f"{config.label} check surface")
-    if set(payload) != {"input", "answer"}:
+    if set(payload) != {"input", "invocation"}:
         raise _unavailable(
-            f"{config.label} check surface context must carry exactly input and answer"
+            f"{config.label} check surface context must carry exactly input and invocation"
         )
     question = payload["input"]
-    answer = payload["answer"]
-    if not isinstance(question, str) or not isinstance(answer, str):
-        raise _unavailable(f"{config.label} check surface input and answer must be text")
-    return question, answer
+    invocation = payload["invocation"]
+    if not isinstance(question, str) or not isinstance(invocation, str):
+        raise _unavailable(f"{config.label} check surface input and invocation must be text")
+    try:
+        answer = candidate_answer(invocation).text
+    except (TypeError, ValueError) as exc:
+        raise _unavailable(
+            f"{config.label} check surface Candidate Invocation is invalid: {exc}"
+        ) from exc
+    return question, invocation, answer
 
 
 def _case_by_input(config: RubricCheck, root: Path, question: str) -> int:
@@ -328,10 +342,9 @@ async def _judged(
     criteria: Sequence[Mapping[str, Any]],
 ) -> dict[str, bool]:
     prompt = build_check_prompt(question, answer, criteria)
-    salt = answer_salt(answer)
     for attempt in range(1, CHECK_ATTEMPTS + 1):
         reply = await node.evaluate(
-            _judge_expression(config, salt=salt, attempt=attempt), env={"prompt": prompt}
+            _judge_expression(config), env={"prompt": _attempt_prompt(prompt, attempt)}
         )
         verdicts = _verdicts(reply.text, criteria)
         if verdicts is not None:
@@ -369,15 +382,19 @@ def build_check_prompt(
     return "\n".join(lines)
 
 
-def answer_salt(answer: str) -> str:
-    """A per-draft cache key so one draft's verdict can never serve another."""
+def _attempt_prompt(prompt: str, attempt: int) -> str:
+    """Vary only retry requests without inventing provider model parameters."""
 
-    return hashlib.sha256(answer.encode("utf-8")).hexdigest()[:16]
+    if attempt == 1:
+        return prompt
+    return f"{prompt}\n<retry_attempt>{attempt}</retry_attempt>"
 
 
-def _judge_expression(config: RubricCheck, *, salt: str, attempt: int) -> str:
+def _judge_expression(config: RubricCheck) -> str:
     # WHY the prompt is an env binding, not inlined: it carries the Candidate's own
     # answer, and a quote or comma in that text would corrupt the rendered expression.
+    # Retry identity belongs in that bound prompt, not in fake model parameters that
+    # the gateway would correctly reject before provider dispatch.
     return render(
         expr(
             src(
@@ -385,11 +402,7 @@ def _judge_expression(config: RubricCheck, *, salt: str, attempt: int) -> str:
                     path="/" + config.judge_model.removeprefix("/"),
                     context="$prompt",
                     intent=Text(CHECK_INSTRUCTIONS),
-                    params=(
-                        *config.judge_params,
-                        ("check_salt", salt),
-                        ("check_attempt", str(attempt)),
-                    ),
+                    params=config.judge_params,
                 ),
                 name="verdict",
                 weight=0.0,
@@ -540,7 +553,6 @@ __all__ = [
     "CHECK_INSTRUCTIONS",
     "RubricCheck",
     "RubricShape",
-    "answer_salt",
     "build_check_prompt",
     "check_surface",
 ]

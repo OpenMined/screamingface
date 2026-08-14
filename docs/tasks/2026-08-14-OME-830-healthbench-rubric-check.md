@@ -13,7 +13,7 @@ parent: OME-796
 Stage 4 of the OME-796 plan as its own PR, stacked on `OME-829-draco-check-adapter`:
 the second rubric customer forces out `benchmarks/rubric_check.py` — the shared
 marking work (case resolution, rubric reading through a declared shape, one
-weight-blind judge pass with salting and bounded retries, clamped weighted scoring,
+weight-blind judge pass with exact-request identity and bounded retries, clamped weighted scoring,
 sanitized feedback). DRACO migrates onto it with behavior unchanged; HealthBench
 lands as a `RubricCheck` declaration only (`healthbench-pass.v1`, threshold 0.5 on
 the clamped score, severity feedback), plus its notebook corrective cell.
