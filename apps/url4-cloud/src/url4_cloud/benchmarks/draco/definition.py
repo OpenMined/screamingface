@@ -8,7 +8,8 @@ from pathlib import Path
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from url4_cloud.benchmarks.definition import Benchmark, candidate
+from url4_cloud.benchmarks.definition import Benchmark, CheckSurface, candidate
+from url4_cloud.benchmarks.draco.check_policy import CHECK_CRITERION
 from url4_cloud.benchmarks.draco.prompts import JUDGE_INSTRUCTIONS
 from url4_cloud.benchmarks.draco.verdict import call as criterion_verdict
 from url4_cloud.benchmarks.protocol import (
@@ -111,6 +112,10 @@ VERDICT_ROUTE = f"{ROUTE_PREFIX}/criterion-verdict"
 CRITERION_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/criterion-evaluation"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+# The mid-run check surface (OME-829). The pass criterion is protocol semantics, so it
+# rides in the path: a different criterion is a different route, visible in the manifest
+# and in every Candidate url4 compiled against it.
+CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
 LITE_ROUTE_PREFIX = f"/benchmarks/{LITE_BENCHMARK_ID}/{LITE_REVISION}"
 LITE_CASES_ROUTE = f"{LITE_ROUTE_PREFIX}/cases"
 LITE_TASKS_ROUTE = f"{LITE_ROUTE_PREFIX}/tasks"
@@ -118,6 +123,7 @@ LITE_VERDICT_ROUTE = f"{LITE_ROUTE_PREFIX}/criterion-verdict"
 LITE_CRITERION_EVALUATION_ROUTE = f"{LITE_ROUTE_PREFIX}/criterion-evaluation"
 LITE_CASE_EVALUATION_ROUTE = f"{LITE_ROUTE_PREFIX}/case-evaluation"
 LITE_AGGREGATE_ROUTE = f"{LITE_ROUTE_PREFIX}/aggregate"
+LITE_CHECK_SURFACE_ROUTE = f"{LITE_ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
 SMOKE_ROUTE_PREFIX = f"/benchmarks/{SMOKE_BENCHMARK_ID}/{SMOKE_REVISION}"
 SMOKE_CASES_ROUTE = f"{SMOKE_ROUTE_PREFIX}/cases"
 SMOKE_TASKS_ROUTE = f"{SMOKE_ROUTE_PREFIX}/tasks"
@@ -125,6 +131,7 @@ SMOKE_VERDICT_ROUTE = f"{SMOKE_ROUTE_PREFIX}/criterion-verdict"
 SMOKE_CRITERION_EVALUATION_ROUTE = f"{SMOKE_ROUTE_PREFIX}/criterion-evaluation"
 SMOKE_CASE_EVALUATION_ROUTE = f"{SMOKE_ROUTE_PREFIX}/case-evaluation"
 SMOKE_AGGREGATE_ROUTE = f"{SMOKE_ROUTE_PREFIX}/aggregate"
+SMOKE_CHECK_SURFACE_ROUTE = f"{SMOKE_ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
 
 
 def _build(case_count: int) -> Node:
@@ -291,6 +298,16 @@ def _install_smoke(node: Url4Node, assets: Path) -> None:
     install_smoke(node, assets / BENCHMARK_ID)
 
 
+def _check_surface(route: str) -> CheckSurface:
+    """Every DRACO variant checks the same way and every check is a judge call."""
+
+    return CheckSurface(
+        check_route=route,
+        feedback_intent="feedback",
+        expected_check_cost="paid",
+    )
+
+
 DRACO = Benchmark(
     id=BENCHMARK_ID,
     variant="canonical",
@@ -304,6 +321,7 @@ DRACO = Benchmark(
     case_count=CASE_COUNT,
     build=_build,
     install=_install_canonical,
+    check_surface=_check_surface(CHECK_SURFACE_ROUTE),
 )
 
 DRACO_LITE = Benchmark(
@@ -318,6 +336,7 @@ DRACO_LITE = Benchmark(
     case_count=LITE_CASE_COUNT,
     build=_build_lite,
     install=_install_lite,
+    check_surface=_check_surface(LITE_CHECK_SURFACE_ROUTE),
 )
 
 DRACO_SMOKE = Benchmark(
@@ -332,6 +351,7 @@ DRACO_SMOKE = Benchmark(
     case_count=SMOKE_CASE_COUNT,
     build=_build_smoke,
     install=_install_smoke,
+    check_surface=_check_surface(SMOKE_CHECK_SURFACE_ROUTE),
 )
 
 

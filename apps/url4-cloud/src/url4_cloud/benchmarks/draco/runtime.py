@@ -19,12 +19,14 @@ from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
 )
+from url4_cloud.benchmarks.draco.check_surface import check_surface
 from url4_cloud.benchmarks.draco.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
     CASE_COUNT,
     CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
+    CHECK_SURFACE_ROUTE,
     CRITERION_EVALUATION_ROUTE,
     JUDGE_MODEL,
     JUDGE_PASSES,
@@ -34,6 +36,7 @@ from url4_cloud.benchmarks.draco.definition import (
     LITE_CASE_EVALUATION_ROUTE,
     LITE_CASE_IDS,
     LITE_CASES_ROUTE,
+    LITE_CHECK_SURFACE_ROUTE,
     LITE_CRITERION_COUNT,
     LITE_CRITERION_EVALUATION_ROUTE,
     LITE_CRITERION_SELECTION,
@@ -47,6 +50,7 @@ from url4_cloud.benchmarks.draco.definition import (
     SMOKE_CASE_COUNT,
     SMOKE_CASE_EVALUATION_ROUTE,
     SMOKE_CASES_ROUTE,
+    SMOKE_CHECK_SURFACE_ROUTE,
     SMOKE_CRITERION_COUNT,
     SMOKE_CRITERION_EVALUATION_ROUTE,
     SMOKE_JUDGE_PASSES,
@@ -78,6 +82,7 @@ def install_canonical(node: Url4Node, root: Path) -> None:
         criterion_evaluation_route=CRITERION_EVALUATION_ROUTE,
         case_evaluation_route=CASE_EVALUATION_ROUTE,
         aggregate_route=AGGREGATE_ROUTE,
+        check_surface_route=CHECK_SURFACE_ROUTE,
         benchmark_id=BENCHMARK_ID,
         benchmark_revision=REVISION,
         declared_case_count=CASE_COUNT,
@@ -99,6 +104,7 @@ def install_lite(node: Url4Node, root: Path) -> None:
         criterion_evaluation_route=LITE_CRITERION_EVALUATION_ROUTE,
         case_evaluation_route=LITE_CASE_EVALUATION_ROUTE,
         aggregate_route=LITE_AGGREGATE_ROUTE,
+        check_surface_route=LITE_CHECK_SURFACE_ROUTE,
         benchmark_id=LITE_BENCHMARK_ID,
         benchmark_revision=LITE_REVISION,
         declared_case_count=LITE_CASE_COUNT,
@@ -120,6 +126,7 @@ def install_smoke(node: Url4Node, root: Path) -> None:
         criterion_evaluation_route=SMOKE_CRITERION_EVALUATION_ROUTE,
         case_evaluation_route=SMOKE_CASE_EVALUATION_ROUTE,
         aggregate_route=SMOKE_AGGREGATE_ROUTE,
+        check_surface_route=SMOKE_CHECK_SURFACE_ROUTE,
         benchmark_id=SMOKE_BENCHMARK_ID,
         benchmark_revision=SMOKE_REVISION,
         declared_case_count=SMOKE_CASE_COUNT,
@@ -140,6 +147,7 @@ def _install_protocol(
     criterion_evaluation_route: str,
     case_evaluation_route: str,
     aggregate_route: str,
+    check_surface_route: str,
     benchmark_id: str,
     benchmark_revision: str,
     declared_case_count: int,
@@ -159,6 +167,17 @@ def _install_protocol(
     )
     node.data(cases_route, cases_json, media_type="application/json")
     node.endpoint(tasks_route)(_task_rows(root, criterion_count, criterion_selection))
+    # The mid-run check surface the corrective loop consumes. It closes over `node` so the
+    # judge route resolves per request — installation must still work in a world that holds
+    # no model routes at all (every benchmark-only test builds one).
+    node.endpoint(check_surface_route)(
+        check_surface(
+            node,
+            root,
+            criterion_count=criterion_count,
+            selection=criterion_selection,
+        )
+    )
     node.endpoint(verdict_route)(_criterion_verdict)
     node.endpoint(criterion_evaluation_route)(_criterion_evaluation(judge_passes))
     node.endpoint(case_evaluation_route)(

@@ -738,6 +738,39 @@ detail"""
     "usage": report.usage,
 } if report is not None else None"""
         ),
+        nbformat.v4.new_markdown_cell(
+            """## Corrective loop on DRACO
+
+The same `sf.CorrectiveLoop` from notebook 07 — **one changed `benchmark=` line**. That is the
+whole benchmark-independence claim: the loop protocol is a Candidate strategy, so it works on any
+Benchmark that advertises a check surface, with no protocol-specific code on either side.
+
+What DRACO's check surface means here, in one line: a draft **passes** when its normalized
+weighted rubric score reaches `draco-pass.v1`'s threshold (0.7), and the feedback a failing draft
+gets back names only the rubric **areas** that fell short — never a criterion, because the rubric
+is the answer key.
+
+> **Spend warning:** unlike IFEval, every DRACO check is a paid Judge call. A two-member,
+> three-round loop invokes the check surface up to 6 times per Case *on top of* the members' own
+> answers. Each check can retry according to DRACO's bounded policy, so the SDK warns with both
+> the check ceiling and that retry caveat before the first request. Leave `RUN_CORRECTIVE = False`
+> unless you mean to spend."""
+        ),
+        nbformat.v4.new_code_cell(
+            """RUN_CORRECTIVE = False
+
+corrective = sf.CorrectiveLoop(
+    [native_search, tavily_search],
+    judge=sf.Model("openrouter/openai/gpt-5.5", params=DRACO_PARAMS_NO_TEMPERATURE),
+    max_rounds=2,
+)
+corrective_report = (
+    sf.evaluate(corrective, benchmark="draco/lite", limit=1) if RUN_CORRECTIVE else None
+)
+corrective_report if corrective_report is not None else (
+    "Corrective loop disabled — set RUN_CORRECTIVE = True to spend on paid checks."
+)"""
+        ),
     )
 
 
