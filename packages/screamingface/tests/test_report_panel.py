@@ -528,3 +528,108 @@ def test_an_envelope_input_renders_as_a_transcript_not_wire_json() -> None:
     assert "assistant: Do not treat it at home." in html
     assert "candidate-input.v1" not in html
     assert "&quot;schema&quot;" not in html
+
+
+def test_duplicate_member_names_render_disambiguated_by_provider() -> None:
+    def member(operation_id: str, route: str) -> sf.MemberResult:
+        return sf.MemberResult(
+            operation_id=operation_id,
+            name="gpt-5.5",
+            kind="model",
+            models=(route,),
+            failures=None,
+            duration_ms=None,
+            usage=None,
+        )
+
+    value = CandidateResult(
+        benchmark=_BENCHMARK,
+        run_id="run-same-model-twice",
+        started_at=_START,
+        completed_at=_END,
+        name="gpt-5.5+gpt-5.5",
+        kind="fusion",
+        url4="(candidate:0.0:'(m:0.0:/openrouter/x)!\\'$m\\'')!''",
+        models=["openrouter/openai/gpt-5.5", "azure/openai/gpt-5.5", "p/synth"],
+        operations=[
+            OperationInfo(id="op_model_1", kind="model", label="answer", depends_on=()),
+            OperationInfo(id="op_model_2", kind="model", label="answer", depends_on=()),
+            OperationInfo(
+                id="op_synthesis_1",
+                kind="synthesis",
+                label="synthesis",
+                depends_on=("op_model_1", "op_model_2"),
+            ),
+        ],
+        score=0.5,
+        coverage=1.0,
+        metrics=_METRICS,
+        cases=[case()],
+        members=[
+            member("op_model_1", "openrouter/openai/gpt-5.5"),
+            member("op_model_2", "azure/openai/gpt-5.5"),
+        ],
+        failures=(),
+        usage=sf.Usage(input_tokens=10, output_tokens=5),
+    )
+
+    html = body(report_html(report(value)))
+
+    # WHY: display names are cosmetic and may collide (same model via two
+    # providers) — the panel disambiguates at render instead of failing the run.
+    assert "gpt-5.5 (openrouter)" in html
+    assert "gpt-5.5 (azure)" in html
+
+
+def test_unique_member_names_render_without_provider_suffix() -> None:
+    value = CandidateResult(
+        benchmark=_BENCHMARK,
+        run_id="run-two-models",
+        started_at=_START,
+        completed_at=_END,
+        name="opus+gpt",
+        kind="fusion",
+        url4="(candidate:0.0:'(m:0.0:/openrouter/x)!\\'$m\\'')!''",
+        models=["provider/opus", "provider/gpt", "p/synth"],
+        operations=[
+            OperationInfo(id="op_model_1", kind="model", label="answer", depends_on=()),
+            OperationInfo(id="op_model_2", kind="model", label="answer", depends_on=()),
+            OperationInfo(
+                id="op_synthesis_1",
+                kind="synthesis",
+                label="synthesis",
+                depends_on=("op_model_1", "op_model_2"),
+            ),
+        ],
+        score=0.5,
+        coverage=1.0,
+        metrics=_METRICS,
+        cases=[case()],
+        members=[
+            sf.MemberResult(
+                operation_id="op_model_1",
+                name="opus",
+                kind="model",
+                models=("provider/opus",),
+                failures=None,
+                duration_ms=None,
+                usage=None,
+            ),
+            sf.MemberResult(
+                operation_id="op_model_2",
+                name="gpt",
+                kind="model",
+                models=("provider/gpt",),
+                failures=None,
+                duration_ms=None,
+                usage=None,
+            ),
+        ],
+        failures=(),
+        usage=sf.Usage(input_tokens=10, output_tokens=5),
+    )
+
+    html = body(report_html(report(value)))
+
+    assert ">opus</span>" in html
+    assert "opus (" not in html

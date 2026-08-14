@@ -420,9 +420,10 @@ def _members(values: Sequence[MemberResult]) -> tuple[MemberResult, ...]:
     selected = tuple(values)
     if any(not isinstance(value, MemberResult) for value in selected):
         raise TypeError("Candidate members must be sf.MemberResult values")
-    names = [value.name for value in selected]
-    if len(names) != len(set(names)):
-        raise ValueError("Candidate member names must be unique")
+    # WHY: display names are cosmetic and may collide (the same model reached via two
+    # providers); identity is the operation_id. INVARIANT: fail-before-spend — this
+    # constructor runs after the paid evaluation, so it must never reject a shape the
+    # authoring constructors accepted. Collisions are disambiguated at render instead.
     operation_ids = [value.operation_id for value in selected]
     if len(operation_ids) != len(set(operation_ids)):
         raise ValueError("Candidate member operation IDs must be unique")

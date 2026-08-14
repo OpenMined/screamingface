@@ -30,6 +30,74 @@ class _RecipeTopology:
     stages: tuple[_RecipeTopology, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _TopologyBinding:
+    """One executable model call: its leaf node plus both dependency notions."""
+
+    node: _RecipeTopology
+    context_dependencies: tuple[str, ...]
+    operation_dependencies: tuple[str, ...]
+
+
+def _topology_bindings(value: _RecipeTopology) -> dict[str, _TopologyBinding]:
+    """One walk of a Recipe topology, shared by every consumer.
+
+    Think of it as the topology's dependency rulebook evaluated once: each model
+    leaf gets its binding plus TWO dependency tuples, because the same tree carries
+    two distinct notions —
+
+    - ``context_dependencies``: which earlier bindings this call's rendered context
+      references (a Fusion synthesizer reads the upstream input AND every member's
+      answer, deduplicated in that order). Replay validation compares these against
+      the ``$``-references parsed out of the executable calls.
+    - ``operation_dependencies``: the operation DAG's edges as the compiler records
+      them (a Fusion synthesizer depends only on its members — the upstream edge is
+      already carried by each member).
+
+    Worked example — ``pipeline(model_1, fusion(members=[model_2], synth))`` where
+    the synthesizer executes as ``synthesis_1``: ``model_2`` has context AND
+    operation deps ``("model_1",)`` (fusion members inherit the pipeline stage
+    input), while ``synthesis_1`` has context deps ``("model_1", "model_2")`` but
+    operation deps ``("model_2",)`` only.
+
+    INVARIANT: a new Recipe kind extends THIS walker (one branch), never a fork —
+    replay decoding and validation must agree by construction.
+    """
+
+    selected: dict[str, _TopologyBinding] = {}
+
+    def visit(
+        node: _RecipeTopology,
+        context: tuple[str, ...],
+        operations: tuple[str, ...],
+    ) -> None:
+        if node.kind == "model":
+            entry = _TopologyBinding(node, context, operations)
+            previous = selected.setdefault(node.binding, entry)
+            if previous != entry:
+                raise ValueError("Evaluation URL4 has conflicting Recipe topology metadata")
+            return
+        if node.kind == "pipeline":
+            stage_context, stage_operations = context, operations
+            for stage in node.stages:
+                visit(stage, stage_context, stage_operations)
+                stage_context = (stage.binding,)
+                stage_operations = (stage.binding,)
+            return
+        for member in node.members:
+            visit(member, context, operations)
+        assert node.synthesizer is not None
+        member_bindings = tuple(member.binding for member in node.members)
+        visit(
+            node.synthesizer,
+            tuple(dict.fromkeys((*context, *member_bindings))),
+            member_bindings,
+        )
+
+    visit(value, (), ())
+    return selected
+
+
 def _topology_source(value: _RecipeTopology) -> Node:
     return src(Text(_encode_topology(value)), name=_SOURCE_NAME, weight=0.0)
 

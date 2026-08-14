@@ -7,6 +7,7 @@ from html import escape
 from typing import TYPE_CHECKING
 
 from screamingface._ui.card_style import CARD_STYLE
+from screamingface.recipe import _recipe_kind
 
 if TYPE_CHECKING:
     from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
@@ -192,10 +193,6 @@ def _synthesizer_fields(recipe: Recipe) -> str:
     if params:
         fields += _field("params", _params(params), wide=True)
     return fields
-
-
-def _recipe_kind(recipe: Recipe) -> str:
-    return type(recipe).__name__.lower()
 
 
 def _provider_of(route: str) -> str:

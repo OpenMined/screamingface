@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unicodedata
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from screamingface.pipeline import Pipeline
@@ -16,18 +16,15 @@ class Recipe(ABC):
     name: str
 
     def then(self, next_recipe: str | Recipe) -> Pipeline:
-        """Return an immutable serial Pipeline ending in ``next_recipe``."""
+        """Return an immutable serial Pipeline ending in ``next_recipe``.
+
+        WHY: unnamed-Pipeline flattening lives once, in the Pipeline constructor —
+        this method only expresses "these two, in order".
+        """
 
         from screamingface.pipeline import Pipeline
 
-        selected = _recipe(next_recipe, "Pipeline stage")
-        before = self.stages if isinstance(self, Pipeline) and not self._is_named else (self,)
-        after = (
-            selected.stages
-            if isinstance(selected, Pipeline) and not selected._is_named
-            else (selected,)
-        )
-        return Pipeline((*before, *after))
+        return Pipeline((self, next_recipe))
 
     @property
     @abstractmethod
@@ -57,6 +54,27 @@ def _recipe(value: object, label: str) -> Recipe:
         raise TypeError(f"{label} must be a model route or sf.Model, sf.Fusion, or sf.Pipeline")
     assert isinstance(value, Recipe)
     return value
+
+
+def _recipe_kind(value: Recipe) -> Literal["model", "fusion", "pipeline"]:
+    """The single authority mapping a Recipe value to its kind.
+
+    WHY: kinds are the Recipe's type, never its Python class name — a renamed
+    subclass is still its base kind, and every consumer (compiler, cards, future
+    Recipe kinds) reads this one function instead of forking its own mapping.
+    """
+
+    from screamingface.fusion import Fusion
+    from screamingface.model import Model
+    from screamingface.pipeline import Pipeline
+
+    if isinstance(value, Model):
+        return "model"
+    if isinstance(value, Fusion):
+        return "fusion"
+    if isinstance(value, Pipeline):
+        return "pipeline"
+    raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
 
 
 def _is_supported_recipe(value: object) -> bool:

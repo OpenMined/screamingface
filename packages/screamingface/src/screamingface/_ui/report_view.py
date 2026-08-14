@@ -14,7 +14,7 @@ from screamingface._ui.style import FUSION_GRADIENT_Y, STYLE
 
 if TYPE_CHECKING:
     from screamingface.case_result import CaseResult
-    from screamingface.report import CandidateResult, Report
+    from screamingface.report import CandidateResult, MemberResult, Report
 
 # Long free text (a case prompt, a model answer, a judge's reasoning) is shown behind a
 # disclosure and clipped: a Report can carry many thousands of words per case, and the
@@ -418,9 +418,14 @@ def _members_html(candidate: CandidateResult) -> str:
 
     if not candidate.members:
         return ""
+    # WHY: display names are cosmetic and may collide (the same model reached via two
+    # providers); identity is the operation_id, so a collision disambiguates here at
+    # render — with the provider — instead of failing a run that was already paid for.
+    names = [member.name for member in candidate.members]
+    duplicated = {name for name in names if names.count(name) > 1}
     rows = "".join(
         "<div class='sf-member'>"
-        f"<span class='sf-member__n'>{escape(member.name)}</span>"
+        f"<span class='sf-member__n'>{escape(_member_display_name(member, duplicated))}</span>"
         f"<span class='sf-member__k'>{escape(member.kind)}</span>"
         f"<span class='sf-member__m'>{escape(', '.join(member.models))}</span>"
         f"<span class='sf-member__d'>"
@@ -430,6 +435,13 @@ def _members_html(candidate: CandidateResult) -> str:
         for member in candidate.members
     )
     return f"<div class='sf-detail__k'>members</div><div class='sf-members'>{rows}</div>"
+
+
+def _member_display_name(member: MemberResult, duplicated: set[str]) -> str:
+    if member.name not in duplicated or not member.models:
+        return member.name
+    provider = member.models[0].split("/", 1)[0]
+    return f"{member.name} ({provider})" if provider else member.name
 
 
 def _recipe_html(candidate: CandidateResult) -> str:

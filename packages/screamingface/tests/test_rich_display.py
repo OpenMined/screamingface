@@ -345,3 +345,21 @@ def test_cards_cover_provider_fallback_and_nested_fusions() -> None:
     )
     fusion_html = cast(Any, outer)._repr_html_()
     assert "nested fusion" in fusion_html
+
+
+def test_nested_recipe_kind_reflects_the_recipe_type_not_the_class_name() -> None:
+    class RenamedFusion(sf.Fusion):
+        pass
+
+    nested = RenamedFusion(["provider/a"], synthesizer="provider/inner-synth")
+    outer = sf.Fusion(
+        [nested, sf.Model("provider/c")],
+        synthesizer="provider/outer-synth",
+    )
+
+    html = cast(Any, outer)._repr_html_()
+
+    # WHY: the nested kind is the Recipe's type, never its Python class name —
+    # a renamed subclass must still read as a fusion.
+    assert "nested fusion" in html
+    assert "renamedfusion" not in html
