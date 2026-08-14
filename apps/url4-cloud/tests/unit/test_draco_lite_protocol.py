@@ -209,6 +209,7 @@ async def test_lite_runtime_reports_its_own_identity_and_one_judge_pass(tmp_path
                 "output": f"Answer {case_id}",
                 "finish_reason": "stop",
                 "refusal": None,
+                "execution": None,
                 "metadata": {"domain": "test"},
             },
         ]

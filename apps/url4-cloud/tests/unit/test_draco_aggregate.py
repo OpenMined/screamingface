@@ -106,6 +106,7 @@ def _case_row_from_evidence(
         "output": answer,
         "finish_reason": "stop",
         "refusal": None,
+        "execution": None,
         "metadata": {},
     }
     criteria = []

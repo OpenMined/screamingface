@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -13,9 +14,11 @@ from url4_cloud.benchmarks.contract import (
     CaseGrade,
     CaseResult,
     Check,
+    CorrectiveExecution,
     Evidence,
     EvidenceProducer,
     Failure,
+    decode_candidate_execution,
     decode_candidate_invocation,
     encode_candidate_invocation,
 )
@@ -123,6 +126,8 @@ def test_scored_result_serializes_the_strict_v1_shape() -> None:
                 "output": "{}",
                 "finish_reason": "stop",
                 "refusal": None,
+                "stop_reason": None,
+                "rounds_executed": None,
                 "grade": {
                     "method": "deterministic",
                     "score": 1.0,
@@ -214,6 +219,39 @@ def test_provider_finish_reason_is_preserved_without_a_closed_sdk_vocabulary() -
 def test_candidate_invocation_rejects_an_answer_and_refusal_together() -> None:
     with pytest.raises(ValueError, match="refused Candidate Invocation"):
         encode_candidate_invocation("answer", "content_filter", "exact refusal")
+
+
+def test_candidate_invocation_round_trips_typed_corrective_execution() -> None:
+    execution = CorrectiveExecution(stop_reason="passed", rounds_executed=2)
+
+    encoded = encode_candidate_invocation("answer", "stop", None, execution)
+
+    assert decode_candidate_execution(encoded) == execution
+
+
+def test_candidate_invocation_rejects_unversioned_corrective_execution() -> None:
+    encoded = encode_candidate_invocation(
+        "answer",
+        "stop",
+        None,
+        CorrectiveExecution(stop_reason="passed", rounds_executed=1),
+    )
+    payload = json.loads(encoded)
+    del payload["execution"]["schema"]
+
+    with pytest.raises(ValueError, match="shape or schema"):
+        decode_candidate_execution(json.dumps(payload))
+
+
+def test_case_execution_fields_are_atomic_and_strict() -> None:
+    case = _scored_case(stop_reason="max_rounds", rounds_executed=3)
+    assert case.stop_reason == "max_rounds"
+    assert case.rounds_executed == 3
+
+    with pytest.raises(ValidationError, match="present together"):
+        _scored_case(stop_reason="passed", rounds_executed=None)
+    with pytest.raises(ValidationError, match="stop_reason"):
+        _scored_case(stop_reason="continued", rounds_executed=1)
 
 
 def test_open_wire_fields_accept_only_json_values() -> None:

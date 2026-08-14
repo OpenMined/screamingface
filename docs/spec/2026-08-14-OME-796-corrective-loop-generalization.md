@@ -55,7 +55,12 @@ benchmark-independent capability:
   kinds `corrective_loop` / `self_corrective` carrying members, judge, `max_rounds`, and
   the check-surface revision compiled against.
 - **Reporting**: per-case `stop_reason` + `rounds_executed` (generalizing
-  `pass_attempt`/`selected_attempt`).
+  `pass_attempt`/`selected_attempt`). The generic Candidate Invocation envelope carries a
+  nullable typed `execution` value across the `$candidate` boundary; corrective roots publish
+  `screamingface.corrective-execution.v1`, while non-corrective Candidates publish `null`.
+  `CaseResult` flattens that outcome into an atomic pair: both fields are `null`, or
+  `stop_reason` is `passed|max_rounds` and `rounds_executed` is a positive integer. Benchmarks
+  preserve this provenance and never infer loop state themselves.
 - **Failure semantics kept from shipped precedents**: never-passes → last attempt scored;
   tie → judge label pick; tie-of-tie → first member (deterministic — reproducibility);
   judge/member failure → case fallback, coverage-declared.

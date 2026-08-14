@@ -24,6 +24,8 @@ def _scored_payload() -> dict[str, Any]:
         "output": "Four.",
         "finish_reason": "stop",
         "refusal": None,
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": {"method": "rubric", "score": 1.0, "metrics": {}, "checks": []},
         "failures": [],
         "metadata": {},
@@ -38,6 +40,8 @@ def _refused_payload() -> dict[str, Any]:
         "output": None,
         "finish_reason": "stop",
         "refusal": "I can't help with that request.",
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": {"method": "rubric", "score": 0.0, "metrics": {}, "checks": []},
         "failures": [],
         "metadata": {},
@@ -52,6 +56,8 @@ def _failed_payload() -> dict[str, Any]:
         "output": None,
         "finish_reason": None,
         "refusal": None,
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": None,
         "failures": [
             {
@@ -120,6 +126,31 @@ def test_decoded_outcome_survives_export() -> None:
 
     assert exported["status"] == "refused"
     assert exported["refusal"] == "I can't help with that request."
+
+
+def test_corrective_execution_telemetry_decodes_and_survives_export() -> None:
+    payload = _scored_payload()
+    payload.update(stop_reason="passed", rounds_executed=2)
+
+    case = _case_result(payload)
+
+    assert case.stop_reason == "passed"
+    assert case.rounds_executed == 2
+    assert case.to_dict() == payload
+
+
+@pytest.mark.parametrize(
+    ("stop_reason", "rounds_executed"),
+    [("unknown", 1), ("passed", None), (None, 1), ("max_rounds", 0)],
+)
+def test_malformed_corrective_execution_telemetry_fails_closed(
+    stop_reason: object, rounds_executed: object
+) -> None:
+    payload = _scored_payload()
+    payload.update(stop_reason=stop_reason, rounds_executed=rounds_executed)
+
+    with pytest.raises(sf.ExecutionError, match="stop_reason|rounds_executed"):
+        _case_result(payload)
 
 
 def test_wire_text_and_string_identity_survive_without_normalization() -> None:

@@ -9,7 +9,11 @@ from typing import Any
 
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
-from url4_cloud.benchmarks.contract import decode_candidate_invocation
+from url4_cloud.benchmarks.contract import (
+    CorrectiveExecution,
+    decode_candidate_execution,
+    decode_candidate_invocation,
+)
 
 JsonObject = dict[str, Any]
 CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
@@ -24,6 +28,7 @@ class CandidateAnswer:
     output: str | None
     finish_reason: str | None
     refusal: str | None
+    execution: CorrectiveExecution | None
 
 
 def candidate_answer(value: str) -> CandidateAnswer:
@@ -35,6 +40,7 @@ def candidate_answer(value: str) -> CandidateAnswer:
         output=None if refusal is not None else output,
         finish_reason=finish_reason,
         refusal=refusal,
+        execution=decode_candidate_execution(value),
     )
 
 

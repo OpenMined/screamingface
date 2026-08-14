@@ -38,7 +38,8 @@ from typing import Any
 
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
-from url4_cloud.benchmarks.contract import decode_candidate_invocation
+from url4_cloud.benchmarks.candidate_execution import record_candidate_execution
+from url4_cloud.benchmarks.contract import CorrectiveExecution, decode_candidate_invocation
 from url4_cloud.benchmarks.ensemble.policy import (
     ANSWER_ROUTE,
     CHECK_SURFACE_SCHEMA,
@@ -59,6 +60,7 @@ from url4_cloud.model_outcomes import (
 )
 
 _NESTED_INPUT_BINDING = "_sf_recipe_input"
+_CORRECTIVE_OUTCOME_SCHEMA = "screamingface.corrective-outcome.v1"
 
 
 def install_corrective_runtime(node: Url4Node) -> None:
@@ -184,7 +186,14 @@ def _select(request: Request) -> str:
         chosen = tied[0] if len(tied) == 1 else (_by_label(tied, label) or tied[0])
     invocation = chosen["invocation"]
     assert isinstance(invocation, str)
-    return invocation
+    return compact_json(
+        {
+            "schema": _CORRECTIVE_OUTCOME_SCHEMA,
+            "invocation": invocation,
+            "round": _positive_int(request.intent, "round"),
+            "passed": bool(passers),
+        }
+    )
 
 
 def _answer(request: Request) -> str:
@@ -199,23 +208,15 @@ def _answer(request: Request) -> str:
     payload = json_object(request.context, "corrective answer")
     if set(payload) != {"selected", "next"}:
         raise _unavailable("corrective answer payload must carry exactly selected and next")
-    selected = payload["selected"]
-    if not isinstance(selected, str):
-        raise _unavailable("corrective answer selected must be text")
+    selected = _corrective_outcome(payload["selected"], "corrective answer selected")
     next_value = payload["next"]
     items = json_array(next_value, "corrective continuation") if next_value != "" else []
     if len(items) > 1:
         raise _unavailable("corrective continuation must carry at most one outcome")
     if not items:
-        return selected
-    outcome = items[0]
-    if isinstance(outcome, dict):
-        encoded = compact_json(outcome)
-        _invocation(encoded, "corrective continuation outcome")
-        return encoded
-    if not isinstance(outcome, str):
-        raise _unavailable("corrective continuation outcome must be text")
-    return outcome
+        return compact_json(selected)
+    outcome = _corrective_outcome(items[0], "corrective continuation outcome")
+    return compact_json(outcome)
 
 
 def _result(request: Request) -> str:
@@ -223,12 +224,35 @@ def _result(request: Request) -> str:
 
     if request.params:
         raise _unavailable("corrective result does not accept parameters")
-    output, finish_reason, refusal = _invocation(request.context, "corrective result")
+    outcome = _corrective_outcome(request.context, "corrective result")
+    output, finish_reason, refusal = _invocation(outcome["invocation"], "corrective result")
+    record_candidate_execution(
+        CorrectiveExecution(
+            stop_reason="passed" if outcome["passed"] else "max_rounds",
+            rounds_executed=outcome["round"],
+        )
+    )
     if refusal is not None:
         error = ResolutionError(refusal, code="provider_refusal", permanent=True)
         raise bind_model_outcome(error, ModelOutcome(finish_reason, refusal))
     record_model_outcome(finish_reason, None)
     return output
+
+
+def _corrective_outcome(value: object, label: str) -> dict[str, Any]:
+    outcome = json_object(value, label)
+    expected = {"schema", "invocation", "round", "passed"}
+    if set(outcome) != expected or outcome.get("schema") != _CORRECTIVE_OUTCOME_SCHEMA:
+        raise _unavailable(f"{label} must be a {_CORRECTIVE_OUTCOME_SCHEMA} outcome")
+    invocation = outcome["invocation"]
+    _invocation(invocation, label)
+    round_number = outcome["round"]
+    if isinstance(round_number, bool) or not isinstance(round_number, int) or round_number < 1:
+        raise _unavailable(f"{label} round must be a positive integer")
+    passed = outcome["passed"]
+    if not isinstance(passed, bool):
+        raise _unavailable(f"{label} passed must be a boolean")
+    return dict(outcome)
 
 
 def _gate_intent(intent: str) -> tuple[str, int, int]:

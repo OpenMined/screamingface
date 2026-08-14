@@ -26,6 +26,7 @@ type CheckOutcome = Literal["MET", "UNMET"]
 # The Engine's explicit per-Case outcome; kept in lock-step with url4-cloud's
 # `benchmarks/contract.py` CaseStatus.
 type CaseStatus = Literal["scored", "refused", "failed"]
+type StopReason = Literal["passed", "max_rounds"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +227,8 @@ class CaseResult:
     output: str | None
     finish_reason: str | None
     refusal: str | None
+    stop_reason: StopReason | None
+    rounds_executed: int | None
     grade: CaseGrade | None
     failures: tuple[Failure, ...]
     _metadata: Mapping[str, object] = field(repr=False)
@@ -242,6 +245,8 @@ class CaseResult:
         metadata: Mapping[str, object],
         status: CaseStatus | None = None,
         refusal: str | None = None,
+        stop_reason: StopReason | None = None,
+        rounds_executed: int | None = None,
     ) -> None:
         case_id = _case_id(case_id)
         input = _nonempty_text(input, "Case Result input")
@@ -253,6 +258,7 @@ class CaseResult:
             finish_reason = _nonblank_text(finish_reason, "Case Result finish_reason")
         if refusal is not None:
             refusal = _nonblank_text(refusal, "Case Result refusal")
+        stop_reason, rounds_executed = _validate_execution(stop_reason, rounds_executed)
         selected_failures = tuple(failures)
         if any(not isinstance(item, Failure) for item in selected_failures):
             raise TypeError("Case Result failures must contain sf.Failure values")
@@ -271,6 +277,8 @@ class CaseResult:
             "output": output,
             "finish_reason": finish_reason,
             "refusal": refusal,
+            "stop_reason": stop_reason,
+            "rounds_executed": rounds_executed,
             "grade": grade,
             "failures": selected_failures,
             "_metadata": freeze_mapping(metadata, "Case Result metadata"),
@@ -327,6 +335,8 @@ class CaseResult:
             "output": thaw_json(self.output),
             "finish_reason": self.finish_reason,
             "refusal": self.refusal,
+            "stop_reason": self.stop_reason,
+            "rounds_executed": self.rounds_executed,
             "grade": None if self.grade is None else self.grade.to_dict(),
             "failures": [failure.to_dict() for failure in self.failures],
             "metadata": thaw_mapping(self._metadata),
@@ -363,6 +373,23 @@ def _turn(message: object) -> tuple[str, str] | None:
 
 def _optional_number(value: object, label: str) -> float | None:
     return None if value is None else _required_number(value, label)
+
+
+def _validate_execution(
+    stop_reason: StopReason | None,
+    rounds_executed: int | None,
+) -> tuple[StopReason | None, int | None]:
+    if stop_reason not in {None, "passed", "max_rounds"}:
+        raise ValueError("Case Result stop_reason must be passed, max_rounds, or None")
+    if rounds_executed is not None and (
+        isinstance(rounds_executed, bool)
+        or not isinstance(rounds_executed, int)
+        or rounds_executed < 1
+    ):
+        raise ValueError("Case Result rounds_executed must be a positive integer or None")
+    if (stop_reason is None) != (rounds_executed is None):
+        raise ValueError("Case Result stop_reason and rounds_executed must be present together")
+    return stop_reason, rounds_executed
 
 
 def _optional_check_score(value: object) -> float | None:

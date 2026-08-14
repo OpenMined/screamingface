@@ -120,6 +120,8 @@ def _case_payload(*, score: float = 1.0) -> dict[str, object]:
         "output": "Fixture answer",
         "finish_reason": "stop",
         "refusal": None,
+        "stop_reason": None,
+        "rounds_executed": None,
         "grade": {
             "method": "rubric",
             "score": score,
@@ -819,6 +821,8 @@ def test_candidate_result_decoder_retains_a_normally_graded_refusal() -> None:
                         "output": None,
                         "finish_reason": None,
                         "refusal": "provider refused the request",
+                        "stop_reason": None,
+                        "rounds_executed": None,
                         "grade": {
                             "method": "rubric",
                             "score": 0.0,

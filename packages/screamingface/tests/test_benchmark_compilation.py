@@ -327,6 +327,8 @@ class _Transport:
                             "output": "Answer",
                             "finish_reason": "stop",
                             "refusal": None,
+                            "stop_reason": None,
+                            "rounds_executed": None,
                             "grade": {
                                 "method": "fixture",
                                 "score": 0.8,

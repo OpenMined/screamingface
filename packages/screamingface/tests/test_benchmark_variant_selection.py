@@ -115,6 +115,8 @@ class _RunTransport:
                             "output": "Answer",
                             "finish_reason": "stop",
                             "refusal": None,
+                            "stop_reason": None,
+                            "rounds_executed": None,
                             "grade": {
                                 "method": "deterministic",
                                 "score": 1.0,

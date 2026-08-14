@@ -267,6 +267,7 @@ def _task_rows(
                 output=answer.output,
                 refusal=answer.refusal,
                 finish_reason=finish_reason,
+                execution=answer.execution,
             )
             for index, row in enumerate(result):
                 row["case_record"] = (

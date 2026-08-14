@@ -126,3 +126,27 @@ OME-801/802/803/804 extraction PRs) — re-verify every touch point before editi
      carry the exact Candidate Invocation that produced their answer/refusal text;
      selection preserves that envelope and the result boundary republishes the
      selected terminal outcome. Judge/coach refusal remains an internal role error.
+
+## 2026-08-14 telemetry continuation
+
+- **Decision:** complete the approved `stop_reason` / `rounds_executed` acceptance item
+  under the still-open OME-827 and OME-828 children; no new issue is required.
+- **Seam:** the generic corrective runtime emits a typed final execution outcome. The
+  Candidate Invocation contract carries it across the existing `$candidate` boundary,
+  and every Benchmark preserves the two generic fields into the shared `CaseResult`.
+  Benchmark adapters do not infer rounds or duplicate corrective-loop policy.
+- **Atomicity:** Engine producer and strict Client consumer ship in one PR so the Client
+  never rejects a newly widened `screamingface.candidate-result.v1` payload.
+- **Compatibility:** pre-release v1 only; no legacy wire shape or fallback parser.
+- **Result:** the corrective runtime now publishes the actual terminal round and reason through
+  the generic Candidate Invocation provenance slot; IFEval, DRACO, and HealthBench preserve it
+  into one strict `CaseResult`, and the Client parses, exports, and displays it.
+- **Verification:** url4-cloud and screamingface full stack gates are green (Ruff, format,
+  Pyright, layering, full tests/coverage, notebooks, build, and distribution checks). The
+  append-only check is deliberately skipped because widening the strict pre-release v1 wire
+  contract requires existing payload fixtures to name both new fields explicitly; no assertion
+  was removed or weakened.
+- **Review closure:** centralized nullable execution validation across all three Benchmarks;
+  DRACO now rejects a missing execution field, the versioned corrective envelope rejects a
+  missing/foreign schema, and non-null provenance propagation is covered explicitly for DRACO
+  and HealthBench as well as the full IFEval corrective-loop path.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
-from url4_cloud.benchmarks.contract import validate_candidate_outcome
+from url4_cloud.benchmarks.contract import CorrectiveExecution, validate_candidate_outcome
 from url4_cloud.benchmarks.draco.validation import (
     optional_integer,
     require_positive_integer,
@@ -25,6 +25,7 @@ def bind_case(
     output: str | None,
     refusal: str | None,
     finish_reason: str | None,
+    execution: CorrectiveExecution | None,
 ) -> dict[str, object]:
     """Bind evaluator text and exact Candidate outcome to one Engine-owned Case."""
 
@@ -52,6 +53,7 @@ def bind_case(
         "output": output,
         "finish_reason": finish_reason,
         "refusal": refusal,
+        "execution": None if execution is None else execution.model_dump(by_alias=True),
         "metadata": {key: value for key, value in row.items() if key not in {"id", "input"}},
     }
 

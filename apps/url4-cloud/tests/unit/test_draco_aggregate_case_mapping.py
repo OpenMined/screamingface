@@ -71,6 +71,7 @@ def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> obj
             "output": f"Answer {case}",
             "finish_reason": "stop",
             "refusal": None,
+            "execution": None,
             "metadata": {},
         }
         check_record = {

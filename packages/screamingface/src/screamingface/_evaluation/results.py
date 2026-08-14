@@ -10,7 +10,7 @@ from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
 from screamingface._report_primitives import CaseId
 from screamingface._report_primitives import _case_id as _validate_case_id
-from screamingface.case_result import CaseStatus
+from screamingface.case_result import CaseStatus, StopReason
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError
 from screamingface.report import (
@@ -204,6 +204,8 @@ def _case_result(value: object) -> CaseResult:
             "output",
             "finish_reason",
             "refusal",
+            "stop_reason",
+            "rounds_executed",
             "grade",
             "failures",
             "metadata",
@@ -227,6 +229,10 @@ def _case_result(value: object) -> CaseResult:
                 else _text(finish_reason_value, "Case Result finish_reason")
             ),
             refusal=_optional_text(raw.get("refusal"), "Case Result refusal"),
+            stop_reason=_stop_reason(raw.get("stop_reason")),
+            rounds_executed=_optional_positive_integer(
+                raw.get("rounds_executed"), "Case Result rounds_executed"
+            ),
             grade=grade,
             failures=failures,
             metadata=_mapping(_required(raw, "metadata", "Case Result"), "Case Result metadata"),
@@ -366,6 +372,10 @@ def _positive_integer(value: object, label: str) -> int:
     return value
 
 
+def _optional_positive_integer(value: object, label: str) -> int | None:
+    return None if value is None else _positive_integer(value, label)
+
+
 def _text(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ExecutionError(f"{label} must be non-empty text")
@@ -426,6 +436,14 @@ def _case_status(value: object) -> CaseStatus:
     if value == "failed":
         return "failed"
     raise ExecutionError("Case Result status is unsupported")
+
+
+def _stop_reason(value: object) -> StopReason | None:
+    if value is None:
+        return None
+    if value in {"passed", "max_rounds"}:
+        return cast(StopReason, value)
+    raise ExecutionError("Case Result stop_reason must be passed, max_rounds, or null")
 
 
 def _failure_stage(value: object) -> Literal["candidate", "grading", "aggregation"]:

@@ -10,6 +10,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from url4_cloud.benchmarks.contract import is_valid_corrective_execution
 from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from url4_cloud.benchmarks.draco.validation import (
     has_text,
@@ -218,6 +219,8 @@ def _valid_case(value: Mapping[str, Any], case_id: int) -> bool:
         and has_text(value.get("input"))
         and outcome_valid
         and (finish_reason is None or has_text(finish_reason))
+        and "execution" in value
+        and is_valid_corrective_execution(value.get("execution"))
         and isinstance(value.get("metadata"), Mapping)
     )
 

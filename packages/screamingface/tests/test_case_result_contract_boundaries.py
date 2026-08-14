@@ -412,6 +412,8 @@ def test_wire_case_result_rejects_a_failure_owned_by_another_case() -> None:
                 "output": None,
                 "finish_reason": None,
                 "refusal": None,
+                "stop_reason": None,
+                "rounds_executed": None,
                 "grade": None,
                 "failures": [
                     {

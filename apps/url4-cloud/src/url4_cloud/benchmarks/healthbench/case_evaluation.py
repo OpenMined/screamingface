@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from url4_cloud.benchmarks.contract import is_valid_corrective_execution
 from url4_cloud.benchmarks.healthbench.records import CASE_SCHEMA, RUBRIC_SCHEMA
 from url4_cloud.benchmarks.healthbench.verdict import SCHEMA as VERDICT_SCHEMA
 
@@ -20,6 +21,7 @@ _CASE_RECORD_FIELDS = frozenset(
         "output",
         "finish_reason",
         "refusal",
+        "execution",
         "metadata",
     }
 )
@@ -195,6 +197,7 @@ def _valid_case_record(value: Mapping[str, Any], case_id: int) -> bool:
         and (
             finish_reason is None or isinstance(finish_reason, str) and bool(finish_reason.strip())
         )
+        and is_valid_corrective_execution(value.get("execution"))
         and isinstance(value.get("metadata"), Mapping)
     )
 

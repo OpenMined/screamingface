@@ -669,6 +669,14 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
     # fail criteria for reasons that have nothing to do with the model's knowledge.
     finish = case.finish_reason
     finish_html = _badge(f"finish · {finish}", good=False) if finish and finish != "stop" else ""
+    rounds_html = ""
+    if case.stop_reason is not None and case.rounds_executed is not None:
+        noun = "round" if case.rounds_executed == 1 else "rounds"
+        reason = "passed" if case.stop_reason == "passed" else "round limit"
+        rounds_html = _badge(
+            f"loop · {reason} · {case.rounds_executed} {noun}",
+            good=case.stop_reason == "passed",
+        )
     tags = "".join(
         f"<span class='sf-chip'>{escape(str(key))} · {escape(str(value))}</span>"
         for key, value in (case.metadata or {}).items()
@@ -686,7 +694,7 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
     return (
         "<div class='sf-pane'><div class='sf-pane__h'>"
         f"<span class='sf-report__case-id'>case {escape(str(case.case_id))} · "
-        f"{escape(candidate.name)}</span>{verdict}{finish_html}</div>{tags_html}"
+        f"{escape(candidate.name)}</span>{verdict}{finish_html}{rounds_html}</div>{tags_html}"
         f"{question}{answer_html}{refusal_html}{_case_failures_html(case)}"
         f"{checks_head}{checks}</div>"
     )

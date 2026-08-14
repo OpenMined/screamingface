@@ -124,6 +124,8 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
             "output": _ANSWER,
             "finish_reason": "stop",
             "refusal": None,
+            "stop_reason": None,
+            "rounds_executed": None,
             "grade": {
                 "method": "rubric",
                 "score": 1.0,

@@ -285,6 +285,7 @@ def _scored_outcome(
             finish_reason=fields["finish_reason"],
             grade=grade,
             metadata=fields["metadata"],
+            execution=fields["execution"],
         )
     else:
         scored = scored_case_result(
@@ -293,6 +294,7 @@ def _scored_outcome(
             finish_reason=fields["finish_reason"],
             grade=grade,
             metadata=fields["metadata"],
+            execution=fields["execution"],
         )
     return scored, score, len(verdicts), sum(verdicts.values()), invalid
 
@@ -315,7 +317,13 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
 
     case = row.get("case") if isinstance(row, Mapping) else None
     if not isinstance(case, Mapping):
-        return {"output": None, "finish_reason": None, "refusal": None, "metadata": {}}
+        return {
+            "output": None,
+            "finish_reason": None,
+            "refusal": None,
+            "execution": None,
+            "metadata": {},
+        }
     metadata = case.get("metadata")
     output = case.get("output")
     finish_reason = case.get("finish_reason")
@@ -324,6 +332,7 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
         "output": output if isinstance(output, str) else None,
         "finish_reason": finish_reason if isinstance(finish_reason, str) else None,
         "refusal": refusal if isinstance(refusal, str) and refusal.strip() else None,
+        "execution": case.get("execution"),
         "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
     }
 
@@ -353,6 +362,7 @@ def _failed_result(
             grade=grade,
             failures=[failure],
             metadata=fields["metadata"],
+            execution=fields["execution"],
         )
     return failed_case_result(
         selected_case=selected_case,
@@ -361,6 +371,7 @@ def _failed_result(
         finish_reason=fields["finish_reason"],
         grade=grade,
         metadata=fields["metadata"],
+        execution=fields["execution"],
     )
 
 
