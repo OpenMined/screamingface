@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import importlib.metadata
 import json
 import os
@@ -42,6 +43,8 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     _add_data_dir(restart)
     restart.add_argument("--foreground", action="store_true")
     _add_port_options(restart)
+    doctor = commands.add_parser("doctor", help="Diagnose the local runtime")
+    _add_data_dir(doctor)
     status = commands.add_parser("status", help="Show local runtime status")
     _add_data_dir(status)
     status.add_argument("--json", action="store_true", dest="json_output")
@@ -53,6 +56,8 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     _add_data_dir(prepare)
     prepare.add_argument("benchmark", nargs="?", choices=_BENCHMARKS)
     prepare.add_argument("--all", action="store_true", dest="all_benchmarks")
+    prepare.add_argument("--list", action="store_true", dest="list_benchmarks")
+    prepare.add_argument("--force", action="store_true")
     serve = commands.add_parser("_serve", help=argparse.SUPPRESS)
     _add_data_dir(serve)
     serve.add_argument("--owner-token", required=True)
@@ -94,8 +99,16 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
             raise SystemExit(_print_status(config, json_output=args.json_output))
         elif args.command == "logs":
             _logs(config, tail=args.tail, follow=not args.no_follow)
+        elif args.command == "doctor":
+            raise SystemExit(_doctor(config))
         elif args.command == "prepare":
-            _prepare(config, args.benchmark, all_benchmarks=args.all_benchmarks)
+            _prepare(
+                config,
+                args.benchmark,
+                all_benchmarks=args.all_benchmarks,
+                list_benchmarks=args.list_benchmarks,
+                force=args.force,
+            )
         elif args.command == "_serve":
             _serve(config, args.owner_token)
         elif args.command == "_scoreboard":
@@ -326,34 +339,227 @@ def _logs(config: RuntimeConfig, *, tail: int, follow: bool) -> None:
                 time.sleep(0.2)
 
 
-def _prepare(config: RuntimeConfig, benchmark: str | None, *, all_benchmarks: bool) -> None:
+def _prepare(
+    config: RuntimeConfig,
+    benchmark: str | None,
+    *,
+    all_benchmarks: bool,
+    list_benchmarks: bool = False,
+    force: bool = False,
+) -> None:
+    if list_benchmarks:
+        if all_benchmarks or benchmark is not None or force:
+            raise RuntimeError("--list cannot be combined with a benchmark, --all, or --force")
+        for name, status in _benchmark_statuses(config).items():
+            print(f"{name:12} {status}")
+        return
+    if all_benchmarks == (benchmark is not None):
+        raise RuntimeError("choose one benchmark or pass --all")
     from screamingface._runtime.server import require_runtime_extra
 
     require_runtime_extra()
-    if all_benchmarks == (benchmark is not None):
-        raise RuntimeError("choose one benchmark or pass --all")
     selected = _BENCHMARKS if all_benchmarks else (benchmark,)
     config.assets_dir.mkdir(parents=True, exist_ok=True)
     for name in selected:
         destination = config.assets_dir / str(name)
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                f"screamingface_engine.benchmarks.{name}.prepare",
-                "--out",
-                str(destination),
-            ],
-            check=True,
-        )
+        if not force and _benchmark_status(config, str(name)) == "prepared":
+            print(f"{name} is already prepared at {destination}")
+            continue
+        manifest = _benchmark_manifest_path(destination)
+        manifest.unlink(missing_ok=True)
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    f"screamingface_engine.benchmarks.{name}.prepare",
+                    "--out",
+                    str(destination),
+                ],
+                check=True,
+            )
+            files = _validate_benchmark_output(str(name), destination)
+            _write_json_atomic(
+                manifest,
+                {
+                    "schema": "screamingface.benchmark-assets.v1",
+                    "benchmark": name,
+                    "fingerprint": _benchmark_fingerprint(str(name)),
+                    "screamingface_version": importlib.metadata.version("screamingface"),
+                    "prepared_at": datetime.now(UTC).isoformat(),
+                    "validated_files": files,
+                },
+            )
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            manifest.unlink(missing_ok=True)
+            raise RuntimeError(f"failed to prepare {name} in {destination}: {exc}") from None
     print(f"Benchmark assets ready at {config.assets_dir}")
 
 
 def _benchmark_statuses(config: RuntimeConfig) -> dict[str, str]:
-    return {
-        name: ("incomplete" if (config.assets_dir / name).exists() else "missing")
-        for name in _BENCHMARKS
-    }
+    return {name: _benchmark_status(config, name) for name in _BENCHMARKS}
+
+
+def _doctor(config: RuntimeConfig) -> int:  # noqa: C901, PLR0912, PLR0915
+    checks: list[tuple[str, str, str]] = []
+    try:
+        from screamingface._runtime.server import require_runtime_extra
+
+        require_runtime_extra()
+    except RuntimeError as exc:
+        checks.append(("fail", "runtime dependencies", str(exc)))
+    else:
+        checks.append(("pass", "runtime dependencies", "installed"))
+
+    writable = _writable_location(config.data_dir)
+    checks.append(
+        (
+            "pass" if writable else "fail",
+            "data directory",
+            f"{config.data_dir} is {'writable' if writable else 'not writable'}",
+        )
+    )
+
+    state = _read_state(config)
+    state_exists = config.state_path.exists()
+    services = _state_services(state) if state else config.services
+    owned = bool(state and _verify_owner(state))
+    if state_exists and state is None:
+        checks.append(("fail", "runtime state", f"invalid JSON in {config.state_path}"))
+    elif state and not _state_services(state):
+        checks.append(("fail", "runtime state", "unsupported or incomplete state document"))
+    elif state and not owned:
+        checks.append(("fail", "runtime state", "ownership could not be verified"))
+    elif owned:
+        checks.append(("pass", "runtime state", "ownership verified"))
+    else:
+        checks.append(("warn", "runtime state", "runtime is stopped"))
+
+    health = _health(services)
+    if owned:
+        for name, healthy in health.items():
+            checks.append(("pass" if healthy else "fail", f"{name} health", services[name]))
+    else:
+        occupied = [port for port in _service_ports(services) if _port_open(port)]
+        checks.append(
+            (
+                "fail" if occupied else "pass",
+                "runtime ports",
+                f"occupied by foreign processes: {occupied}" if occupied else "available",
+            )
+        )
+
+    if health.get("engine"):
+        for label, path in (("model discovery", "/v1/models"), ("connections", "/v1/connections")):
+            try:
+                payload = _get_json(f"{services['engine']}{path}")
+            except RuntimeError as exc:
+                checks.append(("fail", label, str(exc)))
+                continue
+            if label == "connections" and not _has_connections(payload):
+                checks.append(("warn", label, "no provider connection is configured"))
+            else:
+                checks.append(("pass", label, "endpoint responded"))
+    else:
+        checks.append(("warn", "API discovery", "Engine is not running"))
+
+    statuses = _benchmark_statuses(config)
+    for name, status in statuses.items():
+        severity = "pass" if status == "prepared" else "warn" if status == "missing" else "fail"
+        checks.append((severity, f"{name} assets", status))
+
+    for severity, label, detail in checks:
+        print(f"{severity.upper():4}  {label:22} {detail}")
+    return 1 if any(severity == "fail" for severity, _, _ in checks) else 0
+
+
+def _writable_location(path: Path) -> bool:
+    candidate = path
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    return candidate.is_dir() and os.access(candidate, os.W_OK)
+
+
+def _get_json(url: str) -> object:
+    try:
+        with urlopen(url, timeout=1) as response:  # noqa: S310
+            return json.load(response)
+    except (OSError, URLError, ValueError) as exc:
+        raise RuntimeError(f"{url} did not return valid JSON") from exc
+
+
+def _has_connections(payload: object) -> bool:
+    if isinstance(payload, list):
+        return bool(payload)
+    if isinstance(payload, dict):
+        data = payload.get("data")
+        return isinstance(data, list) and bool(data)
+    return False
+
+
+def _benchmark_status(config: RuntimeConfig, name: str) -> str:  # noqa: PLR0911
+    destination = config.assets_dir / name
+    if not destination.exists():
+        return "missing"
+    try:
+        manifest = json.loads(_benchmark_manifest_path(destination).read_text())
+    except (OSError, json.JSONDecodeError):
+        return "incomplete"
+    if not isinstance(manifest, dict) or manifest.get("fingerprint") != _benchmark_fingerprint(
+        name
+    ):
+        return "stale"
+    try:
+        _validate_benchmark_output(name, destination)
+    except RuntimeError:
+        return "incomplete"
+    return "prepared"
+
+
+def _benchmark_manifest_path(destination: Path) -> Path:
+    return destination / ".screamingface-prepare.json"
+
+
+def _benchmark_fingerprint(name: str) -> str:
+    definition = importlib.import_module(f"url4_cloud.benchmarks.{name}.definition")
+    revision = getattr(definition, "DATASET_REVISION", None)
+    if not isinstance(revision, str) or not revision:
+        raise RuntimeError(f"{name} does not declare a dataset revision")
+    return f"{name}:{revision}"
+
+
+def _validate_benchmark_output(name: str, destination: Path) -> list[str]:
+    required = {
+        "draco": ("cases.json", "criteria", "rubrics"),
+        "ifeval": ("cases.json", "instructions", "nltk_data"),
+        "healthbench": ("cases.json", "rubrics"),
+    }[name]
+    missing = [relative for relative in required if not (destination / relative).exists()]
+    if missing:
+        raise RuntimeError(f"prepared output is missing {missing}")
+    try:
+        cases = json.loads((destination / "cases.json").read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("prepared cases.json is unreadable") from exc
+    if not isinstance(cases, list) or not cases:
+        raise RuntimeError("prepared cases.json contains no cases")
+    return list(required)
+
+
+def _write_json_atomic(path: Path, value: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        path.chmod(0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _wait_ready(process: subprocess.Popen[bytes], config: RuntimeConfig, *, timeout: float) -> None:
@@ -411,18 +617,7 @@ def _read_state(config: RuntimeConfig) -> dict[str, object] | None:
 
 
 def _write_state(config: RuntimeConfig, state: dict[str, object]) -> None:
-    config.data_dir.mkdir(parents=True, exist_ok=True)
-    temporary = config.state_path.with_name(f".{config.state_path.name}.{os.getpid()}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(json.dumps(state, sort_keys=True) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, config.state_path)
-        config.state_path.chmod(0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
+    _write_json_atomic(config.state_path, state)
 
 
 def _remove_owned_state(config: RuntimeConfig, token: str) -> None:

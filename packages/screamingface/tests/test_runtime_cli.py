@@ -17,7 +17,7 @@ from screamingface._runtime.config import RuntimeConfig
 def test_parser_exposes_public_commands() -> None:
     parser = cli._parser()
 
-    for command in ("up", "down", "restart", "status", "logs", "prepare"):
+    for command in ("up", "down", "restart", "status", "logs", "prepare", "doctor"):
         assert parser.parse_args([command]).command == command
 
 
@@ -135,6 +135,43 @@ def test_logs_rejects_negative_tail(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="zero or greater"):
         cli._logs(config, tail=-1, follow=False)
+
+
+def test_benchmark_manifest_distinguishes_prepared_stale_and_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    destination = config.assets_dir / "draco"
+    destination.mkdir(parents=True)
+    monkeypatch.setattr(cli, "_benchmark_fingerprint", lambda _name: "draco:revision")
+
+    assert cli._benchmark_status(config, "draco") == "incomplete"
+    for relative in ("criteria", "rubrics"):
+        (destination / relative).mkdir()
+    (destination / "cases.json").write_text('[{"id":1}]')
+    cli._write_json_atomic(
+        cli._benchmark_manifest_path(destination),
+        {"fingerprint": "draco:old"},
+    )
+    assert cli._benchmark_status(config, "draco") == "stale"
+    cli._write_json_atomic(
+        cli._benchmark_manifest_path(destination),
+        {"fingerprint": "draco:revision"},
+    )
+    assert cli._benchmark_status(config, "draco") == "prepared"
+
+
+def test_prepare_list_rejects_mutating_options(tmp_path: Path) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+
+    with pytest.raises(RuntimeError, match="cannot be combined"):
+        cli._prepare(
+            config,
+            "draco",
+            all_benchmarks=False,
+            list_benchmarks=True,
+            force=False,
+        )
 
 
 def test_plain_sdk_import_does_not_load_server_packages() -> None:
