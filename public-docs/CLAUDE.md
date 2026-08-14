@@ -56,18 +56,29 @@ There is no automated test setup in this project.
 | `/sf-client/guides/connections` | `src/pages/sf-client/guides/ConnectionsPage.vue` |
 | `/sf-client/guides/models` | `src/pages/sf-client/guides/ModelsPage.vue` |
 | `/sf-client/guides/fusions` | `src/pages/sf-client/guides/FusionsPage.vue` |
+| `/sf-client/guides/pipelines` | `src/pages/sf-client/guides/PipelinesPage.vue` |
 | `/sf-client/guides/benchmarks` | `src/pages/sf-client/guides/BenchmarksPage.vue` |
 | `/sf-client/guides/running-an-evaluation` | `src/pages/sf-client/guides/EvaluationPage.vue` |
+| `/sf-client/guides/leaderboards` | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
 | `/sf-client/guides/reproduce-and-share` | `src/pages/sf-client/guides/Url4Page.vue` |
 | `/sf-client/api/recipes` | `src/pages/sf-client/api/RecipesPage.vue` |
 | `/sf-client/api/benchmarks` | `src/pages/sf-client/api/BenchmarksPage.vue` |
 | `/sf-client/api/reports` | `src/pages/sf-client/api/ReportsPage.vue` |
 | `/sf-client/api/clients` | `src/pages/sf-client/api/ClientsPage.vue` |
-| `/sdk` | `src/pages/sdk/Index.vue` |
+| `/learn` | `src/pages/learn/ArchitecturePage.vue` |
+| `/learn/url4` | `src/pages/learn/Url4Page.vue` |
+| `/learn/url4-sdk` | `src/pages/learn/Url4SdkPage.vue` |
+| `/learn/engine` | `src/pages/learn/EnginePage.vue` |
+| `/learn/caching` | `src/pages/learn/CachingPage.vue` |
+| `/learn/ai-gateway` | `src/pages/learn/GatewayPage.vue` |
+| `/learn/leaderboard` | `src/pages/learn/LeaderboardPage.vue` |
 
 Note that `BenchmarksPage.vue` exists twice — under `guides/` (how to choose a
 benchmark) and under `api/` (the `Benchmark` type). The route names
-disambiguate them.
+disambiguate them. The same applies to `Url4Page.vue` (`learn/` = the protocol,
+`sf-client/guides/` = reproduce & share) and to the leaderboard pages:
+`learn/LeaderboardPage.vue` is the concept, `sf-client/guides/LeaderboardsPage.vue`
+is the `sf.leaderboards` API walkthrough.
 
 ### NotebookViewer
 

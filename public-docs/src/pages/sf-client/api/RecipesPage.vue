@@ -66,24 +66,24 @@ const equalityOut = `True`
     :version="version"
   >
     <p>
-      A recipe describes how to produce one answer, and is what a benchmark grades. This page covers
-      <code>Model</code> for a single model route, <code>Fusion</code> for several members combined
-      by a synthesizer, <code>Pipeline</code> for members chained in series, and
-      <code>Recipe</code>, the abstract type the other three satisfy.
+      A recipe tells ScreamingFace how to produce one answer. That's what a benchmark grades. This
+      page covers <code>Model</code> (a single model route), <code>Fusion</code> (several members
+      combined by a synthesizer), <code>Pipeline</code> (members chained in series), and
+      <code>Recipe</code> (the abstract type all three inherit from).
     </p>
 
     <p>
-      All three constructible recipes are frozen and hold no client, so building one issues no
-      network request and can be done before connecting to anything. Recipes nest: a
-      <code>Fusion</code> or <code>Pipeline</code> can contain a <code>Model</code>, a
-      <code>Fusion</code> or a <code>Pipeline</code>, in any combination.
+      All three constructible recipes are frozen and hold no client. Building one makes no network
+      requests. You can compose them before connecting to anything. Recipes nest: a
+      <code>Fusion</code> or <code>Pipeline</code> can contain a <code>Model</code>, another
+      <code>Fusion</code>, or another <code>Pipeline</code>, in any combination.
     </p>
 
     <Note>
       Recipes compare by value. Two recipes built with identical arguments are equal, and
       <RouterLink to="/learn/engine">the engine</RouterLink> treats them as one candidate. Give a
-      <code>Model</code> an explicit <code>name</code> when you mean an independent sample — then
-      they differ. Recipes are also unhashable, so they cannot be dictionary keys or set members.
+      <code>Model</code> an explicit <code>name</code> for an independent sample. Recipes are
+      unhashable: you can't use them as dict keys or put them in sets.
     </Note>
 
     <div class="not-prose">
@@ -93,18 +93,18 @@ const equalityOut = `True`
     <h2>Recipe</h2>
 
     <p>
-      <code>Recipe</code> is the abstract base the other three inherit and cannot itself be
-      instantiated. It exists so that a parameter accepting any recipe can be annotated, and so that
-      a <code>Fusion</code> or <code>Pipeline</code> can hold a mixed sequence of members.
+      <code>Recipe</code> is the abstract base the other three inherit from. You can't instantiate
+      it directly. It exists for type annotations and so a <code>Fusion</code> or
+      <code>Pipeline</code> can hold a mixed list of members.
     </p>
 
     <p>
-      Its only public attribute is <code>name</code>, a <code>str</code> every recipe carries. It
-      also provides <code>.then()</code>, the builder that appends a stage and returns a
-      <code>Pipeline</code> (see <a href="#pipeline">Pipeline</a> below).
+      Every recipe has one public attribute: <code>name</code> (a <code>str</code>). It also
+      provides <code>.then()</code>, which appends a stage and returns a <code>Pipeline</code> (see
+      <a href="#pipeline">Pipeline</a> below).
     </p>
 
-    <p>Calling <code>sf.Recipe()</code> raises:</p>
+    <p>Calling <code>sf.Recipe()</code> directly raises:</p>
 
     <CodeBlock
       code="TypeError: Can't instantiate abstract class Recipe without an implementation for abstract method '_recipe_marker'"
@@ -114,9 +114,9 @@ const equalityOut = `True`
     <h2>Model</h2>
 
     <p>
-      A <code>Model</code> is a single model route answering on its own. It is the simplest recipe,
-      and the baseline every other recipe is measured against. See the
-      <RouterLink to="/sf-client/guides/models">Models guide</RouterLink> for choosing a route.
+      A <code>Model</code> is a single model route answering on its own. The simplest recipe, and
+      the baseline for everything else. See the
+      <RouterLink to="/sf-client/guides/models">Models guide</RouterLink> for help picking a route.
     </p>
 
     <CodeBlock :code="modelSig" language="python" />
@@ -136,37 +136,36 @@ const equalityOut = `True`
           <td><code>model</code></td>
           <td><code>str</code></td>
           <td>
-            The provider route, such as <code>openrouter/openai/gpt-5.5</code>. Required and
-            positional.
+            The provider route, like <code>openrouter/openai/gpt-5.5</code>. Required, positional.
           </td>
         </tr>
         <tr>
           <td><code>name</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            Label used in reports and on the leaderboard. Defaults to the segment of the route after
-            the last <code>/</code>, so <code>openrouter/openai/gpt-5.5</code> becomes
-            <code>gpt-5.5</code>. An explicit name also marks the Model as an independent sample.
+            Label that shows up in reports and on the leaderboard. Defaults to everything after the
+            last <code>/</code> in the route, so <code>openrouter/openai/gpt-5.5</code> becomes
+            <code>gpt-5.5</code>. Setting an explicit name also marks this Model as an independent
+            sample.
           </td>
         </tr>
         <tr>
           <td><code>prompt</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            The instruction given to the model alongside the case. When omitted the SDK supplies its
-            own default answer prompt, not the benchmark's.
+            The instruction given to the model alongside the case. Leave it out and the SDK uses its
+            own default prompt (not the benchmark's).
           </td>
         </tr>
         <tr>
           <td><code>params</code></td>
           <td><code>Mapping&nbsp;|&nbsp;None</code></td>
           <td>
-            Generation overrides such as <code>temperature</code>. Values must be <code>str</code>,
-            <code>int</code>, <code>float</code> or <code>bool</code>, and floats must be finite.
-            Only the parameters you set are sent — the SDK adds no default generation parameters.
-            Transport, tool and benchmark-protocol names (for example <code>model</code>,
-            <code>messages</code>, <code>tools</code>, <code>web_search</code>) are reserved and
-            rejected.
+            Generation overrides like <code>temperature</code>. Values must be <code>str</code>,
+            <code>int</code>, <code>float</code>, or <code>bool</code> (floats have to be finite).
+            Only the params you set get sent, since the SDK adds no defaults. Transport, tool, and
+            benchmark-protocol names (like <code>model</code>, <code>messages</code>,
+            <code>tools</code>, <code>web_search</code>) are reserved and will be rejected.
           </td>
         </tr>
       </tbody>
@@ -175,8 +174,8 @@ const equalityOut = `True`
     <h3>Attributes</h3>
 
     <p>
-      <code>model</code>, <code>name</code> and <code>prompt</code> read back what you passed.
-      <code>params</code> returns a <code>mappingproxy</code>, so the overrides cannot be mutated
+      <code>model</code>, <code>name</code>, and <code>prompt</code> give you back what you passed
+      in. <code>params</code> returns a <code>mappingproxy</code>, so you can't mutate the overrides
       after construction.
     </p>
 
@@ -221,10 +220,9 @@ const equalityOut = `True`
 
     <p>
       A <code>Fusion</code> combines members: each member answers in parallel, then a
-      <strong>synthesizer</strong> reads their answers and produces the single final one. That final
-      answer is what the benchmark grades. See the
-      <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> for the reasoning behind
-      the design.
+      <strong>synthesizer</strong> reads those answers and produces one final answer. The benchmark
+      grades that final answer. See the
+      <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> for the reasoning.
     </p>
 
     <CodeBlock :code="fusionSig" language="python" />
@@ -244,9 +242,8 @@ const equalityOut = `True`
           <td><code>members</code></td>
           <td><code>Sequence[str&nbsp;|&nbsp;Recipe]</code></td>
           <td>
-            One or more members, in order — a route string, <code>Model</code>,
-            <code>Fusion</code> or <code>Pipeline</code>. Because a member may itself be a
-            <code>Fusion</code> or <code>Pipeline</code>, ensembles nest.
+            One or more members, in order. Each can be a route string, <code>Model</code>,
+            <code>Fusion</code>, or <code>Pipeline</code>. Ensembles nest.
           </td>
         </tr>
         <tr>
@@ -261,9 +258,9 @@ const equalityOut = `True`
           <td><code>synthesizer</code></td>
           <td><code>str&nbsp;|&nbsp;Recipe</code></td>
           <td>
-            <strong>Required, keyword-only.</strong> A route string or any recipe — a
-            <code>Model</code>, <code>Fusion</code> or <code>Pipeline</code> — that reads the
-            members' answers and writes the final one. There is no default.
+            <strong>Required, keyword-only.</strong> A route string or any recipe (a
+            <code>Model</code>, <code>Fusion</code>, or <code>Pipeline</code>) that reads the
+            members' answers and writes the final one. No default.
           </td>
         </tr>
       </tbody>
@@ -272,10 +269,9 @@ const equalityOut = `True`
     <h3>Attributes</h3>
 
     <p>
-      <code>members</code> is a <code>tuple</code> in the order you gave it. <code>name</code> reads
-      back the resolved label, and <code>synthesizer</code> reads back the recipe you passed (a
-      route string is normalized to a <code>Model</code>). There is no <code>reducer</code>
-      attribute.
+      <code>members</code> is a <code>tuple</code> in the order you gave. <code>name</code> is the
+      resolved label. <code>synthesizer</code> is the recipe you passed (route strings normalize to
+      <code>Model</code>). No <code>reducer</code> attribute.
     </p>
 
     <h3>Raises</h3>
@@ -321,11 +317,10 @@ const equalityOut = `True`
     <h2 id="pipeline">Pipeline</h2>
 
     <p>
-      A <code>Pipeline</code> runs its stages in series: the first stage answers the case, and each
-      later stage receives the previous stage's answer as its input. The last stage's answer is what
-      the benchmark grades. See the
-      <RouterLink to="/sf-client/guides/pipelines">Pipelines guide</RouterLink> for serial and
-      recursive composition.
+      A <code>Pipeline</code> runs stages in series: the first stage answers the case, each later
+      stage gets the previous stage's answer as input. The benchmark grades the last stage's answer.
+      See the <RouterLink to="/sf-client/guides/pipelines">Pipelines guide</RouterLink> for serial
+      and recursive composition.
     </p>
 
     <CodeBlock :code="pipelineSig" language="python" />
@@ -345,9 +340,9 @@ const equalityOut = `True`
           <td><code>stages</code></td>
           <td><code>Sequence[str&nbsp;|&nbsp;Recipe]</code></td>
           <td>
-            One or more stages, in order — a route string or any recipe. An
-            <em>unnamed</em> nested <code>Pipeline</code> is flattened into the surrounding stage
-            sequence; a <em>named</em> one is kept as a single stage.
+            One or more stages, in order. Each can be a route string or any recipe. An
+            <em>unnamed</em> nested <code>Pipeline</code> flattens into the surrounding sequence; a
+            <em>named</em> one stays as a single stage.
           </td>
         </tr>
         <tr>
@@ -364,9 +359,9 @@ const equalityOut = `True`
     <h3>Attributes</h3>
 
     <p>
-      <code>stages</code> is a <code>tuple</code> in canonical order, and <code>name</code> reads
-      back the resolved label. <code>recipe.then(next)</code> — available on every recipe — is the
-      builder equivalent: it appends a stage and returns a new <code>Pipeline</code>.
+      <code>stages</code> is a <code>tuple</code> in canonical order. <code>name</code> is the
+      resolved label. <code>recipe.then(next)</code>, available on every recipe, appends a stage and
+      returns a new <code>Pipeline</code>.
     </p>
 
     <h3>Raises</h3>

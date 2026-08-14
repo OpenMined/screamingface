@@ -50,18 +50,17 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     :version="version"
   >
     <p>
-      A <strong>Pipeline</strong> runs its stages in series. The first stage answers the case, and
-      every later stage receives the <em>previous</em> stage's answer as its input — a draft that
-      gets reviewed, then polished. The last stage's answer is what the benchmark grades, so a
-      Pipeline competes in the same column as a solo
-      <RouterLink to="/sf-client/guides/models">Model</RouterLink> or a
+      A <strong>Pipeline</strong> runs stages one after another. The first stage answers the case,
+      each later stage gets the <em>previous</em> stage's answer as input. A draft gets reviewed,
+      then polished. The benchmark grades the last stage's answer, so a Pipeline competes with a
+      solo <RouterLink to="/sf-client/guides/models">Model</RouterLink> or a
       <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>.
     </p>
 
     <p>
-      A stage is any recipe — a <code>Model</code>, a <code>Fusion</code>, or another
-      <code>Pipeline</code> — so a chain can refine, review, or re-rank as many times as an
-      experiment needs. Like every recipe, a Pipeline is immutable: building one makes no request.
+      A stage can be any recipe: a <code>Model</code>, a <code>Fusion</code>, or another
+      <code>Pipeline</code>. Refine, review, or re-rank as many times as your experiment needs. Like
+      all recipes, a Pipeline is immutable. Building one makes no requests.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -129,13 +128,13 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
       </figcaption>
     </figure>
 
-    <h2>What you can do with it</h2>
+    <h2>What you can do</h2>
 
     <ul>
-      <li>Chain two or more recipes so each stage refines the last one's answer.</li>
-      <li>Build the same chain fluently with <code>.then()</code>.</li>
-      <li>Nest a Pipeline inside a Fusion, or a Fusion inside a Pipeline.</li>
-      <li>Read back the ordered stages and the resolved name.</li>
+      <li>Chain two or more recipes so each stage refines the previous answer.</li>
+      <li>Build the same chain with <code>.then()</code> for a fluent API.</li>
+      <li>Nest a Pipeline inside a Fusion, or vice versa.</li>
+      <li>Read back the ordered stages and see the resolved name.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -151,20 +150,20 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
         <tr>
           <td><code>sf.Pipeline(stages, *, name=None)</code></td>
           <td>
-            Runs the stages in series; each stage receives the previous stage's answer, and the last
+            Runs stages one after another. Each stage gets the previous stage's answer, and the last
             stage's answer is what the benchmark grades.
           </td>
         </tr>
         <tr>
           <td><code>recipe.then(next)</code></td>
           <td>
-            The builder on every recipe: appends a stage and returns a new Pipeline, so
+            Builder method on every recipe: appends a stage and returns a new Pipeline.
             <code>a.then(b).then(c)</code> reads left to right.
           </td>
         </tr>
         <tr>
           <td><code>.name</code> · <code>.stages</code></td>
-          <td>Read back the resolved name and the ordered tuple of stages.</td>
+          <td>Read back the resolved name and the ordered stages (as a tuple).</td>
         </tr>
         <tr>
           <td><code>sf.Recipe</code></td>
@@ -178,9 +177,9 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     <h3>1 · Chain two recipes</h3>
 
     <p>
-      Stages come first and positionally, in the order they run. The Pipeline's name defaults to the
-      stage names joined with <code>-&gt;</code>; give it an explicit <code>name</code> to label the
-      chain in a report.
+      Stages come first (positional), in the order they run. The Pipeline's name defaults to stage
+      names joined with <code>-&gt;</code>. Give it an explicit <code>name</code> for a custom label
+      in reports.
     </p>
 
     <div class="not-prose">
@@ -190,8 +189,8 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     <h3>2 · Build the same chain with <code>.then()</code></h3>
 
     <p>
-      <code>.then()</code> is available on every recipe and appends a stage, so a chain reads left
-      to right. It builds the same canonical Pipeline as passing the stages to the constructor.
+      <code>.then()</code> is on every recipe. It appends a stage so chains read left to right.
+      Builds the same canonical Pipeline as passing stages to the constructor.
     </p>
 
     <div class="not-prose">
@@ -201,8 +200,8 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     <h3>3 · Flatten vs. nest</h3>
 
     <p>
-      An <em>unnamed</em> Pipeline placed inside another Pipeline is flattened into one canonical
-      sequence of stages — nesting for convenience never changes what runs.
+      An <em>unnamed</em> Pipeline inside another Pipeline flattens into one sequence. Nesting for
+      convenience never changes what runs.
     </p>
 
     <div class="not-prose">
@@ -232,8 +231,8 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     </div>
 
     <p>
-      See the <RouterLink to="/sf-client/api/recipes">Recipes reference</RouterLink> for the full
-      <code>Pipeline</code> signature, attributes and errors.
+      Check the <RouterLink to="/sf-client/api/recipes">Recipes reference</RouterLink> for the full
+      <code>Pipeline</code> signature, attributes, and errors.
     </p>
 
     <h2>Links</h2>

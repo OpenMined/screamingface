@@ -13,6 +13,7 @@ export const learnNavigation: NavEntry[] = [
       { title: 'ScreamingFace Engine', path: '/learn/engine' },
       { title: 'Caching and compute', path: '/learn/caching' },
       { title: 'AI gateway', path: '/learn/ai-gateway' },
+      { title: 'Leaderboard', path: '/learn/leaderboard' },
     ],
   },
 ]

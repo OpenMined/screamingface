@@ -37,10 +37,11 @@ result = url4.evaluate_sync("(https://a, https://b)!'summarize both'", io=io)
 print(result.text)      # the reduced answer
 print(result.request)   # the canonical url4 that actually ran`
 
-const serve = `from url4 import Url4Node
+const serve = `# Serving needs the server extra: pip install "url4[server]"
+from url4 import Url4Node
 
 node = Url4Node("demo")
-node.serve(port=9108)   # an HTTP node other expressions can call`
+node.serve()   # 127.0.0.1:4404 by default, an HTTP node other expressions can call`
 
 const cli = `url4 eval "(https://a, https://b)!'summarize both'"
 url4 serve`
@@ -98,7 +99,9 @@ url4 serve`
 
     <p>
       A url4 node can also be served over HTTP, so other expressions can call it as a source. This
-      is the same shape the <RouterLink to="/learn/engine">Engine</RouterLink> exposes:
+      is the same shape the <RouterLink to="/learn/engine">Engine</RouterLink> exposes. Serving
+      needs uvicorn, which comes with the <code>url4[server]</code> extra rather than the base
+      install:
     </p>
 
     <CodeBlock :code="serve" language="python" />

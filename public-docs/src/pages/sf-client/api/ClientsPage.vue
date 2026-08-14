@@ -5,25 +5,29 @@ import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import Note from '@/components/ui/Note.vue'
+import { SF_ENGINE_URL } from '@/lib/engine'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-const clientSig = `sf.Client(*, engine_url: str = "http://127.0.0.1:9108")`
+const clientSig = `sf.Client(
+    *,
+    engine_url: str = DEFAULT_ENGINE_URL,
+    scoreboard_url: str = DEFAULT_SCOREBOARD_URL,
+)`
 
 const basic = `import screamingface as sf
 
-client = sf.Client()
+client = sf.Client(engine_url="${SF_ENGINE_URL}")
 client.engine_url, client.closed, client.authenticated`
-const basicOut = `('http://127.0.0.1:9108', False, False)`
+const basicOut = `('${SF_ENGINE_URL}', False, False)`
 
 const evaluateSig = `Client.evaluate(
     candidates: Recipe | Sequence[Recipe],
     *,
     benchmark: str,
     limit: int | None = None,
-    method: str | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
 ) -> Report`
@@ -33,7 +37,6 @@ const withBlock = `with sf.Client() as client:
         sf.Model("openrouter/anthropic/claude-haiku-4.5"),
         benchmark="ifeval",
         limit=1,
-        method="single_pass",
     )`
 
 const closed = `client.close()
@@ -44,18 +47,18 @@ const asyncCode = `import asyncio
 import screamingface as sf
 
 async def main():
-    async with sf.AsyncClient() as client:
+    async with sf.AsyncClient(engine_url="${SF_ENGINE_URL}") as client:
         models = await client.models.list()
         return len(models), client.engine_url
 
 asyncio.run(main())`
-const asyncOut = `(29, 'http://127.0.0.1:9108')`
+const asyncOut = `(29, '${SF_ENGINE_URL}')`
 
 const connection = `client.connections.get("openrouter")`
 const connectionOut = `Connection(provider='openrouter', display_name='OpenRouter', auth_methods=('api_key',), status='connected', auth_method='api_key', account_label=None)`
 
 const panel = `client.connect()`
-const panelOut = `ConnectionPanel(engine='http://127.0.0.1:9108', openrouter=connected)`
+const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connected)`
 </script>
 
 <template>
@@ -88,9 +91,11 @@ const panelOut = `ConnectionPanel(engine='http://127.0.0.1:9108', openrouter=con
     </div>
 
     <Note>
-      The default <code>engine_url</code> points at a local Engine on port 9108. For a hosted
-      Engine, pass its address, or set <code>SCREAMINGFACE_ENGINE_URL</code> and use the
-      module-level functions.
+      <code>DEFAULT_ENGINE_URL</code> is a hosted Engine, so a <code>Client()</code> with no
+      arguments talks to one we operate. To use a local Engine, pass its address explicitly, or set
+      <code>SCREAMINGFACE_ENGINE_URL</code> and use the module-level functions.
+      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted leaderboard. Both constants live in
+      <code>screamingface.client</code>.
     </Note>
 
     <h3>Properties</h3>
@@ -125,6 +130,14 @@ const panelOut = `ConnectionPanel(engine='http://127.0.0.1:9108', openrouter=con
           <td>Whether a login is in flight.</td>
         </tr>
         <tr>
+          <td><code>scoreboard_url</code></td>
+          <td><code>str</code></td>
+          <td>
+            Where <RouterLink to="/sf-client/guides/leaderboards">leaderboard</RouterLink>
+            submissions go. Separate from the Engine, and separately configurable.
+          </td>
+        </tr>
+        <tr>
           <td><code>models</code></td>
           <td>catalogue</td>
           <td>
@@ -137,8 +150,8 @@ const panelOut = `ConnectionPanel(engine='http://127.0.0.1:9108', openrouter=con
           <td><code>benchmarks</code></td>
           <td>catalogue</td>
           <td>
-            <code>benchmarks.list()</code>, <code>benchmarks.get(id)</code> and
-            <code>benchmarks.cases(id)</code>.
+            <code>benchmarks.list()</code> and <code>benchmarks.get(id)</code> return
+            <RouterLink to="/sf-client/api/benchmarks">Benchmark</RouterLink> identity cards.
           </td>
         </tr>
         <tr>
@@ -179,7 +192,11 @@ const panelOut = `ConnectionPanel(engine='http://127.0.0.1:9108', openrouter=con
         <tr>
           <td><code>benchmark</code></td>
           <td><code>str</code></td>
-          <td>The benchmark id, such as <code>ifeval</code>. Required keyword argument.</td>
+          <td>
+            The benchmark id, such as <code>ifeval</code>. A protocol variant is its own id, such as
+            <code>ifeval/self-corrective</code>, and it pins a different revision, so it changes
+            what the result is comparable to. Required keyword argument.
+          </td>
         </tr>
         <tr>
           <td><code>limit</code></td>
@@ -187,15 +204,6 @@ const panelOut = `ConnectionPanel(engine='http://127.0.0.1:9108', openrouter=con
           <td>
             Run only this many cases. <code>None</code> runs the whole benchmark. Use a small limit
             while you are still iterating.
-          </td>
-        </tr>
-        <tr>
-          <td><code>method</code></td>
-          <td><code>str&nbsp;|&nbsp;None</code></td>
-          <td>
-            Which protocol variant to run, such as ifeval's <code>single_pass</code>.
-            <code>None</code> runs the benchmark's default. This changes the pinned revision, so it
-            changes what the result is comparable to.
           </td>
         </tr>
         <tr>

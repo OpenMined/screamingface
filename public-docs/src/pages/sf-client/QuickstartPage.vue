@@ -77,7 +77,7 @@ const connectSteps: { caption: string; providers: Provider[]; forms: Record<stri
     },
   ]
 
-// Ten distinct researched model nodes, nine synthesis reducers, 16 candidate roots.
+// Ten distinct researched model nodes, nine synthesizers, 16 candidate roots.
 const runStats: NbStat[] = [
   { label: 'Models', value: '10/10' },
   { label: 'Synthesis', value: '9/9' },
@@ -91,7 +91,7 @@ const runRecent: NbCheckItem[] = [
   { label: 'Finalized pareto-cross (1/1 cases scored)' },
 ]
 
-// Scores from a real draco-lite@1 run: one case, ten criteria, one judge pass.
+// Scores from a real draco/lite run: one case, ten criteria, one judge pass.
 const studyCandidates = [
   { id: 'claude-fable-5', name: 'claude-fable-5', score: 88.0, casesScored: 1, casesTotal: 1 },
   { id: 'claude-opus-4.8', name: 'claude-opus-4.8', score: 100.0, casesScored: 1, casesTotal: 1 },
@@ -231,10 +231,10 @@ gpt = sf.Model("openrouter/openai/gpt-5.5", prompt=ANSWER)
 gemini = sf.Model("openrouter/google/gemini-3.1-pro-preview", prompt=ANSWER, params={"temperature": 0, "max_tokens": 8192})
 
 frontier_trio = sf.Fusion(
-    "frontier-trio",
-    members=[opus, gpt, gemini],
-    reducer=sf.reducers.Model(
-        model="openrouter/anthropic/claude-opus-4.8",
+    [opus, gpt, gemini],
+    name="frontier-trio",
+    synthesizer=sf.Model(
+        "openrouter/anthropic/claude-opus-4.8",
         prompt=SYNTHESIS,
         params={"temperature": 0, "max_tokens": 8192},
     ),
@@ -243,7 +243,7 @@ frontier_trio = sf.Fusion(
 const lineup = `# Seven solo models answer on their own.
 solos = [opus, gpt, gemini, fable, gemini_flash, kimi, deepseek]
 
-# Nine Fusions combine them through a synthesis reducer. Reusing a Model object
+# Nine Fusions combine them through a synthesizer. Reusing a Model object
 # means that answer is computed once and shared, not requested twice.
 fusions = [
     fable_plus_gpt,      # two frontier models
@@ -259,9 +259,10 @@ fusions = [
 
 candidates = (*solos, *fusions)   # 16 candidate roots, one shared case set`
 
-const load = `draco = sf.benchmarks.load("draco-lite@1")`
+const load = `draco = sf.benchmarks.get("draco/lite")
+draco.title, draco.revision, draco.case_count`
 
-const evaluate = `report = draco.evaluate(candidates)`
+const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 </script>
 
 <template>
@@ -272,24 +273,26 @@ const evaluate = `report = draco.evaluate(candidates)`
     :version="version"
   >
     <p>
-      By the end you will have a scored comparison of <strong>16 candidates</strong>, seven single
-      models and nine fusions built from those same models, on one DRACO case, with ten criteria and
-      one judge pass each. It runs as a single request of roughly 80–85 provider calls.
+      By the end, you'll have a scored comparison of <strong>16 candidates</strong>: seven solo
+      models and nine fusions built from those models, all on one DRACO case with ten criteria and
+      one judge pass each. The whole thing runs as a single request of roughly 80 to 85 provider
+      calls.
     </p>
 
     <blockquote>
-      You need the <RouterLink to="/learn/engine">ScreamingFace Engine</RouterLink> running and an
-      OpenRouter connection first. See
+      You'll need the <RouterLink to="/learn/engine">ScreamingFace Engine</RouterLink> running and
+      an OpenRouter connection first. See
       <RouterLink to="/sf-client/installation">Installation</RouterLink>. Every model below is an
-      OpenRouter route, so one connection covers the whole study.
+      OpenRouter route, so one connection covers everything.
     </blockquote>
 
     <h2>1 · Point at an engine</h2>
 
     <p>
-      The client is a thin wrapper that never calls a model provider itself. All work goes to the
-      <strong>ScreamingFace Engine</strong>, a separate process that owns credentials, datasets, and
-      execution. This first step tells the client where that engine is listening.
+      The client never talks to model providers. That happens on the
+      <strong>ScreamingFace Engine</strong>, a separate process that holds your credentials, the
+      benchmark answer keys, and does the grading. This first step tells the client where to find
+      that engine.
     </p>
 
     <div class="not-prose">
@@ -297,27 +300,25 @@ const evaluate = `report = draco.evaluate(candidates)`
     </div>
 
     <p>
-      That is the whole of setup. <code>sf.configure()</code> validates and stores the URL without a
-      network request, so a wrong address fails later, not here. It defaults to
-      <code>http://127.0.0.1:9108</code> (the local engine), so you can omit the argument while
-      working locally.
+      That's it for setup. <code>sf.configure()</code> validates and stores the URL without making a
+      network request. Omitting it falls back to <code>DEFAULT_ENGINE_URL</code>, which is a hosted
+      engine, so naming the engine you mean is worth doing explicitly.
     </p>
 
     <p>
-      <strong>If the engine is not running</strong>, the first call that needs it raises
-      <code>EngineConnectionError</code>. A health check with
-      <code>curl http://127.0.0.1:9108/healthz</code> can validate it before going further. A remote
-      engine must be served over HTTPS. Provider credentials are refused over plain HTTP outside
-      loopback.
+      <strong>If the engine isn't reachable</strong>, the first call that needs it will raise
+      <code>EngineUnavailableError</code>. You can check a local one beforehand with
+      <code>curl http://127.0.0.1:9108/healthz</code>. Remote engines must use HTTPS, because
+      provider credentials will not travel over plain HTTP outside loopback.
     </p>
 
     <h2>2 · Connect a provider</h2>
 
     <p>
-      The engine holds the credentials, so it needs at least one provider connected before it can
-      call a model. <code>sf.connect()</code> with no arguments renders a panel of every provider
-      this engine advertises. The example below connects <strong>OpenRouter</strong> with an API
-      key, stepping through the six states of the whole auth flow.
+      The engine holds credentials. You need at least one provider connected before you can call a
+      model. <code>sf.connect()</code> with no arguments shows a panel of every provider this engine
+      supports. The example below connects <strong>OpenRouter</strong> with an API key, walking
+      through all six states of the auth flow.
     </p>
 
     <div class="not-prose">
@@ -341,61 +342,64 @@ const evaluate = `report = draco.evaluate(candidates)`
     <h3>Reading the panel</h3>
 
     <p>
-      Each row is one provider: display name, its <strong>live status</strong>, and the available
-      action. The status is read from the engine at render, not remembered, and is one of
+      Each row shows one provider: its display name, <strong>live status</strong>, and what you can
+      do. Status comes fresh from the engine each time (not cached), and will be one of
       <code>NOT CONNECTED</code>, <code>CONNECTING</code>, <code>CONNECTED</code>,
-      <code>NEEDS REAUTH</code>, or <code>ERROR</code>. The header names the engine handling the
-      request, so you cannot connect a key to the wrong one by accident.
+      <code>NEEDS REAUTH</code>, or <code>ERROR</code>. The header shows which engine you're talking
+      to, so you won't accidentally send a key to the wrong one.
     </p>
 
     <blockquote>
-      We chose OpenRouter for simplicity. You can compose fusions with models coming from any of
-      these providers, and we're actively working to expand the local or third-party providers
-      supported.
+      We're using OpenRouter here for simplicity, but you can build fusions with models from any of
+      these providers. We're actively expanding support for local and third-party providers.
     </blockquote>
 
     <h3>Configure OpenRouter via script</h3>
 
     <p>
-      Scripts connect without the panel: name the provider and pass its key directly. Read the key
-      from the environment rather than writing it into source.
+      Scripts skip the panel by naming the provider and passing the key directly. Pull the key from the
+      environment instead of hardcoding it.
     </p>
 
     <CodeBlock :code="connectScript" language="python" />
 
     <p>
-      <code>sf.connect(...)</code> returns a <code>Connection</code> with the validated status, so a
-      bad key fails here, not at evaluation time. <code>sf.connections.list()</code> returns one per
-      provider (the panel's data), and <code>sf.disconnect(...)</code> is safe even if never
-      connected.
+      <code>sf.connect(...)</code> returns a <code>Connection</code> with validated status, so a bad
+      key fails right here, not later during evaluation. <code>sf.connections.list()</code> gives
+      you one per provider (same data the panel shows), and <code>sf.disconnect(...)</code> is safe
+      to call even if you've never connected.
     </p>
 
     <p>
-      Providers that authenticate by OAuth rather than an API key, namely Codex and Anthropic,
-      return an <code>OAuthFlow</code> instead, which you complete in a browser:
+      Providers that use OAuth instead of API keys (Codex and Anthropic) return an
+      <code>OAuthFlow</code>, which you finish in a browser:
     </p>
 
     <CodeBlock :code="connectOauth" language="python" />
 
     <p>
-      The flow expires, so <code>flow.wait()</code> raises rather than blocking forever;
-      <code>flow.expired</code> tells you whether that has happened and
-      <code>flow.cancel()</code> abandons the attempt. Note that connection calls are refused over
-      plain HTTP unless the engine is on loopback. A remote engine must be HTTPS.
+      The flow expires eventually, so <code>flow.wait()</code> will raise an error instead of
+      blocking forever. <code>flow.expired</code> tells you if that's happened, and
+      <code>flow.cancel()</code> abandons the attempt. Connection calls won't work over plain HTTP
+      unless the engine is on loopback, since remote engines must use HTTPS.
     </p>
 
     <h2>3 · Compose the candidates</h2>
 
-    <p>A <strong>candidate</strong> is a model or a fusion submitted for scoring.</p>
+    <p>
+      A <strong>candidate</strong> is anything you are submitting to be scored, whether that is a
+      single model or a fusion.
+    </p>
 
     <ul>
       <li>
-        <code>sf.Model</code>: one configured call: a route, a prompt, and parameters. On its own it
-        is a solo candidate.
+        <code>sf.Model</code>: one configured call (route, prompt, parameters). On its own, it's a
+        solo candidate.
       </li>
       <li>
-        <code>sf.Fusion</code>: several members combined by an explicit <strong>reducer</strong>.
-        Here the reducer is another model that synthesises the members' answers into one.
+        <code>sf.Fusion</code>: several members combined through an explicit
+        <strong>synthesizer</strong>. Here, the synthesizer is another model that combines the
+        members' answers into one.
       </li>
     </ul>
 
@@ -406,46 +410,46 @@ const evaluate = `report = draco.evaluate(candidates)`
     <h3>Caching keeps reruns cheap</h3>
 
     <p>
-      Every model call is cached. When a fusion reuses the same model, its response is served from
-      the cache instead of being paid for again, so a run gets cheaper the more its candidates
-      share. The cache is also shared across the community: if anyone has already run the same model
-      configuration against a benchmark, that call is a cache hit for you as well, at no cost.
+      Every model call gets cached. When a fusion reuses the same model, the response comes from
+      cache instead of being paid for again. Runs get cheaper the more candidates share models. The
+      cache is also shared across the community: if anyone's already run that model config against a
+      benchmark, you get a cache hit at no cost.
     </p>
 
     <p>
-      One detail worth understanding before the next steps:
+      One thing worth understanding now:
       <strong>reusing a Model object means its answer is computed once and shared</strong> across
-      every candidate that contains it. That is what makes 16 candidates affordable and it is why a
-      single failing model can only affect the candidates that depend on it.
+      every candidate using it. That makes 16 candidates affordable. A single failing model only
+      breaks the candidates that depend on it.
     </p>
 
     <Collapsible title="The full 16-candidate lineup">
       <CodeBlock :code="lineup" language="python" />
     </Collapsible>
 
-    <p>The lineup covers three patterns, each answering a different question:</p>
+    <p>The lineup explores three patterns, each testing a different hypothesis:</p>
 
     <ul>
       <li>
-        <strong>Pairs and trios of frontier models</strong>: does adding another strong model help?
+        <strong>Pairs and trios of frontier models</strong>: Does adding another strong model help?
       </li>
       <li>
         <strong><code>opus-self-fusion</code></strong
-        >: one model fused with a second sample of itself at a higher temperature. Does a fusion
-        help without adding a second model?
+        >: One model fused with a second sample of itself at higher temperature. Does fusion help
+        without adding a second model?
       </li>
       <li>
         <strong><code>budget-trio</code></strong
-        >: three cheaper models. Can they reach a frontier model's score at lower cost?
+        >: Three cheaper models. Can they hit a frontier model's score at lower cost?
       </li>
     </ul>
 
-    <h2>4 · Load the benchmark</h2>
+    <h2>4 · Look up the benchmark</h2>
 
     <p>
-      A benchmark lives on the engine, not in the client. Loading it fetches the
-      <strong>manifest</strong>, which describes how the run will be scored: the grader, the judge
-      model, the aggregator, and the tool policy. The client sees these rules before the run starts.
+      Benchmarks live on the engine, not in the client. Fetching one returns its identity and the
+      protocol revision it is pinned to, so you can see what you are about to be graded against
+      before spending anything. This call is free.
     </p>
 
     <div class="not-prose">
@@ -453,45 +457,50 @@ const evaluate = `report = draco.evaluate(candidates)`
     </div>
 
     <p>
-      It does <strong>not</strong> download any questions. Cases are loaded engine-side at evaluation
-      time, so a gated dataset is read with the <code>HF_TOKEN</code> in the
-      <strong>engine's</strong> environment, not the client's. Provide it where the engine runs:
+      It does <strong>not</strong> download the actual questions. Cases are loaded engine-side at
+      eval time. A gated dataset reads the <code>HF_TOKEN</code> from the <strong>engine's</strong>
+      environment, not the client's. Set it where the engine runs:
     </p>
 
     <ul>
       <li>
-        <strong>Your own engine:</strong> put <code>HF_TOKEN=hf_…</code> in the engine's
+        <strong>Your own engine:</strong> Put <code>HF_TOKEN=hf_…</code> in the engine's
         <code>.env</code> file, or <code>export</code> it before starting the engine, then restart.
-        See <RouterLink to="/sf-client/installation">Installation</RouterLink> for the start command.
+        See <RouterLink to="/sf-client/installation">Installation</RouterLink> for the start
+        command.
       </li>
       <li>
-        <strong>A hosted engine:</strong> the operator sets the token, so gated datasets work only if
-        they have configured one. There is nothing to pass from the client.
+        <strong>Hosted engine:</strong> The operator sets the token, so gated datasets only work if
+        they've configured one. You can't pass it from the client.
       </li>
     </ul>
 
     <p>
-      <code>sf.benchmarks.list()</code> shows what this engine advertises.
-      <code>draco-lite@1</code> appears only when its pinned judge model is in the gateway's
-      catalog; if it is missing, check the engine's configuration.
+      <code>sf.benchmarks.list()</code> shows what this engine has. <code>draco/lite</code> only
+      appears if its pinned judge model is in the gateway catalog, so if it is missing, the engine's
+      configuration is the place to look rather than your own code.
     </p>
 
     <p>
-      <code>draco-lite@1</code> is a trimmed-down version of the full benchmark: one pinned case,
-      ten criteria spanning all four rubric sections, and one judge pass per criterion. It runs the
-      same protocol as <code>draco@1</code>, which covers all 100 cases with five judge passes per
-      criterion, so you can rehearse the full run at a fraction of the cost before committing to it.
+      <code>draco/lite</code> is a reduced form of the full benchmark: one pinned case and ten
+      criteria spanning all four rubric sections, with a single judge pass per criterion. It runs the
+      same protocol as <code>draco</code>, which uses all 100 cases and five judge passes per
+      criterion, so you can rehearse the full run at a small fraction of its cost.
     </p>
 
     <h2>5 · Evaluate</h2>
 
-    <p>One call sends all 16 candidates as a <strong>single request</strong>.</p>
+    <p>
+      One call sends all 16 candidates as a <strong>single request</strong>. The benchmark id is
+      passed here rather than to the lookup above, because the lookup was only for reading the
+      protocol.
+    </p>
 
     <div class="not-prose">
       <NbCell :count="5" :code="evaluate">
         <EvaluationReport
           title="16 candidates"
-          benchmark="draco-lite@1"
+          benchmark="draco/lite"
           phase="complete"
           elapsed="4M 51S"
           :done="16"
@@ -505,102 +514,108 @@ const evaluate = `report = draco.evaluate(candidates)`
     </div>
 
     <p>
-      Before the first model call, the client verifies the run: the benchmark manifest still matches
-      the engine (<code>EngineProtocolError</code>), every model route exists
-      (<code>UnknownModelError</code>), members support the benchmark's tools
-      (<code>UnsupportedToolError</code>), reducers are advertised
-      (<code>UnsupportedReducerError</code>), required providers are connected
-      (<code>ConnectionRequiredError</code>), and the compiled request fits the engine's size limit
-      (<code>EngineRequestTooLargeError</code>). It all runs before anything is spent, so a
-      misconfigured run costs nothing.
+      Before the first model call, the client checks the whole plan: that the benchmark agrees with
+      what the engine has, that every model route exists in the catalog, that the parameters you set
+      are ones those models accept, and that each candidate compiles. Anything wrong with the plan
+      raises <code>PlanningError</code>, which names the specific problem in its message; a provider
+      that is not connected raises <code>ProviderConnectionError</code> instead. All of this happens
+      before anything is spent, so a misconfigured run costs nothing.
     </p>
 
     <p>
-      The panel is live while the run proceeds. <code>MODELS</code> counts the distinct answering
-      calls, ten, not sixteen, because shared members are computed once.
-      <code>SYNTHESIS</code> counts the nine reducers, <code>SCORING</code> the graded candidates,
-      and <code>RESULTS</code> the finalised ones. Progress advances on real grader results, never
-      on a timer, so a stalled counter means work genuinely stalled.
+      The panel updates live as the run proceeds. <code>MODELS</code> counts distinct answering
+      calls (ten, not sixteen, because shared members are computed once). <code>SYNTHESIS</code>
+      counts the nine synthesizers, <code>SCORING</code> the graded candidates, and
+      <code>RESULTS</code> the finalized ones. Progress moves on real grader results, never timers,
+      so if a counter stalls, work actually stalled.
     </p>
 
     <blockquote>
       <strong>This step costs money.</strong> Expect roughly 80–85 provider calls: ten answers, nine
-      syntheses, and ten judge passes per graded candidate. It is minutes and cents rather than
-      hours and dollars, but it is not free, and <code>draco@1</code> at 100 cases is a completely
-      different order of spend.
+      syntheses, plus ten judge passes per graded candidate. It's minutes and cents rather than
+      hours and dollars, but it's not free. <code>draco</code> at 100 cases is a completely
+      different scale of spend.
     </blockquote>
 
     <p>
-      If a model fails, only the candidates that depend on it are affected; the rest still score. A
-      failure lowers that candidate's coverage rather than counting as a zero, so a partial result
-      is visibly partial. Because every completed call is cached, re-running after a failure is free
-      for the work that already succeeded: you are charged only for the new, uncached calls.
+      If a model fails, only the candidates using it are affected, and the rest still score. A failure
+      lowers that candidate's coverage instead of counting as zero, so a partial result looks
+      partial. Since every completed call is cached, re-running after a failure is free for work
+      that already succeeded, so you only pay for new, uncached calls.
     </p>
 
     <h2>6 · Read the study</h2>
 
     <p>
-      Displaying the report renders each candidate in the order you declared them, with its score,
-      and marks the highest. Nine are shown here; the remaining seven are summarised as
-      <code>+7 MORE</code>.
+      The report shows each candidate in the order you declared them, with their scores, and marks
+      the best one. Nine are shown here; the rest are summarized as <code>+7 MORE</code>.
     </p>
 
     <div class="not-prose">
       <NbCell :count="6" code="report">
         <CandidateScores
           :candidates="studyCandidates"
-          benchmark="draco-lite@1"
+          benchmark="draco/lite"
           case-label="1 case"
           :limit="9"
         />
       </NbCell>
     </div>
 
-    <h3>What each column means</h3>
+    <h3>What the columns mean</h3>
 
     <ul>
       <li>
-        <strong>Score</strong>: the candidate's normalized rubric score. Ten criteria are judged, so
-        values land on a coarse grid rather than anywhere in 0–100%.
+        <strong>Score</strong>: The candidate's normalized rubric score. Ten criteria get judged, so
+        values land on a coarse grid instead of anywhere in 0–100%.
       </li>
       <li>
-        <strong>Coverage</strong>: how much of the case set produced a grade. Below 100% means
-        something failed, and the score covers only what completed.
+        <strong>Coverage</strong>: How much of the case set produced a grade. Below 100% means
+        something failed, and the score then covers only what completed.
       </li>
       <li>
-        <strong>BEST</strong>: marks the top scorer. Ties resolve to the first in declared order.
+        <strong>BEST</strong>: Marks the top scorer. Ties go to the first in declared order.
       </li>
     </ul>
 
     <h3>Reading it in code</h3>
 
     <ul>
-      <li><code>report.best</code>: the highest-scoring candidate.</li>
       <li><code>report.candidates["frontier-trio"].score</code>: one candidate's score.</li>
       <li>
-        <code>report.candidates["frontier-trio"].coverage</code>: cases that produced a grade.
+        <code>max(report.candidates, key=lambda c: c.score or 0)</code>: the top scorer. There is no
+        <code>best</code> field, because picking a winner is a judgement about your own experiment
+        rather than something the report should decide.
       </li>
-      <li><code>report.url4</code>: the whole run, as one expression.</li>
+      <li>
+        <code>len(report.candidates["frontier-trio"].cases)</code> against
+        <code>report.case_count</code>: how many cases produced a result, next to how many ran.
+      </li>
+      <li>
+        <code>report.candidates["frontier-trio"].url4</code>: that candidate's expression. The url4
+        belongs to a candidate, not to the report, since each one compiled separately.
+      </li>
       <li><code>report.to_dict()</code>: everything above as plain JSON-compatible values.</li>
     </ul>
 
     <blockquote>
-      <strong>Do not over-read a single run.</strong> One case judged once is an integration check,
-      not a measurement: run it twice and the winner can change. Treat it as a shape to explore.
+      <strong>Don't over-read a single run.</strong> One case judged once is an integration check,
+      not a measurement. Run it twice and the winner may change. Treat the result as a shape worth
+      exploring rather than a finding.
     </blockquote>
 
     <h2>What the full benchmark shows</h2>
 
     <p>
-      The claim is demonstrated on all 100 DRACO tasks, not on this one-case sample. These are
-      published figures, not output from the code above. Expect your own numbers to differ.
+      The real claim is demonstrated on all 100 DRACO tasks, not this one-case sample. These are
+      published figures rather than output from the code above, so your own numbers will differ.
     </p>
 
     <div class="not-prose">
       <CandidateScores
         :candidates="publishedDraco"
         title="Published DRACO result"
-        benchmark="draco@1"
+        benchmark="draco"
         case-label="100 tasks"
         section-label="Score by candidate"
         :limit="8"
@@ -608,9 +623,9 @@ const evaluate = `report = draco.evaluate(candidates)`
     </div>
 
     <p>
-      The strongest fusion beat the best single model by <strong>8.4 points</strong>, and five
-      fusions beat every individual model. Three solo models did not complete every task, Gemini 3.1
-      Pro finished only 47 of 100, so their scores are means over completed tasks and are not
+      The best fusion beat the best solo model by <strong>8.4 points</strong>, and five different
+      fusions beat every individual model. Three solo models didn't finish every task (Gemini 3.1
+      Pro only completed 47 of 100), so their scores are averages over completed tasks and aren't
       directly comparable. Full chart and method:
       <a
         href="https://andrewtrask.substack.com/p/6-weeks-ago-frontier-ai-labs-lost"

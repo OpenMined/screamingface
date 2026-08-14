@@ -16,7 +16,7 @@ const pypiTerminal = `uv pip install "screamingface[notebook]"`
 
 const verify = `import screamingface as sf
 
-len(sf.__all__)   # 36`
+len(sf.__all__)   # 53`
 
 const point = `import screamingface as sf
 
@@ -193,8 +193,8 @@ const certs = `SSL_CERT_FILE=$(uv run --with certifi python -c "import certifi;p
     </div>
 
     <p>
-      That is the whole hosted path. Go and run the
-      <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink>.
+      That is the whole hosted path, and it is enough to start running evaluations. The
+      <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> takes it from here.
     </p>
 
     <h2>Frequently Asked Questions</h2>

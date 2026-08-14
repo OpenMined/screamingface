@@ -44,17 +44,17 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     :version="version"
   >
     <p>
-      A <strong>Fusion</strong> asks its members the same question, then a
-      <strong>synthesizer</strong> reads their answers and produces the single final one. That final
-      answer is what the benchmark grades, so a Fusion competes in exactly the same column as a solo
+      A <strong>Fusion</strong> sends the same question to all its members, then a
+      <strong>synthesizer</strong> reads their answers and produces one final answer. The benchmark
+      grades that final answer, so a Fusion competes with a solo
       <RouterLink to="/sf-client/guides/models">Model</RouterLink>.
     </p>
 
     <p>
-      The synthesizer is itself a recipe. It is usually a model that reads the candidate answers and
-      writes the winner, but it can be a
-      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> or even another Fusion — so
-      the way answers are combined is as composable as the members themselves.
+      The synthesizer is itself a recipe. Usually a model that reads the candidate answers and picks
+      or writes the winner, but it can be a
+      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> or another Fusion.
+      Synthesis composes the same way members do.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -130,14 +130,14 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
       </figcaption>
     </figure>
 
-    <p>Like a Model, a Fusion is immutable: building one makes no request.</p>
+    <p>Like a Model, a Fusion is immutable. Building one makes no requests.</p>
 
-    <h2>What you can do with it</h2>
+    <h2>What you can do</h2>
 
     <ul>
       <li>Combine two or more Models into one candidate.</li>
-      <li>Choose the synthesizer, and how a model synthesizer is prompted.</li>
-      <li>Nest a Fusion or a Pipeline inside a Fusion.</li>
+      <li>Pick your synthesizer. Control how a model synthesizer is prompted.</li>
+      <li>Nest a Fusion or Pipeline inside another Fusion.</li>
       <li>Read back the members and the resolved name.</li>
     </ul>
 
@@ -154,21 +154,22 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
         <tr>
           <td><code>sf.Fusion(members, *, name=None, synthesizer)</code></td>
           <td>
-            Combines members behind a synthesizer that reads their answers and produces the single
-            final answer the benchmark grades. The synthesizer is required.
+            Combines members through a synthesizer that reads their answers and produces one final
+            answer for the benchmark to grade. Synthesizer is required.
           </td>
         </tr>
         <tr>
           <td><code>synthesizer=</code> (route string or recipe)</td>
           <td>
-            Any recipe: a route string or <code>sf.Model</code> has a model write the final answer;
-            an <RouterLink to="/sf-client/guides/pipelines"><code>sf.Pipeline</code></RouterLink> or
-            nested <code>sf.Fusion</code> composes a multi-step synthesis.
+            Any recipe works: a route string or <code>sf.Model</code> has a model write the final
+            answer; an
+            <RouterLink to="/sf-client/guides/pipelines"><code>sf.Pipeline</code></RouterLink> or
+            nested <code>sf.Fusion</code> lets you do multi-step synthesis.
           </td>
         </tr>
         <tr>
           <td><code>.name</code> · <code>.members</code> · <code>.synthesizer</code></td>
-          <td>Read back the resolved shape, including the members and the resolved name.</td>
+          <td>Read back the resolved shape: members, synthesizer, and name.</td>
         </tr>
         <tr>
           <td><code>sf.Recipe</code></td>
@@ -181,23 +182,22 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
 
     <h3>1 · Combine two models</h3>
 
-    <p>Members come first and positionally; the synthesizer is a required keyword argument.</p>
+    <p>Members come first (positional). Synthesizer is required (keyword-only).</p>
 
     <div class="not-prose">
       <NbCell :count="1" :code="basic"><NbTextOut :text="basicOut" /></NbCell>
     </div>
 
     <p>
-      A Fusion always needs an explicit <code>synthesizer</code> — there is no default — and at
-      least one member. Omitting the synthesizer, or passing an empty member list, raises
-      immediately at construction.
+      A Fusion always needs an explicit <code>synthesizer</code> (no default) and at least one
+      member. Skip the synthesizer or pass an empty member list and construction fails.
     </p>
 
     <h3>2 · Read the resolved name</h3>
 
     <p>
       Without an explicit <code>name</code>, the Fusion's name is its members' names joined with
-      <code>+</code>. That is the label a report will show.
+      <code>+</code>. Reports show that name.
     </p>
 
     <div class="not-prose">
@@ -207,13 +207,12 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     <h3>3 · Choose the synthesizer</h3>
 
     <p>
-      The <strong>synthesizer</strong> decides how the members' answers become one, and it is itself
-      a recipe. Pass a route string or an <code>sf.Model</code> to have a model read the drafts and
-      write the final answer, or pass an
+      The <strong>synthesizer</strong> decides how the members' answers become one. It's itself a
+      recipe. Pass a route string or <code>sf.Model</code> to have a model read the drafts and write
+      the final answer, or pass an
       <RouterLink to="/sf-client/guides/pipelines"><code>sf.Pipeline</code></RouterLink> or nested
-      <code>sf.Fusion</code> for a multi-step synthesis. Swapping the synthesizer is the main lever
-      a Fusion has: the same members with a different synthesizer is a different candidate, worth
-      measuring as one.
+      <code>sf.Fusion</code> for multi-step synthesis. Swapping synthesizers is the main lever: same
+      members, different synthesizer, different candidate.
     </p>
 
     <div class="not-prose">
@@ -221,16 +220,16 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     </div>
 
     <p>
-      A model synthesizer carries its own <code>prompt</code> and <code>params</code>: they control
-      how the final answer is written, separately from how the members answer. Give a member its own
-      prompt by setting it on that Model.
+      A model synthesizer has its own <code>prompt</code> and <code>params</code>, controlling how
+      it writes the final answer, separate from how members answer. Set a different prompt on a
+      member by setting it on that Model.
     </p>
 
     <h3>4 · Nest a fusion</h3>
 
     <p>
-      A member may itself be a Fusion or a Pipeline, so a pair can become a member of a larger
-      fusion. The inner recipe appears under its own resolved name.
+      A member can be a Fusion or Pipeline, so a pair can become a member in a larger fusion. The
+      inner recipe shows up under its resolved name.
     </p>
 
     <div class="not-prose">
@@ -238,8 +237,8 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
     </div>
 
     <p>
-      Members must be recipes — a <code>Model</code>, <code>Fusion</code> or <code>Pipeline</code>,
-      or a route string that is normalized to a <code>Model</code>.
+      Members must be recipes: a <code>Model</code>, <code>Fusion</code>, or <code>Pipeline</code>
+      (or a route string, which gets normalized to a <code>Model</code>).
     </p>
 
     <h2>Links</h2>

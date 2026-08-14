@@ -54,6 +54,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/guides/EvaluationPage.vue'),
     },
     {
+      path: '/sf-client/guides/leaderboards',
+      name: 'sf-client-guides-leaderboards',
+      component: () => import('@/pages/sf-client/guides/LeaderboardsPage.vue'),
+    },
+    {
       path: '/sf-client/guides/reproduce-and-share',
       name: 'sf-client-guides-url4',
       component: () => import('@/pages/sf-client/guides/Url4Page.vue'),
@@ -107,6 +112,11 @@ const router = createRouter({
       path: '/learn/ai-gateway',
       name: 'learn-ai-gateway',
       component: () => import('@/pages/learn/GatewayPage.vue'),
+    },
+    {
+      path: '/learn/leaderboard',
+      name: 'learn-leaderboard',
+      component: () => import('@/pages/learn/LeaderboardPage.vue'),
     },
   ],
   scrollBehavior() {

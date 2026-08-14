@@ -43,11 +43,11 @@ const components = [
 
     <ul>
       <li>
-        <RouterLink to="/learn/url4"><strong>url4: the protocol.</strong></RouterLink> A url4 string
-        names some sources and an intent, and compiles to a typed graph of operations: it can fetch
-        data, call models or run code, fan those out, and reduce the results to one answer. A source
-        can itself be another url4, so the format is recursive and composes into arbitrarily large
-        pipelines.
+        <RouterLink to="/learn/url4"><strong>url4: the protocol.</strong></RouterLink> One line
+        naming some sources and an intent, which compiles to a typed graph of operations. It can
+        fetch data, call models, run code, fan those out, and reduce the results to one answer. A
+        source can itself be another url4, so expressions nest into arbitrarily large systems. This
+        is the artifact everything else passes around.
       </li>
       <li>
         <RouterLink to="/learn/engine"
@@ -74,10 +74,13 @@ const components = [
       </li>
       -->
       <li>
+        <RouterLink to="/learn/leaderboard"><strong>The Leaderboard.</strong></RouterLink> Where
+        results go public, after an independent re-run rather than on the submitter's word. Each
+        entry keeps the url4 that produced it, so a rank can always be checked. The board itself is
+        at
         <a href="https://leaderboard.screamingface.ai" target="_blank" rel="noopener"
-          ><strong>The Leaderboard.</strong></a
-        >
-        Where verified, reproducible results are published.
+          >leaderboard.screamingface.ai</a
+        >.
       </li>
     </ul>
 
