@@ -3,9 +3,13 @@ title: OME-712 — DRACO protocol and deployment
 status: accepted
 created: 2026-08-07
 ticket: OME-712
+superseded_in_part_by: OME-836
 ---
 
 # DRACO protocol and deployment
+
+> Historical decision record. OME-836 retires the DRACO lite/smoke resources described below;
+> see `docs/spec/2026-08-14-OME-836-flat-benchmark-identities.md` for the current public contract.
 
 ## Purpose
 

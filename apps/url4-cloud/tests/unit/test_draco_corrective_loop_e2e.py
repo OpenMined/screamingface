@@ -23,7 +23,7 @@ import pytest
 
 from url4_cloud.benchmarks import BenchmarkRegistry, link_candidate
 from url4_cloud.benchmarks.candidate_adapter import install_candidate_invocation
-from url4_cloud.benchmarks.draco.definition import DRACO_SMOKE, JUDGE_MODEL
+from url4_cloud.benchmarks.draco.definition import DRACO, JUDGE_MODEL
 from url4_cloud.benchmarks.ensemble import install_corrective_runtime
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.world_config import ModelSpec
@@ -44,26 +44,27 @@ def _assets(root: Path) -> None:
     draco = root / "draco"
     (draco / "rubrics").mkdir(parents=True)
     (draco / "criteria").mkdir(parents=True)
-    (draco / "cases.json").write_text(
-        json.dumps([{"id": 1, "input": _QUESTION, "domain": "science"}]), encoding="utf-8"
-    )
-    (draco / "rubrics" / "1.json").write_text(
-        json.dumps(
+    cases = [
+        {
+            "id": case_id,
+            "input": _QUESTION if case_id == 1 else f"Question {case_id}",
+            "domain": "science",
+        }
+        for case_id in range(1, 101)
+    ]
+    (draco / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
+    rubric = {
+        "sections": [
             {
-                "sections": [
-                    {
-                        "id": "Factual Accuracy",
-                        "criteria": [{"id": "c1", "requirement": _REQUIREMENT, "weight": 1}],
-                    }
-                ]
+                "id": "Factual Accuracy",
+                "criteria": [{"id": "c1", "requirement": _REQUIREMENT, "weight": 1}],
             }
-        ),
-        encoding="utf-8",
-    )
-    (draco / "criteria" / "1.json").write_text(
-        json.dumps([{"id": "c1", "requirement": _REQUIREMENT, "criterion_type": "positive"}]),
-        encoding="utf-8",
-    )
+        ]
+    }
+    criteria = [{"id": "c1", "requirement": _REQUIREMENT, "criterion_type": "positive"}]
+    for case_id in range(1, 101):
+        (draco / "rubrics" / f"{case_id}.json").write_text(json.dumps(rubric), encoding="utf-8")
+        (draco / "criteria" / f"{case_id}.json").write_text(json.dumps(criteria), encoding="utf-8")
 
 
 def _chat(content: str) -> httpx.Response:
@@ -142,13 +143,13 @@ async def _run(tmp_path: Path) -> tuple[dict[str, object], list[tuple[str, str]]
     try:
         install_candidate_invocation(world.node)
         install_corrective_runtime(world.node)
-        BenchmarkRegistry((DRACO_SMOKE,)).install(world.node, assets_root=tmp_path)
+        BenchmarkRegistry((DRACO,)).install(world.node, assets_root=tmp_path)
         candidate = (
             (_DATA / "draco_corrective_loop_candidate.url4")
             .read_text(encoding="utf-8")
             .rstrip("\n")
         )
-        protocol = DRACO_SMOKE.resource(1)["url4"]
+        protocol = DRACO.resource(1)["url4"]
         assert isinstance(protocol, str)
         result = await world.node.evaluate(link_candidate(candidate, protocol))
     finally:
@@ -223,6 +224,6 @@ async def test_the_check_and_the_grader_share_one_judge_model(tmp_path: Path) ->
         for model, content in calls
         if model == JUDGE_MODEL and "<requirements>" not in content
     ]
-    # Canonical smoke grading: one Judge pass over one criterion for the submitted answer.
-    assert len(graded) == 1
-    assert _STRONG in graded[0]
+    # Canonical grading: five independent Judge passes over the selected criterion.
+    assert len(graded) == 5
+    assert all(_STRONG in prompt for prompt in graded)

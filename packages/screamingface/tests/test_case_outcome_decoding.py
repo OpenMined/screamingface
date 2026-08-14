@@ -100,7 +100,7 @@ def _healthbench_payload() -> dict[str, Any]:
         "metrics": {"rubrics_judged": 2},
         "checks": [],
     }
-    payload["metadata"] = {"benchmark": "healthbench/worst30"}
+    payload["metadata"] = {"benchmark": "healthbench-worst30"}
     return payload
 
 

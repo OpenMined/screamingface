@@ -80,7 +80,7 @@ def candidate(
 
 def benchmark() -> sf.BenchmarkInfo:
     return sf.BenchmarkInfo(
-        id="bench@1",
+        id="bench-1",
         revision="fixture-revision",
         case_count=10,
     )

@@ -221,13 +221,13 @@ def test_engine_url_rejects_embedded_credentials() -> None:
 
 def test_benchmark_info_is_normalized_and_rejects_invalid_state() -> None:
     benchmark = sf.BenchmarkInfo(
-        id=" draco@1 ",
+        id=" draco ",
         revision=" revision-1 ",
         case_count=100,
     )
 
-    assert benchmark.id == "draco@1"
+    assert benchmark.id == "draco"
     assert benchmark.revision == "revision-1"
 
     with pytest.raises(ValueError, match="case_count"):
-        sf.BenchmarkInfo("draco@1", "revision-1", 0)
+        sf.BenchmarkInfo("draco", "revision-1", 0)

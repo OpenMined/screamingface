@@ -9,6 +9,7 @@ from datetime import datetime
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from screamingface._benchmark_identity import benchmark_id as _benchmark_id
 from screamingface._immutable_json import freeze_mapping
 from screamingface.url4 import Url4
 
@@ -24,7 +25,7 @@ class LeaderboardInfo:
     created_at: datetime
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "id", _text(self.id, "Leaderboard id"))
+        object.__setattr__(self, "id", _benchmark_id(self.id, "Leaderboard id"))
         object.__setattr__(
             self,
             "display_name",
@@ -102,12 +103,12 @@ class LeaderboardScore:
         if not isinstance(self.id, UUID):
             raise TypeError("Leaderboard score id must be a UUID")
         _positive_int(self.version, "Leaderboard score version")
-        for name in ("benchmark_id", "spec_id"):
-            object.__setattr__(
-                self,
-                name,
-                _text(getattr(self, name), f"Leaderboard score {name}"),
-            )
+        object.__setattr__(
+            self,
+            "benchmark_id",
+            _benchmark_id(self.benchmark_id, "Leaderboard score benchmark_id"),
+        )
+        object.__setattr__(self, "spec_id", _text(self.spec_id, "Leaderboard score spec_id"))
         object.__setattr__(
             self,
             "url4",
@@ -158,7 +159,12 @@ class LeaderboardBaseline:
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
             raise TypeError("Leaderboard baseline id must be a UUID")
-        for name in ("benchmark_id", "model_name", "source"):
+        object.__setattr__(
+            self,
+            "benchmark_id",
+            _benchmark_id(self.benchmark_id, "Leaderboard baseline benchmark_id"),
+        )
+        for name in ("model_name", "source"):
             object.__setattr__(
                 self,
                 name,

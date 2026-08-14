@@ -256,7 +256,7 @@ def test_phase_progress_distinguishes_candidate_work_from_benchmark_grading() ->
         candidate_models=frozenset({candidate_model}),
     )
 
-    assert "Starting evaluation" in evaluation_panel_html(progress, "DRACO smoke")
+    assert "Starting evaluation" in evaluation_panel_html(progress, "Fixture Benchmark")
 
     progress.observe(sf.events.Started(**envelope(1), url4="(@)!'hi'"))
     assert progress.activity == "Running candidate"
@@ -273,7 +273,7 @@ def test_phase_progress_distinguishes_candidate_work_from_benchmark_grading() ->
     assert progress.activity == "Grading benchmark · 1 model call completed"
 
     progress.observe(sf.events.Terminated(**envelope(4), status="succeeded"))
-    html = evaluation_panel_html(progress, "DRACO smoke")
+    html = evaluation_panel_html(progress, "Fixture Benchmark")
 
     assert progress.activity == "Evaluation finished"
     assert "phase · Evaluation finished" in html
@@ -307,7 +307,7 @@ def test_live_feed_uses_arrival_time_when_engine_event_timestamps_do_not_advance
     from screamingface._ui.evaluation_view import _NotebookEvaluationView
 
     now = [100.0]
-    view = _NotebookEvaluationView(2, "DRACO lite", clock=lambda: now[0], tick=False)
+    view = _NotebookEvaluationView(2, "DRACO", clock=lambda: now[0], tick=False)
     view(sf.events.Started(**envelope(1, run_id="run_1"), url4="(@)!'one'"))
 
     now[0] += 14

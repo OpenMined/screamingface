@@ -3,11 +3,10 @@
 Evaluate composable Candidate Recipes against URL4-native research Benchmarks.
 
 > **Development status:** immutable Model/Fusion/Pipeline authoring, Engine-backed discovery, the direct
-> evaluation API, and the confirmed `url4-cloud` lifecycle are
-> implemented. The current MVP Engine publishes canonical `draco` plus the non-comparable
-> `draco/lite` and `draco/smoke` development protocols as independently revisioned Benchmark
-> resources with complete URL4 expressions. There is no fixture, embedded benchmark runtime, or
-> Client-side execution fallback.
+> evaluation API, and the confirmed `url4-cloud` lifecycle are implemented. The current MVP
+> Engine publishes canonical `draco`, canonical `ifeval`, and the separately named
+> `healthbench-worst30` challenge as complete URL4 Benchmark resources. There is no fixture,
+> embedded benchmark runtime, or Client-side execution fallback.
 
 ## Target v1 workflow
 
@@ -51,12 +50,11 @@ editable_python = score.url4.to_python()
 replayed_report = sf.evaluate(score.url4)
 ```
 
-`Url4.to_python()` is local and no-spend: it produces an editable `sf.Model`, `sf.Fusion`, or
-`sf.Pipeline` plus
-the recovered Benchmark call. Raw URL4 evaluation does not accept `benchmark=` or `limit=`
-because either would imply
-recompiling an already-complete expression. Replay starts a new, potentially paid Run; identical
-URL4 does not guarantee identical model output.
+`Url4.to_python()` is local and no-spend: it produces an editable `sf.Model`, `sf.Fusion`,
+`sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` plus the recovered Benchmark call. Raw
+URL4 evaluation does not accept `benchmark=` or `limit=` because either would imply recompiling an
+already-complete expression. Replay starts a new, potentially paid Run; identical URL4 does not
+guarantee identical model output.
 
 Every Client-compiled Candidate URL4 contains exactly one inert `_sf_recipe` source with the
 versioned `screamingface.recipe.v1` descriptor. It preserves the public Recipe structure and names
@@ -69,10 +67,10 @@ current executable Judge is `openrouter/google/gemini-3.1-pro-preview`, Google's
 replacement for the paper's retired `Gemini-3-Pro Preview`. Reports should disclose that Judge
 version difference when comparing scores with the paper.
 
-Related protocols are explicit Benchmark ids rather than SDK options. `draco/lite` and
-`draco/smoke` reduce the protocol's fixed Case, criterion, and Judge-pass selections for
-development, and their scores are deliberately not comparable with canonical DRACO. The SDK
-fetches and links each resource generically; it does not dispatch on those names.
+Benchmark IDs are flat, complete identities. Bounded development runs use `limit` without changing
+the named protocol: `benchmark="draco", limit=1` still uses canonical DRACO's full rubric and five
+Judge passes. The non-canonical HealthBench challenge is therefore named independently as
+`healthbench-worst30`, rather than presented as a canonical HealthBench variant.
 
 ### Candidate policy
 
@@ -406,7 +404,7 @@ benchmarks = sf.benchmarks.list()
 boards = sf.leaderboards.list()
 draco_board = sf.leaderboards.get("draco", top=50)
 
-# After evaluating an accuracy Benchmark whose Scoreboard accepts submissions:
+# After evaluating every Case of an accuracy Benchmark whose Scoreboard accepts submissions:
 submission = sf.leaderboards.submit(report.candidates.only)
 same_submission = sf.leaderboards.get_score(submission.id)
 editable_python = same_submission.url4.to_python()
@@ -422,8 +420,9 @@ typed parameter schemas, gateway policy, provider evidence, tools, transport, an
 `sf.leaderboards` uses the separate public Scoreboard: `list()` returns its registered benchmark
 summaries, while `get(benchmark_id, top=...)` returns one immutable `Leaderboard` containing ranked
 best-per-spec entries and imported single-Model baselines. `submit(candidate_result)` publishes an
-already-evaluated, binary accuracy result without asking the caller to repeat its Benchmark, URL4,
-models, counts, or run identity; `get_score(id)` retrieves the resulting immutable
+already-evaluated, complete binary-accuracy result without asking the caller to repeat its
+Benchmark, URL4, models, counts, or run identity; partial runs are rejected because their scores
+are not comparable with the canonical Leaderboard. `get_score(id)` retrieves the resulting immutable
 `LeaderboardScore`. Its `.url4` property is a string-compatible `Url4` value:
 `.to_python()` produces an editable fork, while passing the value to `sf.evaluate(...)` replays it
 through the configured Engine. A Scoreboard deployment may
@@ -448,24 +447,17 @@ or introduce a separate discovery operation.
 ## Examples
 
 - [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb): one Candidate through the
-  bounded, diagnostic `draco/smoke` protocol, from discovery through Report evidence.
+  first canonical `draco` Case, from discovery through Report evidence.
 - [`examples/01_client_tour.ipynb`](examples/01_client_tour.ipynb): a no-spend tour of Client
   lifecycle, hosted authentication, discovery, connections, authoring, events, errors, Reports,
   and the asynchronous API.
-- [`examples/05_draco_lite_e2e.ipynb`](examples/05_draco_lite_e2e.ipynb): an opt-in,
-  retrieval-aware comparison over the small, non-comparable `draco/lite` protocol, with typed
-  Candidate and Case inspection.
 - [`examples/06_draco_full_e2e.ipynb`](examples/06_draco_full_e2e.ipynb): the complete seven-solo,
   nine-Fusion canonical DRACO experiment and audit workflow, with execution disabled by default.
 - [`examples/07_ifeval_e2e.ipynb`](examples/07_ifeval_e2e.ipynb): canonical deterministic
-  IFEval, bounded self-correction, and the LANL early-exit Fusion protocol.
+  IFEval across the solo/panel × plain/corrective Recipe grid.
 - [`examples/08_healthbench_worst30.ipynb`](examples/08_healthbench_worst30.ipynb): the
   HealthBench worst-30% open-Fusion challenge, rehearsed cheaply with `limit=1` first.
-- [`examples/09_demo.ipynb`](examples/09_demo.ipynb): a curated, executed presentation that
-  reproduces and scales a published DRACO result using the current public API.
-
-The instructional notebooks are deterministic outputs of `scripts/build_notebooks.py`;
-`09_demo.ipynb` is deliberately curated because it retains presentation outputs and artwork.
+All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
 ## Development
 

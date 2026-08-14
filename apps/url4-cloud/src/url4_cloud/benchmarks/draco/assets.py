@@ -39,8 +39,6 @@ def load_rubrics(directory: Path) -> dict[int, dict[str, Any]]:
 def validate_protocol_assets(
     root: Path,
     cases: list[dict[str, object]],
-    criterion_count: int | None,
-    criterion_selection: scoring.CriterionSelection,
 ) -> dict[int, dict[str, Any]]:
     """Validate complete Case/criteria/rubric alignment before installing any route."""
     rubrics = load_rubrics(root / "rubrics")
@@ -50,15 +48,7 @@ def validate_protocol_assets(
         if case_id in seen_case_ids:
             raise ValueError(f"DRACO Case sequence repeats case_id {case_id}")
         seen_case_ids.add(case_id)
-        _validate_case_assets(
-            root,
-            rubrics,
-            case,
-            index,
-            case_id,
-            criterion_count,
-            criterion_selection,
-        )
+        _validate_case_assets(root, rubrics, case, index, case_id)
     return rubrics
 
 
@@ -68,8 +58,6 @@ def _validate_case_assets(
     case: dict[str, object],
     index: int,
     case_id: int,
-    criterion_count: int | None,
-    criterion_selection: scoring.CriterionSelection,
 ) -> None:
     question = case.get("input")
     if not isinstance(question, str) or not question.strip():
@@ -87,9 +75,3 @@ def _validate_case_assets(
     criteria_ids = [task["criterion_id"] for task in validated_tasks]
     if criteria_ids != rubric_ids:
         raise ValueError(f"Case {case_id} criterion assets do not match its installed DRACO rubric")
-    if criterion_count is not None and criterion_count > len(rubric_ids):
-        raise ValueError(
-            f"criterion_count {criterion_count} exceeds Case {case_id} rubric size "
-            f"{len(rubric_ids)}"
-        )
-    scoring.select_criteria(rubric, criterion_count, criterion_selection)

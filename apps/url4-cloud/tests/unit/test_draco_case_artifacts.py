@@ -15,7 +15,7 @@ import pytest
 from benchmark_support import install_benchmarks
 
 from url4 import Node, RelExpr, build, expr, render, src, text
-from url4_cloud.benchmarks.draco.definition import DRACO_SMOKE, JUDGE_MODEL
+from url4_cloud.benchmarks.draco.definition import DRACO, JUDGE_MODEL
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.world_config import ModelSpec
 
@@ -31,35 +31,33 @@ _RAW_JUDGE_REPLY = json.dumps(
 def _assets(root: Path) -> None:
     (root / "criteria").mkdir(parents=True)
     (root / "rubrics").mkdir()
-    (root / "cases.json").write_text(
-        json.dumps([{"id": 1, "input": _QUESTION, "domain": "Arithmetic"}]),
-        encoding="utf-8",
-    )
-    (root / "criteria" / "1.json").write_text(
-        json.dumps(
-            [
-                {
-                    "id": "answer-is-four",
-                    "requirement": "States that two plus two equals four.",
-                    "criterion_type": "positive",
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (root / "rubrics" / "1.json").write_text(
-        json.dumps(
+    cases = [
+        {
+            "id": case_id,
+            "input": _QUESTION if case_id == 1 else f"Question {case_id}",
+            "domain": "Arithmetic",
+        }
+        for case_id in range(1, 101)
+    ]
+    (root / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
+    criteria = [
+        {
+            "id": "answer-is-four",
+            "requirement": "States that two plus two equals four.",
+            "criterion_type": "positive",
+        }
+    ]
+    rubric = {
+        "sections": [
             {
-                "sections": [
-                    {
-                        "id": "correctness",
-                        "criteria": [{"id": "answer-is-four", "weight": 3}],
-                    }
-                ]
+                "id": "correctness",
+                "criteria": [{"id": "answer-is-four", "weight": 3}],
             }
-        ),
-        encoding="utf-8",
-    )
+        ]
+    }
+    for case_id in range(1, 101):
+        (root / "criteria" / f"{case_id}.json").write_text(json.dumps(criteria), encoding="utf-8")
+        (root / "rubrics" / f"{case_id}.json").write_text(json.dumps(rubric), encoding="utf-8")
 
 
 def _link(candidate: Node, benchmark: Node) -> str:
@@ -73,7 +71,7 @@ def _link(candidate: Node, benchmark: Node) -> str:
 
 
 @pytest.mark.asyncio
-async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> None:
+async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) -> None:
     _assets(tmp_path / "draco")
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -92,7 +90,7 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
         context="$input",
         intent=text("Answer exactly."),
     )
-    benchmark = DRACO_SMOKE.resource(1)["url4"]
+    benchmark = DRACO.resource(1)["url4"]
     assert isinstance(benchmark, str)
 
     async with httpx.AsyncClient(
@@ -109,7 +107,7 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
             ),
             client=client,
         )
-        install_benchmarks(world.node, tmp_path, benchmarks=(DRACO_SMOKE,))
+        install_benchmarks(world.node, tmp_path, benchmarks=(DRACO,))
         try:
             result = await world.node.evaluate(_link(candidate, build(benchmark)))
         finally:
@@ -141,9 +139,9 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
                     "axis_pass_rates": {"correctness": 1.0},
                     "coverage": 1.0,
                     "coverage_sd": 0.0,
-                    "n_runs": 1,
-                    "verdicts_expected": 1,
-                    "verdicts_accepted": 1,
+                    "n_runs": 5,
+                    "verdicts_expected": 5,
+                    "verdicts_accepted": 5,
                     "verdicts_rejected": 0,
                     "verdicts_invalid": 0,
                     "verdicts_missing": 0,
@@ -155,7 +153,7 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
                         "label": "States that two plus two equals four.",
                         "evidence": [
                             {
-                                "sequence": 1,
+                                "sequence": sequence,
                                 "producer": {"type": "model", "id": JUDGE_MODEL},
                                 "valid": True,
                                 "outcome": "MET",
@@ -163,6 +161,7 @@ async def test_draco_smoke_retains_complete_case_evidence(tmp_path: Path) -> Non
                                 "raw_output": _RAW_JUDGE_REPLY,
                                 "metadata": {},
                             }
+                            for sequence in range(1, 6)
                         ],
                         "metadata": {
                             "criterion_type": "positive",

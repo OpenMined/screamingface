@@ -8,6 +8,9 @@ finished: 2026-08-14
 
 # OME-830 — HealthBench check surface + the `rubric_check` extraction
 
+> Historical delivery record. OME-836 subsequently flattened the challenge identity to
+> `healthbench-worst30`; the check adapter and its grading semantics remain current.
+
 ## Intent
 
 Onboard a SECOND rubric benchmark to the corrective loop, and let that second

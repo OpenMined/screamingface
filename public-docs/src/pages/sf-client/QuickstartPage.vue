@@ -91,7 +91,7 @@ const runRecent: NbCheckItem[] = [
   { label: 'Finalized pareto-cross (1/1 cases scored)' },
 ]
 
-// Scores from a real draco/lite run: one case, ten criteria, one judge pass.
+// Illustrative score rows for the static Report anatomy below.
 const studyCandidates = [
   { id: 'claude-fable-5', name: 'claude-fable-5', score: 88.0, casesScored: 1, casesTotal: 1 },
   { id: 'claude-opus-4.8', name: 'claude-opus-4.8', score: 100.0, casesScored: 1, casesTotal: 1 },
@@ -259,24 +259,24 @@ fusions = [
 
 candidates = (*solos, *fusions)   # 16 candidate roots, one shared case set`
 
-const load = `draco = sf.benchmarks.get("draco/lite")
+const load = `draco = sf.benchmarks.get("draco")
 draco.title, draco.revision, draco.case_count`
 
-const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
+const evaluate = `report = sf.evaluate(candidates, benchmark="draco", limit=1)`
 </script>
 
 <template>
   <DocLayout
     title="Quickstart"
-    description="Run DRACO-Lite end to end and compare seven solo models against nine fusions built from them."
+    description="Run one canonical DRACO case and compare seven solo models against nine fusions built from them."
     :navigation="navigation"
     :version="version"
   >
     <p>
       By the end, you'll have a scored comparison of <strong>16 candidates</strong>: seven solo
-      models and nine fusions built from those models, all on one DRACO case with ten criteria and
-      one judge pass each. The whole thing runs as a single request of roughly 80 to 85 provider
-      calls.
+      models and nine fusions built from those models, all on one canonical DRACO case. The
+      <code>limit=1</code> rehearsal still grades every rubric criterion with all five Judge passes,
+      so it is bounded but not a different or weakened benchmark.
     </p>
 
     <blockquote>
@@ -357,8 +357,8 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     <h3>Configure OpenRouter via script</h3>
 
     <p>
-      Scripts skip the panel by naming the provider and passing the key directly. Pull the key from the
-      environment instead of hardcoding it.
+      Scripts skip the panel by naming the provider and passing the key directly. Pull the key from
+      the environment instead of hardcoding it.
     </p>
 
     <CodeBlock :code="connectScript" language="python" />
@@ -476,16 +476,15 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     </ul>
 
     <p>
-      <code>sf.benchmarks.list()</code> shows what this engine has. <code>draco/lite</code> only
-      appears if its pinned judge model is in the gateway catalog, so if it is missing, the engine's
+      <code>sf.benchmarks.list()</code> shows what this engine has. <code>draco</code> only appears
+      if its pinned Judge model is in the gateway catalog, so if it is missing, the engine's
       configuration is the place to look rather than your own code.
     </p>
 
     <p>
-      <code>draco/lite</code> is a reduced form of the full benchmark: one pinned case and ten
-      criteria spanning all four rubric sections, with a single judge pass per criterion. It runs the
-      same protocol as <code>draco</code>, which uses all 100 cases and five judge passes per
-      criterion, so you can rehearse the full run at a small fraction of its cost.
+      There is one DRACO identity. Passing <code>limit=1</code> selects one of its 100 Cases while
+      preserving the complete rubric and five-pass grading protocol. Omit <code>limit</code> only
+      when you intend to run the full benchmark.
     </p>
 
     <h2>5 · Evaluate</h2>
@@ -500,7 +499,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
       <NbCell :count="5" :code="evaluate">
         <EvaluationReport
           title="16 candidates"
-          benchmark="draco/lite"
+          benchmark="draco"
           phase="complete"
           elapsed="4M 51S"
           :done="16"
@@ -524,24 +523,23 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 
     <p>
       The panel updates live as the run proceeds. <code>MODELS</code> counts distinct answering
-      calls (ten, not sixteen, because shared members are computed once). <code>SYNTHESIS</code>
-      counts the nine synthesizers, <code>SCORING</code> the graded candidates, and
-      <code>RESULTS</code> the finalized ones. Progress moves on real grader results, never timers,
-      so if a counter stalls, work actually stalled.
+      calls (ten, not sixteen, because shared members are computed once).
+      <code>SYNTHESIS</code> counts the nine synthesizers, <code>SCORING</code> the graded
+      candidates, and <code>RESULTS</code> the finalized ones. Progress moves on real grader
+      results, never timers, so if a counter stalls, work actually stalled.
     </p>
 
     <blockquote>
-      <strong>This step costs money.</strong> Expect roughly 80–85 provider calls: ten answers, nine
-      syntheses, plus ten judge passes per graded candidate. It's minutes and cents rather than
-      hours and dollars, but it's not free. <code>draco</code> at 100 cases is a completely
-      different scale of spend.
+      <strong>This step costs money.</strong> Canonical DRACO performs five Judge passes for every
+      rubric criterion of every Candidate answer. <code>limit=1</code> bounds the selected Cases,
+      but this 16-Candidate comparison is still substantial; inspect the plan before running it.
     </blockquote>
 
     <p>
-      If a model fails, only the candidates using it are affected, and the rest still score. A failure
-      lowers that candidate's coverage instead of counting as zero, so a partial result looks
-      partial. Since every completed call is cached, re-running after a failure is free for work
-      that already succeeded, so you only pay for new, uncached calls.
+      If a model fails, only the candidates using it are affected, and the rest still score. A
+      failure lowers that candidate's coverage instead of counting as zero, so a partial result
+      looks partial. Since every completed call is cached, re-running after a failure is free for
+      work that already succeeded, so you only pay for new, uncached calls.
     </p>
 
     <h2>6 · Read the study</h2>
@@ -555,7 +553,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
       <NbCell :count="6" code="report">
         <CandidateScores
           :candidates="studyCandidates"
-          benchmark="draco/lite"
+          benchmark="draco"
           case-label="1 case"
           :limit="9"
         />
@@ -566,16 +564,13 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 
     <ul>
       <li>
-        <strong>Score</strong>: The candidate's normalized rubric score. Ten criteria get judged, so
-        values land on a coarse grid instead of anywhere in 0–100%.
+        <strong>Score</strong>: The candidate's normalized score across the complete Case rubric.
       </li>
       <li>
         <strong>Coverage</strong>: How much of the case set produced a grade. Below 100% means
         something failed, and the score then covers only what completed.
       </li>
-      <li>
-        <strong>BEST</strong>: Marks the top scorer. Ties go to the first in declared order.
-      </li>
+      <li><strong>BEST</strong>: Marks the top scorer. Ties go to the first in declared order.</li>
     </ul>
 
     <h3>Reading it in code</h3>

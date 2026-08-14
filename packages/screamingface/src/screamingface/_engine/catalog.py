@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 import httpx
 
+from screamingface._benchmark_identity import benchmark_id as _benchmark_id
 from screamingface._engine.catalog_contract import (
     _BenchmarkCatalogData,
     _BenchmarkEntry,
@@ -144,7 +145,6 @@ class AsyncBenchmarks:
 def _benchmark(entry: _BenchmarkEntry) -> Benchmark:
     return Benchmark(
         id=entry.id,
-        variant=entry.variant,
         title=entry.title,
         description=entry.description,
         revision=entry.revision,
@@ -166,11 +166,12 @@ def _model_id(value: object) -> str:
 
 
 def _entry_of(catalog: _BenchmarkCatalogData, benchmark_id: str) -> _BenchmarkEntry:
+    selected = _benchmark_id(benchmark_id)
     for entry in catalog.entries:
-        if entry.id == benchmark_id:
+        if entry.id == selected:
             return entry
     raise PlanningError(
-        f"Benchmark {benchmark_id!r} is not installed on this Engine",
+        f"Benchmark {selected!r} is not installed on this Engine",
         code="unknown_benchmark",
         permanent=True,
     )

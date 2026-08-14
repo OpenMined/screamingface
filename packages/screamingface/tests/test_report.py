@@ -28,7 +28,7 @@ def case_results() -> tuple[sf.CaseResult, ...]:
 
 def benchmark() -> sf.BenchmarkInfo:
     return sf.BenchmarkInfo(
-        id="draco@1",
+        id="draco",
         revision="fixture-revision",
         case_count=100,
     )
@@ -103,7 +103,7 @@ def test_report_has_one_ordered_candidate_collection_for_one_or_many_candidates(
 
 def test_report_reuses_public_benchmark_info_and_records_the_selected_case_count() -> None:
     benchmark = sf.BenchmarkInfo(
-        id="draco@1",
+        id="draco",
         revision="fixture-revision",
         case_count=100,
     )
@@ -117,7 +117,7 @@ def test_report_reuses_public_benchmark_info_and_records_the_selected_case_count
     assert value.benchmark is benchmark
     assert value.case_count == 2
     assert value.to_dict()["benchmark"] == {
-        "id": "draco@1",
+        "id": "draco",
         "revision": "fixture-revision",
         "case_count": 2,
     }
@@ -414,7 +414,7 @@ def test_report_json_is_complete_portable_json_with_decimal_money_as_text() -> N
     payload = json.loads(value.to_json())
 
     assert payload["schema"] == "screamingface.report.v1"
-    assert payload["benchmark"]["id"] == "draco@1"
+    assert payload["benchmark"]["id"] == "draco"
     assert payload["candidates"][0]["run_id"] == "run_opus"
     assert payload["candidates"][0]["name"] == "opus"
     assert payload["usage"]["cost_usd"] == "0.12"
@@ -502,7 +502,7 @@ def test_usage_rejects_invalid_cost(cost: str) -> None:
 def test_report_representation_is_a_compact_run_summary() -> None:
     value = report(candidate("opus"), candidate("gpt"))
 
-    assert repr(value) == ("Report(benchmark='draco@1', candidates=['opus', 'gpt'], ok=True)")
+    assert repr(value) == ("Report(benchmark='draco', candidates=['opus', 'gpt'], ok=True)")
 
 
 def test_duplicate_member_display_names_do_not_fail_a_finished_run() -> None:

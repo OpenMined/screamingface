@@ -45,7 +45,6 @@ def notebooks() -> dict[str, NotebookNode]:
     return {
         "00_quickstart.ipynb": _quickstart(),
         "01_client_tour.ipynb": _client_tour(),
-        "05_draco_lite_e2e.ipynb": _draco_lite_e2e(),
         "06_draco_full_e2e.ipynb": _draco_full_e2e(),
         "07_ifeval_e2e.ipynb": _ifeval_e2e(),
         "08_healthbench_worst30.ipynb": _healthbench_worst30_e2e(),
@@ -120,13 +119,13 @@ sf.configure(
     scoreboard_url="http://127.0.0.1:9106",
 )
 
-BENCHMARK_ID = "draco/smoke"'''
+BENCHMARK_ID = "draco"'''
         ),
         nbformat.v4.new_markdown_cell(
             """## 1 · Leaderboards
 
 Leaderboard discovery reads from the Scoreboard and does not require a provider connection.
-`just stack-up` registers the local `draco/smoke` development Leaderboard, so discovery,
+`just stack-up` registers the local `draco` Leaderboard, so discovery,
 evaluation, and publication use the same Benchmark id. Both values render as interactive,
 brand-system notebook widgets."""
         ),
@@ -145,12 +144,11 @@ hosted Engine the panel asks for Cloudflare Access login first."""
         nbformat.v4.new_markdown_cell(
             """## 3 · Evaluate
 
-`draco/smoke` keeps DRACO's execution structure but reduces it to one pinned Case, one
-criterion, and one Judge pass. It makes two paid calls — one Candidate answer, one Judge
-grade — so the score is diagnostic and **not comparable** to canonical DRACO.
-
-Running this cell makes those two inexpensive calls. While it runs, the live panel shows
-progress, model calls, tokens and cost."""
+`limit=1` selects one Case from canonical DRACO. The Benchmark still applies every rubric
+criterion and all five canonical Judge passes, so this is an authentic one-Case rehearsal—not a
+weakened smoke protocol. It is **not** comparable with a complete 100-Case DRACO result and cannot
+be published to the canonical Leaderboard. Grading can still make many paid calls; run it
+deliberately. While it runs, the live panel shows progress, model calls, tokens and cost."""
         ),
         nbformat.v4.new_code_cell(
             """candidate = sf.Model("openrouter/google/gemini-3-flash-preview")
@@ -168,11 +166,13 @@ directory."""
         nbformat.v4.new_code_cell("report"),
         nbformat.v4.new_code_cell("artifact_path = report.export()\nartifact_path"),
         nbformat.v4.new_markdown_cell(
-            """## 5 · Publish and retrieve
+            """## 5 · Publish and retrieve a complete run
 
 Publication accepts the evaluated `CandidateResult` directly. It derives the Benchmark id,
 compiled URL4, models, accuracy counts, timestamps, and idempotency key from that immutable
-result. Publication is independently opt-in so **Run All** never changes the Scoreboard.
+result. The Scoreboard ranks complete Benchmark runs only, so the one-Case rehearsal above is not
+publishable. This opt-in cell runs all 100 DRACO Cases before submission; **Run All** never changes
+the Scoreboard unless you deliberately set the flag.
 
 The local Scoreboard accepts writes without login. Hosted deployments may require an
 edge-verified identity or keep score submission closed."""
@@ -180,8 +180,13 @@ edge-verified identity or keep score submission closed."""
         nbformat.v4.new_code_cell(
             """PUBLISH_RESULT = False
 
-submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH_RESULT else None
-submission if submission is not None else ("Set PUBLISH_RESULT = True to publish this result.")"""
+complete_report = sf.evaluate(candidate, benchmark=BENCHMARK_ID) if PUBLISH_RESULT else None
+submission = (
+    sf.leaderboards.submit(complete_report.candidates.only) if complete_report is not None else None
+)
+submission if submission is not None else (
+    "Set PUBLISH_RESULT = True to run and publish the complete Benchmark."
+)"""
         ),
         nbformat.v4.new_code_cell(
             "published_score = sf.leaderboards.get_score(submission.id) if submission is not None "
@@ -303,17 +308,16 @@ model request is launched."""
     "cache_behavior": max_tokens.cache_behavior,
 }"""
         ),
-        nbformat.v4.new_markdown_cell("## 3. Discover Benchmarks and pinned variants"),
+        nbformat.v4.new_markdown_cell("## 3. Discover Benchmarks"),
         nbformat.v4.new_code_cell("benchmarks = client.benchmarks.list()\nbenchmarks"),
         nbformat.v4.new_code_cell(
-            """smoke = client.benchmarks.get("draco/smoke")
+            """draco = client.benchmarks.get("draco")
 {
-    "id": smoke.id,
-    "variant": smoke.variant,
-    "title": smoke.title,
-    "description": smoke.description,
-    "revision": smoke.revision,
-    "case_count": smoke.case_count,
+    "id": draco.id,
+    "title": draco.title,
+    "description": draco.description,
+    "revision": draco.revision,
+    "case_count": draco.case_count,
 }"""
         ),
         nbformat.v4.new_markdown_cell(
@@ -324,7 +328,7 @@ Use the explicit Client when you need lifecycle control; use these in a notebook
         ),
         nbformat.v4.new_code_cell(
             """sf.benchmarks.list()
-sf.benchmarks.get("draco/smoke")
+sf.benchmarks.get("draco")
 sf.models.get("openrouter/google/gemini-3-flash-preview")"""
         ),
         nbformat.v4.new_markdown_cell(
@@ -399,7 +403,7 @@ events = []
 report = (
     client.evaluate(
         [writer, panel],
-        benchmark="draco/smoke",
+        benchmark="draco",
         limit=1,
         on_event=events.append,
         progress=True,
@@ -451,7 +455,7 @@ failures. More specific subclasses remain available when recovery differs:
 
 ```python
 try:
-    report = client.evaluate(writer, benchmark="draco/smoke", limit=1)
+    report = client.evaluate(writer, benchmark="draco", limit=1)
 except sf.ProviderConnectionError:
     client.connect()
 except sf.PlanningError as exc:
@@ -471,9 +475,9 @@ The asynchronous API mirrors discovery, connections, authentication, and evaluat
         nbformat.v4.new_code_cell(
             """async with sf.AsyncClient(engine_url="http://127.0.0.1:9108") as async_client:
     async_models = await async_client.models.list()
-    async_smoke = await async_client.benchmarks.get("draco/smoke")
+    async_draco = await async_client.benchmarks.get("draco")
 
-{"model_count": len(async_models), "benchmark": async_smoke.id}"""
+{"model_count": len(async_models), "benchmark": async_draco.id}"""
         ),
         nbformat.v4.new_markdown_cell("## 10. Close the explicit Client"),
         nbformat.v4.new_code_cell("client.close()\nclient.closed"),
@@ -622,154 +626,6 @@ each case actually bought."""
     "self_corrective": self_corrective.to_dict(),
     "corrective_loop": corrective_loop.to_dict(),
 }"""
-        ),
-    )
-
-
-def _draco_lite_e2e() -> NotebookNode:
-    return _notebook(
-        nbformat.v4.new_markdown_cell(
-            """# DRACO Lite: a small retrieval-aware comparison
-
-This notebook exercises both retrieval routes through the public ScreamingFace SDK. The Engine
-owns the Case, retrieval policy, Judge, Grading, and Aggregation; each SDK Candidate owns only its
-answer policy.
-
-`draco/lite` uses two pinned representative Cases, ten criteria per Case, and one Judge pass per
-criterion. It is useful for directional development checks, but its score is **not comparable**
-to canonical DRACO.
-
-> **Spend warning:** execution is disabled by default. Review the discovered Benchmark and set
-> `RUN_EVALUATION = True` deliberately; **Run All** otherwise makes no model calls."""
-        ),
-        _local_stack_cell(),
-        nbformat.v4.new_markdown_cell(
-            """Export `TAVILY_API_KEY` before `just stack-up`. A missing key fails the Tavily
-Candidate before its first paid model request instead of silently running without retrieval. The
-connection panel sends the OpenRouter key through the Engine to AI Gateway; the Client never calls
-AI Gateway directly."""
-        ),
-        nbformat.v4.new_code_cell("import screamingface as sf"),
-        nbformat.v4.new_markdown_cell("## Connect OpenRouter"),
-        nbformat.v4.new_code_cell("sf.connect()"),
-        nbformat.v4.new_markdown_cell("## Define one Candidate per retrieval route"),
-        _draco_candidate_policy_cell(),
-        nbformat.v4.new_code_cell(
-            """DRACO_PARAMS = {"max_tokens": 8192, "temperature": 0.0}
-DRACO_PARAMS_NO_TEMPERATURE = {"max_tokens": 8192}
-
-native_search = sf.Model(
-    "openrouter/openai/gpt-5.5",
-    prompt=DRACO_ANSWER_PROMPT,
-    params=DRACO_PARAMS_NO_TEMPERATURE,
-)
-tavily_search = sf.Model(
-    "openrouter/google/gemini-3-flash-preview",
-    prompt=DRACO_ANSWER_PROMPT,
-    params=DRACO_PARAMS,
-)"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """## Evaluate DRACO Lite
-
-The same Engine-owned lite protocol invokes both Candidates. The current reference deployment
-routes GPT through provider-native search and Gemini Flash through the guarded Tavily tool loop.
-Success proves both configured routes were available; a model may legitimately answer without
-calling an offered function. The repository's forced-tool tests certify actual Tavily
-`/search` and `/extract` dispatch deterministically."""
-        ),
-        nbformat.v4.new_code_cell(
-            """RUN_EVALUATION = False
-
-candidates = [native_search, tavily_search]
-report = sf.evaluate(candidates, benchmark="draco/lite") if RUN_EVALUATION else None
-report_output = (
-    report.to_json()
-    if report is not None
-    else \"Evaluation disabled — set RUN_EVALUATION = True to spend.\"
-)
-report_output"""
-        ),
-        nbformat.v4.new_markdown_cell("## Inspect the Report"),
-        nbformat.v4.new_code_cell(
-            """if report is not None:
-    comparison = [
-        {
-            "name": result.name,
-            "score": result.score,
-            "metrics": dict(result.metrics),
-            "duration_ms": result.duration_ms,
-            "finish_reasons": [case.finish_reason for case in result.cases],
-            "failures": result.failures,
-            "usage": result.usage,
-        }
-        for result in report.candidates
-    ]
-else:
-    comparison = []
-comparison"""
-        ),
-        nbformat.v4.new_code_cell(
-            """if report is not None:
-    selected = report.candidates[0]
-    selected_case = selected.cases[0]
-    detail = {
-        "compiled_url4": selected.url4,
-        "operations": selected.operations,
-        "case_id": selected_case.case_id,
-        "input": selected_case.input,
-        "output": selected_case.output,
-        "finish_reason": selected_case.finish_reason,
-        "grade": selected_case.grade,
-        "checks": () if selected_case.grade is None else selected_case.grade.checks,
-        "failures": selected_case.failures,
-    }
-else:
-    detail = None
-detail"""
-        ),
-        nbformat.v4.new_code_cell(
-            """{
-    "ok": report.ok,
-    "benchmark": report.benchmark,
-    "case_count": report.case_count,
-    "duration_ms": report.duration_ms,
-    "failures": report.failures,
-    "usage": report.usage,
-} if report is not None else None"""
-        ),
-        nbformat.v4.new_markdown_cell(
-            """## Corrective loop on DRACO
-
-The same `sf.CorrectiveLoop` from notebook 07 — **one changed `benchmark=` line**. That is the
-whole benchmark-independence claim: the loop protocol is a Candidate strategy, so it works on any
-Benchmark that advertises a check surface, with no protocol-specific code on either side.
-
-What DRACO's check surface means here, in one line: a draft **passes** when its normalized
-weighted rubric score reaches `draco-pass.v1`'s threshold (0.7), and the feedback a failing draft
-gets back names only the rubric **areas** that fell short — never a criterion, because the rubric
-is the answer key.
-
-> **Spend warning:** unlike IFEval, every DRACO check is a paid Judge call. A two-member,
-> three-round loop invokes the check surface up to 6 times per Case *on top of* the members' own
-> answers. Each check can retry according to DRACO's bounded policy, so the SDK warns with both
-> the check ceiling and that retry caveat before the first request. Leave `RUN_CORRECTIVE = False`
-> unless you mean to spend."""
-        ),
-        nbformat.v4.new_code_cell(
-            """RUN_CORRECTIVE = False
-
-corrective = sf.CorrectiveLoop(
-    [native_search, tavily_search],
-    judge=sf.Model("openrouter/openai/gpt-5.5", params=DRACO_PARAMS_NO_TEMPERATURE),
-    max_rounds=2,
-)
-corrective_report = (
-    sf.evaluate(corrective, benchmark="draco/lite", limit=1) if RUN_CORRECTIVE else None
-)
-corrective_report if corrective_report is not None else (
-    "Corrective loop disabled — set RUN_CORRECTIVE = True to spend on paid checks."
-)"""
         ),
     )
 
@@ -1082,6 +938,26 @@ audit_sample"""
 } if report is not None else None"""
         ),
         nbformat.v4.new_code_cell("report.to_json() if report is not None else None"),
+        nbformat.v4.new_markdown_cell(
+            """## 7. Corrective loop on canonical DRACO
+
+The same `sf.CorrectiveLoop` from notebook 07 runs against canonical DRACO. A draft passes when
+its normalized weighted rubric score reaches `draco-pass.v1`'s 0.7 threshold. Feedback names only
+rubric areas, never private criterion text.
+
+> **Spend warning:** every mid-run check is a paid Judge call, in addition to canonical DRACO's
+> five-pass final grading. `limit=1` bounds the Case selection but does not weaken the protocol.
+> Leave this disabled unless you intend to pay for the run."""
+        ),
+        nbformat.v4.new_code_cell(
+            """RUN_CORRECTIVE = False
+
+corrective = sf.CorrectiveLoop([gemini_flash, kimi], judge=gpt, max_rounds=2)
+corrective_report = sf.evaluate(corrective, benchmark="draco", limit=1) if RUN_CORRECTIVE else None
+corrective_report if corrective_report is not None else (
+    "Corrective loop disabled — set RUN_CORRECTIVE = True to spend on paid checks."
+)"""
+        ),
     )
     notebook.metadata["kernelspec"] = {
         "display_name": "screamingface (SDK)",
@@ -1136,7 +1012,7 @@ The `limit=1` rehearsal performs one Candidate answer and a handful of Judge cal
 
 A `limit=1` run takes the first worst-30 Case through native conversation input, Candidate
 execution, the official grader prompt, GPT-5.4 verdict parsing, and aggregation. It is a
-plumbing rehearsal: its Report carries the `healthbench/worst30` id but a one-Case score, so
+plumbing rehearsal: its Report carries the `healthbench-worst30` id but a one-Case score, so
 treat the number as diagnostic — never as a challenge result."""
         ),
         nbformat.v4.new_code_cell(
@@ -1144,7 +1020,7 @@ treat the number as diagnostic — never as a challenge result."""
     "openrouter/deepseek/deepseek-v4-pro",
     params={"max_tokens": 4096},
 )
-rehearsal_report = sf.evaluate(rehearsal_candidate, benchmark="healthbench/worst30", limit=1)
+rehearsal_report = sf.evaluate(rehearsal_candidate, benchmark="healthbench-worst30", limit=1)
 rehearsal_report"""
         ),
         nbformat.v4.new_code_cell(
@@ -1189,7 +1065,7 @@ Set the switch only after inspecting the Candidate and confirming the provider c
         nbformat.v4.new_code_cell(
             """challenge_report = None
 if RUN_EVALUATION:
-    challenge_report = sf.evaluate(open_trio, benchmark="healthbench/worst30")
+    challenge_report = sf.evaluate(open_trio, benchmark="healthbench-worst30")
 challenge_report"""
         ),
         nbformat.v4.new_markdown_cell(
@@ -1228,7 +1104,7 @@ category vocabulary, and naming the criterion itself would hand the panel the an
 
 corrective = sf.CorrectiveLoop([deepseek, kimi], judge=qwen, max_rounds=2)
 corrective_report = (
-    sf.evaluate(corrective, benchmark="healthbench/worst30", limit=1) if RUN_CORRECTIVE else None
+    sf.evaluate(corrective, benchmark="healthbench-worst30", limit=1) if RUN_CORRECTIVE else None
 )
 corrective_report if corrective_report is not None else (
     "Corrective loop disabled — set RUN_CORRECTIVE = True to spend on paid checks."

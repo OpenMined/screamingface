@@ -74,10 +74,9 @@ def scored_case_result(
     records: Sequence[Mapping[str, Any]],
     verdicts: Sequence[Mapping[str, Any]],
     judge_passes: int,
-    criterion_count: int | None,
 ) -> CaseResult:
     """Build one scored or coverage-failed Case Result."""
-    case_id, criteria_expected = _expected_criteria(case_record, rubric, criterion_count)
+    case_id, criteria_expected = _expected_criteria(case_record, rubric)
     expected = criteria_expected * judge_passes
     accepted = len(verdicts)
     scored = score_case(rubric, group_runs(verdicts), criteria_expected=criteria_expected)
@@ -114,11 +113,10 @@ def incomplete_case_result(
     check_records: Sequence[Mapping[str, Any]],
     evidence: Sequence[Mapping[str, Any]],
     judge_passes: int,
-    criterion_count: int | None,
     failure: Mapping[str, Any],
 ) -> CaseResult:
     """Retain auditable grading material when no Judge Evidence was scoreable."""
-    case_id, criteria_expected = _expected_criteria(case_record, rubric, criterion_count)
+    case_id, criteria_expected = _expected_criteria(case_record, rubric)
     verdicts_expected = criteria_expected * judge_passes
     metrics = {
         "normalized_score_sd": 0.0,
@@ -182,15 +180,10 @@ def ungraded_case_result(case_record: Mapping[str, Any], failure: Mapping[str, A
 def _expected_criteria(
     case_record: Mapping[str, Any],
     rubric: Mapping[str, Any],
-    criterion_count: int | None,
 ) -> tuple[int, int]:
     case_id = int(case_record["case_id"])
     rubric_count = sum(1 for _ in flatten_criteria(rubric))
-    if criterion_count is not None and criterion_count > rubric_count:
-        raise AggregateError(
-            f"criterion_count {criterion_count} exceeds Case {case_id} rubric size {rubric_count}"
-        )
-    return case_id, criterion_count if criterion_count is not None else rubric_count
+    return case_id, rubric_count
 
 
 def _case_result(

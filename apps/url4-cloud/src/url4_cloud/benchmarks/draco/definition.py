@@ -18,29 +18,15 @@ from url4_cloud.benchmarks.protocol import (
 
 BENCHMARK_ID = "draco"
 CASE_COUNT = 100
-LITE_BENCHMARK_ID = "draco/lite"
-# Two most represented pinned-data domains; within each, choose the Case nearest the global
-# median rubric size (38 criteria), breaking ties by Case id. Order follows domain prevalence.
-LITE_CASE_IDS = (2, 15)
-LITE_CASE_COUNT = len(LITE_CASE_IDS)
-LITE_CRITERION_COUNT = 10
-LITE_CRITERION_SELECTION = "axis-balanced"
-SMOKE_BENCHMARK_ID = "draco/smoke"
-SMOKE_CASE_COUNT = 1
 DATASET = "perplexity-ai/draco"
 DATASET_REVISION = "ce076749809027649ebd331bcb70f42bf720d387"
 DATASET_PREPARER_REVISION = "datasets-5.0.0"
 PROTOCOL_REVISION = "five-pass-reproduction-v1"
-LITE_PROTOCOL_REVISION = "balanced-lite-v1"
-SMOKE_PROTOCOL_REVISION = "structural-smoke-v1"
 # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09. Google designated
 # Gemini-3.1-Pro Preview as its replacement, so this reproduction uses that successor model.
 JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
 JUDGE_PASSES = 5
 JUDGE_SEEDS = tuple(range(1, JUDGE_PASSES + 1))
-LITE_JUDGE_PASSES = 1
-SMOKE_JUDGE_PASSES = 1
-SMOKE_CRITERION_COUNT = 1
 RETRIEVAL_POLICY_ID = "draco/reproduction"
 EXCLUDED_DOMAINS = (
     "arxiv.org",
@@ -81,29 +67,6 @@ REVISION = hashlib.sha256(
         )
     ).encode()
 ).hexdigest()[:16]
-LITE_REVISION = hashlib.sha256(
-    "\n".join(
-        (
-            REVISION,
-            LITE_PROTOCOL_REVISION,
-            repr(LITE_CASE_IDS),
-            str(LITE_CRITERION_COUNT),
-            LITE_CRITERION_SELECTION,
-            str(LITE_JUDGE_PASSES),
-        )
-    ).encode()
-).hexdigest()[:16]
-SMOKE_REVISION = hashlib.sha256(
-    "\n".join(
-        (
-            REVISION,
-            SMOKE_PROTOCOL_REVISION,
-            str(SMOKE_CASE_COUNT),
-            str(SMOKE_CRITERION_COUNT),
-            str(SMOKE_JUDGE_PASSES),
-        )
-    ).encode()
-).hexdigest()[:16]
 # The pass criterion of the mid-run check surface (OME-829/830). Declared here rather
 # than imported from check_policy, which reads this module for the judge pinning.
 CHECK_CRITERION = "draco-pass.v1"
@@ -118,78 +81,9 @@ AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
 # rides in the path: a different criterion is a different route, visible in the manifest
 # and in every Candidate url4 compiled against it.
 CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
-LITE_ROUTE_PREFIX = f"/benchmarks/{LITE_BENCHMARK_ID}/{LITE_REVISION}"
-LITE_CASES_ROUTE = f"{LITE_ROUTE_PREFIX}/cases"
-LITE_TASKS_ROUTE = f"{LITE_ROUTE_PREFIX}/tasks"
-LITE_VERDICT_ROUTE = f"{LITE_ROUTE_PREFIX}/criterion-verdict"
-LITE_CRITERION_EVALUATION_ROUTE = f"{LITE_ROUTE_PREFIX}/criterion-evaluation"
-LITE_CASE_EVALUATION_ROUTE = f"{LITE_ROUTE_PREFIX}/case-evaluation"
-LITE_AGGREGATE_ROUTE = f"{LITE_ROUTE_PREFIX}/aggregate"
-LITE_CHECK_SURFACE_ROUTE = f"{LITE_ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
-SMOKE_ROUTE_PREFIX = f"/benchmarks/{SMOKE_BENCHMARK_ID}/{SMOKE_REVISION}"
-SMOKE_CASES_ROUTE = f"{SMOKE_ROUTE_PREFIX}/cases"
-SMOKE_TASKS_ROUTE = f"{SMOKE_ROUTE_PREFIX}/tasks"
-SMOKE_VERDICT_ROUTE = f"{SMOKE_ROUTE_PREFIX}/criterion-verdict"
-SMOKE_CRITERION_EVALUATION_ROUTE = f"{SMOKE_ROUTE_PREFIX}/criterion-evaluation"
-SMOKE_CASE_EVALUATION_ROUTE = f"{SMOKE_ROUTE_PREFIX}/case-evaluation"
-SMOKE_AGGREGATE_ROUTE = f"{SMOKE_ROUTE_PREFIX}/aggregate"
-SMOKE_CHECK_SURFACE_ROUTE = f"{SMOKE_ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
 
 
 def _build(case_count: int) -> Node:
-    return _build_protocol(
-        case_count,
-        cases_route=CASES_ROUTE,
-        tasks_route=TASKS_ROUTE,
-        verdict_route=VERDICT_ROUTE,
-        criterion_evaluation_route=CRITERION_EVALUATION_ROUTE,
-        case_evaluation_route=CASE_EVALUATION_ROUTE,
-        aggregate_route=AGGREGATE_ROUTE,
-        judge_passes=JUDGE_PASSES,
-        criterion_count=None,
-    )
-
-
-def _build_lite(case_count: int) -> Node:
-    return _build_protocol(
-        case_count,
-        cases_route=LITE_CASES_ROUTE,
-        tasks_route=LITE_TASKS_ROUTE,
-        verdict_route=LITE_VERDICT_ROUTE,
-        criterion_evaluation_route=LITE_CRITERION_EVALUATION_ROUTE,
-        case_evaluation_route=LITE_CASE_EVALUATION_ROUTE,
-        aggregate_route=LITE_AGGREGATE_ROUTE,
-        judge_passes=LITE_JUDGE_PASSES,
-        criterion_count=LITE_CRITERION_COUNT,
-    )
-
-
-def _build_smoke(case_count: int) -> Node:
-    return _build_protocol(
-        case_count,
-        cases_route=SMOKE_CASES_ROUTE,
-        tasks_route=SMOKE_TASKS_ROUTE,
-        verdict_route=SMOKE_VERDICT_ROUTE,
-        criterion_evaluation_route=SMOKE_CRITERION_EVALUATION_ROUTE,
-        case_evaluation_route=SMOKE_CASE_EVALUATION_ROUTE,
-        aggregate_route=SMOKE_AGGREGATE_ROUTE,
-        judge_passes=SMOKE_JUDGE_PASSES,
-        criterion_count=SMOKE_CRITERION_COUNT,
-    )
-
-
-def _build_protocol(
-    case_count: int,
-    *,
-    cases_route: str,
-    tasks_route: str,
-    verdict_route: str,
-    criterion_evaluation_route: str,
-    case_evaluation_route: str,
-    aggregate_route: str,
-    judge_passes: int,
-    criterion_count: int | None,
-) -> Node:
     judge_calls = tuple(
         src(
             criterion_verdict(
@@ -208,12 +102,12 @@ def _build_protocol(
                 "$item.criterion_id",
                 case_id="$item.case_id",
                 sequence=run,
-                route=verdict_route,
+                route=VERDICT_ROUTE,
             ),
             name=f"verdict_{run}",
             weight=0.0,
         )
-        for run in range(1, judge_passes + 1)
+        for run in range(1, JUDGE_PASSES + 1)
     )
     criterion_evaluation = expr(
         src("$item.case_record", name="case_record", weight=0.0),
@@ -221,7 +115,7 @@ def _build_protocol(
         *judge_calls,
         src(
             RelExpr(
-                path=criterion_evaluation_route,
+                path=CRITERION_EVALUATION_ROUTE,
                 context=render(
                     struct(
                         {
@@ -229,7 +123,7 @@ def _build_protocol(
                             "check": "$check_record",
                             **{
                                 f"evidence_{run}": f"$verdict_{run}"
-                                for run in range(1, judge_passes + 1)
+                                for run in range(1, JUDGE_PASSES + 1)
                             },
                         }
                     )
@@ -243,7 +137,7 @@ def _build_protocol(
     )
     criteria = iterate(
         RelExpr(
-            path=tasks_route,
+            path=TASKS_ROUTE,
             # This collection boundary invokes the Candidate exactly once, then returns the
             # criterion tasks plus Engine-bound Case/Check records for lossless aggregation.
             context=render(
@@ -257,13 +151,12 @@ def _build_protocol(
         ),
         body=(src(criterion_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
-        slice=None if criterion_count is None else (0, criterion_count),
     )
     case_evaluation = expr(
         src(criteria, name="criteria", weight=0.0),
         src(
             RelExpr(
-                path=case_evaluation_route,
+                path=CASE_EVALUATION_ROUTE,
                 context="$criteria",
                 intent=Text("$item.id"),
             ),
@@ -273,46 +166,23 @@ def _build_protocol(
         intent=Text("$case_evaluation"),
     )
     return build_evaluation_protocol(
-        cases_route=cases_route,
+        cases_route=CASES_ROUTE,
         case_evaluation=case_evaluation,
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=aggregate_route,
+        aggregate_route=AGGREGATE_ROUTE,
     )
 
 
-def _install_canonical(node: Url4Node, assets: Path) -> None:
+def _install(node: Url4Node, assets: Path) -> None:
     # Lazy import keeps the resource-only control-plane path from loading filesystem runtime code.
-    from url4_cloud.benchmarks.draco.runtime import install_canonical
+    from url4_cloud.benchmarks.draco.runtime import install
 
-    install_canonical(node, assets / BENCHMARK_ID)
-
-
-def _install_lite(node: Url4Node, assets: Path) -> None:
-    from url4_cloud.benchmarks.draco.runtime import install_lite
-
-    install_lite(node, assets / BENCHMARK_ID)
-
-
-def _install_smoke(node: Url4Node, assets: Path) -> None:
-    from url4_cloud.benchmarks.draco.runtime import install_smoke
-
-    install_smoke(node, assets / BENCHMARK_ID)
-
-
-def _check_surface(route: str) -> CheckSurface:
-    """Every DRACO variant checks the same way and every check is a judge call."""
-
-    return CheckSurface(
-        check_route=route,
-        feedback_intent="feedback",
-        expected_check_cost="paid",
-    )
+    install(node, assets / BENCHMARK_ID)
 
 
 DRACO = Benchmark(
     id=BENCHMARK_ID,
-    variant="canonical",
     title="DRACO",
     description=(
         "A 100-task DRACO reproduction with official score arithmetic. It uses the successor "
@@ -322,38 +192,12 @@ DRACO = Benchmark(
     revision=REVISION,
     case_count=CASE_COUNT,
     build=_build,
-    install=_install_canonical,
-    check_surface=_check_surface(CHECK_SURFACE_ROUTE),
-)
-
-DRACO_LITE = Benchmark(
-    id=LITE_BENCHMARK_ID,
-    variant="lite",
-    title="DRACO Lite",
-    description=(
-        "A two-Case directional preview using an axis-balanced selection of ten criteria per "
-        "Case and one Judge pass per criterion. Its score is not comparable to canonical DRACO."
+    install=_install,
+    check_surface=CheckSurface(
+        check_route=CHECK_SURFACE_ROUTE,
+        feedback_intent="feedback",
+        expected_check_cost="paid",
     ),
-    revision=LITE_REVISION,
-    case_count=LITE_CASE_COUNT,
-    build=_build_lite,
-    install=_install_lite,
-    check_surface=_check_surface(LITE_CHECK_SURFACE_ROUTE),
-)
-
-DRACO_SMOKE = Benchmark(
-    id=SMOKE_BENCHMARK_ID,
-    variant="smoke",
-    title="DRACO Structural Smoke",
-    description=(
-        "A one-Case, one-criterion, one-Judge-pass structural probe. Its score is diagnostic "
-        "and not comparable to canonical DRACO."
-    ),
-    revision=SMOKE_REVISION,
-    case_count=SMOKE_CASE_COUNT,
-    build=_build_smoke,
-    install=_install_smoke,
-    check_surface=_check_surface(SMOKE_CHECK_SURFACE_ROUTE),
 )
 
 
@@ -394,4 +238,4 @@ def _url4_text(value: str) -> str:
     return normalized.replace("$", "$$")
 
 
-__all__ = ["DRACO", "DRACO_LITE", "DRACO_SMOKE"]
+__all__ = ["DRACO"]

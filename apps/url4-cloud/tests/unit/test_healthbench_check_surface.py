@@ -322,29 +322,3 @@ def test_a_benchmark_without_areas_cannot_claim_area_feedback() -> None:
             judge_model=JUDGE_MODEL,
             feedback="areas",
         )
-
-
-@pytest.mark.parametrize(
-    ("selection", "criterion_count", "message"),
-    [
-        ("all", 1, "cannot declare a criterion count"),
-        ("prefix", None, "requires a positive criterion count"),
-        ("axis-balanced", 0, "requires a positive criterion count"),
-    ],
-)
-def test_inconsistent_criterion_selection_is_rejected_at_declaration(
-    selection: str,
-    criterion_count: int | None,
-    message: str,
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        RubricCheck(
-            label="Fake",
-            criterion="fake-pass.v1",
-            threshold=0.5,
-            shape=HEALTHBENCH_CHECK.shape,
-            judge_model=JUDGE_MODEL,
-            feedback="severity",
-            selection=selection,  # type: ignore[arg-type]
-            criterion_count=criterion_count,
-        )

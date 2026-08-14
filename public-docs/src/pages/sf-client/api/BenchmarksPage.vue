@@ -13,8 +13,8 @@ import {
 const listRun = `import screamingface as sf
 
 client = sf.Client()
-[(b.id, b.variant, b.case_count) for b in client.benchmarks.list()]`
-const listRunOut = `[('draco', 'canonical', 100), ('draco/lite', 'lite', 2), ('ifeval', 'canonical', 541), ('ifeval/self-corrective', 'self-corrective', 541)]`
+[(b.id, b.case_count) for b in client.benchmarks.list()]`
+const listRunOut = `[('draco', 100), ('healthbench-worst30', 157), ('ifeval', 541)]`
 
 const modelsRun = `client.models.list()[0]`
 const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)`
@@ -51,9 +51,8 @@ const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthr
     <p>
       A <code>Benchmark</code> is the Engine's record of one benchmark, carrying its identity, its
       size, and what it measures. <code>client.benchmarks.get(id)</code> returns a single benchmark
-      and <code>client.benchmarks.list()</code> returns every benchmark the Engine offers. Protocol
-      variants are separate entries with their own ids, so the list holds <code>ifeval</code> beside
-      <code>ifeval/self-corrective</code>.
+      and <code>client.benchmarks.list()</code> returns every benchmark the Engine offers. Candidate
+      strategies such as corrective loops are Recipes, not extra benchmark identities.
     </p>
 
     <div class="not-prose">
@@ -75,17 +74,9 @@ const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthr
           <td><code>id</code></td>
           <td><code>str</code></td>
           <td>
-            Stable identifier, such as <code>ifeval</code> or <code>draco/lite</code>. This is what
-            you pass as <code>benchmark=</code> when evaluating.
-          </td>
-        </tr>
-        <tr>
-          <td><code>variant</code></td>
-          <td><code>str</code></td>
-          <td>
-            Which protocol of the underlying benchmark this entry runs, such as
-            <code>canonical</code>, <code>lite</code> or <code>self-corrective</code>. It names the
-            protocol; the <code>id</code> is what selects it.
+            Flat stable identifier, such as <code>ifeval</code>, <code>draco</code>, or
+            <code>healthbench-worst30</code>. This is what you pass as <code>benchmark=</code> when
+            evaluating.
           </td>
         </tr>
         <tr>
@@ -96,10 +87,7 @@ const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthr
         <tr>
           <td><code>description</code></td>
           <td><code>str</code></td>
-          <td>
-            Prose describing what the benchmark measures. For benchmarks with more than one protocol
-            it also states which method is the default and how the alternatives differ.
-          </td>
+          <td>Prose describing what the benchmark measures and how it is scored.</td>
         </tr>
         <tr>
           <td><code>revision</code></td>
@@ -241,7 +229,7 @@ const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthr
 
     <CodeBlock
       code="ValueError: Benchmark case_count must be a positive integer
-ValueError: Benchmark variant must be a non-empty string
+ValueError: Benchmark id must be one flat lowercase identifier
 ValueError: Model id must be a non-empty string"
       language="text"
     />

@@ -18,8 +18,7 @@ CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type CheckCost = Literal["free", "paid"]
 
-_BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)*")
-_VARIANT = re.compile(r"[a-z0-9][a-z0-9._-]*")
+_BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 
 
 def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
@@ -68,7 +67,6 @@ class Benchmark:
     """
 
     id: str
-    variant: str
     title: str
     description: str
     revision: str
@@ -83,9 +81,7 @@ class Benchmark:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Benchmark {name} must be non-empty text")
         if not isinstance(self.id, str) or _BENCHMARK_ID.fullmatch(self.id) is None:
-            raise ValueError("Benchmark id must contain lowercase slash-qualified path segments")
-        if not isinstance(self.variant, str) or _VARIANT.fullmatch(self.variant) is None:
-            raise ValueError("Benchmark variant must be one lowercase path segment")
+            raise ValueError("Benchmark id must be one lowercase identifier")
         if (
             isinstance(self.case_count, bool)
             or not isinstance(self.case_count, int)
@@ -105,7 +101,6 @@ class Benchmark:
     def _metadata(self) -> dict[str, object]:
         metadata: dict[str, object] = {
             "id": self.id,
-            "variant": self.variant,
             "title": self.title,
             "description": self.description,
             "revision": self.revision,

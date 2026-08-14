@@ -19,8 +19,8 @@ Per check, in execution order:
 
 1. **Resolve the case** by exact input text — a black-box `$candidate` only ever
    sees `$input`, so the check is input-addressed, never case-id addressed.
-2. **Read + select criteria** through the shape (a variant may grade a subset;
-   the check must score the SAME subset or satisfaction and score diverge).
+2. **Read every criterion** through the shape so satisfaction and canonical
+   rubric coverage cannot silently diverge.
 3. **One judge pass**, weight-blind. The answer is part of the exact request, so
    one draft's cached verdict cannot serve another; an unusable reply retries
    with a bounded marker in the prompt, then fails the check.
@@ -75,7 +75,6 @@ CHECK_INSTRUCTIONS = (
     "status, where status is MET or UNMET. Do not add commentary."
 )
 
-type CriterionSelection = Literal["all", "prefix", "axis-balanced"]
 type FeedbackVocabulary = Literal["areas", "severity"]
 type QuestionStyle = Literal["text", "chat_envelope"]
 
@@ -112,21 +111,10 @@ class RubricCheck:
     judge_params: tuple[tuple[str, str], ...] = ()
     feedback: FeedbackVocabulary = "areas"
     question: QuestionStyle = "text"
-    criterion_count: int | None = None
-    selection: CriterionSelection = "all"
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.threshold <= 1.0:
             raise ValueError(f"{self.label} check threshold must sit in [0, 1]")
-        if self.selection == "all":
-            if self.criterion_count is not None:
-                raise ValueError("all-criteria selection cannot declare a criterion count")
-        elif (
-            isinstance(self.criterion_count, bool)
-            or not isinstance(self.criterion_count, int)
-            or self.criterion_count < 1
-        ):
-            raise ValueError(f"{self.selection} selection requires a positive criterion count")
         if self.feedback == "areas" and not self.shape.area_fields:
             raise ValueError(
                 f"{self.label} cannot speak area-level feedback: its rubric shape "
@@ -258,7 +246,7 @@ def _criteria(config: RubricCheck, root: Path, case_id: int) -> list[dict[str, A
     criteria = list(_read_criteria(config.shape, rubric))
     if not criteria:
         raise _unavailable(f"{config.label} rubric {case_id} carries no criteria")
-    return _selected(config, criteria)
+    return criteria
 
 
 def _read_criteria(shape: RubricShape, rubric: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
@@ -304,30 +292,6 @@ def _weight(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return 0.0
     return float(value)
-
-
-def _selected(config: RubricCheck, criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Apply the variant's criterion selection, mirroring how it grades."""
-
-    count = config.criterion_count
-    if config.selection == "all" or count is None:
-        return criteria
-    if count > len(criteria):
-        raise _unavailable(
-            f"{config.label} check criterion count {count} exceeds the rubric size {len(criteria)}"
-        )
-    if config.selection == "prefix":
-        return criteria[:count]
-    by_area: dict[str, list[dict[str, Any]]] = {}
-    for criterion in criteria:
-        by_area.setdefault(str(criterion["area"]), []).append(criterion)
-    ordered = [
-        rows[offset]
-        for offset in range(max(len(rows) for rows in by_area.values()))
-        for rows in by_area.values()
-        if offset < len(rows)
-    ]
-    return ordered[:count]
 
 
 # --- judging ----------------------------------------------------------------------

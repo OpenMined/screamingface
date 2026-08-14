@@ -52,7 +52,7 @@ def _decode_benchmark_resource(
     benchmark_id = _wire_text(resource.get("id"), "Benchmark id", _invalid)
     if benchmark_id != requested_id:
         _invalid("Benchmark resource has the wrong Benchmark id")
-    for field in ("variant", "title", "description"):
+    for field in ("title", "description"):
         _wire_text(resource.get(field), f"Benchmark {field}", _invalid)
     installed_case_count = _positive(resource.get("case_count"), "case_count")
     try:

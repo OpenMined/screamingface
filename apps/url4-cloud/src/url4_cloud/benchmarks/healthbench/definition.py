@@ -27,7 +27,7 @@ from url4_cloud.benchmarks.protocol import (
     build_evaluation_protocol,
 )
 
-BENCHMARK_ID = "healthbench/worst30"
+BENCHMARK_ID = "healthbench-worst30"
 CASE_COUNT = len(WORST30_CASE_IDS)
 DATASET = "openai/healthbench-professional"
 DATASET_REVISION = "349962fd46dd02343a0d8a606491baf59154ea1a"
@@ -86,29 +86,6 @@ CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
 
 
 def _build(case_count: int) -> Node:
-    return _build_protocol(
-        case_count,
-        total=CASE_COUNT,
-        cases_route=CASES_ROUTE,
-        tasks_route=TASKS_ROUTE,
-        verdict_route=VERDICT_ROUTE,
-        rubric_evaluation_route=RUBRIC_EVALUATION_ROUTE,
-        case_evaluation_route=CASE_EVALUATION_ROUTE,
-        aggregate_route=AGGREGATE_ROUTE,
-    )
-
-
-def _build_protocol(
-    case_count: int,
-    *,
-    total: int,
-    cases_route: str,
-    tasks_route: str,
-    verdict_route: str,
-    rubric_evaluation_route: str,
-    case_evaluation_route: str,
-    aggregate_route: str,
-) -> Node:
     """Build the whole benchmark as one url4 expression tree (a recipe, not a run).
 
     Think of it as an exam pipeline, written inside-out because each stage is
@@ -130,8 +107,8 @@ def _build_protocol(
        computes the challenge metric (unclipped mean). Rows travel as context, not
        argv, so no OS argument-length limit can truncate them.
 
-    ``case_count`` < ``total`` slices to a partial run (the SDK's ``limit=N``);
-    equal means the full set. The six routes are revision-pinned.
+    ``case_count`` < ``CASE_COUNT`` slices to a partial run (the SDK's ``limit=N``);
+    equality means the full set. Every route is revision-pinned.
 
     Returns the unresolved DAG — the Engine executes it at submission time.
     """
@@ -159,13 +136,13 @@ def _build_protocol(
             judge_reply,
             case_id="$item.case_id",
             rubric_id="$item.rubric_id",
-            route=verdict_route,
+            route=VERDICT_ROUTE,
             retry=JUDGE_RETRIES,
         ),
         # Post {case, rubric, verdict} to the rubric-evaluation route → one scored row.
         src(
             RelExpr(
-                path=rubric_evaluation_route,
+                path=RUBRIC_EVALUATION_ROUTE,
                 context=render(
                     struct(
                         {
@@ -185,7 +162,7 @@ def _build_protocol(
     # Stage 2 — per Case: call the Candidate once, fan out one judge task per rubric item.
     rubric_items = iterate(
         RelExpr(
-            path=tasks_route,
+            path=TASKS_ROUTE,
             # This collection boundary invokes the Candidate exactly once per Case,
             # then fans out one pre-rendered judge task per rubric item.
             context=render(candidate("$item.input", web_search=False)),
@@ -199,7 +176,7 @@ def _build_protocol(
         src(rubric_items, name="rubric_rows", weight=0.0),
         src(
             RelExpr(
-                path=case_evaluation_route,
+                path=CASE_EVALUATION_ROUTE,
                 context="$rubric_rows",
                 intent=Text("$item.id"),
             ),
@@ -209,11 +186,11 @@ def _build_protocol(
         intent=Text("$case_evaluation"),
     )
     return build_evaluation_protocol(
-        cases_route=cases_route,
+        cases_route=CASES_ROUTE,
         case_evaluation=case_evaluation,
         selected_case_count=case_count,
-        available_case_count=total,
-        aggregate_route=aggregate_route,
+        available_case_count=CASE_COUNT,
+        aggregate_route=AGGREGATE_ROUTE,
     )
 
 
@@ -227,7 +204,6 @@ def _install(node, assets) -> None:  # type: ignore[no-untyped-def]
 
 HEALTHBENCH_WORST30 = Benchmark(
     id=BENCHMARK_ID,
-    variant="worst30",
     title="HealthBench Worst-30% Challenge",
     description=(
         "The 157 hardest conversations from HealthBench Professional — the 30% that "

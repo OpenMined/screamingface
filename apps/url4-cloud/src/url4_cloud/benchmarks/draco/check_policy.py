@@ -26,7 +26,6 @@ from url4_cloud.benchmarks.draco.definition import (
     JUDGE_PARAMS,
 )
 from url4_cloud.benchmarks.rubric_check import (
-    CriterionSelection,
     RubricCheck,
     RubricShape,
 )
@@ -49,31 +48,15 @@ DRACO_RUBRIC_SHAPE = RubricShape(
 )
 
 
-def draco_check(
-    *,
-    criterion_count: int | None = None,
-    selection: CriterionSelection = "all",
-) -> RubricCheck:
-    """DRACO's check declaration for one variant's criterion selection.
+DRACO_CHECK = RubricCheck(
+    label="DRACO",
+    criterion=CHECK_CRITERION,
+    threshold=CHECK_THRESHOLD,
+    shape=DRACO_RUBRIC_SHAPE,
+    judge_model=JUDGE_MODEL,
+    judge_params=JUDGE_PARAMS,
+    feedback="areas",
+    question="text",
+)
 
-    A variant that grades a criterion SUBSET must check the same subset, or its
-    mid-run satisfaction and its final score stop being comparable.
-    """
-
-    return RubricCheck(
-        label="DRACO",
-        criterion=CHECK_CRITERION,
-        threshold=CHECK_THRESHOLD,
-        shape=DRACO_RUBRIC_SHAPE,
-        judge_model=JUDGE_MODEL,
-        judge_params=JUDGE_PARAMS,
-        feedback="areas",
-        question="text",
-        criterion_count=criterion_count,
-        selection=selection,
-    )
-
-
-DRACO_CHECK = draco_check()
-
-__all__ = ["CHECK_CRITERION", "CHECK_THRESHOLD", "DRACO_CHECK", "draco_check"]
+__all__ = ["CHECK_CRITERION", "CHECK_THRESHOLD", "DRACO_CHECK"]

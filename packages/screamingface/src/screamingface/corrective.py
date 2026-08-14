@@ -17,7 +17,7 @@ from typing import Any, ClassVar
 from screamingface.recipe import Recipe, _name, _recipe
 
 # The structural floor is a PANEL rule (a corrective panel needs >=2 drafts to
-# select between). The former four-member ceiling belonged to the LANL variant,
+# select between). The former four-member ceiling belonged to the LANL prototype,
 # not to this benchmark-independent Recipe.
 _MIN_MEMBERS = 2
 _DEFAULT_MAX_ROUNDS = 3

@@ -39,7 +39,7 @@ def evaluation_plan(
 ) -> _Evaluation:
     return _compiled_evaluation(
         benchmark=sf.BenchmarkInfo(
-            id="draco@1",
+            id="draco",
             revision="fixture-revision",
             case_count=100,
         ),
@@ -67,7 +67,7 @@ def operation(
 def test_plan_values_are_readable_and_support_strict_lookup() -> None:
     plan = evaluation_plan((planned_candidate("opus"), planned_candidate("gpt")))
 
-    assert repr(plan) == ("_Evaluation(benchmark='draco@1', cases=1, candidates=[opus, gpt])")
+    assert repr(plan) == ("_Evaluation(benchmark='draco', cases=1, candidates=[opus, gpt])")
     assert plan.candidates[0] is plan.candidates["opus"]
     assert plan.candidates[:] == tuple(plan.candidates)
     assert plan.candidates == tuple(plan.candidates)
@@ -409,7 +409,7 @@ def test_evaluation_plan_rejects_invalid_state(
 ) -> None:
     values: dict[str, object] = {
         "benchmark": sf.BenchmarkInfo(
-            id="draco@1",
+            id="draco",
             revision="fixture-revision",
             case_count=100,
         ),

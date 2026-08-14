@@ -40,9 +40,9 @@ const configure = `sf.configure(
     scoreboard_url="http://127.0.0.1:9106",
 )`
 
-const publish = `report = sf.evaluate(candidate, benchmark="ifeval", limit=3)
+const publish = `report = sf.evaluate(candidate, benchmark="ifeval")
 
-# opt-in: Run All should never publish by accident
+# Complete runs only; opt-in so Run All never publishes by accident
 PUBLISH = False
 submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH else None
 submission`
@@ -122,8 +122,9 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
         <tr>
           <td><code>sf.leaderboards.submit(candidate_result)</code></td>
           <td>
-            Publishes one evaluated <code>CandidateResult</code>. The Client derives benchmark id,
-            spec id, url4, accuracy counts, providers, and the idempotency key from that result.
+            Publishes one complete evaluated <code>CandidateResult</code>. Partial runs are rejected
+            because they are not comparable with the canonical board. The Client derives benchmark
+            id, spec id, url4, accuracy counts, providers, and the idempotency key from the result.
           </td>
         </tr>
         <tr>

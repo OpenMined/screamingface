@@ -36,7 +36,7 @@ def _linked_url4(recipe: sf.Recipe) -> sf.Url4:
             expr(
                 src(text(candidate), name="candidate", weight=0.0),
                 src(
-                    "/benchmarks/draco/smoke/revision-1/cases",
+                    "/benchmarks/draco/revision-1/cases",
                     name="rows",
                     weight=0.0,
                 ),
@@ -307,9 +307,21 @@ def test_linked_evaluation_url4_adds_the_editable_benchmark_call() -> None:
     assert value.to_python().endswith(
         """report = sf.evaluate(
     candidate,
-    benchmark='draco/smoke',
+    benchmark='draco',
 )"""
     )
+
+
+def test_url4_to_python_rejects_hierarchical_benchmark_identities() -> None:
+    value = sf.Url4(
+        _linked_url4(sf.Model("provider/model")).replace(
+            "/benchmarks/draco/",
+            "/benchmarks/nested/benchmark/",
+        )
+    )
+
+    with pytest.raises(ValueError, match="one flat lowercase identifier"):
+        value.to_python()
 
 
 def test_url4_to_python_rejects_generic_non_candidate_expressions() -> None:

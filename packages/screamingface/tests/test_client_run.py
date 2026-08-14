@@ -40,7 +40,6 @@ BENCHMARK_URL4 = render(
 BENCHMARK = {
     "schema": "screamingface.benchmark.v1",
     "id": "draco",
-    "variant": "canonical",
     "title": "DRACO",
     "description": "Fixture DRACO Benchmark.",
     "revision": "fixture-revision",
@@ -194,7 +193,7 @@ class _ReplayTransport:
             result_body=json.dumps(
                 {
                     "schema": "screamingface.candidate-result.v1",
-                    "benchmark_id": "draco/smoke",
+                    "benchmark_id": "draco",
                     "benchmark_revision": "fixture-revision",
                     "case_count": 1,
                     "score": 1.0,
@@ -258,7 +257,7 @@ def test_evaluate_replays_a_complete_url4_without_recompiling_it() -> None:
     assert transport.candidate is not None
     assert transport.candidate.url4 == REPLAY_URL4
     assert report.benchmark == sf.BenchmarkInfo(
-        id="draco/smoke",
+        id="draco",
         revision="fixture-revision",
         case_count=1,
     )
@@ -349,7 +348,7 @@ def test_evaluate_url4_rejects_a_corrective_retry_call_hidden_from_its_recipe() 
     assert transport.candidate is None
 
 
-@pytest.mark.parametrize("options", [{"benchmark": "draco/smoke"}, {"limit": 1}])
+@pytest.mark.parametrize("options", [{"benchmark": "draco"}, {"limit": 1}])
 def test_evaluate_url4_rejects_recompilation_options(options: dict[str, object]) -> None:
     transport = _ReplayTransport()
     client = sf.Client(

@@ -14,9 +14,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from statistics import stdev
-from typing import Any, Literal
-
-CriterionSelection = Literal["all", "prefix", "axis-balanced"]
+from typing import Any
 
 
 def flatten_criteria(rubric: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
@@ -28,57 +26,6 @@ def flatten_criteria(rubric: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
             row.setdefault("weight", 0)
             row["axis"] = axis
             yield row
-
-
-def select_criteria(
-    rubric: Mapping[str, Any],
-    count: int | None,
-    selection: CriterionSelection,
-) -> list[dict[str, Any]]:
-    """Select the exact rubric subset one protocol will send to its Judge."""
-
-    criteria = list(flatten_criteria(rubric))
-    selected_count = _selection_count(criteria, count, selection)
-    if selection == "all":
-        return criteria
-    assert selected_count is not None
-    if selection == "prefix":
-        return criteria[:selected_count]
-    return _axis_balanced(criteria, selected_count)
-
-
-def _selection_count(
-    criteria: Sequence[Mapping[str, Any]],
-    count: int | None,
-    selection: str,
-) -> int | None:
-    if selection not in {"all", "prefix", "axis-balanced"}:
-        raise ValueError(f"unknown DRACO criterion selection {selection!r}")
-    if selection == "all":
-        if count is not None:
-            raise ValueError("all-criteria selection cannot declare a criterion count")
-        return None
-    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-        raise ValueError(f"{selection} selection requires a positive criterion count")
-    if count > len(criteria):
-        raise ValueError(f"criterion count {count} exceeds rubric size {len(criteria)}")
-    return count
-
-
-def _axis_balanced(
-    criteria: Sequence[dict[str, Any]],
-    count: int,
-) -> list[dict[str, Any]]:
-    by_axis: dict[str, list[dict[str, Any]]] = {}
-    for criterion in criteria:
-        by_axis.setdefault(str(criterion["axis"]), []).append(criterion)
-    ordered = [
-        axis_criteria[offset]
-        for offset in range(max(map(len, by_axis.values())))
-        for axis_criteria in by_axis.values()
-        if offset < len(axis_criteria)
-    ]
-    return ordered[:count]
 
 
 def normalized_score(rubric: Mapping[str, Any], verdicts: Mapping[str, bool]) -> float:
@@ -149,10 +96,9 @@ def axis_pass_rates(rubric: Mapping[str, Any], verdicts: Mapping[str, bool]) -> 
 def _factual_axis_value(axes: Mapping[str, float]) -> float | None:
     """The Factual Accuracy axis value, or ``None`` when this rubric has no such axis.
 
-    INVARIANT: absence is NOT zero. A rubric without a Factual Accuracy section (lite and smoke
-    selections routinely have none) would otherwise publish ``accuracy: 0.0`` for a Candidate that
-    scored 1.0, which reads as "0% factually accurate" — the same absence-renders-as-zero error
-    this module refuses for ``score``.
+    INVARIANT: absence is NOT zero. A rubric without a Factual Accuracy section would otherwise
+    publish ``accuracy: 0.0`` for a Candidate that scored 1.0, which reads as "0% factually
+    accurate" — the same absence-renders-as-zero error this module refuses for ``score``.
     """
     for axis, value in axes.items():
         normalized = str(axis).lower().replace("_", "-").replace(" ", "-")

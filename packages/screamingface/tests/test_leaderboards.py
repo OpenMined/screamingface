@@ -126,12 +126,13 @@ def _candidate_result(
     *,
     score: float | None = 0.5,
     case_scores: tuple[float | None, ...] = (1.0, 0.0),
+    benchmark_case_count: int | None = None,
 ) -> sf.CandidateResult:
     return sf.CandidateResult(
         benchmark=sf.BenchmarkInfo(
             id="draco",
             revision="fixture-revision",
-            case_count=2,
+            case_count=len(case_scores) if benchmark_case_count is None else benchmark_case_count,
         ),
         run_id="run-fusion-alpha",
         started_at=datetime(2026, 8, 8, 11, 59, tzinfo=UTC),
@@ -321,8 +322,13 @@ def test_client_gets_one_score_by_uuid_or_string() -> None:
 def test_submit_rejects_results_the_accuracy_scoreboard_cannot_represent() -> None:
     client = _sync_client(lambda _: pytest.fail("invalid result reached the Scoreboard"))
 
-    with client, pytest.raises(ValueError, match="unscored"):
-        client.leaderboards.submit(_candidate_result(score=None))
+    with client:
+        with pytest.raises(ValueError, match="unscored"):
+            client.leaderboards.submit(_candidate_result(score=None))
+
+        partial = _candidate_result(benchmark_case_count=100)
+        with pytest.raises(ValueError, match=r"complete Benchmark run \(2/100 Cases\)"):
+            client.leaderboards.submit(partial)
 
 
 def test_submit_surfaces_the_live_closed_write_contract() -> None:
@@ -515,7 +521,10 @@ def test_unreachable_scoreboard_is_a_typed_retryable_failure() -> None:
     assert exc_info.value.retryable is True
 
 
-@pytest.mark.parametrize(("benchmark_id", "top"), [("", 50), ("draco", 0), ("draco", True)])
+@pytest.mark.parametrize(
+    ("benchmark_id", "top"),
+    [("", 50), ("nested/benchmark", 50), ("/draco", 50), ("draco", 0), ("draco", True)],
+)
 def test_get_rejects_invalid_query_values(benchmark_id: str, top: object) -> None:
     client = _sync_client(lambda _: pytest.fail("invalid query reached the scoreboard"))
 
@@ -530,7 +539,10 @@ def _invalid_list_payloads() -> tuple[object, ...]:
     invalid_info = _list_response()
     cast(list[dict[str, object]], invalid_info["benchmarks"])[0]["created_at"] = "not-a-date"
 
-    return [], duplicate_list, invalid_info
+    invalid_id = _list_response()
+    cast(list[dict[str, object]], invalid_id["benchmarks"])[0]["id"] = "nested/benchmark"
+
+    return [], duplicate_list, invalid_info, invalid_id
 
 
 def _invalid_board_payloads() -> tuple[object, ...]:
@@ -557,6 +569,11 @@ def _invalid_board_payloads() -> tuple[object, ...]:
     invalid_baseline_id = _get_response()
     cast(list[dict[str, object]], invalid_baseline_id["baselines"])[0]["id"] = "not-a-uuid"
 
+    invalid_baseline_benchmark = _get_response()
+    cast(list[dict[str, object]], invalid_baseline_benchmark["baselines"])[0]["benchmark_id"] = (
+        "nested/benchmark"
+    )
+
     return (
         invalid_entries,
         invalid_entry_rank,
@@ -565,6 +582,7 @@ def _invalid_board_payloads() -> tuple[object, ...]:
         invalid_entry_verification,
         invalid_baseline_metadata,
         invalid_baseline_id,
+        invalid_baseline_benchmark,
     )
 
 
@@ -581,7 +599,16 @@ def _invalid_score_payloads() -> tuple[object, ...]:
     invalid_score_text = _score_response()
     invalid_score_text["benchmark_id"] = " "
 
-    return invalid_score_metadata, invalid_score_id, invalid_score_timestamp, invalid_score_text
+    invalid_score_benchmark = _score_response()
+    invalid_score_benchmark["benchmark_id"] = "nested/benchmark"
+
+    return (
+        invalid_score_metadata,
+        invalid_score_id,
+        invalid_score_timestamp,
+        invalid_score_text,
+        invalid_score_benchmark,
+    )
 
 
 def test_scoreboard_rejects_malformed_wire_values_at_the_http_seam() -> None:

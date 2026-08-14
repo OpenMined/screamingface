@@ -158,9 +158,9 @@ const benchOut = `BenchmarkInfo(id='ifeval', revision='047f1de449639c61', case_c
     </div>
 
     <p>
-      Each protocol variant is a benchmark id of its own, so <code>ifeval</code> and
-      <code>ifeval/self-corrective</code> pin different revisions. Two reports are only comparable
-      when both the id and the revision match.
+      Two reports name both the benchmark id and its revision. Candidate topology is recorded
+      separately in each Candidate Result, so benchmark identity never hides whether the run used a
+      Model, Fusion, Pipeline, or corrective Recipe.
     </p>
 
     <h3>candidates</h3>

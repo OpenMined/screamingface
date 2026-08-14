@@ -37,7 +37,7 @@ from screamingface.report import BenchmarkInfo, CandidateResult, Report
 _START = datetime(2026, 8, 7, 17, 28, 8, tzinfo=UTC)
 _END = datetime(2026, 8, 7, 17, 28, 28, tzinfo=UTC)
 _METRICS = {"pass_rate": 0.5, "verdicts_expected": 1, "verdicts_accepted": 1}
-_BENCHMARK = BenchmarkInfo("draco/smoke", "74c94830e8de6afd", 1)
+_BENCHMARK = BenchmarkInfo("draco", "74c94830e8de6afd", 1)
 
 
 def case(
@@ -273,7 +273,7 @@ def multi_case_report(
 ) -> Report:
     """A Report sized to its cases — Report validation pins case_count to the Benchmark."""
 
-    benchmark = BenchmarkInfo("draco/smoke", "74c94830e8de6afd", len(cases))
+    benchmark = BenchmarkInfo("draco", "74c94830e8de6afd", len(cases))
     inner = candidate("open_trio", None, cases=cases)
     sized = CandidateResult(
         benchmark=benchmark,
