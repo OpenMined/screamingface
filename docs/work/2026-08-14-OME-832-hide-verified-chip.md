@@ -136,3 +136,21 @@ Also noted: coverage passes at **95.05%** against a 95% floor — almost no head
 to this package may need to add tests before it can add code.
 
 **Gates:** all seven green, 783 passed.
+
+## Dmitry APPROVED (2026-08-14 14:44Z), with one wording correction
+
+> *"OME-820 does not make the field literally uniform because existing `False` rows are not
+> backfilled. The stronger rationale is that the field temporarily has no trustworthy verification
+> semantics, regardless of its value."*
+
+Correct, and it applied to this PR's test docstring as well as four sites on #588. D5 forbids a
+backfill, so pre-change rows keep `false`: the field is **meaningless, not constant**.
+
+Worth stating why that is the *stronger* rationale rather than a pedantic fix. A uniform value would
+make the pool filter merely useless — it would select everything. A non-uniform but meaningless value
+makes it actively misleading: the filter would split rows by whether they predate the default change
+**while presenting itself as a verification filter**. A control that looks like trust and actually
+sorts by submission date is worse than one that does nothing, so the case for removing the chip and
+the checkbox is stronger than I argued it.
+
+Docstring corrected. No implementation change — he confirmed the implementation and tests as good.

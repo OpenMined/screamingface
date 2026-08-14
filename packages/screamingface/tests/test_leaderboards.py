@@ -833,10 +833,14 @@ def _chip_board(*, verified: bool, forkable: bool) -> sf.Leaderboard:
 @pytest.mark.parametrize("verified", [True, False])
 @pytest.mark.parametrize("forkable", [True, False])
 def test_leaderboard_view_shows_no_verification_ui(verified: bool, forkable: bool) -> None:
-    """OME-820 made verified_by_openmined uniform, so it conveys nothing.
+    """OME-820 left verified_by_openmined without trustworthy semantics.
 
-    The chip would appear on every row and the "verified only" checkbox would remove
-    nothing, because no row carries data-verified=false any more.
+    Not uniform — rows predating that change keep false, since D5 forbids a backfill —
+    but meaningless either way, because nothing re-runs submissions and nothing attests
+    where a run executed. So the chip certifies nothing, and the "verified only"
+    checkbox would split rows by whether they predate the default change while
+    presenting itself as a verification filter: worse than filtering nothing.
+    (Dmitry's review note on #601.)
     """
     html = cast(Any, _chip_board(verified=verified, forkable=forkable))._repr_html_()
 
