@@ -10,7 +10,7 @@ Evaluate composable Candidate Recipes against URL4-native research Benchmarks.
 
 ## Local notebook runtime
 
-Install the SDK, notebook tools, and Docker-free local services together:
+Install the SDK, notebook tools, and local services together:
 
 ```bash
 pip install "screamingface[runtime,notebook]"

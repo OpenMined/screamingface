@@ -1,1 +1,1 @@
-"""Docker-free local ScreamingFace runtime (installed by the ``runtime`` extra)."""
+"""Local ScreamingFace runtime installed by the ``runtime`` extra."""
