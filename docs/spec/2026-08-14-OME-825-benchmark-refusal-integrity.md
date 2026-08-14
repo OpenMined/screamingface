@@ -31,9 +31,12 @@ carries it), and selection re-encodes the chosen member with **its own refusal**
 instead of hardcoded `None`. A refused member's answer text IS its refusal text, so a
 chosen refused member encodes as `output="", refusal=<text>` — the downstream re-check
 grades the same text, and Aggregation's refused branch fires. LANL_FLOW gains the
-clause "…verbatim, carrying the member's refusal marking"; `LANL_PROTOCOL_REVISION`
-bumps to v2. Only the LANL variant revision changes; canonical IFEval, DRACO, and
-HealthBench protocol expressions stay byte-identical.
+clause "…verbatim, carrying the member's refusal marking", which changes the
+content-derived LANL variant revision hash; the human-facing
+`LANL_PROTOCOL_REVISION` label stays at v1 — the variant has not been introduced to
+anyone yet, so there is no consumer to signal (decision: Khoa, 2026-08-14). Only the
+LANL variant hash changes; canonical IFEval, DRACO, and HealthBench protocol
+expressions stay byte-identical.
 
 ## 3. Cleanups (no wire change)
 

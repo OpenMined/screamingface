@@ -18,8 +18,9 @@ All changes in `apps/url4-cloud`; one PR; branch `OME-825-benchmark-refusal-inte
    delegation to `validate_candidate_outcome`.
 4. **candidate.py** — in the `provider_refusal` interception, substitute
    `PROVIDER_REFUSAL_PLACEHOLDER` when the outcome carries no refusal text.
-5. **ifeval/corrective_policy.py** — `LANL_PROTOCOL_REVISION = "lanl-early-exit-ensemble-v2"`;
-   LANL_FLOW final clause gains "carrying the member's refusal marking".
+5. **ifeval/corrective_policy.py** — LANL_FLOW final clause gains "carrying the
+   member's refusal marking" (the hash-derived variant revision changes with it;
+   the v1 label stays — the variant is unreleased, nobody to signal).
 6. **ifeval/iterative_correction.py** — member-record payload adds
    `"refusal": f"${check}.refusal"`.
 7. **ifeval/runtime.py** — `_member` parses nullable `refusal` (mirrors `finish_reason`);
