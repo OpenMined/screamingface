@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from url4 import RelExpr, Text, build, expr, iterate, ref, render, src, text
+from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import decode_candidate_invocation
 from url4_cloud.benchmarks.ifeval.corrective_policy import (
@@ -63,7 +64,9 @@ def _node(tmp_path: Path) -> Url4Node:
     return node
 
 
-def _member(key: str, answer: str, feedback: str) -> dict[str, str]:
+def _member(
+    key: str, answer: str, feedback: str, refusal: str | None = None
+) -> dict[str, str | None]:
     return {
         "key": key.upper(),
         "name": f"member-{key}",
@@ -71,6 +74,7 @@ def _member(key: str, answer: str, feedback: str) -> dict[str, str]:
         "expression": f"/provider/{key}($input)",
         "answer": answer,
         "finish_reason": "stop",
+        "refusal": refusal,
         "feedback": feedback,
     }
 
@@ -101,7 +105,7 @@ async def _call(node: Url4Node, path: str, payload: object, intent: str) -> str:
 # --- (1) the engine semantics the whole design rests on ---------------------------
 
 
-def _probe_expression(members: list[dict[str, str]]) -> str:
+def _probe_expression(members: list[dict[str, str | None]]) -> str:
     """A production-shaped case body: gate + gated iterate as SIBLINGS inside an
     iteration body — the only scope where a collection reference resolves."""
 
@@ -263,7 +267,7 @@ async def test_tie_gate_stays_quiet_on_a_non_final_no_pass_round(tmp_path: Path)
 # --- (2b) selection ----------------------------------------------------------------
 
 
-async def _selected(tmp_path: Path, members: list[dict[str, str]], tie: list[str]) -> str:
+async def _selected(tmp_path: Path, members: list[dict[str, str | None]], tie: list[str]) -> str:
     node = _node(tmp_path)
     reply = await _call(node, LANL_SELECT_ROUTE, {"round": members, "tie": tie}, "1:1")
     output, finish_reason, refusal = decode_candidate_invocation(reply)
@@ -320,6 +324,41 @@ async def test_never_pass_selects_the_maximal_satisfaction_answer(tmp_path: Path
 async def test_a_never_pass_exact_tie_defers_to_the_judge_letter(tmp_path: Path) -> None:
     members = [_member("a", _FAIL, "failed"), _member("b", _FAIL + " twice", "failed")]
     assert await _selected(tmp_path, members, [_judge_envelope("b")]) == _FAIL + " twice"
+
+
+@pytest.mark.asyncio
+async def test_selecting_a_refused_member_carries_its_refusal_marking(tmp_path: Path) -> None:
+    """Selection may choose but must never launder: when every member refused, the
+    chosen member's refusal text must be re-encoded AS a refusal, not as an ordinary
+    output — otherwise an all-refuse Case publishes refusal prose as a scored answer
+    and the refusal disappears from the wire (OME-825)."""
+
+    worse = "I, refuse."  # comma + capitals: satisfies neither check (0.0)
+    better = "i cannot comply"  # no comma + lowercase: trivially satisfies both (1.0)
+    members = [
+        _member("a", worse, "failed", refusal=worse),
+        _member("b", better, "failed", refusal=better),
+    ]
+    node = _node(tmp_path)
+    reply = await _call(node, LANL_SELECT_ROUTE, {"round": members, "tie": []}, "1:1")
+    output, finish_reason, refusal = decode_candidate_invocation(reply)
+    assert output == ""
+    assert finish_reason == "stop"
+    assert refusal == better  # maximal strict satisfaction still picks it...
+    # ...but the refusal marking travels with the selection instead of being erased.
+
+
+@pytest.mark.asyncio
+async def test_selection_rejects_a_refusal_that_differs_from_the_checked_answer(
+    tmp_path: Path,
+) -> None:
+    members = [
+        _member("a", "selected answer", "failed", refusal="different refusal"),
+        _member("b", _FAIL, "failed"),
+    ]
+    node = _node(tmp_path)
+    with pytest.raises(ResolutionError, match="refusal must equal its checked answer"):
+        await _call(node, LANL_SELECT_ROUTE, {"round": members, "tie": []}, "1:1")
 
 
 # --- (2c) the envelope -------------------------------------------------------------

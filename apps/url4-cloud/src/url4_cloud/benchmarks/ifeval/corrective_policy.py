@@ -52,7 +52,7 @@ LANL_FLOW = (
     "stopping attempt; judge feedback is authored only for a no-pass attempt; a case "
     "that never passes selects the answer with maximal strict-satisfaction fraction, "
     "judge tie-break on exact ties; the selected answer is always a member answer "
-    "verbatim"
+    "verbatim, carrying the member's refusal marking"
 )
 
 # Every prose constant and shape bound defines score meaning and therefore revision identity.

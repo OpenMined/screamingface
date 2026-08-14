@@ -338,6 +338,9 @@ def _lanl_select(root: Path):
 
     INVARIANT: the returned text is always a member's exact answer — selection can
     choose but never rewrite, so it cannot break a requirement a member satisfied.
+    The chosen member's refusal marking travels with it: a refused member's answer IS
+    its refusal text, so selection re-encodes it as a refusal, never as an output —
+    otherwise an all-refuse Case would publish refusal prose as a scored answer.
     """
 
     def select(request: Request) -> str:
@@ -360,7 +363,12 @@ def _lanl_select(root: Path):
             best = max(score for _, score in scored)
             tied = [member for member, score in scored if score == best]
             chosen = tied[0] if len(tied) == 1 else (_by_letter(tied, letter) or tied[0])
-        return encode_candidate_invocation(chosen["answer"], chosen["finish_reason"], None)
+        refusal = chosen["refusal"]
+        return encode_candidate_invocation(
+            "" if refusal is not None else chosen["answer"],
+            chosen["finish_reason"],
+            refusal,
+        )
 
     return select
 
@@ -573,6 +581,8 @@ def _member(value: object, index: int) -> dict[str, Any]:
     selected.update(_optional_member_text(value, index))
     if "finish_reason" in value:
         selected["finish_reason"] = _finish_reason(value["finish_reason"], index)
+    if "refusal" in value:
+        selected["refusal"] = _member_refusal(value["refusal"], index)
     return selected
 
 
@@ -607,13 +617,24 @@ def _finish_reason(value: object, index: int) -> str | None:
     return value
 
 
+def _member_refusal(value: object, index: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise _unavailable(f"Candidate member {index + 1} refusal must be non-blank text or null")
+    return value
+
+
 def _attempt_member(value: object, index: int) -> dict[str, Any]:
     """Require the complete output contract for one checked member attempt."""
 
     member = _member(value, index)
-    for name in ("answer", "feedback", "finish_reason"):
+    for name in ("answer", "feedback", "finish_reason", "refusal"):
         if name not in member:
             raise _unavailable(f"Candidate member {index + 1} has no {name}")
+    refusal = member["refusal"]
+    if refusal is not None and member["answer"] != refusal:
+        raise _unavailable(f"Candidate member {index + 1} refusal must equal its checked answer")
     return member
 
 

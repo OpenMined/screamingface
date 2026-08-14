@@ -20,6 +20,7 @@ from url4_cloud.benchmarks.contract import (
     CaseId,
     CaseResult,
     Failure,
+    candidate_coverage,
     validate_case_id,
 )
 
@@ -131,7 +132,7 @@ def finalize_candidate_result(
         benchmark_revision=benchmark_revision,
         case_count=len(typed_cases),
         score=scored.score if scored is not None else None,
-        coverage=round(len(gradeable) / len(typed_cases), 4) if typed_cases else 0.0,
+        coverage=candidate_coverage(typed_cases, len(typed_cases)),
         metrics=scored.metrics if scored is not None else {},
         cases=typed_cases,
         failures=typed_failures,

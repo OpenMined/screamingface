@@ -105,7 +105,13 @@ def _failed_case_result(
         selected_case=selected_case,
         failures=[
             {
-                "stage": _failure_stage(diagnostic.code),
+                # WHY the constant stage: a collected url4 error row carries only
+                # kind+message — never a code — so public_error always falls back to
+                # the aggregate defaults and the old provider_/aigateway_ prefix
+                # heuristic could not fire. One IFEval row spans invocation AND
+                # checking, so "grading" (the stage that failed to produce a valid
+                # evaluation record) is the honest constant.
+                "stage": "grading",
                 "code": diagnostic.code,
                 "message": diagnostic.message,
                 "retryable": diagnostic.retryable,
@@ -113,12 +119,6 @@ def _failed_case_result(
                 "metadata": metadata,
             }
         ],
-    )
-
-
-def _failure_stage(code: str) -> str:
-    return (
-        "candidate" if code.startswith("provider_") or code.startswith("aigateway_") else "grading"
     )
 
 

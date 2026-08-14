@@ -274,6 +274,7 @@ def _member_round(collection: Node, attempt: int) -> Node:
                             "expression": "$item.expression",
                             "answer": f"${check}.answer",
                             "finish_reason": f"${check}.finish_reason",
+                            "refusal": f"${check}.refusal",
                             "feedback": f"${feedback}",
                         }
                     ),
