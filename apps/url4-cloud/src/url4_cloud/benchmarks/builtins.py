@@ -5,22 +5,18 @@ from url4_cloud.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
 )
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
-from url4_cloud.benchmarks.ifeval.iterative_correction import (
-    IFEVAL_LANL_ENSEMBLE,
-    IFEVAL_SELF_CORRECTIVE,
-)
 from url4_cloud.benchmarks.registry import BenchmarkRegistry
 
 # WHY: protocol-neutral registry machinery does not import concrete protocols. This composition
 # module is the single place where this deployment chooses which Benchmark adapters to install.
+# The former ifeval/lanl-ensemble and ifeval/self-corrective variants are RETIRED (OME-796):
+# corrective loops are client-compiled candidates now, not benchmarks wearing costumes.
 BUILTIN_BENCHMARKS = BenchmarkRegistry(
     (
         DRACO,
         DRACO_LITE,
         DRACO_SMOKE,
         IFEVAL,
-        IFEVAL_LANL_ENSEMBLE,
-        IFEVAL_SELF_CORRECTIVE,
         HEALTHBENCH_WORST30,
     )
 )

@@ -22,6 +22,7 @@ from url4_cloud.adapters.jetstream import JetStreamPublisher
 from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
 from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.benchmarks.candidate import install_candidate_invocation
+from url4_cloud.benchmarks.ensemble import install_corrective_runtime
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world
 from url4_cloud.world_config import WorldConfig, WorldConfigError, load_config
@@ -208,6 +209,10 @@ def build_executor(
             async with AsyncExitStack() as cleanup:
                 cleanup.push_async_callback(world.aclose)
                 install_candidate_invocation(world.node)
+                # The corrective loop's generic gate/select/answer endpoints are
+                # engine capability, not benchmark surface — installed once beside
+                # the candidate invocation for every world that runs benchmarks.
+                install_corrective_runtime(world.node)
                 benchmarks.install(
                     world.node,
                     assets_root=(

@@ -8,7 +8,7 @@ from pathlib import Path
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from url4_cloud.benchmarks.definition import Benchmark, candidate
+from url4_cloud.benchmarks.definition import Benchmark, CheckSurface, candidate
 from url4_cloud.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
@@ -47,6 +47,9 @@ REVISION = hashlib.sha256(
 ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
 CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 CHECK_ROUTE = f"{ROUTE_PREFIX}/check"
+# The advertised check-surface port (OME-796): input-addressed because a black-box
+# $candidate only ever sees $input — the adapter resolves the case behind the route.
+CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
 
@@ -109,6 +112,13 @@ IFEVAL = Benchmark(
     case_count=CASE_COUNT,
     build=_build,
     install=install_ifeval,
+    # Free: the deterministic verifier costs no model call, so a corrective loop
+    # on IFEval spends only on members and the judge.
+    check_surface=CheckSurface(
+        check_route=CHECK_SURFACE_ROUTE,
+        feedback_intent="feedback",
+        expected_check_cost="free",
+    ),
 )
 
 __all__ = ["IFEVAL", "install_ifeval"]
