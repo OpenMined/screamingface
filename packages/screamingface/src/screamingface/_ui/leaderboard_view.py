@@ -60,6 +60,14 @@ class _DisplayRow:
     kind: str
     accuracy: float
     questions: int | None
+    # AIDEV-NOTE: UNUSED since OME-832. Its readers were the data-verified attribute
+    # and the `verified` chip, both removed because verified_by_openmined became
+    # uniform and asserted nothing (OME-820). `_candidate_row` still populates it, so
+    # nothing in ruff, pyright or coverage will notice it going stale. Parked
+    # deliberately for OME-821, which gives the flag a real signal and restores both
+    # readers. Do NOT key new presentation on it before then — a row's value says
+    # nothing today, and doing so would reintroduce the inert trust signal this
+    # change removed.
     verified: bool | None
     python_source: str | None
     source_url: str | None

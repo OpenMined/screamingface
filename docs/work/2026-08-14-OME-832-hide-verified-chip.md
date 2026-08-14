@@ -112,3 +112,27 @@ would have caught it. D2/D3 hold.
 5. **My `uuid4` import tripped ruff.** I inserted it beside `datetime` while `from uuid import UUID`
    already existed lower down. Merged into one statement by hand rather than running
    `ruff check --fix`, so the result is what I intended rather than what the fixer chose.
+
+## Review pass (2026-08-14) — two findings, no correctness bugs
+
+The review confirmed the central risk was handled correctly (`kind == "single"` is the right
+predicate, HTML stays balanced, the interleaved-comment string concatenation is valid) and found no
+correctness bugs. It also established something useful: **CI never invokes `run_gates.py`**, so the
+append-only check the inverted assertion bypasses is local-only and cannot trip on the PR.
+
+- **`_DisplayRow.verified` is now write-only dead state.** Both its readers went with this change, but
+  `_candidate_row` still populates it and nothing in ruff, pyright or coverage will notice it going
+  stale. Unlike the parallel CSS decision — which carries an in-file note — the field had no marker
+  saying it is parked for `OME-821`. Added one, including an explicit "do not key new presentation on
+  it": a row's value says nothing today, so doing so would reintroduce the inert trust signal this
+  change removed. Kept rather than deleted for the same reason as the CSS.
+- **Residual provenance ambiguity, left as a follow-up.** A candidate with an unforkable url4 renders
+  the same icon, fill and action cell as a baseline, and `leaderboard_style.py:140` hides the `kind`
+  cell below 680px — so in a narrow Colab pane the two are visually indistinguishable. **Pre-existing,
+  and this PR strictly improves it** (that row was previously *labelled* `baseline`), so fixing it
+  here would be scope creep. It belongs with `OME-821`'s presentation work.
+
+Also noted: coverage passes at **95.05%** against a 95% floor — almost no headroom, so the next change
+to this package may need to add tests before it can add code.
+
+**Gates:** all seven green, 783 passed.
