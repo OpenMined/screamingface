@@ -192,7 +192,8 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 /* style.css sets `.stats { grid-template-columns: repeat(3,1fr) }` and is vendored,
    so it is not edited. The leaderboard summary lost its third metric ("Verified
    rows") when the verification UI was withdrawn — verified_by_openmined became
-   uniform and the count read "N of N". Without a modifier the bordered strip
+   meaningless — see benchmark.js — and the metric was dropped. Without a modifier the
+   bordered strip
    renders two cards across two thirds of its width, leaving an empty third.
    Scoped to a new class so every other three-card `.stats` strip is untouched.
    OME-821 restores the third metric and this class comes off with it.

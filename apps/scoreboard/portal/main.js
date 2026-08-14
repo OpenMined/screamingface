@@ -183,11 +183,11 @@ window.ScorePortal = (function () {
   // verified_by_openmined === true; otherwise an em dash (no badge —
   // absence means unverified).
   //
-  // AIDEV-NOTE: NOTHING CALLS THIS as of OME-820. verified_by_openmined now defaults to
-  // true for every submission, as a placeholder that asserts nothing — no service
-  // re-runs submissions (OME-414) and nothing attests where a run executed. A badge on
-  // 100% of rows is not a trust signal, so the benchmark board, the spec history and the
-  // "Verified rows" stat all dropped it rather than relabel it. Kept, unused and
+  // AIDEV-NOTE: NOTHING CALLS THIS as of OME-820. verified_by_openmined now carries no
+  // trustworthy verification semantics whatever its value — no service re-runs
+  // submissions (OME-414) and nothing attests where a run executed. A badge driven by a
+  // signal that means nothing is not a trust signal, so the benchmark board, the spec
+  // history and the "Verified rows" stat all dropped it rather than relabel it. Kept, unused and
   // deliberately untouched, because OME-821 restores the distinction and will want this
   // back. Do not re-wire it before then.
   function createVerifiedBadge(isVerified) {

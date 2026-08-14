@@ -45,8 +45,12 @@ class BaseScore(BaseScoreboardModel):
     #
     # AIDEV-NOTE: OME-821 replaces this with a real distinction (self-reported vs
     # OpenMined-run); OME-414 is what makes "reproduced" possible at all. Until one of
-    # them lands, do not build a UI that filters or ranks on this field — every row
-    # carries the same value.
+    # them lands, do not build a UI that filters or ranks on this field. Not because
+    # the value is uniform — rows predating this change keep false, since D5 forbids a
+    # backfill — but because the value certifies nothing either way. A filter would
+    # therefore split rows by whether they predate the default change while presenting
+    # itself as a verification filter, which is worse than filtering nothing
+    # (review of #588).
     verified_by_openmined = fields.BooleanField(default=True)
     # INVARIANT: the Engine benchmark revision this score was produced against. The
     # leaderboard partitions ranking on (spec_id, benchmark_revision) so results measured

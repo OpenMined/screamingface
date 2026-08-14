@@ -209,9 +209,14 @@
 
     var best = bestAccuracy(entries);
     // OME-820: the "Verified rows" stat is gone, not relabelled. verified_by_openmined
-    // now defaults to true for every submission as a placeholder, so the count read
-    // "N of N" on every board — a statistic with no information in it. The column, the
-    // badge and this stat all return with OME-821, which gives the flag a real signal.
+    // now carries no trustworthy verification semantics — nothing re-runs submissions
+    // and nothing attests where a run executed — so counting it measures nothing.
+    //
+    // Note it is NOT literally uniform: rows created before OME-820 keep false, since
+    // D5 forbids a backfill. That makes a count WORSE than useless rather than merely
+    // useless — it would partition rows by whether they predate the default change,
+    // reading as a verification tally while actually tracking submission date. Same
+    // argument retires the pool filter. Both return with OME-821 (review of #588).
     // Bare numbers: the .stats cell labels ("Specs shown") already carry the words.
     document.getElementById("summary-best").textContent = P.formatPercent(best);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();

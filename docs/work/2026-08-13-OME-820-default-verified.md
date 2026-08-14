@@ -363,3 +363,22 @@ branch is now unreachable, but `OME-771` restores a sortable status column and w
 `test_no_migration_backfills_the_verified_column` is a substring heuristic that could false-positive
 on a future migration touching this column for an unrelated reason — an over-strict guard on an
 irreversible data change is the right side to err on.
+
+## Dmitry's approval note on #601 (2026-08-14) — a correction worth propagating
+
+> *"OME-820 does not make the field literally uniform because existing `False` rows are not
+> backfilled. The stronger rationale is that the field temporarily has no trustworthy verification
+> semantics, regardless of its value."*
+
+He is right, and I had leaned on "uniform" as the reason in **five** places across both PRs:
+`benchmark.js`, `portal.css`, `main.js`, `leaderboard-logic.js`, and `test_leaderboards.py` on #601.
+D5 forbids a backfill, so pre-change rows keep `false` — the field is *meaningless*, not *constant*.
+
+**His correction strengthens the removal rather than weakening it.** If the value were uniform, a pool
+filter would merely select everything: useless. Because it is *not* uniform but *is* meaningless, a
+filter would split rows by whether they predate the default change **while presenting itself as a
+verification filter** — a control that looks like trust and actually sorts by submission date. That is
+worse than filtering nothing, and it is the sharper argument for dropping the column, the badge, the
+counter and the pool filter.
+
+All five sites now carry the accurate rationale.

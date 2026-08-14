@@ -38,9 +38,11 @@
   //
   // AIDEV-NOTE: `verified_by_openmined` is the only reproducibility signal the
   // Scoreboard API exposes today, and since OME-820 it is a placeholder that
-  // asserts NOTHING — it defaults to true for every submission, so this predicate
-  // currently returns true for every row and `?pool=verified` would narrow the
-  // pool to everything. That is why nothing calls these functions yet.
+  // asserts NOTHING: the default is true and no service re-runs submissions, so a
+  // true value certifies nothing. Rows predating OME-820 keep false (D5 forbids a
+  // backfill), so `?pool=verified` would not narrow the pool to *everything* — it
+  // would split on submission date while presenting itself as a verification
+  // filter, which is worse. That is why nothing calls these functions yet.
   //
   // OME-771 intends to source the signal from the SF engine instead ("have we run
   // this URL4 before" — i.e. a global-cache hit), and OME-821 gives the field a
