@@ -36,7 +36,7 @@ RESULT_ROUTE = f"{CORRECTIVE_PREFIX}/result"
 CHECK_SURFACE_SCHEMA = "screamingface.check-surface.v1"
 
 # Member identity uses unbounded spreadsheet-style lowercase labels so the
-# generic substrate does not inherit LANL's 2..4 variant bound.
+# generic substrate does not inherit the LANL prototype's 2..4 bound.
 MEMBER_LABEL_SCHEME = "lowercase-base26"
 
 

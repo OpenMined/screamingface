@@ -20,16 +20,9 @@ from url4_cloud.benchmarks.draco.definition import (
     CASES_ROUTE,
     CRITERION_EVALUATION_ROUTE,
     DRACO,
-    DRACO_LITE,
-    DRACO_SMOKE,
-    LITE_CASE_EVALUATION_ROUTE,
-    LITE_CRITERION_EVALUATION_ROUTE,
-    SMOKE_CASE_EVALUATION_ROUTE,
-    SMOKE_CASES_ROUTE,
-    SMOKE_CRITERION_EVALUATION_ROUTE,
 )
 from url4_cloud.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
-from url4_cloud.benchmarks.draco.runtime import install_canonical, install_smoke
+from url4_cloud.benchmarks.draco.runtime import install
 from url4_cloud.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 
@@ -46,7 +39,7 @@ async def _call(node: Url4Node, path: str, context: object, intent: str) -> obje
     return json.loads((await node.evaluate(render(expression))).text)
 
 
-def _smoke_assets(root: Path) -> None:
+def _one_case_assets(root: Path) -> None:
     (root / "criteria").mkdir(parents=True)
     (root / "rubrics").mkdir()
     (root / "cases.json").write_text('[{"id":1,"input":"Question 1"}]', encoding="utf-8")
@@ -60,25 +53,30 @@ def _smoke_assets(root: Path) -> None:
     )
 
 
-def test_every_draco_resource_builds_exact_criterion_and_case_evaluations() -> None:
-    profiles = (
-        (DRACO, CRITERION_EVALUATION_ROUTE, CASE_EVALUATION_ROUTE),
-        (DRACO_LITE, LITE_CRITERION_EVALUATION_ROUTE, LITE_CASE_EVALUATION_ROUTE),
-        (DRACO_SMOKE, SMOKE_CRITERION_EVALUATION_ROUTE, SMOKE_CASE_EVALUATION_ROUTE),
-    )
+def _canonical_assets(root: Path) -> None:
+    _one_case_assets(root)
+    cases = [{"id": case_id, "input": f"Question {case_id}"} for case_id in range(1, 101)]
+    (root / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
+    criterion = (root / "criteria" / "1.json").read_text(encoding="utf-8")
+    rubric = (root / "rubrics" / "1.json").read_text(encoding="utf-8")
+    for case_id in range(2, 101):
+        (root / "criteria" / f"{case_id}.json").write_text(criterion, encoding="utf-8")
+        (root / "rubrics" / f"{case_id}.json").write_text(rubric, encoding="utf-8")
 
-    for benchmark, criterion_route, case_route in profiles:
-        url4 = benchmark.resource(1)["url4"]
-        assert isinstance(url4, str)
-        assert url4.count(criterion_route) == 1
-        assert url4.count(case_route) == 1
+
+def test_draco_builds_exact_criterion_and_case_evaluations() -> None:
+    url4 = DRACO.resource(1)["url4"]
+
+    assert isinstance(url4, str)
+    assert url4.count(CRITERION_EVALUATION_ROUTE) == 1
+    assert url4.count(CASE_EVALUATION_ROUTE) == 1
 
 
 @pytest.mark.asyncio
 async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Path) -> None:
-    _smoke_assets(tmp_path)
+    _canonical_assets(tmp_path)
     node = Url4Node("test")
-    install_smoke(node, tmp_path)
+    install(node, tmp_path)
     case = {
         "schema": CASE_SCHEMA,
         "case_id": 1,
@@ -97,36 +95,42 @@ async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Pa
         "criterion_type": "positive",
         "requirement": "Be correct",
     }
-    verdict = {
-        "schema": VERDICT_SCHEMA,
-        "case_id": 1,
-        "criterion_id": "c1",
-        "sequence": 1,
-        "producer_type": "model",
-        "producer_id": "fixture-judge",
-        "valid": True,
-        "explanation": "The requirement is met.",
-        "criterion_status": "MET",
-        "raw_output": '{"criterion_status":"MET"}',
-    }
+    verdicts = [
+        {
+            "schema": VERDICT_SCHEMA,
+            "case_id": 1,
+            "criterion_id": "c1",
+            "sequence": sequence,
+            "producer_type": "model",
+            "producer_id": "fixture-judge",
+            "valid": True,
+            "explanation": "The requirement is met.",
+            "criterion_status": "MET",
+            "raw_output": '{"criterion_status":"MET"}',
+        }
+        for sequence in range(1, 6)
+    ]
     criterion = await _call(
         node,
-        SMOKE_CRITERION_EVALUATION_ROUTE,
+        CRITERION_EVALUATION_ROUTE,
         {
             "case": json.dumps(case),
             "check": json.dumps(check),
-            "evidence_1": json.dumps(verdict),
+            **{
+                f"evidence_{sequence}": json.dumps(verdict)
+                for sequence, verdict in enumerate(verdicts, 1)
+            },
         },
         "1",
     )
 
-    result = await _call(node, SMOKE_CASE_EVALUATION_ROUTE, [criterion], "1")
+    result = await _call(node, CASE_EVALUATION_ROUTE, [criterion], "1")
 
     assert result == {
         "schema": CASE_EVALUATION_SCHEMA,
         "case": case,
         "checks": [check],
-        "evidence": [verdict],
+        "evidence": verdicts,
     }
 
 
@@ -169,38 +173,38 @@ def test_install_fails_atomically_when_assets_are_missing(tmp_path: Path) -> Non
     node = Url4Node("test")
 
     with pytest.raises(ResolutionError, match="could not read DRACO cases"):
-        install_smoke(node, tmp_path)
+        install(node, tmp_path)
 
-    assert SMOKE_CASES_ROUTE not in node.processor_routes()
+    assert CASES_ROUTE not in node.processor_routes()
 
 
 def test_canonical_install_rejects_a_truncated_case_set_atomically(tmp_path: Path) -> None:
-    _smoke_assets(tmp_path)
+    _one_case_assets(tmp_path)
     node = Url4Node("test")
 
-    with pytest.raises(ResolutionError, match="expected 100 DRACO cases"):
-        install_canonical(node, tmp_path)
+    with pytest.raises(ResolutionError, match="expected 100 canonical DRACO cases"):
+        install(node, tmp_path)
 
     assert CASES_ROUTE not in node.processor_routes()
 
 
 def test_asset_validation_rejects_duplicate_case_ids(tmp_path: Path) -> None:
-    _smoke_assets(tmp_path)
+    _one_case_assets(tmp_path)
     cases = [{"id": 1, "input": "Question"}, {"id": 1, "input": "Duplicate"}]
 
     with pytest.raises(ValueError, match="repeats case_id 1"):
-        draco_assets.validate_protocol_assets(tmp_path, cases, None, "all")
+        draco_assets.validate_protocol_assets(tmp_path, cases)
 
 
 def test_asset_validation_rejects_empty_case_input(tmp_path: Path) -> None:
-    _smoke_assets(tmp_path)
+    _one_case_assets(tmp_path)
 
     with pytest.raises(ValueError, match="non-empty input"):
-        draco_assets.validate_protocol_assets(tmp_path, [{"id": 1, "input": ""}], None, "all")
+        draco_assets.validate_protocol_assets(tmp_path, [{"id": 1, "input": ""}])
 
 
 def test_asset_validation_rejects_an_empty_canonical_rubric(tmp_path: Path) -> None:
-    _smoke_assets(tmp_path)
+    _one_case_assets(tmp_path)
     (tmp_path / "criteria" / "1.json").write_text("[]", encoding="utf-8")
     (tmp_path / "rubrics" / "1.json").write_text('{"sections":[]}', encoding="utf-8")
 
@@ -208,6 +212,4 @@ def test_asset_validation_rejects_an_empty_canonical_rubric(tmp_path: Path) -> N
         draco_assets.validate_protocol_assets(
             tmp_path,
             [{"id": 1, "input": "Question"}],
-            None,
-            "all",
         )

@@ -4,6 +4,7 @@ status: accepted
 created: 2026-08-06
 revised: 2026-08-07 (r2 — contract decisions forced by the branch review of the implementation)
 ticket: OME-712
+superseded_in_part_by: OME-836
 related:
   - docs/plan/2026-08-06-OME-712-engine-benchmark-foundation.md
   - docs/work/2026-08-06-OME-712-engine-benchmark-foundation.md
@@ -11,6 +12,10 @@ related:
 ---
 
 # Engine benchmark foundation
+
+> Historical decision record. OME-836 supersedes the public benchmark identity and `variant`
+> portions of this specification; see
+> `docs/spec/2026-08-14-OME-836-flat-benchmark-identities.md` for the current contract.
 
 ## Purpose
 

@@ -36,7 +36,7 @@ def test_the_grader_template_is_byte_pinned() -> None:
 
 
 def test_the_exam_is_registered_under_its_id() -> None:
-    assert BUILTIN_BENCHMARKS.get("healthbench/worst30") is HEALTHBENCH_WORST30
+    assert BUILTIN_BENCHMARKS.get("healthbench-worst30") is HEALTHBENCH_WORST30
 
 
 def test_the_subset_is_the_frozen_157() -> None:

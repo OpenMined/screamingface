@@ -24,7 +24,6 @@ _BENCHMARK_URL4 = render(
 _BENCHMARK = {
     "schema": "screamingface.benchmark.v1",
     "id": "fixture",
-    "variant": "canonical",
     "title": "Fixture",
     "description": "Fixture Benchmark.",
     "revision": "fixture-revision",

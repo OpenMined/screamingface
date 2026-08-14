@@ -13,15 +13,14 @@ def _whole_candidate_benchmark():
     return _decode_benchmark_resource(
         {
             "schema": "screamingface.benchmark.v1",
-            "id": "fixture@1",
-            "variant": "canonical",
+            "id": "fixture",
             "title": "Fixture",
             "description": "One whole-Candidate fixture.",
             "revision": "fixture-revision",
             "case_count": 1,
             "url4": "(answer:0.0:/candidate?q=(question)!'$candidate')!'$answer'",
         },
-        requested_id="fixture@1",
+        requested_id="fixture",
         requested_limit=1,
     )
 
@@ -259,15 +258,14 @@ def test_structural_member_benchmark_rejects_a_pipeline_before_execution() -> No
     structural = _decode_benchmark_resource(
         {
             "schema": "screamingface.benchmark.v1",
-            "id": "fixture@1",
-            "variant": "structural",
+            "id": "fixture",
             "title": "Structural fixture",
             "description": "Requires direct Fusion members.",
             "revision": "fixture-revision",
             "case_count": 1,
             "url4": "(answer:0.0:/candidate?q=(question)!'$candidate_member_1')!'$answer'",
         },
-        requested_id="fixture@1",
+        requested_id="fixture",
         requested_limit=1,
     )
     pipeline = sf.Pipeline([sf.Model("provider/a"), sf.Model("provider/b")])

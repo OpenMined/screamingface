@@ -56,7 +56,7 @@ async def list_benchmarks(
 
 
 @router.get(
-    "/v1/benchmarks/{benchmark_id:path}",
+    "/v1/benchmarks/{benchmark_id}",
     tags=["Catalog"],
     summary="Fetch one Engine-owned Benchmark expression",
 )

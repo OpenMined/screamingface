@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import NoReturn
 
+from screamingface._benchmark_identity import benchmark_id as _benchmark_id
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
 from screamingface._ui.catalog import _ModelCatalog
@@ -16,7 +17,6 @@ from screamingface.errors import PlanningError
 @dataclass(frozen=True, slots=True)
 class _BenchmarkEntry:
     id: str
-    variant: str
     title: str
     description: str
     revision: str
@@ -121,8 +121,7 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
     if isinstance(case_count, bool) or not isinstance(case_count, int) or case_count < 1:
         _catalog_invalid("Benchmark case_count must be a positive integer")
     return _BenchmarkEntry(
-        id=_wire_text(item.get("id"), "Benchmark id", _catalog_invalid),
-        variant=_wire_text(item.get("variant"), "Benchmark variant", _catalog_invalid),
+        id=_benchmark_id(_wire_text(item.get("id"), "Benchmark id", _catalog_invalid)),
         title=_wire_text(item.get("title"), "Benchmark title", _catalog_invalid),
         description=_wire_text(item.get("description"), "Benchmark description", _catalog_invalid),
         revision=_wire_text(item.get("revision"), "Benchmark revision", _catalog_invalid),

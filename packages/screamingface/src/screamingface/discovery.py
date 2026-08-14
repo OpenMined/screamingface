@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
 
+from screamingface._benchmark_identity import benchmark_id as _benchmark_id
+
 
 @dataclass(frozen=True, slots=True)
 class ModelInfo:
@@ -235,12 +237,12 @@ class BenchmarkInfo:
     case_count: int
 
     def __post_init__(self) -> None:
-        for name in ("id", "revision"):
-            object.__setattr__(
-                self,
-                name,
-                _nonblank(getattr(self, name), f"Benchmark {name}"),
-            )
+        object.__setattr__(self, "id", _benchmark_id(self.id))
+        object.__setattr__(
+            self,
+            "revision",
+            _nonblank(self.revision, "Benchmark revision"),
+        )
         if (
             isinstance(self.case_count, bool)
             or not isinstance(self.case_count, int)
@@ -267,14 +269,14 @@ class Benchmark:
     """Discoverable identity and provenance for one Engine-owned Benchmark."""
 
     id: str
-    variant: str
     title: str
     description: str
     revision: str
     case_count: int
 
     def __post_init__(self) -> None:
-        for name in ("id", "variant", "title", "description", "revision"):
+        object.__setattr__(self, "id", _benchmark_id(self.id))
+        for name in ("title", "description", "revision"):
             object.__setattr__(self, name, _nonblank(getattr(self, name), f"Benchmark {name}"))
         if (
             isinstance(self.case_count, bool)

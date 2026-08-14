@@ -71,42 +71,6 @@ def test_axis_pass_rates_are_unweighted_per_section() -> None:
     assert rates == {"Factual Accuracy": 2 / 3, "Presentation": 1.0}
 
 
-def test_axis_balanced_selection_round_robins_across_rubric_sections() -> None:
-    rubric = {
-        "sections": [
-            {
-                "id": axis,
-                "criteria": [
-                    {"id": f"{axis}{index}", "weight": 1, "requirement": "x"}
-                    for index in range(1, 5)
-                ],
-            }
-            for axis in ("a", "b", "c", "d")
-        ]
-    }
-
-    selected = scoring.select_criteria(rubric, 10, "axis-balanced")
-
-    assert [criterion["id"] for criterion in selected] == [
-        "a1",
-        "b1",
-        "c1",
-        "d1",
-        "a2",
-        "b2",
-        "c2",
-        "d2",
-        "a3",
-        "b3",
-    ]
-    assert {axis: sum(criterion["axis"] == axis for criterion in selected) for axis in "abcd"} == {
-        "a": 3,
-        "b": 3,
-        "c": 2,
-        "d": 2,
-    }
-
-
 def test_an_unjudged_criterion_drops_out_of_both_numerator_and_denominator() -> None:
     judged = {"a1": True, "a3": False, "b1": True}
 

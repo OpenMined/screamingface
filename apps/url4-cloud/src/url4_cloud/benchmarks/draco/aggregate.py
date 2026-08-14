@@ -108,7 +108,6 @@ def aggregate(
     selected_cases: Sequence[Mapping[str, Any]],
     judge_passes: int = JUDGE_PASSES,
     benchmark_revision: str = REVISION,
-    criterion_count: int | None = None,
 ) -> dict[str, Any]:
     """Reduce the row array into a Candidate Result — one row per Case.
 
@@ -128,12 +127,6 @@ def aggregate(
         raise AggregateError(f"reducer payload must be a JSON array, got {type(rows).__name__}")
     if isinstance(judge_passes, bool) or not isinstance(judge_passes, int) or judge_passes < 1:
         raise AggregateError("judge_passes must be a positive integer")
-    if criterion_count is not None and (
-        isinstance(criterion_count, bool)
-        or not isinstance(criterion_count, int)
-        or criterion_count < 1
-    ):
-        raise AggregateError("criterion_count must be a positive integer or None")
     expected_cases = _validate_selected_cases(selected_cases)
     if len(rows) > len(expected_cases):
         raise AggregateError(
@@ -150,7 +143,7 @@ def aggregate(
 
     decoded_rows = _decode_rows(rows, expected_cases, judge_passes)
     _require_verifiable_mapping(decoded_rows)
-    case_results = _aggregate_rows(decoded_rows, rubrics, judge_passes, criterion_count)
+    case_results = _aggregate_rows(decoded_rows, rubrics, judge_passes)
     return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
@@ -212,7 +205,6 @@ def _aggregate_rows(
     decoded_rows: Sequence[_DecodedRow],
     rubrics: Mapping[int, Mapping[str, Any]],
     judge_passes: int,
-    criterion_count: int | None,
 ) -> list[CaseResult]:
     case_results: list[CaseResult] = []
     for index, row in enumerate(decoded_rows):
@@ -260,7 +252,6 @@ def _aggregate_rows(
                     row.checks,
                     row.evidence,
                     judge_passes,
-                    criterion_count,
                     failure,
                 )
             )
@@ -273,7 +264,6 @@ def _aggregate_rows(
                 row.evidence,
                 verdicts,
                 judge_passes,
-                criterion_count,
             )
         )
     return case_results

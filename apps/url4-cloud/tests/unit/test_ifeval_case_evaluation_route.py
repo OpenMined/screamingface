@@ -124,7 +124,6 @@ def test_canonical_ifeval_reproduces_the_paper_protocol() -> None:
     url4 = resource["url4"]
     assert isinstance(url4, str)
 
-    assert IFEVAL.variant == "canonical"
     assert url4.count("/candidate") == 1
     assert url4.count(CHECK_ROUTE) == 1
     assert "!'aggregate:1'" in url4

@@ -22,6 +22,7 @@ from url4 import (
 )
 from url4.core.nodes import children
 
+from screamingface._benchmark_identity import benchmark_id as _flat_benchmark_id
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
 from screamingface._evaluation.topology import (
     _RecipeTopology,
@@ -459,7 +460,7 @@ def _benchmark_id(root: Node) -> str | None:
             continue
         components = match.group(1).split("/")
         if len(components) >= 2:
-            return "/".join(components[:-1])
+            return _flat_benchmark_id("/".join(components[:-1]))
     return None
 
 

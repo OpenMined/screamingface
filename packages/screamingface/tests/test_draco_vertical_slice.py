@@ -102,7 +102,6 @@ def _draco_url4() -> str:
 BENCHMARK: dict[str, object] = {
     "schema": "screamingface.benchmark.v1",
     "id": "draco",
-    "variant": "canonical",
     "title": "DRACO",
     "description": "Fixture DRACO Benchmark.",
     "revision": "fixture-revision",
@@ -674,20 +673,30 @@ def test_benchmark_reader_rejects_transport_and_integrity_failures() -> None:
             BenchmarkResources(http).load("draco", 1)
 
 
+def test_benchmark_reader_rejects_hierarchical_ids_before_http() -> None:
+    def unexpected(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("flat-id validation must happen before HTTP")
+
+    with httpx.Client(
+        base_url="https://engine.example",
+        transport=httpx.MockTransport(unexpected),
+    ) as http:
+        with pytest.raises(sf.PlanningError, match="flat lowercase identifier") as caught:
+            BenchmarkResources(http).load("nested/benchmark", 1)
+
+    assert caught.value.code == "invalid_benchmark_selection"
+
+
 def test_benchmark_decoder_rejects_required_field_boundaries() -> None:
     bad_revision = deepcopy(BENCHMARK)
     bad_revision["revision"] = ""
     bad_count = deepcopy(BENCHMARK)
     bad_count["case_count"] = 0
-    bad_variant = deepcopy(BENCHMARK)
-    bad_variant["variant"] = ""
-
     invalid_values: tuple[object, ...] = (
         [],
         {},
         bad_revision,
         bad_count,
-        bad_variant,
     )
     for value in invalid_values:
         with pytest.raises(sf.PlanningError):

@@ -48,14 +48,12 @@ pytestmark = pytest.mark.asyncio
 
 def _benchmark(
     *,
-    benchmark_id: str = "example/smoke",
-    variant: str = "smoke",
+    benchmark_id: str = "example-smoke",
     install: BenchmarkInstaller | None = None,
     build_protocol: Callable[[int], Node] | None = None,
 ) -> Benchmark:
     values = {
         "id": benchmark_id,
-        "variant": variant,
         "title": "Example Smoke",
         "description": "One non-comparable structural probe.",
         "revision": "example-smoke-v1",
@@ -107,25 +105,24 @@ async def test_list_is_complete_metadata_and_detail_is_an_exact_selection() -> N
     )
 
     catalog = (await _get(app, "/v1/benchmarks")).json()
-    detail = (await _get(app, "/v1/benchmarks/example/smoke?limit=1")).json()
+    detail = (await _get(app, "/v1/benchmarks/example-smoke?limit=1")).json()
 
     assert catalog == {
         "object": "list",
         "data": [
             {
                 "object": "benchmark",
-                "id": "example/smoke",
-                "variant": "smoke",
+                "id": "example-smoke",
                 "title": "Example Smoke",
                 "description": "One non-comparable structural probe.",
                 "revision": "example-smoke-v1",
                 "case_count": 3,
-                "href": "/v1/benchmarks/example/smoke",
+                "href": "/v1/benchmarks/example-smoke",
             }
         ],
     }
     assert detail["schema"] == "screamingface.benchmark.v1"
-    assert detail["id"] == "example/smoke"
+    assert detail["id"] == "example-smoke"
     assert detail["case_count"] == 3
     assert detail["selected_case_count"] == 1
     assert CANDIDATE_ROUTE in detail["url4"]
@@ -152,8 +149,8 @@ async def test_detail_rejects_clamping_and_invalid_limits() -> None:
         benchmarks=BenchmarkRegistry((benchmark,)),
     )
 
-    too_large = await _get(app, "/v1/benchmarks/example/smoke?limit=4")
-    empty = await _get(app, "/v1/benchmarks/example/smoke?limit=0")
+    too_large = await _get(app, "/v1/benchmarks/example-smoke?limit=4")
+    empty = await _get(app, "/v1/benchmarks/example-smoke?limit=0")
 
     assert too_large.status_code == 422
     assert too_large.headers["content-type"].startswith("application/problem+json")
@@ -170,11 +167,11 @@ async def test_detail_supports_entity_specific_conditional_reads() -> None:
         stream=InMemoryEventStream(),
         benchmarks=registry,
     )
-    full = await _get(app, "/v1/benchmarks/example/smoke")
-    limited = await _get(app, "/v1/benchmarks/example/smoke?limit=1")
+    full = await _get(app, "/v1/benchmarks/example-smoke")
+    limited = await _get(app, "/v1/benchmarks/example-smoke?limit=1")
     repeated = await _get(
         app,
-        "/v1/benchmarks/example/smoke?limit=1",
+        "/v1/benchmarks/example-smoke?limit=1",
         headers={"If-None-Match": limited.headers["etag"]},
     )
 
@@ -185,10 +182,10 @@ async def test_detail_supports_entity_specific_conditional_reads() -> None:
 
 @pytest.mark.parametrize(
     "benchmark_id",
-    ("draco:smoke", "/draco/smoke", "draco//smoke", "draco/smoke/", "DRACO/smoke"),
+    ("nested:value", "/nested", "nested/benchmark", "nested/", "NESTED"),
 )
-async def test_benchmark_ids_reject_noncanonical_variant_spellings(benchmark_id: str) -> None:
-    with pytest.raises(ValueError, match="slash-qualified"):
+async def test_benchmark_ids_are_one_flat_lowercase_identifier(benchmark_id: str) -> None:
+    with pytest.raises(ValueError, match="one lowercase identifier"):
         _benchmark(benchmark_id=benchmark_id)
 
 
@@ -225,8 +222,8 @@ async def test_registry_installs_every_concrete_definition_even_with_one_install
 
     registry = BenchmarkRegistry(
         (
-            _benchmark(benchmark_id="example/a", variant="a", install=install),
-            _benchmark(benchmark_id="example/b", variant="b", install=install),
+            _benchmark(benchmark_id="example-a", install=install),
+            _benchmark(benchmark_id="example-b", install=install),
         )
     )
     node = Url4Node("test")
@@ -243,8 +240,8 @@ async def test_duplicate_benchmark_routes_fail_installation() -> None:
 
     registry = BenchmarkRegistry(
         (
-            _benchmark(benchmark_id="example/a", variant="a", install=install),
-            _benchmark(benchmark_id="example/b", variant="b", install=install),
+            _benchmark(benchmark_id="example-a", install=install),
+            _benchmark(benchmark_id="example-b", install=install),
         )
     )
     node = Url4Node("test")
@@ -984,7 +981,7 @@ async def test_detail_resource_publishes_the_candidate_binding() -> None:
         benchmarks=BenchmarkRegistry((_benchmark(),)),
     )
 
-    detail = (await _get(app, "/v1/benchmarks/example/smoke")).json()
+    detail = (await _get(app, "/v1/benchmarks/example-smoke")).json()
 
     assert detail["candidate_binding"] == CANDIDATE_BINDING
     assert f"${CANDIDATE_BINDING}" in detail["url4"]

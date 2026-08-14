@@ -66,7 +66,6 @@ def _benchmarks(_: httpx.Request) -> httpx.Response:
                 {
                     "id": "draco",
                     "object": "benchmark",
-                    "variant": "canonical",
                     "title": "DRACO",
                     "description": "The 100-task deep-research benchmark.",
                     "revision": "rev0000000000000",
@@ -108,6 +107,13 @@ def test_explicit_client_lists_typed_models_and_benchmarks() -> None:
     assert [benchmark.id for benchmark in benchmarks] == ["draco"]
     assert benchmarks[0].title == "DRACO"
     assert benchmarks[0].case_count == 100
+
+
+def test_benchmark_lookup_normalizes_flat_ids_and_rejects_hierarchies() -> None:
+    with _sync_client(_benchmarks) as client:
+        assert client.benchmarks.get(" draco ").id == "draco"
+        with pytest.raises(ValueError, match="one flat lowercase identifier"):
+            client.benchmarks.get("nested/benchmark")
 
 
 @pytest.mark.asyncio
@@ -182,7 +188,6 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
                     {
                         "id": "draco",
                         "object": "benchmark",
-                        "variant": "canonical",
                         "title": "D",
                         "description": "d",
                         "revision": "r",
@@ -192,7 +197,6 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
                     {
                         "id": "draco",
                         "object": "benchmark",
-                        "variant": "canonical",
                         "title": "D",
                         "description": "d",
                         "revision": "r",
@@ -211,7 +215,6 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
                     {
                         "id": "draco",
                         "object": "benchmark",
-                        "variant": "canonical",
                         "title": "D",
                         "description": "d",
                         "revision": "r",
@@ -221,6 +224,24 @@ def test_module_catalogues_delegate_to_the_lazy_default_client(monkeypatch: Any)
                 ],
             },
             "case_count",
+        ),
+        (
+            "/v1/benchmarks",
+            {
+                "object": "list",
+                "data": [
+                    {
+                        "id": "nested/benchmark",
+                        "object": "benchmark",
+                        "title": "D",
+                        "description": "d",
+                        "revision": "r",
+                        "case_count": 1,
+                        "href": "/v1/benchmarks/nested/benchmark",
+                    }
+                ],
+            },
+            "one flat lowercase identifier",
         ),
     ],
 )

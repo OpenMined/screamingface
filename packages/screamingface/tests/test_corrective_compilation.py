@@ -186,7 +186,7 @@ def test_compiling_without_a_check_surface_fails_before_rendering() -> None:
 
 def test_the_topology_rider_carries_the_loop_identity() -> None:
     # INVARIANT (leaderboard identity): a client-compiled loop has no
-    # benchmark-variant revision — the topology rider IS how a run record
+    # separate Benchmark identity or revision — the topology rider IS how a run record
     # self-identifies: kind, members, judge, cost cap, the check route
     # compiled against (carrying the benchmark revision), and the loop
     # protocol revision.

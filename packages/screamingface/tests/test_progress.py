@@ -268,7 +268,7 @@ def test_candidate_model_identity_reaches_builtin_progress(
         None,
         True,
         total_candidates=1,
-        benchmark="draco/smoke",
+        benchmark="draco",
         candidate_models=("openrouter/anthropic/claude-opus-4.8",),
         candidate_urls=("(@)!'candidate'",),
     )

@@ -25,7 +25,7 @@ def _cases() -> tuple[sf.CaseResult, ...]:
 
 def test_pipeline_result_preserves_its_kind_and_serial_operation_dependencies() -> None:
     benchmark = sf.BenchmarkInfo(
-        id="ifeval@1",
+        id="ifeval",
         revision="fixture-revision",
         case_count=1,
     )
@@ -72,7 +72,7 @@ def test_pipeline_result_preserves_its_kind_and_serial_operation_dependencies() 
 
 def test_pipeline_result_cannot_claim_direct_fusion_members() -> None:
     benchmark = sf.BenchmarkInfo(
-        id="ifeval@1",
+        id="ifeval",
         revision="fixture-revision",
         case_count=1,
     )

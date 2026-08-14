@@ -34,7 +34,6 @@ def _resource_payload(check_surface: object = None) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema": "screamingface.benchmark.v1",
         "id": "ifeval",
-        "variant": "canonical",
         "title": "IFEval",
         "description": "the benchmark",
         "revision": "abc123",

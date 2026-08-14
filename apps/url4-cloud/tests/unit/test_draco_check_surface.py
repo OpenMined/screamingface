@@ -26,13 +26,11 @@ from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.contract import encode_candidate_invocation
-from url4_cloud.benchmarks.draco.check_policy import CHECK_THRESHOLD, draco_check
+from url4_cloud.benchmarks.draco.check_policy import CHECK_THRESHOLD, DRACO_CHECK
 from url4_cloud.benchmarks.draco.definition import (
     CHECK_CRITERION,
     CHECK_SURFACE_ROUTE,
     DRACO,
-    DRACO_LITE,
-    DRACO_SMOKE,
     JUDGE_MODEL,
 )
 from url4_cloud.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
@@ -78,9 +76,6 @@ def _assets(root: Path) -> None:
 def _node(
     tmp_path: Path,
     replies: list[str],
-    *,
-    criterion_count: int | None = None,
-    selection: str = "all",
 ) -> tuple[Url4Node, list[Request]]:
     _assets(tmp_path)
     node = Url4Node("test")
@@ -95,7 +90,7 @@ def _node(
         check_surface(
             node,
             tmp_path / "draco",
-            draco_check(criterion_count=criterion_count, selection=selection),  # type: ignore[arg-type]
+            DRACO_CHECK,
         )
     )
     return node, seen
@@ -440,46 +435,24 @@ async def test_an_unknown_intent_is_rejected(tmp_path: Path) -> None:
         )
 
 
-# --- variant criterion selection --------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a_variant_checks_only_the_criteria_it_grades_with(tmp_path: Path) -> None:
-    # INVARIANT: lite/smoke grade a criterion SUBSET. Checking against the full
-    # rubric would make mid-run satisfaction and the final score incomparable, so
-    # the check uses each variant's own selection.
-    node, seen = _node(
-        tmp_path,
-        [json.dumps([{"id": 1, "status": "MET"}, {"id": 2, "status": "MET"}])],
-        criterion_count=2,
-        selection="axis-balanced",
-    )
-    record = await _check(node, "an answer")
-    prompt = seen[0].context
-    assert prompt.count("MUST") + prompt.count("SHOULD") == 2
-    # Both judged criteria met -> a full score over the judged subset only.
-    assert record["satisfaction"] == 1.0
-
-
 # --- the advertised manifest block ------------------------------------------------
 
 
-def test_every_draco_variant_advertises_a_paid_check_surface() -> None:
-    for benchmark in (DRACO, DRACO_LITE, DRACO_SMOKE):
-        surface = benchmark.check_surface
-        assert surface is not None, benchmark.id
-        assert surface.expected_check_cost == "paid"
-        assert surface.feedback_intent == "feedback"
-        # The pass criterion is protocol semantics, so it rides in the route: a
-        # different criterion is a different route, visible in every compiled url4.
-        assert surface.check_route.endswith(f"/check-surface/{CHECK_CRITERION}")
-        assert benchmark.revision in surface.check_route
+def test_draco_advertises_a_paid_check_surface() -> None:
+    surface = DRACO.check_surface
+    assert surface is not None
+    assert surface.expected_check_cost == "paid"
+    assert surface.feedback_intent == "feedback"
+    # The pass criterion is protocol semantics, so it rides in the route: a
+    # different criterion is a different route, visible in every compiled url4.
+    assert surface.check_route.endswith(f"/check-surface/{CHECK_CRITERION}")
+    assert DRACO.revision in surface.check_route
 
 
 def test_the_resource_publishes_the_check_surface_block() -> None:
-    surface = DRACO_SMOKE.check_surface
+    surface = DRACO.check_surface
     assert surface is not None
-    resource = DRACO_SMOKE.resource(limit=1)
+    resource = DRACO.resource(limit=1)
     assert resource["check_surface"] == {
         "check_route": surface.check_route,
         "feedback_intent": "feedback",

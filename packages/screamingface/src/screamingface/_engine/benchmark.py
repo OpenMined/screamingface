@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 import httpx
 
+from screamingface._benchmark_identity import benchmark_id as _flat_benchmark_id
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._evaluation.benchmark import (
     _BenchmarkResource,
@@ -28,7 +29,7 @@ class BenchmarkResources:
         benchmark_id = _benchmark_id(benchmark)
         try:
             response = self._http.get(
-                f"/v1/benchmarks/{_benchmark_path(benchmark_id)}",
+                f"/v1/benchmarks/{quote(benchmark_id, safe='')}",
                 params=_query(limit),
                 extensions={_REPLAY_SAFE: True},
             )
@@ -59,7 +60,7 @@ class AsyncBenchmarkResources:
         benchmark_id = _benchmark_id(benchmark)
         try:
             response = await self._http.get(
-                f"/v1/benchmarks/{_benchmark_path(benchmark_id)}",
+                f"/v1/benchmarks/{quote(benchmark_id, safe='')}",
                 params=_query(limit),
                 extensions={_REPLAY_SAFE: True},
             )
@@ -84,26 +85,14 @@ def _query(limit: int | None) -> dict[str, int]:
 
 
 def _benchmark_id(value: str) -> str:
-    if not isinstance(value, str):
+    try:
+        return _flat_benchmark_id(value)
+    except (TypeError, ValueError) as exc:
         raise PlanningError(
-            "Benchmark id must contain non-empty slash-separated names",
+            "Benchmark id must be one flat lowercase identifier",
             code="invalid_benchmark_selection",
             permanent=True,
-        )
-    parts = value.split("/")
-    if any(not part.strip() or part in {".", ".."} for part in parts):
-        raise PlanningError(
-            "Benchmark id must contain non-empty slash-separated names",
-            code="invalid_benchmark_selection",
-            permanent=True,
-        )
-    return value
-
-
-def _benchmark_path(benchmark_id: str) -> str:
-    """Encode names within an Engine path while preserving Benchmark hierarchy."""
-
-    return "/".join(quote(part, safe="") for part in benchmark_id.split("/"))
+        ) from exc
 
 
 def _json(response: httpx.Response) -> object:

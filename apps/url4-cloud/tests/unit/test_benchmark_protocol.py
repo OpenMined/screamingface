@@ -10,11 +10,41 @@ import pytest
 from url4 import RelExpr, Text, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
+from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 from url4_cloud.benchmarks.definition import Benchmark
-from url4_cloud.benchmarks.draco.definition import DRACO
+from url4_cloud.benchmarks.draco.definition import DRACO, JUDGE_MODEL
 from url4_cloud.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 from url4_cloud.benchmarks.protocol import build_evaluation_protocol
+
+
+def test_public_catalogue_contains_exactly_the_three_product_benchmarks() -> None:
+    assert tuple(benchmark.id for benchmark in BUILTIN_BENCHMARKS) == (
+        "draco",
+        "healthbench-worst30",
+        "ifeval",
+    )
+
+
+def test_canonical_draco_limit_changes_cases_only_not_grading_strength() -> None:
+    full = render(DRACO.build(DRACO.case_count))
+    one_case = render(DRACO.build(1))
+
+    assert DRACO.id == "draco"
+    assert DRACO.case_count == 100
+    assert full.count("/" + JUDGE_MODEL) == 5
+    assert one_case.count("/" + JUDGE_MODEL) == 5
+    assert "iteration.slice=0:1" not in full
+    # Exactly one slice is the outer Case selection; criteria remain unsliced.
+    assert one_case.count("iteration.slice=0:1") == 1
+
+
+def test_canonical_draco_judge_passes_have_stable_independent_cache_slots() -> None:
+    expression = render(DRACO.build(1))
+
+    assert expression.count("web_search=false") == 5
+    for seed in range(1, 6):
+        assert expression.count(f"&seed={seed}") == 1
 
 
 @pytest.mark.asyncio
@@ -88,7 +118,7 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         (IFEVAL, "f8be102aafa71f04939f6d8751b0c8fc20a694a233caea7317176f1827bbed41"),
         (
             HEALTHBENCH_WORST30,
-            "135511db8df1d16d1d1eea6ea90afc1881452b061922d9586bab770a6344f220",
+            "f89d92e3efce7f9f08ad7cef5db16bbbbb68be2d05c5e17a7914a159eba866b9",
         ),
     ),
 )

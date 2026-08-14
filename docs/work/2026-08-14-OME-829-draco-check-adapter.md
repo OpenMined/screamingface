@@ -1,12 +1,16 @@
 ---
 ticket: OME-829
 stack: url4-cloud (+ screamingface notebook rider)
-status: in_progress
+status: done
 started: 2026-08-14
-finished:
+finished: 2026-08-14
 ---
 
 # OME-829 — DRACO check adapter (`draco-pass.v1`): CorrectiveLoop's first paid check surface
+
+> Historical delivery record. OME-836 subsequently retired the DRACO lite/smoke identities and
+> moved the corrective example to the canonical DRACO notebook. The canonical check adapter and
+> its `draco-pass.v1` semantics remain current.
 
 ## Intent
 

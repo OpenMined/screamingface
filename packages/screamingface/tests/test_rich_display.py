@@ -58,14 +58,13 @@ def _benchmarks(_: httpx.Request) -> httpx.Response:
             "object": "list",
             "data": [
                 {
-                    "id": "draco-<lite>",
+                    "id": "draco",
                     "object": "benchmark",
-                    "variant": "lite",
-                    "title": "DRACO <lite>",
+                    "title": "DRACO <benchmark>",
                     "description": "A tiny probe tier.",
                     "revision": "rev0000000000000",
                     "case_count": 30,
-                    "href": "/v1/benchmarks/draco-%3Clite%3E",
+                    "href": "/v1/benchmarks/draco",
                 }
             ],
         },
@@ -95,7 +94,7 @@ def test_catalogues_are_compact_immutable_sequences_with_static_html() -> None:
         sf.ModelInfo(id="anthropic/claude-opus-4.8", provider="anthropic"),
         sf.ModelInfo(id="openrouter/openai/gpt-5.5", provider="openrouter"),
     )
-    assert benchmarks[0].id == "draco-<lite>"
+    assert benchmarks[0].id == "draco"
     assert len(models) == 2
     assert tuple(model.id for model in models) == (
         "anthropic/claude-opus-4.8",
@@ -108,7 +107,7 @@ def test_catalogues_are_compact_immutable_sequences_with_static_html() -> None:
     benchmark_html = cast(Any, benchmarks)._repr_html_()
     assert "anthropic/claude-opus-4.8" in model_html
     assert "openrouter" in model_html
-    assert "draco-&lt;lite&gt;" in benchmark_html
+    assert "DRACO &lt;benchmark&gt;" in benchmark_html
 
 
 def test_catalogue_notebook_search_filters_presentation_not_values(
