@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import os
 import signal
@@ -25,27 +26,44 @@ _HEALTH = {
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="screamingface")
-    parser.add_argument("--data-dir", type=Path, default=default_data_dir())
+    parser.add_argument(
+        "--version", action="version", version=importlib.metadata.version("screamingface")
+    )
+    _add_data_dir(parser, default=default_data_dir())
     commands = parser.add_subparsers(dest="command", required=True)
     up = commands.add_parser("up", help="Start the local runtime")
+    _add_data_dir(up)
     up.add_argument("--foreground", action="store_true")
-    commands.add_parser("down", help="Stop the local runtime")
-    commands.add_parser("status", help="Show local runtime status")
+    down = commands.add_parser("down", help="Stop the local runtime")
+    _add_data_dir(down)
+    status = commands.add_parser("status", help="Show local runtime status")
+    _add_data_dir(status)
     logs = commands.add_parser("logs", help="Read local runtime logs")
+    _add_data_dir(logs)
     logs.add_argument("--tail", type=int, default=100)
     logs.add_argument("--no-follow", action="store_true")
     prepare = commands.add_parser("prepare", help="Download benchmark assets")
+    _add_data_dir(prepare)
     prepare.add_argument("benchmark", nargs="?", choices=("draco", "ifeval", "healthbench"))
     prepare.add_argument("--all", action="store_true", dest="all_benchmarks")
     serve = commands.add_parser("_serve", help=argparse.SUPPRESS)
+    _add_data_dir(serve)
     serve.add_argument("--owner-token", required=True)
-    commands.add_parser("_scoreboard", help=argparse.SUPPRESS)
+    scoreboard = commands.add_parser("_scoreboard", help=argparse.SUPPRESS)
+    _add_data_dir(scoreboard)
     commands._choices_actions = [  # noqa: SLF001
         action
         for action in commands._choices_actions  # noqa: SLF001
         if action.dest not in {"_serve", "_scoreboard"}
     ]
     return parser
+
+
+def _add_data_dir(parser: argparse.ArgumentParser, *, default: Path | None = None) -> None:
+    if default is None:
+        parser.add_argument("--data-dir", type=Path, default=argparse.SUPPRESS)
+    else:
+        parser.add_argument("--data-dir", type=Path, default=default)
 
 
 def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
@@ -68,7 +86,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
             from screamingface._runtime.server import run_scoreboard
 
             run_scoreboard(config)
-    except RuntimeError as exc:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         raise SystemExit(f"screamingface: {exc}") from None
 
 
@@ -282,7 +300,18 @@ def _read_state(config: RuntimeConfig) -> dict[str, object] | None:
 
 
 def _write_state(config: RuntimeConfig, pid: int, token: str) -> None:
-    config.state_path.write_text(json.dumps({"pid": pid, "owner_token": token}) + "\n")
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    temporary = config.state_path.with_name(f".{config.state_path.name}.{os.getpid()}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps({"pid": pid, "owner_token": token}) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, config.state_path)
+        config.state_path.chmod(0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _remove_owned_state(config: RuntimeConfig, token: str) -> None:

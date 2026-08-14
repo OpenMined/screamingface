@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,13 @@ def test_parser_exposes_public_commands() -> None:
         assert parser.parse_args([command]).command == command
 
 
+def test_data_dir_is_accepted_before_or_after_the_command(tmp_path: Path) -> None:
+    parser = cli._parser()
+
+    assert parser.parse_args(["--data-dir", str(tmp_path), "up"]).data_dir == tmp_path
+    assert parser.parse_args(["up", "--data-dir", str(tmp_path)]).data_dir == tmp_path
+
+
 def test_runtime_data_is_user_scoped(tmp_path: Path) -> None:
     config = RuntimeConfig(data_dir=tmp_path)
 
@@ -35,6 +43,17 @@ def test_owned_state_is_removed_but_foreign_state_is_preserved(tmp_path: Path) -
     assert config.state_path.exists()
     cli._remove_owned_state(config, "ours")
     assert not config.state_path.exists()
+
+
+def test_state_is_written_atomically_with_private_permissions(tmp_path: Path) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+
+    cli._write_state(config, 42, "secret")
+
+    assert json.loads(config.state_path.read_text()) == {"pid": 42, "owner_token": "secret"}
+    if os.name != "nt":
+        assert config.state_path.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_logs_rejects_negative_tail(tmp_path: Path) -> None:
