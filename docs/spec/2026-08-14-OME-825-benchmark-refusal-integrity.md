@@ -38,6 +38,9 @@ anyone yet, so there is no consumer to signal (decision: Khoa, 2026-08-14). Only
 LANL variant hash changes; canonical IFEval, DRACO, and HealthBench protocol
 expressions stay byte-identical.
 
+Malformed member records where a non-null `refusal` differs from the checked `answer`
+fail loudly before selection. Selection must never score one text and publish another.
+
 ## 3. Cleanups (no wire change)
 
 - One shared outcome-triple validator (`contract.validate_candidate_outcome`) replaces

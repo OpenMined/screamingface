@@ -632,6 +632,9 @@ def _attempt_member(value: object, index: int) -> dict[str, Any]:
     for name in ("answer", "feedback", "finish_reason", "refusal"):
         if name not in member:
             raise _unavailable(f"Candidate member {index + 1} has no {name}")
+    refusal = member["refusal"]
+    if refusal is not None and member["answer"] != refusal:
+        raise _unavailable(f"Candidate member {index + 1} refusal must equal its checked answer")
     return member
 
 

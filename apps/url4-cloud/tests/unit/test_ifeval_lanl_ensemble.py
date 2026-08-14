@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from url4 import RelExpr, Text, build, expr, iterate, ref, render, src, text
+from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import decode_candidate_invocation
 from url4_cloud.benchmarks.ifeval.corrective_policy import (
@@ -345,6 +346,19 @@ async def test_selecting_a_refused_member_carries_its_refusal_marking(tmp_path: 
     assert finish_reason == "stop"
     assert refusal == better  # maximal strict satisfaction still picks it...
     # ...but the refusal marking travels with the selection instead of being erased.
+
+
+@pytest.mark.asyncio
+async def test_selection_rejects_a_refusal_that_differs_from_the_checked_answer(
+    tmp_path: Path,
+) -> None:
+    members = [
+        _member("a", "selected answer", "failed", refusal="different refusal"),
+        _member("b", _FAIL, "failed"),
+    ]
+    node = _node(tmp_path)
+    with pytest.raises(ResolutionError, match="refusal must equal its checked answer"):
+        await _call(node, LANL_SELECT_ROUTE, {"round": members, "tie": []}, "1:1")
 
 
 # --- (2c) the envelope -------------------------------------------------------------

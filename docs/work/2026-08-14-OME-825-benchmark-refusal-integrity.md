@@ -24,7 +24,8 @@ all five findings so refusals are always visible and attributable on the leaderb
 - `apps/url4-cloud/src/url4_cloud/benchmarks/ifeval/iterative_correction.py` — LANL
   member records carry `refusal` from the check record.
 - `apps/url4-cloud/src/url4_cloud/benchmarks/ifeval/runtime.py` — member schema parses
-  `refusal`; `_lanl_select` re-encodes the chosen member's refusal instead of `None`.
+  `refusal`; malformed refusal/answer mismatches fail before selection; `_lanl_select`
+  re-encodes the chosen member's refusal instead of `None`.
 - `apps/url4-cloud/src/url4_cloud/benchmarks/ifeval/corrective_policy.py` — LANL protocol
   revision v2 + LANL_FLOW clause naming refusal carriage.
 - `apps/url4-cloud/src/url4_cloud/benchmarks/contract.py` — shared
@@ -45,6 +46,8 @@ all five findings so refusals are always visible and attributable on the leaderb
 - LANL select: when every member refused, the selected invocation decodes with the
   member's refusal text carried — WHY: selection may choose but must never launder a
   refusal into a scored output.
+- LANL member validation: a refusal differing from the checked answer fails loudly —
+  WHY: selection must never score one text and publish another.
 - Contract: `candidate_coverage` is the single formula (producer and validator agree by
   construction); failed-Case validation unchanged for all real producers.
 - Existing draco/healthbench records suites stay green with identical error messages.
@@ -58,12 +61,13 @@ all five findings so refusals are always visible and attributable on the leaderb
 
 - **Actual files:** as planned, plus test updates: `tests/unit/test_benchmark_foundation.py`
   (null-text refusal placeholder test), `tests/unit/test_ifeval_lanl_ensemble.py`
-  (refusal-carrying selection test + member fixture gains `refusal`),
+  (refusal-carrying selection and mismatch-rejection tests + member fixture gains `refusal`),
   `tests/unit/test_ifeval_member_shape.py` (fixture gains `refusal`),
   `tests/unit/test_ifeval_unscored_results.py` (failure stage pinned to `grading` with WHY).
-- **Commits:** one commit on `OME-825-benchmark-refusal-integrity` (PR carries the sha).
-- **Gates:** ruff check + format clean; pyright 0 errors; layering OK; coverage 92.83%
-  (floor 80); `tests/unit` 1395 passed / 5 skipped (+2 new WHY tests).
+- **Commits:** three commits on `OME-825-benchmark-refusal-integrity`; the third adds the
+  refusal/answer integrity guard found during final review (PR carries the shas).
+- **Gates:** `run_gates.py url4-cloud` green: append-only test check, ruff check +
+  format, pyright, layering, and coverage floor; direct full suite 1407 passed / 5 skipped.
 - **Deviations:** ifeval's dead stage heuristic became a constant `"grading"` with a WHY
   comment (behavior identical — the prefix branch was unreachable); the hand-fed-code
   test now pins `grading` for collected candidate failures. `_record_content`'s drifted
