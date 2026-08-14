@@ -113,14 +113,14 @@ def _check_surface(root: Path):
             raise _unsupported("IFEval check surface", request.intent)
         try:
             payload = json_object(request.context, "IFEval check surface")
-            if set(payload) != {"input", "answer"}:
-                raise ValueError("IFEval check surface context must carry exactly input and answer")
-            prompt = payload["input"]
-            answer = payload["answer"]
-            if not isinstance(prompt, str) or not isinstance(answer, str):
-                raise ValueError("IFEval check surface input and answer must be text")
-            case_id = _case_by_input(root, prompt)
-            _spec, result, violations = _verification(root, case_id, answer)
+            if set(payload) != {"input", "invocation"}:
+                raise ValueError(
+                    "IFEval check surface context must carry exactly input and invocation"
+                )
+            invocation, answer, result, violations = _surface_verification(
+                root,
+                payload,
+            )
         except (KeyError, TypeError, ValueError) as exc:
             raise _unavailable(str(exc)) from exc
         strict = result["strict"]
@@ -140,10 +140,25 @@ def _check_surface(root: Path):
             "satisfaction": satisfaction,
             "feedback": feedback,
             "answer": answer,
+            "invocation": invocation,
         }
         return compact_json(record)
 
     return check_surface
+
+
+def _surface_verification(
+    root: Path,
+    payload: dict[str, Any],
+) -> tuple[str, str, dict[str, list[bool]], list[str]]:
+    prompt = payload["input"]
+    invocation = payload["invocation"]
+    if not isinstance(prompt, str) or not isinstance(invocation, str):
+        raise ValueError("IFEval check surface input and invocation must be text")
+    answer = candidate_answer(invocation).text
+    case_id = _case_by_input(root, prompt)
+    _spec, result, violations = _verification(root, case_id, answer)
+    return invocation, answer, result, violations
 
 
 def _surface_feedback(record_json: object) -> str:

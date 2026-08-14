@@ -6,7 +6,7 @@ from pathlib import Path
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks import Benchmark, BenchmarkRegistry
 from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
-from url4_cloud.benchmarks.candidate import install_candidate_invocation
+from url4_cloud.benchmarks.candidate_adapter import install_candidate_invocation
 from url4_cloud.benchmarks.draco.definition import JUDGE_MODEL
 from url4_cloud.benchmarks.ensemble import install_corrective_runtime
 

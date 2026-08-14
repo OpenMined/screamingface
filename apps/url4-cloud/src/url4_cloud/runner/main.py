@@ -21,7 +21,7 @@ from url4_cloud import job_env
 from url4_cloud.adapters.jetstream import JetStreamPublisher
 from url4_cloud.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
 from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
-from url4_cloud.benchmarks.candidate import install_candidate_invocation
+from url4_cloud.benchmarks.candidate_adapter import install_candidate_invocation
 from url4_cloud.benchmarks.ensemble import install_corrective_runtime
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 from url4_cloud.runner.executor import Url4Executor, World, deny_by_default_world

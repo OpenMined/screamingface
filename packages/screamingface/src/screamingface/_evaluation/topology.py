@@ -74,43 +74,93 @@ def _topology_bindings(value: _RecipeTopology) -> dict[str, _TopologyBinding]:
     replay decoding and validation must agree by construction.
     """
 
-    selected: dict[str, _TopologyBinding] = {}
+    return _TopologyWalker().walk(value)
 
-    def visit(
+
+class _TopologyWalker:
+    """Resolve model leaves and their two dependency projections."""
+
+    def __init__(self) -> None:
+        self._selected: dict[str, _TopologyBinding] = {}
+
+    def walk(self, value: _RecipeTopology) -> dict[str, _TopologyBinding]:
+        self._visit(value, (), ())
+        return self._selected
+
+    def _visit(
+        self,
         node: _RecipeTopology,
         context: tuple[str, ...],
         operations: tuple[str, ...],
     ) -> None:
         if node.kind == "model":
-            entry = _TopologyBinding(node, context, operations)
-            previous = selected.setdefault(node.binding, entry)
-            if previous != entry:
-                raise ValueError("Evaluation URL4 has conflicting Recipe topology metadata")
-            return
-        if node.kind == "pipeline":
-            stage_context, stage_operations = context, operations
-            for stage in node.stages:
-                visit(stage, stage_context, stage_operations)
-                stage_context = (stage.binding,)
-                stage_operations = (stage.binding,)
-            return
-        if node.kind in {"corrective_loop", "self_corrective"}:
-            # WHY: replay decoding rejects loop candidates before walking (their
-            # gated rounds nest calls the flat call scan cannot see), so reaching
-            # this branch means a consumer forgot that contract.
-            raise ValueError("corrective-loop URL4 replay is not supported yet")
+            self._model(node, context, operations)
+        elif node.kind == "pipeline":
+            self._pipeline(node, context, operations)
+        elif node.kind == "self_corrective":
+            self._visit(node.members[0], context, operations)
+        elif node.kind == "corrective_loop":
+            self._corrective(node, context, operations)
+        else:
+            self._fusion(node, context, operations)
+
+    def _model(
+        self,
+        node: _RecipeTopology,
+        context: tuple[str, ...],
+        operations: tuple[str, ...],
+    ) -> None:
+        entry = _TopologyBinding(node, context, operations)
+        previous = self._selected.setdefault(node.binding, entry)
+        if previous != entry:
+            raise ValueError("Evaluation URL4 has conflicting Recipe topology metadata")
+
+    def _pipeline(
+        self,
+        node: _RecipeTopology,
+        context: tuple[str, ...],
+        operations: tuple[str, ...],
+    ) -> None:
+        stage_context, stage_operations = context, operations
+        for stage in node.stages:
+            self._visit(stage, stage_context, stage_operations)
+            stage_context = (stage.binding,)
+            stage_operations = (stage.binding,)
+
+    def _corrective(
+        self,
+        node: _RecipeTopology,
+        context: tuple[str, ...],
+        operations: tuple[str, ...],
+    ) -> None:
         for member in node.members:
-            visit(member, context, operations)
+            self._visit(member, context, operations)
+        assert node.judge is not None
+        self._visit_reducer(node.judge, node.members, context)
+
+    def _fusion(
+        self,
+        node: _RecipeTopology,
+        context: tuple[str, ...],
+        operations: tuple[str, ...],
+    ) -> None:
+        for member in node.members:
+            self._visit(member, context, operations)
         assert node.synthesizer is not None
-        member_bindings = tuple(member.binding for member in node.members)
-        visit(
-            node.synthesizer,
+        self._visit_reducer(node.synthesizer, node.members, context)
+
+    def _visit_reducer(
+        self,
+        reducer: _RecipeTopology,
+        members: tuple[_RecipeTopology, ...],
+        context: tuple[str, ...],
+    ) -> None:
+        member_bindings = tuple(member.binding for member in members)
+        self._visit(
+            reducer,
             tuple(dict.fromkeys((*context, *member_bindings))),
             member_bindings,
         )
-
-    visit(value, (), ())
-    return selected
 
 
 def _topology_source(value: _RecipeTopology) -> Node:

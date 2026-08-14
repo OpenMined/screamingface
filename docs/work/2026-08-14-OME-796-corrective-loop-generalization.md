@@ -73,23 +73,25 @@ OME-801/802/803/804 extraction PRs) — re-verify every touch point before editi
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** engine — new `apps/url4-cloud/src/url4_cloud/benchmarks/ensemble/`
-  (policy, runtime: gate/select/answer), `ifeval/{definition,runtime,aggregate}.py`
+  (policy plus benchmark-neutral member/role/gate/select/answer/result runtime), shared
+  `benchmarks/invocation.py`, renamed `benchmarks/candidate_adapter.py`,
+  `ifeval/{definition,runtime,aggregate}.py`
   (check-surface adapter, retirement), `benchmarks/{definition,builtins}.py`,
   `runner/main.py`; deleted `ifeval/{iterative_correction,corrective_policy}.py` + 4
   variant-only test files; new `tests/unit/{test_ensemble_corrective,
   test_ifeval_check_surface,test_ifeval_grading_feedback,test_corrective_loop_e2e}.py`
   + `tests/unit/data/*.url4` client-rendered goldens. client — new
   `src/screamingface/corrective.py`, `_evaluation/corrective.py` (loop renderer);
-  extended `recipe/report/_evaluation/{candidate,topology,benchmark,compilation,
+  extended `recipe/report/url4.py`, `_evaluation/{candidate,topology,benchmark,compilation,
   runner,model,url4}.py`, `__init__.py`; notebook 07 rebuilt as the 2×2 grid; new
   `tests/{test_corrective_recipes,test_corrective_compilation,
   test_check_surface_preflight}.py`.
 - **Commits:** `9f47489a` (stage 1, engine), `70627b6c` (stage 2, client),
   `78c1f8a4` (cross-stack e2e + transport goldens). Stage 0 landed separately as
   PR #597 (`OME-826`); this branch is stacked on its head.
-- **Gates:** url4-cloud ALL GREEN (ruff, format, pyright, layering, pytest
-  1405p/5s with cov≥80); screamingface ALL GREEN (ruff, format, pyright, pytest
-  819p/1s with cov≥95, check_notebooks, build, check_distribution). Append-only
+- **Gates:** url4-cloud ALL GREEN (Ruff, format, Pyright, layering, pytest
+  1408p/5s with cov≥80); screamingface ALL GREEN (Ruff, format, Pyright, pytest
+  825p/1s with cov≥95, check_notebooks, build, check_distribution). Append-only
   check skipped deliberately for the plan-approved variant retirement (deleted
   variant tests are named in the stage-1 commit).
 - **Deviations:**
@@ -98,16 +100,17 @@ OME-801/802/803/804 extraction PRs) — re-verify every touch point before editi
      only sees `$input`, so the plan's implied case-addressed check was
      unimplementable; the adapter resolves the case by exact prompt text.
   2. **Engine expression builders NOT lifted** — with the client owning loop
-     compilation they would be dead code; the generic module is only the three
-     pure data→data endpoints + policy. Deletion test applied.
+     compilation they would be dead code; the generic module is a small set of
+     benchmark-neutral invocation/control endpoints + policy. Deletion test applied.
   3. **Ensemble gate/select/answer routes are `/ensemble/corrective/v1/*` wire
      constants** (same class as `/benchmarks/candidate`), not manifest fields —
      the manifest advertises only the benchmark-owned check surface.
   4. **`stop_reason`/`rounds_executed` reporting DEFERRED** — loop internals
      cannot reach the canonical aggregate without a case-evaluation contract
      change; needs its own ticket.
-  5. **URL4 replay of loop artifacts rejected with a named error** — the flat
-     call scan cannot see gated rounds; extension is follow-up work.
+  5. **URL4 replay implemented in this review pass** — executable-call discovery
+     now descends through gated iteration bodies and nested Recipe intents;
+     `Url4.to_python()` and direct `sf.evaluate(url4)` preserve the loop Recipe.
   6. **SelfCorrective gates its rounds (early exit)** — deliberate improvement
      over the retired engine variant's unconditional three attempts.
   7. **Stages 3–4 (DRACO/HealthBench adapters) intentionally NOT in this PR**
@@ -116,3 +119,7 @@ OME-801/802/803/804 extraction PRs) — re-verify every touch point before editi
   8. TDD inverted for the client loop renderer (url4 render-rule discovery
      forced iteration); behavior locked afterwards by the compilation tests and
      the engine-side e2e with client-rendered goldens.
+  9. **Provider refusal integrity completed in this review pass** — check records
+     carry the exact Candidate Invocation that produced their answer/refusal text;
+     selection preserves that envelope and the result boundary republishes the
+     selected terminal outcome. Judge/coach refusal remains an internal role error.

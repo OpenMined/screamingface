@@ -21,7 +21,10 @@ from screamingface._evaluation.corrective import (
     CORRECTIVE_PROTOCOL_REVISION,
     GATE_ROUTE,
     JUDGE_FEEDBACK_INSTRUCTION,
+    MEMBER_ROUTE,
+    RESULT_ROUTE,
     RETRY_INSTRUCTION,
+    ROLE_ROUTE,
     SELECT_ROUTE,
     SELF_FEEDBACK_INSTRUCTION,
     TIE_BREAK_INSTRUCTION,
@@ -71,7 +74,20 @@ def test_the_generic_ensemble_routes_are_versioned_wire_constants() -> None:
     assert url4.count(f"{SELECT_ROUTE}(") == 3
     # The collapse chain: one answer call per non-final round.
     assert url4.count(f"{ANSWER_ROUTE}(") == 2
+    assert url4.count(f"{MEMBER_ROUTE}(") == 6
+    assert url4.count(f"{ROLE_ROUTE}(") == 5
+    assert url4.count(f"{RESULT_ROUTE}(") == 1
     assert "/ensemble/corrective/v1/" in url4
+
+
+def test_nested_recipe_input_is_reserved_for_the_invocation_scope() -> None:
+    compiled = compile_candidate(_loop(max_rounds=2), check_surface=_SURFACE)
+    # Enclosing scopes do not own this reserved name. MEMBER_ROUTE/ROLE_ROUTE
+    # bind it to the invocation's current-round context before executing the
+    # nested Recipe.
+    assert "/prov/a($_sf_recipe_input)" in compiled.url4
+    assert "/prov/b($_sf_recipe_input)" in compiled.url4
+    assert "/prov/j($_sf_recipe_input)" in compiled.url4
 
 
 def test_round_budget_is_written_into_every_gate_intent() -> None:
@@ -157,8 +173,8 @@ def test_the_topology_rider_round_trips_through_encode_and_decode() -> None:
 
 def test_the_check_context_threads_input_and_draft() -> None:
     compiled = compile_candidate(_loop(max_rounds=1), check_surface=_SURFACE)
-    assert "{input: '$input', answer: '$model_1'}" in compiled.url4
-    assert "{input: '$input', answer: '$model_2'}" in compiled.url4
+    assert "{input: '$input', invocation: '$loop_member_1_a'}" in compiled.url4
+    assert "{input: '$input', invocation: '$loop_member_1_b'}" in compiled.url4
 
 
 def test_retry_prompts_thread_own_previous_answer_and_coaching() -> None:

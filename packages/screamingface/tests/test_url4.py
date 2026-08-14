@@ -6,6 +6,7 @@ import pytest
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
+from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface.url4 import _params
@@ -17,6 +18,17 @@ def _url4(recipe: sf.Recipe) -> sf.Url4:
     return sf.Url4(value)
 
 
+_CORRECTIVE_SURFACE = _CheckSurface(
+    check_route="/benchmarks/ifeval/revision-1/check-surface",
+    feedback_intent="feedback",
+    expected_check_cost="free",
+)
+
+
+def _corrective_url4(recipe: sf.CorrectiveLoop | sf.SelfCorrective) -> sf.Url4:
+    return sf.Url4(compile_candidate(recipe, check_surface=_CORRECTIVE_SURFACE).url4)
+
+
 def _linked_url4(recipe: sf.Recipe) -> sf.Url4:
     candidate = _url4(recipe)
     return sf.Url4(
@@ -25,6 +37,22 @@ def _linked_url4(recipe: sf.Recipe) -> sf.Url4:
                 src(text(candidate), name="candidate", weight=0.0),
                 src(
                     "/benchmarks/draco/smoke/revision-1/cases",
+                    name="rows",
+                    weight=0.0,
+                ),
+                intent=text("$rows"),
+            )
+        )
+    )
+
+
+def _linked_candidate_url4(candidate: sf.Url4) -> sf.Url4:
+    return sf.Url4(
+        render(
+            expr(
+                src(text(candidate), name="candidate", weight=0.0),
+                src(
+                    "/benchmarks/ifeval/revision-1/cases",
                     name="rows",
                     weight=0.0,
                 ),
@@ -186,6 +214,48 @@ def test_pipeline_synthesizer_role_defaults_are_not_rendered_as_explicit_prompts
     assert "params=" not in python
 
 
+def test_corrective_loop_url4_recovers_recursive_recipes_and_configuration() -> None:
+    value = _corrective_url4(
+        sf.CorrectiveLoop(
+            [
+                sf.Pipeline(["provider/draft", "provider/revise"], name="chain"),
+                sf.Fusion(["provider/c"], synthesizer="provider/d"),
+            ],
+            judge=sf.Pipeline(["provider/judge", "provider/writer"]),
+            max_rounds=2,
+            name="research-loop",
+        )
+    )
+
+    python = value.to_python()
+
+    assert "candidate = sf.CorrectiveLoop(" in python
+    assert "name='research-loop'" in python
+    assert "name='chain'" in python
+    assert "sf.Fusion(" in python
+    assert "judge=sf.Pipeline(" in python
+    assert "max_rounds=2" in python
+    assert python.index("'provider/draft'") < python.index("'provider/revise'")
+
+
+def test_self_corrective_url4_recovers_the_member_and_round_limit() -> None:
+    value = _corrective_url4(
+        sf.SelfCorrective(
+            sf.Model("provider/model", prompt="Draft carefully."),
+            max_rounds=4,
+            name="solo-retakes",
+        )
+    )
+
+    python = value.to_python()
+
+    assert "candidate = sf.SelfCorrective(" in python
+    assert "'provider/model'" in python
+    assert "prompt='Draft carefully.'" in python
+    assert "name='solo-retakes'" in python
+    assert "max_rounds=4" in python
+
+
 def test_linked_pipeline_url4_replay_preserves_kind_name_and_serial_dependencies() -> None:
     value = _linked_url4(
         sf.Pipeline(
@@ -204,6 +274,31 @@ def test_linked_pipeline_url4_replay_preserves_kind_name_and_serial_dependencies
         (),
         ("op_model_1",),
     ]
+
+
+def test_linked_corrective_url4_replay_recovers_the_candidate_projection() -> None:
+    value = _linked_candidate_url4(
+        _corrective_url4(
+            sf.CorrectiveLoop(
+                ["provider/a", "provider/b"],
+                judge="provider/judge",
+                max_rounds=2,
+                name="panel-retakes",
+            )
+        )
+    )
+
+    candidate = _candidate_from_url4(value)
+
+    assert candidate.kind == "corrective_loop"
+    assert candidate.name == "panel-retakes"
+    assert candidate.models == ("provider/a", "provider/b", "provider/judge")
+    assert [operation.kind for operation in candidate.operations] == [
+        "model",
+        "model",
+        "synthesis",
+    ]
+    assert [member.name for member in candidate.members] == ["a", "b"]
 
 
 def test_linked_evaluation_url4_adds_the_editable_benchmark_call() -> None:

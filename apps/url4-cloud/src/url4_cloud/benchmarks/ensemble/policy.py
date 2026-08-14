@@ -2,8 +2,8 @@
 
 FEATURE: OME-796 — the LANL corrective protocol as a generic capability. The
 client compiles the ENTIRE loop (member fan-out, rounds, gates, select) into one
-whole-`$candidate` expression; the engine contributes only the three pure
-data->data endpoints under `CORRECTIVE_PREFIX` plus each benchmark's advertised
+whole-`$candidate` expression; the engine contributes generic invocation and
+control-flow endpoints under `CORRECTIVE_PREFIX` plus each benchmark's advertised
 check surface. Everything here is transport contract: the client mirrors these
 route strings and prompts verbatim when it renders a loop expression, so any
 change is a protocol change.
@@ -24,10 +24,14 @@ CORRECTIVE_PREFIX = f"/ensemble/corrective/{CORRECTIVE_API_VERSION}"
 GATE_ROUTE = f"{CORRECTIVE_PREFIX}/gate"
 SELECT_ROUTE = f"{CORRECTIVE_PREFIX}/select"
 ANSWER_ROUTE = f"{CORRECTIVE_PREFIX}/answer"
+MEMBER_ROUTE = f"{CORRECTIVE_PREFIX}/member"
+ROLE_ROUTE = f"{CORRECTIVE_PREFIX}/role"
+RESULT_ROUTE = f"{CORRECTIVE_PREFIX}/result"
 
 # The check-surface port record — every benchmark adapter returns exactly this
 # shape: {schema, passed: bool, satisfaction: float in [0,1], feedback: sanitized
-# text, answer: echoed draft}. `passed` replaces the old "PASSED" feedback
+# text, answer: evaluator text, invocation: exact Candidate Invocation}. `passed`
+# replaces the old "PASSED" feedback
 # sentinel; `satisfaction` replaces the IFEval-private `_strict_satisfaction`
 # call inside gate/select (each benchmark computes its own behind the adapter).
 CHECK_SURFACE_SCHEMA = "screamingface.check-surface.v1"
@@ -77,8 +81,8 @@ CORRECTIVE_FLOW = (
     "attempt with >=1 passing check STOPS the case; the judge tie-breaks only among "
     "passers of the stopping attempt; judge feedback is authored only for a no-pass "
     "attempt; a case that never passes selects the answer with maximal check "
-    "satisfaction, judge tie-break on exact ties; the selected answer is always a "
-    "member answer verbatim"
+    "satisfaction, judge tie-break on exact ties; the selected Candidate Invocation "
+    "is always one member outcome verbatim, including provider refusal identity"
 )
 
 # Every prose constant and shape bound defines answer-selection meaning and
@@ -111,10 +115,13 @@ __all__ = [
     "GATE_ROUTE",
     "JUDGE_FEEDBACK_INSTRUCTION",
     "MAX_MEMBERS",
+    "MEMBER_ROUTE",
     "MEMBER_LETTERS",
     "MIN_MEMBERS",
     "PROSE_CONSTANTS",
     "RETRY_INSTRUCTION",
+    "RESULT_ROUTE",
+    "ROLE_ROUTE",
     "SELECT_ROUTE",
     "SELF_FEEDBACK_INSTRUCTION",
     "TIE_BREAK_INSTRUCTION",

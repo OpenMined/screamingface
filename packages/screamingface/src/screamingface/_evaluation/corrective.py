@@ -55,11 +55,15 @@ _CORRECTIVE_PREFIX = f"/ensemble/corrective/{CORRECTIVE_API_VERSION}"
 GATE_ROUTE = f"{_CORRECTIVE_PREFIX}/gate"
 SELECT_ROUTE = f"{_CORRECTIVE_PREFIX}/select"
 ANSWER_ROUTE = f"{_CORRECTIVE_PREFIX}/answer"
+MEMBER_ROUTE = f"{_CORRECTIVE_PREFIX}/member"
+ROLE_ROUTE = f"{_CORRECTIVE_PREFIX}/role"
+RESULT_ROUTE = f"{_CORRECTIVE_PREFIX}/result"
 CHECK_SURFACE_SCHEMA = "screamingface.check-surface.v1"
 CHECK_INTENT = "check"
 MEMBER_LETTERS = "abcd"
 _MIN_MEMBERS = 2
 _MAX_MEMBERS = 4
+_NESTED_INPUT_REF = "$_sf_recipe_input"
 
 RETRY_INSTRUCTION = (
     "Write a new answer to the original request. Correct every requirement named in the "
@@ -84,8 +88,8 @@ CORRECTIVE_FLOW = (
     "attempt with >=1 passing check STOPS the case; the judge tie-breaks only among "
     "passers of the stopping attempt; judge feedback is authored only for a no-pass "
     "attempt; a case that never passes selects the answer with maximal check "
-    "satisfaction, judge tie-break on exact ties; the selected answer is always a "
-    "member answer verbatim"
+    "satisfaction, judge tie-break on exact ties; the selected Candidate Invocation "
+    "is always one member outcome verbatim, including provider refusal identity"
 )
 
 # Computed with the engine's exact formula — run records carry this protocol
@@ -155,12 +159,19 @@ class _LoopRenderer:
         from screamingface._evaluation.candidate import _ordered_unique, _ResolvedRecipe
 
         sources, reference = self._round(1, coach_reference=None)
+        sources.append(
+            src(
+                RelExpr(path=RESULT_ROUTE, context=reference, intent=Text("result")),
+                name="loop_result",
+                weight=0.0,
+            )
+        )
         # WHY one nested group: the top-level envelope's reduce-over-iteration
         # decode is greedy, so gated iterations may not sit bare in the outer
         # intent-bearing group. Nesting the whole loop as ONE named inner
         # expression keeps every iteration in grammar-parsed (safe) position and
         # gives the candidate a single result binding.
-        inner = Expression(sources=tuple(sources), intent=Text(reference))
+        inner = Expression(sources=tuple(sources), intent=Text("$loop_result"))
         self._compiler._sources.append(src(inner, name="loop_candidate", weight=0.0))
         reference = "$loop_candidate"
         members = self._round_one_members
@@ -192,24 +203,32 @@ class _LoopRenderer:
 
         sources: list[Node] = []
         # Stage 2 — every member drafts.
-        member_dependencies: tuple[str, ...] = ()
         resolved_members: list[_ResolvedRecipe] = []
         for index, member in enumerate(self._members):
             letter = self._letters[index]
             context = self._member_context(attempt, letter, coach_reference)
             resolved, captured = self._captured(
                 member,
-                input_context=context,
+                input_context=_NESTED_INPUT_REF,
                 synthesis=False,
             )
-            sources.extend(captured)
+            invocation = f"loop_member_{attempt}_{letter}"
+            sources.extend(
+                self._invocation_sources(
+                    resolved,
+                    captured,
+                    route=MEMBER_ROUTE,
+                    input_context=context,
+                    name=invocation,
+                )
+            )
             resolved_members.append(resolved)
             # Stage 3 — the benchmark's advertised check surface marks the draft.
             sources.append(
                 src(
                     RelExpr(
                         path=self._surface.check_route,
-                        context=render(struct({"input": "$input", "answer": resolved.reference})),
+                        context=render(struct({"input": "$input", "invocation": f"${invocation}"})),
                         intent=Text(CHECK_INTENT),
                     ),
                     name=f"loop_check_{attempt}_{letter}",
@@ -345,6 +364,15 @@ class _LoopRenderer:
         # commonest outcome) must cost ZERO judge calls.
         resolved, captured = self._captured(
             self._judge,
+            input_context=_NESTED_INPUT_REF,
+            synthesis=True,
+            input_dependencies=member_dependencies,
+        )
+        role_name = f"loop_tie_role_{attempt}"
+        role_sources = self._invocation_sources(
+            resolved,
+            captured,
+            route=ROLE_ROUTE,
             input_context=_structured_context(
                 {
                     "request": "$input",
@@ -352,8 +380,7 @@ class _LoopRenderer:
                     "candidates": "$item.candidates",
                 }
             ),
-            synthesis=True,
-            input_dependencies=member_dependencies,
+            name=role_name,
         )
         if self._judge_topology is None:
             # The judge compiles once per gated position; every compile resolves
@@ -365,8 +392,8 @@ class _LoopRenderer:
             self._gated_source(
                 iterate(
                     ref(gate_name),
-                    body=tuple(captured),
-                    intent=Text(resolved.reference),
+                    body=tuple(role_sources),
+                    intent=Text(f"${role_name}"),
                     on_error="fail",
                 ),
                 name=f"loop_tie_pick_{attempt}",
@@ -405,12 +432,21 @@ class _LoopRenderer:
             )
         resolved, captured = self._captured(
             self._judge,
-            input_context=context,
+            input_context=_NESTED_INPUT_REF,
             synthesis=True,
             input_dependencies=member_dependencies,
         )
-        body.extend(captured)
-        return resolved.reference
+        role_name = f"loop_coach_{attempt}"
+        body.extend(
+            self._invocation_sources(
+                resolved,
+                captured,
+                route=ROLE_ROUTE,
+                input_context=context,
+                name=role_name,
+            )
+        )
+        return f"${role_name}"
 
     def _gated_source(self, iteration: Node, *, name: str) -> Node:
         """Bind one gated iteration under `name` (always in nested position)."""
@@ -438,6 +474,33 @@ class _LoopRenderer:
         captured = list(compiler._sources[start:])
         del compiler._sources[start:]
         return resolved, captured
+
+    def _invocation_sources(
+        self,
+        resolved: _ResolvedRecipe,
+        captured: list[Node],
+        *,
+        route: str,
+        input_context: str,
+        name: str,
+    ) -> list[Node]:
+        """Invoke one nested Recipe behind an isolated outcome boundary."""
+
+        expression = Expression(sources=tuple(captured), intent=Text(resolved.reference))
+        return [
+            src(
+                RelExpr(
+                    path=route,
+                    context=input_context,
+                    # The nested Recipe uses a reserved input name that no
+                    # enclosing candidate scope owns. The Engine endpoint binds
+                    # it to this invocation's current-round context.
+                    intent=Text(render(expression)),
+                ),
+                name=name,
+                weight=0.0,
+            )
+        ]
 
     def _topology(
         self,
@@ -481,8 +544,11 @@ __all__ = [
     "CORRECTIVE_PROTOCOL_REVISION",
     "GATE_ROUTE",
     "JUDGE_FEEDBACK_INSTRUCTION",
+    "MEMBER_ROUTE",
     "MEMBER_LETTERS",
     "RETRY_INSTRUCTION",
+    "RESULT_ROUTE",
+    "ROLE_ROUTE",
     "SELECT_ROUTE",
     "SELF_FEEDBACK_INSTRUCTION",
     "TIE_BREAK_INSTRUCTION",

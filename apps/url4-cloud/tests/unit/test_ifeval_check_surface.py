@@ -21,6 +21,7 @@ import pytest
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from url4_cloud.benchmarks.ifeval.definition import (
     CHECK_SURFACE_ROUTE,
@@ -81,7 +82,8 @@ async def _call(node: Url4Node, payload: object, intent: str) -> str:
 
 
 async def _check(node: Url4Node, answer: str) -> dict[str, object]:
-    reply = await _call(node, {"input": _CASE_PROMPT, "answer": answer}, "check")
+    invocation = encode_candidate_invocation(answer, "stop", None)
+    reply = await _call(node, {"input": _CASE_PROMPT, "invocation": invocation}, "check")
     record = json.loads(reply)
     assert isinstance(record, dict)
     return record
@@ -99,6 +101,7 @@ async def test_a_fully_satisfying_answer_passes_with_unit_satisfaction(
         "satisfaction": 1.0,
         "feedback": "",
         "answer": _PASS,
+        "invocation": encode_candidate_invocation(_PASS, "stop", None),
     }
 
 
@@ -157,21 +160,39 @@ async def test_the_feedback_intent_rejects_a_foreign_record(tmp_path: Path) -> N
 async def test_an_unknown_case_input_is_a_bounded_failure(tmp_path: Path) -> None:
     node = _node(tmp_path)
     with pytest.raises(ResolutionError, match="no IFEval case"):
-        await _call(node, {"input": "an unknown prompt", "answer": _PASS}, "check")
+        await _call(
+            node,
+            {
+                "input": "an unknown prompt",
+                "invocation": encode_candidate_invocation(_PASS, "stop", None),
+            },
+            "check",
+        )
 
 
 @pytest.mark.asyncio
 async def test_a_malformed_payload_is_a_bounded_failure(tmp_path: Path) -> None:
     node = _node(tmp_path)
-    with pytest.raises(ResolutionError, match="input and answer"):
-        await _call(node, {"answer": _PASS}, "check")
+    with pytest.raises(ResolutionError, match="input and invocation"):
+        await _call(
+            node,
+            {"invocation": encode_candidate_invocation(_PASS, "stop", None)},
+            "check",
+        )
 
 
 @pytest.mark.asyncio
 async def test_an_unknown_intent_is_rejected(tmp_path: Path) -> None:
     node = _node(tmp_path)
     with pytest.raises(ResolutionError, match="unsupported"):
-        await _call(node, {"input": _CASE_PROMPT, "answer": _PASS}, "grade")
+        await _call(
+            node,
+            {
+                "input": _CASE_PROMPT,
+                "invocation": encode_candidate_invocation(_PASS, "stop", None),
+            },
+            "grade",
+        )
 
 
 # --- the advertised manifest block ------------------------------------------------

@@ -1,8 +1,8 @@
-"""The generic corrective-loop substrate — gate, select, and answer-collapse.
+"""The generic corrective-loop substrate and its invocation boundaries.
 
 FEATURE: benchmark-independent corrective loop (OME-796 / OME-827).
 STORY: as a client, a compiled `sf.CorrectiveLoop` candidate drives its rounds
-through these three pure data->data endpoints against ANY benchmark that
+through benchmark-neutral endpoints against ANY benchmark that
 advertises a check surface — no benchmark-specific loop code anywhere.
 
 The check-surface port record replaces both the old "PASSED" feedback sentinel
@@ -23,6 +23,10 @@ import pytest
 from url4 import RelExpr, Text, expr, iterate, ref, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
+from url4_cloud.benchmarks.contract import (
+    decode_candidate_invocation,
+    encode_candidate_invocation,
+)
 from url4_cloud.benchmarks.ensemble.policy import (
     ANSWER_ROUTE,
     CHECK_SURFACE_SCHEMA,
@@ -50,13 +54,21 @@ def _record(
     feedback: str = "",
     answer: str = "an answer",
 ) -> dict[str, object]:
+    invocation = encode_candidate_invocation(answer, "stop", None)
     return {
         "schema": CHECK_SURFACE_SCHEMA,
         "passed": passed,
         "satisfaction": satisfaction,
         "feedback": feedback,
         "answer": answer,
+        "invocation": invocation,
     }
+
+
+def _answer(invocation: str) -> str:
+    output, _finish_reason, refusal = decode_candidate_invocation(invocation)
+    assert refusal is None
+    return output
 
 
 _PASS = _record(passed=True, satisfaction=1.0, answer="passing answer")
@@ -268,7 +280,7 @@ async def test_select_returns_the_lone_passer_verbatim() -> None:
     reply = await _call(node, SELECT_ROUTE, {"round": {"a": _FAIL, "b": _PASS}, "tie": []}, "1")
     # INVARIANT: the returned text is always a member's exact answer — selection can
     # choose but never rewrite, so it cannot break a requirement a member satisfied.
-    assert reply == "passing answer"
+    assert _answer(reply) == "passing answer"
 
 
 @pytest.mark.asyncio
@@ -276,7 +288,7 @@ async def test_select_honors_the_judge_letter_between_passers() -> None:
     node = _node()
     other = _record(passed=True, satisfaction=1.0, answer="the b answer")
     reply = await _call(node, SELECT_ROUTE, {"round": {"a": _PASS, "b": other}, "tie": ["B"]}, "1")
-    assert reply == "the b answer"
+    assert _answer(reply) == "the b answer"
 
 
 @pytest.mark.asyncio
@@ -290,7 +302,7 @@ async def test_select_falls_back_to_the_first_passer_on_judge_prose() -> None:
         {"round": {"a": _PASS, "b": other}, "tie": ["I choose the second one"]},
         "1",
     )
-    assert reply == "passing answer"
+    assert _answer(reply) == "passing answer"
 
 
 @pytest.mark.asyncio
@@ -298,7 +310,7 @@ async def test_select_accepts_a_punctuated_judge_letter() -> None:
     node = _node()
     other = _record(passed=True, satisfaction=1.0, answer="the b answer")
     reply = await _call(node, SELECT_ROUTE, {"round": {"a": _PASS, "b": other}, "tie": ["b."]}, "1")
-    assert reply == "the b answer"
+    assert _answer(reply) == "the b answer"
 
 
 @pytest.mark.asyncio
@@ -306,14 +318,14 @@ async def test_select_ignores_a_letter_outside_the_member_set() -> None:
     node = _node()
     other = _record(passed=True, satisfaction=1.0, answer="the b answer")
     reply = await _call(node, SELECT_ROUTE, {"round": {"a": _PASS, "b": other}, "tie": ["D"]}, "1")
-    assert reply == "passing answer"
+    assert _answer(reply) == "passing answer"
 
 
 @pytest.mark.asyncio
 async def test_select_picks_the_maximal_satisfaction_answer_when_nobody_passed() -> None:
     node = _node()
     reply = await _call(node, SELECT_ROUTE, {"round": {"a": _FAIL, "b": _HALF}, "tie": []}, "3")
-    assert reply == _HALF["answer"]
+    assert _answer(reply) == _HALF["answer"]
 
 
 @pytest.mark.asyncio
@@ -321,7 +333,7 @@ async def test_select_defers_an_exact_satisfaction_tie_to_the_judge() -> None:
     node = _node()
     twin = _record(passed=False, satisfaction=0.5, feedback="also half", answer="twin")
     reply = await _call(node, SELECT_ROUTE, {"round": {"a": _HALF, "b": twin}, "tie": ["B"]}, "3")
-    assert reply == "twin"
+    assert _answer(reply) == "twin"
 
 
 @pytest.mark.asyncio
@@ -330,7 +342,7 @@ async def test_select_breaks_a_tie_of_ties_deterministically() -> None:
     node = _node()
     twin = _record(passed=False, satisfaction=0.5, feedback="also half", answer="twin")
     reply = await _call(node, SELECT_ROUTE, {"round": {"a": _HALF, "b": twin}, "tie": []}, "3")
-    assert reply == _HALF["answer"]
+    assert _answer(reply) == _HALF["answer"]
 
 
 @pytest.mark.asyncio
@@ -421,6 +433,14 @@ async def test_gate_accepts_records_carried_as_json_text() -> None:
     round_records = {"a": json.dumps(_PASS), "b": json.dumps(_FAIL)}
     reply = await _call(node, GATE_ROUTE, round_records, "continue:1:3")
     assert json.loads(reply) == []
+
+
+@pytest.mark.asyncio
+async def test_gate_rejects_answer_text_that_disagrees_with_its_invocation() -> None:
+    node = _node()
+    mismatched = dict(_PASS, invocation=encode_candidate_invocation("different", "stop", None))
+    with pytest.raises(ResolutionError, match="must equal its Candidate Invocation text"):
+        await _call(node, GATE_ROUTE, {"a": mismatched, "b": _FAIL}, "continue:1:3")
 
 
 # --- prose + flow invariants ------------------------------------------------------

@@ -1,16 +1,17 @@
-"""The corrective loop's generic runtime — three pure data->data endpoints.
+"""The corrective loop's generic runtime — six benchmark-neutral endpoints.
 
 FEATURE: OME-796 — benchmark-independent corrective loop (engine half).
 STORY: as a client-compiled `sf.CorrectiveLoop` candidate, my rounds fan out as
 ordinary model calls and check-surface calls; these endpoints are the only
-control flow I cannot express in URL4 myself — a conditional (gate), a verbatim
-pick (select), and a chain collapse (answer).
+control flow and invocation boundaries that URL4 composes into the complete
+Recipe: nested member/role invocation, conditional gating, verbatim selection,
+chain collapse, and terminal-outcome projection.
 
 Mental model: an exam room's clockwork. Drafts and their check records flow in
 as data; these endpoints decide STOP/RETRY, pick the submitted draft word-for-
 word, and hand the final answer back up the gated chain. They know NOTHING
 about any benchmark: `passed` and `satisfaction` were computed behind the
-benchmark's check-surface adapter, so the same three routes serve IFEval today
+benchmark's check-surface adapter, so the same routes serve IFEval today
 and every rubric benchmark tomorrow. In execution order per round k:
 
 1. The client-compiled expression calls `GATE_ROUTE` with `tie:k:max` — a
@@ -37,16 +38,28 @@ from typing import Any
 
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
+from url4_cloud.benchmarks.contract import decode_candidate_invocation
 from url4_cloud.benchmarks.ensemble.policy import (
     ANSWER_ROUTE,
     CHECK_SURFACE_SCHEMA,
     GATE_ROUTE,
     MAX_MEMBERS,
     MEMBER_LETTERS,
+    MEMBER_ROUTE,
+    RESULT_ROUTE,
+    ROLE_ROUTE,
     SELECT_ROUTE,
 )
 from url4_cloud.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from url4_cloud.benchmarks.evaluation import compact_json, json_array, json_object
+from url4_cloud.benchmarks.invocation import evaluate_candidate_recipe
+from url4_cloud.model_outcomes import (
+    ModelOutcome,
+    bind_model_outcome,
+    record_model_outcome,
+)
+
+_NESTED_INPUT_BINDING = "_sf_recipe_input"
 
 
 def install_corrective_runtime(node: Url4Node) -> None:
@@ -57,10 +70,46 @@ def install_corrective_runtime(node: Url4Node) -> None:
         (GATE_ROUTE, _gate),
         (SELECT_ROUTE, _select),
         (ANSWER_ROUTE, _answer),
+        (MEMBER_ROUTE, _RecipeInvocation(node, role=False)),
+        (ROLE_ROUTE, _RecipeInvocation(node, role=True)),
+        (RESULT_ROUTE, _result),
     )
     for route, handler in endpoints:
         if route not in routes:
             node.endpoint(route)(handler)
+
+
+class _RecipeInvocation:
+    """Evaluate one nested Recipe without attributing sibling outcomes to its parent."""
+
+    __slots__ = ("_node", "_role")
+
+    def __init__(self, node: Url4Node, *, role: bool) -> None:
+        self._node = node
+        self._role = role
+
+    async def __call__(self, request: Request) -> str:
+        if request.params:
+            raise _unavailable("corrective Recipe invocation does not accept parameters")
+        if not request.intent.strip():
+            raise _unavailable("corrective Recipe invocation expression must be non-empty")
+        invocation = await evaluate_candidate_recipe(
+            self._node,
+            request.intent,
+            request.context or "",
+            isolated=True,
+            input_binding=_NESTED_INPUT_BINDING,
+        )
+        if not self._role:
+            return invocation
+        output, _finish_reason, refusal = _invocation(invocation, "corrective role")
+        if refusal is not None:
+            raise ResolutionError(
+                "a corrective-loop judge or coach refused its internal role",
+                code="corrective_role_failed",
+                permanent=False,
+            )
+        return output
 
 
 def _gate(request: Request) -> str:
@@ -107,7 +156,7 @@ def _gate(request: Request) -> str:
 
 
 def _select(request: Request) -> str:
-    """Select the round's representative answer, verbatim, per CORRECTIVE_FLOW.
+    """Select the round's representative Candidate Invocation per CORRECTIVE_FLOW.
 
     Rules, in order:
     1. Exactly one passer -> that answer; no judge involved.
@@ -116,9 +165,9 @@ def _select(request: Request) -> str:
     3. No passer -> maximal satisfaction; an exact tie defers to the judge's
        letter among the tied, else the first tied answer stands.
 
-    INVARIANT: the returned text is always a member's exact answer — selection
-    can choose but never rewrite, so it cannot break a requirement a member
-    satisfied.
+    INVARIANT: the selected envelope always carries a member's exact answer or
+    refusal text. Selection can choose but never rewrite, and it preserves the
+    terminal provider outcome that produced that text.
     """
 
     payload = json_object(request.context, "corrective selection")
@@ -135,18 +184,18 @@ def _select(request: Request) -> str:
         best = max(member["satisfaction"] for member in members)
         tied = [member for member in members if member["satisfaction"] == best]
         chosen = tied[0] if len(tied) == 1 else (_by_letter(tied, letter) or tied[0])
-    answer = chosen["answer"]
-    assert isinstance(answer, str)
-    return answer
+    invocation = chosen["invocation"]
+    assert isinstance(invocation, str)
+    return invocation
 
 
 def _answer(request: Request) -> str:
-    """Collapse `{selected, next}` into the loop's single verbatim output.
+    """Collapse `{selected, next}` into one selected Candidate Invocation.
 
     `next` is the gated continuation's collection: empty (this round's
     selection stands — someone passed, or the budget is spent) or one deeper
-    outcome text (a later round ran, and later rounds only run when this one
-    had no passer, so the deeper answer wins).
+    outcome envelope (a later round ran, and later rounds only run when this
+    one had no passer, so the deeper invocation wins).
     """
 
     payload = json_object(request.context, "corrective answer")
@@ -162,9 +211,26 @@ def _answer(request: Request) -> str:
     if not items:
         return selected
     outcome = items[0]
+    if isinstance(outcome, dict):
+        encoded = compact_json(outcome)
+        _invocation(encoded, "corrective continuation outcome")
+        return encoded
     if not isinstance(outcome, str):
         raise _unavailable("corrective continuation outcome must be text")
     return outcome
+
+
+def _result(request: Request) -> str:
+    """Project the selected member invocation back into the outer Candidate scope."""
+
+    if request.params:
+        raise _unavailable("corrective result does not accept parameters")
+    output, finish_reason, refusal = _invocation(request.context, "corrective result")
+    if refusal is not None:
+        error = ResolutionError(refusal, code="provider_refusal", permanent=True)
+        raise bind_model_outcome(error, ModelOutcome(finish_reason, refusal))
+    record_model_outcome(finish_reason, None)
+    return output
 
 
 def _gate_intent(intent: str) -> tuple[str, int, int]:
@@ -216,12 +282,18 @@ def _surface_record(value: object, label: str, *, key: str) -> dict[str, Any]:
     answer = record["answer"]
     if not isinstance(answer, str):
         raise _unavailable(f"{label} answer must be text")
+    invocation = record["invocation"]
+    output, _finish_reason, refusal = _invocation(invocation, label)
+    invocation_answer = refusal if refusal is not None else output
+    if invocation_answer != answer:
+        raise _unavailable(f"{label} answer must equal its Candidate Invocation text")
     return {
         "key": key,
         "passed": passed,
         "satisfaction": float(satisfaction),
         "feedback": feedback,
         "answer": answer,
+        "invocation": invocation,
     }
 
 
@@ -240,11 +312,22 @@ def _decoded_record(value: object, label: str) -> dict[str, Any]:
             raise _unavailable(f"{label} must be a JSON check-surface record: {exc}") from None
     if not isinstance(value, dict) or value.get("schema") != CHECK_SURFACE_SCHEMA:
         raise _unavailable(f"{label} must be a {CHECK_SURFACE_SCHEMA} check-surface record")
-    if set(value) != {"schema", "passed", "satisfaction", "feedback", "answer"}:
+    expected = {"schema", "passed", "satisfaction", "feedback", "answer", "invocation"}
+    if set(value) != expected:
         raise _unavailable(
-            f"{label} must carry exactly schema, passed, satisfaction, feedback, and answer"
+            f"{label} must carry exactly schema, passed, satisfaction, feedback, answer, "
+            "and invocation"
         )
     return value
+
+
+def _invocation(value: object, label: str) -> tuple[str, str | None, str | None]:
+    if not isinstance(value, str):
+        raise _unavailable(f"{label} Candidate Invocation must be text")
+    try:
+        return decode_candidate_invocation(value)
+    except (TypeError, ValueError) as exc:
+        raise _unavailable(f"{label} has an invalid Candidate Invocation: {exc}") from exc
 
 
 def _tie_letter(value: object, members: list[dict[str, Any]]) -> str | None:

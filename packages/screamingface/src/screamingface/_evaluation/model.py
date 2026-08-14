@@ -12,10 +12,7 @@ from url4 import Url4Error, build, render
 from screamingface._candidate_policy import GenerationParams
 from screamingface._named_values import _NamedValues
 from screamingface.discovery import BenchmarkInfo
-from screamingface.fusion import Fusion
-from screamingface.model import Model
 from screamingface.operation import OperationInfo, _operation_dag
-from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 
 type CandidateKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
@@ -253,13 +250,11 @@ def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
     elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
         values = tuple(value)
     else:
-        raise TypeError(
-            "candidates must be an sf.Model, sf.Fusion, sf.Pipeline, or ordered sequence"
-        )
+        raise TypeError("candidates must be a complete sf.Recipe or an ordered sequence of Recipes")
     if not values:
         raise ValueError("an Evaluation requires at least one Candidate")
-    if any(not isinstance(candidate, Model | Fusion | Pipeline) for candidate in values):
-        raise TypeError("candidates must contain only sf.Model, sf.Fusion, or sf.Pipeline values")
+    if any(not isinstance(candidate, Recipe) for candidate in values):
+        raise TypeError("candidates must contain only complete sf.Recipe values")
     names: set[str] = set()
     for candidate in values:
         if candidate.name in names:

@@ -23,7 +23,7 @@ import httpx
 import pytest
 
 from url4_cloud.benchmarks import BenchmarkRegistry, link_candidate
-from url4_cloud.benchmarks.candidate import install_candidate_invocation
+from url4_cloud.benchmarks.candidate_adapter import install_candidate_invocation
 from url4_cloud.benchmarks.ensemble import install_corrective_runtime
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
@@ -70,7 +70,12 @@ def _chat(content: str) -> httpx.Response:
     )
 
 
-def _respond(calls: list[tuple[str, str]], *, member_b_first_round_passes: bool):
+def _respond(
+    calls: list[tuple[str, str]],
+    *,
+    member_b_first_round_passes: bool,
+    member_b_refuses: bool,
+):
     """Deterministic panel: member-a never passes; member-b improves on coaching."""
 
     def _member_b(content: str) -> str:
@@ -85,6 +90,18 @@ def _respond(calls: list[tuple[str, str]], *, member_b_first_round_passes: bool)
         model = body["model"]
         content = " ".join(str(message["content"]) for message in body["messages"])
         calls.append((model, content))
+        if model == "prov/member-b" and member_b_refuses:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {"content": None, "refusal": _PASS_ANSWER},
+                            "finish_reason": "content_filter",
+                        }
+                    ]
+                },
+            )
         replies = {
             "prov/judge": "Remove the comma and write everything in lowercase.",
             "prov/member-a": _FAIL_ANSWER,
@@ -99,12 +116,17 @@ async def _run(
     candidate_file: str,
     *,
     member_b_first_round_passes: bool,
+    member_b_refuses: bool = False,
 ) -> tuple[dict[str, object], list[tuple[str, str]]]:
     _assets(tmp_path / "ifeval")
     calls: list[tuple[str, str]] = []
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(
-            _respond(calls, member_b_first_round_passes=member_b_first_round_passes)
+            _respond(
+                calls,
+                member_b_first_round_passes=member_b_first_round_passes,
+                member_b_refuses=member_b_refuses,
+            )
         ),
         base_url="http://aigateway.test",
     )
@@ -158,6 +180,28 @@ async def test_a_round_one_pass_costs_exactly_the_member_calls(tmp_path: Path) -
     assert case["status"] == "scored"
     # INVARIANT: the selected answer is a member answer VERBATIM.
     assert case["output"] == _PASS_ANSWER
+    assert [model for model, _ in calls] == ["prov/member-a", "prov/member-b"]
+
+
+async def test_a_selected_provider_refusal_is_graded_and_published_verbatim(
+    tmp_path: Path,
+) -> None:
+    result, calls = await _run(
+        tmp_path,
+        "corrective_loop_candidate.url4",
+        member_b_first_round_passes=False,
+        member_b_refuses=True,
+    )
+    assert result["score"] == 1.0
+    case = _first_case(result)
+    assert case["status"] == "refused"
+    assert case["output"] is None
+    assert case["refusal"] == _PASS_ANSWER
+    assert case["finish_reason"] == "content_filter"
+    grade = case["grade"]
+    assert isinstance(grade, dict)
+    assert grade["score"] == 1.0
+    assert case["failures"] == []
     assert [model for model, _ in calls] == ["prov/member-a", "prov/member-b"]
 
 

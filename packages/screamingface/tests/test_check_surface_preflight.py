@@ -18,7 +18,7 @@ from screamingface._evaluation.benchmark import (
     _CheckSurface,
     _decode_benchmark_resource,
 )
-from screamingface._evaluation.runner import _validate_check_surface
+from screamingface._evaluation.runner import _evaluation_inputs, _validate_check_surface
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import PlanningError
 
@@ -125,3 +125,11 @@ def test_a_loop_with_an_advertised_surface_passes_preflight() -> None:
         expected_check_cost="free",
     )
     _validate_check_surface((loop,), "quizbench", _bare_resource(surface))
+
+
+def test_corrective_recipes_are_public_evaluation_inputs() -> None:
+    loop = sf.CorrectiveLoop(["prov/a", "prov/b"], judge="prov/j")
+    solo = sf.SelfCorrective("prov/a")
+
+    assert _evaluation_inputs(loop, "ifeval", 1) == (loop,)
+    assert _evaluation_inputs([loop, solo], "ifeval", 1) == (loop, solo)

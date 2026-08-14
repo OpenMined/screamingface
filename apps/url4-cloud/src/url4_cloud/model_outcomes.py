@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -25,11 +25,18 @@ _ERROR_OUTCOME_ATTRIBUTE = "_url4_cloud_model_outcome"
 
 
 @contextmanager
-def capture_model_outcomes() -> Iterator[OutcomeRecorder]:
-    """Capture outcomes in this scope without hiding them from an enclosing scope."""
+def capture_model_outcomes(*, isolated: bool = False) -> Iterator[OutcomeRecorder]:
+    """Capture outcomes in this scope.
+
+    Ordinary nested scopes also publish into every enclosing recorder. An
+    orchestration boundary may request an isolated capture when it is turning
+    one nested Recipe into its own typed outcome; otherwise sibling member and
+    judge calls would be misattributed to the final selected answer.
+    """
 
     recorder: OutcomeRecorder = []
-    token = _recorders.set((*_recorders.get(), recorder))
+    active = () if isolated else _recorders.get()
+    token = _recorders.set((*active, recorder))
     try:
         yield recorder
     finally:
@@ -42,6 +49,13 @@ def record_model_outcome(finish_reason: str | None, refusal: str | None) -> None
     outcome = ModelOutcome(finish_reason=finish_reason, refusal=refusal)
     for recorder in _recorders.get():
         recorder.append(outcome)
+
+
+def terminal_model_outcome(outcomes: Sequence[ModelOutcome]) -> ModelOutcome:
+    """Return the unambiguous outcome describing a composed Recipe result."""
+
+    distinct = set(outcomes)
+    return distinct.pop() if len(distinct) == 1 else ModelOutcome(None, None)
 
 
 def bind_model_outcome(error: BaseException, outcome: ModelOutcome) -> BaseException:
@@ -64,4 +78,5 @@ __all__ = [
     "capture_model_outcomes",
     "model_outcome_from_error",
     "record_model_outcome",
+    "terminal_model_outcome",
 ]
