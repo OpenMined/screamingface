@@ -24,7 +24,6 @@ instrument can.
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -34,8 +33,8 @@ CHECK_CRITERION = "draco-pass.v1"
 # enough that a loop terminates on real answers rather than grinding to max_rounds.
 CHECK_THRESHOLD = 0.7
 # One judge call plus two retries. A retry exists for unusable REPLIES (unparseable
-# or incomplete), never to shop for a better verdict — the prompt is identical and
-# only the cache-slot parameter moves.
+# or incomplete), never to shop for a better verdict — only a bounded retry marker
+# in the prompt changes.
 CHECK_ATTEMPTS = 3
 
 # INVARIANT: this ships as a rendered URL4 intent — a single quote would corrupt the
@@ -81,17 +80,10 @@ def build_check_prompt(
     return "\n".join(lines)
 
 
-def answer_salt(answer: str) -> str:
-    """A per-draft cache key so one draft's verdict can never serve another."""
-
-    return hashlib.sha256(answer.encode("utf-8")).hexdigest()[:16]
-
-
 __all__ = [
     "CHECK_ATTEMPTS",
     "CHECK_CRITERION",
     "CHECK_INSTRUCTIONS",
     "CHECK_THRESHOLD",
-    "answer_salt",
     "build_check_prompt",
 ]

@@ -13,9 +13,9 @@ execution order:
 2. **Select the criteria this variant grades with** (canonical: all; lite: 10
    axis-balanced; smoke: 1). Checking against criteria the variant never grades
    would make mid-run satisfaction and the final score incomparable.
-3. **One judge pass** over those requirements, weight-blind, salted with the
-   answer hash so a provider cache cannot serve one draft's verdict for another.
-   An unusable reply is retried on a fresh cache slot, then fails the check.
+3. **One judge pass** over those requirements, weight-blind. The answer is part
+   of the exact request, so one draft's cached verdict cannot serve another. An
+   unusable reply retries with a bounded prompt marker, then fails the check.
 4. **Score with the canonical math** (`normalized_score`) — already in [0, 1], so
    `satisfaction` needs no remapping; `passed` applies `draco-pass.v1`.
 5. **Sanitize** the shortfall into rubric AREA names only. Feedback rides back
@@ -44,7 +44,6 @@ from url4_cloud.benchmarks.draco.check_policy import (
     CHECK_CRITERION,
     CHECK_INSTRUCTIONS,
     CHECK_THRESHOLD,
-    answer_salt,
     build_check_prompt,
 )
 from url4_cloud.benchmarks.draco.definition import JUDGE_MODEL, JUDGE_PARAMS
@@ -161,10 +160,9 @@ async def _judged(
     """One judge pass, retried on a fresh cache slot while the reply is unusable."""
 
     prompt = build_check_prompt(question, answer, criteria)
-    salt = answer_salt(answer)
     for attempt in range(1, CHECK_ATTEMPTS + 1):
         reply = await node.evaluate(
-            _judge_expression(salt=salt, attempt=attempt), env={"prompt": prompt}
+            _judge_expression(), env={"prompt": _attempt_prompt(prompt, attempt)}
         )
         verdicts = _verdicts(reply.text, criteria)
         if verdicts is not None:
@@ -174,13 +172,19 @@ async def _judged(
     )
 
 
-def _judge_expression(*, salt: str, attempt: int) -> str:
+def _attempt_prompt(prompt: str, attempt: int) -> str:
+    """Vary only retry requests without inventing provider model parameters."""
+
+    if attempt == 1:
+        return prompt
+    return f"{prompt}\n<retry_attempt>{attempt}</retry_attempt>"
+
+
+def _judge_expression() -> str:
     # WHY the prompt is an env binding, not inlined: it carries the Candidate's own
-    # answer, and a quote or comma in that text would corrupt the rendered
-    # expression. WHY the salt/attempt params: the gateway's exact-response cache
-    # keys on the request, so a per-draft salt stops one draft's verdict serving
-    # another, and the attempt counter keeps a retry from replaying a cached
-    # unusable reply.
+    # answer, and a quote or comma in that text would corrupt the rendered expression.
+    # Retry identity belongs in that bound prompt, not in fake model parameters that
+    # the gateway would correctly reject before provider dispatch.
     return render(
         expr(
             src(
@@ -188,11 +192,7 @@ def _judge_expression(*, salt: str, attempt: int) -> str:
                     path=_JUDGE_ROUTE,
                     context="$prompt",
                     intent=Text(CHECK_INSTRUCTIONS),
-                    params=(
-                        *JUDGE_PARAMS,
-                        ("check_salt", salt),
-                        ("check_attempt", str(attempt)),
-                    ),
+                    params=JUDGE_PARAMS,
                 ),
                 name="verdict",
                 weight=0.0,

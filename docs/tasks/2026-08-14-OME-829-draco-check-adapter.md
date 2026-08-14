@@ -15,7 +15,7 @@ Stage 3 of the OME-796 plan as its own PR, stacked on `OME-796-corrective-loop`
 over the case rubric), pass criterion `draco-pass.v1` (normalized weighted score ≥ 0.7,
 criterion id carried in the route), axis-level-only feedback with a leak test,
 `expected_check_cost: "paid"` + client spend surfacing, judge-call hygiene
-(answer-hash salting, no failed-verdict caching), and the `sf.CorrectiveLoop` cell in
+(exact-request cache identity, no failed-verdict caching), and the `sf.CorrectiveLoop` cell in
 the DRACO notebook. Concrete adapter — the `rubric_check` template extraction is
 OME-830's job.
 

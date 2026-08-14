@@ -271,13 +271,13 @@ async def test_an_answer_with_url4_metacharacters_reaches_the_judge_intact(
 @pytest.mark.asyncio
 async def test_each_draft_gets_its_own_judge_cache_slot(tmp_path: Path) -> None:
     # INVARIANT: a provider exact-response cache must never serve one draft's verdict
-    # for another, so the check salts its judge call with the answer hash.
+    # for another. The answer is already part of the exact request.
     node, seen = _node(tmp_path, [_verdicts("c1"), _verdicts("c1", "c2", "c3")])
     await _check(node, "first draft")
     await _check(node, "second draft")
-    salts = [dict(request.params).get("check_salt") for request in seen]
-    assert all(salts)
-    assert salts[0] != salts[1]
+    assert seen[0].context != seen[1].context
+    assert "first draft" in seen[0].context
+    assert "second draft" in seen[1].context
 
 
 @pytest.mark.asyncio
@@ -285,8 +285,16 @@ async def test_the_same_draft_is_checked_deterministically(tmp_path: Path) -> No
     node, seen = _node(tmp_path, [_verdicts("c1"), _verdicts("c1")])
     await _check(node, "same draft")
     await _check(node, "same draft")
-    salts = [dict(request.params).get("check_salt") for request in seen]
-    assert salts[0] == salts[1]
+    assert seen[0].context == seen[1].context
+
+
+@pytest.mark.asyncio
+async def test_check_bookkeeping_never_leaks_as_model_parameters(tmp_path: Path) -> None:
+    node, seen = _node(tmp_path, [_verdicts("c1")])
+    await _check(node, "an answer")
+    params = dict(seen[0].params)
+    assert "check_salt" not in params
+    assert "check_attempt" not in params
 
 
 # --- judge failure policy ---------------------------------------------------------
@@ -301,8 +309,9 @@ async def test_an_unparseable_verdict_is_retried_on_a_fresh_cache_slot(
     record = await _check(node, "an answer")
     assert record["passed"] is True
     assert len(seen) == 2
-    attempts = [dict(request.params).get("check_attempt") for request in seen]
-    assert attempts[0] != attempts[1]
+    assert seen[0].context != seen[1].context
+    assert "<retry_attempt>2</retry_attempt>" not in seen[0].context
+    assert "<retry_attempt>2</retry_attempt>" in seen[1].context
 
 
 @pytest.mark.asyncio

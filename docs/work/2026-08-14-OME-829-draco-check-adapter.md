@@ -25,7 +25,7 @@ Stacked on branch `OME-796-corrective-loop` (PR #598); lands as its own PR.
   [0,1]) ≥ 0.7; satisfaction = that score. The criterion id is a named constant carried
   in the check route (→ manifest + every compiled url4 + topology rider).
 - Feedback policy v1: axis-level only, never criterion text; #528-shaped leak test.
-- Judge hygiene: check prompt salted with the answer hash; failed/empty verdicts never
+- Judge hygiene: the answer participates in the exact request; failed/empty verdicts never
   cached; in-flight checks capped (reuse DRACO's existing judge plumbing).
 - Manifest: `check_surface` with `expected_check_cost: "paid"` on the DRACO benchmarks.
 - Client (small rider): preflight surfaces expected paid-check spend (EvaluationWarning
@@ -55,7 +55,7 @@ Stacked on branch `OME-796-corrective-loop` (PR #598); lands as its own PR.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** engine — new `draco/check_policy.py` (criterion, threshold,
-  instructions, prompt builder, answer salt) + `draco/check_surface.py` (adapter);
+  instructions and prompt builder) + `draco/check_surface.py` (adapter);
   `draco/definition.py` (3 check routes + `check_surface=` on all three variants);
   `draco/runtime.py` (register the endpoint per variant, closing over `node`); new
   `tests/unit/test_draco_check_surface.py` (28) + `tests/unit/test_draco_corrective_loop_e2e.py`
@@ -89,5 +89,6 @@ Stacked on branch `OME-796-corrective-loop` (PR #598); lands as its own PR.
   5. **Input uniqueness is guarded at request time**, not at prepare time —
      DRACO's `cases.json` has no uniqueness invariant (unlike IFEval's), so the
      adapter refuses 0-or-many matches. A prepare-time assertion is a follow-up.
-  6. Judge-call hygiene shipped as `check_salt` (answer hash) + `check_attempt`
-     params; DRACO has no answer-hash salting anywhere else today.
+  6. Judge-call hygiene uses the answer-bearing prompt as exact cache identity and
+     varies a bounded prompt marker on retry. It never forwards invented
+     `check_salt` / `check_attempt` parameters through AI Gateway.
