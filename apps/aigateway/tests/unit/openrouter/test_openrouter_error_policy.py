@@ -472,4 +472,6 @@ def test_native_usage_cost_and_metadata_preserved(
         resp = _post_chat(authenticated_client)
 
     assert resp.status_code == 200, resp.text
-    assert resp.json() == payload
+    body = resp.json()
+    assert body.pop("_aigw")["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
+    assert body == payload

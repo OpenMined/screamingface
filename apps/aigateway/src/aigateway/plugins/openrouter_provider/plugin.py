@@ -38,6 +38,11 @@ from aigateway.core.standard_parameters import (
     direct_parameter_observations,
     tool_parameter_observations,
 )
+from aigateway.plugins.taxonomy import (
+    CacheReference,
+    ProviderUsageAccountingEvidence,
+    UsageAccountingStrategy,
+)
 
 from .api_key_validation import OpenRouterApiKeyValidator
 from .discovery import (
@@ -51,6 +56,7 @@ from .dispatch_errors import (
     _embedded_error_exception,
     _invalid_model_error,
     _online_model_suffix_error,
+    _response_conversion_exception,
     _unsafe_litellm_state_error,
 )
 
@@ -85,6 +91,10 @@ from .settings import (
     is_valid_upstream_model_id,
 )
 from .settings import OFFICIAL_API_BASE as OFFICIAL_API_BASE
+from .usage_accounting import (
+    cache_reference_from_cached,
+    normalize_openrouter_usage_accounting,
+)
 from .web_search import (
     WEB_SEARCH_EXCLUDED_DOMAINS_PARAM,
     WEB_SEARCH_PARAM,
@@ -398,6 +408,34 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # deployment filled, indefinitely (current rows never expire).
         return self.settings.enabled
 
+    def usage_accounting_strategy(self) -> UsageAccountingStrategy:
+        # OME-303 §5.1: openrouter dispatches through litellm's base_llm_http_handler,
+        # which uses the shared AsyncHTTPHandler and honours an injected client — so the
+        # gateway's observed handler sees every generation send.
+        return UsageAccountingStrategy.litellm_async_http()
+
+    def normalize_chat_usage_accounting(
+        self,
+        *,
+        request_body: Mapping[str, Any],
+        raw_response: Mapping[str, Any] | None,
+        final_response: Mapping[str, Any] | None,
+        failed: bool = False,
+    ) -> ProviderUsageAccountingEvidence:
+        return normalize_openrouter_usage_accounting(
+            request_body=request_body,
+            raw_response=raw_response,
+            final_response=final_response,
+            failed=failed,
+        )
+
+    def cache_reference_from_cached_response(
+        self, cached_response: Mapping[str, Any]
+    ) -> CacheReference | None:
+        # Historical final-response evidence only. It cannot prove original retry spend
+        # and is never labelled as current spend or counterfactual savings.
+        return cache_reference_from_cached(cached_response)
+
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         import litellm
 
@@ -407,9 +445,19 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             raise _unsafe_litellm_state_error()
 
         dispatch_body = dict(body)
+        # AIDEV-NOTE (OME-303 §4.2): this field is IGNORED whenever the gateway injects
+        # its own client — LiteLLM uses the client it was given, and that client's TLS
+        # was fixed when it was built. For an accounted request the active TLS guarantee
+        # is ``core.usage_accounting.hooks.AccountingAsyncHTTPHandler``, which pins
+        # verification on its primary AND on the replacement client litellm builds
+        # during its hidden retry. This line still governs the un-accounted path.
         dispatch_body["ssl_verify"] = True
         dispatch_body["caching"] = False
         dispatch_body["cache"] = {"no-cache": True, "no-store": True}
+        # OME-303 §4.3: pin the gateway-owned OUTER retry cardinality so the accounting
+        # contract's observed-attempt count cannot be changed by a process-global default.
+        dispatch_body["num_retries"] = 0
+        dispatch_body["max_retries"] = 0
 
         # cast: acompletion's static type is a ModelResponse|CustomStreamWrapper
         # union, but D5 guarantees non-streaming here (stream rejected at the
@@ -420,7 +468,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             # WHY (FINDING A): litellm 1.87.0 RAISES while converting a nominal
             # HTTP-200 body that carries a meaningful top-level error — it never
             # returns a payload for _find_embedded_error to scan below. Such an
-            # error came from an already-returned (billable) upstream call, so
+            # error came from an already-returned, potentially billed upstream call, so
             # route it through the SAME sanitizer as a scanned embedded error:
             # non-retryable, status sanitized, raw provider text discarded.
             # INVARIANT: a genuine transport failure is re-raised unchanged so
@@ -428,7 +476,10 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             if is_http200_body_error(exc):
                 raise _embedded_error_exception(converter_error_status(exc)) from exc
             raise
-        payload: Any = response.model_dump() if hasattr(response, "model_dump") else response
+        try:
+            payload: Any = response.model_dump() if hasattr(response, "model_dump") else response
+        except Exception:
+            raise _response_conversion_exception() from None
         if isinstance(payload, dict):
             found, status = _find_embedded_error(payload)
             if found:

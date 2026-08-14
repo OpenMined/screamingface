@@ -159,7 +159,13 @@ def test_repeated_bare_request_still_hits(credential_blobs, cache_client) -> Non
         second = cache_client.post(_CHAT_PATH, json=_chat_body())
     assert len(counter.calls) == 1, "the second identical bare request must be served from cache"
     assert second.headers["X-AIGW-Cache"] == "hit"
-    assert second.json() == first.json()
+    first_body = first.json()
+    second_body = second.json()
+    assert {key: value for key, value in second_body.items() if key != "_aigw"} == {
+        key: value for key, value in first_body.items() if key != "_aigw"
+    }
+    assert first_body["_aigw"]["usage_accounting"]["cache"]["status"] == "miss"
+    assert second_body["_aigw"]["usage_accounting"]["cache"]["status"] == "hit"
 
 
 def test_reasoning_effort_none_is_keyed_and_never_consumes_the_bare_entry(

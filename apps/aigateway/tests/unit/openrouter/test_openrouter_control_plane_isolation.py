@@ -178,12 +178,11 @@ def test_unsafe_global_state_fails_closed_before_dispatch(
         response = _request(authenticated_client)
 
     assert response.status_code == 503
-    assert response.json() == {
-        "detail": {
-            "code": "provider_unavailable",
-            "message": "OpenRouter dispatch is unavailable",
-        }
+    assert response.json()["detail"] == {
+        "code": "provider_unavailable",
+        "message": "OpenRouter dispatch is unavailable",
     }
+    assert response.json()["_aigw"]["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
     assert _KEY not in response.text
     dispatch.assert_not_awaited()
 

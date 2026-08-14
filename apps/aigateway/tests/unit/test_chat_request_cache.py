@@ -273,7 +273,13 @@ def test_an_identical_second_request_is_served_without_a_provider_dispatch(
     assert second.headers["X-AIGW-Cache"] == "hit"
     # "What did the write do" is meaningless for a hit, so the header is absent.
     assert "X-AIGW-Cache-Write" not in second.headers
-    assert second.json() == first.json()
+    first_body = first.json()
+    second_body = second.json()
+    assert {key: value for key, value in second_body.items() if key != "_aigw"} == {
+        key: value for key, value in first_body.items() if key != "_aigw"
+    }
+    assert first_body["_aigw"]["usage_accounting"]["cache"]["status"] == "miss"
+    assert second_body["_aigw"]["usage_accounting"]["cache"]["status"] == "hit"
     # The cache key header is hash-derived only, and truncated: the full digest of a
     # GLOBAL entry is a cross-tenant request fingerprint.
     assert "hi" not in second.headers.get("X-AIGW-Cache-Key", "")

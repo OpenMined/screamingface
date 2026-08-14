@@ -80,4 +80,5 @@ def test_request_local_credentials_beat_poisoned_globals(
     assert headers["HTTP-Referer"] == "https://screamingface.ai"
     assert headers["X-OpenRouter-Title"] == "ScreamingFace"
     assert headers["X-Title"] == "ScreamingFace"
-    assert "poisoned" not in json.dumps(captured)
+    serializable = {key: value for key, value in captured.items() if key != "client"}
+    assert "poisoned" not in json.dumps(serializable)

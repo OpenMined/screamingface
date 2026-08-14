@@ -261,18 +261,16 @@ async def store_global_response(
     response is returned untouched. There is no failure mode here that costs an
     answer — only ones that cost an entry.
 
-    WHY ``result`` is typed ``Any`` rather than ``dict``: the route builds it as
-    ``model_dump()`` when the provider response offers one and passes the raw object
-    through otherwise, so dict-ness is a convention of the shipped plugins, not
-    something the caller can promise. Declaring ``dict`` here would state a guarantee
-    that does not exist and hide the need for the check below.
+    WHY ``result`` is typed ``Any`` rather than ``dict``: this function remains total at
+    its boundary even though the chat route now rejects non-object provider results before
+    reaching it. Other or future callers cannot turn a malformed value into a global row.
     """
     key = outcome.key
     if key is None:  # pragma: no cover - guarded by should_store at the call site
         return "not_stored"
     if not isinstance(result, dict):
-        # Malformed responses are never stored (plan §5.2). Serving one is the
-        # caller's business; making it the permanent global answer is not.
+        # Malformed responses are never stored (plan §5.2). The chat route rejects these;
+        # retain the guard as defense in depth for any future caller.
         logger.warning("provider response was not a JSON object; not stored")
         return "not_stored"
     if not _is_a_whole_answer(result):
