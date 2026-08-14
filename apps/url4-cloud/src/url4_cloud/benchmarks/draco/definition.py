@@ -9,7 +9,6 @@ from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from url4_cloud.benchmarks.definition import Benchmark, CheckSurface, candidate
-from url4_cloud.benchmarks.draco.check_policy import CHECK_CRITERION
 from url4_cloud.benchmarks.draco.prompts import JUDGE_INSTRUCTIONS
 from url4_cloud.benchmarks.draco.verdict import call as criterion_verdict
 from url4_cloud.benchmarks.protocol import (
@@ -105,6 +104,9 @@ SMOKE_REVISION = hashlib.sha256(
         )
     ).encode()
 ).hexdigest()[:16]
+# The pass criterion of the mid-run check surface (OME-829/830). Declared here rather
+# than imported from check_policy, which reads this module for the judge pinning.
+CHECK_CRITERION = "draco-pass.v1"
 ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
 CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 TASKS_ROUTE = f"{ROUTE_PREFIX}/tasks"

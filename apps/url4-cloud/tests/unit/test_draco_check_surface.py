@@ -26,13 +26,9 @@ from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.contract import encode_candidate_invocation
-from url4_cloud.benchmarks.draco.check_surface import (
-    CHECK_CRITERION,
-    CHECK_INSTRUCTIONS,
-    CHECK_THRESHOLD,
-    check_surface,
-)
+from url4_cloud.benchmarks.draco.check_policy import CHECK_THRESHOLD, draco_check
 from url4_cloud.benchmarks.draco.definition import (
+    CHECK_CRITERION,
     CHECK_SURFACE_ROUTE,
     DRACO,
     DRACO_LITE,
@@ -40,6 +36,7 @@ from url4_cloud.benchmarks.draco.definition import (
     JUDGE_MODEL,
 )
 from url4_cloud.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
+from url4_cloud.benchmarks.rubric_check import CHECK_INSTRUCTIONS, check_surface
 
 _QUESTION = "Explain why the sky looks blue."
 # Distinctive requirement text: the leak test asserts none of it ever reaches feedback.
@@ -98,8 +95,7 @@ def _node(
         check_surface(
             node,
             tmp_path / "draco",
-            criterion_count=criterion_count,
-            selection=selection,  # type: ignore[arg-type]
+            draco_check(criterion_count=criterion_count, selection=selection),  # type: ignore[arg-type]
         )
     )
     return node, seen

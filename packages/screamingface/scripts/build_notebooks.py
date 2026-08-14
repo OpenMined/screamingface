@@ -1205,6 +1205,35 @@ Candidate answer, rubric checks, Judge evidence, raw replies, and any failures."
             """challenge_report.export("healthbench-worst30.json") """
             """if challenge_report is not None else None"""
         ),
+        nbformat.v4.new_markdown_cell(
+            """## 5. Corrective loop on HealthBench
+
+The same `sf.CorrectiveLoop` from notebook 07 and the DRACO notebook — **one changed
+`benchmark=` line**. Nothing about the loop knows what HealthBench is; HealthBench simply
+declares a check surface, and the loop consumes it.
+
+What `healthbench-pass.v1` means here: a draft **passes** when it earns at least half the
+available positive rubric points, measured on the clamped score — so a draft that trips enough
+safety penalties to go negative can never pass. Feedback tells a failing draft only *whether* it
+omitted a required element or did something the rubric prohibits: this rubric ships no theme or
+category vocabulary, and naming the criterion itself would hand the panel the answer key.
+
+> **Spend warning:** every check is a paid GPT-5.4 Judge call. A two-member, two-round loop
+> checks up to 4 times per Case *on top of* the members' answers and the canonical Judge passes,
+> so the SDK warns with the ceiling before the first request. `limit` keeps this honest while you
+> explore."""
+        ),
+        nbformat.v4.new_code_cell(
+            """RUN_CORRECTIVE = False
+
+corrective = sf.CorrectiveLoop([deepseek, kimi], judge=qwen, max_rounds=2)
+corrective_report = (
+    sf.evaluate(corrective, benchmark="healthbench/worst30", limit=1) if RUN_CORRECTIVE else None
+)
+corrective_report if corrective_report is not None else (
+    "Corrective loop disabled — set RUN_CORRECTIVE = True to spend on paid checks."
+)"""
+        ),
     )
 
 
