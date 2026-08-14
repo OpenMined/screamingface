@@ -37,7 +37,13 @@ Takes the env rather than the run's fields so it is satisfied by `runner.main.bu
 verbatim — the same entry point a real Job's process calls, given the same variables.
 """
 
-DEFAULT_MAX_CONCURRENT_RUNS = 8
+# INVARIANT: strictly above the Client's per-Evaluation fan-out, which is 8 (
+# `_MAX_CANDIDATES_IN_FLIGHT` in `packages/screamingface/src/screamingface/_evaluation/
+# runner.py`). The Client opens one run per Candidate, so an equal value leaves zero headroom
+# and one ordinary Evaluation saturates the runner exactly. Pinned by
+# `tests/unit/test_local_capacity_contract.py`, which also explains why that check is a floor
+# rather than a direct comparison.
+DEFAULT_MAX_CONCURRENT_RUNS = 32
 DEFAULT_MAX_HISTORY = 1000
 
 

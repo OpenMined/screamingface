@@ -126,7 +126,16 @@ class Settings(BaseSettings):
     # WHY a concurrency cap at all: k8s spreads Jobs across a cluster and queues the surplus, but
     # every local run shares one event loop and one process, so admitting without bound degrades
     # the runs already in flight instead of delaying new ones.
-    local_max_concurrent_runs: int = 8
+    #
+    # WHY 32 and not a tighter number: the Client opens one run per Candidate and keeps up to 8 in
+    # flight (`_MAX_CANDIDATES_IN_FLIGHT`), so anything at or below 8 leaves no headroom — one
+    # ordinary Evaluation fills the runner exactly and the next schedule 503s. That is worse than
+    # it sounds, because a WebSocket disconnect does not stop a run: an abandoned one holds its
+    # slot until `job_deadline_s` (16h). 32 keeps roughly four Evaluations, or one plus slack for
+    # orphans. INVARIANT (pinned by `tests/unit/test_local_capacity_contract.py`): this stays
+    # strictly above the Client fan-out, and equal to `DEFAULT_MAX_CONCURRENT_RUNS` so capacity
+    # does not depend on which path built the runner.
+    local_max_concurrent_runs: int = 32
     # WHY: the in-memory stream has no retention policy of its own (JetStream does), so a
     # long-lived dev server would accumulate every frame of every run it ever served.
     local_stream_max_frames: int = 10_000
