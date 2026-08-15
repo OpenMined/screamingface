@@ -1,9 +1,9 @@
 ---
 ticket: OME-798
 stack: scoreboard
-status: in_progress
+status: in_review
 started: 2026-08-13
-finished:
+finished: 2026-08-14
 ---
 
 # OME-798 — run the portal's JS tests in CI and in the scoreboard gate list
@@ -98,7 +98,9 @@ assertions. Verified by observation, not by reading YAML:
    sites carry an `AIDEV-NOTE` saying to add files by name.
 4. **`#516` edits the same workflow file** and is awaiting review. Distinct steps, so a trivial
    merge; whichever lands second rebases.
-5. No PR opened at the time of writing this section.
+5. No PR was open at the time of writing this section. Superseded: `11b7c95d` and `d93a3c39`
+   are open as [#595](https://github.com/OpenMined/screamingface/pull/595), CI green,
+   awaiting review.
 
 ## Review pass (2026-08-14) — four findings, all valid
 
