@@ -1,9 +1,9 @@
 ---
 ticket: OME-820
 stack: scoreboard
-status: in_progress
+status: in_review
 started: 2026-08-13
-finished:
+finished: 2026-08-14
 ---
 
 # OME-820 — default new submissions to verified (ran on OpenMined infrastructure)
