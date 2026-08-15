@@ -67,28 +67,38 @@ def _publish_submitter(value: str | None) -> str | None:
     """
     if value is None:
         return value
-    # WHY strip BEFORE the shape test, not instead of it: the two review passes on this
-    # function each fixed one half of the same question, "what counts as one address".
-    #   pass 1 gated on `@` alone   -> " @openmined.org" published " ", a BLANK
-    #                                  submitter, and the SDK's _text rejects
-    #                                  blank-after-strip, raising LeaderboardError for
-    #                                  the WHOLE board off one poisoned row;
+    # WHY whitespace is REMOVED rather than treated as a signal: three review passes
+    # tried to read intent from whitespace, and each fixed one half while breaking
+    # the other.
+    #   pass 1 gated on `@` alone     -> " @openmined.org" published " ", a BLANK
+    #                                    submitter, and the SDK's _text rejects
+    #                                    blank-after-strip, raising LeaderboardError
+    #                                    for the WHOLE board off one poisoned row;
     #   pass 2 rejected ALL whitespace -> "trask@openmined.org " (one trailing space)
-    #                                  published the full domain, i.e. the exposure this
-    #                                  whole change exists to close, defeated by padding.
-    # Surrounding whitespace is noise; INTERNAL whitespace is what proves the value is
-    # free text ("Team A @ OpenMined") rather than an address. Strip, then require the
-    # remainder to hold no whitespace at all.
+    #                                    published the full domain — the exposure this
+    #                                    function exists to close, beaten by a space;
+    #   pass 3 stripped only the ends  -> "me @ openmined.org" still published whole,
+    #                                    and a harvester just normalises it back.
     #
-    # INVARIANT: this cannot resurrect the blank-local hazard. `candidate` has no
-    # whitespace left, so an empty local part is empty, not blank — "  @openmined.org  "
-    # falls through to the untouched original rather than publishing "  ".
-    candidate = value.strip()
-    if "@" not in candidate or any(char.isspace() for char in candidate):
+    # The owner settled the question underneath all three (2026-08-15): this field is
+    # an IDENTITY, not a display name. So the test is simply "is this an address?" —
+    # whitespace is formatting noise wherever it sits, not evidence of intent.
+    #
+    # INVARIANT: the blank-local hazard stays closed. With every space gone, an empty
+    # local part is empty rather than blank, so "  @openmined.org  " falls through to
+    # the untouched original instead of publishing "  ".
+    #
+    # AIDEV-NOTE: this is still a read-time GUESS about a value nothing constrains on
+    # the way in — the reason it took four passes. OME-840 closes it properly by
+    # validating the address on the write path; when that lands this can stop guessing.
+    candidate = "".join(value.split())
+    if "@" not in candidate:
         return value
     local, _, domain = candidate.rpartition("@")
-    # A public address needs a non-empty local part and a dotted domain. `user@github`
-    # is a handle, not an address, so it passes through untouched.
+    # A public address needs a non-empty local part and a DOTTED domain. That dot is
+    # what keeps free text safe: "Team A @ OpenMined" collapses to "TeamA@OpenMined",
+    # whose domain is a word rather than a host, so it passes through whole. Same for
+    # the handle form, `user@github`.
     return local if local and "." in domain else value
 
 

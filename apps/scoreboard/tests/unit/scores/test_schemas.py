@@ -373,9 +373,10 @@ def test_baseline_schema_rejects_oversized_metadata() -> None:
         (" @openmined.org", " @openmined.org"),
         ("\t@openmined.org", "\t@openmined.org"),
         # OME-834 review: free text containing "@" is not an address. Truncating it
-        # contradicts the pass-through contract and loses meaning.
+        # contradicts the pass-through contract and loses meaning. What makes it free
+        # text is the UNDOTTED domain, not the spaces — see the third-review cases
+        # below, where "me @ openmined.org" is an address and is trimmed.
         ("Team A @ OpenMined", "Team A @ OpenMined"),
-        ("me @ openmined.org", "me @ openmined.org"),
         # A domain with no dot is not a public address; leave handles alone.
         ("user@github", "user@github"),
         # OME-834 second review: SURROUNDING whitespace must not defeat the strip.
@@ -390,6 +391,17 @@ def test_baseline_schema_rejects_oversized_metadata() -> None:
         # ...and padding must not resurrect the blank-local hazard: stripping first
         # leaves an EMPTY local part here, so the original still passes through.
         ("  @openmined.org  ", "  @openmined.org  "),
+        # OME-834 third review (owner decision, 2026-08-15): submitted_by is an
+        # IDENTITY, not a display name, so anything that IS an address once its
+        # whitespace is removed gets trimmed. A harvester normalises "me @ x.org"
+        # back to an address, so leaving it whole published a working one.
+        ("me @ openmined.org", "me"),
+        ("trask @ openmined.org", "trask"),
+        ("filip.boltuzic @ openmined . org", "filip.boltuzic"),
+        # Free text is still safe when its "domain" is not dotted — "OpenMined" is
+        # a word, not a host, so this is NOT an address and passes through whole.
+        ("Team A @ OpenMined", "Team A @ OpenMined"),
+        ("me @ github", "me @ github"),
     ],
 )
 def test_score_schema_publishes_only_the_local_part(stored: str, published: str) -> None:

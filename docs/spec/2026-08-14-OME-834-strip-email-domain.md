@@ -79,10 +79,38 @@ whitespace at all. This cannot resurrect §3a's hazard — after stripping, an e
 empty rather than blank, so `"  @openmined.org  "` still passes through untouched instead of
 publishing `"  "`.
 
-**Residual, deliberately not closed:** `"me @ openmined.org"` still passes through in full, because
-§3's pass-through rule treats internal whitespace as free text. A determined harvester can normalise
-it. Closing it would mean trimming values that may legitimately be team names, which reverses a
-decision the owner locked in §3 — so it is recorded here rather than changed unilaterally.
+### 3c Third revision (owner decision, 2026-08-15) — the field is an identity
+
+§3b left `"me @ openmined.org"` passing through in full, on the §3 rule that internal whitespace
+means free text. A harvester just normalises that back into a working address, so the leak was real.
+
+The owner settled the question sitting underneath all three passes: **`submitted_by` is an identity,
+not a display name.** Two facts made the "protect team names" argument untenable — the Client SDK
+never sends this field at all (`_submission()` omits it), so free-text submitters are a use case
+nobody has; and the only real values in existence are two clean addresses on dev.
+
+So whitespace stops being evidence of intent and becomes formatting noise. The rule is now: **remove
+all whitespace, then require a non-empty local part and a dotted domain.**
+
+| Input | Published |
+|---|---|
+| `trask@openmined.org`, `"trask@openmined.org "`, `" trask@openmined.org"` | `trask` |
+| `"me @ openmined.org"`, `"trask @ openmined.org"` | `me`, `trask` |
+| `"filip.boltuzic @ openmined . org"` | `filip.boltuzic` |
+| `"Team A @ OpenMined"`, `"me @ github"`, `user@github` | unchanged — an undotted domain is a word, not a host |
+| `@openmined.org`, `" @openmined.org"`, `"  @openmined.org  "` | unchanged, never blank |
+| `tester`, `""`, `null` | unchanged |
+
+The **dotted domain**, not the whitespace, is what now keeps free text safe. That is a narrower and
+more honest test, and it is the reason the rule got simpler rather than more baroque.
+
+Accepted cost: free text whose right-hand side happens to contain a dot is truncated —
+`"Contact: trask @ openmined.org please"` publishes `Contact:trask`. It loses formatting; it does not
+leak an address.
+
+**This is still a read-time guess**, which is why it took four passes. `OME-840` closes it properly by
+validating the address on the write path, after which this function reduces to "everything before the
+last `@`".
 
 **Storage is untouched.** `Score.submitted_by` keeps the full address. OpenMined must still be able
 to contact a submitter and audit which verified identity produced a score, which stripping on write

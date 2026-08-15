@@ -174,10 +174,58 @@ authenticated path was never affected; `identity_from_headers` strips (`cloudfla
 RED first: the four padded cases failed for the right reason before the fix, and the padded
 blank-local case passed throughout, proving the §3a guarantee survived.
 
-### Residual, recorded not fixed
+### Residual, escalated — and the owner closed it
 
-`"me @ openmined.org"` still publishes in full. §3's pass-through rule treats internal whitespace as
-free text, and trimming it would mangle legitimate team names — reversing an owner-locked decision.
-Flagged for the owner rather than changed unilaterally.
+`"me @ openmined.org"` still published in full under pass 2's rule. Escalated rather than changed
+unilaterally, because trimming it reverses §3's pass-through decision. See review pass 3.
+
+**Gates:** all green.
+
+## Review pass 3 (2026-08-15) — the owner answered the question under all three passes
+
+Three passes had argued about *what whitespace means*. The owner settled what the FIELD means:
+**`submitted_by` is an identity, not a display name.**
+
+Two facts I gathered while framing the question made the "protect team names" defence untenable, and
+they contradicted my own earlier framing:
+
+* the Client SDK **never sends this field** — `_submission()` in `_scoreboard/leaderboards.py` omits
+  it entirely, so free-text submitters are a use case nobody has;
+* the only real values anywhere are two rows on dev, both clean addresses.
+
+I had used a hypothetical to justify leaving a real leak open. Recording that, because the failure was
+in the *reasoning*, not the code.
+
+### The rule got simpler, not more baroque
+
+Remove all whitespace, then require a non-empty local part and a **dotted domain**. The dot — not the
+whitespace — is now what keeps free text safe, which is a narrower and more honest test:
+
+| Input | Published |
+|---|---|
+| `trask@openmined.org`, padded variants | `trask` |
+| `"me @ openmined.org"`, `"filip.boltuzic @ openmined . org"` | `me`, `filip.boltuzic` |
+| `"Team A @ OpenMined"`, `"me @ github"`, `user@github` | unchanged — undotted domain |
+| `@openmined.org` and every padded form | unchanged, never blank |
+| `tester`, `""`, `None` | unchanged |
+
+RED first: exactly the three address-shaped cases failed; the two free-text cases passed before and
+after, which is the evidence that the dotted-domain test — not the whitespace test — is doing the work.
+
+### One prior expectation removed
+
+`("me @ openmined.org", "me @ openmined.org")` was deleted from the parametrize list. It was added by
+this same PR one pass earlier and it **encoded the leak the owner just closed**, so keeping it would
+have pinned the bug. Not a weakening: it is replaced by the opposite assertion.
+
+### Accepted cost, stated plainly
+
+Free text whose right-hand side contains a dot is truncated — `"Contact: trask @ openmined.org
+please"` publishes `Contact:trask`. It loses formatting; it leaks nothing.
+
+### Follow-up filed
+
+`OME-840` — validate the address on the write path so this stops being a read-time guess. `#602` is
+its blocker. Mirror at `docs/tasks/2026-08-15-OME-840-validate-submitter-on-write.md`.
 
 **Gates:** all green.
