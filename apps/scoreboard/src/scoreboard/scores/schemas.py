@@ -65,21 +65,31 @@ def _publish_submitter(value: str | None) -> str | None:
     different domains become indistinguishable on a board that attributes credit.
     A real username field is the fix; OME-772 records that none exists (OME-834).
     """
-    # Only trim something that actually looks like ONE address. Anything else is free
-    # text that happens to contain "@", and truncating it loses meaning. Gating on the
-    # bare presence of "@" was the original bug (OME-834 review):
-    #   " @openmined.org"     -> " "        a BLANK submitter, not an empty one, so a
-    #                                       `local or value` guard did not catch it —
-    #                                       and the SDK's _text rejects blank-after-
-    #                                       strip, raising LeaderboardError for the
-    #                                       WHOLE board off one poisoned row.
-    #   "Team A @ OpenMined"  -> "Team A "  free text silently truncated.
-    if value is None or "@" not in value or any(char.isspace() for char in value):
+    if value is None:
         return value
-    local, _, domain = value.rpartition("@")
-    # A public address needs a non-blank local part and a dotted domain. `user@github`
+    # WHY strip BEFORE the shape test, not instead of it: the two review passes on this
+    # function each fixed one half of the same question, "what counts as one address".
+    #   pass 1 gated on `@` alone   -> " @openmined.org" published " ", a BLANK
+    #                                  submitter, and the SDK's _text rejects
+    #                                  blank-after-strip, raising LeaderboardError for
+    #                                  the WHOLE board off one poisoned row;
+    #   pass 2 rejected ALL whitespace -> "trask@openmined.org " (one trailing space)
+    #                                  published the full domain, i.e. the exposure this
+    #                                  whole change exists to close, defeated by padding.
+    # Surrounding whitespace is noise; INTERNAL whitespace is what proves the value is
+    # free text ("Team A @ OpenMined") rather than an address. Strip, then require the
+    # remainder to hold no whitespace at all.
+    #
+    # INVARIANT: this cannot resurrect the blank-local hazard. `candidate` has no
+    # whitespace left, so an empty local part is empty, not blank — "  @openmined.org  "
+    # falls through to the untouched original rather than publishing "  ".
+    candidate = value.strip()
+    if "@" not in candidate or any(char.isspace() for char in candidate):
+        return value
+    local, _, domain = candidate.rpartition("@")
+    # A public address needs a non-empty local part and a dotted domain. `user@github`
     # is a handle, not an address, so it passes through untouched.
-    return local if local.strip() and "." in domain else value
+    return local if local and "." in domain else value
 
 
 # INVARIANT: the ONE definition of how a submitter reaches a client, shared by every

@@ -378,6 +378,18 @@ def test_baseline_schema_rejects_oversized_metadata() -> None:
         ("me @ openmined.org", "me @ openmined.org"),
         # A domain with no dot is not a public address; leave handles alone.
         ("user@github", "user@github"),
+        # OME-834 second review: SURROUNDING whitespace must not defeat the strip.
+        # The whitespace guard above exists to catch a blank LOCAL part, but it was
+        # rejecting the whole value, so one trailing space published the full domain
+        # — the exact exposure this change exists to close. In authMode: disabled
+        # submitted_by is unvalidated free text, so a padded address is reachable.
+        ("trask@openmined.org ", "trask"),
+        (" trask@openmined.org", "trask"),
+        ("\ttrask@openmined.org\n", "trask"),
+        ("  filip.boltuzic@openmined.org  ", "filip.boltuzic"),
+        # ...and padding must not resurrect the blank-local hazard: stripping first
+        # leaves an EMPTY local part here, so the original still passes through.
+        ("  @openmined.org  ", "  @openmined.org  "),
     ],
 )
 def test_score_schema_publishes_only_the_local_part(stored: str, published: str) -> None:

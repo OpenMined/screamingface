@@ -1,7 +1,7 @@
 ---
 ticket: OME-834
 stack: scoreboard
-status: in_progress
+status: in_review
 started: 2026-08-14
 finished:
 ---
@@ -140,3 +140,44 @@ Spec §3a records the revision.
 My original guard, `local or value`, tested for *empty* when the hazard was *blank*. The lesson is
 narrow and worth keeping: for a field that another service validates with `.strip()`, an emptiness
 check is not the same as a blankness check.
+
+## Review pass 2 (2026-08-15) — one finding, valid, and it undid the point of the change
+
+| Finding | Verified how | Verdict |
+|---|---|---|
+| Surrounding whitespace defeats the strip entirely — `"trask@openmined.org "` publishes the full domain | ran `_publish_submitter` over a padded matrix | **valid, P1: it re-opens the exposure this PR exists to close** |
+
+### What went wrong
+
+Review pass 1 fixed a blank *local part* by rejecting **all** whitespace. That is a wider rule than
+the hazard required, and the extra width lands exactly on the failure case: an address with padding
+is still an address, and refusing to trim it publishes the domain. Two passes, each fixing one half
+of "what counts as one address", each breaking the other half.
+
+The distinction that was actually needed: **surrounding** whitespace is noise, **internal**
+whitespace is what proves free text. Strip first, then require no whitespace in the remainder.
+
+Reachable, not theoretical: `ScoreSubmission.submitted_by` is `str | None = None` — no strip, no
+constraint — and in `authMode: disabled` (the chart default) it is client-supplied free text. The
+authenticated path was never affected; `identity_from_headers` strips (`cloudflare_identity.py:68`).
+
+### Verified after the fix
+
+| Input | Published |
+|---|---|
+| `trask@openmined.org `, ` trask@openmined.org`, `\ttrask@openmined.org\t` | `trask` |
+| `  filip.boltuzic@openmined.org  ` | `filip.boltuzic` |
+| `@openmined.org`, `" @openmined.org"`, `"  @openmined.org  "` | unchanged — never blank |
+| `Team A @ OpenMined`, `user@github`, `tester`, `""`, `None` | unchanged |
+| `a@b@openmined.org` | `a@b` |
+
+RED first: the four padded cases failed for the right reason before the fix, and the padded
+blank-local case passed throughout, proving the §3a guarantee survived.
+
+### Residual, recorded not fixed
+
+`"me @ openmined.org"` still publishes in full. §3's pass-through rule treats internal whitespace as
+free text, and trimming it would mangle legitimate team names — reversing an owner-locked decision.
+Flagged for the owner rather than changed unilaterally.
+
+**Gates:** all green.

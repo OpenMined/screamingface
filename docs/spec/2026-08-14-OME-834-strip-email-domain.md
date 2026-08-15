@@ -36,6 +36,7 @@ The strip belongs where every consumer is served: the **read DTOs**.
 | `a@b@openmined.org` | `a@b` | the domain is what follows the **last** `@` |
 | `@openmined.org` | `@openmined.org` | an empty local part would render as a missing submitter; keep the original instead |
 | `" @openmined.org"` | unchanged | **a BLANK local part is the dangerous case** — see §3a |
+| `"trask@openmined.org "` | `trask` | surrounding whitespace is noise — see §3b |
 | `"Team A @ OpenMined"` | unchanged | free text containing `@` is not an address |
 | `user@github` | unchanged | a handle, not a public address (no dotted domain) |
 | `null` | `null` | absent stays absent |
@@ -55,6 +56,33 @@ The first implementation trimmed whenever `@` appeared and guarded the result wi
 
 The rule is now: trim only what looks like **one address** — no whitespace anywhere, a non-blank
 local part, and a dotted domain. Everything else passes through untouched.
+
+### 3b Second revision after review (2026-08-15) — strip the padding first
+
+§3a over-corrected. Rejecting **all** whitespace also rejected an address that merely carries
+padding, so one trailing space published the full domain — the exact exposure this change exists to
+close, defeated by a space:
+
+```
+"trask@openmined.org "   ->  "trask@openmined.org "   # domain published
+" trask@openmined.org"   ->  " trask@openmined.org"   # domain published
+```
+
+Reachable, not theoretical: `ScoreSubmission.submitted_by` is `str | None = None` with no strip and
+no constraint, and in `authMode: disabled` — the chart default — it is client-supplied free text. The
+authenticated path is safe; `identity_from_headers` already calls `.strip()`
+(`cloudflare_identity.py:68`).
+
+The distinction §3a actually needed is **surrounding** whitespace (noise) versus **internal**
+whitespace (proof the value is free text). So: strip, then require the remainder to hold no
+whitespace at all. This cannot resurrect §3a's hazard — after stripping, an empty local part is
+empty rather than blank, so `"  @openmined.org  "` still passes through untouched instead of
+publishing `"  "`.
+
+**Residual, deliberately not closed:** `"me @ openmined.org"` still passes through in full, because
+§3's pass-through rule treats internal whitespace as free text. A determined harvester can normalise
+it. Closing it would mean trimming values that may legitimately be team names, which reverses a
+decision the owner locked in §3 — so it is recorded here rather than changed unilaterally.
 
 **Storage is untouched.** `Score.submitted_by` keeps the full address. OpenMined must still be able
 to contact a submitter and audit which verified identity produced a score, which stripping on write
