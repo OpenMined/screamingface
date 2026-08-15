@@ -1,7 +1,7 @@
 ---
 ticket: OME-770
 stack: scoreboard
-status: done
+status: in_review
 started: 2026-08-12
 finished: 2026-08-13
 ---
@@ -294,7 +294,9 @@ Live probe through the ASGI app against a fresh SQLite database:
    (`0.0000009` is rejected for being below the quantum, not for its scale).
 3. **The review tool could not report through `ReportFindings`** — not available in this
    environment; findings came back as prose and were re-verified by hand.
-4. Still **no PR opened** and nothing outward-facing sent.
+4. At the time of writing, no PR was open. Superseded: opened as
+   [#582](https://github.com/OpenMined/screamingface/pull/582) (2026-08-14), CI green,
+   awaiting review. Nothing outward-facing was sent.
 
 ## Code-review pass 2 (2026-08-13) — four findings, all verified
 
@@ -411,7 +413,7 @@ owner-approved line-197 widening.
 2. **`ruff` rejected my first implementation** (`PLR0911`, 4 returns > 3). Restructured into the
    `max(...)` form rather than suppressing the rule — the result is genuinely better, so the gate
    improved the code rather than merely permitting it.
-3. Still **no PR opened** and nothing outward-facing sent.
+3. At the time of writing, no PR was open — see the note above; #582 is now open.
 
 ## Review pass 3 (2026-08-14) — three findings, all valid
 
