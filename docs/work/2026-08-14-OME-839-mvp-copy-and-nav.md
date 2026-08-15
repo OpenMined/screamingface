@@ -1,9 +1,9 @@
 ---
 ticket: OME-839
 stack: scoreboard
-status: in_progress
+status: in_review
 started: 2026-08-14
-finished:
+finished: 2026-08-15
 ---
 
 # OME-839 — adopt the leaderboard-mvp masthead nav and landing copy
@@ -33,7 +33,8 @@ anchors, not a redesign.
   token vars only).
 - `apps/scoreboard/portal/index.html` — the three nav links; lead → the fusion definition; an
   anchorable `id` on the Benchmarks heading plus the picker sentence; footer wordmark.
-- `apps/scoreboard/portal/benchmark.html`, `spec.html` — the same three nav links and footer.
+- `apps/scoreboard/portal/benchmark.html`, `spec.html`, `data.html` — the same three nav
+  links and footer.
 
 ## Test plan
 
@@ -105,3 +106,36 @@ pages at 1200px and 375px, light and dark, plus `.rail-link` color = `--ink-2` i
 (`portal / leaderboard / spec`) reaches x=326 while the fixed toggle starts at x=300. Confirmed
 **pre-existing**: hiding `.rail-nav` and re-measuring reproduces it, so this change neither causes
 nor worsens it. Both sides are vendored CSS. Not touched here; it wants its own ticket.
+
+## Review pass (2026-08-15) — two findings, both valid, both mine
+
+| Finding | Verified how | Verdict |
+|---|---|---|
+| The `benchmarks` link parks its target under the rail | measured after `scrollIntoView()` in Chrome | **valid — the link this ticket adds does not work properly** |
+| `data.html` is a fourth portal page and has no nav | `curl` on dev returned 200; reached from `main.js:280` | **valid — the ticket and PR both claimed "every portal page"** |
+
+### The anchor lands under the masthead
+
+I verified the `#benchmarks` target *existed* and never verified where it *lands*. The rail is sticky
+at `top: 0` and its JS re-pins it as `fixed` once scrolled past (`style.css:44`), so a bare fragment
+jump parks the heading beneath it. Measured: heading top at **y=7**, rail bottom at **y=44** — 37px
+of a 57px heading hidden, with `scroll-margin-top: 0px` and no `scroll-padding` anywhere in the
+vendored CSS.
+
+Fixed with one additive rule, `html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)) }`,
+which covers every future in-page anchor rather than only this one, and reuses the same token the
+rail's height uses so the two cannot drift. After: heading top **y=63**, rail bottom y=44 — **19px
+clearance, 0px obscured**.
+
+### The fourth page
+
+`data.html` renders a published JSONL file. It is reached from the index's "Dataset" links
+(`main.js:280`), it is live (`leaderboard.dev.screamingface.ai/data.html` → 200), and I never looked
+past the three pages the mockup has. Both the ticket and the PR body claimed the nav appears on every
+portal page; that was false until now. Nav and footer wordmark added; verified at 1200px (25px gap to
+the toggle, no overlap) and 375px (nav on its own wrapped row, no overflow).
+
+Worth keeping: "I changed the three files the design mocks up" is not the same as "I changed every
+page that ships". The check is `ls *.html`, not the mockup's sitemap.
+
+**Gates:** all green.

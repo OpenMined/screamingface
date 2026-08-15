@@ -159,6 +159,16 @@ table .btn { white-space: nowrap; }
   mask: none;
 }
 
+/* ---- fragment targets clear the rail (OME-839) --------------------- */
+/* WHY: the rail is sticky at top:0 and its JS re-pins it as `fixed` once scrolled
+   past (style.css:44), so a bare fragment jump parks the target under it. Measured
+   in Chrome on `index.html#benchmarks`: the heading landed at y=7 with the rail's
+   bottom at y=44 — 37px of a 57px heading hidden. Nothing in the vendored CSS sets
+   scroll-padding, so this is additive, and it fixes every future in-page anchor
+   rather than the one this ticket adds. --rail-h is the same token the rail's own
+   height uses, so the two cannot drift. */
+html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
+
 /* ---- masthead nav links (OME-839) ---------------------------------- */
 /* Adopted from the leaderboard-mvp design, which defines these in its own board.css —
    they are NOT in the vendored style.css, so they belong here.

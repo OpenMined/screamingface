@@ -34,7 +34,11 @@ So the rule is: **adopt the copy that is true now; the rest lands with the ticke
 
 Adopted:
 
-- Masthead: `benchmarks` · `github` · `docs`, right-aligned before the theme toggle, on every page.
+- Masthead: `benchmarks` · `github` · `docs`, right-aligned before the theme toggle, on every page
+  — all four of them: `index`, `benchmark`, `spec` and `data` (the last renders a published JSONL
+  file and is easy to miss, since the mockup has no equivalent).
+- A fragment target must clear the rail. The rail pins itself as `fixed` when scrolled, so an
+  unadjusted `#benchmarks` jump hides the heading behind it.
 - Lead: *"A fusion is one or more models scored on a public benchmark."*
 - Benchmarks section: *"Pick a benchmark to open its leaderboard. Inside, you can tab across all
   benchmarks."*

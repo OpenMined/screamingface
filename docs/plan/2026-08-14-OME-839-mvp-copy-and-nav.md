@@ -11,7 +11,7 @@ Match the mockup's own rules (`board.css:27-30`, plus its `620px` margin rule), 
 only per `portal.css`'s header rule. `.rail-link--end` carries the right margin so nothing sits
 under the toggle glyph.
 
-## Step 2 — the three links, on all three pages
+## Step 2 — the three links, on all FOUR pages
 
 Insert before the toggle in each `.rail`. `github` and `docs` are external:
 `target="_blank" rel="noopener"`. `benchmarks` → `index.html#benchmarks` (spec §3).
