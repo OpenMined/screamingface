@@ -54,7 +54,9 @@ the corrected matrix, per the ticket's own explicit Verify section.
   added `strategy.matrix.python-version: ["3.12", "3.13"]` to the `test` job and pointed
   `actions/setup-python` at `${{ matrix.python-version }}`, mirroring
   `aigateway-tests.yml`'s pattern verbatim (+4/−1 lines).
-- **Commits:** none yet — pending explicit go-ahead to commit.
+- **Commits:** `b80f73e1` ci(scoreboard): test the Python 3.13 interpreter it already ships ·
+  `e596e2c4` ci(scoreboard): name the reporter per matrix leg, publish coverage once.
+  Opened as [#516](https://github.com/OpenMined/screamingface/pull/516); CI green.
 - **Gates:** `uv run --python 3.12 .claude/scripts/run_gates.py scoreboard --base
   origin/main --skip-append-only` → ALL GATES GREEN. Re-ran the same suite under
   `--python 3.13` (fresh `.venv`, no cached 3.12 artifacts) → ALL GATES GREEN — this is
