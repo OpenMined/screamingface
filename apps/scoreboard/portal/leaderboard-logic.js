@@ -46,8 +46,15 @@
   //
   // OME-771 intends to source the signal from the SF engine instead ("have we run
   // this URL4 before" — i.e. a global-cache hit), and OME-821 gives the field a
-  // real meaning. When either lands, change the predicate on the next line and
-  // nothing else: the tests pin the invariant above, not the source of the signal.
+  // real meaning. When either lands, TWO lines move: the predicate below, and the
+  // one-line `entry()` helper at the top of leaderboard-logic.test.js, which names
+  // `verified_by_openmined` when building fixtures. The assertions themselves do
+  // not change — they pin the invariant above, not the source of the signal.
+  //
+  // AIDEV-NOTE: this note used to say "change the predicate and nothing else",
+  // which was wrong: the fixtures name the field too. Corrected in review of #588,
+  // because "nothing else" is exactly the sort of promise a later reader trusts
+  // instead of checking.
   function isReproducible(entry) {
     return entry.verified_by_openmined === true;
   }

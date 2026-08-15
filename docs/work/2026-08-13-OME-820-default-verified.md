@@ -382,3 +382,33 @@ worse than filtering nothing, and it is the sharper argument for dropping the co
 counter and the pool filter.
 
 All five sites now carry the accurate rationale.
+
+## Review pass (2026-08-15) — found while self-reviewing the re-review comment
+
+Drafting the reply to `@HupBaHa` meant restating what this PR does, and one of the restatements did
+not survive being checked.
+
+**`leaderboard-logic.js` promised more than it delivers.** The note above `isReproducible` said:
+
+> When either lands, change the predicate on the next line **and nothing else**: the tests pin the
+> invariant above, not the source of the signal.
+
+The second half is true; "and nothing else" is not. `leaderboard-logic.test.js` builds fixtures with
+
+```js
+function entry(spec_id, accuracy, verified) {
+  return { spec_id, accuracy, verified_by_openmined: verified };
+}
+```
+
+so the **field name is baked into the test helper**. Re-pointing the predicate at an engine
+cache-hit means changing that helper too. Two lines, not one.
+
+Corrected to name both, and to record what the old wording got wrong — "nothing else" is exactly the
+kind of promise a later reader trusts instead of checking, which is how a supposedly one-line change
+turns into a surprise.
+
+Small, but it is the same failure mode as the "uniform" wording: a comment that reads as settled fact
+and is not.
+
+**Gates:** all green.
