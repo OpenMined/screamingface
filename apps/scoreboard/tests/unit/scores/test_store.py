@@ -412,3 +412,115 @@ async def test_postgres_concurrent_identical_recipe_submissions_share_winner(
 
     assert len({outcome.score.id for outcome in results}) == 1
     assert await Score.all().count() == 1
+
+
+# --- OME-775: benchmark revision resolution ------------------------------------------------
+# INVARIANT: the resolved revision is the same value whether the Client sent it as a typed
+# top-level field or nested in the free-form metadata dict. Wire position must not change
+# identity — the store has one resolution rule and everything downstream reads its output.
+
+
+def _revision_submission(
+    *,
+    spec_id: str = "spec-rev",
+    benchmark_revision: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> ScoreSubmission:
+    return ScoreSubmission(
+        benchmark_id="hle",
+        spec_id=spec_id,
+        url4_expression=f"url4://benchmark/{spec_id}",
+        submitted_by="tester",
+        accuracy=0.75,
+        total_questions=100,
+        correct_questions=75,
+        ran_with_providers=["openai"],
+        benchmark_revision=benchmark_revision,
+        metadata=metadata,
+    )
+
+
+async def _stored_revision(score_id: object) -> str | None:
+    # WHY assert on the persisted row rather than the returned schema: this step's contract is
+    # resolution + storage. Exposure on the read schemas is a separate contract with its own
+    # tests, so the two can fail independently.
+    row = await Score.get(id=score_id)
+    return row.benchmark_revision
+
+
+async def test_submit_stores_a_typed_top_level_benchmark_revision(tortoise_db: None) -> None:
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(_revision_submission(benchmark_revision="rev-typed"))
+
+    assert await _stored_revision(score.id) == "rev-typed"
+
+
+async def test_submit_promotes_the_revision_from_metadata(tortoise_db: None) -> None:
+    # WHY: this is the shape every deployed Client sends today
+    # (packages/screamingface/.../leaderboards.py) — it must keep working.
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(
+        _revision_submission(metadata={"benchmark_revision": "rev-meta", "run_id": "r1"})
+    )
+
+    assert await _stored_revision(score.id) == "rev-meta"
+
+
+async def test_submit_prefers_the_typed_revision_over_the_metadata_copy(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(
+        _revision_submission(
+            benchmark_revision="rev-typed",
+            metadata={"benchmark_revision": "rev-meta"},
+        )
+    )
+
+    assert await _stored_revision(score.id) == "rev-typed"
+
+
+async def test_submit_leaves_the_metadata_copy_intact(tortoise_db: None) -> None:
+    # INVARIANT: promotion reads metadata, it never mutates or strips it. The client's
+    # payload is stored as sent.
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(
+        _revision_submission(metadata={"benchmark_revision": "rev-meta", "run_id": "r1"})
+    )
+
+    assert score.metadata == {"benchmark_revision": "rev-meta", "run_id": "r1"}
+
+
+async def test_submit_accepts_a_submission_with_no_revision_anywhere(tortoise_db: None) -> None:
+    store = await _store_with_benchmark()
+
+    score, created = await store.submit(_revision_submission(metadata={"source": "unit"}))
+
+    assert created is True
+    assert await _stored_revision(score.id) is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"benchmark_revision": ""},
+        {"benchmark_revision": 42},
+        {"benchmark_revision": None},
+        {"benchmark_revision": ["rev"]},
+    ],
+)
+async def test_submit_treats_an_unusable_metadata_revision_as_absent(
+    tortoise_db: None, metadata: dict[str, object]
+) -> None:
+    # WHY: metadata is free-form and client-supplied, so a non-string or empty value is
+    # untrustworthy input, not a crash — it resolves to None rather than raising.
+    store = await _store_with_benchmark()
+
+    score, created = await store.submit(_revision_submission(metadata=metadata))
+
+    assert created is True
+    assert await _stored_revision(score.id) is None

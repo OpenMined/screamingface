@@ -52,9 +52,26 @@ def _score_to_schema(model: Score) -> ScoreSchema:
     )
 
 
+def _resolve_benchmark_revision(submission: ScoreSubmission) -> str | None:
+    # WHY: the deployed Client sends the Engine benchmark revision nested in the free-form
+    # `metadata` dict, not as a typed field (packages/screamingface/.../leaderboards.py).
+    # Reading only the typed field would silently drop it for every client in the field;
+    # rejecting the metadata copy would 422 every live submission. So the typed field wins
+    # when usable and metadata is the fallback (OME-775 D5).
+    # INVARIANT: this reads metadata, it never mutates or strips it — the payload is stored
+    # exactly as sent.
+    if submission.benchmark_revision:
+        return submission.benchmark_revision
+    candidate = (submission.metadata or {}).get("benchmark_revision")
+    # INVARIANT: metadata is client-supplied and unvalidated, so a non-string or empty value
+    # is absent input, never an error.
+    return candidate if isinstance(candidate, str) and candidate else None
+
+
 def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dict[str, object]:
     return {
         "benchmark_id": submission.benchmark_id,
+        "benchmark_revision": _resolve_benchmark_revision(submission),
         "version": submission.version,
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,

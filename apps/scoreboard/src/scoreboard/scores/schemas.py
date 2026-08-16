@@ -78,6 +78,10 @@ class ScoreSubmission(BaseModel):
 
     version: Literal[1] = 1
     benchmark_id: str
+    # WHY optional: the deployed Client sends this nested in `metadata` rather than as a typed
+    # field, so the store resolves either shape (_resolve_benchmark_revision). Requiring it
+    # here would 422 every submission in the field; see OME-775 D5.
+    benchmark_revision: str | None = None
     spec_id: str
     url4_expression: Annotated[str, Field(max_length=32_000)]
     submitted_by: str | None = None
