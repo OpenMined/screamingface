@@ -26,6 +26,7 @@ def _benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
         display_name=model.display_name,
         description=model.description,
         dataset_url=model.dataset_url,
+        revision=model.revision,
         created_at=model.created_at,
     )
 
@@ -186,12 +187,14 @@ class ScoreStore:
         display_name: str,
         description: str | None = None,
         dataset_url: str | None = None,
+        revision: str | None = None,
     ) -> BenchmarkSchema:
         benchmark, _ = await Benchmark.update_or_create(
             defaults={
                 "display_name": display_name,
                 "description": description,
                 "dataset_url": dataset_url,
+                "revision": revision,
             },
             id=benchmark_id,
         )

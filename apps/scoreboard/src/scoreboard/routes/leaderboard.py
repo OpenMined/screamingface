@@ -98,6 +98,7 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
         display_name=benchmark.display_name,
         description=benchmark.description,
         dataset_url=benchmark.dataset_url,
+        revision=benchmark.revision,
         created_at=benchmark.created_at,
     )
 

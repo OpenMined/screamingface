@@ -23,6 +23,10 @@ class SeedBenchmark(BaseModel):
     display_name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     dataset_url: str | None = None
+    # INVARIANT: must match the Engine benchmark's computed REVISION exactly — a submission
+    # carries the Engine's value, and the two are compared for comparability (OME-775).
+    # Optional because the retained legacy demo entries have no Engine revision.
+    revision: str | None = Field(default=None, max_length=64)
 
 
 _BENCHMARKS_ADAPTER = TypeAdapter(list[SeedBenchmark])
@@ -50,6 +54,7 @@ async def seed_benchmarks(benchmarks: Sequence[SeedBenchmark]) -> list[Benchmark
                 display_name=benchmark.display_name,
                 description=benchmark.description,
                 dataset_url=benchmark.dataset_url,
+                revision=benchmark.revision,
             )
         )
     return seeded

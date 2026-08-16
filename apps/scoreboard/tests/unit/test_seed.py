@@ -30,3 +30,50 @@ async def test_seed_benchmarks_inserts_and_updates(tortoise_db: None) -> None:
 async def test_load_benchmarks_json_rejects_invalid_payload() -> None:
     with pytest.raises(ValueError, match="invalid benchmark seed payload"):
         load_benchmarks_json('{"id":"hle"}')
+
+
+# --- OME-775: benchmarks carry the Engine revision through seeding --------------------------
+
+
+async def test_seed_benchmarks_persists_the_revision(tortoise_db: None) -> None:
+    # INVARIANT: the registered revision must match the Engine's computed REVISION exactly, or
+    # a submission's revision will never match the board's and every result looks incomparable.
+    benchmarks = load_benchmarks_json(
+        '[{"id":"draco","display_name":"DRACO","revision":"1c58b3085912e304"}]'
+    )
+
+    seeded = await seed_benchmarks(benchmarks)
+
+    assert seeded[0].revision == "1c58b3085912e304"
+    assert (await Benchmark.get(id="draco")).revision == "1c58b3085912e304"
+
+
+async def test_seed_benchmarks_allows_an_absent_revision(tortoise_db: None) -> None:
+    # WHY: the retained legacy demo entries (hle/livetruth) have no Engine revision at all.
+    benchmarks = load_benchmarks_json('[{"id":"hle","display_name":"News Hallucinations"}]')
+
+    seeded = await seed_benchmarks(benchmarks)
+
+    assert seeded[0].revision is None
+
+
+async def test_reseeding_updates_the_revision_without_duplicating(tortoise_db: None) -> None:
+    # WHY: an Engine benchmark's revision changes whenever its dataset or protocol does, and
+    # redeploying must move the registered value rather than create a second row.
+    await seed_benchmarks(
+        load_benchmarks_json('[{"id":"draco","display_name":"DRACO","revision":"rev-old"}]')
+    )
+
+    reseeded = await seed_benchmarks(
+        load_benchmarks_json('[{"id":"draco","display_name":"DRACO","revision":"rev-new"}]')
+    )
+
+    assert await Benchmark.all().count() == 1
+    assert reseeded[0].revision == "rev-new"
+
+
+async def test_load_benchmarks_json_still_rejects_an_unknown_key() -> None:
+    # INVARIANT: the seed payload is extra="forbid", so a typo'd key fails the deploy loudly
+    # rather than silently registering a benchmark without its revision.
+    with pytest.raises(ValueError, match="invalid benchmark seed payload"):
+        load_benchmarks_json('[{"id":"draco","display_name":"DRACO","revsion":"typo"}]')
