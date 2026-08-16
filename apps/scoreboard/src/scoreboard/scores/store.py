@@ -35,6 +35,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         id=model.id,
         version=model.version,
         benchmark_id=cast(str, getattr(model, "benchmark_id")),
+        benchmark_revision=model.benchmark_revision,
         spec_id=model.spec_id,
         url4_expression=model.url4_expression,
         submitted_by=model.submitted_by,

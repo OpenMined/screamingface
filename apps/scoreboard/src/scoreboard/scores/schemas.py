@@ -157,6 +157,9 @@ class ScoreSchema(BaseModel):
     id: UUID
     version: int
     benchmark_id: str
+    # WHY: the Engine benchmark revision this score was measured against, resolved from either
+    # wire shape by the store. Null for imported baselines and rows predating OME-775.
+    benchmark_revision: str | None
     spec_id: str
     url4_expression: str
     submitted_by: str | None

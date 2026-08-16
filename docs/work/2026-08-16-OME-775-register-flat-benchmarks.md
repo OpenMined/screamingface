@@ -65,13 +65,35 @@ assumed either way.
 
 Recorded here rather than decided unilaterally, per the 95% confidence gate.
 
+## Open decision — RESOLVED 2026-08-16
+
+**D3 — the revision joins `_content_hash`, with no backfill.** Owner's call, taking the
+forward-correct identity over the alternative that silently discards a second revision's result.
+The bounded consequence (a resubmitted pre-existing recipe creates a second row rather than
+deduping) is recorded in a code comment beside the hash, not left to be rediscovered.
+
 ## Planned changes
 
-_Pending the open decision above and the spec. Not started._
+Per `docs/plan/2026-08-16-OME-775-flat-benchmark-registration.md`, seven steps: schema+migration →
+resolution rule → identity → ranking partition → read paths → seed config → close-out.
 
 ## Test plan
 
-_Pending spec._
+Per the plan — RED-first at every step. Contracts pinned: revision resolution from either wire
+shape, identity separating revisions while preserving `OME-391` dedup, the ranking partition, and
+the NULL-revision backward-compatibility guard.
+
+## Running deviations
+
+1. **Step 5's leaderboard-entry exposure was pulled forward into Step 4.** The plan separated the
+   ranking partition from exposing the field on read schemas, but the partition is not observable
+   without it — a test can only see "two rows instead of one", not *which* revisions, so the
+   assertion would have been far weaker than the invariant deserves. `LeaderboardEntry` and
+   `RankedLeaderboardEntry` therefore gained the field in Step 4. Step 5 keeps the remaining read
+   paths (per-spec history, score read schema).
+2. **Three pre-existing route tests failed during Step 4** because `_ranked_entry` splats
+   `entry.model_dump()` into `RankedLeaderboardEntry`, which is `extra="forbid"`. Fixed by adding
+   the field to the route model — the prior tests were not modified, and they pass unchanged.
 
 ## Acceptance
 

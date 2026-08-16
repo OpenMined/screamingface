@@ -61,6 +61,9 @@ class HistorySubmission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
+    # WHY: a spec's history can span benchmark revisions, and two entries measured against
+    # different revisions are not comparable to each other (OME-775).
+    benchmark_revision: str | None
     accuracy: float
     total_questions: int
     correct_questions: int
@@ -106,6 +109,7 @@ def _ranked_entry(rank: int, entry: LeaderboardEntry) -> RankedLeaderboardEntry:
 def _history_submission(score: ScoreSchema) -> HistorySubmission:
     return HistorySubmission(
         id=score.id,
+        benchmark_revision=score.benchmark_revision,
         accuracy=score.accuracy,
         total_questions=score.total_questions,
         correct_questions=score.correct_questions,

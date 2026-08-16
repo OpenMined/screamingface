@@ -189,6 +189,10 @@ async def test_get_spec_history_returns_submissions_newest_first(
     assert [submission["accuracy"] for submission in body["submissions"]] == [0.8, 0.5]
     assert set(body["submissions"][0]) == {
         "id",
+        # OME-775: a spec's history can span benchmark revisions, and entries measured against
+        # different revisions are not comparable. Owner-approved contract change; the
+        # assertion stays exact rather than being loosened to a subset check.
+        "benchmark_revision",
         "accuracy",
         "total_questions",
         "correct_questions",

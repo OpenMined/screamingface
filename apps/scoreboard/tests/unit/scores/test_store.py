@@ -647,3 +647,27 @@ async def test_leaderboard_groups_null_revision_rows_exactly_as_before(
     assert len(rows) == 1
     assert rows[0].accuracy == 0.85
     assert rows[0].benchmark_revision is None
+
+
+# --- OME-775: the revision reaches the score read DTO ---------------------------------------
+
+
+async def test_score_read_schema_carries_the_resolved_revision(tortoise_db: None) -> None:
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(_revision_submission(metadata={"benchmark_revision": "rev-read"}))
+
+    assert score.benchmark_revision == "rev-read"
+
+
+async def test_score_read_schema_serialises_an_absent_revision_as_null(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: absent means null, never omitted — a client must be able to distinguish
+    # "no revision recorded" from "field missing from this deployment".
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(_revision_submission(metadata={"source": "unit"}))
+
+    assert "benchmark_revision" in score.model_dump()
+    assert score.benchmark_revision is None
