@@ -104,6 +104,26 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/ClientsPage.vue'),
     },
     {
+      path: '/sf-client/api/modules',
+      name: 'sf-client-api-modules',
+      component: () => import('@/pages/sf-client/api/ModulesPage.vue'),
+    },
+    {
+      path: '/sf-client/api/errors',
+      name: 'sf-client-api-errors',
+      component: () => import('@/pages/sf-client/api/ErrorsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/events',
+      name: 'sf-client-api-events',
+      component: () => import('@/pages/sf-client/api/EventsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/leaderboards',
+      name: 'sf-client-api-leaderboards',
+      component: () => import('@/pages/sf-client/api/LeaderboardsPage.vue'),
+    },
+    {
       path: '/learn',
       name: 'learn',
       component: () => import('@/pages/learn/ArchitecturePage.vue'),

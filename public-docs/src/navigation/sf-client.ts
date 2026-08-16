@@ -57,6 +57,15 @@ export const sfClientNavigation: NavEntry[] = [
           { title: 'Clients', path: '/sf-client/api/clients' },
         ],
       },
+      {
+        title: 'Modules & types',
+        children: [
+          { title: 'Modules', path: '/sf-client/api/modules' },
+          { title: 'Errors', path: '/sf-client/api/errors' },
+          { title: 'Events', path: '/sf-client/api/events' },
+          { title: 'Leaderboards', path: '/sf-client/api/leaderboards' },
+        ],
+      },
     ],
   },
 ]
