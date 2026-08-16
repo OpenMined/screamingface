@@ -102,8 +102,17 @@ def _content_hash(submission: ScoreSubmission) -> str:
     # 0.01 of that ratio, so the same result (e.g. 2/3 correct) could otherwise be
     # reported as 0.67 or 0.6666666667 and hash differently, defeating dedup for the
     # exact near-duplicate case this hash exists to catch (found in PR review).
+    # OME-775: the benchmark revision IS identity, unlike the rest of `metadata` it may arrive
+    # in — a different dataset/protocol revision is a different thing measured, not incidental
+    # provenance. It reads the RESOLVED value, not the wire position, so a client migrating
+    # from the metadata form to the typed form does not duplicate its whole history.
+    # AIDEV-NOTE: stored content_hash values predating this were computed WITHOUT the revision
+    # and were deliberately not backfilled (D3). The bounded consequence: resubmitting a recipe
+    # that predates this change creates a second row instead of deduping. Accepted over the
+    # alternative, which silently discarded a second revision's result entirely.
     identity = {
         "benchmark_id": submission.benchmark_id,
+        "benchmark_revision": _resolve_benchmark_revision(submission),
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,
         "accuracy": submission.correct_questions / submission.total_questions,

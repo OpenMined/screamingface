@@ -524,3 +524,53 @@ async def test_submit_treats_an_unusable_metadata_revision_as_absent(
 
     assert created is True
     assert await _stored_revision(score.id) is None
+
+
+# --- OME-775: revision participates in dedup identity (D3) ----------------------------------
+
+
+async def test_same_recipe_at_two_revisions_does_not_dedup(tortoise_db: None) -> None:
+    # INVARIANT: a different benchmark revision is a different thing measured, so it is part
+    # of the recipe's identity. Before OME-775 these two collided and the second was silently
+    # discarded — which would have made the ranking partition unreachable, since the second
+    # revision's row never existed.
+    store = await _store_with_benchmark()
+
+    first, first_created = await store.submit(_revision_submission(benchmark_revision="rev-a"))
+    second, second_created = await store.submit(_revision_submission(benchmark_revision="rev-b"))
+
+    assert first_created is True
+    assert second_created is True
+    assert first.id != second.id
+    assert await Score.all().count() == 2
+
+
+async def test_identical_submissions_still_dedup_with_a_revision(tortoise_db: None) -> None:
+    # The OME-391 guarantee must survive the identity change.
+    store = await _store_with_benchmark()
+
+    first, first_created = await store.submit(_revision_submission(benchmark_revision="rev-a"))
+    second, second_created = await store.submit(_revision_submission(benchmark_revision="rev-a"))
+
+    assert first_created is True
+    assert second_created is False
+    assert first.id == second.id
+    assert await Score.all().count() == 1
+
+
+async def test_identity_follows_the_resolved_revision_not_its_wire_position(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: a revision sent typed and the same revision sent in metadata are the same
+    # submission. If identity read the wire shape instead of the resolved value, a client
+    # upgrading from the metadata form to the typed form would duplicate its whole history.
+    store = await _store_with_benchmark()
+
+    first, first_created = await store.submit(
+        _revision_submission(metadata={"benchmark_revision": "rev-a"})
+    )
+    second, second_created = await store.submit(_revision_submission(benchmark_revision="rev-a"))
+
+    assert first_created is True
+    assert second_created is False
+    assert first.id == second.id
