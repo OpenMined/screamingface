@@ -43,7 +43,7 @@ design:
 | D3 | `benchmark_revision` **joins** the dedup identity hash; **no backfill** | Owner call, taken with the trade-off stated: forward-correct identity, at the cost that a resubmitted pre-existing recipe creates a second row rather than deduping. The alternative silently discards a second-revision result, which defeats the partitioning this unit adds. |
 | D4 | Every new column is **nullable**; no backfill migration | Legacy demo entries (D2) have no Engine revision, and `OME-322`'s imported LMArena baselines genuinely never ran at any revision. Same reasoning `OME-770` applied to cost and `OME-391` to `content_hash`. |
 | D5 | The typed field is **additive**, and `metadata.benchmark_revision` remains accepted | Making the typed field authoritative-and-exclusive would break every currently-deployed Client, which sends it only in metadata. Forbidding the metadata copy would `422` live submissions — the failure mode `OME-820` was reviewed for. |
-| D6 | Ranking **partitions** by revision rather than filtering to the registered revision | See §5. |
+| D6 | Ranking partitions by revision **and** filters to the benchmark's registered revision | Revised 2026-08-16 — partitioning alone was proven insufficient against a running server. See §4.5. |
 
 ## 4. Design
 
@@ -85,18 +85,31 @@ a different benchmark revision is *a different thing measured*, not incidental p
 No backfill. Stored hashes stay as computed. The bounded consequence is documented in the code
 comment and the ledger, not left for a reader to rediscover.
 
-### 4.5 Ranking partitions by `(spec_id, benchmark_revision)`
+### 4.5 The board ranks one revision — the one its benchmark is registered at
 
-`RowNumber().over(scores.spec_id)` becomes `.over(scores.spec_id, scores.benchmark_revision)`.
+**Two mechanisms, both required:**
 
-Best-per-spec becomes best-per-spec-per-revision, so two revisions of one spec surface as separate
-ranked entries instead of one silently beating the other across an incomparable boundary.
+1. `RowNumber().over(scores.spec_id)` becomes `.over(scores.spec_id, scores.benchmark_revision)`,
+   so best-per-spec is computed per revision and one revision's result cannot displace another's.
+2. The query **filters to the benchmark's registered revision**. When the benchmark has no
+   registered revision, nothing is filtered.
 
-**Rejected alternative — filter to the benchmark's currently-registered revision.** Stricter, and it
-reads more literally as "not ranked together", but it *hides* submitted scores rather than
-separating them, and under D2 the retained legacy entries have a null registered revision, so the
-rule would empty their boards. Partitioning is also backward-safe: every existing row has a null
-revision, so they group exactly as they do today.
+**Revised 2026-08-16 — mechanism 2 was added after mechanism 1 alone was proven insufficient.**
+The original design partitioned only, on the reasoning that separating rows satisfied "not ranked
+together". It does not. The outer query still orders every surviving row into **one** accuracy
+ranking, so a stale-revision score can hold rank 1 on a board registered elsewhere. Demonstrated
+against a running server: with draco registered at `REV-CURRENT`, a `REV-OBSOLETE` score of 0.90
+ranked **#1**, above a `REV-CURRENT` score of 0.80 — two incomparable numbers presented as a
+ranking. The partition keeps each revision's best intact; the filter decides which revision the
+board is about.
+
+The earlier objection to filtering — that it would empty the legacy demo boards (D2), whose
+entries have no registered revision — is handled by making the filter conditional on the benchmark
+declaring a revision at all.
+
+Consequence, accepted: once a benchmark declares a revision, rows that cannot be asserted
+comparable to it — including `NULL` rows predating this column — no longer rank. They remain
+stored and remain visible in per-spec history.
 
 ### 4.6 Read paths expose it
 

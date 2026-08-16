@@ -159,11 +159,50 @@ the NULL-revision backward-compatibility guard.
    (`url4_cloud.benchmarks.ifeval.vendor`), so no single public URL is authoritative. Left null
    rather than inventing one; flagged to the owner at spec time.
 
+5. **The ranking design was wrong on the first pass, and local end-to-end testing caught it.**
+   Partitioning alone was shipped and believed sufficient. It is not: the outer query still orders
+   every surviving row into one accuracy ranking, so a stale-revision score can hold rank 1 on a
+   board registered elsewhere. Found by running the real Client against a real server rather than
+   by review — the unit tests passed throughout, because each asserted its own mechanism rather
+   than the end-to-end guarantee. Fixed by adding a filter to the benchmark's registered revision
+   (spec §4.5, revised). **Lesson worth keeping: "rows are separated" is not "results are not
+   ranked together" — an acceptance criterion phrased about presentation needs a test that reads
+   the presented output.**
+
+## Local end-to-end verification (2026-08-16)
+
+Run after the unit work, because the seed config and the ranking guarantee are both invisible to
+the unit suite. Real `sf.Client` → real scoreboard on the branch → chart-rendered seed payload.
+
+| Check | Result |
+|---|---|
+| `GET /v1/benchmarks` after seeding from rendered chart values | `draco`, `ifeval`, `healthbench-worst30` with correct revisions ✓ |
+| `sf.leaderboards.submit(...)` for a real `CandidateResult` | **201, not `unknown_leaderboard`** ✓ |
+| Revision promoted from `metadata` to the typed column | `1c58b3085912e304` stored ✓ |
+| Submission appears on `GET /v1/leaderboard/draco` | ✓ |
+| `OME-391` dedup still holds on an identical resubmission | ✓ |
+| Second revision creates a distinct row | ✓ |
+| All three families accept submissions | ✓ |
+| Migration `0004` applies to a fresh DB | ✓ |
+| **Board excludes stale-revision entries** | ✗ **FAILED, then fixed** — see deviation 5 |
+| Legacy board with no registered revision filters nothing | ✓ |
+
+Two false alarms worth recording so they are not re-investigated:
+
+- A first run showed the second revision deduping into the first. **The test was wrong, not the
+  code:** the Client sends `Idempotency-Key: candidate_result.run_id`, which short-circuits ahead
+  of `content_hash`, and both submissions shared a `run_id`. Correct behaviour — one run is one
+  execution against one benchmark revision. Real runs always carry distinct run ids.
+- The Client reports `benchmark_revision` as absent. **Server-side is correct** — the raw JSON
+  carries it on both the leaderboard entry and the score. The Client's read models simply do not
+  parse the field yet; see the follow-ups.
+
 ### Follow-ups (not filed — owner decision)
 
-- **The portal does not render the revision.** Out of scope per §5, but the board can now show
-  one spec twice with no visible explanation. Worth a ticket before the revision actually
-  differs in production.
+- **Revision surfacing in the UI belongs to `OME-771`** (owner decision, 2026-08-16): correctness
+  landed here, presentation goes there. Two surfaces need it — the portal does not render the
+  revision, and the **Python Client's read models do not parse `benchmark_revision`** even though
+  the server returns it, so a Client user cannot see which revision a board is showing.
 - **Legacy demo benchmarks remain registered** (D2). A launch-copy decision, not a technical one.
 - **No backfill of `content_hash`** (D3): resubmitting a recipe that predates this change creates
   a second row instead of deduping. Bounded and documented in code; file if it ever bites.

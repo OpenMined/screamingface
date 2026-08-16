@@ -131,12 +131,24 @@ class SubmitOutcome(NamedTuple):
     created: bool
 
 
-def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
+def _build_leaderboard_query(
+    benchmark_id: str, top_n: int, registered_revision: str | None
+) -> QueryBuilder:
     scores = Score.get_table()
-    # INVARIANT: best-per-spec is computed PER REVISION. Results measured against different
-    # benchmark revisions are not comparable, so one must never displace the other from the
-    # board (OME-775). Rows predating the revision column share a NULL partition value and so
-    # keep collapsing to best-per-spec exactly as before.
+    # INVARIANT: every entry the board ranks was measured against the revision the benchmark is
+    # REGISTERED at. The board presents a single ordered ranking, so admitting a second revision
+    # would assert that two incomparable numbers can be compared — a stale-revision score could
+    # hold rank 1 on a board registered elsewhere (OME-775).
+    #
+    # WHY partitioning alone was not enough: the window below stops one revision displacing
+    # another in the best-per-spec collapse, but the outer query still orders every surviving
+    # row into ONE accuracy ranking. Both are needed — the partition keeps each revision's best
+    # intact, the filter decides which revision the board is actually about.
+    #
+    # AIDEV-NOTE: a benchmark with NO registered revision filters nothing — the retained legacy
+    # demo entries (hle/livetruth) have no Engine revision, and filtering would empty their
+    # boards. Once a benchmark DOES declare one, a row that cannot be asserted comparable to it
+    # (including a NULL row predating this column) does not rank.
     row_number = (
         RowNumber()
         .over(scores.spec_id, scores.benchmark_revision)
@@ -159,7 +171,10 @@ def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
-    ).as_("ranked")
+    )
+    if registered_revision is not None:
+        ranked = ranked.where(scores.benchmark_revision == registered_revision)
+    ranked = ranked.as_("ranked")
 
     return (
         Query.from_(ranked)
@@ -318,8 +333,13 @@ class ScoreStore:
 
     async def leaderboard(self, benchmark_id: str, top_n: int = 50) -> list[LeaderboardEntry]:
         conn = Tortoise.get_connection("default")
+        # The board is defined by the revision its benchmark is registered at; entries measured
+        # against anything else are not comparable to it and do not rank (OME-775).
+        benchmark = await Benchmark.get_or_none(id=benchmark_id)
         result = await execute_pypika(
-            _build_leaderboard_query(benchmark_id, top_n),
+            _build_leaderboard_query(
+                benchmark_id, top_n, benchmark.revision if benchmark else None
+            ),
             using_db=conn,
         )
         rows = result.rows

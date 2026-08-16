@@ -671,3 +671,62 @@ async def test_score_read_schema_serialises_an_absent_revision_as_null(
 
     assert "benchmark_revision" in score.model_dump()
     assert score.benchmark_revision is None
+
+
+# --- OME-775 follow-up: the board shows only the registered revision ------------------------
+# The partition alone was not enough. It stopped one revision displacing another in the
+# best-per-spec collapse, but the outer query still ordered every surviving row into ONE
+# accuracy ranking — so a stale-revision score could hold rank 1 on a board registered at a
+# different revision, presenting two incomparable numbers as a ranking. Verified against a
+# running server before this was written.
+
+
+async def _benchmark_at(revision: str | None) -> ScoreStore:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="Fixture", revision=revision)
+    return store
+
+
+async def test_leaderboard_excludes_scores_from_a_non_registered_revision(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: every entry the board ranks was measured against the revision the board is
+    # registered at. A higher score from an obsolete revision must not outrank a current one.
+    store = await _benchmark_at("REV-CURRENT")
+    await store.submit(
+        _revision_submission(spec_id="old-winner", benchmark_revision="REV-OBSOLETE")
+    )
+    await store.submit(_revision_submission(spec_id="new-entry", benchmark_revision="REV-CURRENT"))
+
+    rows = await store.leaderboard("hle")
+
+    assert [row.spec_id for row in rows] == ["new-entry"]
+    assert all(row.benchmark_revision == "REV-CURRENT" for row in rows)
+
+
+async def test_leaderboard_without_a_registered_revision_filters_nothing(
+    tortoise_db: None,
+) -> None:
+    # WHY: the retained legacy demo benchmarks have no Engine revision (D2). Filtering on a
+    # null registered revision would empty their boards entirely.
+    store = await _benchmark_at(None)
+    await store.submit(_revision_submission(spec_id="legacy-a", benchmark_revision=None))
+    await store.submit(_revision_submission(spec_id="legacy-b", benchmark_revision="whatever"))
+
+    rows = await store.leaderboard("hle")
+
+    assert {row.spec_id for row in rows} == {"legacy-a", "legacy-b"}
+
+
+async def test_leaderboard_at_a_registered_revision_excludes_pre_revision_rows(
+    tortoise_db: None,
+) -> None:
+    # Rows predating OME-775 carry a NULL revision. Once a benchmark declares a revision, such
+    # a row cannot be asserted comparable to it, so it does not rank.
+    store = await _benchmark_at("REV-CURRENT")
+    await store.submit(_revision_submission(spec_id="pre-revision", benchmark_revision=None))
+    await store.submit(_revision_submission(spec_id="current", benchmark_revision="REV-CURRENT"))
+
+    rows = await store.leaderboard("hle")
+
+    assert [row.spec_id for row in rows] == ["current"]
