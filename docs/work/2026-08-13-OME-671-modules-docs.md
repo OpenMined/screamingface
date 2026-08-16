@@ -51,7 +51,7 @@ Supporting:
 - **Actual files:** the four pages, `src/navigation/sf-client.ts`, `src/router/index.ts`,
   `public-docs/CLAUDE.md`, this ledger and the mirror.
 - **Commits:**
-  - `<pending>` — the four pages and their wiring
+  - `4939b19a` — the four pages and their wiring
 - **Gates:** `npx oxlint .`, `npx eslint .`, `npm run build` and `prettier --check` green.
 - **Deviations:**
   - **Scope was cut back sharply.** This unit originally also corrected the four `api/` pages, six
