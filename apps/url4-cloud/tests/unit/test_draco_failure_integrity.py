@@ -6,6 +6,8 @@ import json
 
 import pytest
 
+from url4_cloud.benchmarks.case_execution import case_execution_payload
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.draco import aggregate as agg
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
@@ -26,6 +28,7 @@ def _scored_row(case_id: int) -> dict[str, object]:
         {
             "schema": CASE_SCHEMA,
             "case_id": case_id,
+            "status": "completed",
             "input": f"Question {case_id}",
             "answer": f"Answer {case_id}",
             "output": f"Answer {case_id}",
@@ -64,10 +67,25 @@ def _selected(*case_ids: int) -> list[dict[str, object]]:
     return [{"id": case_id, "input": f"Question {case_id}"} for case_id in case_ids]
 
 
+def _execution(row: dict[str, object]) -> dict[str, object]:
+    case = row["case"]
+    assert isinstance(case, dict)
+    refusal = case["refusal"] if isinstance(case["refusal"], str) else None
+    return case_execution_payload(
+        int(case["case_id"]),
+        encode_candidate_invocation(
+            "" if refusal is not None else str(case["answer"]),
+            str(case["finish_reason"]),
+            refusal,
+        ),
+        [row],
+    )
+
+
 def test_partial_result_preserves_the_collected_case_error() -> None:
     rows = json.dumps(
         [
-            _scored_row(1),
+            _execution(_scored_row(1)),
             {
                 "error": {
                     "kind": "ResolutionError",
@@ -118,7 +136,7 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
 
 def test_a_missing_selected_row_is_retained_and_lowers_coverage() -> None:
     result = agg.aggregate(
-        json.dumps([_scored_row(1)]),
+        json.dumps([_execution(_scored_row(1))]),
         {1: _RUBRIC, 2: _RUBRIC},
         "draco",
         selected_cases=_selected(1, 2),
@@ -138,6 +156,7 @@ def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
     assert isinstance(case_record, dict)
     case_record.update(
         {
+            "status": "refused",
             "answer": exact,
             "output": None,
             "finish_reason": "content_filter",
@@ -145,7 +164,7 @@ def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
         }
     )
     result = agg.aggregate(
-        json.dumps([row]),
+        json.dumps([_execution(row)]),
         {1: _RUBRIC},
         "draco",
         selected_cases=_selected(1),
@@ -173,7 +192,7 @@ def test_corrective_execution_provenance_reaches_the_case_result() -> None:
     }
 
     result = agg.aggregate(
-        json.dumps([row]),
+        json.dumps([_execution(row)]),
         {1: _RUBRIC},
         "draco",
         selected_cases=_selected(1),
@@ -189,7 +208,7 @@ def test_corrective_execution_provenance_reaches_the_case_result() -> None:
 
 def test_missing_selected_case_rubric_retains_the_case_and_lowers_coverage() -> None:
     result = agg.aggregate(
-        json.dumps([_scored_row(1), _scored_row(2)]),
+        json.dumps([_execution(_scored_row(1)), _execution(_scored_row(2))]),
         {1: _RUBRIC},
         "draco",
         selected_cases=_selected(1, 2),
@@ -227,7 +246,7 @@ def test_missing_selected_case_rubric_retains_the_case_and_lowers_coverage() -> 
 def test_nested_draco_records_abort_as_protocol_corruption() -> None:
     rows = json.dumps([{"nested": {"records": _scored_row(1)}}])
 
-    with pytest.raises(agg.AggregateError, match="invalid DRACO Case Evaluation envelope"):
+    with pytest.raises(agg.AggregateError, match="Case execution has an invalid shape"):
         agg.aggregate(
             rows,
             {1: _RUBRIC},
@@ -240,6 +259,7 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
     case = {
         "schema": CASE_SCHEMA,
         "case_id": 1,
+        "status": "completed",
         "input": "Question 1",
         "answer": "Answer 1",
         "output": "Answer 1",
@@ -272,7 +292,7 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
     )
 
     result = agg.aggregate(
-        json.dumps([row]),
+        json.dumps([_execution(row)]),
         {1: _RUBRIC},
         "draco",
         selected_cases=_selected(1),
@@ -295,9 +315,9 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
 
 
 def test_a_row_claiming_another_selected_case_aborts() -> None:
-    rows = json.dumps([_scored_row(1), _scored_row(1)])
+    rows = json.dumps([_execution(_scored_row(1)), _execution(_scored_row(1))])
 
-    with pytest.raises(agg.AggregateError, match="invalid DRACO Case record"):
+    with pytest.raises(agg.AggregateError, match="claims case_id 1, but the selected Case is 2"):
         agg.aggregate(
             rows,
             {1: _RUBRIC, 2: _RUBRIC},
@@ -315,7 +335,7 @@ def test_one_row_cannot_mix_verdicts_from_different_cases() -> None:
     assert isinstance(evidence, list)
     assert isinstance(foreign_evidence, list)
     evidence.append(foreign_evidence[0])
-    rows = json.dumps([row])
+    rows = json.dumps([_execution(row)])
 
     with pytest.raises(agg.AggregateError, match="invalid DRACO Judge Evidence"):
         agg.aggregate(

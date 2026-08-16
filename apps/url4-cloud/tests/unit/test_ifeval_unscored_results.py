@@ -6,6 +6,8 @@ import json
 
 import pytest
 
+from url4_cloud.benchmarks.case_execution import case_execution_payload
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
@@ -31,6 +33,7 @@ def _valid_record() -> dict[str, object]:
         "case_id": 1,
         "attempt": 1,
         "valid": True,
+        "status": "completed",
         "answer": "A compliant answer",
         "refusal": None,
         "finish_reason": "stop",
@@ -99,6 +102,7 @@ def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
     record = _valid_record()
     record.update(
         {
+            "status": "refused",
             "answer": exact,
             "refusal": exact,
             "finish_reason": "content_filter",
@@ -108,7 +112,15 @@ def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
         }
     )
     result = aggregate(
-        json.dumps([bind_case_evaluation(1, [record])]),
+        json.dumps(
+            [
+                case_execution_payload(
+                    1,
+                    encode_candidate_invocation("", "content_filter", exact),
+                    [bind_case_evaluation(1, [record])],
+                )
+            ]
+        ),
         _SPEC,
         "ifeval",
         _ORDER,

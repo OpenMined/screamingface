@@ -17,6 +17,8 @@ import json
 
 import pytest
 
+from url4_cloud.benchmarks.case_execution import case_execution_payload
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.draco import aggregate as agg
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
@@ -102,6 +104,7 @@ def _case_row_from_evidence(
         "schema": CASE_SCHEMA,
         "case_id": case,
         "input": f"Question {case}",
+        "status": "completed",
         "answer": answer,
         "output": answer,
         "finish_reason": "stop",
@@ -125,7 +128,11 @@ def _case_row_from_evidence(
                 evidence[criterion_id],
             )
         )
-    return bind_case_evaluation(case, criteria)
+    return case_execution_payload(
+        case,
+        encode_candidate_invocation(answer, "stop", None),
+        [bind_case_evaluation(case, criteria)],
+    )
 
 
 def test_candidate_output_cannot_become_judge_evidence() -> None:
@@ -295,7 +302,9 @@ def test_a_case_id_missing_from_evidence_aborts() -> None:
         ("a3", ["UNMET"] * 5),
         ("b1", ["MET"] * 5),
     )
-    evidence = row["evidence"]
+    grading = row["grading"]
+    assert isinstance(grading, list) and isinstance(grading[0], dict)
+    evidence = grading[0]["evidence"]
     assert isinstance(evidence, list)
     first_verdict = evidence[0]
     assert isinstance(first_verdict, dict)

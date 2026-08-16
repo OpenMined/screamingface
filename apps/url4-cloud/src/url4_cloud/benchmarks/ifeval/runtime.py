@@ -76,6 +76,7 @@ def _check(root: Path):
             "case_id": case_id,
             "attempt": attempt,
             "valid": True,
+            "status": candidate.status,
             "answer": candidate.text,
             "refusal": candidate.refusal,
             "finish_reason": candidate.finish_reason,

@@ -9,7 +9,7 @@ from url4_cloud.benchmarks.candidate_execution import (
     terminal_candidate_execution,
 )
 from url4_cloud.benchmarks.contract import (
-    PROVIDER_REFUSAL_PLACEHOLDER,
+    CandidateInvocationStatus,
     CorrectiveExecution,
     encode_candidate_invocation,
 )
@@ -45,12 +45,12 @@ async def evaluate_candidate_recipe(
                         code="candidate_contract_error",
                         permanent=True,
                     ) from exc
-                # A content-filter turn often carries no refusal text. Preserve the
-                # provider-refused path with an explicit gradeable marker rather than
-                # making it indistinguishable from a successful empty answer.
-                if not outcome.refusal:
-                    outcome = ModelOutcome(outcome.finish_reason, PROVIDER_REFUSAL_PLACEHOLDER)
-                return _encode("", outcome, terminal_candidate_execution(executions))
+                return _encode(
+                    "",
+                    outcome,
+                    terminal_candidate_execution(executions),
+                    status="refused",
+                )
 
     return _encode(
         result.text,
@@ -63,6 +63,8 @@ def _encode(
     output: str,
     outcome: ModelOutcome,
     execution: CorrectiveExecution | None,
+    *,
+    status: CandidateInvocationStatus | None = None,
 ) -> str:
     try:
         return encode_candidate_invocation(
@@ -70,6 +72,7 @@ def _encode(
             outcome.finish_reason,
             outcome.refusal,
             execution,
+            status=status,
         )
     except ValueError as exc:
         raise ResolutionError(

@@ -12,6 +12,7 @@ from url4_cloud.benchmarks.definition import Benchmark, CheckSurface, candidate
 from url4_cloud.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    preserve_candidate_outcome,
 )
 
 BENCHMARK_ID = "ifeval"
@@ -61,10 +62,11 @@ def _build(case_count: int) -> Node:
     (arXiv:2311.07911), so scores compare directly to published IFEval results.
     """
 
+    candidate_invocation = candidate("$item.input", web_search=CANDIDATE_WEB_SEARCH)
     checked_call = RelExpr(
         path=CHECK_ROUTE,
-        context=render(candidate("$item.input", web_search=CANDIDATE_WEB_SEARCH)),
-        intent=Text("$item.id"),
+        context="$candidate_invocation",
+        intent=Text("$item.case_id"),
     )
     checked = expr(
         src(checked_call, name="record", weight=0.0),
@@ -72,7 +74,7 @@ def _build(case_count: int) -> Node:
             RelExpr(
                 path=CASE_EVALUATION_ROUTE,
                 context=render(struct({"attempt_1": "$record"})),
-                intent=Text("$item.id"),
+                intent=Text("$item.case_id"),
             ),
             name="case_evaluation",
             weight=0.0,
@@ -81,7 +83,11 @@ def _build(case_count: int) -> Node:
     )
     return build_evaluation_protocol(
         cases_route=CASES_ROUTE,
-        case_evaluation=checked,
+        case_evaluation=preserve_candidate_outcome(
+            candidate_invocation=candidate_invocation,
+            grading=checked,
+            case_id="$item.id",
+        ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
         aggregate_route=AGGREGATE_ROUTE,

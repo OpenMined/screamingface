@@ -10,9 +10,9 @@ from typing import Any
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 from url4_cloud.benchmarks.contract import (
+    CandidateInvocationStatus,
     CorrectiveExecution,
-    decode_candidate_execution,
-    decode_candidate_invocation,
+    decode_candidate_invocation_record,
 )
 
 JsonObject = dict[str, Any]
@@ -24,6 +24,7 @@ AggregateAdapter = Callable[[str, int], JsonObject]
 class CandidateAnswer:
     """One Candidate Invocation with evaluator text and exact public outcome fields."""
 
+    status: CandidateInvocationStatus
     text: str
     output: str | None
     finish_reason: str | None
@@ -34,13 +35,14 @@ class CandidateAnswer:
 def candidate_answer(value: str) -> CandidateAnswer:
     """Decode one invocation; refusals remain ordinary Benchmark-checkable text."""
 
-    output, finish_reason, refusal = decode_candidate_invocation(value)
+    invocation = decode_candidate_invocation_record(value)
     return CandidateAnswer(
-        text=refusal if refusal is not None else output,
-        output=None if refusal is not None else output,
-        finish_reason=finish_reason,
-        refusal=refusal,
-        execution=decode_candidate_execution(value),
+        status=invocation.status,
+        text=invocation.refusal or invocation.output,
+        output=invocation.output if invocation.status == "completed" else None,
+        finish_reason=invocation.finish_reason,
+        refusal=invocation.refusal,
+        execution=invocation.execution,
     )
 
 

@@ -342,6 +342,7 @@ def _coverage_notice_html(candidate: CandidateResult) -> str:
                 f"{len(incomplete)} of {total} cases not scored ({', '.join(parts)}); "
                 "no aggregate score is available."
             )
+            message += _candidate_failure_suffix(candidate)
         elif candidate.failures:
             count = len(candidate.failures)
             label = "failure" if count == 1 else "failures"
@@ -349,6 +350,14 @@ def _coverage_notice_html(candidate: CandidateResult) -> str:
                 f"candidate execution reported {count} {label}; no aggregate score is available."
             )
     return f"<div class='sf-report__warn'>{heading} — {message}</div>" if message else ""
+
+
+def _candidate_failure_suffix(candidate: CandidateResult) -> str:
+    count = len(candidate.failures)
+    if not count:
+        return ""
+    label = "failure" if count == 1 else "failures"
+    return f" Candidate execution also reported {count} {label}."
 
 
 def _models_html(candidate: CandidateResult) -> str:

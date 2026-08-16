@@ -24,6 +24,7 @@ from url4_cloud.benchmarks.contract import (
     candidate_coverage,
     validate_case_id,
 )
+from url4_cloud.benchmarks.evaluation import CandidateAnswer
 
 
 class SelectedCase(BaseModel):
@@ -188,7 +189,12 @@ def _public_message(value: object, *, default: str) -> str:
 
 
 _SENSITIVE_ERROR_PATTERNS = (
-    re.compile(r"(?i)(?:^|\s)[a-z]:\\"),
+    # Absolute/relative POSIX, drive-letter Windows, and UNC paths. Public
+    # diagnostics retain the bounded default instead of trying to redact an
+    # unbounded path grammar piecemeal.
+    re.compile(r"(?i)(?:^|[\s'\"(])(?:/|\.{1,2}/)[^\s'\")]+"),
+    re.compile(r"(?i)(?:^|[\s'\"(])[a-z]:\\[^\s'\")]+"),
+    re.compile(r"(?i)(?:^|[\s'\"(])\\\\[^\\\s]+\\[^\s'\")]+"),
     re.compile(
         r"(?i)(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*"
         r"(?:authorization|password|passwd|pwd|secret|token|cookie|api[_-]?key|"
@@ -267,7 +273,7 @@ def failed_case_result(
 def refused_case_result(
     *,
     selected_case: SelectedCase,
-    refusal: str,
+    refusal: str | None,
     grade: CaseGrade | Mapping[str, Any],
     finish_reason: str | None = None,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
@@ -298,6 +304,53 @@ def refused_case_result(
     )
 
 
+def grading_failure_case_result(
+    *,
+    selected_case: SelectedCase,
+    candidate: CandidateAnswer,
+    error: Mapping[str, Any],
+    method: str,
+    default_code: str = "grading_failed",
+    default_message: str = "the Benchmark could not grade this Case",
+) -> CaseResult:
+    """Retain a completed Candidate outcome when subsequent grading fails."""
+
+    diagnostic = public_error(
+        error,
+        default_code=default_code,
+        default_message=default_message,
+    )
+    metadata: dict[str, Any] = {}
+    if diagnostic.kind is not None:
+        metadata["error_kind"] = diagnostic.kind
+    failure = Failure(
+        stage="grading",
+        code=diagnostic.code,
+        message=diagnostic.message,
+        retryable=diagnostic.retryable,
+        case_id=selected_case.case_id,
+        metadata=metadata,
+    )
+    grade = CaseGrade(method=method, score=None, metrics={}, checks=[])
+    if candidate.status == "refused":
+        return refused_case_result(
+            selected_case=selected_case,
+            refusal=candidate.refusal,
+            finish_reason=candidate.finish_reason,
+            grade=grade,
+            failures=[failure],
+            execution=candidate.execution,
+        )
+    return failed_case_result(
+        selected_case=selected_case,
+        output=candidate.output,
+        finish_reason=candidate.finish_reason,
+        grade=grade,
+        failures=[failure],
+        execution=candidate.execution,
+    )
+
+
 def _case_metadata(
     selected_case: SelectedCase, metadata: Mapping[str, Any] | None
 ) -> dict[str, Any]:
@@ -323,6 +376,7 @@ __all__ = [
     "SelectedCase",
     "failed_case_result",
     "finalize_candidate_result",
+    "grading_failure_case_result",
     "public_error",
     "refused_case_result",
     "scored_case_result",

@@ -15,6 +15,7 @@ import pytest
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
+from url4_cloud.benchmarks.case_execution import case_execution_payload, install_case_execution
 from url4_cloud.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
 from url4_cloud.benchmarks.healthbench.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
@@ -218,7 +219,15 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     result = await _call(
         node,
         AGGREGATE_ROUTE,
-        json.dumps([case_evaluation]),
+        json.dumps(
+            [
+                case_execution_payload(
+                    _CASE_ID,
+                    encode_candidate_invocation(_ANSWER, None, None),
+                    [case_evaluation],
+                )
+            ]
+        ),
         # v2 intent: "aggregate:<selected>" — the count of Cases this run selected
         # (how a limit=N run tells the reducer to score only the first N).
         "aggregate:1",
@@ -313,6 +322,7 @@ async def test_a_limit_one_expression_resolves_end_to_end(tmp_path: Path) -> Non
     _write_assets(tmp_path)
     node = Url4Node("test")
     install(node, tmp_path)
+    install_case_execution(node)
 
     @node.endpoint(CANDIDATE_ROUTE)
     def candidate(request: Request) -> str:

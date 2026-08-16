@@ -25,6 +25,7 @@ from url4_cloud.benchmarks.healthbench.subset import WORST30_CASE_IDS, subset_sh
 from url4_cloud.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    preserve_candidate_outcome,
 )
 
 BENCHMARK_ID = "healthbench-worst30"
@@ -86,6 +87,7 @@ CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
 
 
 def _build(case_count: int) -> Node:
+    candidate_invocation = candidate("$item.input", web_search=False)
     """Build the whole benchmark as one url4 expression tree (a recipe, not a run).
 
     Think of it as an exam pipeline, written inside-out because each stage is
@@ -165,8 +167,8 @@ def _build(case_count: int) -> Node:
             path=TASKS_ROUTE,
             # This collection boundary invokes the Candidate exactly once per Case,
             # then fans out one pre-rendered judge task per rubric item.
-            context=render(candidate("$item.input", web_search=False)),
-            intent=Text("$item.id"),
+            context="$candidate_invocation",
+            intent=Text("$item.case_id"),
         ),
         body=(src(rubric_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
@@ -178,7 +180,7 @@ def _build(case_count: int) -> Node:
             RelExpr(
                 path=CASE_EVALUATION_ROUTE,
                 context="$rubric_rows",
-                intent=Text("$item.id"),
+                intent=Text("$item.case_id"),
             ),
             name="case_evaluation",
             weight=0.0,
@@ -187,7 +189,11 @@ def _build(case_count: int) -> Node:
     )
     return build_evaluation_protocol(
         cases_route=CASES_ROUTE,
-        case_evaluation=case_evaluation,
+        case_evaluation=preserve_candidate_outcome(
+            candidate_invocation=candidate_invocation,
+            grading=case_evaluation,
+            case_id="$item.id",
+        ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
         aggregate_route=AGGREGATE_ROUTE,

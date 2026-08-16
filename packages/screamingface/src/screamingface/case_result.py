@@ -481,10 +481,8 @@ def _validate_refused_case(
     output: object,
     failures: Sequence[Failure],
 ) -> None:
-    if refusal is None or output is not None or grade is None:
-        raise ValueError(
-            "Case Result status 'refused' requires exact refusal text, no output, and a grade"
-        )
+    if output is not None or grade is None:
+        raise ValueError("Case Result status 'refused' requires no output and a grade")
     if grade.score is not None and failures:
         raise ValueError("a graded refused Case Result cannot contain failures")
     if grade.score is None and (

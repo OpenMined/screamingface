@@ -904,7 +904,7 @@ def test_candidate_result_decoder_retains_invalid_evidence_under_an_unscored_gra
     assert result.cases[0].failures[0].code == "no_valid_judge_verdict"
 
 
-def test_candidate_result_retains_engine_owned_partial_coverage() -> None:
+def test_candidate_result_rejects_coverage_that_contradicts_case_grades() -> None:
     resource = _decode_benchmark_resource(
         BENCHMARK,
         requested_id="draco",
@@ -940,7 +940,5 @@ def test_candidate_result_retains_engine_owned_partial_coverage() -> None:
         root_usage=None,
     )
 
-    result = _candidate_result(evaluation, candidate, outcome)
-
-    assert result.coverage == 0.761
-    assert "coverage" not in result.metrics
+    with pytest.raises(sf.ExecutionError, match="coverage must equal numeric Case grades"):
+        _candidate_result(evaluation, candidate, outcome)

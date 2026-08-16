@@ -43,6 +43,32 @@ def candidate(
     failures: tuple[sf.Failure, ...] = (),
     usage: sf.Usage | None = None,
 ) -> sf.CandidateResult:
+    selected_cases = case_results() if cases is None else cases
+    if score is None and cases is None:
+        selected_cases = tuple(
+            sf.CaseResult(
+                case_id=case.case_id,
+                input=case.input,
+                output=case.output,
+                finish_reason=case.finish_reason,
+                grade=sf.CaseGrade(method="fixture", score=None, metrics={}, checks=()),
+                failures=(
+                    sf.Failure(
+                        stage="grading",
+                        code="fixture_ungraded",
+                        message="the fixture Case could not be graded",
+                        case_id=case.case_id,
+                    ),
+                ),
+                metadata={},
+            )
+            for case in selected_cases
+        )
+    coverage = round(
+        sum(case.grade is not None and case.grade.score is not None for case in selected_cases)
+        / len(selected_cases),
+        4,
+    )
     return sf.CandidateResult(
         benchmark=benchmark(),
         run_id=f"run_{name}",
@@ -67,9 +93,9 @@ def candidate(
             ),
         ),
         score=score,
-        coverage=1.0 if score is not None else 0.0,
+        coverage=coverage,
         metrics={},
-        cases=case_results() if cases is None else cases,
+        cases=selected_cases,
         members=(),
         failures=failures,
         usage=usage or sf.Usage(input_tokens=100, output_tokens=20, cost_usd="0.12"),
@@ -187,7 +213,7 @@ def test_report_json_and_export_preserve_refusal_and_failure_fields(tmp_path: Pa
         ),
         metadata={},
     )
-    value = report(candidate("opus", score=None, cases=(refused, failed)))
+    value = report(candidate("opus", score=0.0, cases=(refused, failed)))
 
     selected = value.export(tmp_path / "report.json")
     payload = json.loads(selected.read_text(encoding="utf-8"))
@@ -280,7 +306,8 @@ def test_report_flattens_candidate_failures_without_duplicating_them_on_the_wire
     value = report(candidate("opus", score=None, failures=(owned,)))
 
     assert value.ok is False
-    assert value.failures == (owned,)
+    assert value.failures.count(owned) == 1
+    assert len(value.failures) == 3
     payload = value.to_dict()
     candidates = payload["candidates"]
     assert isinstance(candidates, list)
@@ -290,10 +317,10 @@ def test_report_flattens_candidate_failures_without_duplicating_them_on_the_wire
     assert candidate_payload["failures"] == [owned.to_dict()]
 
 
-def test_report_is_not_ok_when_a_candidate_has_no_score_or_failure_record() -> None:
+def test_report_is_not_ok_when_a_candidate_has_no_score_and_ungraded_cases() -> None:
     value = report(candidate("opus", score=None))
 
-    assert value.failures == ()
+    assert len(value.failures) == 2
     assert value.ok is False
 
 
@@ -473,7 +500,7 @@ def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:
         models=value.models,
         operations=value.operations,
         score=0.7,
-        coverage=0.6,
+        coverage=1.0,
         metrics={"diagnostic": "retained"},
         cases=value.cases,
         members=(),
@@ -484,7 +511,7 @@ def test_report_treats_metrics_as_diagnostics_not_a_second_score() -> None:
     result = report(inconsistent)
 
     assert result.candidates.only.score == 0.7
-    assert result.candidates.only.coverage == 0.6
+    assert result.candidates.only.coverage == 1.0
     assert result.candidates.only.metrics == {"diagnostic": "retained"}
 
 

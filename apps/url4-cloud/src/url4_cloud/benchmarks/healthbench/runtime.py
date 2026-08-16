@@ -184,18 +184,14 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
         try:
             case_id = positive_case_id(request.intent)
             answer = candidate_answer(request.context)
-            evaluator_text, finish_reason = answer.text, answer.finish_reason
+            evaluator_text = answer.text
             raw_cases = _read(root / "cases.json", "HealthBench cases")
             transcript = _transcript(raw_cases, case_id)
             items = _rubric_items(root, case_id)
             case_record = records.bind_case(
                 raw_cases,
                 case_id=case_id,
-                answer=evaluator_text,
-                output=answer.output,
-                refusal=answer.refusal,
-                finish_reason=finish_reason,
-                execution=answer.execution,
+                candidate=answer,
             )
             tasks: list[dict[str, str]] = []
             for item in items:

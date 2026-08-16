@@ -58,8 +58,10 @@ from url4_cloud.benchmarks.aggregation import (
     CandidateScore,
     SelectedCase,
     finalize_candidate_result,
+    grading_failure_case_result,
     public_error,
 )
+from url4_cloud.benchmarks.case_execution import case_execution_matches, case_execution_outcome
 from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.draco import assets
 from url4_cloud.benchmarks.draco import case_results as case_results_module
@@ -68,6 +70,7 @@ from url4_cloud.benchmarks.draco.definition import JUDGE_PASSES, REVISION
 from url4_cloud.benchmarks.draco.errors import AggregateError as AggregateError
 from url4_cloud.benchmarks.draco.scoring import flatten_criteria as flatten_criteria
 from url4_cloud.benchmarks.draco.validation import optional_integer
+from url4_cloud.benchmarks.evaluation import CandidateAnswer
 
 VERDICT_SCHEMA = case_results_module.VERDICT_SCHEMA
 group_runs = case_results_module.group_runs
@@ -82,6 +85,8 @@ class _DecodedRow:
     raw: Any
     expected_case: Mapping[str, Any]
     evaluation: Mapping[str, Any] | None
+    candidate: CandidateAnswer | None
+    grading_error: Mapping[str, object] | None
     decode_error: str | None
 
     @property
@@ -187,17 +192,37 @@ def _decode_rows(
     decoded: list[_DecodedRow] = []
     for raw, expected_case in zip(rows, expected_cases, strict=False):
         try:
+            outcome = case_execution_outcome(raw)
+            if not case_execution_matches(outcome, int(expected_case["id"])):
+                raise ValueError(
+                    f"Case execution claims case_id {outcome.case_id!r}, "
+                    f"but the selected Case is {expected_case['id']!r}"
+                )
+            if outcome.error is not None:
+                decoded.append(
+                    _DecodedRow(
+                        raw,
+                        expected_case,
+                        None,
+                        outcome.candidate,
+                        outcome.error,
+                        None,
+                    )
+                )
+                continue
             evaluation = decode_case_evaluation(
-                raw,
+                outcome.grading,
                 int(expected_case["id"]),
                 judge_passes=judge_passes,
             )
         except (TypeError, ValueError) as exc:
             evaluation = None
+            candidate = None
             error = str(exc)
         else:
+            candidate = outcome.candidate
             error = None
-        decoded.append(_DecodedRow(raw, expected_case, evaluation, error))
+        decoded.append(_DecodedRow(raw, expected_case, evaluation, candidate, None, error))
     return decoded
 
 
@@ -208,6 +233,18 @@ def _aggregate_rows(
 ) -> list[CaseResult]:
     case_results: list[CaseResult] = []
     for index, row in enumerate(decoded_rows):
+        if row.grading_error is not None and row.candidate is not None:
+            case_results.append(
+                grading_failure_case_result(
+                    selected_case=_selected_case(row.expected_case),
+                    candidate=row.candidate,
+                    error=row.grading_error,
+                    method="rubric",
+                    default_code="draco_grading_failed",
+                    default_message="the DRACO grader could not grade this Case",
+                )
+            )
+            continue
         if not row.case_records:
             failure = _row_failure(
                 row.raw,
@@ -335,6 +372,8 @@ def _require_verifiable_mapping(rows: Sequence[_DecodedRow]) -> None:
 
 def _verified_row_case_id(row: _DecodedRow, index: int) -> int | None:
     if row.evaluation is None:
+        if row.grading_error is not None and row.candidate is not None:
+            return None
         error = row.raw.get("error") if isinstance(row.raw, Mapping) else None
         if isinstance(error, Mapping):
             return None
@@ -360,6 +399,14 @@ def _verified_row_case_id(row: _DecodedRow, index: int) -> int | None:
             f"Case result at position {index} carries multiple case_id values {sorted(unique)}"
         )
     return unique.pop()
+
+
+def _selected_case(case: Mapping[str, Any]) -> SelectedCase:
+    return SelectedCase(
+        case_id=int(case["id"]),
+        input=str(case["input"]),
+        metadata={key: value for key, value in case.items() if key not in {"id", "input"}},
+    )
 
 
 def _validate_selected_cases(
