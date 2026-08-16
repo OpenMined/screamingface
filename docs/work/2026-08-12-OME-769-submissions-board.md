@@ -1,9 +1,9 @@
 ---
 ticket: OME-769
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-08-12
-finished:
+finished: 2026-08-13
 ---
 
 # OME-769 — Leaderboard: fill the submissions board (ranked rows, core columns, SOTA medal)

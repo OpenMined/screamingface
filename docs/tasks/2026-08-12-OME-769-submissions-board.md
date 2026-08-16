@@ -1,12 +1,12 @@
 ---
 id: OME-769
 linear_url: https://linear.app/openmined/issue/OME-769/leaderboard-fill-submissions-board-ranked-rows-core-columns-sota-medal
-status: in_review
+status: done
 type: task
 priority: P1
 labels: [scoreboard]
 created: 2026-08-12
-closed:
+closed: 2026-08-13
 ---
 
 Fill the per-benchmark board that `OME-768` shelled out: rows ranked by accuracy, an Author
