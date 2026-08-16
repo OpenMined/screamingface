@@ -3,7 +3,7 @@ ticket: OME-807
 stack: url4-cloud
 status: complete
 started: 2026-08-13
-finished: 2026-08-13
+finished: 2026-08-16
 ---
 
 # OME-807 — Implement originals-faithful benchmark failure handling
@@ -51,14 +51,18 @@ failures, loud protocol-integrity errors, and factual top-level coverage on ever
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** the shared Benchmark contracts/finalizer/evaluation seam; the DRACO, IFEval,
-  and HealthBench runtime, exact-envelope, and aggregate adapters; removal of the obsolete
-  `benchmarks/errors.py` refusal exception; focused and migrated URL4 Cloud unit tests; and the
-  OME-807 task, spec, plan, and work artifacts.
+  and HealthBench runtime, exact-envelope, and aggregate adapters; a shared Case Execution
+  envelope carrying Case identity, Candidate Invocation, and the protected grading outcome;
+  shared Case-record binding; strict Client score/coverage/outcome decoding and report rendering;
+  public-error path sanitization; and focused cross-Benchmark and Client conformance tests.
 - **Commits:** this unit's implementation commit (`Refs: OME-807`).
 - **Gates:** `run_gates.py url4-cloud --base origin/main --skip-append-only` — **ALL GATES
   GREEN**: Ruff check, Ruff format, Pyright, layering, and pytest with coverage ≥80%. Direct full
-  unit run: **1385 passed, 5 skipped** after the final integrity regression (the gate reruns the
-  same suite under coverage).
+  unit run: **1464 passed, 5 skipped** after the final identity regression (the gate reruns the
+  same suite under coverage). `run_gates.py screamingface --base origin/main --skip-append-only`
+  — **ALL GATES GREEN**: Ruff check, Ruff format, Pyright, pytest with coverage ≥95%, notebook
+  validation, package build, and distribution inspection. Direct Client run: **851 passed, 1
+  skipped**.
 - **Deviations:**
   1. The append-only check was intentionally skipped under the owner's explicit confidence-gate
      decision to evolve the unreleased V1 contract in place with no legacy/fallback path. Existing
@@ -67,4 +71,21 @@ failures, loud protocol-integrity errors, and factual top-level coverage on ever
   2. `benchmarks/errors.py` was deleted rather than retained as an unused compatibility module:
      exact refusals now remain normal evaluator input and public outcome data.
   3. No implementation deviation from the approved spec; Benchmark checking and score formulas
-     remain owned by their existing adapters.
+     remain owned by their existing adapters. The follow-up adds no URL4 language feature: it
+     composes existing expression and collected-error primitives behind one shared Benchmark
+     capability.
+
+## Post-merge conformance audit (2026-08-16)
+
+The latest-main audit found incomplete acceptance coverage rather than a new product direction:
+
+- preserve a refused Candidate Invocation when a later checker or Judge fails before the Case
+  envelope completes;
+- enforce the producer's score/coverage/Case invariants independently in the Client decoder;
+- reject every recognizable filesystem-path form at the public Failure seam;
+- represent provider refusals without text explicitly instead of inventing provider evidence;
+- exercise the same outcome matrix through DRACO, IFEval, and HealthBench adapters.
+
+The follow-up implementation remains under the approved V1 spec and plan. Shared transport,
+identity, outcome, and finalization mechanics belong in the generic Benchmark runtime; only each
+Benchmark's checker, scoring, and safe-feedback semantics remain in its adapter.

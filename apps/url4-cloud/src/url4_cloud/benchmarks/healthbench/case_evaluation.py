@@ -17,6 +17,7 @@ _CASE_RECORD_FIELDS = frozenset(
         "schema",
         "case_id",
         "input",
+        "status",
         "answer",
         "output",
         "finish_reason",
@@ -176,6 +177,7 @@ def _valid_case_record(value: Mapping[str, Any], case_id: int) -> bool:
     if set(value) != _CASE_RECORD_FIELDS:
         return False
     answer = value.get("answer")
+    status = value.get("status")
     output = value.get("output")
     refusal = value.get("refusal")
     finish_reason = value.get("finish_reason")
@@ -186,13 +188,14 @@ def _valid_case_record(value: Mapping[str, Any], case_id: int) -> bool:
         and bool(value["input"].strip())
         and isinstance(answer, str)
         and (
-            isinstance(output, str)
+            status == "completed"
+            and isinstance(output, str)
             and refusal is None
             and answer == output
-            or output is None
-            and isinstance(refusal, str)
-            and bool(refusal.strip())
-            and answer == refusal
+            or status == "refused"
+            and output is None
+            and (refusal is None or isinstance(refusal, str) and bool(refusal.strip()))
+            and answer == (refusal or "")
         )
         and (
             finish_reason is None or isinstance(finish_reason, str) and bool(finish_reason.strip())

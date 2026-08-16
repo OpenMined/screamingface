@@ -27,8 +27,8 @@ from url4_cloud.benchmarks.candidate_adapter import install_candidate_invocation
 from url4_cloud.benchmarks.contract import (
     CANDIDATE_BINDING,
     CANDIDATE_ROUTE,
-    PROVIDER_REFUSAL_PLACEHOLDER,
     decode_candidate_invocation,
+    decode_candidate_invocation_record,
 )
 from url4_cloud.config import Settings
 from url4_cloud.model_outcomes import (
@@ -691,10 +691,7 @@ async def test_provider_refusal_is_a_normal_candidate_envelope() -> None:
 
 
 async def test_a_null_text_refusal_still_publishes_as_a_refusal() -> None:
-    """A content-filter turn normally carries NO refusal text; without the placeholder it
-    would encode as output="" refusal=None — indistinguishable from a legitimate empty
-    answer, so the judge would grade it and publish a scored plausible-zero. A provider
-    refusal must NEVER be publishable as an ordinary scored answer (OME-825)."""
+    """A provider refusal remains typed even when the provider supplied no refusal text."""
 
     def refusal(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -719,11 +716,9 @@ async def test_a_null_text_refusal_still_publishes_as_a_refusal() -> None:
         await world.aclose()
         await client.aclose()
 
-    assert decode_candidate_invocation(result.text) == (
-        "",
-        "content_filter",
-        PROVIDER_REFUSAL_PLACEHOLDER,
-    )
+    invocation = decode_candidate_invocation_record(result.text)
+    assert invocation.status == "refused"
+    assert decode_candidate_invocation(result.text) == ("", "content_filter", None)
 
 
 async def test_provider_refusal_uses_its_own_outcome_when_a_sibling_finishes_later() -> None:

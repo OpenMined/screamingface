@@ -20,6 +20,8 @@ import json
 
 import pytest
 
+from url4_cloud.benchmarks.case_execution import case_execution_payload
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.draco import aggregate as agg
 from url4_cloud.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
@@ -66,6 +68,7 @@ def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> obj
         case_record = {
             "schema": CASE_SCHEMA,
             "case_id": case,
+            "status": "completed",
             "input": f"Question {case}",
             "answer": f"Answer {case}",
             "output": f"Answer {case}",
@@ -81,9 +84,15 @@ def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> obj
             "criterion_type": "positive",
             "requirement": f"Requirement {criterion}",
         }
-        return bind_case_evaluation(
+        return case_execution_payload(
             case,
-            [bind_criterion_evaluation(case, case_record, check_record, verdicts)],
+            encode_candidate_invocation(f"Answer {case}", "stop", None),
+            [
+                bind_case_evaluation(
+                    case,
+                    [bind_criterion_evaluation(case, case_record, check_record, verdicts)],
+                )
+            ],
         )
     return {"not": "a DRACO Case Evaluation", "verdicts": verdicts}
 
@@ -190,7 +199,14 @@ def test_no_rows_at_all_fails_after_the_mapping_guard() -> None:
 def test_rows_with_malformed_verdicts_abort() -> None:
     failed = _row("c2", case=2)
     assert isinstance(failed, dict)
-    failed["evidence"][0]["schema"] = "not-a-verdict"
+    grading = failed["grading"]
+    assert isinstance(grading, list)
+    case_evaluation = grading[0]
+    assert isinstance(case_evaluation, dict)
+    evidence = case_evaluation["evidence"]
+    assert isinstance(evidence, list)
+    assert isinstance(evidence[0], dict)
+    evidence[0]["schema"] = "not-a-verdict"
     rows = json.dumps([_row("c1", case=1), failed])
 
     with pytest.raises(agg.AggregateError, match="invalid DRACO Judge Evidence"):

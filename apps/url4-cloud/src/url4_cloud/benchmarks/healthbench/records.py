@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
-
-from url4_cloud.benchmarks.contract import CorrectiveExecution, validate_candidate_outcome
+from url4_cloud.benchmarks.case_records import bind_case_record
+from url4_cloud.benchmarks.evaluation import CandidateAnswer
 
 CASE_SCHEMA = "screamingface.healthbench-case-record.v1"
 RUBRIC_SCHEMA = "screamingface.healthbench-rubric-record.v1"
@@ -15,51 +13,17 @@ def bind_case(
     raw_cases: str,
     *,
     case_id: int,
-    answer: str,
-    output: str | None,
-    refusal: str | None,
-    finish_reason: str | None,
-    execution: CorrectiveExecution | None,
+    candidate: CandidateAnswer,
 ) -> dict[str, object]:
     """Bind evaluator text and exact Candidate outcome to one Engine-owned Case."""
 
-    selected_id = _case_id(case_id)
-    validate_candidate_outcome(answer, output, refusal, benchmark="HealthBench")
-    cases = _decode_cases(raw_cases)
-    row = next(
-        (
-            value
-            for value in cases
-            if isinstance(value, Mapping) and _optional_case_id(value.get("id")) == selected_id
-        ),
-        None,
+    return bind_case_record(
+        raw_cases,
+        case_id=case_id,
+        candidate=candidate,
+        schema=CASE_SCHEMA,
+        benchmark="HealthBench",
     )
-    if row is None:
-        raise ValueError(f"unknown HealthBench Case {selected_id}")
-    input_value = row.get("input")
-    if not isinstance(input_value, str) or not input_value.strip():
-        raise ValueError(f"HealthBench Case {selected_id} input must be non-empty text")
-    return {
-        "schema": CASE_SCHEMA,
-        "case_id": selected_id,
-        "input": input_value,
-        "answer": answer,
-        "output": output,
-        "finish_reason": finish_reason,
-        "refusal": refusal,
-        "execution": None if execution is None else execution.model_dump(by_alias=True),
-        "metadata": {key: value for key, value in row.items() if key not in {"id", "input"}},
-    }
-
-
-def _decode_cases(raw_cases: str) -> list[object]:
-    try:
-        cases = json.loads(raw_cases)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"HealthBench cases are not JSON: {exc}") from None
-    if not isinstance(cases, list):
-        raise ValueError("HealthBench cases must be a JSON array")
-    return cases
 
 
 def bind_rubric_item(

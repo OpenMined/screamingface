@@ -8,6 +8,8 @@ from typing import Any
 
 import pytest
 
+from url4_cloud.benchmarks.case_execution import case_execution_payload
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.healthbench.aggregate import (
     AggregateError,
     aggregate,
@@ -70,13 +72,14 @@ def _case_row(
 ) -> dict[str, object]:
     output = None if refusal is not None else f"output-{case_id}"
     answer = refusal if refusal is not None else output
-    return {
+    grading = {
         "schema": CASE_EVALUATION_SCHEMA,
         "case_id": case_id,
         "case": {
             "schema": CASE_SCHEMA,
             "case_id": case_id,
             "input": f"input-{case_id}",
+            "status": "refused" if refusal is not None else "completed",
             "answer": answer,
             "output": output,
             "finish_reason": "content_filter" if refusal is not None else "stop",
@@ -100,6 +103,22 @@ def _case_row(
             for rubric_id, met in verdicts.items()
         ],
     }
+    assert isinstance(answer, str)
+    return case_execution_payload(
+        case_id,
+        encode_candidate_invocation(
+            output or "",
+            "content_filter" if refusal is not None else "stop",
+            refusal,
+        ),
+        [grading],
+    )
+
+
+def _grading(row: dict[str, object]) -> dict[str, Any]:
+    outcomes = row["grading"]
+    assert isinstance(outcomes, list) and isinstance(outcomes[0], dict)
+    return outcomes[0]
 
 
 def _failure_codes(result: dict[str, Any]) -> dict[int, str | None]:
@@ -210,7 +229,7 @@ def test_duplicate_rubric_entries_abort_as_protocol_corruption(tmp_path: Path) -
 
     _write_rubric(tmp_path, 1, [5, 3])
     row = _case_row(1, {1: True, 2: True})
-    evaluations = row["rubric_evaluations"]
+    evaluations = _grading(row)["rubric_evaluations"]
     assert isinstance(evaluations, list)
     evaluations.append(json.loads(json.dumps(evaluations[0])))
     with pytest.raises(AggregateError, match="duplicate HealthBench rubric_id"):
@@ -291,7 +310,7 @@ def test_a_malformed_case_envelope_aborts_as_protocol_corruption(tmp_path: Path)
     _write_rubric(tmp_path, 1, [7])
     _write_rubric(tmp_path, 2, [3])
     malformed = _case_row(2, {1: True})
-    del malformed["case"]  # complete verdicts, but the candidate envelope is gone
+    del _grading(malformed)["case"]  # complete verdicts, but the Candidate record is gone
     with pytest.raises(AggregateError, match="invalid HealthBench Case Evaluation"):
         aggregate(
             json.dumps([_case_row(1, {1: True}), malformed]),
@@ -305,7 +324,7 @@ def test_a_malformed_case_envelope_aborts_as_protocol_corruption(tmp_path: Path)
 def test_invalid_judge_evidence_counts_and_fails_the_case(tmp_path: Path) -> None:
     _write_rubric(tmp_path, 1, [7])
     row = _case_row(1, {1: True})
-    evaluations = row["rubric_evaluations"]
+    evaluations = _grading(row)["rubric_evaluations"]
     assert isinstance(evaluations, list)
     evaluations[0]["evidence"] = {
         "schema": VERDICT_SCHEMA,

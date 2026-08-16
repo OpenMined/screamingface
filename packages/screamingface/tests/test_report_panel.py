@@ -47,13 +47,25 @@ def case(
     stop_reason: StopReason | None = None,
     rounds_executed: int | None = None,
 ) -> CaseResult:
+    failures = (
+        []
+        if score is not None
+        else [
+            sf.Failure(
+                stage="grading",
+                code="fixture_ungraded",
+                message="the fixture Case could not be graded",
+                case_id=1,
+            )
+        ]
+    )
     return CaseResult(
         case_id=1,
         input="the prompt",
         output="the answer",
         finish_reason="stop",
         grade=CaseGrade(method="rubric", score=score, metrics={}, checks=list(checks)),
-        failures=[],
+        failures=failures,
         metadata={},
         stop_reason=stop_reason,
         rounds_executed=rounds_executed,
@@ -68,6 +80,12 @@ def candidate(
     failures: tuple[sf.Failure, ...] = (),
     coverage: float | None = None,
 ) -> CandidateResult:
+    selected_cases = list(cases) or [case(score=score)]
+    selected_coverage = round(
+        sum(item.grade is not None and item.grade.score is not None for item in selected_cases)
+        / len(selected_cases),
+        4,
+    )
     return CandidateResult(
         benchmark=_BENCHMARK,
         run_id=f"run-{name}",
@@ -79,10 +97,10 @@ def candidate(
         models=["openrouter/x"],
         operations=[OperationInfo(id="op", kind="model", label="answer", depends_on=())],
         score=score,
-        coverage=(1.0 if score is not None else 0.0) if coverage is None else coverage,
+        coverage=selected_coverage if coverage is None else coverage,
         # the model forbids metrics on an unscored Candidate
         metrics=_METRICS if score is not None else {},
-        cases=list(cases) or [case()],
+        cases=selected_cases,
         members=[],
         failures=failures,
         usage=sf.Usage(input_tokens=3449, output_tokens=2340),
@@ -274,7 +292,14 @@ def multi_case_report(
     """A Report sized to its cases — Report validation pins case_count to the Benchmark."""
 
     benchmark = BenchmarkInfo("draco", "74c94830e8de6afd", len(cases))
-    inner = candidate("open_trio", None, cases=cases)
+    gradeable = sum(item.grade is not None and item.grade.score is not None for item in cases)
+    inner_score = score if score is not None else (0.0 if gradeable else None)
+    inner = candidate(
+        "open_trio",
+        inner_score,
+        cases=cases,
+        coverage=round(gradeable / len(cases), 4),
+    )
     sized = CandidateResult(
         benchmark=benchmark,
         run_id=inner.run_id,
@@ -469,10 +494,10 @@ def test_a_fully_covered_score_can_retain_a_candidate_warning_without_false_part
 
 
 def test_an_unscored_candidate_explains_why_no_score_is_available() -> None:
-    html = body(report_html(multi_case_report(case(), failed_case())))
+    html = body(report_html(multi_case_report(case(score=None), failed_case())))
 
     assert "score unavailable" in html
-    assert "1 of 2 cases not scored (1 failed)" in html
+    assert "2 of 2 cases not scored (1 failed, 1 unscored)" in html
 
 
 def test_a_candidate_level_failure_explains_a_withheld_score() -> None:
@@ -484,7 +509,7 @@ def test_a_candidate_level_failure_explains_a_withheld_score() -> None:
     html = body(report_html(report(candidate("m", None, failures=(failure,)))))
 
     assert "score unavailable" in html
-    assert "candidate execution reported 1 failure" in html
+    assert "Candidate execution also reported 1 failure" in html
 
 
 def test_an_absent_cost_says_it_was_not_reported() -> None:

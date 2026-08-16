@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from url4_cloud.benchmarks.case_execution import case_execution_payload
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
@@ -49,6 +51,7 @@ def _record(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, ob
         "case_id": case_id,
         "attempt": 1,
         "valid": True,
+        "status": "completed",
         "answer": f"Answer {case_id}",
         "refusal": None,
         "finish_reason": "stop",
@@ -68,7 +71,18 @@ def _rows(*rows: object) -> str:
 
 
 def _evaluation(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, object]:
-    return bind_case_evaluation(case_id, [_record(case_id, strict, loose)])
+    return _case_execution(
+        case_id,
+        bind_case_evaluation(case_id, [_record(case_id, strict, loose)]),
+    )
+
+
+def _case_execution(case_id: int, grading: object) -> dict[str, object]:
+    return case_execution_payload(
+        case_id,
+        encode_candidate_invocation(f"Answer {case_id}", "stop", None),
+        [grading],
+    )
 
 
 def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
@@ -206,6 +220,7 @@ def test_one_flake_at_realistic_size_publishes_partial_score_and_coverage() -> N
             "case_id": case_id,
             "attempt": 1,
             "valid": True,
+            "status": "completed",
             "answer": f"Answer {case_id}",
             "refusal": None,
             "finish_reason": "stop",
@@ -216,7 +231,7 @@ def test_one_flake_at_realistic_size_publishes_partial_score_and_coverage() -> N
             "loose": [passed],
             "violations": [],
         }
-        return bind_case_evaluation(case_id, [record])
+        return _case_execution(case_id, bind_case_evaluation(case_id, [record]))
 
     rows = [evaluation(case_id, passed=case_id <= 4) for case_id in range(1, 10)]
     rows.append({"error": {"kind": "ResolutionError", "message": "provider flake"}})
@@ -256,7 +271,10 @@ def test_a_record_for_an_unknown_case_id_aborts() -> None:
         "case_id": 2,
         "attempts": [stray],
     }
-    payload = _rows(_evaluation(1, [True, True], [True, True]), stray_evaluation)
+    payload = _rows(
+        _evaluation(1, [True, True], [True, True]),
+        _case_execution(2, stray_evaluation),
+    )
 
     with pytest.raises(AggregateError, match="position 1"):
         aggregate(payload, _SPECS, "ifeval", _ORDER, selected_case_count=2)

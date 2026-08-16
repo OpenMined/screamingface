@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from url4_cloud.benchmarks.case_execution import case_execution_payload
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
@@ -155,6 +157,7 @@ def _record(case_id: int) -> dict[str, object]:
         "case_id": case_id,
         "attempt": 1,
         "valid": True,
+        "status": "completed",
         "answer": f"Answer {case_id}",
         "refusal": None,
         "finish_reason": "stop",
@@ -174,8 +177,16 @@ def test_aggregate_grades_rows_in_cases_json_order_not_sorted_ids() -> None:
 
     rows = json.dumps(
         [
-            bind_case_evaluation(30, [_record(30)]),
-            bind_case_evaluation(4, [_record(4)]),
+            case_execution_payload(
+                30,
+                encode_candidate_invocation("Answer 30", "stop", None),
+                [bind_case_evaluation(30, [_record(30)])],
+            ),
+            case_execution_payload(
+                4,
+                encode_candidate_invocation("Answer 4", "stop", None),
+                [bind_case_evaluation(4, [_record(4)])],
+            ),
         ]
     )
 

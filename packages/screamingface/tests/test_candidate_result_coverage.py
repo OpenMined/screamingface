@@ -34,6 +34,8 @@ def _scored_case() -> sf.CaseResult:
 def _candidate(
     *,
     coverage: float,
+    score: float | None = 1.0,
+    cases: tuple[sf.CaseResult, ...] | None = None,
     metrics: dict[str, object] | None = None,
     failures: tuple[sf.Failure, ...] = (),
 ) -> sf.CandidateResult:
@@ -47,21 +49,31 @@ def _candidate(
         url4="(/openrouter/example/model)!''",
         models=("openrouter/example/model",),
         operations=(_OPERATION,),
-        score=1.0,
+        score=score,
         coverage=coverage,
         metrics={} if metrics is None else metrics,
-        cases=(_scored_case(),),
+        cases=(_scored_case(),) if cases is None else cases,
         members=(),
         failures=failures,
         usage=sf.Usage(),
     )
 
 
-def test_candidate_coverage_is_a_required_exported_top_level_value() -> None:
-    result = _candidate(coverage=0.5)
+def test_candidate_coverage_is_derived_from_numeric_case_grades() -> None:
+    result = _candidate(coverage=1.0)
 
-    assert result.coverage == 0.5
-    assert result.to_dict()["coverage"] == 0.5
+    assert result.coverage == 1.0
+    assert result.to_dict()["coverage"] == 1.0
+
+
+def test_candidate_coverage_cannot_contradict_numeric_case_grades() -> None:
+    with pytest.raises(ValueError, match="numeric Case grades"):
+        _candidate(coverage=0.5)
+
+
+def test_an_unscored_candidate_cannot_contain_a_numeric_case_grade() -> None:
+    with pytest.raises(ValueError, match="unscored Candidate"):
+        _candidate(coverage=1.0, score=None)
 
 
 @pytest.mark.parametrize("coverage", [-0.1, 1.1, nan, inf, True])
@@ -85,7 +97,7 @@ def test_a_scored_candidate_can_retain_a_safe_candidate_failure() -> None:
         operation_id="op",
     )
 
-    result = _candidate(coverage=0.5, failures=(failure,))
+    result = _candidate(coverage=1.0, failures=(failure,))
 
     assert result.score == 1.0
     assert result.failures == (failure,)

@@ -209,6 +209,12 @@ class CandidateResult:
         )
         selected_operations = _operation_dag(operations)
         selected_cases = _CaseResults(cases)
+        _validate_candidate_outcome(
+            selected_score,
+            selected_coverage,
+            metric_items,
+            selected_cases,
+        )
         _require_operation_references(
             selected_operations,
             selected_members,
@@ -562,6 +568,33 @@ def _coverage(value: object) -> float:
     if not 0.0 <= selected <= 1.0:
         raise ValueError("Candidate coverage must be between 0 and 1")
     return selected
+
+
+def _validate_candidate_outcome(
+    score: float | None,
+    coverage: float,
+    metrics: tuple[tuple[str, object], ...],
+    cases: Sequence[CaseResult],
+) -> None:
+    """Independently enforce the Engine's Candidate Result wire invariants."""
+
+    gradeable = tuple(
+        case for case in cases if case.grade is not None and case.grade.score is not None
+    )
+    expected_coverage = round(len(gradeable) / len(cases), 4)
+    if coverage != expected_coverage:
+        raise ValueError(
+            "Candidate coverage must equal numeric Case grades / selected Cases "
+            f"({expected_coverage})"
+        )
+    if score is None:
+        if gradeable:
+            raise ValueError("an unscored Candidate cannot contain a numeric Case grade")
+        if metrics:
+            raise ValueError("a failed or unscored Candidate cannot contain metrics")
+        return
+    if not gradeable:
+        raise ValueError("a scored Candidate requires at least one numeric Case grade")
 
 
 def _metrics(values: Mapping[str, object]) -> tuple[tuple[str, object], ...]:

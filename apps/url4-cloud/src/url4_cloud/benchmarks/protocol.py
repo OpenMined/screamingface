@@ -2,10 +2,66 @@
 
 from __future__ import annotations
 
-from url4 import Node, RelExpr, Text, expr, iterate, src
+from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
+from url4_cloud.benchmarks.case_execution import CASE_EXECUTION_ROUTE
 from url4_cloud.benchmarks.evaluation import positive_count
 
-EVALUATION_PROTOCOL_REVISION = "ordered-case-evaluation-v1"
+EVALUATION_PROTOCOL_REVISION = "outcome-preserving-case-evaluation-v1"
+
+
+def preserve_candidate_outcome(
+    *,
+    candidate_invocation: Node,
+    grading: Node,
+    case_id: str,
+) -> Node:
+    """Keep one completed Candidate Invocation even when later grading fails."""
+
+    if not isinstance(candidate_invocation, Node):
+        raise TypeError("candidate_invocation must be a URL4 Node")
+    if not isinstance(grading, Node):
+        raise TypeError("grading must be a URL4 Node")
+    if not isinstance(case_id, str) or not case_id:
+        raise TypeError("case_id must be non-empty URL4 text")
+    protected_grading = iterate(
+        [
+            struct(
+                {
+                    "candidate_invocation": "$candidate_invocation",
+                    "case_id": case_id,
+                }
+            )
+        ],
+        body=(src(grading, name="grading", weight=0.0),),
+        intent=Text("$grading"),
+        on_error="collect",
+    )
+    case_execution = expr(
+        src(candidate_invocation, name="candidate_invocation", weight=0.0),
+        src(protected_grading, name="protected_grading", weight=0.0),
+        src(
+            RelExpr(
+                path=CASE_EXECUTION_ROUTE,
+                context=render(
+                    struct(
+                        {
+                            "case_id": case_id,
+                            "candidate_invocation": "$candidate_invocation",
+                            "grading": "$protected_grading",
+                        }
+                    )
+                ),
+                intent=Text(""),
+            ),
+            name="case_execution",
+            weight=0.0,
+        ),
+        intent=Text("$case_execution"),
+    )
+    return expr(
+        src(case_execution, name="preserved_case", weight=0.0),
+        intent=Text("$preserved_case"),
+    )
 
 
 def build_evaluation_protocol(
@@ -63,4 +119,8 @@ def _route(value: object, label: str) -> str:
     return value
 
 
-__all__ = ["EVALUATION_PROTOCOL_REVISION", "build_evaluation_protocol"]
+__all__ = [
+    "EVALUATION_PROTOCOL_REVISION",
+    "build_evaluation_protocol",
+    "preserve_candidate_outcome",
+]

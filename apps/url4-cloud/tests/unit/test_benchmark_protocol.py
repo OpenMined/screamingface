@@ -11,11 +11,13 @@ from url4 import RelExpr, Text, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
+from url4_cloud.benchmarks.case_execution import CASE_EXECUTION_SCHEMA, install_case_execution
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.definition import Benchmark
 from url4_cloud.benchmarks.draco.definition import DRACO, JUDGE_MODEL
 from url4_cloud.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
 from url4_cloud.benchmarks.ifeval.definition import IFEVAL
-from url4_cloud.benchmarks.protocol import build_evaluation_protocol
+from url4_cloud.benchmarks.protocol import build_evaluation_protocol, preserve_candidate_outcome
 
 
 def test_public_catalogue_contains_exactly_the_three_product_benchmarks() -> None:
@@ -100,6 +102,40 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
     }
 
 
+@pytest.mark.asyncio
+async def test_case_execution_preserves_candidate_invocation_when_grading_fails() -> None:
+    node = Url4Node("benchmark-case-execution")
+
+    @node.endpoint("/candidate")
+    def candidate(_request: Request) -> str:
+        return encode_candidate_invocation("", "content_filter", "exact refusal")
+
+    @node.endpoint("/grade")
+    def grade(_request: Request) -> str:
+        raise ResolutionError("checker unavailable", code="checker_failed", permanent=True)
+
+    install_case_execution(node)
+
+    protected = preserve_candidate_outcome(
+        candidate_invocation=RelExpr(path="/candidate", context="question", intent=Text("")),
+        grading=RelExpr(
+            path="/grade",
+            context="$candidate_invocation",
+            intent=Text(""),
+        ),
+        case_id="case-1",
+    )
+
+    result = json.loads((await node.evaluate(render(protected))).text)
+
+    assert result == {
+        "schema": CASE_EXECUTION_SCHEMA,
+        "case_id": "case-1",
+        "candidate_invocation": encode_candidate_invocation("", "content_filter", "exact refusal"),
+        "grading": [{"error": {"kind": "ResolutionError", "message": "checker unavailable"}}],
+    }
+
+
 def test_protocol_rejects_an_impossible_case_selection() -> None:
     with pytest.raises(ValueError, match="selected_case_count"):
         build_evaluation_protocol(
@@ -114,11 +150,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        (DRACO, "559bbcacbf7da44ccc811e205ab2c20ceb232f1ba126922f7d053741b3bd3de0"),
-        (IFEVAL, "f8be102aafa71f04939f6d8751b0c8fc20a694a233caea7317176f1827bbed41"),
+        (DRACO, "6a9e0deb13a9e88868dc5452cce46527f89236be2aa34da3fbaa7afb413ecefa"),
+        (IFEVAL, "c01431240e88cbe76fcbebfa3cab9fb36f36f70e8fa28807a070bbe5fb3f21eb"),
         (
             HEALTHBENCH_WORST30,
-            "f89d92e3efce7f9f08ad7cef5db16bbbbb68be2d05c5e17a7914a159eba866b9",
+            "a5a729e1fcc53c7bb4c506f8a29a577ad4c68e983dcc32c6a9edcd33a443054c",
         ),
     ),
 )

@@ -25,17 +25,11 @@ CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
 CANDIDATE_RESULT_SCHEMA = "screamingface.candidate-result.v1"
 CANDIDATE_MESSAGE_ROLES = frozenset({"system", "developer", "user", "assistant"})
-# The graded marker for a provider refusal that arrived without refusal text (the normal
-# content-filter shape). Precedent: HealthBench's official harness grades the literal
-# marker "No response (bad request)." for provider errors — a named marker string graded
-# as the answer keeps the event visible instead of publishing a plausible-zero empty
-# answer, and keeps the refused path (status, grading, coverage) identical to a refusal
-# that did carry text.
-PROVIDER_REFUSAL_PLACEHOLDER = "No refusal text (provider refused the request)."
 CaseId = StrictInt | StrictStr
 Outcome = Literal["MET", "UNMET", "PASS", "FAIL"]
 FailureStage = Literal["candidate", "grading", "aggregation"]
 CaseStatus = Literal["scored", "refused", "failed"]
+CandidateInvocationStatus = Literal["completed", "refused"]
 
 
 class _StrictWireModel(BaseModel):
@@ -190,6 +184,39 @@ class CorrectiveExecution(_StrictWireModel):
     rounds_executed: int = Field(ge=1)
 
 
+class CandidateInvocation(_StrictWireModel):
+    """One exact terminal Candidate outcome used inside Benchmark execution."""
+
+    schema_version: Literal["screamingface.candidate-invocation.v1"] = Field(
+        default="screamingface.candidate-invocation.v1", alias="schema"
+    )
+    status: CandidateInvocationStatus
+    output: str
+    finish_reason: str | None
+    refusal: str | None
+    execution: CorrectiveExecution | None
+
+    @field_validator("finish_reason")
+    @classmethod
+    def _validate_finish_reason(cls, value: str | None) -> str | None:
+        return validate_finish_reason(value)
+
+    @field_validator("refusal")
+    @classmethod
+    def _validate_refusal(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Candidate Invocation refusal must be non-empty text or null")
+        return value
+
+    @model_validator(mode="after")
+    def _enforce_status(self) -> CandidateInvocation:
+        if self.status == "completed" and self.refusal is not None:
+            raise ValueError("a completed Candidate Invocation cannot carry refusal text")
+        if self.status == "refused" and self.output:
+            raise ValueError("a refused Candidate Invocation must carry an empty output")
+        return self
+
+
 def is_valid_corrective_execution(value: object) -> bool:
     """Whether a nullable value is one complete corrective execution envelope."""
 
@@ -228,10 +255,8 @@ def _require_scored_case(case: CaseResult) -> None:
 
 
 def _require_refused_case(case: CaseResult) -> None:
-    if case.refusal is None or case.output is not None or case.grade is None:
-        raise ValueError(
-            "a refused Case requires exact refusal text, no output, and a Benchmark grade"
-        )
+    if case.output is not None or case.grade is None:
+        raise ValueError("a refused Case requires no output and a Benchmark grade")
     if case.grade.score is not None and case.failures:
         raise ValueError("a graded refused Case cannot carry failures")
     if case.grade.score is None and (
@@ -412,6 +437,7 @@ def validate_candidate_outcome(
     output: object,
     refusal: object,
     *,
+    status: CandidateInvocationStatus,
     benchmark: str,
 ) -> None:
     """Validate the evaluator-text/output/refusal triple every benchmark record binds.
@@ -424,14 +450,20 @@ def validate_candidate_outcome(
 
     if not isinstance(answer, str):
         raise ValueError(f"{benchmark} Candidate answer must be text")
-    if (refusal is None) == (output is None):
-        raise ValueError(f"{benchmark} Candidate must carry exactly one of output or refusal")
-    if refusal is not None and (
-        not isinstance(refusal, str) or not refusal.strip() or answer != refusal
-    ):
-        raise ValueError(f"{benchmark} Candidate refusal must be exact non-empty evaluator text")
-    if output is not None and answer != output:
-        raise ValueError(f"{benchmark} Candidate output must equal evaluator text")
+    if status == "completed":
+        if not isinstance(output, str) or refusal is not None or answer != output:
+            raise ValueError(
+                f"{benchmark} completed Candidate must carry its exact evaluator text as output"
+            )
+        return
+    if status != "refused":
+        raise ValueError(f"{benchmark} Candidate status must be completed or refused")
+    if output is not None:
+        raise ValueError(f"{benchmark} refused Candidate cannot carry output")
+    if refusal is not None and (not isinstance(refusal, str) or not refusal.strip()):
+        raise ValueError(f"{benchmark} Candidate refusal must be non-empty text or null")
+    if answer != (refusal or ""):
+        raise ValueError(f"{benchmark} Candidate refusal must equal its evaluator text")
 
 
 def encode_candidate_invocation(
@@ -439,68 +471,62 @@ def encode_candidate_invocation(
     finish_reason: str | None,
     refusal: str | None,
     execution: CorrectiveExecution | None = None,
+    *,
+    status: CandidateInvocationStatus | None = None,
 ) -> str:
     """Encode one Candidate answer without discarding its provider-originated outcome."""
 
-    _validate_candidate_invocation(output, finish_reason, refusal)
+    invocation = CandidateInvocation(
+        status=status or ("refused" if refusal is not None else "completed"),
+        output=output,
+        finish_reason=finish_reason,
+        refusal=refusal,
+        execution=execution,
+    )
     return json.dumps(
-        {
-            "schema": CANDIDATE_INVOCATION_SCHEMA,
-            "output": output,
-            "finish_reason": finish_reason,
-            "refusal": refusal,
-            "execution": None if execution is None else execution.model_dump(by_alias=True),
-        },
+        invocation.model_dump(by_alias=True),
         ensure_ascii=False,
         separators=(",", ":"),
     )
 
 
-def _candidate_invocation_payload(value: str) -> Mapping[str, Any]:
+def decode_candidate_invocation_record(value: str) -> CandidateInvocation:
+    """Decode the exact Candidate Invocation envelope once into a typed value."""
+
     try:
         decoded = json.loads(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Candidate Invocation result is not JSON: {exc}") from None
     if not isinstance(decoded, Mapping) or decoded.get("schema") != CANDIDATE_INVOCATION_SCHEMA:
         raise ValueError("Candidate Invocation result has an unsupported schema")
-    if set(decoded) != {"schema", "output", "finish_reason", "refusal", "execution"}:
+    if set(decoded) != {
+        "schema",
+        "status",
+        "output",
+        "finish_reason",
+        "refusal",
+        "execution",
+    }:
         raise ValueError("Candidate Invocation result has an invalid shape")
-    execution = decoded["execution"]
-    if execution is not None:
-        validate_corrective_execution(execution)
-    return decoded
+    if decoded["execution"] is not None:
+        validate_corrective_execution(decoded["execution"])
+    try:
+        return CandidateInvocation.model_validate(decoded)
+    except ValueError as exc:
+        raise ValueError(f"Candidate Invocation result is invalid: {exc}") from None
 
 
 def decode_candidate_invocation(value: str) -> tuple[str, str | None, str | None]:
     """Decode and validate the internal value returned by the Candidate adapter."""
 
-    decoded = _candidate_invocation_payload(value)
-    output = decoded["output"]
-    finish_reason = decoded["finish_reason"]
-    refusal = decoded["refusal"]
-    _validate_candidate_invocation(output, finish_reason, refusal)
-    return output, finish_reason, refusal
+    decoded = decode_candidate_invocation_record(value)
+    return decoded.output, decoded.finish_reason, decoded.refusal
 
 
 def decode_candidate_execution(value: str) -> CorrectiveExecution | None:
     """Decode the optional execution provenance carried by a Candidate Invocation."""
 
-    execution = _candidate_invocation_payload(value)["execution"]
-    return None if execution is None else validate_corrective_execution(execution)
-
-
-def _validate_candidate_invocation(
-    output: object,
-    finish_reason: object,
-    refusal: object,
-) -> None:
-    if not isinstance(output, str):
-        raise ValueError("Candidate Invocation output must be text")
-    validate_finish_reason(finish_reason)
-    if refusal is not None and (not isinstance(refusal, str) or not refusal.strip()):
-        raise ValueError("Candidate Invocation refusal must be non-empty text or null")
-    if refusal is not None and output:
-        raise ValueError("a refused Candidate Invocation must carry an empty output")
+    return decode_candidate_invocation_record(value).execution
 
 
 __all__ = [
@@ -510,6 +536,8 @@ __all__ = [
     "CANDIDATE_MESSAGE_ROLES",
     "CANDIDATE_RESULT_SCHEMA",
     "CANDIDATE_ROUTE",
+    "CandidateInvocation",
+    "CandidateInvocationStatus",
     "CaseId",
     "CaseGrade",
     "CaseResult",
@@ -519,10 +547,10 @@ __all__ = [
     "Evidence",
     "EvidenceProducer",
     "Failure",
-    "PROVIDER_REFUSAL_PLACEHOLDER",
     "candidate_coverage",
     "decode_candidate_execution",
     "decode_candidate_invocation",
+    "decode_candidate_invocation_record",
     "encode_candidate_invocation",
     "is_valid_corrective_execution",
     "validate_candidate_outcome",

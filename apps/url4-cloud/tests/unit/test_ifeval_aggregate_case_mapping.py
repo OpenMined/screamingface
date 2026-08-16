@@ -6,6 +6,8 @@ import json
 
 import pytest
 
+from url4_cloud.benchmarks.case_execution import case_execution_payload
+from url4_cloud.benchmarks.contract import encode_candidate_invocation
 from url4_cloud.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
@@ -28,6 +30,7 @@ def _record(case_id: int) -> dict[str, object]:
         "case_id": case_id,
         "attempt": 1,
         "valid": True,
+        "status": "completed",
         "answer": f"Answer {case_id}",
         "refusal": None,
         "finish_reason": "stop",
@@ -44,10 +47,18 @@ def _evaluation(case_id: int) -> dict[str, object]:
     return bind_case_evaluation(case_id, [_record(case_id)])
 
 
+def _execution(evaluation: dict[str, object], case_id: int) -> dict[str, object]:
+    return case_execution_payload(
+        case_id,
+        encode_candidate_invocation(f"Answer {case_id}", "stop", None),
+        [evaluation],
+    )
+
+
 def test_swapped_known_case_records_cannot_publish_a_score() -> None:
     """A real record is still invalid when it belongs to the other selected row."""
 
-    rows = json.dumps([_evaluation(2), _evaluation(1)])
+    rows = json.dumps([_execution(_evaluation(2), 2), _execution(_evaluation(1), 1)])
 
     with pytest.raises(AggregateError, match="position 0"):
         aggregate(rows, _SPECS, "ifeval", _ORDER, selected_case_count=2)
@@ -68,8 +79,8 @@ def test_truthy_text_cannot_impersonate_verifier_booleans() -> None:
     forged["strict"] = ["false"]
     rows = json.dumps(
         [
-            bind_case_evaluation(1, [forged]),
-            _evaluation(2),
+            _execution(bind_case_evaluation(1, [forged]), 1),
+            _execution(_evaluation(2), 2),
         ]
     )
 
@@ -80,14 +91,19 @@ def test_truthy_text_cannot_impersonate_verifier_booleans() -> None:
 def test_a_refusal_must_be_the_exact_text_checked_by_ifeval() -> None:
     forged = _record(1)
     forged["refusal"] = "provider refusal"
-    rows = json.dumps([bind_case_evaluation(1, [forged]), _evaluation(2)])
+    rows = json.dumps(
+        [
+            _execution(bind_case_evaluation(1, [forged]), 1),
+            _execution(_evaluation(2), 2),
+        ]
+    )
 
     with pytest.raises(AggregateError, match="position 0"):
         aggregate(rows, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 
 
 def test_a_missing_selected_row_is_retained_and_lowers_coverage() -> None:
-    rows = json.dumps([_evaluation(1)])
+    rows = json.dumps([_execution(_evaluation(1), 1)])
 
     result = aggregate(rows, _SPECS, "ifeval", _ORDER, selected_case_count=2)
 

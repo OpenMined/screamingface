@@ -302,3 +302,22 @@ def test_public_error_rejects_compound_credential_assignments(message: str) -> N
     )
 
     assert diagnostic.message == "Candidate Case execution failed"
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "failed reading /etc/screamingface/private.json",
+        r"failed reading \\server\share\private.json",
+        "failed reading ./secrets/provider.json",
+        "failed reading ../private/provider.json",
+    ),
+)
+def test_public_error_rejects_common_filesystem_paths(message: str) -> None:
+    diagnostic = public_error(
+        {"message": message},
+        default_code="case_execution_failed",
+        default_message="Candidate Case execution failed",
+    )
+
+    assert diagnostic.message == "Candidate Case execution failed"

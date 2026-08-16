@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
+from url4_cloud.benchmarks.case_execution import install_case_execution
 from url4_cloud.benchmarks.contract import CANDIDATE_ROUTE
 from url4_cloud.benchmarks.invocation import evaluate_candidate_recipe
 from url4_cloud.retrieval_policy import (
@@ -53,6 +54,7 @@ def install_candidate_invocation(node: Url4Node) -> None:
     """Install the one Engine-owned Candidate adapter on ``node``."""
 
     node.endpoint(CANDIDATE_ROUTE)(_CandidateInvocation(node))
+    install_case_execution(node)
 
 
 def _candidate_policy(params: Mapping[str, str]) -> RetrievalPolicy:

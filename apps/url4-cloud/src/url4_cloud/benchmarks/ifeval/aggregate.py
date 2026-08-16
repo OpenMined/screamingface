@@ -23,10 +23,12 @@ from url4_cloud.benchmarks.aggregation import (
     SelectedCase,
     failed_case_result,
     finalize_candidate_result,
+    grading_failure_case_result,
     public_error,
     refused_case_result,
     scored_case_result,
 )
+from url4_cloud.benchmarks.case_execution import case_execution_matches, case_execution_outcome
 from url4_cloud.benchmarks.contract import CaseResult, is_valid_corrective_execution
 from url4_cloud.benchmarks.ifeval.case_evaluation import (
     CHECK_SCHEMA,
@@ -65,11 +67,34 @@ def aggregate(
         selected_case = selected[index]
         case_id = int(selected_case.case_id)
         spec = specs[case_id]
-        record = _first_valid_record(raw, case_id, spec)
+        if _collected_error(raw) is not None:
+            case_results.append(_failed_case_result(raw, index, selected_case))
+            continue
+        try:
+            outcome = case_execution_outcome(raw)
+        except (TypeError, ValueError) as exc:
+            raise AggregateError(
+                f"Case result at position {index} is not a valid Case execution: {exc}"
+            ) from None
+        if not case_execution_matches(outcome, selected_case.case_id):
+            raise AggregateError(
+                f"Case result at position {index} claims case_id {outcome.case_id!r}, "
+                f"but the selected Case is {selected_case.case_id!r}"
+            )
+        if outcome.error is not None:
+            case_results.append(
+                grading_failure_case_result(
+                    selected_case=selected_case,
+                    candidate=outcome.candidate,
+                    error=outcome.error,
+                    method="deterministic",
+                    default_code="ifeval_checker_failed",
+                    default_message="the IFEval checker could not grade this Case",
+                )
+            )
+            continue
+        record = _first_valid_record(outcome.grading, case_id, spec)
         if record is None:
-            if _collected_error(raw) is not None:
-                case_results.append(_failed_case_result(raw, index, selected_case))
-                continue
             raise AggregateError(
                 f"Case result at position {index} is not a valid IFEval Case Evaluation"
             )
@@ -265,13 +290,20 @@ def _is_bool_vector(value: object, expected_length: int) -> bool:
 
 
 def _record_content(record: Mapping[str, Any], instruction_count: int) -> bool:
+    status = record.get("status")
     refusal = record.get("refusal")
     answer = record.get("answer")
     return (
         isinstance(answer, str)
+        and status in {"completed", "refused"}
         and "refusal" in record
         and (refusal is None or isinstance(refusal, str) and bool(refusal.strip()))
-        and (refusal is None or answer == refusal)
+        and (
+            status == "completed"
+            and refusal is None
+            or status == "refused"
+            and answer == (refusal or "")
+        )
         and "finish_reason" in record
         and (
             record["finish_reason"] is None
@@ -322,10 +354,10 @@ def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> Case
         ],
     }
     refusal = record.get("refusal")
-    if isinstance(refusal, str):
+    if record.get("status") == "refused":
         return refused_case_result(
             selected_case=selected_case,
-            refusal=refusal,
+            refusal=refusal if isinstance(refusal, str) else None,
             finish_reason=record["finish_reason"],
             grade=grade,
             execution=record["execution"],

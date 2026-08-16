@@ -80,6 +80,7 @@ async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Pa
     case = {
         "schema": CASE_SCHEMA,
         "case_id": 1,
+        "status": "completed",
         "input": "Question 1",
         "answer": "Answer 1",
         "output": "Answer 1",
@@ -138,6 +139,7 @@ def test_case_record_requires_explicit_execution_provenance() -> None:
     case = {
         "schema": CASE_SCHEMA,
         "case_id": 1,
+        "status": "completed",
         "input": "Question 1",
         "answer": "Answer 1",
         "output": "Answer 1",

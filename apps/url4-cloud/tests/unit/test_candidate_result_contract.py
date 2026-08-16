@@ -286,8 +286,9 @@ def test_refused_case_preserves_exact_refusal_and_normal_grade() -> None:
     assert case.refusal == refusal
     assert case.grade is not None and case.grade.score == 0.0
     assert case.failures == []
-    with pytest.raises(ValidationError, match="refused Case"):
-        CaseResult(**{**case.model_dump(), "refusal": None})
+    no_text = CaseResult(**{**case.model_dump(), "refusal": None})
+    assert no_text.status == "refused"
+    assert no_text.refusal is None
 
 
 def test_failed_case_requires_a_typed_failure_and_cannot_carry_a_score() -> None:

@@ -39,9 +39,15 @@ from url4_cloud.benchmarks.aggregation import (
     SelectedCase,
     failed_case_result,
     finalize_candidate_result,
+    grading_failure_case_result,
     public_error,
     refused_case_result,
     scored_case_result,
+)
+from url4_cloud.benchmarks.case_execution import (
+    CaseExecutionOutcome,
+    case_execution_matches,
+    case_execution_outcome,
 )
 from url4_cloud.benchmarks.contract import CaseResult
 from url4_cloud.benchmarks.healthbench.case_evaluation import decode_case_evaluation
@@ -133,14 +139,26 @@ def aggregate(
     """
 
     selected_cases = _selected_cases(root, case_ids)
-    by_case, errors_by_case = _index_rows(_decode_rows(raw_rows), case_ids)
+    by_case, errors_by_case, grading_failures = _index_rows(_decode_rows(raw_rows), case_ids)
     case_results: list[CaseResult] = []
     for selected in selected_cases:
         case_id = int(selected.case_id)
-        points = load_rubric_points(root, case_id)
-        result, _, _, _, _ = _case_result(
-            selected, by_case.get(case_id), points, errors_by_case.get(case_id)
-        )
+        grading_failure = grading_failures.get(case_id)
+        if grading_failure is not None:
+            assert grading_failure.error is not None
+            result = grading_failure_case_result(
+                selected_case=selected,
+                candidate=grading_failure.candidate,
+                error=grading_failure.error,
+                method="rubric",
+                default_code="healthbench_grading_failed",
+                default_message="the HealthBench grader could not grade this Case",
+            )
+        else:
+            points = load_rubric_points(root, case_id)
+            result, _, _, _, _ = _case_result(
+                selected, by_case.get(case_id), points, errors_by_case.get(case_id)
+            )
         case_results.append(result)
     return finalize_candidate_result(
         benchmark_id=benchmark_id,
@@ -278,7 +296,7 @@ def _scored_outcome(
         },
         "checks": checks,
     }
-    if fields["refusal"] is not None:
+    if fields["status"] == "refused":
         scored = refused_case_result(
             selected_case=selected_case,
             refusal=fields["refusal"],
@@ -318,6 +336,7 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
     case = row.get("case") if isinstance(row, Mapping) else None
     if not isinstance(case, Mapping):
         return {
+            "status": None,
             "output": None,
             "finish_reason": None,
             "refusal": None,
@@ -329,6 +348,7 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
     finish_reason = case.get("finish_reason")
     refusal = case.get("refusal")
     return {
+        "status": case.get("status"),
         "output": output if isinstance(output, str) else None,
         "finish_reason": finish_reason if isinstance(finish_reason, str) else None,
         "refusal": refusal if isinstance(refusal, str) and refusal.strip() else None,
@@ -354,7 +374,7 @@ def _failed_result(
         "metrics": {},
         "checks": checks,
     }
-    if fields["refusal"] is not None:
+    if fields["status"] == "refused":
         return refused_case_result(
             selected_case=selected_case,
             refusal=fields["refusal"],
@@ -519,7 +539,11 @@ def _decode_rows(raw: str) -> list[Any]:
 
 def _index_rows(
     rows: list[Any], case_ids: tuple[int, ...]
-) -> tuple[dict[int, dict[str, Any]], dict[int, list[dict[str, Any]]]]:
+) -> tuple[
+    dict[int, dict[str, Any]],
+    dict[int, list[dict[str, Any]]],
+    dict[int, CaseExecutionOutcome],
+]:
     """Validate rows and split evaluations from positional collected errors.
 
     An ``on_error=collect`` row loses its Case identity, so it cannot be indexed;
@@ -533,9 +557,17 @@ def _index_rows(
         )
     indexed: dict[int, dict[str, Any]] = {}
     errors_by_case: dict[int, list[dict[str, Any]]] = {}
+    grading_failures: dict[int, CaseExecutionOutcome] = {}
     for index, entry in enumerate(rows):
-        _index_row(entry, index, case_ids[index], indexed, errors_by_case)
-    return indexed, errors_by_case
+        _index_row(
+            entry,
+            index,
+            case_ids[index],
+            indexed,
+            errors_by_case,
+            grading_failures,
+        )
+    return indexed, errors_by_case, grading_failures
 
 
 def _index_row(
@@ -544,15 +576,36 @@ def _index_row(
     expected_case_id: int,
     indexed: dict[int, dict[str, Any]],
     errors_by_case: dict[int, list[dict[str, Any]]],
+    grading_failures: dict[int, CaseExecutionOutcome],
 ) -> None:
     row = _row_value(entry, index)
+    if _index_outer_error(row, index, expected_case_id, indexed, errors_by_case):
+        return
+    try:
+        outcome = case_execution_outcome(row)
+        if not case_execution_matches(outcome, expected_case_id):
+            raise ValueError(
+                f"Case execution claims case_id {outcome.case_id!r}, "
+                f"but the selected Case is {expected_case_id!r}"
+            )
+        if outcome.error is not None:
+            grading_failures[expected_case_id] = outcome
+        else:
+            indexed[expected_case_id] = decode_case_evaluation(outcome.grading, expected_case_id)
+    except (TypeError, ValueError) as exc:
+        raise AggregateError(f"Case result at position {index} is invalid: {exc}") from None
+
+
+def _index_outer_error(
+    row: Mapping[str, Any],
+    index: int,
+    expected_case_id: int,
+    indexed: dict[int, dict[str, Any]],
+    errors_by_case: dict[int, list[dict[str, Any]]],
+) -> bool:
     error = row.get("error")
     if error is None:
-        try:
-            indexed[expected_case_id] = decode_case_evaluation(row, expected_case_id)
-        except ValueError as exc:
-            raise AggregateError(f"Case result at position {index} is invalid: {exc}") from None
-        return
+        return False
     if not isinstance(error, Mapping):
         raise AggregateError(f"Case result at position {index} has an invalid error")
     claimed = row.get("case_id")
@@ -565,6 +618,7 @@ def _index_row(
         _attach_collected_error(errors_by_case, expected_case_id, dict(row))
     else:
         indexed[expected_case_id] = dict(row)
+    return True
 
 
 def _row_value(entry: object, index: int) -> Mapping[str, Any]:

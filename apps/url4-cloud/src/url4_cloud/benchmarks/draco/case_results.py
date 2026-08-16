@@ -159,10 +159,10 @@ def ungraded_case_result(case_record: Mapping[str, Any], failure: Mapping[str, A
     """Retain an observed Candidate answer when private grading material is unavailable."""
     selected = _selected_case(case_record, id_key="case_id")
     refusal = case_record.get("refusal")
-    if isinstance(refusal, str):
+    if case_record.get("status") == "refused":
         return build_refused_case_result(
             selected_case=selected,
-            refusal=refusal,
+            refusal=refusal if isinstance(refusal, str) else None,
             finish_reason=_finish_reason(case_record.get("finish_reason")),
             grade={"method": "rubric", "score": None, "metrics": {}, "checks": []},
             failures=[failure],
@@ -205,10 +205,10 @@ def _case_result(
         "metrics": dict(metrics),
         "checks": [dict(check) for check in checks],
     }
-    if isinstance(refusal, str):
+    if case_record.get("status") == "refused":
         return build_refused_case_result(
             selected_case=selected,
-            refusal=refusal,
+            refusal=refusal if isinstance(refusal, str) else None,
             finish_reason=finish_reason,
             grade=grade,
             failures=failures,
