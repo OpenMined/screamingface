@@ -131,9 +131,13 @@ class SubmitOutcome(NamedTuple):
 
 def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
     scores = Score.get_table()
+    # INVARIANT: best-per-spec is computed PER REVISION. Results measured against different
+    # benchmark revisions are not comparable, so one must never displace the other from the
+    # board (OME-775). Rows predating the revision column share a NULL partition value and so
+    # keep collapsing to best-per-spec exactly as before.
     row_number = (
         RowNumber()
-        .over(scores.spec_id)
+        .over(scores.spec_id, scores.benchmark_revision)
         .orderby(scores.accuracy, order=Order.desc)
         .orderby(scores.submitted_at, order=Order.desc)
         .as_("rn")
@@ -142,6 +146,7 @@ def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
         Query.from_(scores)
         .select(
             scores.spec_id,
+            scores.benchmark_revision,
             scores.accuracy,
             scores.total_questions,
             scores.ran_with_providers,
@@ -158,6 +163,7 @@ def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
         Query.from_(ranked)
         .select(
             ranked.spec_id,
+            ranked.benchmark_revision,
             ranked.accuracy,
             ranked.total_questions,
             ranked.ran_with_providers,

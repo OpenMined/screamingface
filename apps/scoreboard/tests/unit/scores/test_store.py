@@ -574,3 +574,76 @@ async def test_identity_follows_the_resolved_revision_not_its_wire_position(
     assert first_created is True
     assert second_created is False
     assert first.id == second.id
+
+
+# --- OME-775: ranking partitions on (spec_id, benchmark_revision) ---------------------------
+
+
+async def test_leaderboard_ranks_each_revision_of_a_spec_separately(tortoise_db: None) -> None:
+    # INVARIANT: results measured against different benchmark revisions are not comparable, so
+    # the board must not let one beat the other. Before OME-775 this returned a single row —
+    # the higher accuracy winning across an incomparable boundary.
+    store = await _store_with_benchmark()
+    await store.submit(
+        _revision_submission(spec_id="spec-x", benchmark_revision="rev-old"),
+    )
+    await store.submit(
+        _revision_submission(spec_id="spec-x", benchmark_revision="rev-new"),
+    )
+
+    rows = await store.leaderboard("hle")
+
+    assert len(rows) == 2
+    assert {row.benchmark_revision for row in rows} == {"rev-old", "rev-new"}
+    assert {row.spec_id for row in rows} == {"spec-x"}
+
+
+async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None) -> None:
+    # Best-per-spec is preserved inside a revision — the partition adds a dimension, it does
+    # not stop collapsing.
+    store = await _store_with_benchmark()
+    await store.submit(
+        ScoreSubmission(
+            benchmark_id="hle",
+            spec_id="spec-y",
+            url4_expression="url4://benchmark/spec-y/low",
+            accuracy=0.60,
+            total_questions=100,
+            correct_questions=60,
+            ran_with_providers=["openai"],
+            benchmark_revision="rev-same",
+        )
+    )
+    await store.submit(
+        ScoreSubmission(
+            benchmark_id="hle",
+            spec_id="spec-y",
+            url4_expression="url4://benchmark/spec-y/high",
+            accuracy=0.90,
+            total_questions=100,
+            correct_questions=90,
+            ran_with_providers=["openai"],
+            benchmark_revision="rev-same",
+        )
+    )
+
+    rows = await store.leaderboard("hle")
+
+    assert len(rows) == 1
+    assert rows[0].accuracy == 0.90
+
+
+async def test_leaderboard_groups_null_revision_rows_exactly_as_before(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: backward compatibility. Every row predating OME-775 has a NULL revision, so
+    # they must keep collapsing to best-per-spec rather than splintering into one row each.
+    store = await _store_with_benchmark()
+    await store.submit(_submission(spec_id="spec-legacy", accuracy=0.60))
+    await store.submit(_submission(spec_id="spec-legacy", accuracy=0.85))
+
+    rows = await store.leaderboard("hle")
+
+    assert len(rows) == 1
+    assert rows[0].accuracy == 0.85
+    assert rows[0].benchmark_revision is None

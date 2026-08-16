@@ -34,6 +34,9 @@ class RankedLeaderboardEntry(BaseModel):
 
     rank: int
     spec_id: str
+    # WHY: the board ranks best-per-spec PER REVISION (OME-775), so one spec can legitimately
+    # appear twice. Without this field a client cannot tell why the two are not competing.
+    benchmark_revision: str | None
     accuracy: float
     total_questions: int
     ran_with_providers: list[str]

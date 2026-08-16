@@ -179,6 +179,10 @@ class LeaderboardEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     spec_id: str
+    # WHY exposed: the board partitions ranking on this, so a client seeing two rows for one
+    # spec needs the revision to know why they are not competing (OME-775). Null for rows that
+    # predate the column and for imported baselines.
+    benchmark_revision: str | None
     accuracy: float
     total_questions: int
     ran_with_providers: list[str]
