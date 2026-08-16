@@ -113,3 +113,24 @@ def test_baseline_model_package_exports_and_abstract_base() -> None:
 
 def test_baseline_model_lives_in_its_own_file() -> None:
     assert Baseline.__module__ == "scoreboard.scores.models.baseline"
+
+
+def test_benchmark_model_carries_a_nullable_revision() -> None:
+    # WHY: OME-775 registers the Engine's canonical benchmarks, whose identity includes an
+    # immutable revision hash over dataset + protocol. Nullable because the retained legacy
+    # demo entries (hle/livetruth) have no Engine revision at all — no backfill (D4).
+    revision_field = cast(Any, Benchmark._meta.fields_map["revision"])
+
+    assert revision_field.null is True
+    assert revision_field.max_length == 64
+
+
+def test_score_model_carries_a_nullable_indexed_benchmark_revision() -> None:
+    # WHY: the leaderboard partitions ranking on this column (OME-775), so it is indexed.
+    # Nullable because OME-322's imported LMArena baselines genuinely never ran at any
+    # revision, and every row predating this change has none.
+    revision_field = cast(Any, Score._meta.fields_map["benchmark_revision"])
+
+    assert revision_field.null is True
+    assert revision_field.max_length == 64
+    assert revision_field.index is True
