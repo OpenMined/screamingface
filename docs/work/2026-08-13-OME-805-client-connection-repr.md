@@ -60,9 +60,10 @@ tutorial notebook teaching how to point the client at an engine and how to suppl
     `examples/02_connection.ipynb` (14 cells). Other notebooks left untouched.
   - `docs/work/…` + `docs/tasks/…` — this ledger + mirror.
 - **Commits:** filled in the Linear close comment (squash-merge sha).
-- **Gates:** `run_gates.py screamingface` — ALL GREEN (append-only check, ruff check, ruff
-  format, pyright, pytest `--cov-fail-under=95`, notebook check, `uv build`, distribution
-  check). Full suite 711 passed / 1 skipped.
+- **Gates:** after rebasing onto current `main`, `run_gates.py screamingface
+  --skip-append-only` — ALL GREEN (ruff check, ruff format, pyright, pytest
+  `--cov-fail-under=95`, notebook check, `uv build`, distribution check). The append-only
+  override is required only for the three explicitly disclosed hosted-row assertion updates.
 - **Deviations:**
   - The `authenticated` "signed in" branch and the HTML-escaping invariant are exercised at
     the renderer level (`client_card_html` + a structural `_FakeClient`) rather than through a
@@ -83,8 +84,10 @@ family) renders **"ScreamingFace Hosted Engine"** with the **😱** mark; any ot
 renders a neutral **"Hosted Engine"** with the monogram fallback (no brand logo). This keeps the
 brand honest — a user's self-hosted engine isn't mislabeled as ScreamingFace's.
 
-- `src/screamingface/_ui/connection_state.py` — new `_is_screamingface_engine()` classifier;
-  `_ConnectionPanelState` gains an `engine_url` field.
+- `src/screamingface/_ui/engine_origin.py` — one shared Engine-origin classifier keeps the
+  Client card and `sf.connect()` panel consistent.
+- `src/screamingface/_ui/connection_state.py` — `_ConnectionPanelState` gains an `engine_url`
+  field.
 - `src/screamingface/_ui/connections.py` — pass `engine_url` when building the panel state.
 - `src/screamingface/_ui/connection_view.py` — `_access_meta_html(status, engine_url)` picks the
   label + icon; new `_screaming_mark_html()` renders the 😱 mark (system emoji, per SFDS).

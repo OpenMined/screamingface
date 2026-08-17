@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import ipaddress
 from collections.abc import Mapping, Sequence
 from html import escape
 from typing import TYPE_CHECKING
-from urllib.parse import urlsplit
 
 from screamingface._ui.card_style import CARD_STYLE
+from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface.recipe import _recipe_kind
 
 if TYPE_CHECKING:
@@ -255,7 +254,7 @@ def _tags(chips: str) -> str:
 def _status_chips(client: _ClientLike) -> str:
     # WHY: every chip is derived from local Client state — the card must never touch the
     # network to render (a repr runs on every notebook display).
-    environment = "local" if _is_local_engine(client.engine_url) else "hosted"
+    environment = "hosted" if _is_hosted_engine(client.engine_url) else "local"
     lifecycle = "closed" if client.closed else "open"
     authentication = "signed in" if client.authenticated else "not signed in"
     return "".join(_status_chip(text) for text in (environment, lifecycle, authentication))
@@ -264,19 +263,6 @@ def _status_chips(client: _ClientLike) -> str:
 def _status_chip(text: str) -> str:
     # WHY: neutral (muted) chips keep gold rationed to the win — a client is not a "win".
     return f"<span class='sf-chip sf-chip--muted'>{escape(text)}</span>"
-
-
-def _is_local_engine(engine_url: str) -> bool:
-    # INVARIANT: loopback / private / link-local / unspecified IPs and localhost / *.local
-    # hostnames render as "local"; everything else is "hosted".
-    host = (urlsplit(engine_url).hostname or "").lower()
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return host == "localhost" or host.endswith(".local")
-    return (
-        address.is_loopback or address.is_private or address.is_link_local or address.is_unspecified
-    )
 
 
 __all__: list[str] = []

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from ipaddress import ip_address
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from screamingface.connections import Connection
@@ -37,24 +35,6 @@ class _ConnectionPanelState:
         else:
             status = "login_required"
         return status
-
-
-def _is_hosted_engine(engine_url: str) -> bool:
-    hostname = urlsplit(engine_url).hostname
-    if hostname == "localhost":
-        return False
-    try:
-        address = ip_address(hostname or "")
-    except ValueError:
-        return True
-    return not (address.is_loopback or address.is_unspecified)
-
-
-def _is_screamingface_engine(engine_url: str) -> bool:
-    # INVARIANT: only ScreamingFace's own hosted Engine (the *.screamingface.ai family) earns
-    # the brand name + 😱 mark; any other remote Engine renders a neutral "Hosted Engine".
-    host = (urlsplit(engine_url).hostname or "").lower()
-    return host == "screamingface.ai" or host.endswith(".screamingface.ai")
 
 
 def _user_message(error: Exception) -> str:

@@ -425,6 +425,18 @@ def test_client_repr_html_marks_a_hosted_engine() -> None:
     assert ">local<" not in html
 
 
+def test_client_repr_html_uses_the_connect_panel_engine_classification() -> None:
+    client = sf.Client(engine_url="http://192.168.1.25:9108")
+
+    html = cast(Any, client)._repr_html_()
+    client.close()
+
+    # INVARIANT: every notebook UI uses the same local/hosted boundary. A remote Engine on a
+    # private network is still hosted from this Client's perspective.
+    assert ">hosted<" in html
+    assert ">local<" not in html
+
+
 def test_client_repr_html_reflects_a_closed_client() -> None:
     client = sf.Client(engine_url="http://127.0.0.1:9108")
 

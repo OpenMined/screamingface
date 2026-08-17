@@ -18,5 +18,7 @@ status chips (local/hosted, open/closed, signed-in), built from the existing `CA
 helpers in `_ui/cards.py`. Add `examples/02_connection.ipynb` teaching how to point the client
 at an engine (env vars / `sf.configure` / explicit `sf.Client`) and how to supply credentials
 (BYOK vs hosted credits, mutually exclusive). No changes to `configure()`'s return type, the
-`sf.connect` panel, the `Connection` schema, or the engine.
+`Connection` schema, authentication behaviour, or the engine. An owner-approved follow-on in
+the same PR makes the existing `sf.connect()` hosted-access row engine-aware: ScreamingFace's
+hosted Engine receives the branded label, while other remote Engines retain a neutral label.
 Ledger: `docs/work/2026-08-13-OME-805-client-connection-repr.md`.
