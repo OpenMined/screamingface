@@ -57,7 +57,7 @@ const panelProviders: Provider[] = [
       <RouterLink to="/learn/engine">the engine</RouterLink> holds on your behalf. The
       client never talks to OpenRouter, Anthropic or any other provider directly. It sends your key
       to the engine once, the engine passes it to AI Gateway to validate and store encrypted, and
-      every later model call is dispatched there. Your notebook keeps no copy.
+      every later model call is dispatched there.
     </p>
 
     <p>

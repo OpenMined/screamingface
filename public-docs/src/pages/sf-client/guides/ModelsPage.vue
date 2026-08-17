@@ -38,6 +38,18 @@ ModelInfo('openrouter/google/gemini-3.1-pro-preview', provider='openrouter', par
 const details = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
 gpt.parameters["reasoning"].enabled, "web_search" in gpt.tools`
 const detailsOut = `(True, True)`
+
+const discover = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
+
+# What can I configure on this route?
+len(gpt.parameters), sorted(gpt.parameters)[:4]`
+const discoverOut = `(12, ['frequency_penalty', 'max_tokens', 'presence_penalty', 'reasoning'])`
+
+const inspect = `temp = gpt.parameters["temperature"]
+
+# Each parameter carries a schema: type, bounds, and any fixed value set.
+temp.schema.type, temp.schema.minimum, temp.schema.maximum, temp.enabled`
+const inspectOut = `('number', 0.0, 2.0, True)`
 </script>
 
 <template>
@@ -166,6 +178,12 @@ const detailsOut = `(True, True)`
       retyping it.
     </p>
 
+    <blockquote>
+      <strong>The catalogue is fixed for now.</strong> The engine does not yet discover models
+      automatically, so only the routes listed here can be used to build fusions — a model missing
+      from the list can't be added from the client. Automatic discovery is work in progress.
+    </blockquote>
+
     <h3>5 · Check that a route accepts your policy</h3>
 
     <p>
@@ -178,6 +196,36 @@ const detailsOut = `(True, True)`
     <div class="not-prose">
       <NbCell :count="5" :code="details"><NbTextOut :text="detailsOut" /></NbCell>
     </div>
+
+    <h3>6 · Discover a route's parameters</h3>
+
+    <p>
+      The same <code>ModelDetails</code> profile is also how you find out <em>what</em> a route lets
+      you configure. <code>details.parameters</code> is a mapping keyed by parameter name, so listing
+      its keys enumerates every knob the route exposes.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="6" :code="discover"><NbTextOut :text="discoverOut" /></NbCell>
+    </div>
+
+    <p>
+      Each value is an <code>sf.ModelParameter</code>. Its <code>schema</code> gives the type and the
+      bounds the gateway enforces — a numeric <code>minimum</code>/<code>maximum</code>, an
+      <code>enum</code> of allowed values, a <code>max_length</code>, and so on — while
+      <code>enabled</code> says whether the gateway currently honours it. Reading the schema tells you
+      a value's legal range before you set it in <code>params</code>.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="7" :code="inspect"><NbTextOut :text="inspectOut" /></NbCell>
+    </div>
+
+    <p>
+      A parameter that isn't listed isn't configurable on that route: setting it in
+      <code>params</code> is refused at pre-flight rather than silently dropped, so a typo costs you
+      nothing.
+    </p>
 
     <h2>Links</h2>
 

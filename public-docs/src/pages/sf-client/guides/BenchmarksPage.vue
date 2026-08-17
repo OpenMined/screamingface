@@ -55,6 +55,13 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
       genuinely comparable.
     </p>
 
+    <blockquote>
+      <strong>Only a subset of benchmarks is available so far.</strong> This is an early, deliberately
+      small set, and we're working on expanding it massively so fusion research can thrive. If there's
+      a benchmark you'd want to run first, we'd love to hear it — tell us on
+      <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener">GitHub</a>.
+    </blockquote>
+
     <h2>What you can do with it</h2>
 
     <ul>

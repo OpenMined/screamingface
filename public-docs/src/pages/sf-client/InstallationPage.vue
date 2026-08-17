@@ -182,6 +182,15 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       <code>--foreground</code> to keep it attached to your terminal instead.
     </p>
 
+    <Note>
+      By default the client reads and writes the <strong>hosted</strong> leaderboard at
+      <code>leaderboard.dev.screamingface.ai</code>, even when the rest of your stack is local.
+      Override it the same way you set the engine — <code>sf.configure()</code> takes a
+      <code>scoreboard_url</code> next to <code>engine_url</code>, so
+      <code>sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")</code>
+      points both at your local stack.
+    </Note>
+
     <p>
       Set <code>AIGW_OPENROUTER_ENABLED=true</code> in that shell first if you plan to use
       OpenRouter. Provider plugins ship disabled, and the gateway reads the setting at startup, so a
@@ -213,17 +222,18 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <p>
       Benchmarks like DRACO ask candidates to research an answer, which means the model needs to
-      search the web. There are two ways a route can do that, and the engine decides per route: a
-      provider that offers search natively is asked to use its own, and a route without native
-      search is given a <strong>bounded tool loop the engine runs against Tavily</strong> instead.
-      In the reference configuration a GPT route through OpenRouter searches natively, while the
-      Gemini, Kimi, DeepSeek and Qwen routes go through the Tavily loop.
+      search the web. <strong>Most of the time this is handled for you:</strong> most providers
+      search natively, and the engine just asks them to. The exception is providers that offer no
+      web search of their own — <strong>Hugging Face</strong> routes in particular — where the engine
+      falls back to a <strong>bounded tool loop it runs against Tavily</strong>. Only those routes
+      need a key.
     </p>
 
     <p>
-      This is why your own engine may need a Tavily key while a hosted one never asks you for one:
-      on the hosted path we supply it. Export it in the shell you start the runtime from, before
-      <code>up</code>, because the engine reads it at startup:
+      This is why your own engine may occasionally need a Tavily key while a hosted one never asks
+      you for one: on the hosted path we supply it. If you're running routes without native search,
+      export it in the shell you start the runtime from, before <code>up</code>, because the engine
+      reads it at startup:
     </p>
 
     <CodeBlock :code="tavily" language="bash" />

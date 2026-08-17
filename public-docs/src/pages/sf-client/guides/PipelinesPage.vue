@@ -186,6 +186,36 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
       <NbCell :count="1" :code="basic"><NbTextOut :text="basicOut" /></NbCell>
     </div>
 
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        viewBox="0 0 480 92"
+        role="img"
+        aria-label="review-chain runs draft then review in series; the review stage's answer is graded."
+        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+      >
+        <defs>
+          <marker id="pl-a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <text x="240" y="16" text-anchor="middle" style="fill: var(--text-2)">review-chain</text>
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a1)">
+          <path d="M186 52 H290" />
+        </g>
+        <rect x="16" y="30" width="170" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
+        <rect x="294" y="30" width="170" height="44" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
+        <g text-anchor="middle" style="fill: var(--text)">
+          <text x="101" y="56">draft</text>
+          <text x="379" y="56">review · graded</text>
+        </g>
+      </svg>
+      <figcaption
+        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
+      >
+        Two stages in series; the review stage's answer is what the benchmark grades.
+      </figcaption>
+    </figure>
+
     <h3>2 · Build the same chain with <code>.then()</code></h3>
 
     <p>
@@ -196,6 +226,40 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     <div class="not-prose">
       <NbCell :count="2" :code="then"><NbTextOut :text="thenOut" /></NbCell>
     </div>
+
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        viewBox="0 0 560 84"
+        role="img"
+        aria-label="draft.then(review).then(final) chains three stages in series, left to right."
+        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+      >
+        <defs>
+          <marker id="pl-a2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a2)">
+          <path d="M166 44 H201" />
+          <path d="M355 44 H390" />
+        </g>
+        <g style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1">
+          <rect x="16" y="22" width="150" height="44" />
+          <rect x="205" y="22" width="150" height="44" />
+        </g>
+        <rect x="394" y="22" width="150" height="44" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
+        <g text-anchor="middle" style="fill: var(--text)">
+          <text x="91" y="48">draft</text>
+          <text x="280" y="48">review</text>
+          <text x="469" y="48">final · graded</text>
+        </g>
+      </svg>
+      <figcaption
+        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
+      >
+        <code>.then()</code> builds the same three-stage chain, read left to right.
+      </figcaption>
+    </figure>
 
     <h3>3 · Flatten vs. nest</h3>
 
@@ -208,6 +272,46 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
       <NbCell :count="3" :code="flatten"><NbTextOut :text="flattenOut" /></NbCell>
     </div>
 
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        viewBox="0 0 620 132"
+        role="img"
+        aria-label="An unnamed inner Pipeline flattens: draft, review and final run as one sequence."
+        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+      >
+        <defs>
+          <marker id="pl-a3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a3)">
+          <path d="M146 68 H192" />
+          <path d="M370 76 H426" />
+        </g>
+        <rect
+          x="196"
+          y="20"
+          width="408"
+          height="96"
+          style="fill: none; stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 4 4"
+        />
+        <text x="206" y="38" style="fill: var(--text-2); font-size: 11px">Pipeline (unnamed)</text>
+        <rect x="16" y="46" width="130" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
+        <rect x="220" y="54" width="150" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
+        <rect x="430" y="54" width="150" height="44" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
+        <g text-anchor="middle" style="fill: var(--text)">
+          <text x="81" y="72">draft</text>
+          <text x="295" y="80">review</text>
+          <text x="505" y="80">final · graded</text>
+        </g>
+      </svg>
+      <figcaption
+        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
+      >
+        The unnamed inner Pipeline flattens — draft → review → final runs as one sequence.
+      </figcaption>
+    </figure>
+
     <p>
       Give the inner Pipeline a <code>name</code> and it is kept as a single stage instead, so a
       named chain stays a named, reusable unit.
@@ -216,6 +320,46 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     <div class="not-prose">
       <NbCell :count="4" :code="nestNamed"><NbTextOut :text="nestNamedOut" /></NbCell>
     </div>
+
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        viewBox="0 0 620 132"
+        role="img"
+        aria-label="A named inner Pipeline (polish-pass) stays a single stage: draft then polish-pass, which itself is review then final."
+        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+      >
+        <defs>
+          <marker id="pl-a4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a4)">
+          <path d="M146 68 H192" />
+          <path d="M370 76 H426" />
+        </g>
+        <rect
+          x="196"
+          y="20"
+          width="408"
+          height="96"
+          style="fill: none; stroke: var(--border-strong); stroke-width: 1.25"
+        />
+        <text x="206" y="38" style="fill: var(--text-2); font-size: 11px">polish-pass (named · one stage)</text>
+        <rect x="16" y="46" width="130" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
+        <rect x="220" y="54" width="150" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
+        <rect x="430" y="54" width="150" height="44" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
+        <g text-anchor="middle" style="fill: var(--text)">
+          <text x="81" y="72">draft</text>
+          <text x="295" y="80">review</text>
+          <text x="505" y="80">final · graded</text>
+        </g>
+      </svg>
+      <figcaption
+        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
+      >
+        A named inner Pipeline is kept as one stage: draft → polish-pass (itself review → final).
+      </figcaption>
+    </figure>
 
     <h3>4 · Compose recursively</h3>
 
@@ -229,6 +373,56 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     <div class="not-prose">
       <NbCell :count="5" :code="recursive"><NbTextOut :text="recursiveOut" /></NbCell>
     </div>
+
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        viewBox="0 0 720 196"
+        role="img"
+        aria-label="A Fusion of two members — a draft-then-review pipeline and gemini — combined by a synthesizer that is itself a judge-then-writer pipeline."
+        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+      >
+        <defs>
+          <marker id="pl-a5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <text x="16" y="16" style="fill: var(--text-2)">Fusion · members</text>
+        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a5)">
+          <path d="M136 48 H168" />
+          <path d="M292 48 C372 48 372 98 448 98" />
+          <path d="M136 128 C300 128 372 98 448 98" />
+          <path d="M572 104 H590" />
+        </g>
+        <g style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1">
+          <rect x="16" y="28" width="120" height="40" />
+          <rect x="172" y="28" width="120" height="40" />
+          <rect x="16" y="108" width="120" height="40" />
+          <rect x="464" y="86" width="108" height="36" />
+        </g>
+        <rect
+          x="452"
+          y="58"
+          width="252"
+          height="80"
+          style="fill: none; stroke: var(--border-strong); stroke-width: 1.25"
+        />
+        <text x="462" y="76" style="fill: var(--text-2); font-size: 11px">synthesizer · Pipeline</text>
+        <rect x="596" y="86" width="96" height="36" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
+        <g text-anchor="middle" style="fill: var(--text)">
+          <text x="76" y="52">draft</text>
+          <text x="232" y="52">review</text>
+          <text x="76" y="132">gemini</text>
+          <text x="518" y="108">judge</text>
+          <text x="644" y="108">writer</text>
+        </g>
+      </svg>
+      <figcaption
+        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
+      >
+        A Fusion of two members (the draft → review pipeline and gemini), combined by a synthesizer
+        that is itself a judge → writer pipeline. The synthesizer's last stage (writer) is graded.
+      </figcaption>
+    </figure>
 
     <p>
       Check the <RouterLink to="/sf-client/api/recipes">Recipes reference</RouterLink> for the full

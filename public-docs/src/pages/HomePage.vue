@@ -45,7 +45,7 @@ const GITHUB = 'https://github.com/OpenMined'
       </h1>
       <p class="lead">
         ScreamingFace is an open toolkit for composing model <em>fusions</em>: several models
-        answering together, graded against a real research benchmark. Every run reproduces from a
+        answering together, graded against a real benchmark. Every run reproduces from a
         single line, on your own keys.
       </p>
 
