@@ -123,7 +123,7 @@ client.leaderboards.submit(report.candidates.only)`
     <h2>LeaderboardEntry</h2>
 
     <p>
-      One ranked row. Every entry carries the URL4 that produced it, so any position on the board
+      One ranked row. Every entry carries the url4 that produced it, so any position on the board
       can be re-executed rather than taken on trust.
     </p>
 
@@ -185,7 +185,7 @@ client.leaderboards.submit(report.candidates.only)`
     <h2>LeaderboardBaseline</h2>
 
     <p>
-      A published result imported for comparison. Baselines are not submissions and carry no URL4,
+      A published result imported for comparison. Baselines are not submissions and carry no url4,
       because nobody ran them through this client.
     </p>
 

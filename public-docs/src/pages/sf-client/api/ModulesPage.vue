@@ -91,8 +91,8 @@ const evaluateSig = `sf.evaluate(
         <tr>
           <td><code>list()</code></td>
           <td>
-            Every <RouterLink to="/sf-client/api/benchmarks">ModelInfo</RouterLink> route the Engine
-            can reach.
+            Every <RouterLink to="/sf-client/api/models">ModelInfo</RouterLink> route the Engine can
+            reach.
           </td>
         </tr>
         <tr>
@@ -166,8 +166,8 @@ const evaluateSig = `sf.evaluate(
           <td><code>submit(candidate_result)</code></td>
           <td>
             Publishes one
-            <RouterLink to="/sf-client/api/reports">CandidateResult</RouterLink> to the public board
-            and returns the stored <code>LeaderboardScore</code>.
+            <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink> to the
+            public board and returns the stored <code>LeaderboardScore</code>.
           </td>
         </tr>
       </tbody>
@@ -194,7 +194,7 @@ const evaluateSig = `sf.evaluate(
 
     <p>
       The one call that spends money. Identical to
-      <code>Client.evaluate()</code>, including replaying a URL4 string. Its parameters are
+      <code>Client.evaluate()</code>, including replaying a url4 string. Its parameters are
       documented on the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page.
     </p>
 

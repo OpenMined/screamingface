@@ -107,7 +107,7 @@ const filter = `def observe(event: sf.Event) -> None:
 
     <h2>Started</h2>
 
-    <p>A URL4 operation began executing. It adds one field:</p>
+    <p>A url4 operation began executing. It adds one field:</p>
 
     <table>
       <thead>
@@ -222,8 +222,8 @@ const filter = `def observe(event: sf.Event) -> None:
 
     <Note>
       Two distinct types are called Usage. This one is the event.
-      <RouterLink to="/sf-client/api/reports">sf.Usage</RouterLink> is the accounting value, and it
-      is what this event's own <code>usage</code> field holds.
+      <RouterLink to="/sf-client/api/usage">sf.Usage</RouterLink> is the accounting value, and it is
+      what this event's own <code>usage</code> field holds.
     </Note>
 
     <p>Cost and token accounting, reported as the run spends rather than at the end.</p>
@@ -242,7 +242,7 @@ const filter = `def observe(event: sf.Event) -> None:
           <td><code>Usage</code></td>
           <td>
             The accounting value itself, with the same fields as
-            <RouterLink to="/sf-client/api/reports">report.usage</RouterLink>.
+            <RouterLink to="/sf-client/api/usage">report.usage</RouterLink>.
           </td>
         </tr>
         <tr>
