@@ -139,6 +139,11 @@ class CaseResult(_StrictWireModel):
     grade: CaseGrade | None
     failures: list[Failure]
     metadata: dict[str, Any]
+    # WHY: excluded when None so solo-Candidate and pre-OME-843 artifacts stay
+    # byte-identical; consumers see the key only when member outputs were attributed.
+    operations: list[OperationOutput] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("case_id")
     @classmethod
@@ -174,6 +179,24 @@ class CaseResult(_StrictWireModel):
         return self
 
 
+class OperationOutput(_StrictWireModel):
+    """One Candidate operation's terminal output, keyed by its stable operation id.
+
+    FEATURE: OME-843 member-output capture. ``output``/``finish_reason`` are null
+    when the Engine could not attribute the call unambiguously — absence of
+    evidence, never a positional guess.
+    """
+
+    operation_id: str = Field(min_length=1)
+    output: str | None
+    finish_reason: str | None
+
+    @field_validator("finish_reason")
+    @classmethod
+    def _validate_finish_reason(cls, value: str | None) -> str | None:
+        return validate_finish_reason(value)
+
+
 class CorrectiveExecution(_StrictWireModel):
     """The final, benchmark-neutral execution outcome of one corrective Recipe."""
 
@@ -195,6 +218,11 @@ class CandidateInvocation(_StrictWireModel):
     finish_reason: str | None
     refusal: str | None
     execution: CorrectiveExecution | None
+    # WHY: excluded when None so a solo Candidate's envelope stays byte-identical to
+    # the pre-OME-843 contract — the key exists only when the Engine attributed.
+    operations: list[OperationOutput] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("finish_reason")
     @classmethod
@@ -473,6 +501,7 @@ def encode_candidate_invocation(
     execution: CorrectiveExecution | None = None,
     *,
     status: CandidateInvocationStatus | None = None,
+    operations: Sequence[OperationOutput] | None = None,
 ) -> str:
     """Encode one Candidate answer without discarding its provider-originated outcome."""
 
@@ -482,6 +511,7 @@ def encode_candidate_invocation(
         finish_reason=finish_reason,
         refusal=refusal,
         execution=execution,
+        operations=None if operations is None else list(operations),
     )
     return json.dumps(
         invocation.model_dump(by_alias=True),
@@ -499,7 +529,9 @@ def decode_candidate_invocation_record(value: str) -> CandidateInvocation:
         raise ValueError(f"Candidate Invocation result is not JSON: {exc}") from None
     if not isinstance(decoded, Mapping) or decoded.get("schema") != CANDIDATE_INVOCATION_SCHEMA:
         raise ValueError("Candidate Invocation result has an unsupported schema")
-    if set(decoded) != {
+    # WHY: `operations` (OME-843) is the one optional key — its absence keeps the
+    # legacy shape valid, and no other deviation is tolerated.
+    if set(decoded) - {"operations"} != {
         "schema",
         "status",
         "output",
@@ -543,6 +575,7 @@ __all__ = [
     "CaseResult",
     "CandidateResult",
     "CorrectiveExecution",
+    "OperationOutput",
     "Check",
     "Evidence",
     "EvidenceProducer",

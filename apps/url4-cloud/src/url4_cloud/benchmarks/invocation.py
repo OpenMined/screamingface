@@ -11,14 +11,17 @@ from url4_cloud.benchmarks.candidate_execution import (
 from url4_cloud.benchmarks.contract import (
     CandidateInvocationStatus,
     CorrectiveExecution,
+    OperationOutput,
     encode_candidate_invocation,
 )
+from url4_cloud.benchmarks.operation_outputs import attribute_operation_outputs
 from url4_cloud.model_outcomes import (
     ModelOutcome,
     capture_model_outcomes,
     model_outcome_from_error,
     terminal_model_outcome,
 )
+from url4_cloud.operation_calls import capture_operation_calls
 
 
 async def evaluate_candidate_recipe(
@@ -33,29 +36,34 @@ async def evaluate_candidate_recipe(
 
     with capture_candidate_executions(isolated=isolated) as executions:
         with capture_model_outcomes(isolated=isolated) as outcomes:
-            try:
-                result = await node.evaluate(expression, env={input_binding: input_text})
-            except ResolutionError as exc:
-                if exc.code != "provider_refusal":
-                    raise
-                outcome = model_outcome_from_error(exc)
-                if outcome is None:
-                    raise ResolutionError(
-                        "provider refusal carried no terminal outcome",
-                        code="candidate_contract_error",
-                        permanent=True,
-                    ) from exc
-                return _encode(
-                    "",
-                    outcome,
-                    terminal_candidate_execution(executions),
-                    status="refused",
-                )
+            with capture_operation_calls(isolated=isolated) as calls:
+                try:
+                    result = await node.evaluate(expression, env={input_binding: input_text})
+                except ResolutionError as exc:
+                    if exc.code != "provider_refusal":
+                        raise
+                    outcome = model_outcome_from_error(exc)
+                    if outcome is None:
+                        raise ResolutionError(
+                            "provider refusal carried no terminal outcome",
+                            code="candidate_contract_error",
+                            permanent=True,
+                        ) from exc
+                    # WHY: members that DID answer before a sibling refused are still
+                    # evidence worth retaining — attribution runs on both exits.
+                    return _encode(
+                        "",
+                        outcome,
+                        terminal_candidate_execution(executions),
+                        status="refused",
+                        operations=attribute_operation_outputs(expression, calls),
+                    )
 
     return _encode(
         result.text,
         terminal_model_outcome(outcomes),
         terminal_candidate_execution(executions),
+        operations=attribute_operation_outputs(expression, calls),
     )
 
 
@@ -65,6 +73,7 @@ def _encode(
     execution: CorrectiveExecution | None,
     *,
     status: CandidateInvocationStatus | None = None,
+    operations: list[OperationOutput] | None = None,
 ) -> str:
     try:
         return encode_candidate_invocation(
@@ -73,6 +82,7 @@ def _encode(
             outcome.refusal,
             execution,
             status=status,
+            operations=operations,
         )
     except ValueError as exc:
         raise ResolutionError(

@@ -361,6 +361,7 @@ def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> Case
             finish_reason=record["finish_reason"],
             grade=grade,
             execution=record["execution"],
+            operations=record.get("operations"),
         )
     return scored_case_result(
         selected_case=selected_case,
@@ -368,6 +369,7 @@ def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> Case
         finish_reason=record["finish_reason"],
         grade=grade,
         execution=record["execution"],
+        operations=record.get("operations"),
     )
 
 

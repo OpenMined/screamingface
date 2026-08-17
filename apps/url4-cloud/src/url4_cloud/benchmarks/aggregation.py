@@ -21,6 +21,7 @@ from url4_cloud.benchmarks.contract import (
     CaseResult,
     CorrectiveExecution,
     Failure,
+    OperationOutput,
     candidate_coverage,
     validate_case_id,
 )
@@ -215,6 +216,7 @@ def scored_case_result(
     grade: CaseGrade | Mapping[str, Any],
     metadata: Mapping[str, Any] | None = None,
     execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Construct one scored Case without exposing the wire envelope to adapters."""
 
@@ -232,6 +234,7 @@ def scored_case_result(
         grade=typed_grade,
         failures=[],
         metadata=_case_metadata(selected_case, metadata),
+        operations=_operation_outputs(operations),
     )
 
 
@@ -244,6 +247,7 @@ def failed_case_result(
     grade: CaseGrade | Mapping[str, Any] | None = None,
     metadata: Mapping[str, Any] | None = None,
     execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Construct one failed Case while retaining any safe partial grading evidence."""
 
@@ -267,6 +271,7 @@ def failed_case_result(
         grade=typed_grade,
         failures=typed_failures,
         metadata=_case_metadata(selected_case, metadata),
+        operations=_operation_outputs(operations),
     )
 
 
@@ -279,6 +284,7 @@ def refused_case_result(
     failures: Sequence[Failure | Mapping[str, Any]] = (),
     metadata: Mapping[str, Any] | None = None,
     execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Construct a refused Case after normal Benchmark grading."""
 
@@ -301,6 +307,7 @@ def refused_case_result(
         grade=typed_grade,
         failures=typed_failures,
         metadata=_case_metadata(selected_case, metadata),
+        operations=_operation_outputs(operations),
     )
 
 
@@ -340,6 +347,7 @@ def grading_failure_case_result(
             grade=grade,
             failures=[failure],
             execution=candidate.execution,
+            operations=candidate.operations,
         )
     return failed_case_result(
         selected_case=selected_case,
@@ -348,7 +356,23 @@ def grading_failure_case_result(
         grade=grade,
         failures=[failure],
         execution=candidate.execution,
+        operations=candidate.operations,
     )
+
+
+def _operation_outputs(
+    operations: Sequence[OperationOutput | Mapping[str, Any]] | None,
+) -> list[OperationOutput] | None:
+    """Normalize adapter-supplied operations; absence stays absence (OME-843)."""
+
+    if operations is None:
+        return None
+    return [
+        operation
+        if isinstance(operation, OperationOutput)
+        else OperationOutput.model_validate(operation)
+        for operation in operations
+    ]
 
 
 def _case_metadata(
