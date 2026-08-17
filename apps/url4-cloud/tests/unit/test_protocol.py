@@ -21,11 +21,27 @@ def _ts() -> datetime:
     return datetime(2026, 7, 21, 9, 0, 0)
 
 
-def test_cost_total_must_equal_sum() -> None:
+def test_a_partial_cost_breakdown_is_accepted() -> None:
+    """OME-849: OpenRouter authors ONE amount with no per-class split, so the components are an
+    optional partial breakdown and `total_usd` is authoritative.
+
+    AIDEV-NOTE: this REPLACED `test_cost_total_must_equal_sum`, which asserted the opposite for
+    the same inputs. Authorised as a Confidence-Gate decision (owner, 2026-08-17) because the
+    contract it pinned is the one OME-849 deliberately changed — see
+    `docs/spec/2026-08-17-OME-849-run-cost-openrouter.md` §2.1.
+    """
+    cb = CostBreakdown(
+        input_usd=Decimal("0.01"), output_usd=Decimal("0.02"), total_usd=Decimal("0.99")
+    )
+
+    assert cb.total_usd == Decimal("0.99")
+
+
+def test_cost_components_may_not_exceed_the_total() -> None:
+    """INVARIANT: the half of the old equality rule that survives. Components may be incomplete,
+    never larger than the whole — that is incoherent whichever number you trust."""
     with pytest.raises(ValidationError):
-        CostBreakdown(
-            input_usd=Decimal("0.01"), output_usd=Decimal("0.02"), total_usd=Decimal("0.99")
-        )
+        CostBreakdown(input_usd=Decimal("0.40"), total_usd=Decimal("0.36"))
 
 
 def test_cost_total_equals_sum_ok() -> None:

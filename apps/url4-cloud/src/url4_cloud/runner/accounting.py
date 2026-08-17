@@ -1,0 +1,249 @@
+"""Turns aigateway's `_aigw` usage-accounting block into the cost evidence a run publishes.
+
+FEATURE: per-run cost reporting (`OME-849`). aigateway produces provider-call FACTS and explicitly
+refuses to convert currency, attribute, or roll up — that boundary is stated in
+`apps/aigateway/docs/usage-accounting.md`. This module is the consumer on the other side of it: the
+Executor owns cost, because `url4.streaming` requires the executor to hand it a populated
+`CostUsageData` and performs no arithmetic itself.
+
+STORY: as a researcher reading a run Report, I see what my run cost — and an em dash rather than a
+confident wrong number whenever the gateway could not observe the whole call.
+
+INVARIANT — the rule the whole module exists to enforce: `Decimal("0")` and `None` are DIFFERENT
+answers. Zero means the call was genuinely free (a cache hit); `None` means the evidence cannot
+support a price. Collapsing them reports paid work as free, which is the failure aigateway's own
+review named — treating absence of observation as proof of absence.
+
+Scope today is OpenRouter, whose amounts arrive in `openrouter_credits` and convert to USD 1:1 by
+owner decision. Anthropic authors no cost at all and therefore stays unpriced.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from decimal import Decimal, localcontext
+from typing import Any
+
+__all__ = [
+    "OPENROUTER_CREDIT_UNIT",
+    "PRICING_VERSION",
+    "UNPRICED",
+    "CallAccounting",
+    "accumulate",
+    "read_aigw",
+    "usd_from_aigw",
+]
+
+# WHY the version names a METHOD rather than a date: a consumer reads it to learn HOW the number was
+# reached, and it is the seam a future rate card arrives through (`ratecard-<date>`) without
+# invalidating runs priced this way.
+PRICING_VERSION = "openrouter-credits-1usd"
+UNPRICED = "unpriced"
+
+OPENROUTER_CREDIT_UNIT = "openrouter_credits"
+# INVARIANT: an owner decision (2026-08-17), not something this code can verify. It lives here as a
+# named constant so the assumption is visible rather than implied by an absent multiplication.
+_CREDIT_TO_USD = Decimal(1)
+# The producer's published amount bound is 18 integer + 33 fractional digits; this leaves headroom
+# so no conversion can round a value that arrived at the bound.
+_AMOUNT_PRECISION = 18 + 33 + 2
+
+# Copied verbatim from the producer's published schema (the `amount` property). Keep it that way:
+# a locally-invented variant would drift from the contract it exists to mirror.
+_CANONICAL_AMOUNT = re.compile(r"^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{0,32}[1-9])?$")
+
+METADATA_KEY = "_aigw"
+
+
+@dataclass(frozen=True, slots=True)
+class CallAccounting:
+    """One gateway call's accounting, as url4-cloud reports it onto the span that made the call.
+
+    INVARIANT: every field is optional and `None` means "the gateway did not report it" — never
+    zero. A cache hit legitimately has no provider and no tokens while still being priced at zero.
+    """
+
+    provider: str | None
+    response_model: str | None
+    input_tokens: int | None
+    output_tokens: int | None
+    cache_read_tokens: int | None
+    cache_creation_tokens: int | None
+    reasoning_tokens: int | None
+    cost_usd: Decimal | None
+
+
+def accumulate[T: (int, Decimal)](prior: T | None, new: T | None) -> T | None:
+    """Sum two optional quantities, where an unknown part makes the whole unknown.
+
+    INVARIANT: a total that silently omits a part while presenting itself as a total is worse than
+    no total — the caller cannot tell a complete sum from a lossy one. The producing gateway applies
+    the same rule to its own subtotals, where one unreadable amount refuses the whole sum.
+    """
+    if prior is None or new is None:
+        return None
+    return prior + new
+
+
+def _mapping(value: object) -> Mapping[str, Any] | None:
+    return value if isinstance(value, Mapping) else None
+
+
+def _count(value: object) -> int | None:
+    """A non-negative token count, or `None` for anything that is not one.
+
+    `bool` is refused explicitly: it is an `int` subclass, so a stray `True` would otherwise be
+    counted as one token.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _exact_amount(value: object) -> Decimal | None:
+    """A canonical non-negative amount, or `None`.
+
+    WHY the pattern is copied from the producer rather than re-derived: it IS the published contract
+    (`usage_accounting.schema.json`, the `amount` property), so matching it exactly means this
+    consumer accepts precisely what the producer promises to emit and nothing else. It rules out
+    negatives, exponent spellings, `NaN`/`Infinity`, and trailing-zero spellings of one value — all
+    in one place, with no arithmetic that could round.
+
+    WHY `str` and `int` only: those are the carriers that survived the producer's exact-decimal
+    parsing (its schema types the amount as a string). A `float` has already lost the raw-JSON
+    provenance the producer went to trouble to preserve, so accepting one would launder a number
+    that is no longer exact. `bool` is refused for the same reason as in `_count` — it is an `int`
+    subclass, so `True` would otherwise price as one credit.
+    """
+    text = str(value) if isinstance(value, int) and not isinstance(value, bool) else value
+    if not isinstance(text, str) or _CANONICAL_AMOUNT.fullmatch(text) is None:
+        return None
+    return Decimal(text)
+
+
+def _is_cache_hit(accounting: Mapping[str, Any] | None) -> bool:
+    if accounting is None:
+        return False
+    cache = _mapping(accounting.get("cache"))
+    return cache is not None and cache.get("status") == "hit"
+
+
+def _credits_to_usd(subtotals: object) -> Decimal | None:
+    """USD from exactly one OpenRouter-credit subtotal, else `None`.
+
+    INVARIANT: never add across units. Several subtotals means several currencies, and summing them
+    would invent an exchange rate nobody supplied. An unrecognised unit degrades to unpriced, which
+    is what keeps the 1:1 conversion honest once a second provider appears.
+    """
+    if not isinstance(subtotals, list) or len(subtotals) != 1:
+        return None
+    row = _mapping(subtotals[0])
+    known_unit = row is not None and row.get("unit") == OPENROUTER_CREDIT_UNIT
+    amount = _exact_amount(row.get("amount")) if known_unit and row is not None else None
+    if amount is None:
+        return None
+    # WHY a local context rather than a bare `*`: multiplication rounds to the AMBIENT decimal
+    # context's precision — 28 significant digits by default — which silently truncates an amount at
+    # the producer's 18-integer + 33-fractional bound. With a 1:1 rate the multiply looks like an
+    # identity and is not one. Proven by
+    # `test_an_amount_at_the_contract_precision_bound_survives_exactly`.
+    # INVARIANT: money arithmetic here is independent of whatever decimal context the caller happens
+    # to be running under, exactly as the producing gateway guarantees for its own subtotals.
+    with localcontext() as ctx:
+        ctx.prec = _AMOUNT_PRECISION
+        return amount * _CREDIT_TO_USD
+
+
+def usd_from_aigw(aigw: object) -> Decimal | None:
+    """USD for one gateway call, or `None` when the evidence cannot support a price.
+
+    Implements the normative decision table in
+    `docs/spec/2026-08-17-OME-849-run-cost-openrouter.md` §3.2.
+
+    INVARIANT: total over its input and never raises. The provider call may already be billed by the
+    time this runs, so accounting must never turn a completed response into a run failure — the same
+    rule the producing gateway applies on its own side of the boundary.
+
+    AIDEV-NOTE: `known_direct_cost_subtotals` is populated by the producer ONLY when its capture was
+    complete and nothing was omitted, and it has already summed across retries. Do not re-derive
+    money by walking `attempts[]` — that double-counts, and it discards the producer's own refusal
+    to total unreadable amounts.
+    """
+    envelope = _mapping(aigw)
+    economics = _mapping(envelope.get("request_economics")) if envelope is not None else None
+    if envelope is None or economics is None:
+        return None
+    status = economics.get("direct_cost_status")
+    if status == "complete":
+        return _credits_to_usd(economics.get("known_direct_cost_subtotals"))
+    # INVARIANT: the P0 distinction. `not_applicable` covers BOTH "served from cache, genuinely
+    # free" and "a real billed call through a provider we cannot observe", and both present an
+    # EMPTY subtotal list. Reading the list alone reports paid work as free.
+    free = status == "not_applicable" and _is_cache_hit(_mapping(envelope.get("usage_accounting")))
+    return Decimal(0) if free else None
+
+
+def _attempt_usage(attempt: Mapping[str, Any]) -> tuple[int | None, ...]:
+    """One attempt's five token classes, in `CallAccounting` order."""
+    usage = _mapping(attempt.get("usage")) or {}
+    inputs = _mapping(usage.get("input")) or {}
+    outputs = _mapping(usage.get("output")) or {}
+    return (
+        _count(inputs.get("total")),
+        _count(outputs.get("total")),
+        _count(inputs.get("cache_read")),
+        # WHY the producer's `cache_write` maps to our `cache_creation`: the two names describe the
+        # same quantity — tokens written INTO the prompt cache — in the provider's vocabulary and in
+        # the GenAI semantic conventions respectively.
+        _count(inputs.get("cache_write")),
+        _count(outputs.get("reasoning")),
+    )
+
+
+def read_aigw(aigw: object) -> CallAccounting | None:
+    """Evidence for one gateway call, or `None` when there is no `_aigw` block to read.
+
+    `None` means "no accounting at all" and tells the caller to fall back to the provider's own
+    `usage` object — the pre-`_aigw` behaviour. It is deliberately distinct from evidence whose
+    fields are all `None`, which means the gateway was asked and reported nothing.
+
+    INVARIANT: tokens are summed across EVERY attempt, failures included. A retry genuinely costs
+    twice, and the producer contract states outright that a failed attempt may still carry
+    provider-authored usage, so dropping failures under-reports the run. Identity facts (provider,
+    served model) come from the TERMINAL attempt, which is the one that owns them.
+    """
+    envelope = _mapping(aigw)
+    if envelope is None:
+        return None
+    accounting = _mapping(envelope.get("usage_accounting"))
+    raw_attempts = accounting.get("attempts") if accounting is not None else None
+    attempts = (
+        [m for a in raw_attempts if (m := _mapping(a)) is not None]
+        if (isinstance(raw_attempts, list))
+        else []
+    )
+
+    # Seed from the first attempt, then accumulate: seeding is what lets a genuine `None` in the
+    # first attempt poison the class, rather than being mistaken for "nothing seen yet".
+    totals: tuple[int | None, ...] = (None,) * 5
+    if attempts:
+        totals = _attempt_usage(attempts[0])
+        for attempt in attempts[1:]:
+            observed = _attempt_usage(attempt)
+            totals = tuple(accumulate(totals[i], observed[i]) for i in range(5))
+
+    terminal = attempts[-1] if attempts else None
+    provider = terminal.get("provider") if terminal is not None else None
+    response_model = terminal.get("response_model") if terminal is not None else None
+    return CallAccounting(
+        provider=provider if isinstance(provider, str) and provider else None,
+        response_model=response_model if isinstance(response_model, str) else None,
+        input_tokens=totals[0],
+        output_tokens=totals[1],
+        cache_read_tokens=totals[2],
+        cache_creation_tokens=totals[3],
+        reasoning_tokens=totals[4],
+        cost_usd=usd_from_aigw(envelope),
+    )
