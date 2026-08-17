@@ -48,13 +48,22 @@ DRACO_RUBRIC_SHAPE = RubricShape(
 )
 
 
+# The check judge asks for one whole-rubric verdict array in a single call, and the
+# judge is a reasoning model whose thinking tokens count against max_tokens. Canonical
+# grading's 4096 pin (one criterion per call) starves that batched reply — the judge
+# spends the whole budget thinking and the verdict JSON never completes. The check
+# keeps its own budget; JUDGE_PARAMS stays untouched because it feeds REVISION.
+CHECK_JUDGE_PARAMS = tuple(
+    (name, "32768" if name == "max_tokens" else value) for name, value in JUDGE_PARAMS
+)
+
 DRACO_CHECK = RubricCheck(
     label="DRACO",
     criterion=CHECK_CRITERION,
     threshold=CHECK_THRESHOLD,
     shape=DRACO_RUBRIC_SHAPE,
     judge_model=JUDGE_MODEL,
-    judge_params=JUDGE_PARAMS,
+    judge_params=CHECK_JUDGE_PARAMS,
     feedback="areas",
     question="text",
 )

@@ -412,7 +412,7 @@ async def _chat_completion_loop(
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
         _report_response(choice, outcome)
-        raise_if_unusable(choice)
+        raise_if_unusable(choice, max_tokens=sampling.get("max_tokens"))
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
             # Recorded HERE, not per round trip: a tool loop is several round trips serving ONE

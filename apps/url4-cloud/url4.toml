@@ -147,10 +147,31 @@ id = "openrouter/google/gemini-3-flash-preview"
 id = "openrouter/moonshotai/kimi-k2.6"
 
 [[aigateway.models]]
+id = "openrouter/moonshotai/kimi-k3"
+
+[[aigateway.models]]
 id = "openrouter/deepseek/deepseek-v4-pro"
 
 [[aigateway.models]]
+id = "openrouter/deepseek/deepseek-v4-flash"
+
+[[aigateway.models]]
 id = "openrouter/qwen/qwen3.6-plus"
+
+[[aigateway.models]]
+id = "openrouter/qwen/qwen3.8-2.4t-a95b"
+
+[[aigateway.models]]
+id = "openrouter/qwen/qwen3-coder"
+
+[[aigateway.models]]
+id = "openrouter/z-ai/glm-5.2"
+
+[[aigateway.models]]
+id = "openrouter/mistralai/ministral-3b-2512"
+
+[[aigateway.models]]
+id = "openrouter/microsoft/phi-4"
 
 # RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not
 # parse them yet; declaring one is a loud config error, never a silent no-op:

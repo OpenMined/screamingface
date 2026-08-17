@@ -165,6 +165,13 @@ def _default_model_slugs() -> list[str]:
         "openrouter/anthropic/claude-opus-4.5",
         "openrouter/anthropic/claude-sonnet-4.6",
         "openrouter/anthropic/claude-sonnet-4.5",
+        # OME-856: open-weight notebook lineup members OME-816 does not cover, present in
+        # the live OpenRouter catalog on 2026-08-17; re-check at release.
+        "openrouter/qwen/qwen3-coder",
+        "openrouter/deepseek/deepseek-v4-flash",
+        # Lightweight open-weight corrective-loop members (IFEval-fallible by design).
+        "openrouter/mistralai/ministral-3b-2512",
+        "openrouter/microsoft/phi-4",
     ]
 
 

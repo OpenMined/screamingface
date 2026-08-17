@@ -278,30 +278,42 @@ def _checks(
         record = by_id.get(criterion_id)
         if record is None or optional_integer(record.get("case_id")) != case_id:
             raise AggregateError(f"Case {case_id} has no Engine-bound Check {criterion_id!r}")
-        checks.append(
-            {
-                "type": "criterion",
-                "id": criterion_id,
-                "label": record["requirement"],
-                "evidence": [
-                    _evidence(item)
-                    for item in sorted(
-                        (
-                            item
-                            for item in evidence
-                            if str(item.get("criterion_id")) == criterion_id
-                        ),
-                        key=lambda item: int(item["sequence"]),
-                    )
-                ],
-                "metadata": {
-                    "criterion_type": record["criterion_type"],
-                    "weight": criterion["weight"],
-                    "axis": criterion["axis"],
-                },
-            }
-        )
+        selected_evidence = [
+            _evidence(item)
+            for item in sorted(
+                (item for item in evidence if str(item.get("criterion_id")) == criterion_id),
+                key=lambda item: int(item["sequence"]),
+            )
+        ]
+        check: dict[str, Any] = {
+            "type": "criterion",
+            "id": criterion_id,
+            "label": record["requirement"],
+            "evidence": selected_evidence,
+            "metadata": {
+                "criterion_type": record["criterion_type"],
+                "weight": criterion["weight"],
+                "axis": criterion["axis"],
+            },
+        }
+        # Check-level verdict in the report schema's vocabulary — same contract the
+        # healthbench builder documents ("without a top-level outcome the SDK renders
+        # the check as unjudged"). DRACO's 5 seeded passes fold to their MAJORITY over
+        # the VALID passes; no valid pass, or a tie among them (possible only when
+        # invalid passes thin the odd count), leaves the check honestly outcome-less.
+        outcome = _majority_outcome(selected_evidence)
+        if outcome is not None:
+            check["outcome"] = outcome
+        checks.append(check)
     return checks
+
+
+def _majority_outcome(evidence: Sequence[Mapping[str, Any]]) -> str | None:
+    met = sum(1 for item in evidence if item.get("outcome") == "MET")
+    unmet = sum(1 for item in evidence if item.get("outcome") == "UNMET")
+    if met == unmet:
+        return None
+    return "MET" if met > unmet else "UNMET"
 
 
 def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:

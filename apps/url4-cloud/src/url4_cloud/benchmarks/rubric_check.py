@@ -306,16 +306,40 @@ async def _judged(
     criteria: Sequence[Mapping[str, Any]],
 ) -> dict[str, bool]:
     prompt = build_check_prompt(question, answer, criteria)
+    last_reply = ""
     for attempt in range(1, CHECK_ATTEMPTS + 1):
-        reply = await node.evaluate(
-            _judge_expression(config), env={"prompt": _attempt_prompt(prompt, attempt)}
-        )
+        try:
+            reply = await node.evaluate(
+                _judge_expression(config), env={"prompt": _attempt_prompt(prompt, attempt)}
+            )
+        except ResolutionError as exc:
+            if getattr(exc, "code", None) != "model_token_cap":
+                raise
+            # Re-attribute the runner's token-cap failure to the CHECK JUDGE: without the
+            # role, the report reads as the candidate running dry. Same budget, same
+            # truncation — retrying pays to fail identically, so fail on first strike.
+            raise _unavailable(
+                f"the {config.label} check judge ran out of tokens "
+                f"(judge {_judge_budget(config)}, set in the benchmark's check_policy): {exc}"
+            ) from exc
         verdicts = _verdicts(reply.text, criteria)
         if verdicts is not None:
             return verdicts
+        last_reply = reply.text or ""
+    # Url4Result carries no finish_reason, so the reply's shape is the only signal a
+    # reader gets: a long reply whose tail is mid-JSON means truncation (raise the
+    # judge's token budget); a short prose tail means the judge ignored the format.
     raise _unavailable(
         f"the {config.label} check judge returned no usable verdict in {CHECK_ATTEMPTS} attempts"
+        f" (judge {_judge_budget(config)}, set in the benchmark's check_policy; "
+        f"last reply: {len(last_reply)} chars, tail: {last_reply[-160:]!r})"
     )
+
+
+def _judge_budget(config: RubricCheck) -> str:
+    """The judge's token budget as message text — the knob a failure must name."""
+    cap = dict(config.judge_params).get("max_tokens")
+    return f"max_tokens={cap}" if cap is not None else "max_tokens unset (provider default)"
 
 
 def build_check_prompt(
@@ -405,6 +429,10 @@ def _verdict_row(row: object, count: int) -> tuple[int, bool] | None:
         return None
     ordinal = row.get("id")
     status = row.get("status")
+    # Judges routinely quote the ordinal ('"id": "51"'); a digit string is the same
+    # verdict, so it decodes rather than voiding an otherwise-complete reply.
+    if isinstance(ordinal, str) and ordinal.strip().isdigit():
+        ordinal = int(ordinal.strip())
     numbered = not isinstance(ordinal, bool) and isinstance(ordinal, int) and 1 <= ordinal <= count
     decided = isinstance(status, str) and status.strip().upper() in {"MET", "UNMET"}
     if not (numbered and decided):

@@ -39,13 +39,36 @@ def parse_choice(data: dict) -> Choice:
     )
 
 
-def raise_if_unusable(choice: Choice) -> None:
-    """Reject a refusal or a choice carrying neither answer nor tool call."""
+def raise_if_unusable(choice: Choice, *, max_tokens: object | None = None) -> None:
+    """Reject a refusal, a token-exhausted empty turn, or a choice carrying neither
+    answer nor tool call.
+
+    `max_tokens` is the budget the REQUEST asked for (when it set one) so the
+    token-cap message can name the exact number to raise instead of a vague hint.
+    """
     # INVARIANT: refusal precedes emptiness because content-filter turns normally carry null text.
     if choice.finish_reason == "content_filter" or choice.refusal is not None:
         raise RunnerRequestError(
             "provider refused the request",
             code="provider_refusal",
+            permanent=True,
+            outcome=ModelOutcome(choice.finish_reason, choice.refusal),
+        )
+    # INVARIANT: token exhaustion precedes the malformed fallback — an all-reasoning
+    # `length` turn carries no text by construction, and labeling it a gateway fault
+    # sends the reader debugging the wrong component. Truncated-but-present text is
+    # NOT rejected here: a partial answer may still be usable downstream.
+    if (
+        choice.finish_reason == "length"
+        and not choice.tool_calls
+        and not (choice.content or "").strip()
+    ):
+        budget = f"max_tokens={max_tokens}" if max_tokens is not None else "its max_tokens budget"
+        raise RunnerRequestError(
+            f"model ran out of tokens before completing an answer (finish_reason=length; "
+            f"{budget} was fully consumed — for reasoning models thinking counts against it). "
+            "Raise max_tokens on this call.",
+            code="model_token_cap",
             permanent=True,
             outcome=ModelOutcome(choice.finish_reason, choice.refusal),
         )

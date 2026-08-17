@@ -52,6 +52,10 @@ _STYLE = (
 .sf-eval__act{{margin-top:10px;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:12px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}}
+/* pre-flight spend disclosure: calm and present, never a red banner (OME-845) */
+.sf-eval__note{{margin-top:8px;padding:7px 10px;border:1px solid var(--sf-line);
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
+  color:var(--sf-ink-2);line-height:1.5}}
 /* the feed: newest first, fixed height — proof of work, not a transcript */
 .sf-eval__feed{{margin-top:12px;border:1px solid var(--sf-line);max-height:132px;
   overflow:auto}}
@@ -78,12 +82,16 @@ def evaluation_panel_html(
     progress: _EvaluationProgress,
     benchmark: str | None = None,
     elapsed: float | None = None,
+    check_disclosure: str | None = None,
 ) -> str:
     """Render the whole panel for the progress fold's current state.
 
     `elapsed` lets a live view pass wall-clock seconds. Without it the panel falls back to
     the span between the first and last Event, which is correct for a finished run but
     freezes between Events while one is still in flight.
+
+    `check_disclosure` is the paid-check-call ceiling text; when the panel renders it,
+    the Python warning it replaces stays suppressed (OME-845).
     """
 
     return (
@@ -93,6 +101,7 @@ def evaluation_panel_html(
         f"{_bar_html(progress)}"
         f"{_meta_html(progress, elapsed)}"
         f"{_activity_html(progress)}"
+        f"{_note_html(check_disclosure)}"
         f"{_stats_html(progress)}"
         f"{_feed_html(progress)}"
         f"{_error_html(progress)}</div>"
@@ -142,6 +151,12 @@ def _candidate_text(progress: _EvaluationProgress) -> str:
 def _activity_html(progress: _EvaluationProgress) -> str:
     activity = progress.activity or "Starting evaluation"
     return f"<div class='sf-eval__act'>phase · {escape(activity)}</div>"
+
+
+def _note_html(check_disclosure: str | None) -> str:
+    if check_disclosure is None:
+        return ""
+    return f"<div class='sf-eval__note'>check surface · {escape(check_disclosure)}</div>"
 
 
 def _stats_html(progress: _EvaluationProgress) -> str:
@@ -240,6 +255,7 @@ class _NotebookEvaluationView:
         candidate_models: tuple[str, ...] = (),
         candidate_urls: tuple[str, ...] = (),
         *,
+        check_disclosure: str | None = None,
         clock: Callable[[], float] | None = None,
         tick: bool = True,
     ) -> None:
@@ -251,6 +267,7 @@ class _NotebookEvaluationView:
             candidate_urls=frozenset(candidate_urls),
         )
         self._benchmark = benchmark
+        self._check_disclosure = check_disclosure
         self._clock = time.monotonic if clock is None else clock
         self._started = self._clock()
         self._lock = threading.Lock()
@@ -283,7 +300,9 @@ class _NotebookEvaluationView:
     def _render(self) -> str:
         # A finished run reports the span it actually took; a live one reports wall clock.
         elapsed = None if self._progress.finished else self._clock() - self._started
-        return evaluation_panel_html(self._progress, self._benchmark, elapsed)
+        return evaluation_panel_html(
+            self._progress, self._benchmark, elapsed, self._check_disclosure
+        )
 
     def _tick_loop(self) -> None:
         deadline = self._started + self._MAX_TICK_SECONDS
