@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import {
@@ -34,6 +35,13 @@ const nested = `haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
 
 sf.Fusion([pair, haiku], name="nested", synthesizer="openrouter/openai/gpt-5.5")`
 const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name='nested', synthesizer=Model('openrouter/openai/gpt-5.5'))`
+
+const fusionSig = `sf.Fusion(
+    members: Sequence[str | Recipe],
+    *,
+    name: str | None = None,
+    synthesizer: str | Recipe,
+)`
 </script>
 
 <template>
@@ -240,6 +248,93 @@ const nestedOut = `Fusion(['claude-opus-4.8+gpt-5.5', 'claude-haiku-4.5'], name=
       Members must be recipes: a <code>Model</code>, <code>Fusion</code>, or <code>Pipeline</code>
       (or a route string, which gets normalized to a <code>Model</code>).
     </p>
+
+    <h2>The <code>Fusion</code> class</h2>
+
+    <CodeBlock :code="fusionSig" language="python" />
+
+    <h3>Parameters</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>members</code></td>
+          <td><code>Sequence[str&nbsp;|&nbsp;Recipe]</code></td>
+          <td>
+            One or more members, in order. Each can be a route string, <code>Model</code>,
+            <code>Fusion</code>, or <code>Pipeline</code>. Ensembles nest.
+          </td>
+        </tr>
+        <tr>
+          <td><code>name</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            Defaults to the member names joined with <code>+</code>, for example
+            <code>claude-opus-4.8+gpt-hot</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>synthesizer</code></td>
+          <td><code>str&nbsp;|&nbsp;Recipe</code></td>
+          <td>
+            <strong>Required, keyword-only.</strong> A route string or any recipe (a
+            <code>Model</code>, <code>Fusion</code>, or <code>Pipeline</code>) that reads the
+            members' answers and writes the final one. No default.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Attributes</h3>
+
+    <p>
+      <code>members</code> is a <code>tuple</code> in the order you gave. <code>name</code> is the
+      resolved label. <code>synthesizer</code> is the recipe you passed (route strings normalize to
+      <code>Model</code>). No <code>reducer</code> attribute.
+    </p>
+
+    <h3>Raises</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>No <code>synthesizer</code> is given</td>
+          <td><code>TypeError: missing a required keyword-only argument: 'synthesizer'</code></td>
+        </tr>
+        <tr>
+          <td>The members are empty</td>
+          <td><code>ValueError: a Fusion requires at least one member</code></td>
+        </tr>
+        <tr>
+          <td><code>members</code> is not an ordered sequence (for example a bare route string)</td>
+          <td>
+            <code
+              >TypeError: Fusion members must be an ordered sequence of model routes or
+              Recipes</code
+            >
+          </td>
+        </tr>
+        <tr>
+          <td>A member or the synthesizer is not a route string or a supported recipe</td>
+          <td>
+            <code>TypeError: … must be a model route or sf.Model, sf.Fusion, or sf.Pipeline</code>
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>Links</h2>
 

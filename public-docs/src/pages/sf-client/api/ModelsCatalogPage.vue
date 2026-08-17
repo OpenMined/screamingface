@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import {
@@ -16,23 +17,139 @@ const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic
 
 const detailsRun = `client.models.get("anthropic/claude-opus-4-8")`
 const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='chat', parameters=9, tools=2, transport=3)`
+
+const modelSig = `sf.Model(
+    model: str,
+    *,
+    name: str | None = None,
+    prompt: str | None = None,
+    params: Mapping[str, str | int | float | bool] | None = None,
+)`
 </script>
 
 <template>
   <DocLayout
     title="Models"
-    description="The discovery types model routes come back as: ModelInfo, ModelDetails, and their fields."
+    description="The Model recipe class you build, and the discovery types routes come back as: ModelInfo, ModelDetails, and their fields."
     :navigation="navigation"
     :version="version"
   >
+    <p>
+      This page documents the <code>Model</code> recipe class you build, and the read-only
+      <strong>discovery types</strong> the Engine returns when you inspect what a route supports.
+    </p>
+
+    <h2 id="model">Model</h2>
+
+    <p>
+      A <code>Model</code> is a single model route answering on its own — the simplest recipe, and
+      the building block every <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> and
+      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> is made of. See the
+      <RouterLink to="/sf-client/guides/models">Models guide</RouterLink> for help picking a route.
+    </p>
+
+    <CodeBlock :code="modelSig" language="python" />
+
+    <h3>Parameters</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>model</code></td>
+          <td><code>str</code></td>
+          <td>
+            The provider route, like <code>openrouter/openai/gpt-5.5</code>. Required, positional.
+          </td>
+        </tr>
+        <tr>
+          <td><code>name</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            Label that shows up in reports and on the leaderboard. Defaults to everything after the
+            last <code>/</code> in the route, so <code>openrouter/openai/gpt-5.5</code> becomes
+            <code>gpt-5.5</code>. Setting an explicit name also marks this Model as an independent
+            sample.
+          </td>
+        </tr>
+        <tr>
+          <td><code>prompt</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            The instruction given to the model alongside the case. Leave it out and the SDK uses its
+            own default prompt (not the benchmark's).
+          </td>
+        </tr>
+        <tr>
+          <td><code>params</code></td>
+          <td><code>Mapping&nbsp;|&nbsp;None</code></td>
+          <td>
+            Generation overrides like <code>temperature</code>. Values must be <code>str</code>,
+            <code>int</code>, <code>float</code>, or <code>bool</code> (floats have to be finite).
+            Only the params you set get sent, since the SDK adds no defaults. Transport, tool, and
+            benchmark-protocol names (like <code>model</code>, <code>messages</code>,
+            <code>tools</code>, <code>web_search</code>) are reserved and will be rejected.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Attributes</h3>
+
+    <p>
+      <code>model</code>, <code>name</code>, and <code>prompt</code> give you back what you passed
+      in. <code>params</code> returns a <code>mappingproxy</code>, so you can't mutate the overrides
+      after construction.
+    </p>
+
+    <h3>Raises</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>The route or name is not a string</td>
+          <td><code>TypeError</code></td>
+        </tr>
+        <tr>
+          <td>The route or name is empty or only whitespace</td>
+          <td><code>ValueError: model route must not be empty</code></td>
+        </tr>
+        <tr>
+          <td>The route or name contains control characters</td>
+          <td><code>ValueError</code></td>
+        </tr>
+        <tr>
+          <td>A <code>params</code> value is not a scalar, or a float is not finite</td>
+          <td><code>TypeError</code> / <code>ValueError</code></td>
+        </tr>
+        <tr>
+          <td>A <code>params</code> name is reserved, or a name or value cannot be encoded</td>
+          <td><code>ValueError</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Discovery types</h2>
+
     <p>
       These are the read-only values model discovery returns.
       <code>client.models.list()</code> hands back a <code>ModelInfo</code> for every route the
       configured Engine can currently reach, and <code>client.models.get(id)</code> returns the
       fuller <code>ModelDetails</code> profile for one route. Consulting them before naming a route
-      in a <RouterLink to="/sf-client/api/recipes">Model</RouterLink> is worthwhile: a route the
-      Engine does not carry raises a <code>PlanningError</code> at evaluation time rather than at
-      construction time.
+      in a <a href="#model">Model</a> is worthwhile: a route the Engine does not carry raises a
+      <code>PlanningError</code> at evaluation time rather than at construction time.
     </p>
 
     <p>
@@ -46,9 +163,8 @@ const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthr
     <p>
       A <code>ModelInfo</code> is one model route the configured Engine can currently reach.
       <code>client.models.list()</code> returns every addressable route, and consulting it before
-      naming a route in a <RouterLink to="/sf-client/api/recipes">Model</RouterLink> is worthwhile:
-      a route the Engine does not carry raises a <code>PlanningError</code> at evaluation time
-      rather than at construction time.
+      naming a route in a <a href="#model">Model</a> is worthwhile: a route the Engine does not
+      carry raises a <code>PlanningError</code> at evaluation time rather than at construction time.
     </p>
 
     <table>

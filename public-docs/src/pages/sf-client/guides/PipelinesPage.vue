@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import {
@@ -40,6 +41,12 @@ sf.Fusion(
     synthesizer=sf.Pipeline([judge, writer]),
 )`
 const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-preview'], synthesizer=Pipeline(['judge', 'writer']))`
+
+const pipelineSig = `sf.Pipeline(
+    stages: Sequence[str | Recipe],
+    *,
+    name: str | None = None,
+)`
 </script>
 
 <template>
@@ -50,10 +57,14 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
     :version="version"
   >
     <p>
-      A <strong>Pipeline</strong> runs stages one after another. The first stage answers the case,
-      each later stage gets the <em>previous</em> stage's answer as input. A draft gets reviewed,
-      then polished. The benchmark grades the last stage's answer, so a Pipeline competes with a
-      solo <RouterLink to="/sf-client/guides/models">Model</RouterLink> or a
+      A <strong>Pipeline</strong> is a recipe composed of an ordered list of
+      <strong>stages</strong>. It doesn't run anything by itself — like every recipe, building one
+      makes no requests. The stages run only during an
+      <RouterLink to="/sf-client/guides/running-an-evaluation">evaluation</RouterLink>: the first
+      stage answers the case, and each later stage takes the <em>previous</em> stage's answer as its
+      input (a draft gets reviewed, then polished). The benchmark grades only the last stage's
+      answer, so a Pipeline competes head-to-head with a solo
+      <RouterLink to="/sf-client/guides/models">Model</RouterLink> or a
       <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>.
     </p>
 
@@ -424,10 +435,78 @@ const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-previe
       </figcaption>
     </figure>
 
+    <h2>The <code>Pipeline</code> class</h2>
+
+    <CodeBlock :code="pipelineSig" language="python" />
+
+    <h3>Parameters</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>stages</code></td>
+          <td><code>Sequence[str&nbsp;|&nbsp;Recipe]</code></td>
+          <td>
+            One or more stages, in order. Each can be a route string or any recipe. An
+            <em>unnamed</em> nested <code>Pipeline</code> flattens into the surrounding sequence; a
+            <em>named</em> one stays as a single stage.
+          </td>
+        </tr>
+        <tr>
+          <td><code>name</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            Defaults to the stage names joined with <code>-&gt;</code>, for example
+            <code>gpt-5.5-&gt;claude-opus-4.8</code>.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Attributes</h3>
+
     <p>
-      Check the <RouterLink to="/sf-client/api/recipes">Recipes reference</RouterLink> for the full
-      <code>Pipeline</code> signature, attributes, and errors.
+      <code>stages</code> is a <code>tuple</code> in canonical order. <code>name</code> is the
+      resolved label. <code>recipe.then(next)</code>, available on every recipe, appends a stage and
+      returns a new <code>Pipeline</code>.
     </p>
+
+    <h3>Raises</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>The stages are empty</td>
+          <td><code>ValueError: a Pipeline requires at least one stage</code></td>
+        </tr>
+        <tr>
+          <td><code>stages</code> is not an ordered sequence (for example a bare route string)</td>
+          <td>
+            <code
+              >TypeError: Pipeline stages must be an ordered sequence of model routes or
+              Recipes</code
+            >
+          </td>
+        </tr>
+        <tr>
+          <td><code>.then()</code> is given something other than a route string or recipe</td>
+          <td><code>TypeError: Pipeline stage must be …</code></td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>Links</h2>
 
