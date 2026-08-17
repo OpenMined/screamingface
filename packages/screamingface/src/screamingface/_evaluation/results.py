@@ -10,7 +10,7 @@ from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
 from screamingface._report_primitives import CaseId
 from screamingface._report_primitives import _case_id as _validate_case_id
-from screamingface.case_result import CaseStatus, StopReason
+from screamingface.case_result import CaseOperation, CaseStatus, StopReason
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError
 from screamingface.report import (
@@ -210,9 +210,15 @@ def _case_result(value: object) -> CaseResult:
             "failures",
             "metadata",
         },
+        # WHY: `operations` (OME-843 member-output capture) is optional so pre-capture
+        # Engines keep decoding; tolerance is for the key's absence only — present
+        # content still decodes strictly below.
+        optional={"operations"},
         label="Case Result",
     )
     case_id = _case_id(raw.get("case_id"), "Case Result case_id")
+    operations_value = raw.get("operations")
+    operations = None if operations_value is None else _case_operations(operations_value)
     grade_value = _required(raw, "grade", "Case Result")
     grade = None if grade_value is None else _case_grade(grade_value)
     failures = _failures(_required(raw, "failures", "Case Result"), "Case Result failures")
@@ -236,9 +242,32 @@ def _case_result(value: object) -> CaseResult:
             grade=grade,
             failures=failures,
             metadata=_mapping(_required(raw, "metadata", "Case Result"), "Case Result metadata"),
+            operations=operations,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Result is invalid: {exc}") from exc
+
+
+def _case_operations(value: object) -> tuple[CaseOperation, ...]:
+    return tuple(_case_operation(item) for item in _sequence(value, "Case Result operations"))
+
+
+def _case_operation(value: object) -> CaseOperation:
+    raw = _mapping(value, "Case Operation")
+    _keys(raw, required={"operation_id", "output", "finish_reason"}, label="Case Operation")
+    finish_reason_value = raw.get("finish_reason")
+    try:
+        return CaseOperation(
+            operation_id=_nonempty_text(raw.get("operation_id"), "Case Operation operation_id"),
+            output=_optional_string(raw.get("output"), "Case Operation output"),
+            finish_reason=(
+                None
+                if finish_reason_value is None
+                else _text(finish_reason_value, "Case Operation finish_reason")
+            ),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ExecutionError(f"Case Operation is invalid: {exc}") from exc
 
 
 def _case_grade(value: object) -> CaseGrade:

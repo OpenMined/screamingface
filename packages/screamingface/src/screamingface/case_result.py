@@ -217,6 +217,41 @@ class CaseGrade:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class CaseOperation:
+    """One Candidate operation's captured output for a Case.
+
+    FEATURE: OME-843 member-output capture — the Engine attributes each member and
+    synthesis call's terminal output to its stable operation ID so Fusion contribution
+    analysis works from a saved Report. `output`/`finish_reason` stay ``None`` when the
+    Engine could not attribute unambiguously — absence of evidence, never a guess.
+    """
+
+    operation_id: str
+    output: str | None
+    finish_reason: str | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "operation_id", _nonblank_text(self.operation_id, "Case Operation operation_id")
+        )
+        if self.output is not None and not isinstance(self.output, str):
+            raise TypeError("Case Operation output must be text or None")
+        if self.finish_reason is not None:
+            object.__setattr__(
+                self,
+                "finish_reason",
+                _nonblank_text(self.finish_reason, "Case Operation finish_reason"),
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "operation_id": self.operation_id,
+            "output": self.output,
+            "finish_reason": self.finish_reason,
+        }
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class CaseResult:
     """The complete retained result for one selected Benchmark Case."""
@@ -231,6 +266,7 @@ class CaseResult:
     rounds_executed: int | None
     grade: CaseGrade | None
     failures: tuple[Failure, ...]
+    operations: tuple[CaseOperation, ...] | None
     _metadata: Mapping[str, object] = field(repr=False)
 
     def __init__(
@@ -247,6 +283,7 @@ class CaseResult:
         refusal: str | None = None,
         stop_reason: StopReason | None = None,
         rounds_executed: int | None = None,
+        operations: Sequence[CaseOperation] | None = None,
     ) -> None:
         case_id = _case_id(case_id)
         input = _nonempty_text(input, "Case Result input")
@@ -262,6 +299,11 @@ class CaseResult:
         selected_failures = tuple(failures)
         if any(not isinstance(item, Failure) for item in selected_failures):
             raise TypeError("Case Result failures must contain sf.Failure values")
+        selected_operations = None if operations is None else tuple(operations)
+        if selected_operations is not None and any(
+            not isinstance(item, CaseOperation) for item in selected_operations
+        ):
+            raise TypeError("Case Result operations must contain CaseOperation values")
         status = _validate_case_outcome(
             status,
             case_id,
@@ -281,6 +323,7 @@ class CaseResult:
             "rounds_executed": rounds_executed,
             "grade": grade,
             "failures": selected_failures,
+            "operations": selected_operations,
             "_metadata": freeze_mapping(metadata, "Case Result metadata"),
         }
         for name, value in values.items():
@@ -328,7 +371,7 @@ class CaseResult:
         return turns[0][1]
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        selected = {
             "status": self.status,
             "case_id": self.case_id,
             "input": thaw_json(self.input),
@@ -341,6 +384,11 @@ class CaseResult:
             "failures": [failure.to_dict() for failure in self.failures],
             "metadata": thaw_mapping(self._metadata),
         }
+        # INVARIANT: absence stays absence — pre-OME-843 payloads and solo Candidates
+        # export byte-identically, so the key appears only when the Engine attributed.
+        if self.operations is not None:
+            selected["operations"] = [operation.to_dict() for operation in self.operations]
+        return selected
 
 
 def _decode_candidate_envelope(value: object) -> tuple[tuple[str, str], ...] | None:
