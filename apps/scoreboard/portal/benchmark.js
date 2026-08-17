@@ -245,6 +245,13 @@
       ? "Frontier currently held by a " + data.current.openness +
         " entry (" + data.current.label + ")"
       : "";
+    // OME-820 + OME-323 interaction: `.stats--two` re-columns the strip for the two
+    // cards left when the Verified counter was withdrawn. This card is the third, so
+    // the modifier must come off the moment it is shown, or the strip wraps it onto
+    // its own row at >=621px. Removing it restores the vendored three-column layout;
+    // the strip keeps two columns for as long as this card stays hidden.
+    var strip = document.getElementById("leaderboard-summary");
+    if (strip) strip.classList.remove("stats--two");
     card.hidden = false;
   }
 
