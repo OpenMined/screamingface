@@ -250,7 +250,7 @@ class ScoreSchema(BaseModel):
     client_name: str | None
     client_version: str | None
     client_platform: str | None
-    verified_by_openmined: bool
+    verified_by_screamingface: bool
     metadata: dict[str, Any] | None
     # FEATURE: OME-323 — manual open/closed correction; None defers to the
     # classification registry. Operator-only, never set via ScoreSubmission.
@@ -272,7 +272,7 @@ class LeaderboardEntry(BaseModel):
     ran_with_providers: list[str]
     submitted_at: datetime
     submitted_by: SubmittedBy
-    verified_by_openmined: bool
+    verified_by_screamingface: bool
     url4_expression: str
 
 

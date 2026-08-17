@@ -46,7 +46,7 @@ def _score(
         client_name=None,
         client_version=None,
         client_platform=None,
-        verified_by_openmined=False,
+        verified_by_screamingface=False,
         metadata=None,
         openness_override=openness_override,
     )

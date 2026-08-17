@@ -49,7 +49,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         client_name=model.client_name,
         client_version=model.client_version,
         client_platform=model.client_platform,
-        verified_by_openmined=model.verified_by_openmined,
+        verified_by_screamingface=model.verified_by_screamingface,
         metadata=model.metadata,
         openness_override=model.openness_override,
     )
@@ -167,7 +167,7 @@ def _build_leaderboard_query(
             scores.ran_with_providers,
             scores.submitted_at,
             scores.submitted_by,
-            scores.verified_by_openmined,
+            scores.verified_by_screamingface,
             scores.url4_expression,
             row_number,
         )
@@ -187,7 +187,7 @@ def _build_leaderboard_query(
             ranked.ran_with_providers,
             ranked.submitted_at,
             ranked.submitted_by,
-            ranked.verified_by_openmined,
+            ranked.verified_by_screamingface,
             ranked.url4_expression,
         )
         .where(ranked.rn == 1)
@@ -375,4 +375,4 @@ class ScoreStore:
         return [_score_to_schema(score) for score in rows]
 
     async def mark_verified(self, score_id: UUID | str) -> None:
-        await Score.filter(id=score_id).update(verified_by_openmined=True)
+        await Score.filter(id=score_id).update(verified_by_screamingface=True)

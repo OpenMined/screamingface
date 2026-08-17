@@ -87,7 +87,7 @@ async def test_sf_payload_round_trips_201(sf_client: AsyncClient) -> None:
     # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
     # nothing re-runs submissions and nothing attests where a run executed. The
     # False case stays covered by the explicit-False row test.
-    assert body["verified_by_openmined"] is True
+    assert body["verified_by_screamingface"] is True
     # Nested `client` on the request maps to the flat client_* read fields.
     assert body["client_name"] == "screamingface-desktop"
     assert body["client_version"] == "0.4.2"

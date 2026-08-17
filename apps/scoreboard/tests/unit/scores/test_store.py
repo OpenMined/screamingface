@@ -102,7 +102,7 @@ async def test_submit_inserts_and_returns_score(tortoise_db: None) -> None:
     # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
     # nothing re-runs submissions and nothing attests where a run executed. The
     # False case stays covered by the explicit-False row test.
-    assert score.verified_by_openmined is True
+    assert score.verified_by_screamingface is True
     assert await Score.all().count() == 1
 
 
@@ -220,7 +220,7 @@ async def test_mark_verified_flips_score_flag(tortoise_db: None) -> None:
     await store.mark_verified(score.id)
 
     verified = await Score.get(id=score.id)
-    assert verified.verified_by_openmined is True
+    assert verified.verified_by_screamingface is True
 
 
 async def test_submit_identical_recipe_without_header_returns_existing_score(
@@ -776,7 +776,7 @@ async def test_a_new_submission_is_verified_by_default(tortoise_db: None) -> Non
     outcome = await store.submit(_submission(spec_id="fresh"))
 
     assert outcome.created is True
-    assert outcome.score.verified_by_openmined is True
+    assert outcome.score.verified_by_screamingface is True
 
 
 async def test_pre_existing_unverified_rows_are_not_backfilled(tortoise_db: None) -> None:
@@ -798,13 +798,13 @@ async def test_pre_existing_unverified_rows_are_not_backfilled(tortoise_db: None
         total_questions=2,
         correct_questions=1,
         ran_with_providers=["openai"],
-        verified_by_openmined=False,
+        verified_by_screamingface=False,
         content_hash="legacy-hash",
     )
 
     reread = await Score.get(id=legacy.id)
 
-    assert reread.verified_by_openmined is False
+    assert reread.verified_by_screamingface is False
 
 
 async def test_mark_verified_flips_a_false_row_and_is_idempotent(
@@ -825,7 +825,7 @@ async def test_mark_verified_flips_a_false_row_and_is_idempotent(
         total_questions=2,
         correct_questions=1,
         ran_with_providers=["openai"],
-        verified_by_openmined=False,
+        verified_by_screamingface=False,
         content_hash="idem-hash",
     )
     store = ScoreStore()
@@ -835,12 +835,12 @@ async def test_mark_verified_flips_a_false_row_and_is_idempotent(
     await store.mark_verified(score.id)
     after_second = await Score.get(id=score.id)
 
-    assert after_first.verified_by_openmined is True
-    assert after_second.verified_by_openmined is True
+    assert after_first.verified_by_screamingface is True
+    assert after_second.verified_by_screamingface is True
 
 
 def test_no_migration_backfills_the_verified_column() -> None:
-    """INVARIANT (D5): no migration may flip existing rows' verified_by_openmined.
+    """INVARIANT (D5): no migration may flip existing rows' verified_by_screamingface.
 
     This is the real D5 guard. The runtime test above cannot provide it: `tortoise_db`
     builds the schema from the models via `tortoise_test_context`, so migration files
@@ -859,14 +859,18 @@ def test_no_migration_backfills_the_verified_column() -> None:
     sources = sorted(p for p in directory.glob("*.py") if p.name != "__init__.py")
     assert sources, "no migration files found — the guard would pass vacuously"
 
+    # OME-865: check BOTH names. Migrations predating the rename carry the old one and
+    # cannot be edited, while any future backfill would use the new one — so a guard that
+    # knew only one name would go blind on half the history.
+    names = ("verified_by_screamingface", "verified_by_openmined")
     offenders = [
         path.name
         for path in sources
-        if "verified_by_openmined" in (text := path.read_text())
+        if any(name in (text := path.read_text()) for name in names)
         and any(word in text.lower() for word in ("update", "runpython", "runsql"))
     ]
 
     assert offenders == [], (
-        f"migration(s) may backfill verified_by_openmined: {offenders}. "
+        f"migration(s) may backfill verified_by_screamingface: {offenders}. "
         "Existing rows must keep the value they were created with (OME-820 D5)."
     )
