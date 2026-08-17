@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from tortoise import Tortoise
@@ -874,3 +875,169 @@ def test_no_migration_backfills_the_verified_column() -> None:
         f"migration(s) may backfill verified_by_screamingface: {offenders}. "
         "Existing rows must keep the value they were created with (OME-820 D5)."
     )
+
+
+# --- OME-770: run cost through the store -----------------------------------
+
+
+async def test_run_cost_persists_and_reads_back_on_the_leaderboard(tortoise_db: None) -> None:
+    await Benchmark.create(id="hle", display_name="HLE")
+    store = ScoreStore()
+    submission = _submission(spec_id="costed")
+    submission = submission.model_copy(update={"run_cost_usd": Decimal("3.500000")})
+
+    await store.submit(submission)
+    entries = await store.leaderboard("hle")
+
+    assert entries[0].run_cost_usd == Decimal("3.500000")
+
+
+async def test_a_submission_without_a_cost_reads_back_none_not_zero(tortoise_db: None) -> None:
+    """INVARIANT: unreported cost must stay distinguishable from a free run.
+
+    OME-770's Pareto frontier would rank an unknown-cost entry as the cheapest
+    submission if these ever collapsed into 0.
+    """
+    await Benchmark.create(id="hle", display_name="HLE")
+    store = ScoreStore()
+
+    await store.submit(_submission(spec_id="uncosted"))
+    entries = await store.leaderboard("hle")
+
+    assert entries[0].run_cost_usd is None
+
+
+async def test_a_zero_cost_run_reads_back_as_zero(tortoise_db: None) -> None:
+    """A fully cache-served run costs 0 — data, not a missing value."""
+    await Benchmark.create(id="hle", display_name="HLE")
+    store = ScoreStore()
+    submission = _submission(spec_id="free").model_copy(update={"run_cost_usd": Decimal("0")})
+
+    await store.submit(submission)
+    entries = await store.leaderboard("hle")
+
+    assert entries[0].run_cost_usd == Decimal("0")
+    assert entries[0].run_cost_usd is not None
+
+
+async def test_cost_is_outside_recipe_identity_so_dedup_still_collapses(tortoise_db: None) -> None:
+    """INVARIANT: cost is a property of an execution, not of the recipe.
+
+    Two submissions identical except for their cost are the same recipe and must
+    dedup to one row — pinning that run_cost_usd stays out of content_hash, which
+    OME-391's dedup guarantee depends on.
+    """
+    await Benchmark.create(id="hle", display_name="HLE")
+    store = ScoreStore()
+    base = _submission(spec_id="same-recipe")
+
+    first = await store.submit(base.model_copy(update={"run_cost_usd": Decimal("1.00")}))
+    second = await store.submit(base.model_copy(update={"run_cost_usd": Decimal("99.00")}))
+
+    assert first.created is True
+    assert second.created is False
+    assert second.score.id == first.score.id
+    assert await Score.all().count() == 1
+    # The stored row keeps the FIRST cost; the second is discarded. Documented as
+    # a known limitation on OME-770 — the fix is requiring cost, not mutating a
+    # deduplicated row.
+    assert second.score.run_cost_usd == Decimal("1.00")
+
+
+# --- OME-770 review pass: raw projection rows must be fully typed (spec 2.5) ---
+
+
+async def test_the_raw_leaderboard_projection_types_every_column() -> None:
+    """INVARIANT: rows leaving the raw pypika projection are already Python-typed.
+
+    The projection bypasses the ORM, so each column has to be converted
+    explicitly. Only `ran_with_providers` was, and `run_cost_usd` reached
+    `LeaderboardEntry` as a raw SQLite string — surviving purely because Pydantic
+    coerces str -> Decimal in lax mode. That breaks the moment anything reads the
+    rows BEFORE validation, which spec 2.5 requires: the cheapest-run stat must be
+    computed in Python over Decimal, because SQLite compares this column as TEXT.
+    """
+    from scoreboard.scores.store import _to_python_rows
+
+    rows = _to_python_rows(
+        [
+            {
+                "spec_id": "s",
+                "ran_with_providers": '["openai"]',
+                "run_cost_usd": "3.5",
+            },
+            {
+                "spec_id": "t",
+                "ran_with_providers": '["openai"]',
+                "run_cost_usd": None,
+            },
+        ]
+    )
+
+    assert rows[0]["ran_with_providers"] == ["openai"]
+    assert rows[0]["run_cost_usd"] == Decimal("3.5")
+    assert isinstance(rows[0]["run_cost_usd"], Decimal)
+    # INVARIANT (D5): absent stays absent — never coerced to Decimal("0").
+    assert rows[1]["run_cost_usd"] is None
+
+
+async def test_one_unreadable_cost_does_not_take_down_the_whole_board() -> None:
+    """INVARIANT: a corrupt cost degrades to null; it never fails the read path.
+
+    On SQLite the column is VARCHAR(40) with no database-level guard, so raw SQL
+    can write a value outside DECIMAL(12, 6). Converting it calls Decimal.quantize,
+    which RAISES rather than returning — and that surfaced as HTTP 500 for EVERY
+    entry on the board, not just the bad row. Verified end-to-end before this test.
+
+    The ORM path is already safe (Tortoise's own to_python_value rejects such a
+    write), and production is Postgres where the column really is DECIMAL(12, 6),
+    so this is defence for a narrow case on a public read path (spec 2.7).
+    """
+    from scoreboard.scores.store import _to_python_rows
+
+    rows = _to_python_rows(
+        [
+            {"spec_id": "good", "ran_with_providers": '["openai"]', "run_cost_usd": "3.5"},
+            {"spec_id": "corrupt", "ran_with_providers": '["openai"]', "run_cost_usd": "1E+30"},
+        ]
+    )
+
+    assert rows[0]["run_cost_usd"] == Decimal("3.5")
+    # Degraded to "cost unknown" — an already-defined state — not an exception.
+    assert rows[1]["run_cost_usd"] is None
+
+
+async def test_corrupt_json_drops_the_row_instead_of_failing_the_board() -> None:
+    """FieldError is NOT a ValueError, so the original guard could not catch it.
+
+    JSONField.to_python_value raises tortoise FieldError on invalid JSON, which fell
+    straight through `except (InvalidOperation, ValueError)` and 500'd the whole
+    leaderboard — the exact failure that guard exists to prevent (found in review).
+
+    ran_with_providers cannot degrade to None: LeaderboardEntry types it as list[str],
+    so nulling it would fail validation and re-raise the 500. The row is dropped, and
+    logged at WARNING so the omission is traceable.
+    """
+    from scoreboard.scores.store import _to_python_rows
+
+    rows = _to_python_rows(
+        [
+            {"spec_id": "good", "ran_with_providers": '["openai"]', "run_cost_usd": "3.5"},
+            {"spec_id": "bad-json", "ran_with_providers": "{not json", "run_cost_usd": "1.0"},
+        ]
+    )
+
+    assert [row["spec_id"] for row in rows] == ["good"]
+    assert rows[0]["ran_with_providers"] == ["openai"]
+
+
+async def test_an_unreadable_cost_degrades_but_keeps_the_row() -> None:
+    """A nullable column degrades in place; only a non-nullable one costs the row."""
+    from scoreboard.scores.store import _to_python_rows
+
+    rows = _to_python_rows(
+        [{"spec_id": "bad-cost", "ran_with_providers": '["openai"]', "run_cost_usd": "1E+30"}]
+    )
+
+    assert [row["spec_id"] for row in rows] == ["bad-cost"]
+    assert rows[0]["run_cost_usd"] is None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -413,6 +414,9 @@ def test_score_schema_publishes_only_the_local_part(stored: str, published: str)
         id=uuid4(),
         version=1,
         benchmark_id="hle",
+        # OME-770 makes this required. The published-identity contract under test
+        # here is independent of cost, so None is honest rather than a placeholder.
+        run_cost_usd=None,
         # OME-775 made this required; the published-identity contract under test here
         # is independent of which benchmark revision produced the score.
         benchmark_revision=None,
@@ -448,6 +452,9 @@ def test_a_null_submitter_stays_null() -> None:
         id=uuid4(),
         version=1,
         benchmark_id="hle",
+        # OME-770 makes this required. The published-identity contract under test
+        # here is independent of cost, so None is honest rather than a placeholder.
+        run_cost_usd=None,
         # OME-775 made this required; the published-identity contract under test here
         # is independent of which benchmark revision produced the score.
         benchmark_revision=None,
@@ -487,3 +494,250 @@ def test_score_submission_rejects_a_client_supplied_verified_flag(claimed: bool)
 
     with pytest.raises(ValidationError):
         ScoreSubmission.model_validate(payload)
+
+
+# --- OME-770: run cost on a submission ------------------------------------
+# A cost is optional, and its ABSENCE is a distinct state from a zero cost:
+# absent means "we were never told", zero means "this run genuinely cost
+# nothing" (a fully cache-served run — the goal OME-767 is chasing). The
+# Pareto frontier in OME-770 would put an unknown-cost row at the cheapest
+# end if these two ever collapsed together, so the distinction is pinned here.
+
+
+def test_score_submission_accepts_a_run_cost() -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "12.50"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("12.50")
+
+
+def test_score_submission_without_a_run_cost_is_none_not_zero() -> None:
+    submission = ScoreSubmission.model_validate(_valid_payload())
+
+    assert submission.run_cost_usd is None
+
+
+def test_score_submission_accepts_a_genuinely_zero_run_cost() -> None:
+    """A fully cache-served run costs 0 — that is data, not a missing value."""
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "0"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("0")
+    assert submission.run_cost_usd is not None
+
+
+def test_score_submission_rejects_a_negative_run_cost() -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "-0.01"
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_score_submission_keeps_sub_cent_run_cost_precision() -> None:
+    """A smoke run can cost fractions of a cent; rounding it to 2dp loses it."""
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "0.000123"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("0.000123")
+
+
+def test_score_submission_keeps_four_figure_run_cost() -> None:
+    """The other end of the range — a real DRACO rerun was quoted at $3-4k."""
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "4210.75"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("4210.75")
+
+
+# --- OME-770 review: the contract must match the column's precision ---------
+# ge=0 alone let three distinct failures through, all reproduced live before
+# these tests were written: 0.0000009 was ACCEPTED and silently stored as
+# 0.000001 (a published dollar figure the submitter never sent); 1000000 was
+# accepted on SQLite but exceeds DECIMAL(12,6)'s six integer digits and so fails
+# on Postgres — passing locally, breaking in production; and 1e30 produced an
+# HTTP 500 rather than a 422. The column's shape has to be enforced at the edge.
+
+
+def test_score_submission_rounds_a_sub_quantum_cost_up() -> None:
+    """A positive cost below the smallest storable unit rounds AWAY from zero.
+
+    Rewritten (spec 2.2, second revision): this test previously asserted a 422.
+    Rejecting turned out to discard the WHOLE submission -- the accuracy result
+    with it -- and would make an almost-free run unpublishable once cost becomes
+    mandatory. Rounding up never understates the cost, so it cannot buy a place on
+    the frontier, and never yields 0.000000, so D5 still holds.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "0.0000009"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("0.000001")
+
+
+def test_score_submission_rejects_a_cost_above_the_column_ceiling() -> None:
+    """DECIMAL(12,6) leaves six integer digits, so 1000000 does not fit.
+
+    Previously accepted on SQLite and rejected by Postgres — a backend-dependent
+    failure that local testing hides.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "1000000"
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_score_submission_rejects_an_absurd_exponent() -> None:
+    """1e30 previously reached the database and returned HTTP 500."""
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "1e30"
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_score_submission_still_accepts_the_documented_bounds() -> None:
+    """The rejections above must not narrow the range the column supports."""
+    for value in ("0.000001", "999999.999999"):
+        payload = _valid_payload()
+        payload["run_cost_usd"] = value
+
+        assert ScoreSubmission.model_validate(payload).run_cost_usd == Decimal(value)
+
+
+# --- OME-770 review pass: quantize inexact, reject unstorable (spec 2.2 revision) ---
+#
+# The earlier rule ("reject anything not storable exactly") over-rejected: it
+# conflated a value BELOW representable precision, where rounding materially
+# alters a money figure, with float noise on a value that IS representable,
+# where rounding loses nothing. Spec 2.2 revision splits the two.
+
+
+@pytest.mark.parametrize(
+    ("submitted", "stored"),
+    [
+        # WHY: what a client summing per-call float costs actually sends. Rounding
+        # to 6dp loses nothing here, so rejecting it would discard a valid score
+        # over float noise once the upstream chain lands.
+        (0.07 * 3, Decimal("0.210000")),
+        ("1.23456789", Decimal("1.234568")),
+        # ROUND_HALF_UP, not truncation.
+        ("0.0000015", Decimal("0.000002")),
+        # The boundary: exactly the smallest representable unit is storable as-is.
+        ("0.000001", Decimal("0.000001")),
+        # INVARIANT (D5): an explicit zero stays zero, distinct from absent.
+        ("0", Decimal("0")),
+    ],
+)
+def test_score_submission_quantizes_an_inexact_cost(
+    submitted: float | str,
+    stored: Decimal,
+) -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = submitted
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == stored
+    # Numeric equality is not enough — the point is the stored SCALE is pinned to
+    # 6dp, which is what makes the wire form backend-independent (spec 2.4).
+    assert submission.run_cost_usd is not None
+    assert submission.run_cost_usd.as_tuple().exponent == -6
+
+
+@pytest.mark.parametrize(
+    "submitted",
+    [
+        # Above the column ceiling at any precision. These must be caught BEFORE
+        # quantizing, which raises InvalidOperation on an absurd exponent.
+        "1000000",
+        "1e30",
+        # Above the ceiling already, so the pre-quantize check rejects it. There is
+        # deliberately NO post-quantize re-check — quantize is monotone and the ceiling
+        # sits exactly on the 6dp grid, so nothing can round up past it.
+        "999999.9999996",
+        # Not a cost.
+        "-0.01",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+    ],
+)
+def test_score_submission_rejects_an_unstorable_cost(submitted: str) -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = submitted
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+@pytest.mark.parametrize("submitted", ["0.0000009", "0.0000004", "0.0000001", "1e-9"])
+def test_a_sub_quantum_cost_never_becomes_zero(submitted: str) -> None:
+    """INVARIANT (D5): a positive cost must never be stored as zero.
+
+    Rewritten alongside the rule change: the guard used to be a 422, and is now
+    directional rounding. What it protects is unchanged -- a run that cost real
+    money must never be published as free, which would also put it at the cheapest
+    end of the Pareto frontier.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = submitted
+
+    stored = ScoreSubmission.model_validate(payload).run_cost_usd
+
+    assert stored == Decimal("0.000001")
+    assert stored != 0
+
+
+# --- OME-770 review pass 2: negative zero (spec 2.6) ---
+
+
+@pytest.mark.parametrize("submitted", [-0.0, "-0.0", "-0", "-0.0000000"])
+def test_score_submission_normalizes_negative_zero(submitted: float | str) -> None:
+    """`-0.0` is a real thing to receive: 0.0 * -1 and round(-1e-9, 6) both make it.
+
+    It passes ge=0 (-0 == 0) and quantize PRESERVES the sign, so it used to survive
+    as Decimal('-0.000000') and serve the string "-0.000000" -- a negative dollar
+    figure in the Cost column, and backend-dependent besides, since Postgres
+    normalizes sign-zero while SQLite keeps it.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = submitted
+
+    stored = ScoreSubmission.model_validate(payload).run_cost_usd
+
+    assert stored == 0
+    assert stored is not None
+    # Decimal(0) == Decimal("-0"), so equality cannot catch this -- check the sign.
+    assert stored.is_signed() is False
+    assert str(stored) == "0.000000"
+
+
+def test_a_json_number_below_the_float_floor_is_a_documented_residual() -> None:
+    """A JSON *number* under ~1e-308 underflows to 0.0 before the validator sees it.
+
+    Pinned rather than fixed: pydantic parses a JSON number through f64, so by the time
+    _validate_run_cost runs the value IS zero and is indistinguishable from a genuine
+    free run. The clamp therefore cannot fire. Quoting the same value keeps full
+    precision and DOES clamp, so the accepted result depends on whether the client
+    quotes it — recorded here so the asymmetry is visible rather than surprising.
+
+    No real run cost is within 300 orders of magnitude of this, and closing it would
+    mean refusing JSON numbers outright (found in review of OME-770).
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = 1e-400  # a NUMBER, not a string
+    assert ScoreSubmission.model_validate(payload).run_cost_usd == Decimal("0.000000")
+
+    payload["run_cost_usd"] = "1e-400"  # the same value, quoted
+    assert ScoreSubmission.model_validate(payload).run_cost_usd == Decimal("0.000001")

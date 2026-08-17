@@ -15,6 +15,7 @@ from scoreboard.scores.schemas import (
     BenchmarkSchema,
     FrontierResponse,
     LeaderboardEntry,
+    RunCostUsd,
     ScoreSchema,
     SubmittedBy,
 )
@@ -47,6 +48,16 @@ class RankedLeaderboardEntry(BaseModel):
     submitted_by: SubmittedBy
     verified_by_screamingface: bool
     url4_expression: str
+    # AIDEV-NOTE: this class mirrors LeaderboardEntry field-for-field plus `rank`,
+    # and `_ranked_entry` splats one into the other. Because both set
+    # extra="forbid", a field added to LeaderboardEntry and not here raises at
+    # runtime rather than at import — a 500 on the read path, not a type error.
+    # Keep the two in step.
+    #
+    # RunCostUsd, not a bare Decimal | None: the shared type carries the
+    # fixed-6dp JSON serializer, so the wire form cannot drift between the DTOs
+    # (spec 2.4).
+    run_cost_usd: RunCostUsd
 
 
 class LeaderboardResponse(BaseModel):
@@ -73,6 +84,7 @@ class HistorySubmission(BaseModel):
     submitted_at: datetime
     submitted_by: SubmittedBy
     verified_by_screamingface: bool
+    run_cost_usd: RunCostUsd
 
 
 class HistoryResponse(BaseModel):
@@ -120,6 +132,7 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
         submitted_at=score.submitted_at,
         submitted_by=score.submitted_by,
         verified_by_screamingface=score.verified_by_screamingface,
+        run_cost_usd=score.run_cost_usd,
     )
 
 

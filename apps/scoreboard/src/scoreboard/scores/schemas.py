@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -13,6 +14,118 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+# INVARIANT: run_cost_usd mirrors DECIMAL(12, 6) exactly — six decimal places and
+# six integer digits, so 0.000001 through 999999.999999.
+COST_QUANTUM = Decimal("0.000001")
+COST_CEILING = Decimal("999999.999999")
+# INVARIANT: the one canonical zero — POSITIVE, at full scale. Decimal("-0") is
+# equal to this, so equality can never detect the difference; only is_signed() can.
+_ZERO_COST = Decimal("0").quantize(COST_QUANTUM)
+
+
+def _validate_run_cost(value: Decimal | None) -> Decimal | None:
+    """Reject a cost that cannot be stored; normalize every cost that can.
+
+    Only two things are actually unstorable and therefore rejected: a negative or
+    non-finite value, and one above the column ceiling. Everything else is
+    normalized rather than refused, because a 422 here discards the WHOLE
+    submission — the accuracy result along with the cost.
+
+    WHY, in the order the rules apply:
+      * float noise on a representable value (0.07 * 3 == 0.21000000000000002) is
+        quantized to 0.210000, losing nothing. Rejecting it would discard valid
+        scores the moment a client starts summing per-call float costs;
+      * zero is canonicalized to POSITIVE zero, since -0.0 otherwise serves the
+        string "-0.000000" (spec 2.6);
+      * a positive cost below one quantum rounds AWAY from zero, never to zero
+        (spec 2.2's second revision, and the D5 invariant it protects).
+
+    AIDEV-NOTE: the bounds cannot move to Field(max_digits=..., decimal_places=...).
+    Those constraints run BEFORE this validator, so they would reject the very
+    values it exists to normalize.
+    """
+    if value is None:
+        return None
+    # ge=0 on the field already rejects negatives, and NaN fails that comparison,
+    # but +Infinity passes it — and quantize() raises InvalidOperation rather than
+    # returning a value, so non-finites have to go before any arithmetic.
+    if not value.is_finite():
+        raise ValueError("run_cost_usd must be a finite decimal number")
+    # INVARIANT: the ceiling is checked BEFORE quantizing. quantize() raises on an
+    # absurd exponent (1e30), which would surface as a 500 rather than a 422 —
+    # the exact failure this validator exists to close.
+    #
+    # AIDEV-NOTE: there is deliberately no ceiling re-check after quantizing.
+    # quantize is monotone and COST_CEILING sits exactly on the 6dp grid, so
+    # anything that would round up past it is already rejected here. An earlier
+    # draft had that branch plus a test comment claiming to exercise it; both were
+    # wrong — the value never reached it.
+    if value > COST_CEILING:
+        raise ValueError(f"run_cost_usd must not exceed {COST_CEILING}")
+    if value == 0:
+        # INVARIANT: zero is always POSITIVE zero. -0.0 passes ge=0 (-0 == 0) and
+        # quantize preserves the sign, so it used to serve the string "-0.000000":
+        # a negative dollar figure, and backend-dependent besides (Postgres
+        # normalizes sign-zero, SQLite keeps it). A client summing signed per-call
+        # figures produces -0.0 from 0.0 * -1, so this is received, not theoretical.
+        return _ZERO_COST
+    # INVARIANT (D5): a positive cost is NEVER stored as zero — that would publish a
+    # run which cost real money as free and hand it the cheapest slot on the Pareto
+    # frontier. Clamping to one quantum expresses exactly that: it rounds away from
+    # zero, so the figure is never understated (it cannot buy frontier position) and
+    # the submission is never discarded, which rejecting did — the accuracy result
+    # went with it. Overstates by at most one quantum. See spec 2.2's 2nd revision.
+    return max(value.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP), COST_QUANTUM)
+
+
+def _serialize_run_cost(value: Decimal | None) -> str | None:
+    """Pin the JSON form to exactly 6 decimal places.
+
+    WHY: Pydantic emits Decimal as a JSON *string* carrying whatever scale and
+    notation the value happens to have — "12.5" from SQLite, "12.500000" from a
+    padded Postgres DECIMAL, "1E+3" for a cost submitted as 1e3. That is a
+    backend-dependent wire format, and it breaks the feature this field exists
+    for: OME-770's frontier and cheapest-run stat are computed in JavaScript,
+    where `<` on strings is lexicographic ("10" < "9.5" is true), so an unpinned
+    scale makes $1000 rank cheaper than $3.50 and renders 1E+3 in the Cost column.
+    Quantizing on read also normalizes the scale of rows written before the
+    validator existed, and normalizes sign-zero — without which a stored
+    "-0.000000" (reachable by raw SQL) would still serve a negative figure.
+
+    It does NOT repair a row outside DECIMAL(12, 6): quantize RAISES on those
+    rather than normalizing, which is why the row loop guards the conversion
+    (spec 2.7).
+
+    AIDEV-NOTE: a fixed-scale string does not make that hazard impossible —
+    "1000.000000" < "3.500000" is still true. It forces consumers to convert
+    explicitly (parseFloat), which is reviewable in a way a bare `<` on two
+    numbers is not. Pass 2 must convert before comparing, and its frontier tests
+    must cover values of differing integer width. See spec 2.4.
+    """
+    if value is None:
+        return None
+    if value == 0:
+        return f"{_ZERO_COST:f}"
+    # INVARIANT (D5) on the READ side too: a positive cost must never be published as
+    # zero. The validator clamps on the way in, but a row written by raw SQL — or
+    # before the validator existed — can hold a sub-quantum positive, and quantizing
+    # alone would render it "0.000000", i.e. a run that cost money shown as free.
+    # Found in review: stored Decimal("4E-7") serialized to "0.000000".
+    quantized = max(value.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP), COST_QUANTUM)
+    return f"{quantized:f}"
+
+
+# INVARIANT: the ONE definition of the cost's wire form, shared by every read DTO.
+# The RankedLeaderboardEntry / HistorySubmission / ScoreSchema duplication has
+# already caused two defects (a 500 and a silent omission), so the serializer is
+# attached to a type rather than repeated per class. `when_used="json"` is
+# deliberate: _ranked_entry splats entry.model_dump() in PYTHON mode and must keep
+# receiving a Decimal, not a string.
+RunCostUsd = Annotated[
+    Decimal | None,
+    PlainSerializer(_serialize_run_cost, return_type=str | None, when_used="json"),
+]
 
 # INVARIANT: a baseline's metadata is operator-supplied (via the import CLI, not a
 # public HTTP endpoint) but still bounded, so one bad import can't make
@@ -169,6 +282,38 @@ class ScoreSubmission(BaseModel):
     # (D-SCORE-006). Persisted onto the flat client_* columns by the store.
     client: ClientInfo | None = None
     metadata: dict[str, Any] | None = None
+    # INVARIANT: absent (None) means "no cost was reported" and is NOT the same as
+    # 0. A fully cache-served run genuinely costing nothing is a legitimate 0, so
+    # OME-770's Pareto frontier must exclude None rather than rank it as the
+    # cheapest entry. Decimal, not float — this is money.
+    #
+    # AIDEV-NOTE: optional only because nothing emits a run cost yet (OME-303 is
+    # unmerged, the Engine does not roll per-call cost into a run total, and the
+    # Client has no field for it), and because the column lands on an already
+    # populated table. Once a client can send it, a direct submission arriving
+    # without one is a client bug and should be REJECTED — null then means
+    # "imported or legacy" only. Tracked on OME-770.
+    # INVARIANT: the request contract mirrors the column exactly — DECIMAL(12, 6).
+    # `ge=0` alone let three failures through, each reproduced live:
+    #   0.0000009 -> accepted (201) and silently stored as 0.000001, publishing a
+    #     figure the submitter never sent;
+    #   1000000   -> accepted on SQLite, but seven integer digits overflow
+    #     DECIMAL(12, 6) on Postgres, so it passed locally and would fail in
+    #     production;
+    #   1e30      -> reached the database and returned HTTP 500 instead of 422.
+    #
+    # AIDEV-NOTE: the bounds are enforced by the validator below, NOT by
+    # Field(max_digits=..., decimal_places=...). Those constraints run BEFORE an
+    # after-validator, so they would reject the float-noise values that spec 2.2
+    # requires us to quantize and accept. `ge=0` stays here (it also rejects NaN,
+    # which fails the comparison); allow_inf_nan=False stops +Infinity, which
+    # would pass ge=0 and then raise inside quantize().
+    run_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+    @field_validator("run_cost_usd")
+    @classmethod
+    def validate_run_cost(cls, value: Decimal | None) -> Decimal | None:
+        return _validate_run_cost(value)
 
     @field_validator("url4_expression")
     @classmethod
@@ -255,6 +400,7 @@ class ScoreSchema(BaseModel):
     # FEATURE: OME-323 — manual open/closed correction; None defers to the
     # classification registry. Operator-only, never set via ScoreSubmission.
     openness_override: Literal["open", "closed"] | None = None
+    run_cost_usd: RunCostUsd
 
 
 class LeaderboardEntry(BaseModel):
@@ -274,6 +420,10 @@ class LeaderboardEntry(BaseModel):
     submitted_by: SubmittedBy
     verified_by_screamingface: bool
     url4_expression: str
+    # Self-reported and unverifiable: re-running a submission tells us what *we*
+    # paid, not what the submitter paid. Exposed so the board can show it, but it
+    # must be presented with its provenance and never as a verified figure.
+    run_cost_usd: RunCostUsd
 
 
 class BaselineSchema(BaseModel):

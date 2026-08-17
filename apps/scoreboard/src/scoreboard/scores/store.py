@@ -2,20 +2,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime, timedelta
-from typing import NamedTuple, cast
+from decimal import InvalidOperation
+from typing import Any, NamedTuple, cast
 from uuid import UUID
 
 from pypika_tortoise.analytics import RowNumber
 from pypika_tortoise.enums import Order
 from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import Tortoise
-from tortoise.exceptions import IntegrityError
+from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.query_api import execute_pypika
 from tortoise.transactions import in_transaction
 
 from .models import Benchmark, IdempotencyKey, Score
 from .schemas import BenchmarkSchema, LeaderboardEntry, ScoreSchema, ScoreSubmission
+
+# INVARIANT: columns the raw leaderboard projection must convert itself. The
+# projection bypasses the ORM, so nothing else will do it.
+_RAW_ROW_FIELDS = ("ran_with_providers", "run_cost_usd")
+# Columns whose DTO type admits None, so an unreadable value can degrade in place.
+# Anything not listed here forces the row to be dropped instead — see _to_python_rows.
+_NULLABLE_RAW_FIELDS = frozenset({"run_cost_usd"})
+
+logger = logging.getLogger(__name__)
 
 IDEMPOTENCY_TTL = timedelta(hours=24)
 
@@ -52,6 +63,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         verified_by_screamingface=model.verified_by_screamingface,
         metadata=model.metadata,
         openness_override=model.openness_override,
+        run_cost_usd=model.run_cost_usd,
     )
 
 
@@ -88,6 +100,10 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "client_version": submission.client.version if submission.client else None,
         "client_platform": submission.client.platform if submission.client else None,
         "metadata": submission.metadata,
+        # Deliberately absent from _content_hash: cost is a property of one
+        # execution, not of the recipe. Two runs of the same recipe can cost
+        # different amounts and must still dedup to a single row (OME-391).
+        "run_cost_usd": submission.run_cost_usd,
         "content_hash": content_hash,
     }
 
@@ -125,6 +141,81 @@ def _content_hash(submission: ScoreSubmission) -> str:
     }
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert raw projection rows to Python types, column by column.
+
+    WHY: `_build_leaderboard_query` is raw pypika, so it returns whatever the
+    driver hands back — on SQLite a DECIMAL column comes out as TEXT. Only
+    `ran_with_providers` used to be converted; `run_cost_usd` reached
+    LeaderboardEntry as a string and validated purely because Pydantic coerces
+    str -> Decimal in lax mode.
+
+    INVARIANT: rows are fully typed BEFORE validation, because spec 2.5 requires
+    the cheapest-run stat to be computed in Python over Decimal — SQLite compares
+    this column as TEXT, so `ORDER BY run_cost_usd` there ranks $1000 below $3.50.
+    Anything reading these rows ahead of the DTO must not get a string.
+    """
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        drop = False
+        for name in _RAW_ROW_FIELDS:
+            if name not in row:
+                continue
+            try:
+                # to_python_value maps None -> None for a nullable field, keeping
+                # the absent-is-not-zero distinction (D5) intact.
+                row[name] = Score._meta.fields_map[name].to_python_value(row[name])
+            except (InvalidOperation, ValueError, FieldError) as exc:
+                # INVARIANT: one corrupt row must never fail the whole read path.
+                # DecimalField.to_python_value quantizes, and quantize RAISES on a
+                # value outside DECIMAL(12, 6) — which surfaced as HTTP 500 for
+                # EVERY entry on the board, not just the bad one. On SQLite the
+                # column is VARCHAR(40) with no database-level guard, so raw SQL
+                # can produce this; the ORM path and Postgres both reject it on
+                # write. FieldError is in the tuple because JSONField raises it and
+                # it is NOT a ValueError (found in review) — so corrupt JSON in
+                # ran_with_providers used to 500 the board despite this guard.
+                #
+                # Logged at warning, never silently swallowed: a corrupt row is a
+                # real problem and has to stay visible. Specific exceptions only.
+                if name in _NULLABLE_RAW_FIELDS:
+                    # Degrade to "unknown", a state the schema already models.
+                    logger.warning(
+                        "Unreadable %s on spec_id=%s (%r); serving it as null. The "
+                        "stored value is outside the column's type and can only have "
+                        "been written by raw SQL.",
+                        name,
+                        row.get("spec_id"),
+                        row[name],
+                        exc_info=exc,
+                    )
+                    row[name] = None
+                else:
+                    # INVARIANT: a non-nullable column cannot degrade. LeaderboardEntry
+                    # types ran_with_providers as list[str], so None would fail
+                    # validation and re-raise the 500 this guard exists to prevent. The
+                    # only options are dropping the row or serving nothing, and one
+                    # unreadable row must not cost every other row on the board.
+                    #
+                    # This DOES silently change what the board shows — a corrupt row
+                    # disappears rather than appearing broken — which is why it is
+                    # logged at WARNING with the spec_id, so the omission is traceable.
+                    logger.warning(
+                        "Unreadable %s on spec_id=%s (%r); DROPPING the row from this "
+                        "response because the column is not nullable. The board will "
+                        "be short one entry until the stored value is repaired.",
+                        name,
+                        row.get("spec_id"),
+                        row[name],
+                        exc_info=exc,
+                    )
+                    drop = True
+                    break
+        if not drop:
+            kept.append(row)
+    return kept
 
 
 class SubmitOutcome(NamedTuple):
@@ -169,6 +260,7 @@ def _build_leaderboard_query(
             scores.submitted_by,
             scores.verified_by_screamingface,
             scores.url4_expression,
+            scores.run_cost_usd,
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
@@ -189,6 +281,7 @@ def _build_leaderboard_query(
             ranked.submitted_by,
             ranked.verified_by_screamingface,
             ranked.url4_expression,
+            ranked.run_cost_usd,
         )
         .where(ranked.rn == 1)
         .orderby(ranked.accuracy, order=Order.desc)
@@ -343,12 +436,7 @@ class ScoreStore:
             ),
             using_db=conn,
         )
-        rows = result.rows
-        providers_field = Score._meta.fields_map["ran_with_providers"]
-        for row in rows:
-            row["ran_with_providers"] = providers_field.to_python_value(
-                row["ran_with_providers"],
-            )
+        rows = _to_python_rows(result.rows)
 
         return [LeaderboardEntry(**row) for row in rows]
 

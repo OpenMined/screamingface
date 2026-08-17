@@ -62,6 +62,29 @@ class BaseScore(BaseScoreboardModel):
     # promotes it via _resolve_benchmark_revision. Read that before changing the wire shape.
     benchmark_revision = fields.CharField(max_length=64, null=True, db_index=True)
     metadata = fields.JSONField(null=True)
+    # WHY Decimal and not Float: this is money. Binary floating point cannot
+    # represent it exactly, and a leaderboard that publishes a dollar figure
+    # should not accumulate representation error in it. `accuracy` above stays a
+    # FloatField deliberately — a ratio is not currency.
+    #
+    # WHY these bounds: both ends of the real range have to fit. A cache-served
+    # smoke run costs fractions of a cent (0.000123 is representable here), and a
+    # full DRACO rerun was quoted at $3-4k, so 6 decimal places under 12 digits
+    # covers 0.000001 through 999,999.999999.
+    #
+    # INVARIANT: NULL means "no cost was reported", which is NOT the same as 0.
+    # A fully cache-served run genuinely costing nothing is a legitimate 0 (see
+    # OME-767's zero-cost goal). OME-770's Pareto frontier would rank an
+    # unknown-cost row as the cheapest entry if these two were ever conflated, so
+    # readers and renderers must keep them distinct.
+    #
+    # AIDEV-NOTE: deliberately NOT part of content_hash. That hash is recipe
+    # identity; cost is a property of one execution of a recipe, and two runs of
+    # the same recipe can cost different amounts while still being the same
+    # submission for dedup purposes (OME-391). The accepted consequence is that a
+    # recipe already submitted without a cost cannot later gain one — the
+    # resubmission dedups to the existing row.
+    run_cost_usd = fields.DecimalField(max_digits=12, decimal_places=6, null=True)
     # INVARIANT: sha256 hex over the submission's recipe identity (benchmark, spec,
     # url4 expression, result numbers, provider order) — NOT submitted_by or client
     # metadata. Unique so the DB itself rejects a duplicate recipe, independent of
