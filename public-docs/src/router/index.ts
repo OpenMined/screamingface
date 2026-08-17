@@ -24,6 +24,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/QuickstartPage.vue'),
     },
     {
+      path: '/sf-client/guides/clients',
+      name: 'sf-client-guides-clients',
+      component: () => import('@/pages/sf-client/guides/ClientsPage.vue'),
+    },
+    {
       path: '/sf-client/guides/connections',
       name: 'sf-client-guides-connections',
       component: () => import('@/pages/sf-client/guides/ConnectionsPage.vue'),
