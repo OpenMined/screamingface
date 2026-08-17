@@ -78,6 +78,10 @@ class ScoreSubmission(BaseModel):
 
     version: Literal[1] = 1
     benchmark_id: str
+    # WHY optional: the deployed Client sends this nested in `metadata` rather than as a typed
+    # field, so the store resolves either shape (_resolve_benchmark_revision). Requiring it
+    # here would 422 every submission in the field; see OME-775 D5.
+    benchmark_revision: str | None = None
     spec_id: str
     url4_expression: Annotated[str, Field(max_length=32_000)]
     submitted_by: str | None = None
@@ -142,6 +146,9 @@ class BenchmarkSchema(BaseModel):
     display_name: str
     description: str | None
     dataset_url: str | None
+    # WHY exposed: a client comparing its run against the board needs to know which revision
+    # the board is registered at, so it can tell a real score gap from an incomparable one.
+    revision: str | None
     created_at: datetime
 
 
@@ -153,6 +160,9 @@ class ScoreSchema(BaseModel):
     id: UUID
     version: int
     benchmark_id: str
+    # WHY: the Engine benchmark revision this score was measured against, resolved from either
+    # wire shape by the store. Null for imported baselines and rows predating OME-775.
+    benchmark_revision: str | None
     spec_id: str
     url4_expression: str
     submitted_by: str | None
@@ -178,6 +188,10 @@ class LeaderboardEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     spec_id: str
+    # WHY exposed: the board partitions ranking on this, so a client seeing two rows for one
+    # spec needs the revision to know why they are not competing (OME-775). Null for rows that
+    # predate the column and for imported baselines.
+    benchmark_revision: str | None
     accuracy: float
     total_questions: int
     ran_with_providers: list[str]

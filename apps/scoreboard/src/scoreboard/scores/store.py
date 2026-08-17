@@ -26,6 +26,7 @@ def _benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
         display_name=model.display_name,
         description=model.description,
         dataset_url=model.dataset_url,
+        revision=model.revision,
         created_at=model.created_at,
     )
 
@@ -35,6 +36,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         id=model.id,
         version=model.version,
         benchmark_id=cast(str, getattr(model, "benchmark_id")),
+        benchmark_revision=model.benchmark_revision,
         spec_id=model.spec_id,
         url4_expression=model.url4_expression,
         submitted_by=model.submitted_by,
@@ -53,9 +55,26 @@ def _score_to_schema(model: Score) -> ScoreSchema:
     )
 
 
+def _resolve_benchmark_revision(submission: ScoreSubmission) -> str | None:
+    # WHY: the deployed Client sends the Engine benchmark revision nested in the free-form
+    # `metadata` dict, not as a typed field (packages/screamingface/.../leaderboards.py).
+    # Reading only the typed field would silently drop it for every client in the field;
+    # rejecting the metadata copy would 422 every live submission. So the typed field wins
+    # when usable and metadata is the fallback (OME-775 D5).
+    # INVARIANT: this reads metadata, it never mutates or strips it — the payload is stored
+    # exactly as sent.
+    if submission.benchmark_revision:
+        return submission.benchmark_revision
+    candidate = (submission.metadata or {}).get("benchmark_revision")
+    # INVARIANT: metadata is client-supplied and unvalidated, so a non-string or empty value
+    # is absent input, never an error.
+    return candidate if isinstance(candidate, str) and candidate else None
+
+
 def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dict[str, object]:
     return {
         "benchmark_id": submission.benchmark_id,
+        "benchmark_revision": _resolve_benchmark_revision(submission),
         "version": submission.version,
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,
@@ -86,8 +105,17 @@ def _content_hash(submission: ScoreSubmission) -> str:
     # 0.01 of that ratio, so the same result (e.g. 2/3 correct) could otherwise be
     # reported as 0.67 or 0.6666666667 and hash differently, defeating dedup for the
     # exact near-duplicate case this hash exists to catch (found in PR review).
+    # OME-775: the benchmark revision IS identity, unlike the rest of `metadata` it may arrive
+    # in — a different dataset/protocol revision is a different thing measured, not incidental
+    # provenance. It reads the RESOLVED value, not the wire position, so a client migrating
+    # from the metadata form to the typed form does not duplicate its whole history.
+    # AIDEV-NOTE: stored content_hash values predating this were computed WITHOUT the revision
+    # and were deliberately not backfilled (D3). The bounded consequence: resubmitting a recipe
+    # that predates this change creates a second row instead of deduping. Accepted over the
+    # alternative, which silently discarded a second revision's result entirely.
     identity = {
         "benchmark_id": submission.benchmark_id,
+        "benchmark_revision": _resolve_benchmark_revision(submission),
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,
         "accuracy": submission.correct_questions / submission.total_questions,
@@ -104,11 +132,27 @@ class SubmitOutcome(NamedTuple):
     created: bool
 
 
-def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
+def _build_leaderboard_query(
+    benchmark_id: str, top_n: int, registered_revision: str | None
+) -> QueryBuilder:
     scores = Score.get_table()
+    # INVARIANT: every entry the board ranks was measured against the revision the benchmark is
+    # REGISTERED at. The board presents a single ordered ranking, so admitting a second revision
+    # would assert that two incomparable numbers can be compared — a stale-revision score could
+    # hold rank 1 on a board registered elsewhere (OME-775).
+    #
+    # WHY partitioning alone was not enough: the window below stops one revision displacing
+    # another in the best-per-spec collapse, but the outer query still orders every surviving
+    # row into ONE accuracy ranking. Both are needed — the partition keeps each revision's best
+    # intact, the filter decides which revision the board is actually about.
+    #
+    # AIDEV-NOTE: a benchmark with NO registered revision filters nothing — the retained legacy
+    # demo entries (hle/livetruth) have no Engine revision, and filtering would empty their
+    # boards. Once a benchmark DOES declare one, a row that cannot be asserted comparable to it
+    # (including a NULL row predating this column) does not rank.
     row_number = (
         RowNumber()
-        .over(scores.spec_id)
+        .over(scores.spec_id, scores.benchmark_revision)
         .orderby(scores.accuracy, order=Order.desc)
         .orderby(scores.submitted_at, order=Order.desc)
         .as_("rn")
@@ -117,6 +161,7 @@ def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
         Query.from_(scores)
         .select(
             scores.spec_id,
+            scores.benchmark_revision,
             scores.accuracy,
             scores.total_questions,
             scores.ran_with_providers,
@@ -127,12 +172,16 @@ def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
-    ).as_("ranked")
+    )
+    if registered_revision is not None:
+        ranked = ranked.where(scores.benchmark_revision == registered_revision)
+    ranked = ranked.as_("ranked")
 
     return (
         Query.from_(ranked)
         .select(
             ranked.spec_id,
+            ranked.benchmark_revision,
             ranked.accuracy,
             ranked.total_questions,
             ranked.ran_with_providers,
@@ -154,12 +203,14 @@ class ScoreStore:
         display_name: str,
         description: str | None = None,
         dataset_url: str | None = None,
+        revision: str | None = None,
     ) -> BenchmarkSchema:
         benchmark, _ = await Benchmark.update_or_create(
             defaults={
                 "display_name": display_name,
                 "description": description,
                 "dataset_url": dataset_url,
+                "revision": revision,
             },
             id=benchmark_id,
         )
@@ -283,8 +334,13 @@ class ScoreStore:
 
     async def leaderboard(self, benchmark_id: str, top_n: int = 50) -> list[LeaderboardEntry]:
         conn = Tortoise.get_connection("default")
+        # The board is defined by the revision its benchmark is registered at; entries measured
+        # against anything else are not comparable to it and do not rank (OME-775).
+        benchmark = await Benchmark.get_or_none(id=benchmark_id)
         result = await execute_pypika(
-            _build_leaderboard_query(benchmark_id, top_n),
+            _build_leaderboard_query(
+                benchmark_id, top_n, benchmark.revision if benchmark else None
+            ),
             using_db=conn,
         )
         rows = result.rows

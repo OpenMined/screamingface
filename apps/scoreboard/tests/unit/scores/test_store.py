@@ -437,3 +437,321 @@ async def test_postgres_concurrent_identical_recipe_submissions_share_winner(
 
     assert len({outcome.score.id for outcome in results}) == 1
     assert await Score.all().count() == 1
+
+
+# --- OME-775: benchmark revision resolution ------------------------------------------------
+# INVARIANT: the resolved revision is the same value whether the Client sent it as a typed
+# top-level field or nested in the free-form metadata dict. Wire position must not change
+# identity — the store has one resolution rule and everything downstream reads its output.
+
+
+def _revision_submission(
+    *,
+    spec_id: str = "spec-rev",
+    benchmark_revision: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> ScoreSubmission:
+    return ScoreSubmission(
+        benchmark_id="hle",
+        spec_id=spec_id,
+        url4_expression=f"url4://benchmark/{spec_id}",
+        submitted_by="tester",
+        accuracy=0.75,
+        total_questions=100,
+        correct_questions=75,
+        ran_with_providers=["openai"],
+        benchmark_revision=benchmark_revision,
+        metadata=metadata,
+    )
+
+
+async def _stored_revision(score_id: object) -> str | None:
+    # WHY assert on the persisted row rather than the returned schema: this step's contract is
+    # resolution + storage. Exposure on the read schemas is a separate contract with its own
+    # tests, so the two can fail independently.
+    row = await Score.get(id=score_id)
+    return row.benchmark_revision
+
+
+async def test_submit_stores_a_typed_top_level_benchmark_revision(tortoise_db: None) -> None:
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(_revision_submission(benchmark_revision="rev-typed"))
+
+    assert await _stored_revision(score.id) == "rev-typed"
+
+
+async def test_submit_promotes_the_revision_from_metadata(tortoise_db: None) -> None:
+    # WHY: this is the shape every deployed Client sends today
+    # (packages/screamingface/.../leaderboards.py) — it must keep working.
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(
+        _revision_submission(metadata={"benchmark_revision": "rev-meta", "run_id": "r1"})
+    )
+
+    assert await _stored_revision(score.id) == "rev-meta"
+
+
+async def test_submit_prefers_the_typed_revision_over_the_metadata_copy(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(
+        _revision_submission(
+            benchmark_revision="rev-typed",
+            metadata={"benchmark_revision": "rev-meta"},
+        )
+    )
+
+    assert await _stored_revision(score.id) == "rev-typed"
+
+
+async def test_submit_leaves_the_metadata_copy_intact(tortoise_db: None) -> None:
+    # INVARIANT: promotion reads metadata, it never mutates or strips it. The client's
+    # payload is stored as sent.
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(
+        _revision_submission(metadata={"benchmark_revision": "rev-meta", "run_id": "r1"})
+    )
+
+    assert score.metadata == {"benchmark_revision": "rev-meta", "run_id": "r1"}
+
+
+async def test_submit_accepts_a_submission_with_no_revision_anywhere(tortoise_db: None) -> None:
+    store = await _store_with_benchmark()
+
+    score, created = await store.submit(_revision_submission(metadata={"source": "unit"}))
+
+    assert created is True
+    assert await _stored_revision(score.id) is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"benchmark_revision": ""},
+        {"benchmark_revision": 42},
+        {"benchmark_revision": None},
+        {"benchmark_revision": ["rev"]},
+    ],
+)
+async def test_submit_treats_an_unusable_metadata_revision_as_absent(
+    tortoise_db: None, metadata: dict[str, object]
+) -> None:
+    # WHY: metadata is free-form and client-supplied, so a non-string or empty value is
+    # untrustworthy input, not a crash — it resolves to None rather than raising.
+    store = await _store_with_benchmark()
+
+    score, created = await store.submit(_revision_submission(metadata=metadata))
+
+    assert created is True
+    assert await _stored_revision(score.id) is None
+
+
+# --- OME-775: revision participates in dedup identity (D3) ----------------------------------
+
+
+async def test_same_recipe_at_two_revisions_does_not_dedup(tortoise_db: None) -> None:
+    # INVARIANT: a different benchmark revision is a different thing measured, so it is part
+    # of the recipe's identity. Before OME-775 these two collided and the second was silently
+    # discarded — which would have made the ranking partition unreachable, since the second
+    # revision's row never existed.
+    store = await _store_with_benchmark()
+
+    first, first_created = await store.submit(_revision_submission(benchmark_revision="rev-a"))
+    second, second_created = await store.submit(_revision_submission(benchmark_revision="rev-b"))
+
+    assert first_created is True
+    assert second_created is True
+    assert first.id != second.id
+    assert await Score.all().count() == 2
+
+
+async def test_identical_submissions_still_dedup_with_a_revision(tortoise_db: None) -> None:
+    # The OME-391 guarantee must survive the identity change.
+    store = await _store_with_benchmark()
+
+    first, first_created = await store.submit(_revision_submission(benchmark_revision="rev-a"))
+    second, second_created = await store.submit(_revision_submission(benchmark_revision="rev-a"))
+
+    assert first_created is True
+    assert second_created is False
+    assert first.id == second.id
+    assert await Score.all().count() == 1
+
+
+async def test_identity_follows_the_resolved_revision_not_its_wire_position(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: a revision sent typed and the same revision sent in metadata are the same
+    # submission. If identity read the wire shape instead of the resolved value, a client
+    # upgrading from the metadata form to the typed form would duplicate its whole history.
+    store = await _store_with_benchmark()
+
+    first, first_created = await store.submit(
+        _revision_submission(metadata={"benchmark_revision": "rev-a"})
+    )
+    second, second_created = await store.submit(_revision_submission(benchmark_revision="rev-a"))
+
+    assert first_created is True
+    assert second_created is False
+    assert first.id == second.id
+
+
+# --- OME-775: ranking partitions on (spec_id, benchmark_revision) ---------------------------
+
+
+async def test_leaderboard_ranks_each_revision_of_a_spec_separately(tortoise_db: None) -> None:
+    # INVARIANT: results measured against different benchmark revisions are not comparable, so
+    # the board must not let one beat the other. Before OME-775 this returned a single row —
+    # the higher accuracy winning across an incomparable boundary.
+    store = await _store_with_benchmark()
+    await store.submit(
+        _revision_submission(spec_id="spec-x", benchmark_revision="rev-old"),
+    )
+    await store.submit(
+        _revision_submission(spec_id="spec-x", benchmark_revision="rev-new"),
+    )
+
+    rows = await store.leaderboard("hle")
+
+    assert len(rows) == 2
+    assert {row.benchmark_revision for row in rows} == {"rev-old", "rev-new"}
+    assert {row.spec_id for row in rows} == {"spec-x"}
+
+
+async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None) -> None:
+    # Best-per-spec is preserved inside a revision — the partition adds a dimension, it does
+    # not stop collapsing.
+    store = await _store_with_benchmark()
+    await store.submit(
+        ScoreSubmission(
+            benchmark_id="hle",
+            spec_id="spec-y",
+            url4_expression="url4://benchmark/spec-y/low",
+            accuracy=0.60,
+            total_questions=100,
+            correct_questions=60,
+            ran_with_providers=["openai"],
+            benchmark_revision="rev-same",
+        )
+    )
+    await store.submit(
+        ScoreSubmission(
+            benchmark_id="hle",
+            spec_id="spec-y",
+            url4_expression="url4://benchmark/spec-y/high",
+            accuracy=0.90,
+            total_questions=100,
+            correct_questions=90,
+            ran_with_providers=["openai"],
+            benchmark_revision="rev-same",
+        )
+    )
+
+    rows = await store.leaderboard("hle")
+
+    assert len(rows) == 1
+    assert rows[0].accuracy == 0.90
+
+
+async def test_leaderboard_groups_null_revision_rows_exactly_as_before(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: backward compatibility. Every row predating OME-775 has a NULL revision, so
+    # they must keep collapsing to best-per-spec rather than splintering into one row each.
+    store = await _store_with_benchmark()
+    await store.submit(_submission(spec_id="spec-legacy", accuracy=0.60))
+    await store.submit(_submission(spec_id="spec-legacy", accuracy=0.85))
+
+    rows = await store.leaderboard("hle")
+
+    assert len(rows) == 1
+    assert rows[0].accuracy == 0.85
+    assert rows[0].benchmark_revision is None
+
+
+# --- OME-775: the revision reaches the score read DTO ---------------------------------------
+
+
+async def test_score_read_schema_carries_the_resolved_revision(tortoise_db: None) -> None:
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(_revision_submission(metadata={"benchmark_revision": "rev-read"}))
+
+    assert score.benchmark_revision == "rev-read"
+
+
+async def test_score_read_schema_serialises_an_absent_revision_as_null(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: absent means null, never omitted — a client must be able to distinguish
+    # "no revision recorded" from "field missing from this deployment".
+    store = await _store_with_benchmark()
+
+    score, _ = await store.submit(_revision_submission(metadata={"source": "unit"}))
+
+    assert "benchmark_revision" in score.model_dump()
+    assert score.benchmark_revision is None
+
+
+# --- OME-775 follow-up: the board shows only the registered revision ------------------------
+# The partition alone was not enough. It stopped one revision displacing another in the
+# best-per-spec collapse, but the outer query still ordered every surviving row into ONE
+# accuracy ranking — so a stale-revision score could hold rank 1 on a board registered at a
+# different revision, presenting two incomparable numbers as a ranking. Verified against a
+# running server before this was written.
+
+
+async def _benchmark_at(revision: str | None) -> ScoreStore:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="Fixture", revision=revision)
+    return store
+
+
+async def test_leaderboard_excludes_scores_from_a_non_registered_revision(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: every entry the board ranks was measured against the revision the board is
+    # registered at. A higher score from an obsolete revision must not outrank a current one.
+    store = await _benchmark_at("REV-CURRENT")
+    await store.submit(
+        _revision_submission(spec_id="old-winner", benchmark_revision="REV-OBSOLETE")
+    )
+    await store.submit(_revision_submission(spec_id="new-entry", benchmark_revision="REV-CURRENT"))
+
+    rows = await store.leaderboard("hle")
+
+    assert [row.spec_id for row in rows] == ["new-entry"]
+    assert all(row.benchmark_revision == "REV-CURRENT" for row in rows)
+
+
+async def test_leaderboard_without_a_registered_revision_filters_nothing(
+    tortoise_db: None,
+) -> None:
+    # WHY: the retained legacy demo benchmarks have no Engine revision (D2). Filtering on a
+    # null registered revision would empty their boards entirely.
+    store = await _benchmark_at(None)
+    await store.submit(_revision_submission(spec_id="legacy-a", benchmark_revision=None))
+    await store.submit(_revision_submission(spec_id="legacy-b", benchmark_revision="whatever"))
+
+    rows = await store.leaderboard("hle")
+
+    assert {row.spec_id for row in rows} == {"legacy-a", "legacy-b"}
+
+
+async def test_leaderboard_at_a_registered_revision_excludes_pre_revision_rows(
+    tortoise_db: None,
+) -> None:
+    # Rows predating OME-775 carry a NULL revision. Once a benchmark declares a revision, such
+    # a row cannot be asserted comparable to it, so it does not rank.
+    store = await _benchmark_at("REV-CURRENT")
+    await store.submit(_revision_submission(spec_id="pre-revision", benchmark_revision=None))
+    await store.submit(_revision_submission(spec_id="current", benchmark_revision="REV-CURRENT"))
+
+    rows = await store.leaderboard("hle")
+
+    assert [row.spec_id for row in rows] == ["current"]

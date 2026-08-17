@@ -36,6 +36,9 @@ class RankedLeaderboardEntry(BaseModel):
 
     rank: int
     spec_id: str
+    # WHY: the board ranks best-per-spec PER REVISION (OME-775), so one spec can legitimately
+    # appear twice. Without this field a client cannot tell why the two are not competing.
+    benchmark_revision: str | None
     accuracy: float
     total_questions: int
     ran_with_providers: list[str]
@@ -60,6 +63,9 @@ class HistorySubmission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
+    # WHY: a spec's history can span benchmark revisions, and two entries measured against
+    # different revisions are not comparable to each other (OME-775).
+    benchmark_revision: str | None
     accuracy: float
     total_questions: int
     correct_questions: int
@@ -94,6 +100,7 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
         display_name=benchmark.display_name,
         description=benchmark.description,
         dataset_url=benchmark.dataset_url,
+        revision=benchmark.revision,
         created_at=benchmark.created_at,
     )
 
@@ -105,6 +112,7 @@ def _ranked_entry(rank: int, entry: LeaderboardEntry) -> RankedLeaderboardEntry:
 def _history_submission(score: ScoreSchema) -> HistorySubmission:
     return HistorySubmission(
         id=score.id,
+        benchmark_revision=score.benchmark_revision,
         accuracy=score.accuracy,
         total_questions=score.total_questions,
         correct_questions=score.correct_questions,

@@ -26,6 +26,15 @@ class BaseScore(BaseScoreboardModel):
     client_version = fields.CharField(max_length=64, null=True)
     client_platform = fields.CharField(max_length=32, null=True)
     verified_by_openmined = fields.BooleanField(default=False)
+    # INVARIANT: the Engine benchmark revision this score was produced against. The
+    # leaderboard partitions ranking on (spec_id, benchmark_revision) so results measured
+    # against different dataset/protocol revisions never rank against each other (OME-775).
+    # WHY nullable + indexed: OME-322's imported LMArena baselines never ran at any revision
+    # and every row predating this change has none, so no backfill is possible; indexed
+    # because it is a ranking partition key.
+    # AIDEV-NOTE: the Client sends this inside the free-form `metadata` dict today; the store
+    # promotes it via _resolve_benchmark_revision. Read that before changing the wire shape.
+    benchmark_revision = fields.CharField(max_length=64, null=True, db_index=True)
     metadata = fields.JSONField(null=True)
     # INVARIANT: sha256 hex over the submission's recipe identity (benchmark, spec,
     # url4 expression, result numbers, provider order) — NOT submitted_by or client
