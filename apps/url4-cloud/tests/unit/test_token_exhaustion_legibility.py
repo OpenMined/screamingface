@@ -21,12 +21,14 @@ append-only gate reads growth of an existing test file as modification.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import httpx
 import pytest
 
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
+from url4.peer.server import Url4Node
 from url4_cloud.benchmarks.rubric_check import (
     CHECK_ATTEMPTS,
     RubricCheck,
@@ -170,7 +172,10 @@ class _StarvedJudge:
 @pytest.mark.asyncio
 async def test_unusable_verdicts_name_the_judge_budget_and_its_home() -> None:
     with pytest.raises(ResolutionError) as exc_info:
-        await _judged(_ProseJudge(), _CHECK, question="q", answer="a", criteria=_CRITERIA)
+        # The fakes satisfy the one method _judged calls; cast supplies the port type.
+        await _judged(
+            cast(Url4Node, _ProseJudge()), _CHECK, question="q", answer="a", criteria=_CRITERIA
+        )
 
     message = str(exc_info.value)
     assert f"in {CHECK_ATTEMPTS} attempts" in message
@@ -184,7 +189,9 @@ async def test_starved_judge_failure_names_the_check_judge() -> None:
     # When the judge call itself dies on the cap, the message must still attribute the
     # failure to the CHECK JUDGE (not the candidate) and keep the token-cap cause.
     with pytest.raises(ResolutionError) as exc_info:
-        await _judged(_StarvedJudge(), _CHECK, question="q", answer="a", criteria=_CRITERIA)
+        await _judged(
+            cast(Url4Node, _StarvedJudge()), _CHECK, question="q", answer="a", criteria=_CRITERIA
+        )
 
     message = str(exc_info.value)
     assert "check judge" in message
