@@ -137,7 +137,7 @@ const evaluateSig = `sf.evaluate(
     <h2>sf.leaderboards</h2>
 
     <p>
-      Alone among the four, this module talks to the scoreboard rather than the Engine. See
+      Alone among the four, this module talks to the leaderboard rather than the Engine. See
       <RouterLink to="/sf-client/api/leaderboards">Leaderboards</RouterLink> for the values it
       returns.
     </p>

@@ -35,7 +35,7 @@ client.leaderboards.submit(report.candidates.only)`
     </p>
 
     <Note>
-      These are the only values that do not come from the Engine. They come from the scoreboard, a
+      These are the only values that do not come from the Engine. They come from the leaderboard, a
       separate service set by <code>scoreboard_url</code> on a
       <RouterLink to="/sf-client/api/clients">Client</RouterLink>.
     </Note>
@@ -308,7 +308,7 @@ client.leaderboards.submit(report.candidates.only)`
     </table>
 
     <p>
-      A scoreboard call that cannot be completed safely raises
+      A leaderboard call that cannot be completed safely raises
       <RouterLink to="/sf-client/api/errors">LeaderboardError</RouterLink>.
     </p>
   </DocLayout>

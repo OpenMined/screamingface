@@ -115,7 +115,7 @@ Warning
         <tr>
           <td><code>LeaderboardError</code></td>
           <td>
-            A <RouterLink to="/sf-client/api/leaderboards">scoreboard</RouterLink> operation could
+            A <RouterLink to="/sf-client/api/leaderboards">leaderboard</RouterLink> operation could
             not be completed safely.
           </td>
         </tr>
