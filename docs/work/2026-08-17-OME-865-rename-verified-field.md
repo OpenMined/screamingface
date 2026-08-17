@@ -117,3 +117,57 @@ The two things the suite cannot cover were each proven directly:
    during `OME-775`'s smoke testing; not requested by the ticket.
 3. **`portal/portal.css` was in scope after all** — the ticket listed "portal code" and the field
    appeared in a CSS comment explaining the withdrawn stat.
+4. **A production-safety note was added** to `DEPLOYMENT.md` and the migration, after review.
+   See below.
+
+## Review finding: the "pre-release" premise was wrong
+
+The ticket's contract decision reads *"this is a clean pre-release rename."* Review flagged that
+this migration is unsafe for a multi-replica rollout, and checking the premise showed the ticket
+was mistaken about the deployment:
+
+| Claim | Verified |
+|---|---|
+| Migration runs as a `pre-upgrade` hook while old pods serve | `charts/scoreboard/templates/job-migrate.yaml:9` |
+| Three replicas | `values-prod.yaml: replicaCount: 3` — **not** pre-release |
+| Rollback leaves the schema renamed | `DEPLOYMENT.md:211` states it |
+| Production is live with data | `scoreboard.screamingface.ai` serves 4 rows created 2026-06-02 |
+
+Worse than the review said: `/healthz` returns a static `{"status": "ok"}` without touching the
+database, so a pod broken by the rename still passes readiness and **stays in the Service**.
+
+### Why it still shipped as a plain rename (owner decision, 2026-08-17)
+
+* **Production has no users** (owner-confirmed). Its 4 rows are June demo data on `hle`/`livetruth`,
+  benchmarks nothing queries, and there has never been a `scoreboard-v*` release tag.
+* **Merging does not touch production.** Prod releases only on that tag; dev auto-builds from
+  `main`. So this reaches dev only, where `replicaCount: 1` makes the window one pod for seconds —
+  and dev is *already* fully broken for the Client, so the rename strictly improves it.
+* **Expand/contract costs three deploys** plus dual-write machinery, to protect four stale demo rows
+  and a rollout window on a service with no users.
+
+### The cheap alternative was tested and rejected
+
+`source_field` (keep the physical column, rename only the Python/API name) would have been one
+deploy with no migration and no rollout risk. **It does not work here:** `_build_leaderboard_query`
+is hand-written pypika, which bypasses the ORM's field-to-column mapping and emits the Python name
+as a literal —
+
+```
+ValidationError: verified_by_screamingface
+  Input should be a valid boolean, input_value='verified_by_screamingface'
+```
+
+Salvageable by hardcoding the physical column in that one query, but it leaves a permanent
+Python/DB name mismatch *and* Tortoise's autodetector keeps proposing a `RenameField` on every
+future `makemigrations`. Recurring friction, rejected.
+
+### What was added instead
+
+The risk is **deferred, not dismissed**, and recorded where a releaser will meet it:
+
+* `DEPLOYMENT.md` — a new "Breaking migrations and multi-replica rollouts" section under *Upgrade
+  And Rollback*, naming the two safe options (maintenance window; expand/contract) and the trigger
+  to re-check.
+* The migration itself — an `AIDEV-NOTE` stating it is breaking for multi-replica, why it shipped
+  anyway, and that the no-users assumption must be re-checked before a `scoreboard-v*` tag.

@@ -210,6 +210,28 @@ helm rollback scoreboard <revision> --namespace scoreboard --wait
 
 Helm rollback does not roll back database schema migrations. Keep migrations forward-compatible where possible.
 
+### Breaking migrations and multi-replica rollouts
+
+`values-prod.yaml` sets `replicaCount: 3`, and the migration Job is a `pre-upgrade` hook — it
+finishes **before** the Deployment rolls. So during a production upgrade the old pods keep serving
+against the **new** schema until the rollout completes. A migration that renames or drops a column
+those pods still query makes them fail for that window, and `/healthz` does not touch the database,
+so readiness stays green and Kubernetes keeps them in the Service. Combined with the line above —
+rollback does not revert the schema — a breaking migration is not recoverable by `helm rollback`.
+
+**Before cutting a `scoreboard-v*` tag, check whether any unreleased migration renames or drops a
+column.** If one does, pick one:
+
+- **maintenance window** — scale to 0, migrate, scale back up. Simplest, and fine while the service
+  has no users.
+- **expand/contract** — add the new column, dual-write, backfill, switch reads, drop the old column
+  in a later release. Three deploys, no downtime. Use this once the board has real users.
+
+`0005_auto_20260817_1520` (OME-865, renaming `verified_by_openmined` to
+`verified_by_screamingface`) is the first migration in this category. It is safe on dev, which runs
+a single replica, and was deliberately shipped as a plain rename because production had no users at
+the time. Re-check that assumption before releasing it.
+
 ## Troubleshooting
 
 Inspect resources:
