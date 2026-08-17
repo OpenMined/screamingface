@@ -22,6 +22,7 @@ import contextlib
 import contextvars
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal, Protocol, runtime_checkable
 
 
@@ -77,6 +78,25 @@ class Usage:
     # request as the response makes provider-side model drift undetectable, which is exactly
     # what this field exists to expose.
     response_model: str | None = None
+    # FEATURE: per-run cost reporting (OME-849). The wire `TokenUsage` this feeds already carries
+    # five token classes; these three close the gap so cache and reasoning evidence can reach an
+    # embedder at all.
+    # INVARIANT: `None` means the provider did not report the class — NEVER a synonym for 0. An
+    # unknown class priced as zero is money invented from nothing, so the two must stay
+    # distinguishable all the way to the consumer.
+    # AIDEV-NOTE: `input_tokens` / `output_tokens` above stay non-optional `int` deliberately —
+    # widening them breaks a live seam, and a producer with incomplete evidence signals that by
+    # leaving `cost_usd` None rather than by nulling a token count.
+    cache_read_tokens: int | None = None
+    cache_creation_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    # WHY money rides HERE and not on `ModelResponse`: this event IS the cost-accounting seam that
+    # embedders derive cost frames from, so a provider-authored amount belongs on it — unlike a
+    # finish reason, which is why that lives next door.
+    # INVARIANT: already USD. Unit conversion belongs to the adapter that understands the provider's
+    # contract; `url4` performs no arithmetic on this value and never coerces it through float.
+    # `None` means "not priced", which is a different claim from `Decimal("0")` ("was free").
+    cost_usd: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +171,12 @@ class NullObserver:
 
 UsageSink = Callable[..., None]  # matches ExecutionContext.report_usage's kwargs:
 # (*, provider: str, model: str, input_tokens: int, output_tokens: int,
-#  response_model: str | None = None) -> None
+#  response_model: str | None = None, cache_read_tokens: int | None = None,
+#  cache_creation_tokens: int | None = None, reasoning_tokens: int | None = None,
+#  cost_usd: Decimal | None = None) -> None
+# INVARIANT: every kwarg after `output_tokens` is OPTIONAL. This is a live seam with callers already
+# written against it, so an adapter that learns nothing about caching or cost must be able to say
+# nothing rather than be forced to invent a zero.
 
 _usage_sink: contextvars.ContextVar[UsageSink | None] = contextvars.ContextVar(
     "url4_usage_sink", default=None

@@ -35,6 +35,7 @@ import asyncio
 import secrets
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal, NoReturn, Protocol, runtime_checkable
 
 from url4.core.context import Context
@@ -361,12 +362,22 @@ class ExecutionContext:
         input_tokens: int,
         output_tokens: int,
         response_model: str | None = None,
+        cache_read_tokens: int | None = None,
+        cache_creation_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        cost_usd: Decimal | None = None,
     ) -> None:
         """Report model token usage under this node's current span. A no-op
         when no ``observer`` was passed to :func:`~url4.dag.executor.run`.
 
         ``model`` is the REQUESTED model; pass ``response_model`` when the provider
         reports which model actually served the call (see :class:`~url4.observe.Usage`).
+
+        The cache/reasoning classes and ``cost_usd`` are optional evidence: omit any the
+        provider did not report. INVARIANT: omitting one leaves it ``None``, which means
+        "not reported" and is NOT the same claim as ``0`` — see
+        :class:`~url4.observe.Usage`. ``cost_usd`` is already USD; this layer performs no
+        conversion or arithmetic on it.
         """
         if self._obs is not None:
             self._obs.emit(
@@ -377,6 +388,10 @@ class ExecutionContext:
                     input_tokens,
                     output_tokens,
                     response_model,
+                    cache_read_tokens,
+                    cache_creation_tokens,
+                    reasoning_tokens,
+                    cost_usd,
                 )
             )
 
