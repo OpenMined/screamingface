@@ -21,19 +21,32 @@ def _progress_observer(
     benchmark: str | None = None,
     candidate_models: tuple[str, ...] = (),
     candidate_urls: tuple[str, ...] = (),
+    check_disclosure: str | None = None,
 ) -> Callable[[Event], None] | None:
     selected_stream = sys.stderr if stream is None else stream
     in_notebook = _in_notebook()
-    if requested is False:
-        return None
-    if requested is None and not (in_notebook or selected_stream.isatty()):
-        return None
+    enabled = requested is not False and (
+        requested is not None or in_notebook or selected_stream.isatty()
+    )
     # In a notebook the live panel is preferred; text remains the fallback everywhere.
     rich = (
-        _notebook_observer(total_candidates, benchmark, candidate_models, candidate_urls)
-        if in_notebook
+        _notebook_observer(
+            total_candidates, benchmark, candidate_models, candidate_urls, check_disclosure
+        )
+        if enabled and in_notebook
         else None
     )
+    # The paid-check disclosure must never be silent (OME-845): the panel is its calm
+    # carrier, and every path that ends without a panel — progress off, headless, panel
+    # construction failure — falls back to the Python warning the panel replaced.
+    if check_disclosure is not None and rich is None:
+        import warnings
+
+        from screamingface.warnings import EvaluationWarning
+
+        warnings.warn(check_disclosure, EvaluationWarning, stacklevel=5)
+    if not enabled:
+        return None
     return _ProgressObserver(selected_stream) if rich is None else rich
 
 
@@ -42,6 +55,7 @@ def _notebook_observer(
     benchmark: str | None,
     candidate_models: tuple[str, ...],
     candidate_urls: tuple[str, ...],
+    check_disclosure: str | None = None,
 ) -> Callable[[Event], None] | None:
     """The live panel, or None when it cannot be built (text progress then carries it).
 
@@ -58,6 +72,7 @@ def _notebook_observer(
             benchmark,
             candidate_models,
             candidate_urls,
+            check_disclosure=check_disclosure,
         )
     except Exception:
         _logger.debug("Rich notebook progress unavailable; using text progress", exc_info=True)

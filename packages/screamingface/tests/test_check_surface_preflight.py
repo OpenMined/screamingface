@@ -21,7 +21,6 @@ from screamingface._evaluation.benchmark import (
 from screamingface._evaluation.runner import _evaluation_inputs, _validate_check_surface
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import PlanningError
-from screamingface.warnings import EvaluationWarning
 
 _CHECK_BLOCK = {
     "check_route": "/benchmarks/ifeval/abc123/check-surface",
@@ -139,8 +138,8 @@ def test_a_paid_surface_warns_with_the_maximum_check_call_count() -> None:
         expected_check_cost="paid",
     )
 
-    with pytest.warns(EvaluationWarning, match="60 paid check calls"):
-        _validate_check_surface((loop,), "quizbench", _bare_resource(surface))
+    message = _validate_check_surface((loop,), "quizbench", _bare_resource(surface))
+    assert message is not None and "60 paid check calls" in message
 
 
 def test_corrective_recipes_are_public_evaluation_inputs() -> None:

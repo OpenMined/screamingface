@@ -60,7 +60,7 @@ def evaluate_sync(
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = load_benchmark(benchmark, limit)
-    _validate_check_surface(values, benchmark, resource)
+    check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
     catalog = load_models()
     _validate_required_models(evaluation, catalog.models)
@@ -72,6 +72,7 @@ def evaluate_sync(
         benchmark,
         candidate_models=_candidate_model_ids(tuple(evaluation.candidates)),
         candidate_urls=tuple(candidate.url4 for candidate in evaluation.candidates),
+        check_disclosure=check_disclosure,
     )
     try:
         outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
@@ -100,7 +101,7 @@ async def evaluate_async(
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = await load_benchmark(benchmark, limit)
-    _validate_check_surface(values, benchmark, resource)
+    check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
     catalog = await load_models()
     _validate_required_models(evaluation, catalog.models)
@@ -112,6 +113,7 @@ async def evaluate_async(
         benchmark,
         candidate_models=_candidate_model_ids(tuple(evaluation.candidates)),
         candidate_urls=tuple(candidate.url4 for candidate in evaluation.candidates),
+        check_disclosure=check_disclosure,
     )
     try:
         outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
@@ -135,6 +137,7 @@ def _sync_event_observer(
     benchmark: str | None = None,
     candidate_models: tuple[str, ...] = (),
     candidate_urls: tuple[str, ...] = (),
+    check_disclosure: str | None = None,
 ) -> Callable[[Event], None] | None:
     from screamingface._evaluation.progress import _progress_observer
 
@@ -144,6 +147,7 @@ def _sync_event_observer(
         benchmark=benchmark,
         candidate_models=candidate_models,
         candidate_urls=candidate_urls,
+        check_disclosure=check_disclosure,
     )
     if builtin is None and callback is None:
         return None
@@ -157,6 +161,7 @@ def _async_event_observer(
     benchmark: str | None = None,
     candidate_models: tuple[str, ...] = (),
     candidate_urls: tuple[str, ...] = (),
+    check_disclosure: str | None = None,
 ) -> Callable[[Event], Awaitable[None]] | None:
     from screamingface._evaluation.progress import _progress_observer
 
@@ -166,6 +171,7 @@ def _async_event_observer(
         benchmark=benchmark,
         candidate_models=candidate_models,
         candidate_urls=candidate_urls,
+        check_disclosure=check_disclosure,
     )
     if builtin is None and callback is None:
         return None
@@ -341,23 +347,22 @@ def _validate_check_surface(
     values: Sequence[Recipe],
     benchmark: str,
     resource: _BenchmarkResource,
-) -> None:
+) -> str | None:
     """Settle loop Recipes against a benchmark's check surface before spend.
 
     A missing surface fails closed. A paid surface declares the maximum number
-    of benchmark-owned check calls so the caller sees the cost multiplier before
-    Candidate compilation or model dispatch.
+    of benchmark-owned check calls; the returned disclosure text carries that
+    cost multiplier to whichever surface shows it — the evaluation panel when
+    one is rendering, a Python warning otherwise (OME-845). Returns None when
+    there is nothing to disclose.
     """
-
-    import warnings
 
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
     from screamingface.errors import PlanningError
-    from screamingface.warnings import EvaluationWarning
 
     loops = tuple(value for value in values if isinstance(value, CorrectiveLoop | SelfCorrective))
     if not loops:
-        return
+        return None
     surface = resource.check_surface
     if surface is None:
         names = ", ".join(repr(value.name) for value in loops)
@@ -369,16 +374,14 @@ def _validate_check_surface(
             details={"benchmark": benchmark, "candidates": [value.name for value in loops]},
         )
     if surface.expected_check_cost != "paid":
-        return
+        return None
     per_case = sum(value.max_rounds * _loop_member_count(value) for value in loops)
     maximum = per_case * resource.case_count
-    warnings.warn(
+    return (
         f"Benchmark {benchmark!r} may make up to {maximum} paid check calls "
         f"({per_case} per case x {resource.case_count} cases), in addition to the "
         "Candidate's own model calls. Passing earlier uses fewer calls; each check "
-        "may retry according to the benchmark's policy.",
-        EvaluationWarning,
-        stacklevel=3,
+        "may retry according to the benchmark's policy."
     )
 
 
