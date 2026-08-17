@@ -10,6 +10,11 @@ import {
 
 const importCell = `import screamingface as sf`
 
+const connect = `import os
+
+sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
+sf.connect("anthropic", api_key=os.environ["ANTHROPIC_API_KEY"])`
+
 const build = `fusion = sf.Fusion(
     ["openrouter/openai/gpt-5.5", "anthropic/claude-opus-4-8"],
     synthesizer="anthropic/claude-opus-4-8",
@@ -35,10 +40,12 @@ candidate.score`
     </p>
 
     <Note>
-      You need the Client installed and one provider connected first — see
-      <RouterLink to="/sf-client/installation">Installation</RouterLink> and
-      <RouterLink to="/sf-client/guides/connections">Connect a provider</RouterLink>. This tutorial
-      talks to the hosted engine, so once a provider is connected you are ready to go.
+      You need the Client installed (see
+      <RouterLink to="/sf-client/installation">Installation</RouterLink>) and API keys for
+      OpenRouter and Anthropic. This tutorial talks to the hosted engine and connects both providers
+      explicitly below; the
+      <RouterLink to="/sf-client/guides/connections">Connect a provider</RouterLink> guide covers
+      OAuth and the interactive panel.
     </Note>
 
     <h2>1 · Import the library</h2>
@@ -49,7 +56,20 @@ candidate.score`
       <NbCell :count="1" :code="importCell" />
     </div>
 
-    <h2>2 · Build the fusion</h2>
+    <h2>2 · Connect your providers</h2>
+
+    <p>
+      The fusion below uses one model from OpenRouter and one from Anthropic, so connect both. Each
+      call hands a key to the engine, which stores it encrypted and uses it to reach that provider;
+      the key never lands in your recipe or your report. Read keys from the environment rather than
+      pasting them into a cell.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="2" :code="connect" />
+    </div>
+
+    <h2>3 · Build the fusion</h2>
 
     <p>
       Give <code>sf.Fusion</code> two model routes and a synthesizer. The two members answer the
@@ -59,10 +79,10 @@ candidate.score`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="2" :code="build" />
+      <NbCell :count="3" :code="build" />
     </div>
 
-    <h2>3 · Run it</h2>
+    <h2>4 · Run it</h2>
 
     <p>
       <code>sf.evaluate</code> runs your fusion against a benchmark and grades the answers.
@@ -71,10 +91,10 @@ candidate.score`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="3" :code="run" />
+      <NbCell :count="4" :code="run" />
     </div>
 
-    <h2>4 · Read the score</h2>
+    <h2>5 · Read the score</h2>
 
     <p>
       The run comes back as a <RouterLink to="/sf-client/api/reports">Report</RouterLink>. You gave
@@ -83,7 +103,7 @@ candidate.score`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="4" :code="read" />
+      <NbCell :count="5" :code="read" />
     </div>
 
     <p>
