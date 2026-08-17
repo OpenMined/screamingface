@@ -168,6 +168,8 @@ async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) ->
                             "weight": 3,
                             "axis": "correctness",
                         },
+                        # OME-848: the 5 passes fold to their majority verdict.
+                        "outcome": "MET",
                     }
                 ],
             },
