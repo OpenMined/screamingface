@@ -414,6 +414,9 @@ def test_score_schema_publishes_only_the_local_part(stored: str, published: str)
         id=uuid4(),
         version=1,
         benchmark_id="hle",
+        # OME-770 makes this required. The published-identity contract under test
+        # here is independent of cost, so None is honest rather than a placeholder.
+        run_cost_usd=None,
         # OME-775 made this required; the published-identity contract under test here
         # is independent of which benchmark revision produced the score.
         benchmark_revision=None,
@@ -449,6 +452,9 @@ def test_a_null_submitter_stays_null() -> None:
         id=uuid4(),
         version=1,
         benchmark_id="hle",
+        # OME-770 makes this required. The published-identity contract under test
+        # here is independent of cost, so None is honest rather than a placeholder.
+        run_cost_usd=None,
         # OME-775 made this required; the published-identity contract under test here
         # is independent of which benchmark revision produced the score.
         benchmark_revision=None,
