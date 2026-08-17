@@ -40,7 +40,6 @@
     // action — behind a horizontal scroll. `total_questions` is still shown on
     // each spec's detail page, so no data is lost from the portal.
     { key: "submitted_at", label: "Submitted", sort: "date", dir: "desc" },
-    { key: "verified_by_openmined", label: "Verified", sort: "bool", dir: "desc" },
     { key: "__run", label: "Run Locally", sort: null, cls: "col-run" },
   ];
 
@@ -161,9 +160,10 @@
       // INVARIANT: this marks the row with the highest accuracy on screen — a
       // "leading" signal, NOT a reproduction claim. SFDS defines gain as the
       // leading-row/SOTA colour, so gold here is sanctioned, but the accessible
-      // text below must not promise reproduction: the leader is frequently
-      // unverified (the Verified column shows that per row), and the medal that
-      // *would* assert reproduction is descoped to OME-771 — see renderMarkSlot.
+      // text below must not promise reproduction. Nothing here is reproduced:
+      // no service re-runs submissions (OME-414) and the verification UI was
+      // withdrawn in OME-820, so there is no per-row signal to point at. The
+      // medal that *would* assert reproduction is descoped to OME-771.
       var isLeader = barMax !== null && entry.accuracy === barMax;
       if (isLeader) tr.className = "sota";
 
@@ -183,10 +183,6 @@
       tr.appendChild(P.el("td", null, P.formatSubmitter(entry.submitted_by)));
       tr.appendChild(renderAccuracyCell(entry.accuracy, barMax));
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
-
-      var verTd = document.createElement("td");
-      verTd.appendChild(P.createVerifiedBadge(entry.verified_by_openmined));
-      tr.appendChild(verTd);
 
       var runTd = document.createElement("td");
       runTd.className = "col-run";
@@ -212,12 +208,18 @@
     }
 
     var best = bestAccuracy(entries);
-    var verified = entries.filter(L.isReproducible).length;
-    // Bare numbers: the .stats cell labels ("Specs shown", "Verified rows")
-    // already carry the words.
+    // OME-820: the "Verified rows" stat is gone, not relabelled. verified_by_openmined
+    // now carries no trustworthy verification semantics — nothing re-runs submissions
+    // and nothing attests where a run executed — so counting it measures nothing.
+    //
+    // Note it is NOT literally uniform: rows created before OME-820 keep false, since
+    // D5 forbids a backfill. That makes a count WORSE than useless rather than merely
+    // useless — it would partition rows by whether they predate the default change,
+    // reading as a verification tally while actually tracking submission date. Same
+    // argument retires the pool filter. Both return with OME-821 (review of #588).
+    // Bare numbers: the .stats cell labels ("Specs shown") already carry the words.
     document.getElementById("summary-best").textContent = P.formatPercent(best);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
-    document.getElementById("summary-verified").textContent = verified.toLocaleString();
     summaryNode.hidden = false;
   }
 
@@ -243,6 +245,13 @@
       ? "Frontier currently held by a " + data.current.openness +
         " entry (" + data.current.label + ")"
       : "";
+    // OME-820 + OME-323 interaction: `.stats--two` re-columns the strip for the two
+    // cards left when the Verified counter was withdrawn. This card is the third, so
+    // the modifier must come off the moment it is shown, or the strip wraps it onto
+    // its own row at >=621px. Removing it restores the vendored three-column layout;
+    // the strip keeps two columns for as long as this card stays hidden.
+    var strip = document.getElementById("leaderboard-summary");
+    if (strip) strip.classList.remove("stats--two");
     card.hidden = false;
   }
 

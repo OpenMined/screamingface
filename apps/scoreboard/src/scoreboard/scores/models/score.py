@@ -25,7 +25,33 @@ class BaseScore(BaseScoreboardModel):
     client_name = fields.CharField(max_length=128, null=True)
     client_version = fields.CharField(max_length=64, null=True)
     client_platform = fields.CharField(max_length=32, null=True)
-    verified_by_openmined = fields.BooleanField(default=False)
+    # WHY True: a TEMPORARY placeholder, not a verification claim.
+    #
+    # Nothing re-runs submissions yet (OME-414 is unstarted and unstaffed), so with
+    # default=False every row on the board read "unverified" permanently. Nothing
+    # attests execution provenance either: the SDK takes independent engine_url and
+    # scoreboard_url, and the chart ships authMode: disabled, so a submission is an
+    # unattested client payload. This field therefore asserts nothing today.
+    #
+    # INVARIANT: the public portal must not claim more than this. index.html and
+    # benchmark.html state that scores are self-reported and that this column does not
+    # yet distinguish rows. They previously said "Verified means OpenMined
+    # independently reproduced the run", which this default would have turned into a
+    # false claim on every row. Change the default and that copy together, or the
+    # board lies.
+    #
+    # INVARIANT: never client-settable. Absent from ScoreSubmission, so sending it is a
+    # 422. The trust signal must not be assertable by the party it exists to constrain.
+    #
+    # AIDEV-NOTE: OME-821 replaces this with a real distinction (self-reported vs
+    # OpenMined-run); OME-414 is what makes "reproduced" possible at all. Until one of
+    # them lands, do not build a UI that filters or ranks on this field. Not because
+    # the value is uniform — rows predating this change keep false, since D5 forbids a
+    # backfill — but because the value certifies nothing either way. A filter would
+    # therefore split rows by whether they predate the default change while presenting
+    # itself as a verification filter, which is worse than filtering nothing
+    # (review of #588).
+    verified_by_openmined = fields.BooleanField(default=True)
     # INVARIANT: the Engine benchmark revision this score was produced against. The
     # leaderboard partitions ranking on (spec_id, benchmark_revision) so results measured
     # against different dataset/protocol revisions never rank against each other (OME-775).

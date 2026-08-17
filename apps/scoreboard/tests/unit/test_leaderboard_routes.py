@@ -108,7 +108,10 @@ async def test_get_leaderboard_returns_ranked_best_score_per_spec(
     assert [entry["spec_id"] for entry in body["entries"]] == ["spec-b", "spec-a", "spec-c"]
     assert [entry["accuracy"] for entry in body["entries"]] == [0.95, 0.9, 0.7]
     assert body["entries"][0]["ran_with_providers"] == ["openai", "gemini"]
-    assert body["entries"][0]["verified_by_openmined"] is False
+    # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
+    # nothing re-runs submissions and nothing attests where a run executed. The
+    # False case stays covered by the explicit-False row test.
+    assert body["entries"][0]["verified_by_openmined"] is True
     assert body["entries"][1]["url4_expression"] == "url4://benchmark/hle/spec-a/0.9"
 
 
@@ -415,3 +418,27 @@ async def test_the_database_still_holds_the_full_address(
     row = await Score.get(id=outcome.score.id)
 
     assert row.submitted_by == "trask@openmined.org"
+
+
+# --- OME-820: the default must be visible on the public read paths ---
+
+
+async def test_a_new_submission_reads_as_verified_on_both_read_paths(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The board renders this flag; OME-771 builds a pool toggle on it.
+
+    Until now every row read `false` forever, because nothing could set the flag
+    and OME-414 is unstaffed.
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await store.submit(_submission(spec_id="verified-default"))
+
+    board = await async_client.get("/v1/leaderboard/hle")
+    history = await async_client.get("/v1/leaderboard/hle/verified-default/history")
+
+    assert board.status_code == 200
+    entry = next(e for e in board.json()["entries"] if e["spec_id"] == "verified-default")
+    assert entry["verified_by_openmined"] is True
+    assert history.json()["submissions"][0]["verified_by_openmined"] is True

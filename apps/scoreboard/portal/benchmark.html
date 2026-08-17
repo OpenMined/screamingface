@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>screamingface — leaderboard</title>
-  <meta name="description" content="A screamingface benchmark leaderboard with accuracy, question counts, providers, verification status, and local rerun links.">
+  <meta name="description" content="A screamingface benchmark leaderboard with accuracy, question counts, providers, and local rerun links.">
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
   <link rel="stylesheet" href="fonts.css">
@@ -44,15 +44,14 @@
 
     <div class="note">
       <span class="kicker">Read this first</span>
-      Treat this as a public scoreboard, not a trust oracle. “Verified” means
-      OpenMined independently reproduced the run; unbadged rows are community
-      submissions that still need reproduction.
+      Treat this as a public scoreboard, not a trust oracle. OpenMined is not
+      independently re-running submissions yet, so every score here is
+      self-reported. Each row keeps its URL4 expression, so you can rerun it yourself.
     </div>
 
-    <div id="leaderboard-summary" class="stats" aria-label="Leaderboard summary" hidden>
+    <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
       <div class="s"><span class="k">Best accuracy</span><div class="v gain" id="summary-best">—</div></div>
       <div class="s"><span class="k">Specs shown</span><div class="v" id="summary-specs">—</div></div>
-      <div class="s"><span class="k">Verified rows</span><div class="v" id="summary-verified">—</div></div>
       <div class="s" id="summary-frontier-card" hidden><span class="k">Open frontier share</span><div class="v" id="summary-frontier">—</div></div>
     </div>
 

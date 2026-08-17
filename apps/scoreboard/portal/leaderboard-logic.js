@@ -37,10 +37,24 @@
   // never did, which is exactly what the page's own disclaimer denies.
   //
   // AIDEV-NOTE: `verified_by_openmined` is the only reproducibility signal the
-  // Scoreboard API exposes today. OME-771 intends to source this from the SF
-  // engine instead ("have we run this URL4 before" — i.e. a global-cache hit).
-  // When that lands, change the predicate on the next line and nothing else:
-  // the tests pin the invariant above, not the current source of the signal.
+  // Scoreboard API exposes today, and since OME-820 it is a placeholder that
+  // asserts NOTHING: the default is true and no service re-runs submissions, so a
+  // true value certifies nothing. Rows predating OME-820 keep false (D5 forbids a
+  // backfill), so `?pool=verified` would not narrow the pool to *everything* — it
+  // would split on submission date while presenting itself as a verification
+  // filter, which is worse. That is why nothing calls these functions yet.
+  //
+  // OME-771 intends to source the signal from the SF engine instead ("have we run
+  // this URL4 before" — i.e. a global-cache hit), and OME-821 gives the field a
+  // real meaning. When either lands, TWO lines move: the predicate below, and the
+  // one-line `entry()` helper at the top of leaderboard-logic.test.js, which names
+  // `verified_by_openmined` when building fixtures. The assertions themselves do
+  // not change — they pin the invariant above, not the source of the signal.
+  //
+  // AIDEV-NOTE: this note used to say "change the predicate and nothing else",
+  // which was wrong: the fixtures name the field too. Corrected in review of #588,
+  // because "nothing else" is exactly the sort of promise a later reader trusts
+  // instead of checking.
   function isReproducible(entry) {
     return entry.verified_by_openmined === true;
   }

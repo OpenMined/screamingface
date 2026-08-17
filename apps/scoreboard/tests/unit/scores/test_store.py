@@ -99,7 +99,10 @@ async def test_submit_inserts_and_returns_score(tortoise_db: None) -> None:
     assert score.correct_questions == 75
     assert score.ran_with_providers == ["openai"]
     assert score.client_name == "scoreboard-test"
-    assert score.verified_by_openmined is False
+    # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
+    # nothing re-runs submissions and nothing attests where a run executed. The
+    # False case stays covered by the explicit-False row test.
+    assert score.verified_by_openmined is True
     assert await Score.all().count() == 1
 
 
@@ -755,3 +758,115 @@ async def test_leaderboard_at_a_registered_revision_excludes_pre_revision_rows(
     rows = await store.leaderboard("hle")
 
     assert [row.spec_id for row in rows] == ["current"]
+
+
+# --- OME-820: verified means "ran on OpenMined infrastructure" (spec 2.1) ---
+
+
+async def test_a_new_submission_is_verified_by_default(tortoise_db: None) -> None:
+    """The default exists so the board does not read "unverified" on every row.
+
+    It asserts nothing: no service re-runs submissions (OME-414) and nothing
+    attests where a run executed — the SDK takes independent engine and scoreboard
+    URLs, and the chart ships authMode: disabled. OME-821 gives it a real meaning.
+    """
+    store = ScoreStore()
+    await store.register_benchmark("hle", "HLE")
+
+    outcome = await store.submit(_submission(spec_id="fresh"))
+
+    assert outcome.created is True
+    assert outcome.score.verified_by_openmined is True
+
+
+async def test_pre_existing_unverified_rows_are_not_backfilled(tortoise_db: None) -> None:
+    """The column can still hold False, so a row is not forced true on read.
+
+    NOTE ON SCOPE: this does NOT prove D5 ("no backfill"). `tortoise_db` builds the
+    schema from the models via `tortoise_test_context`, so migration files never
+    execute in tests — a future data migration flipping existing rows would leave
+    this green. D5 is guarded separately by
+    `test_no_migration_backfills_the_verified_column`, which reads the migration
+    files themselves. Found in review of OME-820.
+    """
+    benchmark = await Benchmark.create(id="hle", display_name="HLE")
+    legacy = await Score.create(
+        benchmark=benchmark,
+        spec_id="legacy",
+        url4_expression="x",
+        accuracy=0.5,
+        total_questions=2,
+        correct_questions=1,
+        ran_with_providers=["openai"],
+        verified_by_openmined=False,
+        content_hash="legacy-hash",
+    )
+
+    reread = await Score.get(id=legacy.id)
+
+    assert reread.verified_by_openmined is False
+
+
+async def test_mark_verified_flips_a_false_row_and_is_idempotent(
+    tortoise_db: None,
+) -> None:
+    """Starts from an explicit False row so the transition is actually exercised.
+
+    An earlier version of this test submitted a row (which now defaults to True) and
+    asserted True afterwards — it would have passed even if mark_verified() did nothing
+    at all. Found in review of OME-820.
+    """
+    benchmark = await Benchmark.create(id="hle", display_name="HLE")
+    score = await Score.create(
+        benchmark=benchmark,
+        spec_id="idem",
+        url4_expression="x",
+        accuracy=0.5,
+        total_questions=2,
+        correct_questions=1,
+        ran_with_providers=["openai"],
+        verified_by_openmined=False,
+        content_hash="idem-hash",
+    )
+    store = ScoreStore()
+
+    await store.mark_verified(score.id)
+    after_first = await Score.get(id=score.id)
+    await store.mark_verified(score.id)
+    after_second = await Score.get(id=score.id)
+
+    assert after_first.verified_by_openmined is True
+    assert after_second.verified_by_openmined is True
+
+
+def test_no_migration_backfills_the_verified_column() -> None:
+    """INVARIANT (D5): no migration may flip existing rows' verified_by_openmined.
+
+    This is the real D5 guard. The runtime test above cannot provide it: `tortoise_db`
+    builds the schema from the models via `tortoise_test_context`, so migration files
+    never execute under pytest and a data migration would go unnoticed.
+
+    Reading the migration sources instead makes the invariant falsifiable — adding an
+    UPDATE on this column fails here. WHY it matters: rows created before OME-820 were
+    genuinely not verified (some are local test submissions), so backfilling them to
+    True would publish a claim about runs nobody checked.
+    """
+    from pathlib import Path
+
+    import scoreboard.scores.migrations as migrations_pkg
+
+    directory = Path(migrations_pkg.__file__).parent
+    sources = sorted(p for p in directory.glob("*.py") if p.name != "__init__.py")
+    assert sources, "no migration files found — the guard would pass vacuously"
+
+    offenders = [
+        path.name
+        for path in sources
+        if "verified_by_openmined" in (text := path.read_text())
+        and any(word in text.lower() for word in ("update", "runpython", "runsql"))
+    ]
+
+    assert offenders == [], (
+        f"migration(s) may backfill verified_by_openmined: {offenders}. "
+        "Existing rows must keep the value they were created with (OME-820 D5)."
+    )
