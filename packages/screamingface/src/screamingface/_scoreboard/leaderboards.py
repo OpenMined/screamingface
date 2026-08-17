@@ -300,9 +300,9 @@ def _decode_score(payload: object) -> LeaderboardScore:
             client_platform=_optional_text(
                 root.get("client_platform"), "Leaderboard score client_platform"
             ),
-            verified_by_openmined=_boolean(
-                root.get("verified_by_openmined"),
-                "Leaderboard score verified_by_openmined",
+            verified_by_screamingface=_boolean(
+                root.get("verified_by_screamingface"),
+                "Leaderboard score verified_by_screamingface",
             ),
             metadata=metadata,
         )
@@ -400,8 +400,8 @@ def _decode_entry(value: object) -> LeaderboardEntry:
             ),
             submitted_at=_timestamp(root.get("submitted_at"), "Leaderboard entry submitted_at"),
             submitted_by=_optional_text(root.get("submitted_by"), "Leaderboard entry submitted_by"),
-            verified_by_openmined=_boolean(
-                root.get("verified_by_openmined"), "Leaderboard entry verified_by_openmined"
+            verified_by_screamingface=_boolean(
+                root.get("verified_by_screamingface"), "Leaderboard entry verified_by_screamingface"
             ),
             url4=Url4(_text(root.get("url4_expression"), "Leaderboard entry url4_expression")),
         )

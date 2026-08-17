@@ -6,15 +6,15 @@ Pulse tenant documentation for the deployed hostname and service overlay.
 
 ## Primary sources reviewed
 
-- [Pulse ScreamingFace overview](https://pulse.dev.openmined.org/docs/tenants/screamingface/)
-- [Deployed architecture](https://pulse.dev.openmined.org/docs/tenants/screamingface/architecture/)
-- [Credentials and identity](https://pulse.dev.openmined.org/docs/tenants/screamingface/credentials/)
-- [Evidence and current status](https://pulse.dev.openmined.org/docs/tenants/screamingface/evidence-and-status/)
-- [Deployed URL4 Cloud](https://pulse.dev.openmined.org/docs/tenants/screamingface/apps/url4-cloud/)
-- [Deployed AI Gateway](https://pulse.dev.openmined.org/docs/tenants/screamingface/apps/aigateway/)
-- [Deployment decisions](https://pulse.dev.openmined.org/docs/tenants/screamingface/decisions/)
-- [Infrastructure change workflow](https://pulse.dev.openmined.org/docs/tenants/screamingface/change-workflow/)
-- [Pulse gateway identity flow](https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/)
+- [Pulse ScreamingFace overview](https://pulse.dev.screamingface.ai/docs/tenants/screamingface/)
+- [Deployed architecture](https://pulse.dev.screamingface.ai/docs/tenants/screamingface/architecture/)
+- [Credentials and identity](https://pulse.dev.screamingface.ai/docs/tenants/screamingface/credentials/)
+- [Evidence and current status](https://pulse.dev.screamingface.ai/docs/tenants/screamingface/evidence-and-status/)
+- [Deployed URL4 Cloud](https://pulse.dev.screamingface.ai/docs/tenants/screamingface/apps/url4-cloud/)
+- [Deployed AI Gateway](https://pulse.dev.screamingface.ai/docs/tenants/screamingface/apps/aigateway/)
+- [Deployment decisions](https://pulse.dev.screamingface.ai/docs/tenants/screamingface/decisions/)
+- [Infrastructure change workflow](https://pulse.dev.screamingface.ai/docs/tenants/screamingface/change-workflow/)
+- [Pulse gateway identity flow](https://pulse.dev.screamingface.ai/docs/products/gateway-identity-flow/)
 - [Cloudflare Access HTTP applications](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/)
 - [Cloudflare Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)
 

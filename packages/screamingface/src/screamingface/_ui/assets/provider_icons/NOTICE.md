@@ -1,7 +1,7 @@
 # Provenance of these icons
 
 Vendored verbatim (unmodified, no recoloring) from
-`OpenMined/screamingface-brand`'s `assets/model-logos/` — see that repo's per-provider
+`ScreamingFace/screamingface-brand`'s `assets/model-logos/` — see that repo's per-provider
 `source.txt` for original attribution. Copied here so `sf.connect()` can render a
 real provider mark instead of a placeholder monogram.
 
