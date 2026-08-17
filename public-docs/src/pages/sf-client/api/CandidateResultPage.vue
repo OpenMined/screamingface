@@ -22,7 +22,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
 <template>
   <DocLayout
     title="CandidateResult"
-    description="One candidate's outcome, and the values it carries: MemberResult, OperationInfo, CaseResult."
+    description="One candidate's outcome and the values it carries — MemberResult, OperationInfo, CaseResult — and the CaseGrade tree behind each case score."
     :navigation="navigation"
     :version="version"
   >
@@ -180,6 +180,284 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
     <div class="not-prose">
       <NbCell :count="8" :code="cases"><NbTextOut :text="casesOut" /></NbCell>
     </div>
+
+    <h2>How a case is graded</h2>
+
+    <p>
+      A <code>CaseResult</code>'s <code>grade</code> is a <code>CaseGrade</code>, and it is the top
+      of a small tree. A grade holds ordered <code>Check</code>s; each check holds the
+      <code>Evidence</code> gathered for it; each piece of evidence names the
+      <code>EvidenceProducer</code> that observed it. Reading down takes you from one case score to
+      the exact observation a benchmark accepted or rejected.
+    </p>
+
+    <figure class="not-prose" style="margin: var(--space-8) 0">
+      <svg
+        viewBox="0 0 740 130"
+        role="img"
+        aria-label="A CaseGrade holds many ordered Checks; each Check holds the Evidence gathered for it; each Evidence names the one EvidenceProducer that observed it."
+        style="width: 100%; height: auto; font-family: var(--f-mono)"
+      >
+        <defs>
+          <marker
+            id="cg-arrow"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+
+        <rect
+          x="8"
+          y="40"
+          width="150"
+          height="54"
+          style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1"
+        />
+        <text x="83" y="64" text-anchor="middle" style="fill: var(--text); font-size: 13px">
+          CaseGrade
+        </text>
+        <text x="83" y="82" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          the case score
+        </text>
+
+        <rect
+          x="204"
+          y="40"
+          width="150"
+          height="54"
+          style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1"
+        />
+        <text x="279" y="64" text-anchor="middle" style="fill: var(--text); font-size: 13px">
+          Check
+        </text>
+        <text x="279" y="82" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          one rule
+        </text>
+
+        <rect
+          x="400"
+          y="40"
+          width="150"
+          height="54"
+          style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1"
+        />
+        <text x="475" y="64" text-anchor="middle" style="fill: var(--text); font-size: 13px">
+          Evidence
+        </text>
+        <text x="475" y="82" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          one observation
+        </text>
+
+        <rect
+          x="580"
+          y="40"
+          width="152"
+          height="54"
+          style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1"
+        />
+        <text x="656" y="64" text-anchor="middle" style="fill: var(--text); font-size: 11px">
+          EvidenceProducer
+        </text>
+        <text x="656" y="82" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          the observer
+        </text>
+
+        <g style="stroke: var(--text-2); stroke-width: 1; fill: none">
+          <path d="M158 67 H204" marker-end="url(#cg-arrow)" />
+          <path d="M354 67 H400" marker-end="url(#cg-arrow)" />
+          <path d="M550 67 H580" marker-end="url(#cg-arrow)" />
+        </g>
+        <text x="181" y="59" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          many
+        </text>
+        <text x="377" y="59" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          many
+        </text>
+        <text x="565" y="59" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
+          one
+        </text>
+      </svg>
+    </figure>
+
+    <h2>CaseGrade</h2>
+
+    <p>
+      The aggregate for one case: a <code>score</code>, the <code>method</code> that produced it,
+      and the ordered <code>Check</code>s it was built from.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>method</code></td>
+          <td><code>str</code></td>
+          <td>How the score was produced.</td>
+        </tr>
+        <tr>
+          <td><code>score</code></td>
+          <td><code>float&nbsp;|&nbsp;None</code></td>
+          <td>The case's score, or <code>None</code> when no aggregate was available.</td>
+        </tr>
+        <tr>
+          <td><code>checks</code></td>
+          <td><code>tuple[Check, ...]</code></td>
+          <td>The ordered checks behind the score.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Check</h2>
+
+    <p>
+      One ordered grading check and all the <code>Evidence</code> gathered for it. The benchmark
+      owns the check; the client only reports what it returned, so match on <code>id</code> rather
+      than on <code>label</code>.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>type</code></td>
+          <td><code>str</code></td>
+          <td>The check's kind.</td>
+        </tr>
+        <tr>
+          <td><code>id</code></td>
+          <td><code>str</code></td>
+          <td>Identifies the check within the case. The stable value to match on.</td>
+        </tr>
+        <tr>
+          <td><code>label</code></td>
+          <td><code>str</code></td>
+          <td>A human-readable description of what it checks.</td>
+        </tr>
+        <tr>
+          <td><code>evidence</code></td>
+          <td><code>tuple[Evidence, ...]</code></td>
+          <td>The observations gathered for it, in sequence order.</td>
+        </tr>
+        <tr>
+          <td><code>outcome</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            <code>MET</code> or <code>UNMET</code>, or <code>None</code> when it produced no
+            verdict.
+          </td>
+        </tr>
+        <tr>
+          <td><code>score</code></td>
+          <td><code>float&nbsp;|&nbsp;None</code></td>
+          <td>The check's own score, where it has one.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Evidence</h2>
+
+    <p>
+      One exact observation a check accepted or rejected. When <code>valid</code> is
+      <code>False</code> the observation could not be read, so it carries no
+      <code>outcome</code> and no <code>explanation</code> — that state records a gap rather than a
+      verdict.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>sequence</code></td>
+          <td><code>int</code></td>
+          <td>Position within the check, unique and 1-based. This is the true order.</td>
+        </tr>
+        <tr>
+          <td><code>producer</code></td>
+          <td><code>EvidenceProducer</code></td>
+          <td>What observed it.</td>
+        </tr>
+        <tr>
+          <td><code>valid</code></td>
+          <td><code>bool</code></td>
+          <td>Whether the observation could be read at all.</td>
+        </tr>
+        <tr>
+          <td><code>outcome</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            <code>MET</code>, <code>UNMET</code>, <code>PASS</code> or <code>FAIL</code>. Unset on
+            invalid evidence.
+          </td>
+        </tr>
+        <tr>
+          <td><code>explanation</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>Why, when the producer gave a reason. Unset on invalid evidence.</td>
+        </tr>
+        <tr>
+          <td><code>raw_output</code></td>
+          <td><code>object</code></td>
+          <td>The producer's raw output, as it was returned.</td>
+        </tr>
+        <tr>
+          <td><code>metadata</code></td>
+          <td><code>Mapping</code></td>
+          <td>Anything else recorded with the observation.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>EvidenceProducer</h2>
+
+    <p>
+      The producer the Engine credits with one observation — what looked at the output and reported.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>type</code></td>
+          <td><code>str</code></td>
+          <td>The kind of producer, such as the grader that ran.</td>
+        </tr>
+        <tr>
+          <td><code>id</code></td>
+          <td><code>str</code></td>
+          <td>Identifies the producer.</td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>MemberResult</h2>
 
