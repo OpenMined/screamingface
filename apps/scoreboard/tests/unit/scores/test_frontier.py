@@ -28,6 +28,10 @@ def _score(
         # OME-852: required since OME-775. None is honest here — frontier and openness
         # classification do not depend on which benchmark revision produced the score.
         benchmark_revision=None,
+        # OME-770 made this required: a nullable-but-required field means a construction
+        # site cannot silently omit a cost, which would read as free rather than unknown.
+        # None is honest here — frontier and openness classification ignore cost.
+        run_cost_usd=None,
         spec_id=spec_id,
         url4_expression=f"url4://benchmark/{spec_id}",
         submitted_by="tester",
