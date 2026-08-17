@@ -36,7 +36,7 @@ const modelSig = `sf.Model(
   >
     <p>
       This page documents the <code>Model</code> recipe class you build, and the read-only
-      <strong>discovery types</strong> the Engine returns when you inspect what a route supports.
+      <strong>discovery types</strong> the engine returns when you inspect what a route supports.
     </p>
 
     <h2 id="model">Model</h2>
@@ -146,9 +146,9 @@ const modelSig = `sf.Model(
     <p>
       These are the read-only values model discovery returns.
       <code>client.models.list()</code> hands back a <code>ModelInfo</code> for every route the
-      configured Engine can currently reach, and <code>client.models.get(id)</code> returns the
+      configured engine can currently reach, and <code>client.models.get(id)</code> returns the
       fuller <code>ModelDetails</code> profile for one route. Consulting them before naming a route
-      in a <a href="#model">Model</a> is worthwhile: a route the Engine does not carry raises a
+      in a <a href="#model">Model</a> is worthwhile: a route the engine does not carry raises a
       <code>PlanningError</code> at evaluation time rather than at construction time.
     </p>
 
@@ -161,9 +161,9 @@ const modelSig = `sf.Model(
     <h2>ModelInfo</h2>
 
     <p>
-      A <code>ModelInfo</code> is one model route the configured Engine can currently reach.
+      A <code>ModelInfo</code> is one model route the configured engine can currently reach.
       <code>client.models.list()</code> returns every addressable route, and consulting it before
-      naming a route in a <a href="#model">Model</a> is worthwhile: a route the Engine does not
+      naming a route in a <a href="#model">Model</a> is worthwhile: a route the engine does not
       carry raises a <code>PlanningError</code> at evaluation time rather than at construction time.
     </p>
 

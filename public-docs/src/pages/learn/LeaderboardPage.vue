@@ -101,7 +101,7 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
       usually far cheaper than the original run was.
     </p>
 
-    <h2>From the client</h2>
+    <h2>From the Client</h2>
 
     <p>
       The <RouterLink to="/sf-client">Client</RouterLink> reads and writes the board directly. To
@@ -133,7 +133,7 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
 
     <blockquote>
       The board is not a vote and not a vendor chart. Rankings come from graded benchmark runs
-      behind the <RouterLink to="/learn/engine">Engine</RouterLink>'s trust boundary, where the
+      behind the <RouterLink to="/learn/engine">engine</RouterLink>'s trust boundary, where the
       answer keys stay, and no rank can be bought or self-reported.
     </blockquote>
 

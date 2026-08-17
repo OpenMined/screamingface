@@ -276,9 +276,8 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
       By the end, you'll have a scored comparison of <strong>16 candidates</strong>: seven solo
       models and nine fusions built from those models, all on one
       <a href="https://arxiv.org/abs/2602.11685" target="_blank" rel="noopener">DRACO</a> case with
-      ten criteria and
-      one judge pass each. The whole thing runs as a single request of roughly 80 to 85 provider
-      calls.
+      ten criteria and one judge pass each. The whole thing runs as a single request of roughly 80
+      to 85 provider calls.
     </p>
 
     <blockquote>
@@ -293,8 +292,8 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     <p>
       The <RouterLink to="/learn/engine"><strong>ScreamingFace Engine</strong></RouterLink> is a
       separate process that holds your provider credentials, keeps the benchmark answer keys, calls
-      the models on your behalf, and does the grading. The client hands all of that work to it, so
-      this first step tells the client where to find the engine.
+      the models on your behalf, and does the grading. The Client hands all of that work to it, so
+      this first step tells the Client where to find the engine.
     </p>
 
     <div class="not-prose">
@@ -304,10 +303,10 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     <p>
       <code>sf.configure()</code> validates and stores the URL without making a network request. The
       example above points at a <strong>local engine</strong> on
-      <code>http://127.0.0.1:9108</code> — to run one yourself, install the <code>[runtime]</code>
-      extra and start the stack with <code>screamingface up</code>. The
-      <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through that end
-      to end.
+      <code>http://127.0.0.1:9108</code> — to run one yourself, install the
+      <code>[runtime]</code> extra and start the stack with <code>screamingface up</code>. The
+      <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through that
+      end to end.
     </p>
 
     <p>
@@ -364,16 +363,16 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 
     <blockquote>
       We're using OpenRouter here for simplicity, but you can build fusions with models from any of
-      the providers listed above. One caveat: <strong>caching is currently available only for
-      OpenRouter and Anthropic</strong>, so runs on the other providers aren't reused yet — extending
-      it to the rest is work in progress.
+      the providers listed above. One caveat:
+      <strong>caching is currently available only for OpenRouter and Anthropic</strong>, so runs on
+      the other providers aren't reused yet — extending it to the rest is work in progress.
     </blockquote>
 
     <h3>Configure OpenRouter via script</h3>
 
     <p>
-      Scripts skip the panel by naming the provider and passing the key directly. Pull the key from the
-      environment instead of hardcoding it.
+      Scripts skip the panel by naming the provider and passing the key directly. Pull the key from
+      the environment instead of hardcoding it.
     </p>
 
     <CodeBlock :code="connectScript" language="python" />
@@ -462,7 +461,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     <h2>4 · Look up the benchmark</h2>
 
     <p>
-      Benchmarks live on the engine, not in the client. Fetching one returns its identity and the
+      Benchmarks live on the engine, not in the Client. Fetching one returns its identity and the
       protocol revision it is pinned to, so you can see what you are about to be graded against
       before spending anything. This call is free.
     </p>
@@ -474,7 +473,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     <p>
       It does <strong>not</strong> download the actual questions. Cases are loaded engine-side at
       eval time. A gated dataset reads the <code>HF_TOKEN</code> from the <strong>engine's</strong>
-      environment, not the client's. Set it where the engine runs:
+      environment, not the Client's. Set it where the engine runs:
     </p>
 
     <ul>
@@ -486,7 +485,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
       </li>
       <li>
         <strong>Hosted engine:</strong> The operator sets the token, so gated datasets only work if
-        they've configured one. You can't pass it from the client.
+        they've configured one. You can't pass it from the Client.
       </li>
     </ul>
 
@@ -498,8 +497,8 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 
     <p>
       <code>draco/lite</code> is a reduced form of the full benchmark: one pinned case and ten
-      criteria spanning all four rubric sections, with a single judge pass per criterion. It runs the
-      same protocol as <code>draco</code>, which uses all 100 cases and five judge passes per
+      criteria spanning all four rubric sections, with a single judge pass per criterion. It runs
+      the same protocol as <code>draco</code>, which uses all 100 cases and five judge passes per
       criterion, so you can rehearse the full run at a small fraction of its cost.
     </p>
 
@@ -529,7 +528,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     </div>
 
     <p>
-      Before the first model call, the client checks the whole plan: that the benchmark agrees with
+      Before the first model call, the Client checks the whole plan: that the benchmark agrees with
       what the engine has, that every model route exists in the catalog, that the parameters you set
       are ones those models accept, and that each candidate compiles. Anything wrong with the plan
       raises <code>PlanningError</code>, which names the specific problem in its message; a provider
@@ -539,10 +538,10 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 
     <p>
       The panel updates live as the run proceeds. <code>MODELS</code> counts distinct answering
-      calls (ten, not sixteen, because shared members are computed once). <code>SYNTHESIS</code>
-      counts the nine synthesizers, <code>SCORING</code> the graded candidates, and
-      <code>RESULTS</code> the finalized ones. Progress moves on real grader results, never timers,
-      so if a counter stalls, work actually stalled.
+      calls (ten, not sixteen, because shared members are computed once).
+      <code>SYNTHESIS</code> counts the nine synthesizers, <code>SCORING</code> the graded
+      candidates, and <code>RESULTS</code> the finalized ones. Progress moves on real grader
+      results, never timers, so if a counter stalls, work actually stalled.
     </p>
 
     <blockquote>
@@ -553,10 +552,10 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     </blockquote>
 
     <p>
-      If a model fails, only the candidates using it are affected, and the rest still score. A failure
-      lowers that candidate's coverage instead of counting as zero, so a partial result looks
-      partial. Since every completed call is cached, re-running after a failure is free for work
-      that already succeeded, so you only pay for new, uncached calls.
+      If a model fails, only the candidates using it are affected, and the rest still score. A
+      failure lowers that candidate's coverage instead of counting as zero, so a partial result
+      looks partial. Since every completed call is cached, re-running after a failure is free for
+      work that already succeeded, so you only pay for new, uncached calls.
     </p>
 
     <h2>6 · Read the study</h2>
@@ -588,9 +587,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
         <strong>Coverage</strong>: How much of the case set produced a grade. Below 100% means
         something failed, and the score then covers only what completed.
       </li>
-      <li>
-        <strong>BEST</strong>: Marks the top scorer. Ties go to the first in declared order.
-      </li>
+      <li><strong>BEST</strong>: Marks the top scorer. Ties go to the first in declared order.</li>
     </ul>
 
     <h3>Reading it in code</h3>

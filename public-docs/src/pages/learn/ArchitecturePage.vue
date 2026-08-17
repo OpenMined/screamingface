@@ -16,8 +16,8 @@ const cloudDiagram = (dark: boolean) =>
 
 const components = [
   { name: 'url4: the protocol', path: 'packages/url4' },
-  { name: 'Engine: the cloud service', path: 'apps/url4-cloud' },
-  { name: 'Engine: the DAG executor', path: 'packages/url4/src/url4/dag' },
+  { name: 'engine: the cloud service', path: 'apps/url4-cloud' },
+  { name: 'engine: the DAG executor', path: 'packages/url4/src/url4/dag' },
   { name: 'AI gateway', path: 'apps/aigateway' },
   { name: 'Client: the Python library', path: 'packages/screamingface' },
   // Studio hidden for now: { name: 'Studio: the desktop app', path: 'apps/screamingface-studio' },
@@ -28,7 +28,7 @@ const components = [
 <template>
   <DocLayout
     title="Architecture"
-    description="How the pieces fit (url4 the protocol, the Engine that runs it, and the surfaces you compose from) and where each one lives in the codebase."
+    description="How the pieces fit (url4 the protocol, the engine that runs it, and the surfaces you compose from) and where each one lives in the codebase."
     :navigation="navigation"
   >
     <p>
@@ -51,20 +51,20 @@ const components = [
       </li>
       <li>
         <RouterLink to="/learn/engine"
-          ><strong>The Engine: runtime and trust boundary.</strong></RouterLink
+          ><strong>The engine: runtime and trust boundary.</strong></RouterLink
         >
         Runs a url4 expression: it schedules the graph, sends each model call out to a provider, and
-        streams back tokens, cost, and the result. It holds the provider credentials, so the client
+        streams back tokens, cost, and the result. It holds the provider credentials, so the Client
         never sees them.
       </li>
       <li>
         <RouterLink to="/learn/ai-gateway"><strong>The AI gateway.</strong></RouterLink> A
-        LiteLLM-based gateway the Engine calls to reach every provider through one OpenAI-shaped
+        LiteLLM-based gateway the engine calls to reach every provider through one OpenAI-shaped
         endpoint. It stores provider credentials encrypted at rest.
       </li>
       <li>
         <RouterLink to="/sf-client"><strong>The Client.</strong></RouterLink> The Python library
-        researchers use. It composes fusions and benchmarks and talks only to an Engine, never to a
+        researchers use. It composes fusions and benchmarks and talks only to an engine, never to a
         provider directly.
       </li>
       <!-- Studio is hidden for now.
@@ -88,14 +88,14 @@ const components = [
 
     <p>
       A run always follows the same path. The Client compiles what you built into a url4 expression
-      and sends it to an Engine. The Engine runs the expression as a graph, with independent nodes
+      and sends it to an engine. The engine runs the expression as a graph, with independent nodes
       running in parallel, and sends each model call out through the AI gateway to the provider.
       Usage and results stream back as the graph runs. Replay the same expression and the whole
       system runs again.
     </p>
 
     <p>
-      There are two ways to run, and only the engine URL changes. A <strong>local</strong> Engine
+      There are two ways to run, and only the engine URL changes. A <strong>local</strong> engine
       runs on your own machine, on your own keys, with its own cache, and nothing on the local path
       takes a cut.
     </p>
@@ -103,16 +103,16 @@ const components = [
     <figure class="not-prose diagram">
       <img
         :src="localDiagram(isDark)"
-        alt="Local request flow: the client drives an Engine on your own machine, which fans model calls out through the AI gateway to the providers you hold keys for."
+        alt="Local request flow: the Client drives an engine on your own machine, which fans model calls out through the AI gateway to the providers you hold keys for."
       />
       <figcaption>
-        <strong>Local.</strong> The Client drives an Engine on your own machine; model calls fan out
+        <strong>Local.</strong> The Client drives an engine on your own machine; model calls fan out
         through the gateway to the providers you hold keys for.
       </figcaption>
     </figure>
 
     <p>
-      A <strong>hosted</strong> Engine, one we operate, runs the identical protocol but adds the
+      A <strong>hosted</strong> engine, one we operate, runs the identical protocol but adds the
       <RouterLink to="/learn/caching">shared community cache</RouterLink> and subsidized compute for
       chosen cohorts, so reproducing or building on a published run is usually a cache hit rather
       than a fresh spend.
@@ -121,10 +121,10 @@ const components = [
     <figure class="not-prose diagram">
       <img
         :src="cloudDiagram(isDark)"
-        alt="Cloud request flow: a hosted Engine runs the same protocol; a control plane schedules the run and streams execution events back to the client."
+        alt="Cloud request flow: a hosted engine runs the same protocol; a control plane schedules the run and streams execution events back to the Client."
       />
       <figcaption>
-        <strong>Cloud.</strong> A hosted Engine runs the same protocol; a control plane schedules
+        <strong>Cloud.</strong> A hosted engine runs the same protocol; a control plane schedules
         the run and streams execution events back.
       </figcaption>
     </figure>
@@ -132,9 +132,9 @@ const components = [
     <h2>The trust boundary</h2>
 
     <p>
-      Provider credentials live behind the Engine and gateway, never in the client. A key is handed
-      to the Engine once, stored encrypted (AES-256-GCM), and used to reach providers on your
-      behalf. The client keeps none. In an evaluation, the benchmark prompts go out to the models,
+      Provider credentials live behind the engine and gateway, never in the Client. A key is handed
+      to the engine once, stored encrypted (AES-256-GCM), and used to reach providers on your
+      behalf. The Client keeps none. In an evaluation, the benchmark prompts go out to the models,
       but the answer keys and grading stay engine-side. That is what makes a verified result mean
       something. The credential store is the
       <a :href="`${GH}/apps/aigateway`" target="_blank" rel="noopener">AI gateway</a>'s encrypted

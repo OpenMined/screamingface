@@ -113,7 +113,9 @@ const inspectOut = `('number', 0.0, 2.0, True)`
           </td>
         </tr>
         <tr>
-          <td><code>.name</code> · <code>.model</code> · <code>.prompt</code> · <code>.params</code></td>
+          <td>
+            <code>.name</code> · <code>.model</code> · <code>.prompt</code> · <code>.params</code>
+          </td>
           <td>Read back what a Model resolved to, including its inferred or explicit name.</td>
         </tr>
       </tbody>
@@ -137,8 +139,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <p>
       Two Models on the same route with the same policy are the <em>same</em> candidate:
       <RouterLink to="/learn/engine">the engine</RouterLink> deduplicates them by content inside one
-      compiled graph. An explicit <code>name</code> is how
-      you say you meant two independent samples, and it is the name the report uses.
+      compiled graph. An explicit <code>name</code> is how you say you meant two independent
+      samples, and it is the name the report uses.
     </p>
 
     <div class="not-prose">
@@ -180,8 +182,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
 
     <blockquote>
       <strong>The catalogue is fixed for now.</strong> The engine does not yet discover models
-      automatically, so only the routes listed here can be used to build fusions — a model missing
-      from the list can't be added from the client. Automatic discovery is work in progress.
+      automatically, so only the routes listed here can be used to build fusions. A model missing
+      from the list can't be added from the Client. Automatic discovery is work in progress.
     </blockquote>
 
     <h3>5 · Check that a route accepts your policy</h3>
@@ -201,8 +203,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
 
     <p>
       The same <code>ModelDetails</code> profile is also how you find out <em>what</em> a route lets
-      you configure. <code>details.parameters</code> is a mapping keyed by parameter name, so listing
-      its keys enumerates every knob the route exposes.
+      you configure. <code>details.parameters</code> is a mapping keyed by parameter name, so
+      listing its keys enumerates every knob the route exposes.
     </p>
 
     <div class="not-prose">
@@ -210,11 +212,11 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     </div>
 
     <p>
-      Each value is an <code>sf.ModelParameter</code>. Its <code>schema</code> gives the type and the
-      bounds the gateway enforces — a numeric <code>minimum</code>/<code>maximum</code>, an
+      Each value is an <code>sf.ModelParameter</code>. Its <code>schema</code> gives the type and
+      the bounds the gateway enforces — a numeric <code>minimum</code>/<code>maximum</code>, an
       <code>enum</code> of allowed values, a <code>max_length</code>, and so on — while
-      <code>enabled</code> says whether the gateway currently honours it. Reading the schema tells you
-      a value's legal range before you set it in <code>params</code>.
+      <code>enabled</code> says whether the gateway currently honours it. Reading the schema tells
+      you a value's legal range before you set it in <code>params</code>.
     </p>
 
     <div class="not-prose">

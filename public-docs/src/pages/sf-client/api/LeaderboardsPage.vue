@@ -35,7 +35,7 @@ client.leaderboards.submit(report.candidates.only)`
     </p>
 
     <Note>
-      These are the only values that do not come from the Engine. They come from the leaderboard, a
+      These are the only values that do not come from the engine. They come from the leaderboard, a
       separate service set by <code>scoreboard_url</code> on a
       <RouterLink to="/sf-client/api/clients">Client</RouterLink>.
     </Note>
@@ -74,7 +74,7 @@ client.leaderboards.submit(report.candidates.only)`
         <tr>
           <td><code>baselines</code></td>
           <td><code>tuple[LeaderboardBaseline, ...]</code></td>
-          <td>Published results imported for comparison, not submitted through the client.</td>
+          <td>Published results imported for comparison, not submitted through the Client.</td>
         </tr>
       </tbody>
     </table>
@@ -186,7 +186,7 @@ client.leaderboards.submit(report.candidates.only)`
 
     <p>
       A published result imported for comparison. Baselines are not submissions and carry no url4,
-      because nobody ran them through this client.
+      because nobody ran them through this Client.
     </p>
 
     <table>

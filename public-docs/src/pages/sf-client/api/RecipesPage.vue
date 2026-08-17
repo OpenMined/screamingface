@@ -99,16 +99,17 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
 
     <ul>
       <li>
-        <strong><RouterLink to="/sf-client/api/models">Model</RouterLink></strong> — a single model
-        route. Its constructor, parameters, attributes, and errors live on the Models page.
+        <strong><RouterLink to="/sf-client/api/models">Model</RouterLink></strong
+        >: a single model route. Its constructor, parameters, attributes, and errors live on the
+        Models page.
       </li>
       <li>
-        <strong><RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink></strong> — members
-        combined by a synthesizer. The Fusions guide carries its full reference.
+        <strong><RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink></strong
+        >: members combined by a synthesizer. The Fusions guide carries its full reference.
       </li>
       <li>
-        <strong><RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink></strong> — stages
-        chained in series. The Pipelines guide carries its full reference.
+        <strong><RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink></strong
+        >: stages chained in series. The Pipelines guide carries its full reference.
       </li>
     </ul>
 
@@ -260,7 +261,7 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
 
     <p>
       The solo shape: one model drafts under the same check and writes its own retry feedback from
-      the check's sanitized violations — the coaching role the panel gives to a separate judge,
+      the check's sanitized violations: the coaching role the panel gives to a separate judge,
       played by the only model present.
     </p>
 

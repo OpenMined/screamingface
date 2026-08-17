@@ -34,12 +34,12 @@ with warnings.catch_warnings():
 <template>
   <DocLayout
     title="Errors"
-    description="What the client raises, and the warnings it emits when a run completes with a caveat."
+    description="What the Client raises, and the warnings it emits when a run completes with a caveat."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      Everything the client raises on purpose inherits from <code>ScreamingFaceError</code>, so one
+      Everything the Client raises on purpose inherits from <code>ScreamingFaceError</code>, so one
       <code>except</code> catches the lot. Six subclasses say where the failure happened, and each
       carries a machine-readable code alongside its message.
     </p>
@@ -87,21 +87,21 @@ Warning
           <td><code>PlanningError</code></td>
           <td>
             An evaluation could not be resolved or validated safely, so nothing ran and nothing was
-            charged. A route the Engine does not carry, or a benchmark id that does not exist.
+            charged. A route the engine does not carry, or a benchmark id that does not exist.
           </td>
         </tr>
         <tr>
           <td><code>ExecutionError</code></td>
-          <td>A run reached the Engine and ended without a valid report.</td>
+          <td>A run reached the engine and ended without a valid report.</td>
         </tr>
         <tr>
           <td><code>EngineUnavailableError</code></td>
-          <td>The configured Engine could not be reached at all.</td>
+          <td>The configured engine could not be reached at all.</td>
         </tr>
         <tr>
           <td><code>AuthenticationError</code></td>
           <td>
-            The Engine rejected caller authentication. On a hosted Engine this usually means
+            The engine rejected caller authentication. On a hosted engine this usually means
             <code>login()</code> is needed.
           </td>
         </tr>
@@ -199,7 +199,7 @@ Warning
 
     <p>
       A warning means the run <em>completed</em>. It produced a report you can read, but something
-      about its quality needs attention. <code>EvaluationWarning</code> is the one the client emits,
+      about its quality needs attention. <code>EvaluationWarning</code> is the one the Client emits,
       and it subclasses <code>UserWarning</code>, so it appears in normal warning output and
       <code>warnings.simplefilter</code> controls it.
     </p>

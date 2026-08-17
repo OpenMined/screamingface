@@ -22,7 +22,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
 <template>
   <DocLayout
     title="CandidateResult"
-    description="One candidate's outcome and the values it carries — MemberResult, OperationInfo, CaseResult — and the CaseGrade tree behind each case score."
+    description="One candidate's outcome and the values it carries (MemberResult, OperationInfo, CaseResult), and the CaseGrade tree behind each case score."
     :navigation="navigation"
     :version="version"
   >
@@ -74,7 +74,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>float</code></td>
           <td>
             How much of the selected case set the score was computed from, between 0 and 1. Below
-            <code>1.0</code> the Engine excluded ungraded cases and the score is a partial result
+            <code>1.0</code> the engine excluded ungraded cases and the score is a partial result
             over the rest.
           </td>
         </tr>
@@ -323,7 +323,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
 
     <p>
       One ordered grading check and all the <code>Evidence</code> gathered for it. The benchmark
-      owns the check; the client only reports what it returned, so match on <code>id</code> rather
+      owns the check; the Client only reports what it returned, so match on <code>id</code> rather
       than on <code>label</code>.
     </p>
 
@@ -434,7 +434,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
     <h2>EvidenceProducer</h2>
 
     <p>
-      The producer the Engine credits with one observation — what looked at the output and reported.
+      The producer the engine credits with one observation: what looked at the output and reported.
     </p>
 
     <table>
@@ -468,7 +468,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
     </p>
 
     <p>
-      Its runtime fields are <code>None</code> until the Engine attributes work to the member's
+      Its runtime fields are <code>None</code> until the engine attributes work to the member's
       operation id. That is a different statement from an empty value: <code>None</code> means the
       attribution was unavailable, while an empty tuple means it arrived and reported nothing.
     </p>
@@ -511,13 +511,13 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>tuple[Failure, ...]&nbsp;|&nbsp;None</code></td>
           <td>
             This member's failures, which also appear in <code>report.failures</code>.
-            <code>None</code> when the Engine attributed nothing to this member.
+            <code>None</code> when the engine attributed nothing to this member.
           </td>
         </tr>
         <tr>
           <td><code>duration_ms</code></td>
           <td><code>int&nbsp;|&nbsp;None</code></td>
-          <td>How long the member took, when the Engine reported it.</td>
+          <td>How long the member took, when the engine reported it.</td>
         </tr>
         <tr>
           <td><code>usage</code></td>

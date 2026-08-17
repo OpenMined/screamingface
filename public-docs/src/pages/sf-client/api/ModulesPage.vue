@@ -67,7 +67,7 @@ const evaluateSig = `sf.evaluate(
         <tr>
           <td><code>list()</code></td>
           <td>
-            Every <RouterLink to="/sf-client/api/benchmarks">Benchmark</RouterLink> the Engine
+            Every <RouterLink to="/sf-client/api/benchmarks">Benchmark</RouterLink> the engine
             offers, one entry per protocol variant.
           </td>
         </tr>
@@ -91,7 +91,7 @@ const evaluateSig = `sf.evaluate(
         <tr>
           <td><code>list()</code></td>
           <td>
-            Every <RouterLink to="/sf-client/api/models">ModelInfo</RouterLink> route the Engine can
+            Every <RouterLink to="/sf-client/api/models">ModelInfo</RouterLink> route the engine can
             reach.
           </td>
         </tr>
@@ -124,7 +124,7 @@ const evaluateSig = `sf.evaluate(
           <td><code>list()</code></td>
           <td>
             A <RouterLink to="/sf-client/api/clients">Connection</RouterLink> for every provider the
-            Engine advertises, connected or not.
+            engine advertises, connected or not.
           </td>
         </tr>
         <tr>
@@ -137,7 +137,7 @@ const evaluateSig = `sf.evaluate(
     <h2>sf.leaderboards</h2>
 
     <p>
-      Alone among the four, this module talks to the leaderboard rather than the Engine. See
+      Alone among the four, this module talks to the leaderboard rather than the engine. See
       <RouterLink to="/sf-client/api/leaderboards">Leaderboards</RouterLink> for the values it
       returns.
     </p>
@@ -204,7 +204,7 @@ const evaluateSig = `sf.evaluate(
 
     <p>
       Replaces the shared Client and returns the new one. Call it once, before anything else, to
-      point the module-level functions at a different Engine. Setting
+      point the module-level functions at a different engine. Setting
       <code>SCREAMINGFACE_ENGINE_URL</code> in the environment does the same thing without a call.
     </p>
 

@@ -64,7 +64,7 @@ const pipelineSig = `sf.Pipeline(
   >
     <p>
       A <strong>Pipeline</strong> is a recipe composed of an ordered list of
-      <strong>stages</strong>. It doesn't run anything by itself — like every recipe, building one
+      <strong>stages</strong>. It doesn't run anything by itself; like every recipe, building one
       makes no requests. The stages run only during an
       <RouterLink to="/sf-client/guides/running-an-evaluation">evaluation</RouterLink>: the first
       stage answers the case, and each later stage takes the <em>previous</em> stage's answer as its
@@ -194,7 +194,15 @@ const pipelineSig = `sf.Pipeline(
         aria-label="The review-chain Pipeline holds draft then review; grading review's answer produces the graded answer."
       >
         <defs>
-          <marker id="pl-a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+          <marker
+            id="pl-a1"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
@@ -240,7 +248,15 @@ const pipelineSig = `sf.Pipeline(
         aria-label="One Pipeline of draft, review and final; grading final's answer produces the graded answer."
       >
         <defs>
-          <marker id="pl-a2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+          <marker
+            id="pl-a2"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
@@ -290,7 +306,15 @@ const pipelineSig = `sf.Pipeline(
         aria-label="The unnamed inner Pipeline (dashed) flattens into the outer Pipeline; grading the last stage's answer produces the graded answer."
       >
         <defs>
-          <marker id="pl-a3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+          <marker
+            id="pl-a3"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
@@ -339,7 +363,15 @@ const pipelineSig = `sf.Pipeline(
         aria-label="The named inner Pipeline polish-pass is kept as one stage inside the outer Pipeline; grading its last stage's answer produces the graded answer."
       >
         <defs>
-          <marker id="pl-a4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+          <marker
+            id="pl-a4"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
@@ -392,7 +424,15 @@ const pipelineSig = `sf.Pipeline(
         aria-label="A Fusion whose members are a draft-to-review Pipeline and gemini, combined by a synthesizer that is itself a judge-to-writer Pipeline; grading the writer's answer produces the graded answer."
       >
         <defs>
-          <marker id="pl-a5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+          <marker
+            id="pl-a5"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
@@ -425,7 +465,7 @@ const pipelineSig = `sf.Pipeline(
         </g>
       </svg>
       <figcaption class="dgcap">
-        A Fusion of two members — the draft → review Pipeline and gemini — combined by a synthesizer
+        A Fusion of two members, the draft → review Pipeline and gemini, combined by a synthesizer
         that is itself a judge → writer Pipeline; grading the writer's answer is the graded answer.
       </figcaption>
     </figure>
@@ -450,7 +490,15 @@ const pipelineSig = `sf.Pipeline(
         aria-label="One Pipeline whose stages are a Model, a Fusion and a nested Pipeline; grading the last stage's answer produces the graded answer."
       >
         <defs>
-          <marker id="pl-a6" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+          <marker
+            id="pl-a6"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
@@ -479,7 +527,7 @@ const pipelineSig = `sf.Pipeline(
         </g>
       </svg>
       <figcaption class="dgcap">
-        A stage is any recipe — here a Model, a Fusion and a nested Pipeline chained in one Pipeline;
+        A stage is any recipe: here a Model, a Fusion and a nested Pipeline chained in one Pipeline;
         only the last stage's answer is graded.
       </figcaption>
     </figure>

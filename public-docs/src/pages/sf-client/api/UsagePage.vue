@@ -140,7 +140,7 @@ const usageOut = `Usage(input_tokens=103, output_tokens=398, cache_read_tokens=0
           <td><code>bool&nbsp;|&nbsp;None</code></td>
           <td>
             Whether running the same thing again could plausibly succeed, or <code>None</code> when
-            the Engine did not say.
+            the engine did not say.
           </td>
         </tr>
         <tr>
@@ -160,7 +160,7 @@ const usageOut = `Usage(input_tokens=103, output_tokens=398, cache_read_tokens=0
           <td><code>metadata</code></td>
           <td><code>Mapping[str, object]</code></td>
           <td>
-            Whatever else the Engine attached to this failure. Empty when it attached nothing.
+            Whatever else the engine attached to this failure. Empty when it attached nothing.
           </td>
         </tr>
       </tbody>

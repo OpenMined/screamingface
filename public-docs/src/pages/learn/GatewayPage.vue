@@ -7,13 +7,13 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 <template>
   <DocLayout
     title="AI gateway"
-    description="Where your provider keys live, encrypted, and the one endpoint the Engine calls to reach every model provider."
+    description="Where your provider keys live, encrypted, and the one endpoint the engine calls to reach every model provider."
     :navigation="navigation"
   >
     <p>
-      The <strong>AI gateway</strong> is the component that actually reaches model providers, and the
-      place your provider credentials are stored. The
-      <RouterLink to="/learn/engine">Engine</RouterLink> never calls a provider directly and never
+      The <strong>AI gateway</strong> is the component that actually reaches model providers, and
+      the place your provider credentials are stored. The
+      <RouterLink to="/learn/engine">engine</RouterLink> never calls a provider directly and never
       holds a raw key: it calls the gateway, and the gateway reaches OpenRouter, Anthropic, and the
       rest.
     </p>
@@ -21,9 +21,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <h2>One endpoint, every provider</h2>
 
     <p>
-      It is a LiteLLM-based gateway that exposes a single, OpenAI-shaped endpoint. The Engine sends
+      It is a LiteLLM-based gateway that exposes a single, OpenAI-shaped endpoint. The engine sends
       one request shape and the gateway routes it to the right provider, so adding a provider does
-      not change how the Engine calls out.
+      not change how the engine calls out.
     </p>
 
     <h2>Where your keys live</h2>
@@ -31,7 +31,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <p>
       A key you connect is handed to the gateway once, validated, and stored
       <strong>encrypted at rest</strong> (AES-256-GCM) as credential blobs. It is never returned to
-      the Engine or the client, and never written into your notebook. The master key that unlocks
+      the engine or the Client, and never written into your notebook. The master key that unlocks
       them, <code>AIGATEWAY_SECRET_KEY</code>, is never stored alongside the data and never logged,
       and no OS keychain is involved.
     </p>
@@ -48,11 +48,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       Every provider the gateway can reach is a <strong>plugin</strong>. Each one adapts a provider,
       OpenRouter, Anthropic, the Codex and Gemini CLIs, Hugging Face, and so on, to the gateway's
       single OpenAI-shaped interface, so supporting a new provider means adding a plugin, not
-      changing the Engine or the client.
+      changing the engine or the Client.
     </p>
 
     <p>
-      Plugins are enabled per deployment, and the set that is turned on is exactly what the Engine
+      Plugins are enabled per deployment, and the set that is turned on is exactly what the engine
       advertises: it is the list you see when you call <code>sf.connect()</code> or
       <RouterLink to="/sf-client/guides/connections">read your connections</RouterLink>. A route
       whose plugin is off never appears, so a missing provider is usually a disabled plugin rather
@@ -61,15 +61,15 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       A plugin may also ship <strong>disabled</strong>. The OpenRouter plugin, for example, refuses
-      a valid key until you turn it on with <code>AIGW_OPENROUTER_ENABLED=true</code>. Worth knowing,
-      because the error names the credential rather than the configuration, and it is easy to spend a
-      while checking a key that was never the problem.
+      a valid key until you turn it on with <code>AIGW_OPENROUTER_ENABLED=true</code>. Worth
+      knowing, because the error names the credential rather than the configuration, and it is easy
+      to spend a while checking a key that was never the problem.
     </p>
 
     <h2>Running it</h2>
 
     <p>
-      On a hosted Engine the gateway runs for you. If you run the Engine yourself, you run the
+      On a hosted engine the gateway runs for you. If you run the engine yourself, you run the
       gateway too, and it needs its database schema migrated before the first start. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide has the commands.
     </p>

@@ -69,11 +69,11 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
     :version="version"
   >
     <p>
-      A <code>Client</code> is the connection to one Engine, and the object that every other page in
+      A <code>Client</code> is the connection to one engine, and the object that every other page in
       this reference depends on: recipes are passed to it, and benchmarks and reports come back from
       it. This page covers <code>Client</code> itself, alongside <code>AsyncClient</code> for the
       same interface over <code>await</code>, <code>Connection</code> for a provider's state on the
-      Engine, and <code>ConnectionPanel</code> for the interactive view that
+      engine, and <code>ConnectionPanel</code> for the interactive view that
       <code>connect()</code> returns.
     </p>
 
@@ -83,7 +83,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
 
     <p>
       Creating a <code>Client</code> opens no connection and makes no request. The first call that
-      needs the Engine is the first one that talks to it.
+      needs the engine is the first one that talks to it.
     </p>
 
     <div class="not-prose">
@@ -91,11 +91,11 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
     </div>
 
     <Note>
-      <code>DEFAULT_ENGINE_URL</code> is a hosted Engine, so a <code>Client()</code> with no
-      arguments talks to one we operate. To use a local Engine, pass its address explicitly, or set
+      <code>DEFAULT_ENGINE_URL</code> is a hosted engine, so a <code>Client()</code> with no
+      arguments talks to one we operate. To use a local engine, pass its address explicitly, or set
       <code>SCREAMINGFACE_ENGINE_URL</code> and use the module-level functions.
-      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted ScreamingFace Leaderboard. Both constants live in
-      <code>screamingface.client</code>.
+      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted ScreamingFace Leaderboard. Both
+      constants live in <code>screamingface.client</code>.
     </Note>
 
     <h3>Properties</h3>
@@ -112,7 +112,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
         <tr>
           <td><code>engine_url</code></td>
           <td><code>str</code></td>
-          <td>The Engine origin this Client was built for. Fixed for the Client's life.</td>
+          <td>The engine origin this Client was built for. Fixed for the Client's life.</td>
         </tr>
         <tr>
           <td><code>closed</code></td>
@@ -134,7 +134,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
           <td><code>str</code></td>
           <td>
             Where <RouterLink to="/sf-client/guides/leaderboards">leaderboard</RouterLink>
-            submissions go. Separate from the Engine, and separately configurable.
+            submissions go. Separate from the engine, and separately configurable.
           </td>
         </tr>
         <tr>
@@ -142,7 +142,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
           <td>catalogue</td>
           <td>
             <code>models.list()</code> returns the
-            <RouterLink to="/sf-client/api/benchmarks">ModelInfo</RouterLink> routes this Engine can
+            <RouterLink to="/sf-client/api/benchmarks">ModelInfo</RouterLink> routes this engine can
             reach.
           </td>
         </tr>
@@ -222,14 +222,14 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
     <h3>connect() and disconnect()</h3>
 
     <p>
-      <code>connect(provider, api_key=...)</code> stores a provider credential on the Engine and
+      <code>connect(provider, api_key=...)</code> stores a provider credential on the engine and
       returns the resulting <code>Connection</code>. <code>connect()</code> with no arguments
       returns a <code>ConnectionPanel</code> instead. <code>disconnect(provider)</code> removes the
       credential and is safe to call repeatedly.
     </p>
 
     <p>
-      Passing a key requires a secure origin: an <code>https</code> Engine, or a local one over
+      Passing a key requires a secure origin: an <code>https</code> engine, or a local one over
       <code>http</code>. Supplying <code>api_key</code> without a provider raises
       <code>TypeError</code>; a provider without <code>api_key</code> raises
       <code>ValueError</code>.
@@ -253,8 +253,8 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
     <CodeBlock :code="withBlock" language="python" />
 
     <p>
-      <code>login(timeout=300.0)</code> and <code>logout()</code> apply to hosted Engines that sit
-      behind browser-based access. A local Engine needs neither.
+      <code>login(timeout=300.0)</code> and <code>logout()</code> apply to hosted engines that sit
+      behind browser-based access. A local engine needs neither.
     </p>
 
     <h2>AsyncClient</h2>
@@ -302,7 +302,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
     <h2>Connection</h2>
 
     <p>
-      A <code>Connection</code> is sanitized provider state as the Engine reports it. It never
+      A <code>Connection</code> is sanitized provider state as the engine reports it. It never
       carries the credential itself, so an API key cannot be read back out of one.
     </p>
 
@@ -365,7 +365,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
 
     <p>
       A <code>ConnectionPanel</code> is what <code>client.connect()</code> returns when called with
-      no arguments: a live view of every provider the Engine knows about. Within a notebook it
+      no arguments: a live view of every provider the engine knows about. Within a notebook it
       renders as an interactive widget, allowing a key to be pasted without placing it in a cell.
       Outside a notebook it remains readable as a value.
     </p>
@@ -384,7 +384,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
       <tbody>
         <tr>
           <td><code>engine</code></td>
-          <td>The Engine origin this panel is bound to.</td>
+          <td>The engine origin this panel is bound to.</td>
         </tr>
         <tr>
           <td><code>connections</code></td>
@@ -396,7 +396,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
         </tr>
         <tr>
           <td><code>refresh()</code></td>
-          <td>Re-read connections from the Engine and return them.</td>
+          <td>Re-read connections from the engine and return them.</td>
         </tr>
         <tr>
           <td><code>widget()</code></td>
