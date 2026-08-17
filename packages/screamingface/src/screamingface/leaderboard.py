@@ -48,7 +48,7 @@ class LeaderboardEntry:
     ran_with_providers: tuple[str, ...]
     submitted_at: datetime
     submitted_by: str | None
-    verified_by_openmined: bool
+    verified_by_screamingface: bool
     url4: Url4
 
     def __post_init__(self) -> None:
@@ -67,8 +67,8 @@ class LeaderboardEntry:
             "submitted_by",
             _optional_text(self.submitted_by, "Leaderboard submitted_by"),
         )
-        if not isinstance(self.verified_by_openmined, bool):
-            raise TypeError("Leaderboard verified_by_openmined must be a boolean")
+        if not isinstance(self.verified_by_screamingface, bool):
+            raise TypeError("Leaderboard verified_by_screamingface must be a boolean")
         object.__setattr__(
             self,
             "url4",
@@ -95,7 +95,7 @@ class LeaderboardScore:
     client_name: str | None
     client_version: str | None
     client_platform: str | None
-    verified_by_openmined: bool
+    verified_by_screamingface: bool
     metadata: Mapping[str, object] | None
 
     def __post_init__(self) -> None:
@@ -132,8 +132,8 @@ class LeaderboardScore:
         )
         if self.ran_at_local is not None:
             _aware_datetime(self.ran_at_local, "Leaderboard score ran_at_local")
-        if not isinstance(self.verified_by_openmined, bool):
-            raise TypeError("Leaderboard score verified_by_openmined must be a boolean")
+        if not isinstance(self.verified_by_screamingface, bool):
+            raise TypeError("Leaderboard score verified_by_screamingface must be a boolean")
         if self.metadata is not None:
             object.__setattr__(
                 self,

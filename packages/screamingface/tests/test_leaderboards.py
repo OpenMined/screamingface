@@ -65,7 +65,7 @@ def _get_response() -> dict[str, object]:
                 "ran_with_providers": ["openrouter", "gemini-cli"],
                 "submitted_at": SUBMITTED_AT,
                 "submitted_by": "researcher@example.com",
-                "verified_by_openmined": True,
+                "verified_by_screamingface": True,
                 "url4_expression": _linked_url4(),
             }
         ],
@@ -101,7 +101,7 @@ def _score_response() -> dict[str, object]:
         "client_name": "screamingface",
         "client_version": "0.1.0",
         "client_platform": "darwin",
-        "verified_by_openmined": False,
+        "verified_by_screamingface": False,
         "metadata": {
             "benchmark_revision": "fixture-revision",
             "candidate_kind": "fusion",
@@ -239,7 +239,7 @@ def test_client_gets_one_ranked_leaderboard_with_baselines() -> None:
             ran_with_providers=("openrouter", "gemini-cli"),
             submitted_at=datetime(2026, 8, 8, 12, 30, tzinfo=UTC),
             submitted_by="researcher@example.com",
-            verified_by_openmined=True,
+            verified_by_screamingface=True,
             url4=sf.Url4(_linked_url4()),
         ),
     )
@@ -282,7 +282,7 @@ def test_client_submits_a_candidate_result_without_repeating_report_fields() -> 
         client_name="screamingface",
         client_version="0.1.0",
         client_platform="darwin",
-        verified_by_openmined=False,
+        verified_by_screamingface=False,
         metadata={
             "benchmark_revision": "fixture-revision",
             "candidate_kind": "fusion",
@@ -352,7 +352,7 @@ def test_leaderboard_rich_display_uses_the_brand_board_with_only_real_fields() -
     assert "single/model" in html
     assert "82.0" in html
     assert "61.0" in html
-    # OME-832: the "verified only" control was removed. verified_by_openmined became
+    # OME-832: the "verified only" control was removed. verified_by_screamingface became
     # uniform in OME-820, so the checkbox filtered nothing. Inverted rather than
     # deleted so it still catches the control being re-added before OME-821.
     assert "verified only" not in html
@@ -551,7 +551,7 @@ def _invalid_board_payloads() -> tuple[object, ...]:
 
     invalid_entry_verification = _get_response()
     cast(list[dict[str, object]], invalid_entry_verification["entries"])[0][
-        "verified_by_openmined"
+        "verified_by_screamingface"
     ] = "yes"
 
     invalid_baseline_metadata = _get_response()
@@ -677,7 +677,7 @@ def test_public_leaderboard_values_defend_their_invariants() -> None:
             "must not contain duplicates",
         ),
         (
-            lambda: replace(entry, verified_by_openmined=cast(Any, 1)),
+            lambda: replace(entry, verified_by_screamingface=cast(Any, 1)),
             TypeError,
             "must be a boolean",
         ),
@@ -694,7 +694,7 @@ def test_public_leaderboard_values_defend_their_invariants() -> None:
         ),
         (lambda: replace(score, ran_at_local=naive), ValueError, "timezone-aware"),
         (
-            lambda: replace(score, verified_by_openmined=cast(Any, "yes")),
+            lambda: replace(score, verified_by_screamingface=cast(Any, "yes")),
             TypeError,
             "must be a boolean",
         ),
@@ -764,7 +764,7 @@ def test_empty_and_unforkable_leaderboards_have_complete_widget_states() -> None
         ran_with_providers=("external",),
         submitted_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
         submitted_by=None,
-        verified_by_openmined=False,
+        verified_by_screamingface=False,
         url4=sf.Url4("(@)!'not a ScreamingFace candidate'"),
     )
     board = sf.Leaderboard(
@@ -803,8 +803,8 @@ def _chip_board(*, verified: bool, forkable: bool) -> sf.Leaderboard:
         total_questions=10,
         ran_with_providers=("openrouter",),
         submitted_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
-        submitted_by="tester@openmined.org",
-        verified_by_openmined=verified,
+        submitted_by="tester@screamingface.ai",
+        verified_by_screamingface=verified,
         url4=sf.Url4(_linked_url4() if forkable else "(@)!'not a ScreamingFace candidate'"),
     )
     baseline = sf.LeaderboardBaseline(
@@ -833,7 +833,7 @@ def _chip_board(*, verified: bool, forkable: bool) -> sf.Leaderboard:
 @pytest.mark.parametrize("verified", [True, False])
 @pytest.mark.parametrize("forkable", [True, False])
 def test_leaderboard_view_shows_no_verification_ui(verified: bool, forkable: bool) -> None:
-    """OME-820 left verified_by_openmined without trustworthy semantics.
+    """OME-820 left verified_by_screamingface without trustworthy semantics.
 
     Not uniform — rows predating that change keep false, since D5 forbids a backfill —
     but meaningless either way, because nothing re-runs submissions and nothing attests

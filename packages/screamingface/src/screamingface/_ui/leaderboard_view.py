@@ -61,7 +61,7 @@ class _DisplayRow:
     accuracy: float
     questions: int | None
     # AIDEV-NOTE: UNUSED since OME-832. Its readers were the data-verified attribute
-    # and the `verified` chip, both removed because verified_by_openmined asserts
+    # and the `verified` chip, both removed because verified_by_screamingface asserts
     # nothing (OME-820). `_candidate_row` still populates it, so nothing in ruff,
     # pyright or coverage will notice it going stale. Parked deliberately for OME-821,
     # which gives the flag a real signal and restores both readers. Do NOT key new
@@ -116,7 +116,7 @@ def leaderboard_html(board: Leaderboard) -> str:
         "<span class='sf-lb__field-label'>benchmark:</span>"
         f"<span class='sf-lb__field-value'>{title}</span></span>"
         # OME-832: the "verified only" checkbox lived here. Removed, not relabelled —
-        # verified_by_openmined CERTIFIES NOTHING whatever it holds: nothing re-runs
+        # verified_by_screamingface CERTIFIES NOTHING whatever it holds: nothing re-runs
         # submissions (OME-414) and nothing attests where a run executed.
         #
         # WHY that is a reason to delete the control rather than leave it: the value is
@@ -175,7 +175,7 @@ def _candidate_row(value: LeaderboardEntry) -> _DisplayRow:
         kind="candidate",
         accuracy=value.accuracy,
         questions=value.total_questions,
-        verified=value.verified_by_openmined,
+        verified=value.verified_by_screamingface,
         python_source=_fork_source(value.url4),
         source_url=None,
     )
