@@ -31,6 +31,9 @@ def _score(
         id=uuid4(),
         version=1,
         benchmark_id="hle",
+        # OME-852: required since OME-775. None is honest here — frontier and openness
+        # classification do not depend on which benchmark revision produced the score.
+        benchmark_revision=None,
         spec_id="spec-1",
         url4_expression="url4://benchmark/spec-1",
         submitted_by="tester",
