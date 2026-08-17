@@ -46,8 +46,8 @@ def notebooks() -> dict[str, NotebookNode]:
         "00_quickstart.ipynb": _quickstart(),
         "01_client_tour.ipynb": _client_tour(),
         "02_connection.ipynb": _connection(),
-        "06_draco_full_e2e.ipynb": _draco_full_e2e(),
-        "07_ifeval_e2e.ipynb": _ifeval_e2e(),
+        "06_draco.ipynb": _draco_full_e2e(),
+        "07_ifeval.ipynb": _ifeval_e2e(),
         "08_healthbench_worst30.ipynb": _healthbench_worst30_e2e(),
         "09_corrective_loops.ipynb": _corrective_loops(),
     }
@@ -661,10 +661,6 @@ management stays outside the notebook so **Run All** never starts or stops local
 import screamingface as sf
 
 sf.connect()"""),
-        nbformat.v4.new_code_cell("""\
-from helpers import openrouter_credits
-
-openrouter_credits()"""),
         nbformat.v4.new_markdown_cell("""\
 ## Define models and fusion"""),
         nbformat.v4.new_code_cell("""\
@@ -779,10 +775,6 @@ import screamingface as sf"""),
 ## 1. Connect OpenRouter"""),
         nbformat.v4.new_code_cell("""\
 sf.connect()"""),
-        nbformat.v4.new_code_cell("""\
-from helpers import openrouter_credits
-
-openrouter_credits()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Define the models"""),
         nbformat.v4.new_code_cell("""\
