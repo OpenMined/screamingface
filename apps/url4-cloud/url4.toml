@@ -1,41 +1,50 @@
 # url4-cloud — the declared world, read by BOTH the Runner (what a run may address) and the App
 # (what `GET /v1/models` advertises). One file, so discovery cannot promise what execution refuses.
 #
-# Baked into the image at /etc/url4/url4.toml (see Dockerfile). The image decides what CAN
-# exist; env supplies only per-Job values (the token, and optional base_url / model overrides).
+# Baked into the image at /etc/url4/url4.toml (see Dockerfile). The image decides what CAN exist;
+# env supplies only per-Job values (optional base_url / model overrides).
 #
-# INVARIANT: a route path is exactly "/" + the gateway id. No renaming, no aliases. `id`
-# entries must match aigateway's `/v1/models` ids EXACTLY, and that id is ALWAYS
-# `<custom_llm_provider>/<slug>` — `canonical_model_id` prefixes every provider's slug unless it
-# already carries the prefix, with no exemption for any of them. Anthropic included: the served
-# id is `anthropic/claude-haiku-4-5`. `tests/unit/test_declared_models_match_aigateway.py`
-# derives the expected ids through that same rule and fails if this list drifts from the
-# plugins' MODELS.
+# THE MODEL LIST LIVES IN CODE: `url4_cloud/models/builtins.py::BUILTIN_MODEL_WORLD`, seeded from
+# every aigateway provider plugin and held to it by SET EQUALITY in
+# `tests/unit/test_declared_models_match_aigateway.py` (OME-859). It moved out of this file because
+# this array had drifted to 32 declared ids while the gateway served 117, and the guard of the day
+# only asserted `declared ⊆ served` — so three seed PRs landed on one day, 2026-08-17, with 85
+# models unaddressable and CI green throughout.
 #
-# AIDEV-NOTE: this block used to claim Anthropic's ids were UNPREFIXED, and the five routes below
-# were declared bare to match. They were therefore served by nothing: the projection dropped all
-# five from `/v1/models`, and `default_route` failed with "model must be provider-prefixed"
-# inside a user's expression (OME-795).
+# INVARIANT: a route path is exactly "/" + the gateway id. No renaming, no aliases. Ids must match
+# aigateway's `/v1/models` ids EXACTLY, and that id is ALWAYS `<custom_llm_provider>/<slug>` —
+# `canonical_model_id` prefixes every provider's slug unless it already carries the prefix, with no
+# exemption for any of them. Anthropic included: the served id is `anthropic/claude-haiku-4-5`.
+# `models/registry.py::canonical_id` is the single mirror of that rule.
 #
-# Adding a model is a deliberate, reviewable edit: these paths are a public naming surface that
-# url4 expressions depend on.
+# 29 ids aigateway serves are NOT routable here: every HuggingFace router id pins a `:<provider>`
+# backend and five OpenRouter ids carry `:batch` / `:free`, and a ':' cannot appear in a URL4 path
+# segment (url4 spec §8). They are declared in the seeds and partitioned into
+# `ModelRegistry.aigateway_only`, so the set is an enumerated fact rather than a silent omission —
+# OME-819 tracks widening the grammar.
 #
-# A route may be a bare id or a TABLE, so a capability can be declared beside it:
+# `[[aigateway.models]]` IS STILL ACCEPTED and is ADDITIVE. Use it to declare a route the compiled
+# world cannot know about (ollama discovers its models at run time; AIGW_OPENROUTER_DEFAULT_MODELS
+# and AIGW_HUGGINGFACE_DEFAULT_MODELS replace their seed lists at deploy time), or to set
+# `web_search = false` on a compiled route. It can never REMOVE one: the declared world is
+# exhaustive over aigateway's compiled seeds.
 #
-#   web_search  May this route search the web. Defaults to TRUE — declare it only to turn a
-#               route OFF. It says THAT the route searches, never HOW: the mechanism is
-#               derived from the provider by `world_config.provider_of` against
-#               `world_config.WEB_SEARCH_NATIVE_PROVIDERS`. A provider in that set delegates
-#               to its own server-side search; every other route runs the Tavily-backed
-#               web_search/web_fetch tool loop here instead.
+#   [[aigateway.models]]
+#   id = "ollama/llama-4"
+#   web_search = false
 #
-#               Which mechanism a model can carry is a fact about its provider, so the Engine
-#               owns it. An operator who had to declare it was keeping that knowledge in their
-#               head, and a route could claim a mechanism its provider does not serve.
+# `web_search` says only THAT a route searches, never HOW — the mechanism is derived from the
+# provider by `world_config.provider_of` against `world_config.WEB_SEARCH_NATIVE_PROVIDERS`. A
+# provider in that set delegates to its own server-side search; every other route runs the
+# Tavily-backed web_search/web_fetch tool loop. Defaults to TRUE, so declare it only to turn a
+# route OFF. It also enables nothing on its own where the tool loop is used: the deployment must
+# ALSO supply TAVILY_API_KEY, or the route serves plain completions (`runner/web_tools`).
 #
-#               `web_search = true` still enables nothing on its own where the tool loop is
-#               used: the deployment must ALSO supply TAVILY_API_KEY, or the route serves
-#               plain completions (see `runner/web_tools.build_runtime`).
+# AIDEV-NOTE: a declared route is NOT an enabled deployment. OpenRouter sits behind
+# AIGW_OPENROUTER_ENABLED, and a route whose provider is disabled or uncredentialed resolves here
+# and then fails at the gateway, inside the user's expression. Before OME-859 the same call failed
+# earlier and more legibly, as an unknown route; declaring the full compiled set is what moved that
+# boundary outward.
 
 [aigateway]
 base_url = "http://127.0.0.1:9105"
@@ -47,132 +56,6 @@ web_tool_max_iterations = 12
 # been able to fetch them. Set false to hand the node a denying outbound layer instead.
 allow_outbound = true
 
-# --- anthropic ------------------------------------------------------------------------------
-# These take the Tavily loop: `anthropic` is not in WEB_SEARCH_NATIVE_PROVIDERS, because
-# aigateway's Anthropic plugin declares no web-search parameter. The plugin dispatches
-# OpenAI-shape tool calls through litellm, which IS the shape `_WEB_TOOLS` declares, so the
-# loop is expected to round-trip — not yet verified end-to-end against a live Anthropic
-# credential (OME-797 defers that check; a deployment with no TAVILY_API_KEY is unaffected).
-[[aigateway.models]]
-id = "anthropic/claude-opus-4-8"
-
-[[aigateway.models]]
-id = "anthropic/claude-opus-4-7"
-
-[[aigateway.models]]
-id = "anthropic/claude-sonnet-4-6"
-
-[[aigateway.models]]
-id = "anthropic/claude-sonnet-4-5"
-
-[[aigateway.models]]
-id = "anthropic/claude-haiku-4-5"
-
-# --- codex ---------------------------------------------------------------------------------
-# Tavily loop as well. These dispatch through the Codex OAuth backend, not litellm's stock
-# OpenAI route, so litellm's own `web_search_options` never reaches them; their tool-call
-# handling is not verified end-to-end here either. Set `web_search = false` on a route to take
-# it out of retrieval entirely.
-[[aigateway.models]]
-id = "codex/gpt-5.5"
-
-[[aigateway.models]]
-id = "codex/gpt-5.4"
-
-[[aigateway.models]]
-id = "codex/gpt-5.4-mini"
-
-[[aigateway.models]]
-id = "codex/gpt-5.3-codex"
-
-[[aigateway.models]]
-id = "codex/gpt-5.2"
-
-# --- gemini --------------------------------------------------------------------------------
-# Tavily loop, same reason as codex: Google Code Assist backend, unverified here.
-[[aigateway.models]]
-id = "gemini-cli/gemini-3.1-flash-lite"
-
-[[aigateway.models]]
-id = "gemini-cli/gemini-2.5-pro"
-
-[[aigateway.models]]
-id = "gemini-cli/gemini-2.5-flash"
-
-[[aigateway.models]]
-id = "gemini-cli/gemini-2.5-flash-lite"
-
-# --- antigravity ---------------------------------------------------------------------------
-[[aigateway.models]]
-id = "antigravity/gemini-3-flash"
-
-# --- openrouter ----------------------------------------------------------------------------
-# aigateway's OpenRouter SEED models (`_default_model_slugs()`). The provider is gated behind
-# AIGW_OPENROUTER_ENABLED, so a deployment that leaves it disabled serves none of them and
-# these routes resolve to nothing. They are declared anyway because a declared route is how an
-# expression addresses a model at all; the deployment decides whether it answers.
-#
-# CAVEAT: unlike the four static catalogs above, this list is env-overridable at deploy time
-# (AIGW_OPENROUTER_DEFAULT_MODELS), so the pinning test can only hold it to the seeds compiled
-# into the plugin — a deployment that overrides them is on its own.
-#
-# `openrouter` IS in WEB_SEARCH_NATIVE_PROVIDERS, so every route below delegates search to
-# OpenRouter's own server-side engine — one request, fully cacheable (OME-781) — and none of
-# them runs the Tavily loop. That holds for the whole provider, including the models whose
-# tool calling was separately verified here.
-[[aigateway.models]]
-id = "openrouter/openai/gpt-5.5"
-
-# The HealthBench judge (healthbench/definition.py JUDGE_MODEL). The Benchmark's judge
-# call pins ``web_search=false`` per call, so the route-level default does not reach Grading.
-[[aigateway.models]]
-id = "openrouter/openai/gpt-5.4"
-
-[[aigateway.models]]
-id = "openrouter/anthropic/claude-opus-4.8"
-
-[[aigateway.models]]
-id = "openrouter/anthropic/claude-fable-5"
-
-[[aigateway.models]]
-id = "openrouter/anthropic/claude-haiku-4.5"
-
-[[aigateway.models]]
-id = "openrouter/google/gemini-3.1-pro-preview"
-
-[[aigateway.models]]
-id = "openrouter/google/gemini-3-flash-preview"
-
-[[aigateway.models]]
-id = "openrouter/moonshotai/kimi-k2.6"
-
-[[aigateway.models]]
-id = "openrouter/moonshotai/kimi-k3"
-
-[[aigateway.models]]
-id = "openrouter/deepseek/deepseek-v4-pro"
-
-[[aigateway.models]]
-id = "openrouter/deepseek/deepseek-v4-flash"
-
-[[aigateway.models]]
-id = "openrouter/qwen/qwen3.6-plus"
-
-[[aigateway.models]]
-id = "openrouter/qwen/qwen3.8-2.4t-a95b"
-
-[[aigateway.models]]
-id = "openrouter/qwen/qwen3-coder"
-
-[[aigateway.models]]
-id = "openrouter/z-ai/glm-5.2"
-
-[[aigateway.models]]
-id = "openrouter/mistralai/ministral-3b-2512"
-
-[[aigateway.models]]
-id = "openrouter/microsoft/phi-4"
-
 # RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not
 # parse them yet; declaring one is a loud config error, never a silent no-op:
 #
@@ -180,7 +63,3 @@ id = "openrouter/microsoft/phi-4"
 #   [commands]    "/python" = ["python3", "/opt/tools/run.py", "{intent}"]
 #   [holdings]    default = { file = "…" }
 #   [identities]
-#
-# ollama / huggingface build their model lists at runtime from local installs or fetched slugs,
-# so they are undeclarable here by construction; a deployment that serves them adds its own
-# entries.

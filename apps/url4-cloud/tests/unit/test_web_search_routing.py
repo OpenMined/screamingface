@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from url4_cloud import job_env
+from url4_cloud.models.registry import EMPTY_MODEL_WORLD
 from url4_cloud.world_config import (
     WEB_SEARCH_NATIVE_PROVIDERS,
     ModelSpec,
@@ -31,7 +32,9 @@ def _parse_models(models_toml: str) -> tuple[ModelSpec, ...]:
     first = tomllib.loads(f"models = {models_toml}")["models"][0]
     default_id = first if isinstance(first, str) else first["id"]
     text = f'[aigateway]\ndefault_route = "/{default_id}"\nmodels = {models_toml}\n'
-    section = parse_config(tomllib.loads(text), {}).aigateway
+    # OME-859: EMPTY_MODEL_WORLD so this helper still returns exactly the routes its argument
+    # declares. The production default adds the 88 compiled ids.
+    section = parse_config(tomllib.loads(text), {}, registry=EMPTY_MODEL_WORLD).aigateway
     assert section is not None
     return section.models
 
