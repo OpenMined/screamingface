@@ -111,6 +111,11 @@ class Client:
 
         return self._auth.authenticating
 
+    def _repr_html_(self) -> str:
+        from screamingface._ui.cards import client_card_html
+
+        return client_card_html(self)
+
     def login(self, *, timeout: float = 300.0) -> None:
         """Authenticate through the Engine's Cloudflare Access browser flow."""
 
@@ -389,6 +394,11 @@ class AsyncClient:
         """Whether a hosted caller login is currently waiting for completion."""
 
         return self._auth.authenticating
+
+    def _repr_html_(self) -> str:
+        from screamingface._ui.cards import client_card_html
+
+        return client_card_html(self)
 
     async def login(self, *, timeout: float = 300.0) -> None:
         """Authenticate through the Engine's Cloudflare Access browser flow."""

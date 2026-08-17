@@ -159,7 +159,7 @@ def test_panel_keeps_the_full_collapsed_api_key_ui_and_only_one_openrouter_row()
     assert [item.provider for item in panel.connections] == ["openrouter"]
     assert "Connections" in _text(root)
     assert "OpenRouter" in _text(root)
-    assert "Engine access" not in _text(root)
+    assert "Hosted Engine" not in _text(root)
     assert "http://127.0.0.1:9108" in _text(root)
     assert [button.description for button in _buttons(root)] == ["Connect"]
 
@@ -529,7 +529,8 @@ def test_hosted_panel_prompts_for_engine_login_before_loading_providers() -> Non
 
     assert panel.connections == ()
     assert client.connections.calls == 0
-    assert "Engine access" in _text(root)
+    assert "ScreamingFace Hosted Engine" in _text(root)
+    assert "😱" in _text(root)
     assert "login required" in _text(root)
     assert "OpenRouter" not in panel._repr_html_()
     assert [button.description for button in _buttons(root)] == ["Log in"]
@@ -807,7 +808,7 @@ async def test_unprotected_remote_engine_skips_the_access_login_row() -> None:
             break
         await asyncio.sleep(0.01)
 
-    assert "Engine access" not in _text(root)
+    assert "Hosted Engine" not in _text(root)
     assert "OpenRouter" in _text(root)
     assert [button.description for button in _buttons(root)] == ["Connect"]
     root.close()
@@ -831,4 +832,28 @@ async def test_unexpected_login_failure_does_not_leave_panel_waiting() -> None:
     await _wait_for_button(root, "Log in")
 
     assert "Client closed during login" in _text(root)
+    root.close()
+
+
+def test_non_screamingface_hosted_engine_shows_a_neutral_label_without_the_mark() -> None:
+    class Connections:
+        def list(self) -> tuple[sf.Connection, ...]:
+            return ()
+
+    class RemoteHostedClient:
+        engine_url = "https://engine.acme.example"
+        connections = Connections()
+
+        def __init__(self) -> None:
+            self.authenticated = False
+            self.authenticating = False
+
+    panel = _panel(RemoteHostedClient())
+    root = panel.widget()
+
+    text = _text(root)
+    assert "Hosted Engine" in text
+    assert "ScreamingFace Hosted Engine" not in text
+    assert "😱" not in text
+    assert "login required" in text
     root.close()

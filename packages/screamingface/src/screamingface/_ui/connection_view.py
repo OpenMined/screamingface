@@ -6,6 +6,7 @@ from html import escape
 from typing import TYPE_CHECKING, Any, Protocol
 
 from screamingface._ui.connection_state import _ConnectionPanelState
+from screamingface._ui.engine_origin import _is_screamingface_engine
 from screamingface._ui.provider_icons import provider_icon_html
 from screamingface._ui.style import STYLE
 
@@ -232,7 +233,7 @@ class _NotebookConnectionView:
             authenticated=self._controller.authenticated,
             authenticating=self._controller.authenticating,
         )
-        meta = widgets.HTML(value=_access_meta_html(status))
+        meta = widgets.HTML(value=_access_meta_html(status, self._state.engine_url))
         meta.layout.flex = "1 1 auto"
         meta.layout.min_width = "0"
         if status == "checking":
@@ -412,12 +413,27 @@ def _static_row(connection: Connection) -> str:
     return f"<div class='sf-connections__row'>{_meta_html(connection)}</div>"
 
 
-def _access_meta_html(status: str) -> str:
+def _screaming_mark_html() -> str:
+    # WHY: the 😱 mark identifies ScreamingFace's own hosted Engine; rendered as the system
+    # emoji exactly as shipped (SFDS — never recoloured, boxed, or redrawn). aria-hidden because
+    # the adjacent provider label already names the row.
+    return "<span class='sf-tile-icon' aria-hidden='true'>😱</span>"
+
+
+def _access_meta_html(status: str, engine_url: str) -> str:
+    # WHY: only ScreamingFace's own hosted Engine gets the brand name + 😱 mark; any other
+    # remote Engine is a neutral "Hosted Engine" with the monogram fallback (no brand logo).
+    if _is_screamingface_engine(engine_url):
+        label = "ScreamingFace Hosted Engine"
+        icon = _screaming_mark_html()
+    else:
+        label = "Hosted Engine"
+        icon = _icon_html(None, label)
     return (
         "<div class='sf-connections__meta'>"
         "<span class='sf-conn-prov'>"
-        f"{_icon_html(None, 'Engine access')}"
-        "<span class='sf-connections__provider'>Engine access</span>"
+        f"{icon}"
+        f"<span class='sf-connections__provider'>{label}</span>"
         "</span>"
         f"{_status_html(status)}"
         f"{_source_html(None)}</div>"
@@ -456,7 +472,7 @@ def _static_access_row(
         authenticated=authenticated,
         authenticating=authenticating,
     )
-    return f"<div class='sf-connections__row'>{_access_meta_html(status)}</div>"
+    return f"<div class='sf-connections__row'>{_access_meta_html(status, state.engine_url)}</div>"
 
 
 def _notice_html(message: str | None) -> str:

@@ -8,15 +8,12 @@ import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
-from screamingface._ui.connection_state import (
-    _ConnectionPanelState,
-    _is_hosted_engine,
-    _user_message,
-)
+from screamingface._ui.connection_state import _ConnectionPanelState, _user_message
 from screamingface._ui.connection_view import (
     _NotebookConnectionView,
     static_panel_html,
 )
+from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:
@@ -84,6 +81,7 @@ class ConnectionPanel:
         hosted = _is_hosted_engine(client.engine_url)
         self._state = _ConnectionPanelState(
             hosted=hosted,
+            engine_url=client.engine_url,
             access_check_pending=(
                 hosted
                 and not client.authenticated
