@@ -106,5 +106,6 @@ Status: done (spec unit). Both child units also landed on this branch.
 
 - **S1 (migrations):** not applicable — no schema change in any unit of this epic.
 
-- **Open at hand-off:** the `packages/screamingface` warning noise (a third sub-issue, not yet filed),
-  and the two questions in spec §7.
+- **Open at hand-off:** the two questions in spec §7. The `packages/screamingface` warning noise was
+  filed as `OME-861` and fixed on this branch — see
+  `docs/work/2026-08-17-OME-861-no-warning-without-breakdown.md`.
