@@ -61,13 +61,12 @@ class _DisplayRow:
     accuracy: float
     questions: int | None
     # AIDEV-NOTE: UNUSED since OME-832. Its readers were the data-verified attribute
-    # and the `verified` chip, both removed because verified_by_openmined became
-    # uniform and asserted nothing (OME-820). `_candidate_row` still populates it, so
-    # nothing in ruff, pyright or coverage will notice it going stale. Parked
-    # deliberately for OME-821, which gives the flag a real signal and restores both
-    # readers. Do NOT key new presentation on it before then — a row's value says
-    # nothing today, and doing so would reintroduce the inert trust signal this
-    # change removed.
+    # and the `verified` chip, both removed because verified_by_openmined asserts
+    # nothing (OME-820). `_candidate_row` still populates it, so nothing in ruff,
+    # pyright or coverage will notice it going stale. Parked deliberately for OME-821,
+    # which gives the flag a real signal and restores both readers. Do NOT key new
+    # presentation on it before then — a row's value says nothing today, and doing so
+    # would reintroduce the inert trust signal this change removed.
     verified: bool | None
     python_source: str | None
     source_url: str | None
@@ -117,8 +116,19 @@ def leaderboard_html(board: Leaderboard) -> str:
         "<span class='sf-lb__field-label'>benchmark:</span>"
         f"<span class='sf-lb__field-value'>{title}</span></span>"
         # OME-832: the "verified only" checkbox lived here. Removed, not relabelled —
-        # verified_by_openmined is uniform since OME-820, so no row carries
-        # data-verified=false and the control removed nothing. OME-821 restores it.
+        # verified_by_openmined CERTIFIES NOTHING whatever it holds: nothing re-runs
+        # submissions (OME-414) and nothing attests where a run executed.
+        #
+        # WHY that is a reason to delete the control rather than leave it: the value is
+        # NOT uniform. OME-820 forbids a backfill, so rows predating it keep false while
+        # newer rows are true. A filter would therefore partition rows by whether they
+        # predate the default change, while presenting itself as a verification filter —
+        # measuring submission date and reading as though it measured trust. That is
+        # worse than filtering nothing, which is why relabelling could not have fixed it.
+        #
+        # OME-821 restores the control once the flag means something (OME-841 corrected
+        # this note, which previously said the field was "uniform" — it is not, and that
+        # wording argued for the opposite conclusion to the one this code took).
         "</div></div>"
         "<div class='sf-lb__table' role='table'>"
         "<div class='sf-lb__row sf-lb__row--head' role='row'>"
@@ -229,11 +239,11 @@ def _row_chip(value: _DisplayRow) -> str:
     url4 expression and says nothing about where a row came from.
 
     WHY that matters: this used to read `if value.verified: … ; if value.python_source is
-    None: baseline`. The verified branch was removed in OME-832 because the flag became
-    uniform and asserted nothing (OME-820). Deleting it alone would have let a candidate
-    with an unforkable url4 fall through and be labelled "baseline" — presenting a
-    community submission as an imported reference, a worse error than the one being
-    fixed. It already did that for *unverified* such candidates, which this also fixes.
+    None: baseline`. The verified branch was removed in OME-832 because the flag asserts
+    nothing (OME-820). Deleting it alone would have let a candidate with an unforkable
+    url4 fall through and be labelled "baseline" — presenting a community submission as
+    an imported reference, a worse error than the one being fixed. It already did that
+    for *unverified* such candidates, which this also fixes.
     """
     if value.kind == "single":
         return "<span class='sf-lb__chip'>baseline</span>"
