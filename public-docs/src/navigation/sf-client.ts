@@ -65,7 +65,7 @@ export const sfClientReferenceNavigation: NavEntry[] = [
           { title: 'Url4', path: '/sf-client/api/url4' },
         ],
       },
-      { title: 'Catalog', path: '/sf-client/api/benchmarks' },
+      { title: 'Benchmark', path: '/sf-client/api/benchmarks' },
       { title: 'Connections', path: '/sf-client/api/connections' },
       {
         title: 'Results & grading',
