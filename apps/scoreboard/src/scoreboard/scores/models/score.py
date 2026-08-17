@@ -35,6 +35,11 @@ class BaseScore(BaseScoreboardModel):
     # multiple NULLs don't violate a unique constraint, and every row created from
     # here on always gets one (the store always computes it on submit).
     content_hash = fields.CharField(max_length=64, unique=True, null=True)
+    # FEATURE: OME-323 — manual open/closed correction, operator-only (never set via
+    # the public submission API). `null` defers to the classification registry
+    # (scoreboard.classification.openness); an explicit "open"/"closed" wins outright
+    # over whatever the registry would have said, without a code deploy.
+    openness_override = fields.CharField(max_length=8, null=True)
 
 
 class Score(BaseScore):

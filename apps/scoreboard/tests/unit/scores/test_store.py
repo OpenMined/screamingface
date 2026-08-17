@@ -398,6 +398,31 @@ async def test_postgres_concurrent_idempotency_submissions_share_winner(
     assert await Score.all().count() == 1
 
 
+async def test_list_all_for_benchmark_returns_every_spec_ordered_by_submitted_at(
+    tortoise_db: None,
+) -> None:
+    """OME-323: unlike leaderboard() (best-per-spec), this returns every row for a
+    benchmark, chronologically — the frontier trend needs the full history, not
+    just each spec's current best."""
+    store = await _store_with_benchmark()
+    await store.submit(_submission(spec_id="spec-1", accuracy=0.5))
+    await store.submit(_submission(spec_id="spec-1", accuracy=0.9))
+    await store.submit(_submission(spec_id="spec-2", accuracy=0.3))
+
+    rows = await store.list_all_for_benchmark("hle")
+
+    assert len(rows) == 3
+    assert [row.submitted_at for row in rows] == sorted(row.submitted_at for row in rows)
+
+
+async def test_list_all_for_benchmark_empty_for_unknown_benchmark(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+
+    assert await store.list_all_for_benchmark("unknown") == []
+
+
 async def test_postgres_concurrent_identical_recipe_submissions_share_winner(
     tortoise_db: None,
 ) -> None:

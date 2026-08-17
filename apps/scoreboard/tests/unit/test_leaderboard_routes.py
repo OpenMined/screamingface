@@ -309,3 +309,57 @@ async def test_openapi_includes_baseline_schema(async_client: httpx.AsyncClient)
 
     assert response.status_code == 200
     assert "BaselineSchema" in response.json()["components"]["schemas"]
+
+
+async def test_get_frontier_returns_404_for_unknown_benchmark(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.get("/v1/leaderboard/missing/frontier")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Benchmark not found"}
+
+
+async def test_get_frontier_returns_empty_trend_for_a_benchmark_with_no_scores(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _register_benchmark(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle/frontier")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["benchmark_id"] == "hle"
+    assert body["current"] is None
+    assert body["trend"] == []
+    assert body["open_count"] == 0
+    assert body["closed_count"] == 0
+    assert body["open_share"] == 0.0
+
+
+async def test_get_frontier_reflects_real_submissions(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _register_benchmark(ScoreStore())
+    await async_client.post(
+        "/v1/scores",
+        json=_submission(spec_id="spec-1", accuracy=0.5, providers=["huggingface"]).model_dump(
+            mode="json"
+        ),
+    )
+    await async_client.post(
+        "/v1/scores",
+        json=_submission(spec_id="spec-2", accuracy=0.9, providers=["openai"]).model_dump(
+            mode="json"
+        ),
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle/frontier")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["open_count"] == 1
+    assert body["closed_count"] == 1
+    assert body["current"]["label"] == "spec-2"
+    assert body["current"]["openness"] == "closed"
+    assert len(body["trend"]) == 2
