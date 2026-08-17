@@ -188,10 +188,16 @@ Emission, in `_finish` and `build_subtree`:
 - unpriced → `pricing_version=UNPRICED`, `cost=CostBreakdown(total_usd=Decimal("0"))`, exactly as
   today, because the SDK discards the number when the version says unpriced.
 
-`TokenUsage` on the wire keeps non-optional `int` fields, so an unknown class serializes as `0`.
-That is tolerable **only** because an unknown class forces `unpriced`, which makes the SDK null the
-token fields too (`contract.py:361-380`). Widening the wire `TokenUsage` is out of scope; the
-coupling is recorded here so nobody later prices a run while leaving a class unknown.
+`TokenUsage` on the wire keeps non-optional `int` fields, so an unknown class serializes as `0` —
+"unknown" and "zero" are indistinguishable on the wire for tokens.
+
+> **CORRECTED after implementation (2026-08-17).** This paragraph originally said an unknown token
+> class must force `unpriced`. That is wrong under this pricing method and was not implemented.
+> Token counts **do not enter the price** here — the amount is provider-authored — so discarding a
+> valid cost because a cache sub-class went unreported would throw away a correct number for no gain.
+> The flattening is tolerable for exactly that reason, and the condition under which it stops being
+> safe is documented at `executor._token_usage`: a rate-card method that multiplies these counts.
+> Widening the wire `TokenUsage` is out of scope and would have to come first.
 
 ## 4. Test plan — risk-ranked, RED first
 
@@ -225,8 +231,8 @@ P0 cases are the two that produce a plausible wrong number rather than a visible
     provider response still succeeds.
 12. An amount at the contract's precision bound (18 integer / 33 fractional digits) survives as an
     exact `Decimal`; a non-canonical or negative amount → `unpriced`.
-13. `usage.status: "partial"` with a `null` token class → `unpriced`, and the class is `None` rather
-    than `0` at the observation seam.
+13. A `null` token class stays `None` at the observation seam rather than becoming `0`, and — per the
+    correction in §3.4 — does **not** by itself make the call unpriced.
 
 **P1 — the fixed defects**
 
