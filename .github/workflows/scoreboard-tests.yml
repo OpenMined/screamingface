@@ -53,6 +53,15 @@ jobs:
       - name: Typecheck
         run: uv run pyright
 
+      # WHY the NODE VERSION is pinned (not the action): the invocation below is
+      # version-sensitive — on Node 24 `node --test <dir>` resolves the directory as a
+      # module and fails — so a silent runner-default upgrade could change what this
+      # step does. The action major tracks the other workflows and Dependabot may bump
+      # it freely; `node-version` is the pin that matters.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
       - name: Run unit tests with aggregate coverage
         run: |
           uv run pytest \
@@ -63,6 +72,27 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=80 \
             -v
+
+      # The portal's pure logic (which row may be presented as SOTA, ordering, bar
+      # scaling), under Node's built-in runner. No package.json, no vitest, no
+      # lockfile, no dependabot ecosystem — Node is the whole harness.
+      #
+      # AIDEV-NOTE: the file is NAMED EXPLICITLY and must stay that way. Measured on
+      # Node v24.10.0:
+      #   node --test tests/portal/            -> fails, resolves the dir as a module
+      #   node --test "tests/portal/*.test.js" -> exit 0, "pass 0" when nothing matches
+      #   node --test tests/portal/*.test.js   -> identical; Node expands globs itself,
+      #                                           so shell quoting makes no difference
+      # Both glob forms would leave this step permanently GREEN while running zero
+      # tests the moment a file is renamed — worse than having no step, because it
+      # reads as coverage. A missing explicit path exits 1. Add new test files here
+      # by name; the same command is in .claude/sdlc.local.md so local gates and CI
+      # cannot disagree (OME-798).
+      # ORDER: after pytest, deliberately. As an earlier step, a JS failure left
+      # results.xml/coverage.xml unwritten, so the two `if: always()` reporter steps
+      # failed on missing paths and buried the real cause under three red steps.
+      - name: Run portal JS tests
+        run: node --test tests/portal/leaderboard-logic.test.js
 
       - name: Test report
         uses: dorny/test-reporter@v3
