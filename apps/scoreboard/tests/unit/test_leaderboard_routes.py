@@ -447,6 +447,8 @@ async def test_a_new_submission_reads_as_verified_on_both_read_paths(
     entry = next(e for e in board.json()["entries"] if e["spec_id"] == "verified-default")
     assert entry["verified_by_screamingface"] is True
     assert history.json()["submissions"][0]["verified_by_screamingface"] is True
+
+
 # --- OME-770 review: cost must survive every read path ----------------------
 
 

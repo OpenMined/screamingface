@@ -494,6 +494,8 @@ def test_score_submission_rejects_a_client_supplied_verified_flag(claimed: bool)
 
     with pytest.raises(ValidationError):
         ScoreSubmission.model_validate(payload)
+
+
 # --- OME-770: run cost on a submission ------------------------------------
 # A cost is optional, and its ABSENCE is a distinct state from a zero cost:
 # absent means "we were never told", zero means "this run genuinely cost

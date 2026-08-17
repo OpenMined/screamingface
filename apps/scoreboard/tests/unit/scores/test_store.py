@@ -875,6 +875,8 @@ def test_no_migration_backfills_the_verified_column() -> None:
         f"migration(s) may backfill verified_by_screamingface: {offenders}. "
         "Existing rows must keep the value they were created with (OME-820 D5)."
     )
+
+
 # --- OME-770: run cost through the store -----------------------------------
 
 
