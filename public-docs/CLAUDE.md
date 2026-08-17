@@ -47,35 +47,39 @@ There is no automated test setup in this project.
 
 ### Pages & routes
 
-| Route | Component |
-|---|---|
-| `/` | `src/pages/HomePage.vue` |
-| `/sf-client` | `src/pages/sf-client/Index.vue` |
-| `/sf-client/installation` | `src/pages/sf-client/InstallationPage.vue` |
-| `/sf-client/quickstartPage` | `src/pages/sf-client/QuickstartPage.vue` |
-| `/sf-client/guides/connections` | `src/pages/sf-client/guides/ConnectionsPage.vue` |
-| `/sf-client/guides/models` | `src/pages/sf-client/guides/ModelsPage.vue` |
-| `/sf-client/guides/fusions` | `src/pages/sf-client/guides/FusionsPage.vue` |
-| `/sf-client/guides/pipelines` | `src/pages/sf-client/guides/PipelinesPage.vue` |
-| `/sf-client/guides/benchmarks` | `src/pages/sf-client/guides/BenchmarksPage.vue` |
-| `/sf-client/guides/running-an-evaluation` | `src/pages/sf-client/guides/EvaluationPage.vue` |
-| `/sf-client/guides/leaderboards` | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
-| `/sf-client/guides/reproduce-and-share` | `src/pages/sf-client/guides/Url4Page.vue` |
-| `/sf-client/api/recipes` | `src/pages/sf-client/api/RecipesPage.vue` |
-| `/sf-client/api/benchmarks` | `src/pages/sf-client/api/BenchmarksPage.vue` |
-| `/sf-client/api/reports` | `src/pages/sf-client/api/ReportsPage.vue` |
-| `/sf-client/api/clients` | `src/pages/sf-client/api/ClientsPage.vue` |
-| `/sf-client/api/modules` | `src/pages/sf-client/api/ModulesPage.vue` |
-| `/sf-client/api/errors` | `src/pages/sf-client/api/ErrorsPage.vue` |
-| `/sf-client/api/events` | `src/pages/sf-client/api/EventsPage.vue` |
-| `/sf-client/api/leaderboards` | `src/pages/sf-client/api/LeaderboardsPage.vue` |
-| `/learn` | `src/pages/learn/ArchitecturePage.vue` |
-| `/learn/url4` | `src/pages/learn/Url4Page.vue` |
-| `/learn/url4-sdk` | `src/pages/learn/Url4SdkPage.vue` |
-| `/learn/engine` | `src/pages/learn/EnginePage.vue` |
-| `/learn/caching` | `src/pages/learn/CachingPage.vue` |
-| `/learn/ai-gateway` | `src/pages/learn/GatewayPage.vue` |
-| `/learn/leaderboard` | `src/pages/learn/LeaderboardPage.vue` |
+| Route                                     | Component                                         |
+| ----------------------------------------- | ------------------------------------------------- |
+| `/`                                       | `src/pages/HomePage.vue`                          |
+| `/sf-client`                              | `src/pages/sf-client/Index.vue`                   |
+| `/sf-client/installation`                 | `src/pages/sf-client/InstallationPage.vue`        |
+| `/sf-client/quickstartPage`               | `src/pages/sf-client/QuickstartPage.vue`          |
+| `/sf-client/guides/connections`           | `src/pages/sf-client/guides/ConnectionsPage.vue`  |
+| `/sf-client/guides/models`                | `src/pages/sf-client/guides/ModelsPage.vue`       |
+| `/sf-client/guides/fusions`               | `src/pages/sf-client/guides/FusionsPage.vue`      |
+| `/sf-client/guides/pipelines`             | `src/pages/sf-client/guides/PipelinesPage.vue`    |
+| `/sf-client/guides/benchmarks`            | `src/pages/sf-client/guides/BenchmarksPage.vue`   |
+| `/sf-client/guides/running-an-evaluation` | `src/pages/sf-client/guides/EvaluationPage.vue`   |
+| `/sf-client/guides/leaderboards`          | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
+| `/sf-client/guides/reproduce-and-share`   | `src/pages/sf-client/guides/Url4Page.vue`         |
+| `/sf-client/api/recipes`                  | `src/pages/sf-client/api/RecipesPage.vue`         |
+| `/sf-client/api/benchmarks`               | `src/pages/sf-client/api/BenchmarksPage.vue`      |
+| `/sf-client/api/reports`                  | `src/pages/sf-client/api/ReportsPage.vue`         |
+| `/sf-client/api/clients`                  | `src/pages/sf-client/api/ClientsPage.vue`         |
+| `/sf-client/api/fusions`                  | `src/pages/sf-client/api/FusionsPage.vue`         |
+| `/sf-client/api/pipelines`                | `src/pages/sf-client/api/PipelinesPage.vue`       |
+| `/sf-client/api/url4`                     | `src/pages/sf-client/api/Url4Page.vue`            |
+| `/sf-client/api/connections`              | `src/pages/sf-client/api/ConnectionsPage.vue`     |
+| `/sf-client/api/modules`                  | `src/pages/sf-client/api/ModulesPage.vue`         |
+| `/sf-client/api/errors`                   | `src/pages/sf-client/api/ErrorsPage.vue`          |
+| `/sf-client/api/events`                   | `src/pages/sf-client/api/EventsPage.vue`          |
+| `/sf-client/api/leaderboards`             | `src/pages/sf-client/api/LeaderboardsPage.vue`    |
+| `/learn`                                  | `src/pages/learn/ArchitecturePage.vue`            |
+| `/learn/url4`                             | `src/pages/learn/Url4Page.vue`                    |
+| `/learn/url4-sdk`                         | `src/pages/learn/Url4SdkPage.vue`                 |
+| `/learn/engine`                           | `src/pages/learn/EnginePage.vue`                  |
+| `/learn/caching`                          | `src/pages/learn/CachingPage.vue`                 |
+| `/learn/ai-gateway`                       | `src/pages/learn/GatewayPage.vue`                 |
+| `/learn/leaderboard`                      | `src/pages/learn/LeaderboardPage.vue`             |
 
 Note that `BenchmarksPage.vue` exists twice — under `guides/` (how to choose a
 benchmark) and under `api/` (the `Benchmark` type). The route names
@@ -121,10 +125,10 @@ export const sfClientNavigation: NavEntry[] = [
 ]
 ```
 
-| File | Export | Used by | Entries |
-|---|---|---|---|
+| File                          | Export                                  | Used by                  | Entries                                                                                                                                                               |
+| ----------------------------- | --------------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/navigation/sf-client.ts` | `sfClientNavigation`, `sfClientVersion` | All `/sf-client/*` pages | Overview, then **Get Started**, **User Guides** (with a nested **Compose** group) and **API Reference** (with nested **Core classes** and **Modules & types** groups) |
-| `src/navigation/sdk.ts` | `sdkNavigation` | All `/sdk/*` pages | **Getting Started**: Overview |
+| `src/navigation/sdk.ts`       | `sdkNavigation`                         | All `/sdk/*` pages       | **Getting Started**: Overview                                                                                                                                         |
 
 **Versioning.** `sf-client.ts` also exports `sfClientVersion`
 (`{ prefix, label, url }`), rendered once in the sidebar footer rather than on

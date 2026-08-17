@@ -104,6 +104,26 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/ClientsPage.vue'),
     },
     {
+      path: '/sf-client/api/fusions',
+      name: 'sf-client-api-fusions',
+      component: () => import('@/pages/sf-client/api/FusionsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/pipelines',
+      name: 'sf-client-api-pipelines',
+      component: () => import('@/pages/sf-client/api/PipelinesPage.vue'),
+    },
+    {
+      path: '/sf-client/api/url4',
+      name: 'sf-client-api-url4',
+      component: () => import('@/pages/sf-client/api/Url4Page.vue'),
+    },
+    {
+      path: '/sf-client/api/connections',
+      name: 'sf-client-api-connections',
+      component: () => import('@/pages/sf-client/api/ConnectionsPage.vue'),
+    },
+    {
       path: '/sf-client/api/modules',
       name: 'sf-client-api-modules',
       component: () => import('@/pages/sf-client/api/ModulesPage.vue'),
