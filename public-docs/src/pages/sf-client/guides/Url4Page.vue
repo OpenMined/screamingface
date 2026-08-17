@@ -42,10 +42,9 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
   >
     <p>
       Every candidate result carries a <RouterLink to="/learn/url4"><code>url4</code></RouterLink>
-      string: the complete expression <RouterLink to="/learn/engine">the engine</RouterLink>
-      actually ran. Not a summary, not a log. The plan itself. Your candidate, the benchmark's
-      routes, retry prompts, protocol revision, all in one line of text you can read, diff, and send
-      to others.
+      string: the complete plan <RouterLink to="/learn/engine">the engine</RouterLink> actually ran —
+      your candidate, the benchmark's routes, retry prompts, and protocol revision — written as a
+      single line of text you can read, diff, and share.
     </p>
 
     <p>
@@ -332,16 +331,16 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <h2>What "reproduce" means here</h2>
 
     <p>
-      A url4 pins the run's <strong>definition</strong>, not its outputs. Re-executing the same
-      expression asks the same models the same questions under the same protocol, and models are not
-      deterministic, so the scores will move. What is reproducible is the experiment, not the
-      number.
+      A url4 pins the run's <strong>definition</strong>. Replay it against the hosted ScreamingFace
+      engine and you get a <strong>cache hit</strong>: the engine already ran that exact expression,
+      so it returns the identical score at <strong>$0</strong> rather than paying to run it again.
     </p>
 
     <p>
-      That is the useful guarantee. When two results differ, the url4 tells you whether the
-      <em>setup</em> differed, which is the question you actually need answered before comparing
-      them.
+      Bypass the cache and it genuinely reruns, asking the same models the same questions under the
+      same protocol. Models are not deterministic, so a fresh run can diverge slightly. A cached
+      replay reproduces the number exactly; a bypassed rerun reproduces the experiment, and the
+      score may move a little.
     </p>
 
     <h2>Links</h2>

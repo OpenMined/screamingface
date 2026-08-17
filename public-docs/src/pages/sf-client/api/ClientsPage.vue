@@ -94,7 +94,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
       <code>DEFAULT_ENGINE_URL</code> is a hosted Engine, so a <code>Client()</code> with no
       arguments talks to one we operate. To use a local Engine, pass its address explicitly, or set
       <code>SCREAMINGFACE_ENGINE_URL</code> and use the module-level functions.
-      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted leaderboard. Both constants live in
+      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted ScreamingFace Leaderboard. Both constants live in
       <code>screamingface.client</code>.
     </Note>
 

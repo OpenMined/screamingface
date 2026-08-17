@@ -150,12 +150,6 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
       url4 written today is meant to run tomorrow.
     </p>
 
-    <blockquote>
-      url4 is deliberately unbranded: a commons artifact, not a product feature. The open web works
-      because open protocols arrived early; url4 aims to be that early, open layer for describing
-      composed intelligence.
-    </blockquote>
-
     <h2>In code</h2>
 
     <p>
