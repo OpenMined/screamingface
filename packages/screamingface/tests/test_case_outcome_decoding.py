@@ -360,3 +360,76 @@ def test_a_locally_built_case_derives_status_without_weakening_wire_decoding() -
     )
 
     assert refused.status == "refused"
+
+
+# FEATURE: OME-843 member-output capture — the optional `operations` case key carries
+# each member/synthesis operation's output so Fusion contribution analysis works offline.
+def _operations_payload() -> dict[str, Any]:
+    payload = _scored_payload()
+    payload["operations"] = [
+        {"operation_id": "op_model_1", "output": "Member one answer.", "finish_reason": "stop"},
+        {"operation_id": "op_model_2", "output": None, "finish_reason": "length"},
+        {"operation_id": "op_synthesis_1", "output": "Four.", "finish_reason": "stop"},
+    ]
+    return payload
+
+
+def test_operations_decode_in_wire_order_and_survive_export() -> None:
+    # INVARIANT: `operations` is optional, ordered, and round-trips exactly — the client
+    # never reorders, drops, or invents member outputs.
+    payload = _operations_payload()
+
+    case = _case_result(payload)
+
+    assert case.operations is not None
+    assert [item.operation_id for item in case.operations] == [
+        "op_model_1",
+        "op_model_2",
+        "op_synthesis_1",
+    ]
+    assert case.operations[0].output == "Member one answer."
+    assert case.operations[1].output is None
+    assert case.operations[1].finish_reason == "length"
+    assert case.to_dict() == payload
+
+
+def test_a_case_without_operations_exports_byte_identically() -> None:
+    # INVARIANT: absence stays absence — a solo Candidate's artifact gains no member
+    # section, so pre-OME-843 reports and new solo reports stay byte-identical.
+    payload = _scored_payload()
+
+    case = _case_result(payload)
+
+    assert case.operations is None
+    assert "operations" not in case.to_dict()
+
+
+def test_a_null_operations_key_decodes_as_absent() -> None:
+    case = _case_result({**_scored_payload(), "operations": None})
+
+    assert case.operations is None
+    assert "operations" not in case.to_dict()
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        ({"output": "x", "finish_reason": None}, "missing 'operation_id'"),
+        (
+            {"operation_id": "op_model_1", "output": "x", "finish_reason": None, "extra": 1},
+            "unsupported field 'extra'",
+        ),
+        ({"operation_id": "  ", "output": "x", "finish_reason": None}, "operation_id"),
+        ({"operation_id": "op_model_1", "output": 7, "finish_reason": None}, "output"),
+    ],
+)
+def test_a_malformed_operation_entry_fails_closed(entry: dict[str, Any], message: str) -> None:
+    # INVARIANT: tolerance is for the key's absence, not for malformed content — a
+    # present `operations` list still decodes strictly, like every other contract field.
+    with pytest.raises(sf.ExecutionError, match=message):
+        _case_result({**_scored_payload(), "operations": [entry]})
+
+
+def test_operations_must_be_a_list_when_present() -> None:
+    with pytest.raises(sf.ExecutionError, match="operations"):
+        _case_result({**_scored_payload(), "operations": {"op_model_1": "answer"}})
