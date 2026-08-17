@@ -10,19 +10,18 @@ import {
 
 const listing = `import screamingface as sf
 
-for b in sf.benchmarks.list():
-    print(b.id, "|", b.variant, "|", b.case_count, "cases |", b.revision)`
-const listingOut = `draco | canonical | 100 cases | defbb6efdae69211
-draco/lite | lite | 2 cases | 6a1c04b9c7f21d83
-draco/smoke | smoke | 1 cases | b2f7d5e10a9c4468
-ifeval | canonical | 541 cases | 22ca96fe77b0f7de
-ifeval/self-corrective | self-corrective | 541 cases | 047f1de449639c61
-ifeval/lanl-ensemble | lanl-ensemble | 541 cases | 9c3ba82f5d0e7716
-healthbench/worst30 | worst30 | 30 cases | 41e8c96d2b7a5f30`
+sf.benchmarks.list()`
+const listingOut = `draco                    100 cases   defbb6efdae69211
+draco/lite                 2 cases   6a1c04b9c7f21d83
+draco/smoke                1 case    b2f7d5e10a9c4468
+ifeval                   541 cases   22ca96fe77b0f7de
+ifeval/self-corrective   541 cases   047f1de449639c61
+ifeval/lanl-ensemble     541 cases   9c3ba82f5d0e7716
+healthbench/worst30       30 cases   41e8c96d2b7a5f30`
 
 const card = `ifeval = sf.benchmarks.get("ifeval")
 ifeval`
-const cardOut = `Benchmark(id='ifeval', variant='canonical', title='IFEval',
+const cardOut = `Benchmark(id='ifeval', title='IFEval',
 description='The canonical 541-prompt instruction-following benchmark
 (https://arxiv.org/abs/2311.07911), graded by deterministic strict and loose
 verification. Each Case invokes the Candidate exactly once. Case ids are the
@@ -55,6 +54,13 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
       genuinely comparable.
     </p>
 
+    <blockquote>
+      <strong>Only a subset of benchmarks is available so far.</strong> This is an early, deliberately
+      small set, and we're working on expanding it massively so fusion research can thrive. If there's
+      a benchmark you'd want to run first, we'd love to hear it — tell us on
+      <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener">GitHub</a>.
+    </blockquote>
+
     <h2>What you can do with it</h2>
 
     <ul>
@@ -83,8 +89,8 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
           <td>Fetches one benchmark's identity card. A protocol variant has its own id, such as <code>ifeval/self-corrective</code>, and its own revision.</td>
         </tr>
         <tr>
-          <td><code>sf.Benchmark</code> <code>.id</code> <code>.variant</code> <code>.title</code> <code>.description</code> <code>.revision</code> <code>.case_count</code></td>
-          <td>The identity card itself: its id, which protocol that id runs, what it measures, the opaque revision hash of the pinned protocol, and its size.</td>
+          <td><code>sf.Benchmark</code> <code>.id</code> <code>.title</code> <code>.description</code> <code>.revision</code> <code>.case_count</code></td>
+          <td>The identity card itself: its id, what it measures, the opaque revision hash of the pinned protocol, and its size.</td>
         </tr>
         <tr>
           <td><code>sf.BenchmarkInfo</code></td>

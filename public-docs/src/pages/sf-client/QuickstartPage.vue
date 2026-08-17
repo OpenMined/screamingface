@@ -268,13 +268,15 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 <template>
   <DocLayout
     title="Quickstart"
-    description="Run DRACO-Lite end to end and compare seven solo models against nine fusions built from them."
+    description="Run a DRACO subset end to end to compare fusions with its solo models."
     :navigation="navigation"
     :version="version"
   >
     <p>
       By the end, you'll have a scored comparison of <strong>16 candidates</strong>: seven solo
-      models and nine fusions built from those models, all on one DRACO case with ten criteria and
+      models and nine fusions built from those models, all on one
+      <a href="https://arxiv.org/abs/2602.11685" target="_blank" rel="noopener">DRACO</a> case with
+      ten criteria and
       one judge pass each. The whole thing runs as a single request of roughly 80 to 85 provider
       calls.
     </p>
@@ -286,13 +288,13 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
       OpenRouter route, so one connection covers everything.
     </blockquote>
 
-    <h2>1 · Point at an engine</h2>
+    <h2>1 · Configure the engine</h2>
 
     <p>
-      The client never talks to model providers. That happens on the
-      <strong>ScreamingFace Engine</strong>, a separate process that holds your credentials, the
-      benchmark answer keys, and does the grading. This first step tells the client where to find
-      that engine.
+      The <RouterLink to="/learn/engine"><strong>ScreamingFace Engine</strong></RouterLink> is a
+      separate process that holds your provider credentials, keeps the benchmark answer keys, calls
+      the models on your behalf, and does the grading. The client hands all of that work to it, so
+      this first step tells the client where to find the engine.
     </p>
 
     <div class="not-prose">
@@ -300,9 +302,20 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     </div>
 
     <p>
-      That's it for setup. <code>sf.configure()</code> validates and stores the URL without making a
-      network request. Omitting it falls back to <code>DEFAULT_ENGINE_URL</code>, which is a hosted
-      engine, so naming the engine you mean is worth doing explicitly.
+      <code>sf.configure()</code> validates and stores the URL without making a network request. The
+      example above points at a <strong>local engine</strong> on
+      <code>http://127.0.0.1:9108</code> — to run one yourself, install the <code>[runtime]</code>
+      extra and start the stack with <code>screamingface up</code>. The
+      <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through that end
+      to end.
+    </p>
+
+    <p>
+      To use the <strong>hosted ScreamingFace engine</strong> instead, point at its URL rather than
+      loopback. Access is currently granted person by person through peer-to-peer approval, so you
+      need to be approved before it will answer. Omitting the URL entirely falls back to
+      <code>DEFAULT_ENGINE_URL</code>, which is that hosted engine, so naming the one you mean is
+      worth doing explicitly.
     </p>
 
     <p>
@@ -351,7 +364,9 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 
     <blockquote>
       We're using OpenRouter here for simplicity, but you can build fusions with models from any of
-      these providers. We're actively expanding support for local and third-party providers.
+      the providers listed above. One caveat: <strong>caching is currently available only for
+      OpenRouter and Anthropic</strong>, so runs on the other providers aren't reused yet — extending
+      it to the rest is work in progress.
     </blockquote>
 
     <h3>Configure OpenRouter via script</h3>

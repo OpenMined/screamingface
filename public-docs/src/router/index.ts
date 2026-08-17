@@ -74,6 +74,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/RecipesPage.vue'),
     },
     {
+      path: '/sf-client/api/models',
+      name: 'sf-client-api-models',
+      component: () => import('@/pages/sf-client/api/ModelsCatalogPage.vue'),
+    },
+    {
       path: '/sf-client/api/benchmarks',
       name: 'sf-client-api-benchmarks',
       component: () => import('@/pages/sf-client/api/BenchmarksPage.vue'),
@@ -82,6 +87,16 @@ const router = createRouter({
       path: '/sf-client/api/reports',
       name: 'sf-client-api-reports',
       component: () => import('@/pages/sf-client/api/ReportsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/candidate-result',
+      name: 'sf-client-api-candidate-result',
+      component: () => import('@/pages/sf-client/api/CandidateResultPage.vue'),
+    },
+    {
+      path: '/sf-client/api/usage',
+      name: 'sf-client-api-usage',
+      component: () => import('@/pages/sf-client/api/UsagePage.vue'),
     },
     {
       path: '/sf-client/api/clients',

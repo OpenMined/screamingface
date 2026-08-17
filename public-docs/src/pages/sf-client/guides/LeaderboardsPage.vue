@@ -10,30 +10,18 @@ import {
 
 const listing = `import screamingface as sf
 
-for board in sf.leaderboards.list():
-    print(board.id, "|", board.display_name)`
-const listingOut = `hle | News Hallucinations
-livetruth | News Livetruth
-livetruth-latest | News Livetruth Latest`
+sf.leaderboards.list()`
+const listingOut = `hle                News Hallucinations
+livetruth          News Livetruth
+livetruth-latest   News Livetruth Latest`
 
 const getOne = `board = sf.leaderboards.get("hle", top=5)
 board`
 const getOneOut = `Leaderboard('hle', entries=2, baselines=0)`
 
-const rows = `for entry in board.entries:
-    print(
-        entry.rank,
-        "|",
-        entry.spec_id,
-        "|",
-        entry.accuracy,
-        "|",
-        "verified" if entry.verified_by_openmined else "unverified",
-        "|",
-        ",".join(entry.ran_with_providers),
-    )`
-const rowsOut = `1 | filip-cf-access-smoke-1 | 0.5 | unverified | smoke
-2 | smoke-test-1 | 0.5 | unverified | smoke`
+const rows = `board.entries`
+const rowsOut = `1   filip-cf-access-smoke-1   0.5   unverified   smoke
+2   smoke-test-1             0.5   unverified   smoke`
 
 const configure = `sf.configure(
     engine_url="http://127.0.0.1:9108",
@@ -42,10 +30,11 @@ const configure = `sf.configure(
 
 const publish = `report = sf.evaluate(candidate, benchmark="ifeval", limit=3)
 
-# opt-in: Run All should never publish by accident
-PUBLISH = False
-submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH else None
-submission`
+# publish one candidate
+sf.leaderboards.submit(report.candidates.only)
+
+# or publish every candidate in the report
+[sf.leaderboards.submit(c) for c in report.candidates]`
 
 const fetchScore = `score = sf.leaderboards.get_score("57cc25d7-00bf-44ec-bf9d-55d66cd1e003")
 score.accuracy, score.correct_questions, score.total_questions, score.verified_by_openmined`
@@ -63,15 +52,16 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     :version="version"
   >
     <p>
-      A <strong>leaderboard</strong> is one benchmark's public ranking on the Scoreboard. The Client
-      reads and writes it through <code>sf.leaderboards</code>. Discovery and reads are free. They
-      hit the Scoreboard, not a model, and they do not need a provider connection.
+      A <strong>leaderboard</strong> is one benchmark's public ranking on the ScreamingFace
+      Leaderboard. The Client reads and writes it through <code>sf.leaderboards</code>. Discovery and
+      reads are free. They hit the leaderboard, not a model, and they do not need a provider
+      connection.
     </p>
 
     <p>
       Each ranked row keeps the exact
       <RouterLink to="/sf-client/guides/reproduce-and-share"><code>url4</code></RouterLink>
-      that produced the score, so anyone can fork or re-run the recipe. The Scoreboard also stores
+      that produced the score, so anyone can fork or re-run the recipe. The leaderboard also stores
       whether OpenMined independently re-ran it (<code>verified_by_openmined</code>). That flag is
       separate from who submitted the row: a submission starts unverified.
     </p>
@@ -80,7 +70,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       The public portal is
       <a href="https://leaderboard.screamingface.ai" target="_blank" rel="noopener"
         >leaderboard.screamingface.ai</a
-      >. The Client's default Scoreboard origin is
+      >. The Client's default leaderboard origin is
       <code>https://leaderboard.dev.screamingface.ai</code>. Point <code>scoreboard_url</code> at
       your own instance when you run the local stack.
     </p>
@@ -88,7 +78,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     <h2>What you can do with it</h2>
 
     <ul>
-      <li>List the benchmarks the Scoreboard has registered as leaderboards.</li>
+      <li>List the benchmarks registered as leaderboards.</li>
       <li>Fetch one board's ranked entries and any imported single-model baselines.</li>
       <li>Publish an evaluated <code>CandidateResult</code> as a new score.</li>
       <li>Look up one published score by id and reuse its <code>url4</code>.</li>
@@ -107,7 +97,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
         <tr>
           <td><code>sf.leaderboards.list()</code></td>
           <td>
-            Lists every benchmark registered with the configured Scoreboard as
+            Lists every benchmark registered with the configured leaderboard as
             <code>LeaderboardInfo</code> values.
           </td>
         </tr>
@@ -144,7 +134,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     </table>
 
     <p>
-      Ranking is best-per-spec: for each <code>spec_id</code> the Scoreboard keeps the highest
+      Ranking is best-per-spec: for each <code>spec_id</code> the leaderboard keeps the highest
       accuracy, and breaks ties by newest <code>submitted_at</code>. The table is then ordered by
       accuracy descending. Baselines are imported separately and sit beside community entries; they
       are not the same as a submitted score.
@@ -159,7 +149,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     </div>
 
     <p>
-      These ids are Scoreboard registrations. They can overlap the engine's
+      These ids are leaderboard registrations. They can overlap the engine's
       <RouterLink to="/sf-client/guides/benchmarks">benchmark</RouterLink> catalog, but they are not
       the same list. A board has to be registered before you can publish to it.
     </p>
@@ -178,7 +168,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       Each entry carries <code>accuracy</code>, <code>total_questions</code>, the providers used,
       who submitted it when that is known, the <code>verified_by_openmined</code> flag, and the
       <code>url4</code> expression. Notebook displays render the board as an interactive widget; the
-      plain loop above is what you get when you print fields yourself.
+      fields above are what each entry holds.
     </p>
 
     <p>
@@ -186,11 +176,11 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       <code>verified_by_openmined=True</code> as the trust signal, not the mere presence of a row.
     </p>
 
-    <h3>3 · Point the Client at a Scoreboard</h3>
+    <h3>3 · Point the Client at a leaderboard</h3>
 
     <p>
-      Without configuration, leaderboard calls use the default hosted Scoreboard. Local development
-      usually points both the engine and the Scoreboard at the stack
+      Without configuration, leaderboard calls use the default hosted ScreamingFace Leaderboard.
+      Local development usually points both the engine and the leaderboard at the stack
       <code>just stack-up</code> starts:
     </p>
 
@@ -208,8 +198,8 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
 
     <p>
       <code>submit</code> takes the evaluated <code>CandidateResult</code> directly. It does not ask
-      you to re-enter the score. Keep publication behind an explicit flag so a notebook
-      <strong>Run All</strong> cannot change the board by accident.
+      you to re-enter the score. Pass <code>report.candidates.only</code> to publish a single
+      candidate, or iterate <code>report.candidates</code> to publish every candidate in the report.
     </p>
 
     <div class="not-prose">
@@ -225,7 +215,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     </p>
 
     <p>
-      The Scoreboard's accuracy contract is strict: every case grade must be binary (<code>0</code>
+      The leaderboard's accuracy contract is strict: every case grade must be binary (<code>0</code>
       or <code>1</code>), and <code>score</code> must match <code>correct / total</code> within
       <code>0.01</code>. Rubric-only results that do not reduce to that shape are rejected before
       they leave the Client. IFEval fits; some judge-scored protocols do not until their grades are
@@ -236,7 +226,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
 
     <p>
       Pass the id <code>submit</code> returned (or any public score id). This sample is a real score
-      read back from a local Scoreboard:
+      read back from a local leaderboard:
     </p>
 
     <div class="not-prose">

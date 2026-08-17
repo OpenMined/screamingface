@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import { SF_ENGINE_URL } from '@/lib/engine'
+import { useThemeStore } from '@/stores/themeStore'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
+
+const { isDark } = storeToRefs(useThemeStore())
+
+const localDiagram = (dark: boolean) =>
+  `/diagrams/screamingface-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
 
 // The smallest complete run: name the engine, compose a Fusion, evaluate it
 // beside its own member, read both scores. Every name here is shipped API.
@@ -37,8 +44,8 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
       ScreamingFace is an open-source Python client for composing model ensembles, which it calls
       <strong>fusions</strong>, and evaluating them against research benchmarks. You build a fusion
       from providers you already hold keys for, evaluate it, and read back a score together with
-      what the run cost. The benchmark answer keys and the grading stay on the engine, so the code
-      being scored is never the code doing the scoring.
+      what the run cost. The benchmark answer keys and the grading stay on the engine and results are cached to lower
+      the cost of fusion exploration.
     </p>
 
     <p>
@@ -50,16 +57,9 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         target="_blank"
         rel="noopener"
         >published results</a
-      >). The effect is reported elsewhere as well, for instance in
+      >). The effect is reported repeatedly, for instance in
       <em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em> (Skurikhin
-      et al., Los Alamos). It appears to come from genuine diversity between the models rather than
-      from any single one of them.
-    </p>
-
-    <p>
-      Evaluation is nondeterministic, so a single comparison is one sample rather than a settled
-      result. The point of the tooling is that you can re-run any of this yourself and see what you
-      get.
+      et al., Los Alamos).
     </p>
 
     <h2>What the client gives you</h2>
@@ -102,7 +102,7 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     <h2>What url4 is</h2>
 
     <p>
-      A <strong>url4</strong> is a single-line expression describing a composed system: which models
+      A <strong>url4</strong> is a single-line expression following a given grammar and protocol, that describes a composed system: which models
       take part, how their answers are combined, and what each one is asked to do. It serves as both
       the record of what ran and the instruction for running it again, which is what lets a
       published result carry its own method instead of describing it in prose.
@@ -113,15 +113,14 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     <p>
       The client never calls a model provider itself. It sends work to an
       <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
-      benchmark answer keys and performs the grading. You can point it at either of two, and the
-      choice is a genuine trade rather than a formality.
+      benchmark answer keys and performs the grading. You can point it at either of two.
     </p>
 
     <ul>
       <li>
         <strong>A local engine</strong> ships with the toolkit and runs on your own machine, using
         your keys and its own cache. Nothing is hosted and no third party sits between you and your
-        providers, but the cache starts empty and you supply the compute.
+        providers, but the cache starts empty and you pay for the compute.
       </li>
       <li>
         <strong>A hosted engine</strong> runs the same software as a service, which adds the shared
@@ -157,5 +156,41 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
       scores, any failures, and the total cost. Because the url4 travels with the result, someone
       else can repeat the evaluation and compare what they get against what you reported.
     </p>
+
+    <figure class="not-prose diagram">
+      <img
+        :src="localDiagram(isDark)"
+        alt="Local request flow: the client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
+      />
+      <figcaption>
+        <strong>The local flow.</strong> The client compiles your recipe into one url4 expression and
+        hands it to an engine on your own machine; the engine fans model calls out through the gateway
+        to the providers you hold keys for, then streams scores and cost back.
+      </figcaption>
+    </figure>
   </DocLayout>
 </template>
+
+<style scoped>
+.diagram {
+  margin: 1.75rem 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.diagram img {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: var(--space-6);
+}
+.diagram figcaption {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.diagram figcaption strong {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+</style>

@@ -48,9 +48,12 @@ export const sfClientNavigation: NavEntry[] = [
       {
         title: 'Core classes',
         children: [
-          { title: 'Recipes', path: '/sf-client/api/recipes' },
+          { title: 'Recipes, Models, Fusions', path: '/sf-client/api/recipes' },
+          { title: 'Models', path: '/sf-client/api/models' },
           { title: 'Benchmarks', path: '/sf-client/api/benchmarks' },
           { title: 'Reports', path: '/sf-client/api/reports' },
+          { title: 'CandidateResult', path: '/sf-client/api/candidate-result' },
+          { title: 'Usage', path: '/sf-client/api/usage' },
           { title: 'Clients', path: '/sf-client/api/clients' },
         ],
       },

@@ -12,7 +12,7 @@ sf.configure(engine_url="http://127.0.0.1:9108")   # the Client talks only to an
 
 const runLocal = `pip install "screamingface[runtime]"
 screamingface prepare draco   # benchmark data, once
-screamingface up              # engine, gateway, scoreboard on loopback`
+screamingface up              # engine, gateway, leaderboard on loopback`
 
 const health = `screamingface status`
 </script>
@@ -106,7 +106,7 @@ const health = `screamingface status`
 
     <p>
       That serves the Engine on <code>127.0.0.1:9108</code>, alongside the gateway that holds your
-      provider keys and a local scoreboard. <code>screamingface status</code> reports each of the
+      provider keys and a local leaderboard. <code>screamingface status</code> reports each of the
       three, and <code>screamingface down</code> stops them. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide covers the rest,
       including when a local Engine needs its own web-search key.

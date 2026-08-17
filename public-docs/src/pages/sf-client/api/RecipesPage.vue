@@ -60,7 +60,7 @@ const equalityOut = `True`
 
 <template>
   <DocLayout
-    title="Recipes"
+    title="Recipes, Models, Fusions"
     description="Recipe, Model, Fusion and Pipeline: the things you evaluate."
     :navigation="navigation"
     :version="version"

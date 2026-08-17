@@ -13,14 +13,8 @@ import {
 const listRun = `import screamingface as sf
 
 client = sf.Client()
-[(b.id, b.variant, b.case_count) for b in client.benchmarks.list()]`
-const listRunOut = `[('draco', 'canonical', 100), ('draco/lite', 'lite', 2), ('ifeval', 'canonical', 541), ('ifeval/self-corrective', 'self-corrective', 541)]`
-
-const modelsRun = `client.models.list()[0]`
-const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)`
-
-const detailsRun = `client.models.get("anthropic/claude-opus-4-8")`
-const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='chat', parameters=9, tools=2, transport=3)`
+[(b.id, b.case_count) for b in client.benchmarks.list()]`
+const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeval/self-corrective', 541)]`
 </script>
 
 <template>
@@ -33,10 +27,10 @@ const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthr
     <p>
       A benchmark is a fixed set of cases, owned by the Engine and pinned by a revision. This page
       covers <code>Benchmark</code> itself, alongside <code>BenchmarkInfo</code> for the compact
-      identity a report keeps of it, and <code>ModelInfo</code> for the model routes the Engine can
-      run it against. See the
+      identity a report keeps of it. See the
       <RouterLink to="/sf-client/guides/benchmarks">Benchmarks guide</RouterLink> for choosing which
-      benchmark to run.
+      benchmark to run, and the <RouterLink to="/sf-client/api/models">Models page</RouterLink> for
+      the model routes the Engine can run a benchmark against.
     </p>
 
     <p>
@@ -77,15 +71,6 @@ const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthr
           <td>
             Stable identifier, such as <code>ifeval</code> or <code>draco/lite</code>. This is what
             you pass as <code>benchmark=</code> when evaluating.
-          </td>
-        </tr>
-        <tr>
-          <td><code>variant</code></td>
-          <td><code>str</code></td>
-          <td>
-            Which protocol of the underlying benchmark this entry runs, such as
-            <code>canonical</code>, <code>lite</code> or <code>self-corrective</code>. It names the
-            protocol; the <code>id</code> is what selects it.
           </td>
         </tr>
         <tr>
@@ -171,78 +156,16 @@ const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthr
       </tbody>
     </table>
 
-    <h2>ModelInfo</h2>
-
-    <p>
-      A <code>ModelInfo</code> is one model route the configured Engine can currently reach.
-      <code>client.models.list()</code> returns every addressable route, and consulting it before
-      naming a route in a <RouterLink to="/sf-client/api/recipes">Model</RouterLink> is worthwhile:
-      a route the Engine does not carry raises a <code>PlanningError</code> at evaluation time
-      rather than at construction time.
-    </p>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Meaning</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>id</code></td>
-          <td><code>str</code></td>
-          <td>The route, which is what you pass to <code>sf.Model()</code>.</td>
-        </tr>
-        <tr>
-          <td><code>provider</code></td>
-          <td><code>str</code></td>
-          <td>Which provider serves the route.</td>
-        </tr>
-        <tr>
-          <td><code>supported_parameters</code></td>
-          <td><code>tuple[str, ...]</code></td>
-          <td>
-            Which request parameters this route accepts, such as <code>temperature</code>. Passing
-            one it does not accept fails before the run.
-          </td>
-        </tr>
-        <tr>
-          <td><code>supported_tools</code></td>
-          <td><code>tuple[str, ...]</code></td>
-          <td>Which tools it can use, such as <code>web_search</code>.</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="not-prose">
-      <NbCell :count="2" :code="modelsRun"><NbTextOut :text="modelsRunOut" /></NbCell>
-    </div>
-
-    <p>
-      <code>client.models.get(id)</code> returns the fuller <code>ModelDetails</code> profile for
-      one route: every parameter with its schema and whether the gateway currently projects it, the
-      tool and transport capabilities, and whether the profile is stale or degraded. In a notebook
-      it renders as a card.
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="3" :code="detailsRun"><NbTextOut :text="detailsRunOut" /></NbCell>
-    </div>
-
     <h2>Validation</h2>
 
     <p>
-      All three types validate their arguments on construction, so a malformed value cannot exist.
-      Blank strings raise <code>ValueError</code>, non-strings raise <code>TypeError</code>, and
+      Both types validate their arguments on construction, so a malformed value cannot exist. Blank
+      strings raise <code>ValueError</code>, non-strings raise <code>TypeError</code>, and
       <code>case_count</code> rejects zero and negative values:
     </p>
 
     <CodeBlock
-      code="ValueError: Benchmark case_count must be a positive integer
-ValueError: Benchmark variant must be a non-empty string
-ValueError: Model id must be a non-empty string"
+      code="ValueError: Benchmark case_count must be a positive integer"
       language="text"
     />
   </DocLayout>
