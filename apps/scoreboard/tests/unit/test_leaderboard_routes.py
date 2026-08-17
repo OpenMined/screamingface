@@ -367,6 +367,8 @@ async def test_get_frontier_reflects_real_submissions(
     assert body["current"]["label"] == "spec-2"
     assert body["current"]["openness"] == "closed"
     assert len(body["trend"]) == 2
+
+
 # --- OME-834: no read path may publish a harvestable address ---
 
 

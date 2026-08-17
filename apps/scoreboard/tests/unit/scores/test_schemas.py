@@ -413,6 +413,9 @@ def test_score_schema_publishes_only_the_local_part(stored: str, published: str)
         id=uuid4(),
         version=1,
         benchmark_id="hle",
+        # OME-775 made this required; the published-identity contract under test here
+        # is independent of which benchmark revision produced the score.
+        benchmark_revision=None,
         spec_id="spec-1",
         url4_expression="x",
         submitted_by=stored,
@@ -445,6 +448,9 @@ def test_a_null_submitter_stays_null() -> None:
         id=uuid4(),
         version=1,
         benchmark_id="hle",
+        # OME-775 made this required; the published-identity contract under test here
+        # is independent of which benchmark revision produced the score.
+        benchmark_revision=None,
         spec_id="spec-1",
         url4_expression="x",
         submitted_by=None,
