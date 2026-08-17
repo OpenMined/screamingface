@@ -758,6 +758,8 @@ async def test_leaderboard_at_a_registered_revision_excludes_pre_revision_rows(
     rows = await store.leaderboard("hle")
 
     assert [row.spec_id for row in rows] == ["current"]
+
+
 # --- OME-820: verified means "ran on OpenMined infrastructure" (spec 2.1) ---
 
 

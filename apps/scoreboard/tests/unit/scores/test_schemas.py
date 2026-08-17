@@ -468,6 +468,8 @@ def test_a_null_submitter_stays_null() -> None:
     )
 
     assert json.loads(schema.model_dump_json())["submitted_by"] is None
+
+
 # --- OME-820: a client must never declare its own trust tier (spec 3) ---
 
 

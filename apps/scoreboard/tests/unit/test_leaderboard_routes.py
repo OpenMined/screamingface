@@ -418,6 +418,8 @@ async def test_the_database_still_holds_the_full_address(
     row = await Score.get(id=outcome.score.id)
 
     assert row.submitted_by == "trask@openmined.org"
+
+
 # --- OME-820: the default must be visible on the public read paths ---
 
 
