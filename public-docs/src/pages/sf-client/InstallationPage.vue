@@ -17,7 +17,7 @@ const pypiRuntime = `pip install "screamingface[runtime,notebook]"`
 
 const verify = `import screamingface as sf
 
-len(sf.__all__)   # 53`
+len(sf.__all__)   # 55`
 
 const point = `import screamingface as sf
 
@@ -34,17 +34,17 @@ Benchmark assets ready at /Users/you/.screamingface/benchmark-assets`
 
 const up = `$ screamingface up
 ScreamingFace is ready.
-  Gateway    http://127.0.0.1:9105
-  Scoreboard http://127.0.0.1:9106
-  Engine     http://127.0.0.1:9108
-  Logs       /Users/you/.screamingface/runtime.log`
+  Gateway     http://127.0.0.1:9105
+  Leaderboard http://127.0.0.1:9106
+  Engine      http://127.0.0.1:9108
+  Logs        /Users/you/.screamingface/runtime.log`
 
 const status = `$ screamingface status
 ScreamingFace: running
-  gateway    UP    http://127.0.0.1:9105
-  scoreboard UP    http://127.0.0.1:9106
-  engine     UP    http://127.0.0.1:9108
-  logs       /Users/you/.screamingface/runtime.log`
+  gateway     UP    http://127.0.0.1:9105
+  leaderboard UP    http://127.0.0.1:9106
+  engine      UP    http://127.0.0.1:9108
+  logs        /Users/you/.screamingface/runtime.log`
 
 const down = `screamingface down`
 const logs = `screamingface logs --tail 50`
@@ -176,14 +176,14 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
     <p>
       One command, three services: the <strong>engine</strong> executes runs, the
       <strong>gateway</strong> holds your provider keys and calls the models, and the
-      <strong>scoreboard</strong> serves the local leaderboard. All three bind loopback only, on
+      <strong>leaderboard</strong> serves your local rankings. All three bind loopback only, on
       ports 9105, 9106 and 9108, and <code>up</code> refuses to start if another process already
       holds one of them rather than half-starting the stack. It runs in the background; add
       <code>--foreground</code> to keep it attached to your terminal instead.
     </p>
 
     <Note>
-      By default the client reads and writes the <strong>hosted</strong> leaderboard at
+      By default the client reads and writes the <strong>hosted ScreamingFace Leaderboard</strong> at
       <code>leaderboard.dev.screamingface.ai</code>, even when the rest of your stack is local.
       Override it the same way you set the engine — <code>sf.configure()</code> takes a
       <code>scoreboard_url</code> next to <code>engine_url</code>, so
