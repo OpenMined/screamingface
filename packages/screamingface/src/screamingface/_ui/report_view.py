@@ -732,13 +732,20 @@ def _case_failures_html(case: CaseResult) -> str:
 
 
 def _case_passed(case: CaseResult) -> bool:
-    """A case passes only when it was graded and every check landed the desired way."""
+    """A case passes only when it was graded and every JUDGED check landed the desired way.
+
+    WHY judged-only (OME-848): a check without an outcome was never decided — counting
+    it as failed painted every DRACO case INCORRECT while its outcomes went unemitted.
+    Absence must not masquerade as a verdict; with no judged checks at all, the score
+    is the only signal, exactly like the no-checks fallback below.
+    """
 
     grade = case.grade
     if grade is None:
         return False
-    if grade.checks:
-        return all(_check_good(check) for check in grade.checks)
+    judged = [check for check in grade.checks if check.outcome is not None]
+    if judged:
+        return all(_check_good(check) for check in judged)
     return grade.score is not None and grade.score > 0
 
 
@@ -763,8 +770,12 @@ def _check_good(check: Any) -> bool:
 def _check_html(check: Any) -> str:
     """One criterion: its verdict, who judged it, and why — the participant-row analogue."""
 
-    outcome = "" if check.outcome is None else str(check.outcome)
-    badge = _badge(outcome or "—", good=_check_good(check))
+    # An undecided check gets the neutral warn badge (OME-848): red would claim a miss
+    # and green a pass — verdicts nobody rendered.
+    if check.outcome is None:
+        badge = _badge("unjudged", good=False, warn=True)
+    else:
+        badge = _badge(str(check.outcome), good=_check_good(check))
     judge = next(
         (item.producer.id for item in check.evidence if getattr(item, "producer", None)),
         None,
