@@ -10,20 +10,19 @@ export const sfClientVersion = {
   url: 'https://github.com/OpenMined/screamingface/commit/b698fcffd20d3dbe19c17a7b6654e302adeaf6ee',
 }
 
-// ScreamingFace Client sidebar. Organised on the Divio documentation system
-// (https://docs.divio.com/documentation-system/): four separated modes —
-// Tutorials (learn by doing) · How-to guides (solve one goal) · Reference
-// (austere, complete) · Explanation (the "why", in the Learn section). A group
-// labels its children and is never clickable; a link points at a page. The
-// Reference groups mirror `sf`: the namespace (functions + submodules), then
-// classes by role, so every public symbol has exactly one home.
+// The "Get started with SF Client" navbar tab: everything but the reference —
+// Overview, Tutorials (learn by doing) and How-to guides (solve one goal),
+// following the Divio documentation system. The pure API reference is its own
+// navbar tab; see `sfClientReferenceNavigation` below. A group labels its
+// children and is never clickable; a link points at a page.
 export const sfClientNavigation: NavEntry[] = [
   { title: 'Overview', path: '/sf-client' },
   {
     title: 'Tutorials',
     children: [
       { title: 'Installation', path: '/sf-client/installation' },
-      { title: 'Quickstart', path: '/sf-client/quickstartPage' },
+      { title: 'Your first fusion', path: '/sf-client/first-fusion' },
+      { title: 'Reproduce DRACO state-of-art', path: '/sf-client/quickstartPage' },
     ],
   },
   {
@@ -45,39 +44,40 @@ export const sfClientNavigation: NavEntry[] = [
       { title: 'Manage the Client', path: '/sf-client/guides/clients' },
     ],
   },
+]
+
+// The "API reference" navbar tab — the pure Divio Reference mode. The `sf`
+// namespace (functions + submodules), then classes by role, so every public
+// symbol has exactly one home. Pages under /sf-client/api/* consume this tree.
+export const sfClientReferenceNavigation: NavEntry[] = [
+  { title: 'The sf namespace', path: '/sf-client/api/modules' },
   {
-    title: 'Reference',
+    title: 'Classes',
     children: [
-      { title: 'The sf namespace', path: '/sf-client/api/modules' },
+      { title: 'Client & session', path: '/sf-client/api/clients' },
       {
-        title: 'Classes',
+        title: 'Candidates',
         children: [
-          { title: 'Client & session', path: '/sf-client/api/clients' },
-          {
-            title: 'Candidates',
-            children: [
-              { title: 'Recipe', path: '/sf-client/api/recipes' },
-              { title: 'Model', path: '/sf-client/api/models' },
-              { title: 'Fusion', path: '/sf-client/api/fusions' },
-              { title: 'Pipeline', path: '/sf-client/api/pipelines' },
-              { title: 'Url4', path: '/sf-client/api/url4' },
-            ],
-          },
-          { title: 'Catalog', path: '/sf-client/api/benchmarks' },
-          { title: 'Connections', path: '/sf-client/api/connections' },
-          {
-            title: 'Results & grading',
-            children: [
-              { title: 'Report', path: '/sf-client/api/reports' },
-              { title: 'CandidateResult', path: '/sf-client/api/candidate-result' },
-              { title: 'Usage', path: '/sf-client/api/usage' },
-            ],
-          },
-          { title: 'Leaderboard', path: '/sf-client/api/leaderboards' },
-          { title: 'Run events', path: '/sf-client/api/events' },
-          { title: 'Errors & warnings', path: '/sf-client/api/errors' },
+          { title: 'Recipe', path: '/sf-client/api/recipes' },
+          { title: 'Model', path: '/sf-client/api/models' },
+          { title: 'Fusion', path: '/sf-client/api/fusions' },
+          { title: 'Pipeline', path: '/sf-client/api/pipelines' },
+          { title: 'Url4', path: '/sf-client/api/url4' },
         ],
       },
+      { title: 'Catalog', path: '/sf-client/api/benchmarks' },
+      { title: 'Connections', path: '/sf-client/api/connections' },
+      {
+        title: 'Results & grading',
+        children: [
+          { title: 'Report', path: '/sf-client/api/reports' },
+          { title: 'CandidateResult', path: '/sf-client/api/candidate-result' },
+          { title: 'Usage', path: '/sf-client/api/usage' },
+        ],
+      },
+      { title: 'Leaderboard', path: '/sf-client/api/leaderboards' },
+      { title: 'Run events', path: '/sf-client/api/events' },
+      { title: 'Errors & warnings', path: '/sf-client/api/errors' },
     ],
   },
 ]

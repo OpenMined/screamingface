@@ -19,6 +19,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/InstallationPage.vue'),
     },
     {
+      path: '/sf-client/first-fusion',
+      name: 'sf-client-first-fusion',
+      component: () => import('@/pages/sf-client/FirstFusionPage.vue'),
+    },
+    {
       path: '/sf-client/quickstartPage',
       name: 'sf-client-quickstart',
       component: () => import('@/pages/sf-client/QuickstartPage.vue'),

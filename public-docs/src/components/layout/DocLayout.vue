@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from 'vue-router'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Menu, X } from 'lucide-vue-next'
 import { useCodeLangStore } from '@/stores/codelangStore'
 import { useDocNavigation, type NavEntry } from '@/composables/useDocNavigation'
@@ -36,8 +36,28 @@ watch(
 const onKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Escape') navOpen.value = false
 }
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+
+// Keep the sidebar scroll position across navigations. Each page renders its own
+// DocLayout, so the scroll container remounts on every route change and would
+// otherwise jump back to the top. Persist it per section (keyed by the first nav
+// entry's title, which is distinct per tab) so the get-started, reference and
+// Learn sidebars keep independent positions.
+const sidebarScroll = ref<HTMLElement | null>(null)
+const scrollKey = `docSidebarScroll:${props.navigation[0]?.title ?? 'root'}`
+const saveSidebarScroll = () => {
+  if (sidebarScroll.value) sessionStorage.setItem(scrollKey, String(sidebarScroll.value.scrollTop))
+}
+
+onMounted(async () => {
+  document.addEventListener('keydown', onKeydown)
+  await nextTick()
+  const saved = sessionStorage.getItem(scrollKey)
+  if (saved !== null && sidebarScroll.value) sidebarScroll.value.scrollTop = Number(saved)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  saveSidebarScroll()
+})
 
 // Active state and the sidebar tree belong to NavTree; this layout only needs
 // the prev/next pair.
@@ -72,7 +92,7 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
         <X class="w-5 h-5" />
       </button>
 
-      <div class="flex-1 overflow-y-auto py-6 px-4">
+      <div ref="sidebarScroll" class="flex-1 overflow-y-auto py-6 px-4" @scroll="saveSidebarScroll">
         <nav>
           <NavTree :entries="navigation" />
         </nav>

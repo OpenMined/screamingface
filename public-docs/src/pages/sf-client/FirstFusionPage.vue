@@ -1,0 +1,115 @@
+<script setup lang="ts">
+import { RouterLink } from 'vue-router'
+import DocLayout from '@/components/layout/DocLayout.vue'
+import NbCell from '@/components/nb/NbCell.vue'
+import Note from '@/components/ui/Note.vue'
+import {
+  sfClientNavigation as navigation,
+  sfClientVersion as version,
+} from '@/navigation/sf-client'
+
+const importCell = `import screamingface as sf`
+
+const build = `fusion = sf.Fusion(
+    ["openrouter/openai/gpt-5.5", "anthropic/claude-opus-4-8"],
+    synthesizer="anthropic/claude-opus-4-8",
+)`
+
+const run = `report = sf.evaluate(fusion, benchmark="ifeval", limit=3)`
+
+const read = `candidate = report.candidates.only
+candidate.score`
+</script>
+
+<template>
+  <DocLayout
+    title="Your first fusion"
+    description="Combine two models into one, run it on a benchmark, and read the score."
+    :navigation="navigation"
+    :version="version"
+  >
+    <p>
+      A fusion is a few models answering together, combined into one answer. In this tutorial you
+      build one, run it on a handful of benchmark cases, and read its score. It takes a few lines
+      and a couple of minutes.
+    </p>
+
+    <Note>
+      You need the Client installed and one provider connected first — see
+      <RouterLink to="/sf-client/installation">Installation</RouterLink> and
+      <RouterLink to="/sf-client/guides/connections">Connect a provider</RouterLink>. This tutorial
+      talks to the hosted engine, so once a provider is connected you are ready to go.
+    </Note>
+
+    <h2>1 · Import the library</h2>
+
+    <p>Everything you need hangs off the top-level <code>sf</code> module.</p>
+
+    <div class="not-prose">
+      <NbCell :count="1" :code="importCell" />
+    </div>
+
+    <h2>2 · Build the fusion</h2>
+
+    <p>
+      Give <code>sf.Fusion</code> two model routes and a synthesizer. The two members answer the
+      same question in parallel; the synthesizer reads both drafts and writes the single answer that
+      gets graded. Here the second model plays both roles — a member and the synthesizer — which is
+      a fine way to start.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="2" :code="build" />
+    </div>
+
+    <h2>3 · Run it</h2>
+
+    <p>
+      <code>sf.evaluate</code> runs your fusion against a benchmark and grades the answers.
+      <code>ifeval</code> checks whether a model follows instructions; <code>limit=3</code> runs
+      just three cases, so this stays quick and cheap while you are finding your feet.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="3" :code="run" />
+    </div>
+
+    <h2>4 · Read the score</h2>
+
+    <p>
+      The run comes back as a <RouterLink to="/sf-client/api/reports">Report</RouterLink>. You gave
+      it one candidate, so <code>report.candidates.only</code> is your fusion, and its
+      <code>score</code> is the fraction of cases it got right — higher is better.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="4" :code="read" />
+    </div>
+
+    <p>
+      That is a whole evaluation: compose, run, read. Nothing here was mocked — the same three steps
+      scale from three cases to a full benchmark.
+    </p>
+
+    <h2>Where to go next</h2>
+
+    <ul>
+      <li>
+        <strong><RouterLink to="/sf-client/guides/fusions">Compose a candidate</RouterLink></strong>
+        — weights, judges, and nesting fusions inside fusions.
+      </li>
+      <li>
+        <strong
+          ><RouterLink to="/sf-client/quickstartPage"
+            >Reproduce DRACO state-of-art</RouterLink
+          ></strong
+        >
+        — put a fusion up against its solo models on a real board.
+      </li>
+      <li>
+        <strong><RouterLink to="/sf-client/api/fusions">Fusion reference</RouterLink></strong> —
+        every field and argument, in full.
+      </li>
+    </ul>
+  </DocLayout>
+</template>

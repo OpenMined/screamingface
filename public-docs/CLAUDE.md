@@ -52,6 +52,7 @@ There is no automated test setup in this project.
 | `/`                                       | `src/pages/HomePage.vue`                          |
 | `/sf-client`                              | `src/pages/sf-client/Index.vue`                   |
 | `/sf-client/installation`                 | `src/pages/sf-client/InstallationPage.vue`        |
+| `/sf-client/first-fusion`                 | `src/pages/sf-client/FirstFusionPage.vue`         |
 | `/sf-client/quickstartPage`               | `src/pages/sf-client/QuickstartPage.vue`          |
 | `/sf-client/guides/connections`           | `src/pages/sf-client/guides/ConnectionsPage.vue`  |
 | `/sf-client/guides/models`                | `src/pages/sf-client/guides/ModelsPage.vue`       |

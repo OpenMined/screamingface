@@ -5,7 +5,7 @@ import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import Note from '@/components/ui/Note.vue'
 import {
-  sfClientNavigation as navigation,
+  sfClientReferenceNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
