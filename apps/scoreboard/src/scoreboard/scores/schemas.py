@@ -5,7 +5,14 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    field_validator,
+    model_validator,
+)
 
 # INVARIANT: a baseline's metadata is operator-supplied (via the import CLI, not a
 # public HTTP endpoint) but still bounded, so one bad import can't make
@@ -34,6 +41,74 @@ def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] |
     if len(json.dumps(value)) > _METADATA_MAX_BYTES:
         raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
     return value
+
+
+def _publish_submitter(value: str | None) -> str | None:
+    """Publish the local part of an email, never the domain.
+
+    WHY: since OME-404 this field holds the mesh-verified address from the Cloudflare
+    Access identity header, and the read API is PUBLIC and unauthenticated — a
+    harvester can pull every submitter's address straight out of
+    `GET /v1/leaderboard/{id}`. Stripping in the portal would have looked correct
+    while leaving the JSON exposed, so the trim lives here, where every consumer
+    (portal, SDK notebook view, anything future) is served from one place.
+
+    INVARIANT: this is a SERIALIZER, not a validator. The stored value keeps its
+    domain so OpenMined can still contact a submitter and audit which verified
+    identity produced a score. Do NOT move this onto ScoreSubmission — that carries
+    the value inbound, and trimming there would write the truncated form to the
+    database irreversibly.
+
+    AIDEV-NOTE: this is a stopgap, not privacy. `filip.boltuzic` still names a
+    person, `first.last@domain` is trivially reconstructed, and
+    trask@openmined.org and trask@gmail.com both render `trask` — two testers on
+    different domains become indistinguishable on a board that attributes credit.
+    A real username field is the fix; OME-772 records that none exists (OME-834).
+    """
+    if value is None:
+        return value
+    # WHY whitespace is REMOVED rather than treated as a signal: three review passes
+    # tried to read intent from whitespace, and each fixed one half while breaking
+    # the other.
+    #   pass 1 gated on `@` alone     -> " @openmined.org" published " ", a BLANK
+    #                                    submitter, and the SDK's _text rejects
+    #                                    blank-after-strip, raising LeaderboardError
+    #                                    for the WHOLE board off one poisoned row;
+    #   pass 2 rejected ALL whitespace -> "trask@openmined.org " (one trailing space)
+    #                                    published the full domain — the exposure this
+    #                                    function exists to close, beaten by a space;
+    #   pass 3 stripped only the ends  -> "me @ openmined.org" still published whole,
+    #                                    and a harvester just normalises it back.
+    #
+    # The owner settled the question underneath all three (2026-08-15): this field is
+    # an IDENTITY, not a display name. So the test is simply "is this an address?" —
+    # whitespace is formatting noise wherever it sits, not evidence of intent.
+    #
+    # INVARIANT: the blank-local hazard stays closed. With every space gone, an empty
+    # local part is empty rather than blank, so "  @openmined.org  " falls through to
+    # the untouched original instead of publishing "  ".
+    #
+    # AIDEV-NOTE: this is still a read-time GUESS about a value nothing constrains on
+    # the way in — the reason it took four passes. OME-840 closes it properly by
+    # validating the address on the write path; when that lands this can stop guessing.
+    candidate = "".join(value.split())
+    if "@" not in candidate:
+        return value
+    local, _, domain = candidate.rpartition("@")
+    # A public address needs a non-empty local part and a DOTTED domain. That dot is
+    # what keeps free text safe: "Team A @ OpenMined" collapses to "TeamA@OpenMined",
+    # whose domain is a word rather than a host, so it passes through whole. Same for
+    # the handle form, `user@github`.
+    return local if local and "." in domain else value
+
+
+# INVARIANT: the ONE definition of how a submitter reaches a client, shared by every
+# read DTO so the four cannot drift. `when_used="json"` is deliberate — _ranked_entry
+# splats entry.model_dump() in PYTHON mode and must keep receiving the stored value.
+SubmittedBy = Annotated[
+    str | None,
+    PlainSerializer(_publish_submitter, return_type=str | None, when_used="json"),
+]
 
 
 class ClientInfo(BaseModel):
@@ -165,7 +240,7 @@ class ScoreSchema(BaseModel):
     benchmark_revision: str | None
     spec_id: str
     url4_expression: str
-    submitted_by: str | None
+    submitted_by: SubmittedBy
     submitted_at: datetime
     accuracy: float
     total_questions: int
@@ -196,7 +271,7 @@ class LeaderboardEntry(BaseModel):
     total_questions: int
     ran_with_providers: list[str]
     submitted_at: datetime
-    submitted_by: str | None
+    submitted_by: SubmittedBy
     verified_by_openmined: bool
     url4_expression: str
 

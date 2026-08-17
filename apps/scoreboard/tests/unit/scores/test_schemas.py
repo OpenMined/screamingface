@@ -347,3 +347,124 @@ def test_baseline_schema_rejects_oversized_metadata() -> None:
 
     with pytest.raises(ValidationError):
         BaselineSchema.model_validate(payload)
+
+
+# --- OME-834: publish only the local part of a submitter's email ---
+
+
+@pytest.mark.parametrize(
+    ("stored", "published"),
+    [
+        # The request: an address must not be harvestable from the public API.
+        ("trask@openmined.org", "trask"),
+        ("filip.boltuzic@openmined.org", "filip.boltuzic"),
+        # In authMode: disabled this field is client-supplied free text, so a value
+        # that is not an address passes through rather than being mangled.
+        ("tester", "tester"),
+        ("", ""),
+        # The domain is whatever follows the LAST "@".
+        ("a@b@openmined.org", "a@b"),
+        # An empty local part would render as a missing submitter, so keep the
+        # original instead of emitting "".
+        ("@openmined.org", "@openmined.org"),
+        # OME-834 review: a BLANK local part is the dangerous case. " " is not empty,
+        # so the earlier `local or value` guard let it through — and the SDK's _text
+        # rejects blank-after-strip, raising LeaderboardError for the WHOLE board.
+        (" @openmined.org", " @openmined.org"),
+        ("\t@openmined.org", "\t@openmined.org"),
+        # OME-834 review: free text containing "@" is not an address. Truncating it
+        # contradicts the pass-through contract and loses meaning. What makes it free
+        # text is the UNDOTTED domain, not the spaces — see the third-review cases
+        # below, where "me @ openmined.org" is an address and is trimmed.
+        ("Team A @ OpenMined", "Team A @ OpenMined"),
+        # A domain with no dot is not a public address; leave handles alone.
+        ("user@github", "user@github"),
+        # OME-834 second review: SURROUNDING whitespace must not defeat the strip.
+        # The whitespace guard above exists to catch a blank LOCAL part, but it was
+        # rejecting the whole value, so one trailing space published the full domain
+        # — the exact exposure this change exists to close. In authMode: disabled
+        # submitted_by is unvalidated free text, so a padded address is reachable.
+        ("trask@openmined.org ", "trask"),
+        (" trask@openmined.org", "trask"),
+        ("\ttrask@openmined.org\n", "trask"),
+        ("  filip.boltuzic@openmined.org  ", "filip.boltuzic"),
+        # ...and padding must not resurrect the blank-local hazard: stripping first
+        # leaves an EMPTY local part here, so the original still passes through.
+        ("  @openmined.org  ", "  @openmined.org  "),
+        # OME-834 third review (owner decision, 2026-08-15): submitted_by is an
+        # IDENTITY, not a display name, so anything that IS an address once its
+        # whitespace is removed gets trimmed. A harvester normalises "me @ x.org"
+        # back to an address, so leaving it whole published a working one.
+        ("me @ openmined.org", "me"),
+        ("trask @ openmined.org", "trask"),
+        ("filip.boltuzic @ openmined . org", "filip.boltuzic"),
+        # Free text is still safe when its "domain" is not dotted — "OpenMined" is
+        # a word, not a host, so this is NOT an address and passes through whole.
+        ("Team A @ OpenMined", "Team A @ OpenMined"),
+        ("me @ github", "me @ github"),
+    ],
+)
+def test_score_schema_publishes_only_the_local_part(stored: str, published: str) -> None:
+    import json
+
+    from scoreboard.scores.schemas import ScoreSchema
+
+    schema = ScoreSchema(
+        id=uuid4(),
+        version=1,
+        benchmark_id="hle",
+        # OME-775 made this required; the published-identity contract under test here
+        # is independent of which benchmark revision produced the score.
+        benchmark_revision=None,
+        spec_id="spec-1",
+        url4_expression="x",
+        submitted_by=stored,
+        submitted_at=datetime(2026, 8, 14, 12, tzinfo=UTC),
+        accuracy=0.5,
+        total_questions=2,
+        correct_questions=1,
+        ran_with_providers=["openai"],
+        ran_at_local=None,
+        client_name=None,
+        client_version=None,
+        client_platform=None,
+        verified_by_openmined=True,
+        metadata=None,
+    )
+
+    assert json.loads(schema.model_dump_json())["submitted_by"] == published
+    # INVARIANT: only the WIRE form is trimmed. The value in memory — and therefore
+    # the value written to and read from the database — keeps its domain, so
+    # OpenMined can still contact and audit a submitter (OME-404).
+    assert schema.submitted_by == stored
+
+
+def test_a_null_submitter_stays_null() -> None:
+    import json
+
+    from scoreboard.scores.schemas import ScoreSchema
+
+    schema = ScoreSchema(
+        id=uuid4(),
+        version=1,
+        benchmark_id="hle",
+        # OME-775 made this required; the published-identity contract under test here
+        # is independent of which benchmark revision produced the score.
+        benchmark_revision=None,
+        spec_id="spec-1",
+        url4_expression="x",
+        submitted_by=None,
+        submitted_at=datetime(2026, 8, 14, 12, tzinfo=UTC),
+        accuracy=0.5,
+        total_questions=2,
+        correct_questions=1,
+        ran_with_providers=["openai"],
+        ran_at_local=None,
+        client_name=None,
+        client_version=None,
+        client_platform=None,
+        verified_by_openmined=True,
+        metadata=None,
+    )
+
+    assert json.loads(schema.model_dump_json())["submitted_by"] is None

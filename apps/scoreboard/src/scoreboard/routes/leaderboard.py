@@ -16,6 +16,7 @@ from scoreboard.scores.schemas import (
     FrontierResponse,
     LeaderboardEntry,
     ScoreSchema,
+    SubmittedBy,
 )
 from scoreboard.scores.store import ScoreStore
 
@@ -43,7 +44,7 @@ class RankedLeaderboardEntry(BaseModel):
     total_questions: int
     ran_with_providers: list[str]
     submitted_at: datetime
-    submitted_by: str | None
+    submitted_by: SubmittedBy
     verified_by_openmined: bool
     url4_expression: str
 
@@ -70,7 +71,7 @@ class HistorySubmission(BaseModel):
     total_questions: int
     correct_questions: int
     submitted_at: datetime
-    submitted_by: str | None
+    submitted_by: SubmittedBy
     verified_by_openmined: bool
 
 
