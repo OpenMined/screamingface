@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 import screamingface as sf
 from screamingface._ui.report_view import report_html
-from screamingface.case_result import CaseGrade, CaseResult, Check
+from screamingface.case_result import CaseGrade, CaseResult, Check, CheckOutcome
 from screamingface.operation import OperationInfo
 from screamingface.report import BenchmarkInfo, CandidateResult, Report
 
@@ -23,7 +23,7 @@ _START = datetime(2026, 8, 17, 10, 0, tzinfo=UTC)
 _END = datetime(2026, 8, 17, 10, 5, tzinfo=UTC)
 
 
-def _check(label: str, outcome: str | None, *, kind: str = "positive") -> Check:
+def _check(label: str, outcome: CheckOutcome | None, *, kind: str = "positive") -> Check:
     return Check(
         type="criterion",
         id=label,
