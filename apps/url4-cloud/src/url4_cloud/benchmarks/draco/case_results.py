@@ -167,6 +167,7 @@ def ungraded_case_result(case_record: Mapping[str, Any], failure: Mapping[str, A
             grade={"method": "rubric", "score": None, "metrics": {}, "checks": []},
             failures=[failure],
             execution=case_record.get("execution"),
+            operations=case_record.get("operations"),
         )
     return build_failed_case_result(
         selected_case=selected,
@@ -174,6 +175,7 @@ def ungraded_case_result(case_record: Mapping[str, Any], failure: Mapping[str, A
         output=str(case_record["output"]),
         finish_reason=_finish_reason(case_record.get("finish_reason")),
         execution=case_record.get("execution"),
+        operations=case_record.get("operations"),
     )
 
 
@@ -213,6 +215,7 @@ def _case_result(
             grade=grade,
             failures=failures,
             execution=case_record.get("execution"),
+            operations=case_record.get("operations"),
         )
     if not isinstance(output, str):  # pragma: no cover - sealed by the Case record decoder
         raise AggregateError("a non-refused DRACO Case must carry Candidate output text")
@@ -223,6 +226,7 @@ def _case_result(
             finish_reason=finish_reason,
             grade=grade,
             execution=case_record.get("execution"),
+            operations=case_record.get("operations"),
         )
     return build_failed_case_result(
         selected_case=selected,
@@ -231,6 +235,7 @@ def _case_result(
         finish_reason=finish_reason,
         grade=grade,
         execution=case_record.get("execution"),
+        operations=case_record.get("operations"),
     )
 
 

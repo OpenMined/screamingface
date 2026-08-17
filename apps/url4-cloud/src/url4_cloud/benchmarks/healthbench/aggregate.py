@@ -304,6 +304,7 @@ def _scored_outcome(
             grade=grade,
             metadata=fields["metadata"],
             execution=fields["execution"],
+            operations=fields.get("operations"),
         )
     else:
         scored = scored_case_result(
@@ -313,6 +314,7 @@ def _scored_outcome(
             grade=grade,
             metadata=fields["metadata"],
             execution=fields["execution"],
+            operations=fields.get("operations"),
         )
     return scored, score, len(verdicts), sum(verdicts.values()), invalid
 
@@ -341,6 +343,7 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
             "finish_reason": None,
             "refusal": None,
             "execution": None,
+            "operations": None,
             "metadata": {},
         }
     metadata = case.get("metadata")
@@ -353,6 +356,7 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
         "finish_reason": finish_reason if isinstance(finish_reason, str) else None,
         "refusal": refusal if isinstance(refusal, str) and refusal.strip() else None,
         "execution": case.get("execution"),
+        "operations": case.get("operations"),
         "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
     }
 
@@ -383,6 +387,7 @@ def _failed_result(
             failures=[failure],
             metadata=fields["metadata"],
             execution=fields["execution"],
+            operations=fields.get("operations"),
         )
     return failed_case_result(
         selected_case=selected_case,
@@ -392,6 +397,7 @@ def _failed_result(
         grade=grade,
         metadata=fields["metadata"],
         execution=fields["execution"],
+        operations=fields.get("operations"),
     )
 
 

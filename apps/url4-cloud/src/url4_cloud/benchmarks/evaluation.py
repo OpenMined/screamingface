@@ -12,6 +12,7 @@ from url4.peer.server import Request
 from url4_cloud.benchmarks.contract import (
     CandidateInvocationStatus,
     CorrectiveExecution,
+    OperationOutput,
     decode_candidate_invocation_record,
 )
 
@@ -30,6 +31,7 @@ class CandidateAnswer:
     finish_reason: str | None
     refusal: str | None
     execution: CorrectiveExecution | None
+    operations: tuple[OperationOutput, ...] | None = None
 
 
 def candidate_answer(value: str) -> CandidateAnswer:
@@ -43,6 +45,7 @@ def candidate_answer(value: str) -> CandidateAnswer:
         finish_reason=invocation.finish_reason,
         refusal=invocation.refusal,
         execution=invocation.execution,
+        operations=None if invocation.operations is None else tuple(invocation.operations),
     )
 
 

@@ -41,7 +41,7 @@ def bind_case_record(
     input_value = row.get("input")
     if not isinstance(input_value, str) or not input_value.strip():
         raise ValueError(f"{benchmark} Case {selected_id} input must be non-empty text")
-    return {
+    record: dict[str, object] = {
         "schema": schema,
         "case_id": selected_id,
         "input": input_value,
@@ -55,6 +55,13 @@ def bind_case_record(
         ),
         "metadata": {key: value for key, value in row.items() if key not in {"id", "input"}},
     }
+    # INVARIANT: absence stays absence (OME-843) — a solo Candidate's record keeps its
+    # legacy shape; the key exists only when the Engine attributed member outputs.
+    if candidate.operations is not None:
+        record["operations"] = [
+            operation.model_dump(by_alias=True) for operation in candidate.operations
+        ]
+    return record
 
 
 def _decode_cases(raw_cases: str, benchmark: str) -> list[object]:

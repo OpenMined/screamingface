@@ -20,6 +20,7 @@ from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
 from url4_cloud.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from url4_cloud.model_outcomes import bind_model_outcome, record_model_outcome
+from url4_cloud.operation_calls import operation_call_identity, record_operation_call
 from url4_cloud.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
@@ -167,19 +168,23 @@ class _ModelEndpoint:
             spec = self._routes[request.path]
             retrieval_policy = current_retrieval_policy()
             params = apply_retrieval_policy(request.params, retrieval_policy)
-            return await _chat_completion_loop(
-                http_client=self._http_client,
-                cfg=self._cfg,
-                profile=self._profile,
-                messages=_messages(request.context, request.intent),
-                params=params,
-                spec=spec,
-                tavily_http=self._tavily_http,
-                tavily_api_key=self._tavily_api_key,
-                retrieval_policy=retrieval_policy,
-                identity_headers=self._identity_headers,
-                cache=self._cache,
-            )
+            # WHY: the identity is the REQUEST's path and params (pre-policy), because
+            # OME-843 attribution matches them against the candidate expression's own
+            # source text — the policy-applied set may differ from what was written.
+            with operation_call_identity(request.path, request.params):
+                return await _chat_completion_loop(
+                    http_client=self._http_client,
+                    cfg=self._cfg,
+                    profile=self._profile,
+                    messages=_messages(request.context, request.intent),
+                    params=params,
+                    spec=spec,
+                    tavily_http=self._tavily_http,
+                    tavily_api_key=self._tavily_api_key,
+                    retrieval_policy=retrieval_policy,
+                    identity_headers=self._identity_headers,
+                    cache=self._cache,
+                )
         except RunnerRequestError as exc:
             error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
             if exc.outcome is not None:
@@ -415,6 +420,7 @@ async def _chat_completion_loop(
             # `tool_calls` rounds too would leave a consumer unable to tell a call that progressed
             # from two calls that disagreed (`_terminal_outcome` in `benchmarks/candidate.py`).
             record_model_outcome(choice.finish_reason, choice.refusal)
+            record_operation_call(content or "", choice.finish_reason)
             return content or ""
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
         await append_tool_results(messages, tool_calls, tools, cfg)

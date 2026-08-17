@@ -85,6 +85,17 @@ def _check(root: Path):
                 if candidate.execution is None
                 else candidate.execution.model_dump(by_alias=True)
             ),
+            # INVARIANT: absence stays absence (OME-843) — the key exists only when
+            # the Engine attributed member outputs.
+            **(
+                {}
+                if candidate.operations is None
+                else {
+                    "operations": [
+                        operation.model_dump(by_alias=True) for operation in candidate.operations
+                    ]
+                }
+            ),
             "instruction_id_list": spec["instruction_id_list"],
             "descriptions": grading.describe_instructions(
                 instruction_id_list=spec["instruction_id_list"],
