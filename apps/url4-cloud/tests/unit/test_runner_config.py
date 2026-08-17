@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from url4_cloud import job_env
+from url4_cloud.models.registry import EMPTY_MODEL_WORLD
 from url4_cloud.world_config import (
     AigatewaySection,
     ModelSpec,
@@ -24,7 +25,11 @@ models = ["claude-haiku-4-5", "codex/gpt-5.5"]
 
 
 def _parse(toml_text: str, env: dict[str, str] | None = None) -> WorldConfig:
-    return parse_config(_toml(toml_text), env or {})
+    # OME-859: `registry=EMPTY_MODEL_WORLD` keeps every assertion below meaning exactly what it
+    # meant before the declared world moved into code — "the world is precisely this TOML text".
+    # The production default is `BUILTIN_MODEL_WORLD`, which would add 88 compiled ids to each
+    # of these synthetic worlds; `test_model_seeds.py` and the drift guard cover that world.
+    return parse_config(_toml(toml_text), env or {}, registry=EMPTY_MODEL_WORLD)
 
 
 def _section(toml_text: str, env: dict[str, str] | None = None) -> AigatewaySection:
@@ -240,7 +245,9 @@ def test_load_config_reads_the_declared_path(tmp_path: Path) -> None:
     path = tmp_path / "url4.toml"
     path.write_text(_MINIMAL, encoding="utf-8")
 
-    section = load_config({"URL4_RUNNER_CONFIG": str(path)}).aigateway
+    # OME-859: EMPTY_MODEL_WORLD for the same reason as `_parse` — this asserts that the FILE at
+    # the declared path is what got read, so the compiled world must not contribute to it.
+    section = load_config({"URL4_RUNNER_CONFIG": str(path)}, registry=EMPTY_MODEL_WORLD).aigateway
 
     assert section is not None
     assert section.models == (ModelSpec(id="claude-haiku-4-5"), ModelSpec(id="codex/gpt-5.5"))

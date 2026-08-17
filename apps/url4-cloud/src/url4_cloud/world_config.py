@@ -15,7 +15,12 @@ Aliases were also collision-dependent, so adding a model elsewhere in the catalo
 silently REMOVE an alias an expression depended on.
 
 The file format mirrors ``url4 serve``'s (``url4.cli._serve``), one way stricter: a model id here
-must also be renderable as a URL4 expression path (see ``_MODEL_ID_RE``).
+must also be renderable as a URL4 expression path (see ``models.registry.ROUTE_ID_RE``).
+
+The MODEL LIST itself lives in :data:`url4_cloud.models.builtins.BUILTIN_MODEL_WORLD`, seeded from
+every aigateway provider plugin (OME-859). This module merges that world with the optional,
+additive ``[[aigateway.models]]`` array, so one function still produces the single world both
+halves consume.
 
 ``[data]``, ``[commands]``,
 ``[holdings]`` and ``[identities]`` are reserved here but not parsed yet — declaring one is a
@@ -28,13 +33,14 @@ loud error rather than a silent no-op, so a config that looks like it works actu
 
 from __future__ import annotations
 
-import re
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from url4_cloud import job_env
+from url4_cloud.models.builtins import BUILTIN_MODEL_WORLD
+from url4_cloud.models.registry import ROUTE_ID_RE, ModelRegistry
 
 DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
 
@@ -56,7 +62,6 @@ _AIGATEWAY_KEYS = frozenset(
 _MODEL_KEYS = frozenset({"id", "web_search"})
 _RESERVED_TABLES = frozenset({"data", "commands", "holdings", "identities"})
 _TOP_LEVEL_KEYS = frozenset({"aigateway"})
-_MODEL_ID_RE = re.compile(r"[A-Za-z0-9\-_.~]+(?:/[A-Za-z0-9\-_.~]+)*", re.ASCII)
 
 
 class WorldConfigError(ValueError):
@@ -82,6 +87,7 @@ the dispatch path and the cache-key projection, key the fields, and bump the cac
 revision (OME-777 invariant I1). This set is the LAST step of that work, not the first.
 """
 
+
 _UNPREFIXED_PROVIDER = "anthropic"
 
 
@@ -95,6 +101,14 @@ def provider_of(model_id: str) -> str:
     INVARIANT: an id with no `/` is Anthropic's — aigateway's catalog leaves exactly that one
     provider unprefixed (`claude-haiku-4-5`), the `anthropic/` prefix appearing only in
     litellm_params.
+
+    AIDEV-NOTE (OME-859): that INVARIANT is DOUBTFUL and the fallback looks unreachable. Every
+    id `models/builtins.py` declares carries its provider prefix, because
+    `models.registry.canonical_id` mirrors aigateway's `canonical_model_id`, which has NO
+    per-provider exemption — the served id IS `anthropic/claude-haiku-4-5`, and believing
+    otherwise is exactly what OME-795 was. The fallback is kept here only because
+    `test_web_search_routing.py` pins it; removing it is a separate unit, not this one's
+    business. If you touch this, settle the question rather than re-deriving the belief.
     """
     prefix, separator, _ = model_id.partition("/")
     return prefix if separator else _UNPREFIXED_PROVIDER
@@ -165,16 +179,20 @@ def routes_for(models: Sequence[ModelSpec]) -> dict[str, ModelSpec]:
     return {"/" + model.id: model for model in models}
 
 
-def declared_model_ids(env: Mapping[str, str]) -> frozenset[str]:
+def declared_model_ids(
+    env: Mapping[str, str], *, registry: ModelRegistry = BUILTIN_MODEL_WORLD
+) -> frozenset[str]:
     """Return the model ids from the same fully validated world the Runner consumes."""
 
-    section = load_config(env).aigateway
+    section = load_config(env, registry=registry).aigateway
     if section is None:
         return frozenset()
     return frozenset(model.id for model in section.models)
 
 
-def load_config(env: Mapping[str, str]) -> WorldConfig:
+def load_config(
+    env: Mapping[str, str], *, registry: ModelRegistry = BUILTIN_MODEL_WORLD
+) -> WorldConfig:
     """Read and validate the declared world from ``env``'s config path."""
     path = Path(env.get(job_env.RUNNER_CONFIG, DEFAULT_CONFIG_PATH))
     try:
@@ -182,18 +200,28 @@ def load_config(env: Mapping[str, str]) -> WorldConfig:
             raw = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise WorldConfigError(f"cannot read world config {str(path)!r}: {exc}") from exc
-    return parse_config(raw, env)
+    return parse_config(raw, env, registry=registry)
 
 
-def parse_config(raw: Mapping[str, object], env: Mapping[str, str]) -> WorldConfig:
-    """Validate a parsed TOML mapping into a :class:`WorldConfig`. Fail-fast."""
+def parse_config(
+    raw: Mapping[str, object],
+    env: Mapping[str, str],
+    *,
+    registry: ModelRegistry = BUILTIN_MODEL_WORLD,
+) -> WorldConfig:
+    """Validate a parsed TOML mapping into a :class:`WorldConfig`. Fail-fast.
+
+    INVARIANT: ``registry`` is the base world and the TOML array layers on top of it. Both the
+    App and the Runner call through here, so their views of the world cannot diverge — the
+    property that lets discovery promise exactly what execution accepts.
+    """
     _reject_unsupported_tables(raw)
     table = raw.get("aigateway")
     if table is None:
         return WorldConfig()
     if not isinstance(table, Mapping):
         raise WorldConfigError(f"[aigateway] must be a table, got {table!r}")
-    return WorldConfig(aigateway=_parse_aigateway(table, env))
+    return WorldConfig(aigateway=_parse_aigateway(table, env, registry))
 
 
 def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
@@ -211,13 +239,15 @@ def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
         )
 
 
-def _parse_aigateway(table: Mapping[str, object], env: Mapping[str, str]) -> AigatewaySection:
+def _parse_aigateway(
+    table: Mapping[str, object], env: Mapping[str, str], registry: ModelRegistry
+) -> AigatewaySection:
     unknown = sorted(set(map(str, table)) - _AIGATEWAY_KEYS)
     if unknown:
         raise WorldConfigError(
             f"[aigateway] has unknown key(s) {unknown} (expected {sorted(_AIGATEWAY_KEYS)})"
         )
-    models = _models(table.get("models"))
+    models = _merge(registry, _declared_models(table.get("models")))
     section = AigatewaySection(
         base_url=_str(table, "base_url", "http://127.0.0.1:9105"),
         default_model=_normalize_id(_str(table, "default_route", "")),
@@ -231,6 +261,7 @@ def _parse_aigateway(table: Mapping[str, object], env: Mapping[str, str]) -> Aig
         ),
     )
     section = _apply_env(section, env)
+    _reject_unroutable_default(section.default_model, registry)
     _require_declared(section.default_model, models)
     return section
 
@@ -247,20 +278,45 @@ def _apply_env(section: AigatewaySection, env: Mapping[str, str]) -> AigatewaySe
     return section
 
 
-def _require_declared(default_model: str, models: tuple[ModelSpec, ...]) -> None:
-    ids = [model.id for model in models]
-    if default_model not in ids:
+def _reject_unroutable_default(default_model: str, registry: ModelRegistry) -> None:
+    """A `default_route` naming an `aigateway_only` id can never resolve.
+
+    WHY a distinct error: `_require_declared` would report it as "not a declared model" beside a
+    list of 88 ids, which reads like a typo. The real cause is that the id contains ':' and no
+    URL4 path segment may (url4 spec §8, OME-819).
+    """
+    if default_model in registry.aigateway_only:
         raise WorldConfigError(
-            f"default_route {'/' + default_model!r} is not a declared model — "
-            f"declared: {sorted(ids)}"
+            f"default_route {'/' + default_model!r} cannot be a route — the gateway serves this "
+            "model but its id contains ':', which no URL4 path segment may contain"
         )
 
 
-def _models(value: object) -> tuple[ModelSpec, ...]:
+def _require_declared(default_model: str, models: tuple[ModelSpec, ...]) -> None:
+    ids = sorted(model.id for model in models)
+    if default_model not in ids:
+        # WHY truncate: the declared world is ~88 ids now that it comes from the compiled
+        # registry, and a full dump buries the one id the operator got wrong.
+        shown = ids[:10]
+        suffix = f" (+{len(ids) - len(shown)} more)" if len(ids) > len(shown) else ""
+        raise WorldConfigError(
+            f"default_route {'/' + default_model!r} is not a declared model — "
+            f"declared: {shown}{suffix}"
+        )
+
+
+def _declared_models(value: object) -> tuple[ModelSpec, ...]:
+    """The `[[aigateway.models]]` array — OPTIONAL, because the registry is the base world.
+
+    WHY it stayed after OME-859 moved the list into code: ollama discovers its models at run
+    time and two provider seed lists are env-overridable
+    (`AIGW_OPENROUTER_DEFAULT_MODELS`, `AIGW_HUGGINGFACE_DEFAULT_MODELS`), so a deployment must
+    still be able to declare a route the compiled registry cannot know about.
+    """
+    if value is None:
+        return ()
     if not isinstance(value, list):
         raise WorldConfigError(f"[aigateway] models must be a list, got {value!r}")
-    if not value:
-        raise WorldConfigError("[aigateway] must declare at least one model")
     models: list[ModelSpec] = []
     seen: set[str] = set()
     for entry in value:
@@ -270,6 +326,29 @@ def _models(value: object) -> tuple[ModelSpec, ...]:
         seen.add(spec.id)
         models.append(spec)
     return tuple(models)
+
+
+def _merge(registry: ModelRegistry, declared: tuple[ModelSpec, ...]) -> tuple[ModelSpec, ...]:
+    """The registry's routable ids, with the TOML array layered on top.
+
+    INVARIANT: exactly one spec per id. `routes_for` maps `"/" + id`, so a second spec for one
+    id would collapse silently and whichever lost would take its capability with it.
+
+    A TOML entry for a registry id REPLACES that spec, which is how `web_search = false` reaches
+    a compiled route. A TOML entry for an unknown id is appended. Nothing removes an id: the
+    declared world is exhaustive over aigateway's compiled seeds (OME-859 D1).
+    """
+    merged: dict[str, ModelSpec] = {
+        model_id: ModelSpec(id=model_id) for model_id in sorted(registry.routable)
+    }
+    for spec in declared:
+        merged[spec.id] = spec
+    if not merged:
+        raise WorldConfigError(
+            "[aigateway] must declare at least one model — neither the built-in world nor "
+            "[[aigateway.models]] names one, and a world with no routes can serve nothing"
+        )
+    return tuple(merged.values())
 
 
 def _model_spec(entry: object) -> ModelSpec:
@@ -310,7 +389,7 @@ def _model_id(model: str) -> str:
         raise WorldConfigError(
             f"model id {model!r} must not start with '/' — the route path is derived as '/' + id"
         )
-    if _MODEL_ID_RE.fullmatch(model) is None:
+    if ROUTE_ID_RE.fullmatch(model) is None:
         raise WorldConfigError(
             f"model id {model!r} is not a valid URL4 expression path — each segment may contain "
             "only ASCII letters, digits, '-', '_', '.', or '~'"

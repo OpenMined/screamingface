@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from url4_cloud import job_env
+from url4_cloud.models.registry import EMPTY_MODEL_WORLD
 from url4_cloud.world_config import WorldConfigError, declared_model_ids, load_config, parse_config
 
 
@@ -23,13 +24,13 @@ def test_colon_qualified_model_id_is_rejected_at_config_parse() -> None:
     model = "huggingface/google/gemma-2-2b-it:featherless-ai"
 
     with pytest.raises(WorldConfigError, match="URL4 expression path"):
-        parse_config(_config(model), {})
+        parse_config(_config(model), {}, registry=EMPTY_MODEL_WORLD)
 
 
 def test_expression_path_compatible_model_id_remains_declared() -> None:
     model = "openrouter/openai/gpt-5.5"
 
-    section = parse_config(_config(model), {}).aigateway
+    section = parse_config(_config(model), {}, registry=EMPTY_MODEL_WORLD).aigateway
 
     assert section is not None
     assert [item.id for item in section.models] == [model]
