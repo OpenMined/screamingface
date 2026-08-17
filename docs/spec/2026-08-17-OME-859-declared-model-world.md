@@ -6,9 +6,10 @@
 
 ## 1. Problem
 
-Epic `OME-815` expanded aigateway's compiled model seeds to 113 ids. PR #581 took OpenRouter from
-11 to 69 slugs. PR #583 took HuggingFace from 5 to 24 and Anthropic from 5 to 10.
-`apps/url4-cloud/url4.toml` declares 25 ids. Therefore 88 models that the gateway serves are:
+Epic `OME-815` expanded aigateway's compiled model seeds to 117 ids. PR #581 took OpenRouter from
+11 to 69 slugs, PR #583 took HuggingFace from 5 to 24 and Anthropic from 5 to 10, and `OME-856`
+then added 4 more OpenRouter slugs the same day. `apps/url4-cloud/url4.toml` declares 32 ids.
+Therefore 85 models that the gateway serves are:
 
 - not addressable in a url4 expression, because a route path exists only if `url4.toml` declares
   the id; and
@@ -19,7 +20,7 @@ The gap per provider:
 
 | provider | aigateway | declared | gap | route-legal | colon-blocked |
 |---|---|---|---|---|---|
-| openrouter | 69 | 10 | 59 | 54 | 5 |
+| openrouter | 73 | 17 | 56 | 51 | 5 |
 | huggingface | 24 | 0 | 24 | 0 | 24 |
 | anthropic | 10 | 5 | 5 | 5 | 0 |
 | codex | 5 | 5 | 0 | — | — |
@@ -28,17 +29,22 @@ The gap per provider:
 
 The gap grew silently. Nothing in CI reports it.
 
+> **Counts re-audited at `f4684a83`** (2026-08-17), the branch base. An earlier audit at
+> `e431b715` gave 113 / 84 / 25 / gap 88; `OME-856` landed in between, adding 4 OpenRouter seeds
+> and 7 hand-written `url4.toml` stanzas. **Three seed PRs on one day** is the sharpest available
+> evidence for this unit. The 29 colon-blocked ids are unchanged by that churn.
+
 ## 2. Established facts
 
 Verified against `origin/main` on 2026-08-17. None assumed.
 
 - **F1 — the guard is one-directional.**
   `tests/unit/test_declared_models_match_aigateway.py:174` asserts `declared - aigateway_ids == []`.
-  No test asserts the opposite direction, so 88 undeclared ids keep CI green.
+  No test asserts the opposite direction, so 85 undeclared ids keep CI green.
 - **F2 — the guard omits HuggingFace.** `_SLUG_SOURCES` and `_RETURNED_SLUG_SOURCES` name five
   plugin sources. `huggingface_provider/settings.py` is absent, because HuggingFace had no compiled
   list when the guard was written. PR #583 gave it 24 seeds.
-- **F3 — 29 of the 88 ids cannot be routes.** url4's path segment charset is
+- **F3 — 29 of the 85 ids cannot be routes.** url4's path segment charset is
   `ALPHA / DIGIT / "-" / "_" / "." / "~"` (spec §8), mirrored by `world_config._MODEL_ID_RE:59`. A
   `:` is outside it. All 24 HuggingFace ids carry a `:<provider>` backend pin. Five OpenRouter ids
   carry `:batch` or `:free`. This is a grammar limit, not a policy choice. `OME-819` tracks it.
@@ -157,12 +163,12 @@ ollama's run-time discovery are outside it by construction. The spec states this
 ## 6. Consequences
 
 1. **The error boundary moves outward.** Today an undeclared model fails at url4-cloud as an
-   unknown route. After this change all 84 route-legal ids resolve, so a model whose provider is
+   unknown route. After this change all 88 route-legal ids resolve, so a model whose provider is
    disabled or has no credential fails deeper — at the gateway, inside the user's expression, as
    `profile_not_found` or a 400. This is the documented *a declared route is not an enabled
    deployment* caveat applied to 3.4 times more models. Local mode inherits it. The consequence is
    inherent to D1 and is accepted.
-2. `GET /v1/models` grows about 3.4 times per caller. The cache is keyed per credential, so the
+2. `GET /v1/models` grows about 2.8 times per caller (32 → 88). The cache is keyed per credential, so the
    entry count does not change. Response and ETag size grow.
 3. Benchmark identity must not move. The DRACO judge `openrouter/google/gemini-3.1-pro-preview` and
    the HealthBench judge `openrouter/openai/gpt-5.4` are pinned and affect scores. A

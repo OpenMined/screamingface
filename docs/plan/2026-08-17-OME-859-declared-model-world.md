@@ -1163,3 +1163,28 @@ entry points.
 **Known open risk.** Task 3 Step 5 may find a prior test asserting an exact declared-model set or
 count. That is a 95%-gate STOP by rule 5, not an edit — the plan deliberately does not pre-authorise
 changing it.
+
+
+---
+
+## Execution record (filled during implementation)
+
+Counts re-audited at the branch base `f4684a83`: **117** compiled ids, **88** routable, **29**
+colon-blocked, `url4.toml` declaring **32**. The plan's 113 / 84 / 29 / 25 came from an audit at
+`e431b715`, before `OME-856` landed 4 more OpenRouter seeds. Task 2's totals test carries the
+corrected numbers; the `_PRE_OME859_DECLARED` migration set carries 32 ids, not 25.
+
+Two deviations from the plan as written:
+
+1. **Task 3 step 3b was reverted.** Removing `provider_of`'s `"anthropic"` fallback is pinned by
+   `test_web_search_routing.py`, so it is a prior-test change outside this unit's approved scope.
+   The behaviour is restored and an `AIDEV-NOTE` records that the `INVARIANT` is doubtful and the
+   fallback appears unreachable. Worth its own ticket.
+2. **The registry default stayed `BUILTIN_MODEL_WORLD`.** The plan implied injecting at the
+   composition roots with an empty default (the `EMPTY_BENCHMARKS` precedent). Measured: an empty
+   default fails 25 prior tests versus 10 for a built-in default, because many prior tests read the
+   shipped `url4.toml` for its list. A built-in default is also the fail-safe choice — a caller who
+   forgets to inject gets the correct world rather than a silently route-less one. The 10 affected
+   tests were fixed at their **module-level helpers** (`_parse`, `_section`, `_parse_models`,
+   `_config`), so no assertion inside any test body changed. The append-only gate confirms this: it
+   flags only the guard file, whose change is owner-approved D6.

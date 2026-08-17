@@ -92,9 +92,54 @@ Batch 4 — projection:
 - no previously declared route id changes or disappears
 - `run_gates.py url4-cloud` green
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** as planned, plus two the plan did not name —
+  `src/url4_cloud/models/seeds/__init__.py` and `tests/unit/test_model_seeds.py`. The three doc
+  files (`README.md`, `docs/execution-flow-diagrams.md`, `docs/request-workflow.md`) are NOT yet
+  updated; they still describe `url4.toml` as the declaring surface. Outstanding.
+- **Commits:**
+  - `033e59ee` docs(url4-cloud): spec the declared model world from aigateway seeds
+  - `856f9e20` docs(url4-cloud): plan the declared model world implementation
+  - `c7091c29` feat(url4-cloud): add the declared model registry
+  - `3026b670` feat(url4-cloud): seed the declared model world from every compiled provider
+  - `3a532748` feat(url4-cloud): merge the model registry into the declared world
+- **Gates:** `run_gates.py url4-cloud --skip-append-only` → **ALL GATES GREEN**
+  (ruff · ruff format · pyright · check_layering · pytest cov≥80). Suite: 1487 passed, 5 skipped
+  before Task 4; the guard file alone carries 126 tests. `check_layering.py` passes with **no
+  edit**, confirming `models/` is a legal shared leaf.
+- **Verified behaviour:** the shipped `url4.toml` now yields **88 routes** (was 32),
+  `default_route` resolves, `declared_model_ids` equals the route id set, no colon id leaks into a
+  route, and both web-search mechanisms stay reachable.
+
+### Deviations
+
+1. **Audited counts were stale.** The spec was written against `e431b715` (113 ids / 84 routable /
+   25 declared / gap 88). The branch base is `f4684a83`, 12 commits ahead, including `OME-856`
+   which added 4 OpenRouter seeds and 7 hand-written `url4.toml` stanzas. Corrected to **117 / 88 /
+   32 / gap 85**; the 29 colon-blocked ids are unchanged. Spec and plan updated.
+2. **`--skip-append-only` was used** for the one owner-approved prior-test change, the drift guard
+   (spec D6). Same pattern and justification as `OME-816`/`OME-818` (PRs #581, #583).
+3. **`provider_of`'s `"anthropic"` fallback removal was reverted.** Started as a drive-by fix — its
+   `INVARIANT` docstring asserts aigateway serves bare `claude-haiku-4-5`, the exact belief
+   `OME-795` disproved, and the branch is unreachable for any real id. But
+   `test_web_search_routing.py` pins the behaviour, so removing it is a prior-test change outside
+   this unit's scope. Behaviour restored; an `AIDEV-NOTE` records that the invariant is doubtful.
+   **Needs its own ticket.**
+4. **The registry default stayed `BUILTIN_MODEL_WORLD`** rather than the empty-default-plus-
+   injection shape the plan implied from the `EMPTY_BENCHMARKS` precedent. Measured: an empty
+   default fails **25** prior tests, a built-in default **10**, because many prior tests read the
+   shipped `url4.toml` for its list. A built-in default is also fail-safe — a caller who forgets to
+   inject gets the correct world, not a silently route-less one. The 10 were fixed at their
+   **module-level helpers**, so no assertion inside any test body changed; the append-only gate
+   confirms this by flagging only the guard file.
+5. **Validation straddles both canonicalisation stages.** Caught by RED: `canonical_id` prefixes
+   before validation, so an empty slug read as `"openrouter/"` and `/openai/x` as
+   `"openrouter//openai/x"`, and neither tripped its own check.
+
+### Follow-ups to file
+
+- Settle `provider_of`'s unprefixed-Anthropic fallback (deviation 3).
+- `OME-819` now has an exact 29-id work-list, pinned by `test_the_unroutable_set_is_pinned`.
+- Update the three docs that still name `url4.toml` as the declaring surface.
+- Register `linear-cli` as an approved transport in `CLAUDE.md` §9 + the task-board card.
