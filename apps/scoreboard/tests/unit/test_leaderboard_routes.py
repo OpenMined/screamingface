@@ -111,7 +111,7 @@ async def test_get_leaderboard_returns_ranked_best_score_per_spec(
     # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
     # nothing re-runs submissions and nothing attests where a run executed. The
     # False case stays covered by the explicit-False row test.
-    assert body["entries"][0]["verified_by_openmined"] is True
+    assert body["entries"][0]["verified_by_screamingface"] is True
     assert body["entries"][1]["url4_expression"] == "url4://benchmark/hle/spec-a/0.9"
 
 
@@ -201,7 +201,7 @@ async def test_get_spec_history_returns_submissions_newest_first(
         "correct_questions",
         "submitted_at",
         "submitted_by",
-        "verified_by_openmined",
+        "verified_by_screamingface",
     }
 
 
@@ -440,5 +440,5 @@ async def test_a_new_submission_reads_as_verified_on_both_read_paths(
 
     assert board.status_code == 200
     entry = next(e for e in board.json()["entries"] if e["spec_id"] == "verified-default")
-    assert entry["verified_by_openmined"] is True
-    assert history.json()["submissions"][0]["verified_by_openmined"] is True
+    assert entry["verified_by_screamingface"] is True
+    assert history.json()["submissions"][0]["verified_by_screamingface"] is True

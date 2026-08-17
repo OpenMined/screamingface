@@ -51,7 +51,7 @@ class BaseScore(BaseScoreboardModel):
     # therefore split rows by whether they predate the default change while presenting
     # itself as a verification filter, which is worse than filtering nothing
     # (review of #588).
-    verified_by_openmined = fields.BooleanField(default=True)
+    verified_by_screamingface = fields.BooleanField(default=True)
     # INVARIANT: the Engine benchmark revision this score was produced against. The
     # leaderboard partitions ranking on (spec_id, benchmark_revision) so results measured
     # against different dataset/protocol revisions never rank against each other (OME-775).

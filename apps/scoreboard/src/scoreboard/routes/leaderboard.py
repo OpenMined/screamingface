@@ -45,7 +45,7 @@ class RankedLeaderboardEntry(BaseModel):
     ran_with_providers: list[str]
     submitted_at: datetime
     submitted_by: SubmittedBy
-    verified_by_openmined: bool
+    verified_by_screamingface: bool
     url4_expression: str
 
 
@@ -72,7 +72,7 @@ class HistorySubmission(BaseModel):
     correct_questions: int
     submitted_at: datetime
     submitted_by: SubmittedBy
-    verified_by_openmined: bool
+    verified_by_screamingface: bool
 
 
 class HistoryResponse(BaseModel):
@@ -119,7 +119,7 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
         correct_questions=score.correct_questions,
         submitted_at=score.submitted_at,
         submitted_by=score.submitted_by,
-        verified_by_openmined=score.verified_by_openmined,
+        verified_by_screamingface=score.verified_by_screamingface,
     )
 
 

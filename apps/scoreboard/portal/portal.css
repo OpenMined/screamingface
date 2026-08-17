@@ -191,7 +191,7 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 /* ---- two-card summary strip (OME-820) ------------------------------ */
 /* style.css sets `.stats { grid-template-columns: repeat(3,1fr) }` and is vendored,
    so it is not edited. The leaderboard summary lost its third metric ("Verified
-   rows") when the verification UI was withdrawn — verified_by_openmined became
+   rows") when the verification UI was withdrawn — verified_by_screamingface became
    meaningless — see benchmark.js — and the metric was dropped. Without a modifier the
    bordered strip
    renders two cards across two thirds of its width, leaving an empty third.

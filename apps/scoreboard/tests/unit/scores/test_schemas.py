@@ -428,7 +428,7 @@ def test_score_schema_publishes_only_the_local_part(stored: str, published: str)
         client_name=None,
         client_version=None,
         client_platform=None,
-        verified_by_openmined=True,
+        verified_by_screamingface=True,
         metadata=None,
     )
 
@@ -463,7 +463,7 @@ def test_a_null_submitter_stays_null() -> None:
         client_name=None,
         client_version=None,
         client_platform=None,
-        verified_by_openmined=True,
+        verified_by_screamingface=True,
         metadata=None,
     )
 
@@ -475,7 +475,7 @@ def test_a_null_submitter_stays_null() -> None:
 
 @pytest.mark.parametrize("claimed", [True, False])
 def test_score_submission_rejects_a_client_supplied_verified_flag(claimed: bool) -> None:
-    """INVARIANT: verified_by_openmined is server-side only.
+    """INVARIANT: verified_by_screamingface is server-side only.
 
     The board's trust signal must never be assertable by the party it exists to
     constrain, and the write path is public (authenticated, but public). This is
@@ -483,7 +483,7 @@ def test_score_submission_rejects_a_client_supplied_verified_flag(claimed: bool)
     pinned here: relaxing that config must break a test, not just widen the DTO.
     """
     payload = _valid_payload()
-    payload["verified_by_openmined"] = claimed
+    payload["verified_by_screamingface"] = claimed
 
     with pytest.raises(ValidationError):
         ScoreSubmission.model_validate(payload)

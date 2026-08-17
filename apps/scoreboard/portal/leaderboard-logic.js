@@ -36,7 +36,7 @@
   // badged an unverified claim would be asserting OpenMined reproduced a run it
   // never did, which is exactly what the page's own disclaimer denies.
   //
-  // AIDEV-NOTE: `verified_by_openmined` is the only reproducibility signal the
+  // AIDEV-NOTE: `verified_by_screamingface` is the only reproducibility signal the
   // Scoreboard API exposes today, and since OME-820 it is a placeholder that
   // asserts NOTHING: the default is true and no service re-runs submissions, so a
   // true value certifies nothing. Rows predating OME-820 keep false (D5 forbids a
@@ -48,7 +48,7 @@
   // this URL4 before" — i.e. a global-cache hit), and OME-821 gives the field a
   // real meaning. When either lands, TWO lines move: the predicate below, and the
   // one-line `entry()` helper at the top of leaderboard-logic.test.js, which names
-  // `verified_by_openmined` when building fixtures. The assertions themselves do
+  // `verified_by_screamingface` when building fixtures. The assertions themselves do
   // not change — they pin the invariant above, not the source of the signal.
   //
   // AIDEV-NOTE: this note used to say "change the predicate and nothing else",
@@ -56,7 +56,7 @@
   // because "nothing else" is exactly the sort of promise a later reader trusts
   // instead of checking.
   function isReproducible(entry) {
-    return entry.verified_by_openmined === true;
+    return entry.verified_by_screamingface === true;
   }
 
   function sotaAccuracy(entries) {

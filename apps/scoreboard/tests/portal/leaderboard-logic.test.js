@@ -18,7 +18,7 @@ const L = require("../../portal/leaderboard-logic.js");
 
 // A leaderboard entry, trimmed to the fields these decisions actually read.
 function entry(spec_id, accuracy, verified) {
-  return { spec_id, accuracy, verified_by_openmined: verified };
+  return { spec_id, accuracy, verified_by_screamingface: verified };
 }
 
 test("sotaAccuracy: no entries means no SOTA", () => {

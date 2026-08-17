@@ -3,7 +3,7 @@
 Reads are always public. Writes trust the client-supplied ``submitted_by`` free text by
 default (``auth_mode=disabled``); setting ``SCOREBOARD_AUTH_MODE=cloudflare_headers``
 requires and trusts the mesh-verified `X-User-Email` identity header instead (OME-404,
-following OME-326). The verified_by_openmined response field is a separate, independent
+following OME-326). The verified_by_screamingface response field is a separate, independent
 trust-tier signal: it is unrelated to how the submitter was identified, and it is never
 settable by a client — it is absent from ScoreSubmission, so sending it is a 422.
 
@@ -193,7 +193,7 @@ async def submit_score(
 async def get_score(score_id: UUID) -> ScoreSchema:
     """Return a public score by id.
 
-    ``verified_by_openmined`` carries no verification claim yet: nothing re-runs
+    ``verified_by_screamingface`` carries no verification claim yet: nothing re-runs
     submissions and nothing attests execution provenance (OME-820, OME-821).
     """
 

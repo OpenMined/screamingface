@@ -208,7 +208,7 @@
     }
 
     var best = bestAccuracy(entries);
-    // OME-820: the "Verified rows" stat is gone, not relabelled. verified_by_openmined
+    // OME-820: the "Verified rows" stat is gone, not relabelled. verified_by_screamingface
     // now carries no trustworthy verification semantics — nothing re-runs submissions
     // and nothing attests where a run executed — so counting it measures nothing.
     //
