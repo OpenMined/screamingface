@@ -48,3 +48,8 @@ one place per type, and clarify the Pipelines guide.
   and gained a "Where each type is documented" pointer list. ModelsCatalogPage's discovery types
   are now grouped under a "Discovery types" heading below the new Model section. Generic "recipe"
   links in CandidateResult/Clients were left pointing at the surviving Recipes overview.
+- **Follow-up (same PR):** overhauled the Pipelines composition diagrams (labelled pipeline frames
+  incl. nested, categorical role colours + legend, always-separate "Graded answer" node, fixed
+  broken `--accent`/`--border-strong` token refs, new "Mix recipe types as stages" example) —
+  visually verified via headless-Chrome screenshots — and rewrote the Clients guide's "two ways to
+  call the SDK" intro into short, plain sentences.

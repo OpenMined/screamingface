@@ -42,6 +42,12 @@ sf.Fusion(
 )`
 const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-preview'], synthesizer=Pipeline(['judge', 'writer']))`
 
+const mixed = `panel = sf.Fusion([draft, review], synthesizer=final)
+refine = sf.Pipeline([review, final], name="refine")
+
+sf.Pipeline([draft, panel, refine], name="mixed")`
+const mixedOut = `Pipeline(['gpt-5.5', 'gpt-5.5+claude-opus-4.8', 'refine'], name='mixed')`
+
 const pipelineSig = `sf.Pipeline(
     stages: Sequence[str | Recipe],
     *,
@@ -76,10 +82,10 @@ const pipelineSig = `sf.Pipeline(
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
       <svg
-        viewBox="0 0 680 120"
+        class="dg"
+        viewBox="0 0 720 104"
         role="img"
-        aria-label="A pipeline passes the question through ordered stages; each stage receives the previous stage's answer, and the last stage's answer is what the benchmark grades."
-        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+        aria-label="The flow of information: member models answer, a synthesizer combines them into one answer, and grading that answer produces the graded answer."
       >
         <defs>
           <marker
@@ -94,50 +100,33 @@ const pipelineSig = `sf.Pipeline(
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <g
-          style="stroke: var(--text-2); stroke-width: 1.25; fill: none"
-          marker-end="url(#pl-arrow)"
-        >
-          <path d="M104 60 H136" />
-          <path d="M248 60 H280" />
-          <path d="M392 60 H424" />
-          <path d="M536 60 H568" />
+        <g class="edge" marker-end="url(#pl-arrow)">
+          <path d="M200 62 H288" />
+          <path d="M450 62 H544" />
         </g>
-        <g style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1">
-          <rect x="8" y="40" width="96" height="40" />
-          <rect x="136" y="38" width="112" height="44" />
-          <rect x="280" y="38" width="112" height="44" />
-          <rect x="568" y="38" width="96" height="44" />
-        </g>
-        <rect
-          x="424"
-          y="38"
-          width="112"
-          height="44"
-          style="fill: none; stroke: var(--accent); stroke-width: 1.5"
-        />
-        <g text-anchor="middle" style="fill: var(--text)">
-          <text x="56" y="64">question</text>
-          <text x="192" y="64">stage 1</text>
-          <text x="336" y="64">stage 2</text>
-          <text x="480" y="64">final stage</text>
-          <text x="616" y="64">answer</text>
+        <text x="250" y="50" text-anchor="middle" class="sub">stage</text>
+        <text x="503" y="50" text-anchor="middle" class="sub">grading</text>
+        <rect class="box stage" x="16" y="40" width="184" height="44" />
+        <rect class="box synth" x="300" y="40" width="150" height="44" />
+        <rect class="box graded" x="556" y="40" width="150" height="44" />
+        <g class="lbl" text-anchor="middle">
+          <text x="108" y="66">members / models</text>
+          <text x="375" y="66">synthesizer</text>
+          <text x="631" y="66">Graded answer</text>
         </g>
       </svg>
-      <figcaption
-        style="
-          font-family: var(--f-mono);
-          font-size: var(--text-label);
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: var(--text-2);
-          margin-top: var(--space-3);
-        "
-      >
-        Each stage receives the previous stage's answer; the final stage's answer is what the
-        benchmark grades.
+      <figcaption class="dgcap">
+        The flow of information: the member models answer, a synthesizer combines them into one
+        answer, and grading that answer produces the graded answer.
       </figcaption>
     </figure>
+
+    <div class="dgkey not-prose">
+      <span><i class="stage"></i>Stage / member</span>
+      <span><i class="synth"></i>Final stage (synthesizer)</span>
+      <span><i class="graded"></i>Graded answer</span>
+      <span><i class="pl"></i>Pipeline (dashed = unnamed, flattens)</span>
+    </div>
 
     <h2>What you can do</h2>
 
@@ -199,31 +188,36 @@ const pipelineSig = `sf.Pipeline(
 
     <figure class="not-prose" style="margin: var(--space-6) 0">
       <svg
-        viewBox="0 0 480 92"
+        class="dg"
+        viewBox="0 0 654 120"
         role="img"
-        aria-label="review-chain runs draft then review in series; the review stage's answer is graded."
-        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+        aria-label="The review-chain Pipeline holds draft then review; grading review's answer produces the graded answer."
       >
         <defs>
           <marker id="pl-a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <text x="240" y="16" text-anchor="middle" style="fill: var(--text-2)">review-chain</text>
-        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a1)">
-          <path d="M186 52 H290" />
+        <g class="edge" marker-end="url(#pl-a1)">
+          <path d="M162 80 H240" />
+          <path d="M392 80 H482" />
         </g>
-        <rect x="16" y="30" width="170" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
-        <rect x="294" y="30" width="170" height="44" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
-        <g text-anchor="middle" style="fill: var(--text)">
-          <text x="101" y="56">draft</text>
-          <text x="379" y="56">review · graded</text>
+        <rect class="frame" x="16" y="34" width="376" height="80" />
+        <text x="24" y="50" class="sub">review-chain</text>
+        <text x="204" y="66" text-anchor="middle" class="sub">stage</text>
+        <text x="437" y="66" text-anchor="middle" class="sub">grading</text>
+        <rect class="box stage" x="32" y="60" width="130" height="40" />
+        <rect class="box synth" x="246" y="60" width="130" height="40" />
+        <rect class="box graded" x="492" y="60" width="150" height="40" />
+        <g class="lbl" text-anchor="middle">
+          <text x="97" y="84">draft</text>
+          <text x="311" y="84">review</text>
+          <text x="567" y="84">Graded answer</text>
         </g>
       </svg>
-      <figcaption
-        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
-      >
-        Two stages in series; the review stage's answer is what the benchmark grades.
+      <figcaption class="dgcap">
+        The review-chain Pipeline holds draft then review; grading review's answer is the graded
+        answer.
       </figcaption>
     </figure>
 
@@ -240,35 +234,40 @@ const pipelineSig = `sf.Pipeline(
 
     <figure class="not-prose" style="margin: var(--space-6) 0">
       <svg
-        viewBox="0 0 560 84"
+        class="dg"
+        viewBox="0 0 868 120"
         role="img"
-        aria-label="draft.then(review).then(final) chains three stages in series, left to right."
-        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+        aria-label="One Pipeline of draft, review and final; grading final's answer produces the graded answer."
       >
         <defs>
           <marker id="pl-a2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a2)">
-          <path d="M166 44 H201" />
-          <path d="M355 44 H390" />
+        <g class="edge" marker-end="url(#pl-a2)">
+          <path d="M162 80 H240" />
+          <path d="M376 80 H454" />
+          <path d="M606 80 H696" />
         </g>
-        <g style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1">
-          <rect x="16" y="22" width="150" height="44" />
-          <rect x="205" y="22" width="150" height="44" />
-        </g>
-        <rect x="394" y="22" width="150" height="44" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
-        <g text-anchor="middle" style="fill: var(--text)">
-          <text x="91" y="48">draft</text>
-          <text x="280" y="48">review</text>
-          <text x="469" y="48">final · graded</text>
+        <rect class="frame" x="16" y="34" width="590" height="80" />
+        <text x="24" y="50" class="sub">Pipeline</text>
+        <text x="204" y="66" text-anchor="middle" class="sub">stage</text>
+        <text x="418" y="66" text-anchor="middle" class="sub">stage</text>
+        <text x="651" y="66" text-anchor="middle" class="sub">grading</text>
+        <rect class="box stage" x="32" y="60" width="130" height="40" />
+        <rect class="box stage" x="246" y="60" width="130" height="40" />
+        <rect class="box synth" x="460" y="60" width="130" height="40" />
+        <rect class="box graded" x="706" y="60" width="150" height="40" />
+        <g class="lbl" text-anchor="middle">
+          <text x="97" y="84">draft</text>
+          <text x="311" y="84">review</text>
+          <text x="525" y="84">final</text>
+          <text x="781" y="84">Graded answer</text>
         </g>
       </svg>
-      <figcaption
-        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
-      >
-        <code>.then()</code> builds the same three-stage chain, read left to right.
+      <figcaption class="dgcap">
+        <code>.then()</code> builds one Pipeline of three stages; only the last stage's answer is
+        graded.
       </figcaption>
     </figure>
 
@@ -285,41 +284,41 @@ const pipelineSig = `sf.Pipeline(
 
     <figure class="not-prose" style="margin: var(--space-6) 0">
       <svg
-        viewBox="0 0 620 132"
+        class="dg"
+        viewBox="0 0 938 164"
         role="img"
-        aria-label="An unnamed inner Pipeline flattens: draft, review and final run as one sequence."
-        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+        aria-label="The unnamed inner Pipeline (dashed) flattens into the outer Pipeline; grading the last stage's answer produces the graded answer."
       >
         <defs>
           <marker id="pl-a3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a3)">
-          <path d="M146 68 H192" />
-          <path d="M370 76 H426" />
+        <g class="edge" marker-end="url(#pl-a3)">
+          <path d="M166 106 H278" />
+          <path d="M430 106 H508" />
+          <path d="M676 106 H766" />
         </g>
-        <rect
-          x="196"
-          y="20"
-          width="408"
-          height="96"
-          style="fill: none; stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 4 4"
-        />
-        <text x="206" y="38" style="fill: var(--text-2); font-size: 11px">Pipeline (unnamed)</text>
-        <rect x="16" y="46" width="130" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
-        <rect x="220" y="54" width="150" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
-        <rect x="430" y="54" width="150" height="44" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
-        <g text-anchor="middle" style="fill: var(--text)">
-          <text x="81" y="72">draft</text>
-          <text x="295" y="80">review</text>
-          <text x="505" y="80">final · graded</text>
+        <rect class="frame" x="16" y="40" width="660" height="108" />
+        <text x="24" y="56" class="sub">Pipeline</text>
+        <rect class="frame" x="284" y="58" width="376" height="80" style="stroke-dasharray: 4 4" />
+        <text x="292" y="74" class="sub">Pipeline (unnamed)</text>
+        <text x="222" y="94" text-anchor="middle" class="sub">stage</text>
+        <text x="721" y="94" text-anchor="middle" class="sub">grading</text>
+        <rect class="box stage" x="36" y="86" width="130" height="40" />
+        <rect class="box stage" x="300" y="86" width="130" height="40" />
+        <rect class="box synth" x="514" y="86" width="130" height="40" />
+        <rect class="box graded" x="776" y="86" width="150" height="40" />
+        <g class="lbl" text-anchor="middle">
+          <text x="101" y="110">draft</text>
+          <text x="365" y="110">review</text>
+          <text x="579" y="110">final</text>
+          <text x="851" y="110">Graded answer</text>
         </g>
       </svg>
-      <figcaption
-        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
-      >
-        The unnamed inner Pipeline flattens — draft → review → final runs as one sequence.
+      <figcaption class="dgcap">
+        The unnamed inner Pipeline flattens into the outer one — draft → review → final runs as a
+        single sequence.
       </figcaption>
     </figure>
 
@@ -334,41 +333,41 @@ const pipelineSig = `sf.Pipeline(
 
     <figure class="not-prose" style="margin: var(--space-6) 0">
       <svg
-        viewBox="0 0 620 132"
+        class="dg"
+        viewBox="0 0 938 164"
         role="img"
-        aria-label="A named inner Pipeline (polish-pass) stays a single stage: draft then polish-pass, which itself is review then final."
-        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+        aria-label="The named inner Pipeline polish-pass is kept as one stage inside the outer Pipeline; grading its last stage's answer produces the graded answer."
       >
         <defs>
           <marker id="pl-a4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a4)">
-          <path d="M146 68 H192" />
-          <path d="M370 76 H426" />
+        <g class="edge" marker-end="url(#pl-a4)">
+          <path d="M166 106 H278" />
+          <path d="M430 106 H508" />
+          <path d="M676 106 H766" />
         </g>
-        <rect
-          x="196"
-          y="20"
-          width="408"
-          height="96"
-          style="fill: none; stroke: var(--border-strong); stroke-width: 1.25"
-        />
-        <text x="206" y="38" style="fill: var(--text-2); font-size: 11px">polish-pass (named · one stage)</text>
-        <rect x="16" y="46" width="130" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
-        <rect x="220" y="54" width="150" height="44" style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1" />
-        <rect x="430" y="54" width="150" height="44" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
-        <g text-anchor="middle" style="fill: var(--text)">
-          <text x="81" y="72">draft</text>
-          <text x="295" y="80">review</text>
-          <text x="505" y="80">final · graded</text>
+        <rect class="frame" x="16" y="40" width="660" height="108" />
+        <text x="24" y="56" class="sub">Pipeline</text>
+        <rect class="frame" x="284" y="58" width="376" height="80" />
+        <text x="292" y="74" class="sub">polish-pass (named · one stage)</text>
+        <text x="222" y="94" text-anchor="middle" class="sub">stage</text>
+        <text x="721" y="94" text-anchor="middle" class="sub">grading</text>
+        <rect class="box stage" x="36" y="86" width="130" height="40" />
+        <rect class="box stage" x="300" y="86" width="130" height="40" />
+        <rect class="box synth" x="514" y="86" width="130" height="40" />
+        <rect class="box graded" x="776" y="86" width="150" height="40" />
+        <g class="lbl" text-anchor="middle">
+          <text x="101" y="110">draft</text>
+          <text x="365" y="110">review</text>
+          <text x="579" y="110">final</text>
+          <text x="851" y="110">Graded answer</text>
         </g>
       </svg>
-      <figcaption
-        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
-      >
-        A named inner Pipeline is kept as one stage: draft → polish-pass (itself review → final).
+      <figcaption class="dgcap">
+        A named inner Pipeline (polish-pass) stays one stage of the outer Pipeline: draft →
+        polish-pass, itself review → final.
       </figcaption>
     </figure>
 
@@ -387,51 +386,101 @@ const pipelineSig = `sf.Pipeline(
 
     <figure class="not-prose" style="margin: var(--space-6) 0">
       <svg
-        viewBox="0 0 720 196"
+        class="dg"
+        viewBox="0 0 994 210"
         role="img"
-        aria-label="A Fusion of two members — a draft-then-review pipeline and gemini — combined by a synthesizer that is itself a judge-then-writer pipeline."
-        style="width: 100%; height: auto; font-family: var(--f-mono); font-size: 12px"
+        aria-label="A Fusion whose members are a draft-to-review Pipeline and gemini, combined by a synthesizer that is itself a judge-to-writer Pipeline; grading the writer's answer produces the graded answer."
       >
         <defs>
           <marker id="pl-a5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <text x="16" y="16" style="fill: var(--text-2)">Fusion · members</text>
-        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#pl-a5)">
-          <path d="M136 48 H168" />
-          <path d="M292 48 C372 48 372 98 448 98" />
-          <path d="M136 128 C300 128 372 98 448 98" />
-          <path d="M572 104 H590" />
+        <text x="16" y="18" class="sub">Fusion · members</text>
+        <g class="edge" marker-end="url(#pl-a5)">
+          <path d="M152 70 H230" />
+          <path d="M572 114 H600" />
+          <path d="M372 64 C412 64 412 108 452 108" />
+          <path d="M152 146 C300 146 412 108 452 108" />
+          <path d="M732 108 H822" />
         </g>
-        <g style="fill: var(--surface); stroke: var(--border-strong); stroke-width: 1">
-          <rect x="16" y="28" width="120" height="40" />
-          <rect x="172" y="28" width="120" height="40" />
-          <rect x="16" y="108" width="120" height="40" />
-          <rect x="464" y="86" width="108" height="36" />
-        </g>
-        <rect
-          x="452"
-          y="58"
-          width="252"
-          height="80"
-          style="fill: none; stroke: var(--border-strong); stroke-width: 1.25"
-        />
-        <text x="462" y="76" style="fill: var(--text-2); font-size: 11px">synthesizer · Pipeline</text>
-        <rect x="596" y="86" width="96" height="36" style="fill: none; stroke: var(--accent); stroke-width: 1.5" />
-        <g text-anchor="middle" style="fill: var(--text)">
-          <text x="76" y="52">draft</text>
-          <text x="232" y="52">review</text>
-          <text x="76" y="132">gemini</text>
-          <text x="518" y="108">judge</text>
-          <text x="644" y="108">writer</text>
+        <rect class="frame" x="16" y="28" width="356" height="72" />
+        <text x="24" y="44" class="sub">Pipeline</text>
+        <rect class="frame" x="452" y="72" width="280" height="72" />
+        <text x="460" y="88" class="sub">synthesizer · Pipeline</text>
+        <text x="777" y="94" text-anchor="middle" class="sub">grading</text>
+        <rect class="box stage" x="32" y="52" width="120" height="36" />
+        <rect class="box stage" x="236" y="52" width="120" height="36" />
+        <rect class="box stage" x="32" y="128" width="120" height="36" />
+        <rect class="box stage" x="468" y="96" width="104" height="36" />
+        <rect class="box synth" x="604" y="96" width="104" height="36" />
+        <rect class="box graded" x="832" y="90" width="150" height="40" />
+        <g class="lbl" text-anchor="middle">
+          <text x="92" y="74">draft</text>
+          <text x="296" y="74">review</text>
+          <text x="92" y="150">gemini</text>
+          <text x="520" y="118">judge</text>
+          <text x="656" y="118">writer</text>
+          <text x="907" y="114">Graded answer</text>
         </g>
       </svg>
-      <figcaption
-        style="font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin-top: var(--space-3)"
+      <figcaption class="dgcap">
+        A Fusion of two members — the draft → review Pipeline and gemini — combined by a synthesizer
+        that is itself a judge → writer Pipeline; grading the writer's answer is the graded answer.
+      </figcaption>
+    </figure>
+
+    <h3>5 · Mix recipe types as stages</h3>
+
+    <p>
+      Because a stage is just a recipe, one Pipeline can mix a <code>Model</code>, a
+      <code>Fusion</code>, and a nested <code>Pipeline</code> as its stages. Each one counts as a
+      single stage, and the last stage's answer is still what the benchmark grades.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="6" :code="mixed"><NbTextOut :text="mixedOut" /></NbCell>
+    </div>
+
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        class="dg"
+        viewBox="0 0 860 152"
+        role="img"
+        aria-label="One Pipeline whose stages are a Model, a Fusion and a nested Pipeline; grading the last stage's answer produces the graded answer."
       >
-        A Fusion of two members (the draft → review pipeline and gemini), combined by a synthesizer
-        that is itself a judge → writer pipeline. The synthesizer's last stage (writer) is graded.
+        <defs>
+          <marker id="pl-a6" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <g class="edge" marker-end="url(#pl-a6)">
+          <path d="M170 82 H240" />
+          <path d="M376 82 H446" />
+          <path d="M598 82 H688" />
+        </g>
+        <rect class="frame" x="16" y="34" width="582" height="104" />
+        <text x="24" y="50" class="sub">Pipeline · mixed</text>
+        <text x="643" y="70" text-anchor="middle" class="sub">grading</text>
+        <rect class="box stage" x="40" y="62" width="130" height="40" />
+        <rect class="box stage" x="246" y="62" width="130" height="40" />
+        <rect class="box synth" x="452" y="62" width="130" height="40" />
+        <rect class="box graded" x="698" y="62" width="150" height="40" />
+        <g class="lbl" text-anchor="middle">
+          <text x="105" y="86">draft</text>
+          <text x="311" y="86">panel</text>
+          <text x="517" y="86">refine</text>
+          <text x="773" y="86">Graded answer</text>
+        </g>
+        <g class="sub" text-anchor="middle">
+          <text x="105" y="124">Model</text>
+          <text x="311" y="124">Fusion</text>
+          <text x="517" y="124">Pipeline</text>
+        </g>
+      </svg>
+      <figcaption class="dgcap">
+        A stage is any recipe — here a Model, a Fusion and a nested Pipeline chained in one Pipeline;
+        only the last stage's answer is graded.
       </figcaption>
     </figure>
 
@@ -522,3 +571,88 @@ const pipelineSig = `sf.Pipeline(
     </ul>
   </DocLayout>
 </template>
+
+<style scoped>
+/* Composition diagrams: neutral boxes, role encoded by border colour (categorical
+   --data-* palette per SFDS), never status colours. Pipelines are marked with a
+   labelled frame (dashed = an unnamed pipeline that flattens away). */
+.dg {
+  width: 100%;
+  height: auto;
+  font-family: var(--f-mono);
+  font-size: 13px;
+}
+.dg .box {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1.75;
+}
+.dg .stage {
+  stroke: var(--data-azure-500);
+}
+.dg .synth {
+  stroke: var(--data-orange-500);
+}
+.dg .graded {
+  stroke: var(--data-green-500);
+}
+.dg .lbl {
+  fill: var(--text);
+  font-weight: 500;
+}
+.dg .sub {
+  fill: var(--text-2);
+  font-size: 12px;
+}
+.dg .edge {
+  fill: none;
+  stroke: var(--text-2);
+  stroke-width: 1.25;
+}
+.dg .frame {
+  fill: none;
+  stroke: var(--border-2);
+  stroke-width: 1.25;
+}
+
+.dgcap {
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text-2);
+  margin-top: var(--space-4);
+  max-width: 62ch;
+}
+
+.dgkey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  margin: var(--space-5) 0 var(--space-8);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.dgkey span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.dgkey i {
+  width: 12px;
+  height: 12px;
+  border: 2px solid;
+  flex: none;
+}
+.dgkey .stage {
+  border-color: var(--data-azure-500);
+}
+.dgkey .synth {
+  border-color: var(--data-orange-500);
+}
+.dgkey .graded {
+  border-color: var(--data-green-500);
+}
+.dgkey .pl {
+  border-color: var(--border-2);
+}
+</style>

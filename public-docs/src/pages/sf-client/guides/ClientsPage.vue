@@ -86,16 +86,25 @@ client = sf.Client(
     :navigation="navigation"
     :version="version"
   >
+    <p>There are two ways to call the SDK, and both use the same interface.</p>
+
     <p>
-      There are two ways to call this SDK, and they share one interface. The
-      <strong>module-level shortcuts</strong> — <code>sf.evaluate(...)</code>,
-      <code>sf.connect(...)</code>, and the rest — read the shortest, so they open the
-      <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> and every notebook.
-      An <strong>explicit <code>Client</code></strong> that you construct and own reads
-      longer but gives you the lifecycle, the second engine, and the event loop when a script
-      grows into something you ship. The shortcuts are not a different SDK: each one runs
-      against a single <code>Client</code> the package holds for you, so everything on this
-      page is really about <em>who owns the Client</em>.
+      Most of the time you'll reach for the <strong>module-level shortcuts</strong> —
+      <code>sf.evaluate(...)</code>, <code>sf.connect(...)</code>, and the rest. They're the shortest
+      to write, which is why the
+      <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> and every notebook use them.
+    </p>
+
+    <p>
+      When a script grows into something you ship, construct an explicit
+      <strong><code>Client</code></strong> instead. It takes a little more code, but it hands you the
+      client's lifecycle, lets you point at a second engine, and works with your own event loop.
+    </p>
+
+    <p>
+      These aren't two different SDKs. Every shortcut runs against a single <code>Client</code> the
+      package creates and holds for you — so the only real question this page answers is
+      <em>who owns that Client: you, or the package</em>.
     </p>
 
     <h2>What you can do with it</h2>
