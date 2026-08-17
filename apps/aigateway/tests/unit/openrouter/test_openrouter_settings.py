@@ -10,7 +10,9 @@ import pytest
 from pydantic import ValidationError
 
 from aigateway.plugins.openrouter_provider.settings import (
+    GATEWAY_MODEL_PREFIX,
     OpenRouterPluginSettings,
+    is_online_variant,
     is_valid_upstream_model_id,
 )
 
@@ -31,6 +33,68 @@ _SEEDS = [
     "openrouter/moonshotai/kimi-k3",
     "openrouter/deepseek/deepseek-v4-pro",
     "openrouter/qwen/qwen3.6-plus",
+    # OME-816: frontier + budget lineup from the Aug-2026 catalogs (OpenRouter 50 / OpenAI 15 /
+    # Anthropic-on-OpenRouter). Each was present in the live openrouter.ai/api/v1/models catalog
+    # on 2026-08-13; re-check at release. `:variant` slugs (:batch/:free) are aigateway-only —
+    # url4.toml cannot route a colon (OME-819).
+    "openrouter/anthropic/claude-opus-5",
+    "openrouter/x-ai/grok-4.6",
+    "openrouter/openai/gpt-5.6-sol",
+    "openrouter/qwen/qwen3.8-max",
+    "openrouter/openai/gpt-5.6-terra",
+    "openrouter/x-ai/grok-4.5",
+    "openrouter/anthropic/claude-sonnet-5",
+    "openrouter/deepseek/deepseek-v4-pro-0813",
+    "openrouter/qwen/qwen3.8-2.4t-a95b",
+    "openrouter/nvidia/nemotron-3.5-lightning",
+    "openrouter/upstage/solar-pro4",
+    "openrouter/meta/muse-glimmer-30b",
+    "openrouter/meta/muse-spark-1.2",
+    "openrouter/sakana/sakana-namazu",
+    "openrouter/qwen/qwen3.7-flash",
+    "openrouter/deepseek/deepseek-v4-flash-0731",
+    "openrouter/tencent/hy3",
+    "openrouter/openai/gpt-5.6-luna",
+    "openrouter/z-ai/glm-5.2",
+    "openrouter/xiaomi/mimo-v2.5",
+    "openrouter/google/gemini-3.6-flash",
+    "openrouter/nvidia/nemotron-3-ultra-550b-a55b",
+    "openrouter/minimax/minimax-m3",
+    "openrouter/meituan/longcat-2.0",
+    "openrouter/thinkingmachines/inkling",
+    "openrouter/openai/gpt-5.6-sol-pro",
+    "openrouter/openai/gpt-5.6-luna-pro",
+    "openrouter/anthropic/claude-opus-5-fast",
+    "openrouter/openrouter/auto-beta",
+    "openrouter/openrouter/fusion",
+    "openrouter/sakana/fugu-ultra",
+    "openrouter/inclusionai/ling-3.0-flash",
+    "openrouter/nex-agi/nex-n2-mini",
+    "openrouter/liquid/lfm-2.5-2.6b:free",
+    "openrouter/thinkingmachines/inkling-small",
+    "openrouter/google/gemini-3.5-flash-lite",
+    "openrouter/mistralai/ministral-14b-2512",
+    "openrouter/google/gemini-3.5-flash",
+    "openrouter/mistralai/mistral-large-2512",
+    "openrouter/mistralai/mistral-medium-3-5",
+    "openrouter/meta/muse-spark-1.1",
+    "openrouter/aion-labs/aion-3.0",
+    "openrouter/aion-labs/aion-3.0-mini",
+    "openrouter/openai/gpt-5.6-sol:batch",
+    "openrouter/openai/gpt-5.6-terra-pro",
+    "openrouter/openai/gpt-5.2",
+    "openrouter/openai/gpt-5.2-pro",
+    "openrouter/openai/gpt-5",
+    "openrouter/openai/gpt-5-mini",
+    "openrouter/openai/gpt-4.1-mini",
+    "openrouter/openai/gpt-oss-120b",
+    "openrouter/anthropic/claude-opus-5:batch",
+    "openrouter/anthropic/claude-sonnet-5:batch",
+    "openrouter/anthropic/claude-fable-5:batch",
+    "openrouter/anthropic/claude-opus-4.6",
+    "openrouter/anthropic/claude-opus-4.5",
+    "openrouter/anthropic/claude-sonnet-4.6",
+    "openrouter/anthropic/claude-sonnet-4.5",
 ]
 
 
@@ -40,6 +104,22 @@ def test_enabled_defaults_false() -> None:
 
 def test_default_models_are_exactly_the_declared_seeds() -> None:
     assert OpenRouterPluginSettings().default_models == _SEEDS
+
+
+def test_every_declared_seed_is_gateway_shaped() -> None:
+    # INVARIANT: every seed is a well-formed gateway id `openrouter/<author>/<model>[:variant]`.
+    # The construction validator already rejects a malformed one; pin it independently so a bad
+    # paste is caught here too, not only inside a user's expression at dispatch.
+    for slug in _SEEDS:
+        assert slug.startswith(GATEWAY_MODEL_PREFIX), slug
+        assert is_valid_upstream_model_id(slug[len(GATEWAY_MODEL_PREFIX) :]), slug
+
+
+def test_no_declared_seed_is_an_online_variant() -> None:
+    # INVARIANT: web search is a provider-neutral Gateway parameter, and OpenRouter's `:online`
+    # suffix is a second route around it that `prepare_chat_body` refuses at dispatch — so a
+    # `:online` seed would resolve to nothing. None may be seeded.
+    assert [s for s in _SEEDS if is_online_variant(s)] == []
 
 
 def test_enabled_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
