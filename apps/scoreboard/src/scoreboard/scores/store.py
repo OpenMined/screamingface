@@ -52,7 +52,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         url4_expression=model.url4_expression,
         submitted_by=model.submitted_by,
         submitted_at=model.submitted_at,
-        accuracy=model.accuracy,
+        score=model.score,
         total_questions=model.total_questions,
         correct_questions=model.correct_questions,
         ran_with_providers=model.ran_with_providers,
@@ -91,7 +91,7 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,
         "submitted_by": submission.submitted_by,
-        "accuracy": submission.accuracy,
+        "score": submission.score,
         "total_questions": submission.total_questions,
         "correct_questions": submission.correct_questions,
         "ran_with_providers": submission.ran_with_providers,
@@ -116,11 +116,11 @@ def _content_hash(submission: ScoreSubmission) -> str:
     # also excluded — currently a no-op since ScoreSubmission.version is pinned to
     # Literal[1], but revisit this if a future schema version is ever accepted, since
     # two payloads differing only in version would otherwise dedupe together.
-    # accuracy is recomputed from correct_questions/total_questions rather than the
-    # client's raw reported value: the route accepts any reported accuracy within
-    # 0.01 of that ratio, so the same result (e.g. 2/3 correct) could otherwise be
-    # reported as 0.67 or 0.6666666667 and hash differently, defeating dedup for the
-    # exact near-duplicate case this hash exists to catch (found in PR review).
+    # OME-866: the submitted score is hashed EXACTLY as sent. The Engine benchmark is
+    # the sole scoring authority and the route no longer tolerates approximate values,
+    # so two payloads reporting different floats are genuinely different results.
+    # correct_questions is deliberately absent — it is an optional binary-era detail,
+    # not identity, and its presence or absence must not split dedup.
     # OME-775: the benchmark revision IS identity, unlike the rest of `metadata` it may arrive
     # in — a different dataset/protocol revision is a different thing measured, not incidental
     # provenance. It reads the RESOLVED value, not the wire position, so a client migrating
@@ -134,9 +134,8 @@ def _content_hash(submission: ScoreSubmission) -> str:
         "benchmark_revision": _resolve_benchmark_revision(submission),
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,
-        "accuracy": submission.correct_questions / submission.total_questions,
+        "score": submission.score,
         "total_questions": submission.total_questions,
-        "correct_questions": submission.correct_questions,
         "ran_with_providers": submission.ran_with_providers,
     }
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
@@ -234,7 +233,7 @@ def _build_leaderboard_query(
     #
     # WHY partitioning alone was not enough: the window below stops one revision displacing
     # another in the best-per-spec collapse, but the outer query still orders every surviving
-    # row into ONE accuracy ranking. Both are needed — the partition keeps each revision's best
+    # row into ONE score ranking. Both are needed — the partition keeps each revision's best
     # intact, the filter decides which revision the board is actually about.
     #
     # AIDEV-NOTE: a benchmark with NO registered revision filters nothing — the retained legacy
@@ -244,7 +243,7 @@ def _build_leaderboard_query(
     row_number = (
         RowNumber()
         .over(scores.spec_id, scores.benchmark_revision)
-        .orderby(scores.accuracy, order=Order.desc)
+        .orderby(scores.score, order=Order.desc)
         .orderby(scores.submitted_at, order=Order.desc)
         .as_("rn")
     )
@@ -253,7 +252,7 @@ def _build_leaderboard_query(
         .select(
             scores.spec_id,
             scores.benchmark_revision,
-            scores.accuracy,
+            scores.score,
             scores.total_questions,
             scores.ran_with_providers,
             scores.submitted_at,
@@ -274,7 +273,7 @@ def _build_leaderboard_query(
         .select(
             ranked.spec_id,
             ranked.benchmark_revision,
-            ranked.accuracy,
+            ranked.score,
             ranked.total_questions,
             ranked.ran_with_providers,
             ranked.submitted_at,
@@ -284,7 +283,7 @@ def _build_leaderboard_query(
             ranked.run_cost_usd,
         )
         .where(ranked.rn == 1)
-        .orderby(ranked.accuracy, order=Order.desc)
+        .orderby(ranked.score, order=Order.desc)
         .limit(top_n)
     )
 

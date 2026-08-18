@@ -147,9 +147,12 @@ client.leaderboards.submit(report.candidates.only)`
           <td>Identifies the candidate that produced the result.</td>
         </tr>
         <tr>
-          <td><code>accuracy</code></td>
+          <td><code>score</code></td>
           <td><code>float</code></td>
-          <td>The score it is ranked by.</td>
+          <td>
+            The benchmark-native score it is ranked by — exactly what the benchmark's grading
+            produced, fractional or negative included.
+          </td>
         </tr>
         <tr>
           <td><code>total_questions</code></td>
@@ -204,7 +207,7 @@ client.leaderboards.submit(report.candidates.only)`
           <td>What the published number is for.</td>
         </tr>
         <tr>
-          <td><code>accuracy</code></td>
+          <td><code>score</code></td>
           <td><code>float</code></td>
           <td>The reported score.</td>
         </tr>
@@ -258,14 +261,16 @@ client.leaderboards.submit(report.candidates.only)`
           <td>What was evaluated, and against which board.</td>
         </tr>
         <tr>
-          <td><code>accuracy</code></td>
+          <td><code>score</code></td>
           <td><code>float</code></td>
-          <td>The score.</td>
+          <td>The benchmark-native score, exactly as submitted.</td>
         </tr>
         <tr>
           <td><code>total_questions</code> · <code>correct_questions</code></td>
-          <td><code>int</code></td>
-          <td>How many cases ran, and how many were correct.</td>
+          <td><code>int</code> / <code>int&nbsp;|&nbsp;None</code></td>
+          <td>
+            How many cases ran, and — only for binary-graded benchmarks — how many were correct.
+          </td>
         </tr>
         <tr>
           <td><code>url4</code></td>

@@ -15,7 +15,7 @@ def _valid_payload() -> dict[str, object]:
         "benchmark_id": "hle",
         "spec_id": "spec-1",
         "url4_expression": "url4://benchmark/spec-1",
-        "accuracy": 0.75,
+        "score": 0.75,
         "total_questions": 4,
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
@@ -30,28 +30,14 @@ def test_score_submission_accepts_valid_payload() -> None:
     assert submission.ran_with_providers == ["openai"]
 
 
-def test_score_submission_rejects_accuracy_below_zero() -> None:
-    payload = _valid_payload()
-    payload["accuracy"] = -0.01
-
-    try:
-        ScoreSubmission.model_validate(payload)
-    except ValidationError as exc:
-        assert "accuracy must be between 0 and 1" in str(exc)
-    else:
-        raise AssertionError("expected validation error")
-
-
-def test_score_submission_rejects_accuracy_above_one() -> None:
-    payload = _valid_payload()
-    payload["accuracy"] = 1.01
-
-    try:
-        ScoreSubmission.model_validate(payload)
-    except ValidationError as exc:
-        assert "accuracy must be between 0 and 1" in str(exc)
-    else:
-        raise AssertionError("expected validation error")
+def test_score_submission_accepts_scores_outside_the_binary_range() -> None:
+    # INVARIANT (OME-866): there is no universal 0..1 range — DRACO is fractional and
+    # HealthBench worst-30 is negative. The pre-OME-866 versions of this test rejected
+    # both; the range check was deleted WITH the binary contract, not weakened.
+    for value in (-1.143, 1.01, 3.75):
+        payload = _valid_payload()
+        payload["score"] = value
+        assert ScoreSubmission.model_validate(payload).score == value
 
 
 def test_score_submission_rejects_non_positive_total_questions() -> None:
@@ -94,7 +80,7 @@ def _valid_baseline_payload() -> dict[str, object]:
     return {
         "benchmark_id": "demo-benchmark",
         "model_name": "GPT-5.2",
-        "accuracy": 0.62,
+        "score": 0.62,
         "source": "artificial_analysis",
     }
 
@@ -155,28 +141,14 @@ def test_baseline_import_row_rejects_empty_source() -> None:
         raise AssertionError("expected validation error")
 
 
-def test_baseline_import_row_rejects_accuracy_below_zero() -> None:
-    payload = _valid_baseline_payload()
-    payload["accuracy"] = -0.01
-
-    try:
-        BaselineImportRow.model_validate(payload)
-    except ValidationError as exc:
-        assert "accuracy must be between 0 and 1" in str(exc)
-    else:
-        raise AssertionError("expected validation error")
-
-
-def test_baseline_import_row_rejects_accuracy_above_one() -> None:
-    payload = _valid_baseline_payload()
-    payload["accuracy"] = 1.01
-
-    try:
-        BaselineImportRow.model_validate(payload)
-    except ValidationError as exc:
-        assert "accuracy must be between 0 and 1" in str(exc)
-    else:
-        raise AssertionError("expected validation error")
+def test_baseline_import_row_accepts_benchmark_native_scores() -> None:
+    # INVARIANT (OME-866): an imported baseline's score is benchmark-native — the same
+    # scale as the board it ranks on — so any finite number is importable. The 0..1
+    # LMArena assumption was deleted with the binary contract.
+    for value in (-1.143, 1.01, 3.75):
+        payload = _valid_baseline_payload()
+        payload["score"] = value
+        assert BaselineImportRow.model_validate(payload).score == value
 
 
 def test_baseline_import_row_rejects_unknown_fields() -> None:
@@ -193,7 +165,7 @@ def test_baseline_import_row_rejects_unknown_fields() -> None:
 
 def test_baseline_import_row_rejects_bool_accuracy() -> None:
     payload = _valid_baseline_payload()
-    payload["accuracy"] = True
+    payload["score"] = True
 
     with pytest.raises(ValidationError):
         BaselineImportRow.model_validate(payload)
@@ -201,7 +173,7 @@ def test_baseline_import_row_rejects_bool_accuracy() -> None:
 
 def test_baseline_import_row_rejects_numeric_string_accuracy() -> None:
     payload = _valid_baseline_payload()
-    payload["accuracy"] = "0.62"
+    payload["score"] = "0.62"
 
     with pytest.raises(ValidationError):
         BaselineImportRow.model_validate(payload)
@@ -209,7 +181,7 @@ def test_baseline_import_row_rejects_numeric_string_accuracy() -> None:
 
 def test_baseline_import_row_rejects_non_finite_accuracy() -> None:
     payload = _valid_baseline_payload()
-    payload["accuracy"] = float("nan")
+    payload["score"] = float("nan")
 
     with pytest.raises(ValidationError):
         BaselineImportRow.model_validate(payload)
@@ -217,11 +189,11 @@ def test_baseline_import_row_rejects_non_finite_accuracy() -> None:
 
 def test_baseline_import_row_still_accepts_plain_float_accuracy() -> None:
     payload = _valid_baseline_payload()
-    payload["accuracy"] = 0.71
+    payload["score"] = 0.71
 
     row = BaselineImportRow.model_validate(payload)
 
-    assert row.accuracy == 0.71
+    assert row.score == 0.71
 
 
 def test_baseline_import_row_rejects_deeply_nested_metadata() -> None:
@@ -314,7 +286,7 @@ def _valid_baseline_schema_payload() -> dict[str, object]:
         "id": uuid4(),
         "benchmark_id": "demo-benchmark",
         "model_name": "GPT-5.2",
-        "accuracy": 0.62,
+        "score": 0.62,
         "source": "artificial_analysis",
         "source_url": None,
         "imported_at": datetime(2026, 7, 10, tzinfo=UTC),
@@ -424,7 +396,7 @@ def test_score_schema_publishes_only_the_local_part(stored: str, published: str)
         url4_expression="x",
         submitted_by=stored,
         submitted_at=datetime(2026, 8, 14, 12, tzinfo=UTC),
-        accuracy=0.5,
+        score=0.5,
         total_questions=2,
         correct_questions=1,
         ran_with_providers=["openai"],
@@ -462,7 +434,7 @@ def test_a_null_submitter_stays_null() -> None:
         url4_expression="x",
         submitted_by=None,
         submitted_at=datetime(2026, 8, 14, 12, tzinfo=UTC),
-        accuracy=0.5,
+        score=0.5,
         total_questions=2,
         correct_questions=1,
         ran_with_providers=["openai"],

@@ -32,7 +32,7 @@ def test_root_portal_is_public(tmp_path: Path) -> None:
         response = client.get("/")
 
         assert response.status_code == 200
-        assert "Results you can rerun" in response.text
+        assert "Results you can reproduce" in response.text
 
 
 def test_portal_assets_and_pages_are_public(tmp_path: Path) -> None:

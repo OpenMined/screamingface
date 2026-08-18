@@ -404,7 +404,7 @@ benchmarks = sf.benchmarks.list()
 boards = sf.leaderboards.list()
 draco_board = sf.leaderboards.get("draco", top=50)
 
-# After evaluating an accuracy Benchmark whose Scoreboard accepts submissions:
+# After evaluating a Benchmark whose Scoreboard accepts submissions:
 submission = sf.leaderboards.submit(report.candidates.only)
 same_submission = sf.leaderboards.get_score(submission.id)
 editable_python = same_submission.url4.to_python()
@@ -420,8 +420,9 @@ typed parameter schemas, gateway policy, provider evidence, tools, transport, an
 `sf.leaderboards` uses the separate public Scoreboard: `list()` returns its registered benchmark
 summaries, while `get(benchmark_id, top=...)` returns one immutable `Leaderboard` containing ranked
 best-per-spec entries and imported single-Model baselines. `submit(candidate_result)` publishes an
-already-evaluated, binary accuracy result without asking the caller to repeat its Benchmark, URL4,
-models, counts, or run identity; `get_score(id)` retrieves the resulting immutable
+already-evaluated result — the Benchmark-native score exactly as the Engine graded it, fractional
+or negative included — without asking the caller to repeat its Benchmark, URL4,
+models, or run identity; `get_score(id)` retrieves the resulting immutable
 `LeaderboardScore`. Its `.url4` property is a string-compatible `Url4` value:
 `.to_python()` produces an editable fork, while passing the value to `sf.evaluate(...)` replays it
 through the configured Engine. A Scoreboard deployment may

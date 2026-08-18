@@ -12,7 +12,7 @@ sf.leaderboards.list()                      # benchmarks with a public board
 
 board = sf.leaderboards.get("draco", top=10)
 for entry in board.entries:
-    print(entry.rank, entry.accuracy, entry.verified_by_screamingface)
+    print(entry.rank, entry.score, entry.verified_by_screamingface)
 
 board.baselines                             # single-model numbers, for comparison`
 
@@ -55,9 +55,10 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
 
     <ul>
       <li>
-        <strong>Validation.</strong> The claimed accuracy has to match the submitted
-        <code>correct</code> over <code>total</code>, within a tolerance of <code>0.01</code>. A
-        number that does not reconcile with its own case counts is rejected.
+        <strong>Validation.</strong> The score is benchmark-native: the exact number the
+        benchmark's own grading produced, fractional or negative included. The board checks it is
+        a finite number and never recomputes, normalizes, or thresholds it — the benchmark is the
+        sole authority on its formula.
       </li>
       <li>
         <strong>Deduplication.</strong> Each submission is hashed over its recipe identity, meaning
@@ -72,7 +73,8 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
       </li>
       <li>
         <strong>Ranking.</strong> The board keeps the best result per spec, ties broken by recency,
-        and orders by accuracy. One recipe cannot crowd the board with near-identical attempts.
+        and orders by score, descending. One recipe cannot crowd the board with near-identical
+        attempts.
       </li>
     </ul>
 

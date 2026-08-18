@@ -8,6 +8,7 @@ from html import escape
 from typing import overload
 
 from screamingface._ui.leaderboard_style import LEADERBOARD_STYLE
+from screamingface._ui.report_view import _score_text
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
@@ -58,7 +59,7 @@ class LeaderboardCatalog(Sequence[LeaderboardInfo]):
 class _DisplayRow:
     name: str
     kind: str
-    accuracy: float
+    score: float
     questions: int | None
     # AIDEV-NOTE: UNUSED since OME-832. Its readers were the data-verified attribute
     # and the `verified` chip, both removed because verified_by_screamingface asserts
@@ -166,14 +167,14 @@ def _catalog_row(value: LeaderboardInfo) -> str:
 def _display_rows(board: Leaderboard) -> tuple[_DisplayRow, ...]:
     candidates = tuple(_candidate_row(value) for value in board.entries)
     baselines = tuple(_baseline_row(value) for value in board.baselines)
-    return tuple(sorted((*candidates, *baselines), key=lambda row: row.accuracy, reverse=True))
+    return tuple(sorted((*candidates, *baselines), key=lambda row: row.score, reverse=True))
 
 
 def _candidate_row(value: LeaderboardEntry) -> _DisplayRow:
     return _DisplayRow(
         name=value.spec_id,
         kind="candidate",
-        accuracy=value.accuracy,
+        score=value.score,
         questions=value.total_questions,
         verified=value.verified_by_screamingface,
         python_source=_fork_source(value.url4),
@@ -185,7 +186,7 @@ def _baseline_row(value: LeaderboardBaseline) -> _DisplayRow:
     return _DisplayRow(
         name=value.model_name,
         kind="single",
-        accuracy=value.accuracy,
+        score=value.score,
         questions=None,
         verified=None,
         python_source=None,
@@ -194,11 +195,20 @@ def _baseline_row(value: LeaderboardBaseline) -> _DisplayRow:
 
 
 def _board_rows(values: Sequence[_DisplayRow]) -> str:
-    maximum = max((value.accuracy for value in values), default=1.0) or 1.0
-    return "".join(_board_row(value, rank, maximum) for rank, value in enumerate(values, start=1))
+    # INVARIANT (OME-866): scores are benchmark-native, so the bar origin cannot be
+    # assumed to be 0 — HealthBench worst-30 is negative for every serious entry. The
+    # floor is min(0, lowest on screen): a classic 0..1 board keeps its absolute zero
+    # origin, a negative board shifts the origin down instead of emitting negative CSS
+    # widths. A degenerate span renders empty tracks rather than dividing.
+    maximum = max((value.score for value in values), default=0.0)
+    floor = min(0.0, min((value.score for value in values), default=0.0))
+    span = maximum - floor
+    return "".join(
+        _board_row(value, rank, floor, span) for rank, value in enumerate(values, start=1)
+    )
 
 
-def _board_row(value: _DisplayRow, rank: int, maximum: float) -> str:
+def _board_row(value: _DisplayRow, rank: int, floor: float, span: float) -> str:
     winner = rank == 1
     classes = "sf-lb__row" + (" sf-lb__row--winner" if winner else "")
     # OME-832: data-verified is no longer emitted. Its only reader was the removed
@@ -211,7 +221,7 @@ def _board_row(value: _DisplayRow, rank: int, maximum: float) -> str:
             if value.python_source is not None
             else " sf-lb__score-fill--accent"
         )
-    width = value.accuracy / maximum * 100
+    width = max(0.0, min(100.0, (value.score - floor) / span * 100)) if span > 0 else 0.0
     questions = "—" if value.questions is None else str(value.questions)
     icon = "😱" if value.python_source is not None else "●"
     return (
@@ -222,7 +232,7 @@ def _board_row(value: _DisplayRow, rank: int, maximum: float) -> str:
         f"<span class='sf-lb__entry-name'>{escape(value.name)}</span>{chip}</span>"
         f"<span class='sf-lb__kind' role='cell'>{value.kind}</span>"
         "<span class='sf-lb__score' role='cell'>"
-        f"<span class='sf-lb__score-number'>{value.accuracy * 100:.1f}</span>"
+        f"<span class='sf-lb__score-number'>{_score_text(value.score)}</span>"
         f"<span class='sf-lb__score-track'><span class='{fill_class}' "
         f"style='width:{width:.1f}%'></span></span></span>"
         f"<span class='sf-lb__questions' role='cell'>{questions}</span>"

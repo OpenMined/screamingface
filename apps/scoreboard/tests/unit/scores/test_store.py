@@ -17,16 +17,16 @@ pytestmark = pytest.mark.asyncio
 def _submission(
     *,
     spec_id: str = "spec-1",
-    accuracy: float = 0.75,
+    score: float = 0.75,
     providers: list[str] | None = None,
 ) -> ScoreSubmission:
-    correct_questions = int(accuracy * 100)
+    correct_questions = int(score * 100)
     return ScoreSubmission(
         benchmark_id="hle",
         spec_id=spec_id,
-        url4_expression=f"url4://benchmark/{spec_id}/{accuracy}",
+        url4_expression=f"url4://benchmark/{spec_id}/{score}",
         submitted_by="tester",
-        accuracy=accuracy,
+        score=score,
         total_questions=100,
         correct_questions=correct_questions,
         ran_with_providers=providers or ["openai"],
@@ -95,7 +95,7 @@ async def test_submit_inserts_and_returns_score(tortoise_db: None) -> None:
     assert created is True
     assert score.benchmark_id == "hle"
     assert score.spec_id == "spec-1"
-    assert score.accuracy == 0.75
+    assert score.score == 0.75
     assert score.total_questions == 100
     assert score.correct_questions == 75
     assert score.ran_with_providers == ["openai"]
@@ -112,18 +112,16 @@ async def test_submit_with_live_idempotency_key_returns_existing_score(
 ) -> None:
     store = await _store_with_benchmark()
 
-    first, first_created = await store.submit(
-        _submission(accuracy=0.5), idempotency_key="repeat-key"
-    )
+    first, first_created = await store.submit(_submission(score=0.5), idempotency_key="repeat-key")
     second, second_created = await store.submit(
-        _submission(accuracy=0.9), idempotency_key="repeat-key"
+        _submission(score=0.9), idempotency_key="repeat-key"
     )
 
     assert first_created is True
     assert second_created is False
     assert second.id == first.id
     assert second.submitted_at == first.submitted_at
-    assert second.accuracy == 0.5
+    assert second.score == 0.5
     assert await Score.all().count() == 1
 
 
@@ -131,18 +129,18 @@ async def test_submit_with_expired_idempotency_key_creates_new_score(
     tortoise_db: None,
 ) -> None:
     store = await _store_with_benchmark()
-    first, _ = await store.submit(_submission(accuracy=0.5), idempotency_key="expired-key")
+    first, _ = await store.submit(_submission(score=0.5), idempotency_key="expired-key")
     await IdempotencyKey.filter(key="expired-key").update(
         expires_at=datetime.now(UTC) - timedelta(seconds=1),
     )
 
     second, second_created = await store.submit(
-        _submission(accuracy=0.9), idempotency_key="expired-key"
+        _submission(score=0.9), idempotency_key="expired-key"
     )
 
     assert second_created is True
     assert second.id != first.id
-    assert second.accuracy == 0.9
+    assert second.score == 0.9
     assert await Score.all().count() == 2
 
 
@@ -166,15 +164,15 @@ async def test_leaderboard_returns_best_score_per_spec_in_rank_order(
     tortoise_db: None,
 ) -> None:
     store = await _store_with_benchmark()
-    await store.submit(_submission(spec_id="spec-a", accuracy=0.6, providers=["openai"]))
-    await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["anthropic"]))
-    await store.submit(_submission(spec_id="spec-b", accuracy=0.95, providers=["openai", "gemini"]))
-    await store.submit(_submission(spec_id="spec-c", accuracy=0.7, providers=["gemini"]))
+    await store.submit(_submission(spec_id="spec-a", score=0.6, providers=["openai"]))
+    await store.submit(_submission(spec_id="spec-a", score=0.9, providers=["anthropic"]))
+    await store.submit(_submission(spec_id="spec-b", score=0.95, providers=["openai", "gemini"]))
+    await store.submit(_submission(spec_id="spec-c", score=0.7, providers=["gemini"]))
 
     rows = await store.leaderboard("hle", top_n=2)
 
     assert [row.spec_id for row in rows] == ["spec-b", "spec-a"]
-    assert [row.accuracy for row in rows] == [0.95, 0.9]
+    assert [row.score for row in rows] == [0.95, 0.9]
     assert rows[0].ran_with_providers == ["openai", "gemini"]
     assert isinstance(rows[0].ran_with_providers, list)
 
@@ -183,8 +181,8 @@ async def test_leaderboard_uses_newer_submission_as_accuracy_tie_breaker(
     tortoise_db: None,
 ) -> None:
     store = await _store_with_benchmark()
-    older, _ = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["older"]))
-    newer, _ = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["newer"]))
+    older, _ = await store.submit(_submission(spec_id="spec-a", score=0.9, providers=["older"]))
+    newer, _ = await store.submit(_submission(spec_id="spec-a", score=0.9, providers=["newer"]))
     await Score.filter(id=older.id).update(
         submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
     )
@@ -200,8 +198,8 @@ async def test_leaderboard_uses_newer_submission_as_accuracy_tie_breaker(
 
 async def test_list_for_spec_returns_history_newest_first(tortoise_db: None) -> None:
     store = await _store_with_benchmark()
-    older, _ = await store.submit(_submission(spec_id="spec-history", accuracy=0.5))
-    newer, _ = await store.submit(_submission(spec_id="spec-history", accuracy=0.8))
+    older, _ = await store.submit(_submission(spec_id="spec-history", score=0.5))
+    newer, _ = await store.submit(_submission(spec_id="spec-history", score=0.8))
     await Score.filter(id=older.id).update(
         submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
     )
@@ -229,8 +227,8 @@ async def test_submit_identical_recipe_without_header_returns_existing_score(
 ) -> None:
     store = await _store_with_benchmark()
 
-    first, first_created = await store.submit(_submission(spec_id="spec-dup", accuracy=0.42))
-    second, second_created = await store.submit(_submission(spec_id="spec-dup", accuracy=0.42))
+    first, first_created = await store.submit(_submission(spec_id="spec-dup", score=0.42))
+    second, second_created = await store.submit(_submission(spec_id="spec-dup", score=0.42))
 
     assert first_created is True
     assert second_created is False
@@ -243,7 +241,7 @@ async def test_submit_identical_recipe_ignores_submitted_by_and_client_metadata(
     tortoise_db: None,
 ) -> None:
     store = await _store_with_benchmark()
-    first_submission = _submission(spec_id="spec-attrib", accuracy=0.6)
+    first_submission = _submission(spec_id="spec-attrib", score=0.6)
     second_submission = first_submission.model_copy(
         update={
             "submitted_by": "someone-else",
@@ -267,7 +265,7 @@ async def test_submit_identical_recipe_ignores_version(tortoise_db: None) -> Non
     # the exclusion even though the public schema can't yet submit version=2 for real
     # (OME-391 / C28).
     store = await _store_with_benchmark()
-    first_submission = _submission(spec_id="spec-version", accuracy=0.65)
+    first_submission = _submission(spec_id="spec-version", score=0.65)
     second_submission = first_submission.model_copy(update={"version": 2})
 
     first, _ = await store.submit(first_submission)
@@ -278,26 +276,31 @@ async def test_submit_identical_recipe_ignores_version(tortoise_db: None) -> Non
     assert await Score.all().count() == 1
 
 
-async def test_submit_identical_counts_dedupe_despite_different_accuracy_precision(
+async def test_submit_dedup_identity_is_the_exact_submitted_score(
     tortoise_db: None,
 ) -> None:
-    # The route accepts any reported accuracy within 0.01 of correct/total, so the
-    # same result (2 of 3 correct) can arrive as 0.6666666667 or 0.67 — both must
-    # still dedupe, since the hash is derived from the counts, not the raw float
-    # (found in PR review, OME-391 / C28).
+    # INVARIANT (OME-866): the Engine benchmark is the sole scoring authority, so the
+    # submitted score is hashed EXACTLY as sent — the route's ±0.01 tolerance is gone
+    # and with it the counts-derived hash (this test's pre-OME-866 version asserted
+    # 0.6666666667 and 0.67 deduped together). Two floats that differ are two results;
+    # the same float dedupes regardless of the optional binary-era counts around it.
     store = await _store_with_benchmark()
-    first_submission = _submission(spec_id="spec-precision", accuracy=0.75).model_copy(
-        update={"total_questions": 3, "correct_questions": 2, "accuracy": 0.6666666667}
+    exact = _submission(spec_id="spec-precision", score=0.75).model_copy(
+        update={"total_questions": 3, "correct_questions": 2, "score": 0.6666666667}
     )
-    second_submission = first_submission.model_copy(update={"accuracy": 0.67})
+    approximate = exact.model_copy(update={"score": 0.67})
+    resent_without_counts = exact.model_copy(update={"correct_questions": None})
 
-    first, first_created = await store.submit(first_submission)
-    second, second_created = await store.submit(second_submission)
+    first, first_created = await store.submit(exact)
+    second, second_created = await store.submit(approximate)
+    third, third_created = await store.submit(resent_without_counts)
 
     assert first_created is True
-    assert second_created is False
-    assert second.id == first.id
-    assert await Score.all().count() == 1
+    assert second_created is True
+    assert second.id != first.id
+    assert third_created is False
+    assert third.id == first.id
+    assert await Score.all().count() == 2
 
 
 async def test_submit_identical_recipe_dedupes_across_different_idempotency_keys(
@@ -309,11 +312,11 @@ async def test_submit_identical_recipe_dedupes_across_different_idempotency_keys
     store = await _store_with_benchmark()
 
     first, first_created = await store.submit(
-        _submission(spec_id="spec-multi-key", accuracy=0.55),
+        _submission(spec_id="spec-multi-key", score=0.55),
         idempotency_key="client-a-key",
     )
     second, second_created = await store.submit(
-        _submission(spec_id="spec-multi-key", accuracy=0.55),
+        _submission(spec_id="spec-multi-key", score=0.55),
         idempotency_key="client-b-key",
     )
 
@@ -335,8 +338,8 @@ async def test_submit_reused_key_after_content_hash_hit_stays_bound_to_original_
     # client-b-key request would then wrongly return recipe B instead of recipe A
     # (OME-391 / C28).
     store = await _store_with_benchmark()
-    recipe_a = _submission(spec_id="spec-bind-a", accuracy=0.55)
-    recipe_b = _submission(spec_id="spec-bind-b", accuracy=0.9)
+    recipe_a = _submission(spec_id="spec-bind-a", score=0.55)
+    recipe_b = _submission(spec_id="spec-bind-b", score=0.9)
 
     first, _ = await store.submit(recipe_a, idempotency_key="client-a-key")
     second, second_created = await store.submit(recipe_a, idempotency_key="client-b-key")
@@ -356,10 +359,10 @@ async def test_submit_same_recipe_different_provider_order_is_not_deduped(
     store = await _store_with_benchmark()
 
     first, _ = await store.submit(
-        _submission(spec_id="spec-order", accuracy=0.77, providers=["openai", "gemini"])
+        _submission(spec_id="spec-order", score=0.77, providers=["openai", "gemini"])
     )
     second, second_created = await store.submit(
-        _submission(spec_id="spec-order", accuracy=0.77, providers=["gemini", "openai"])
+        _submission(spec_id="spec-order", score=0.77, providers=["gemini", "openai"])
     )
 
     assert second_created is True
@@ -370,8 +373,8 @@ async def test_submit_same_recipe_different_provider_order_is_not_deduped(
 async def test_submit_different_accuracy_is_not_deduped(tortoise_db: None) -> None:
     store = await _store_with_benchmark()
 
-    first, _ = await store.submit(_submission(spec_id="spec-diff", accuracy=0.3))
-    second, second_created = await store.submit(_submission(spec_id="spec-diff", accuracy=0.31))
+    first, _ = await store.submit(_submission(spec_id="spec-diff", score=0.3))
+    second, second_created = await store.submit(_submission(spec_id="spec-diff", score=0.31))
 
     assert second_created is True
     assert second.id != first.id
@@ -391,7 +394,7 @@ async def test_postgres_concurrent_idempotency_submissions_share_winner(
     results = await asyncio.gather(
         *(
             store.submit(
-                _submission(accuracy=0.5 + (index / 100)),
+                _submission(score=0.5 + (index / 100)),
                 idempotency_key="race-key",
             )
             for index in range(10)
@@ -409,9 +412,9 @@ async def test_list_all_for_benchmark_returns_every_spec_ordered_by_submitted_at
     benchmark, chronologically — the frontier trend needs the full history, not
     just each spec's current best."""
     store = await _store_with_benchmark()
-    await store.submit(_submission(spec_id="spec-1", accuracy=0.5))
-    await store.submit(_submission(spec_id="spec-1", accuracy=0.9))
-    await store.submit(_submission(spec_id="spec-2", accuracy=0.3))
+    await store.submit(_submission(spec_id="spec-1", score=0.5))
+    await store.submit(_submission(spec_id="spec-1", score=0.9))
+    await store.submit(_submission(spec_id="spec-2", score=0.3))
 
     rows = await store.list_all_for_benchmark("hle")
 
@@ -436,7 +439,7 @@ async def test_postgres_concurrent_identical_recipe_submissions_share_winner(
 
     store = await _store_with_benchmark()
     results = await asyncio.gather(
-        *(store.submit(_submission(spec_id="spec-race", accuracy=0.66)) for _ in range(10)),
+        *(store.submit(_submission(spec_id="spec-race", score=0.66)) for _ in range(10)),
     )
 
     assert len({outcome.score.id for outcome in results}) == 1
@@ -460,7 +463,7 @@ def _revision_submission(
         spec_id=spec_id,
         url4_expression=f"url4://benchmark/{spec_id}",
         submitted_by="tester",
-        accuracy=0.75,
+        score=0.75,
         total_questions=100,
         correct_questions=75,
         ran_with_providers=["openai"],
@@ -636,7 +639,7 @@ async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None
             benchmark_id="hle",
             spec_id="spec-y",
             url4_expression="url4://benchmark/spec-y/low",
-            accuracy=0.60,
+            score=0.60,
             total_questions=100,
             correct_questions=60,
             ran_with_providers=["openai"],
@@ -648,7 +651,7 @@ async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None
             benchmark_id="hle",
             spec_id="spec-y",
             url4_expression="url4://benchmark/spec-y/high",
-            accuracy=0.90,
+            score=0.90,
             total_questions=100,
             correct_questions=90,
             ran_with_providers=["openai"],
@@ -659,7 +662,7 @@ async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None
     rows = await store.leaderboard("hle")
 
     assert len(rows) == 1
-    assert rows[0].accuracy == 0.90
+    assert rows[0].score == 0.90
 
 
 async def test_leaderboard_groups_null_revision_rows_exactly_as_before(
@@ -668,13 +671,13 @@ async def test_leaderboard_groups_null_revision_rows_exactly_as_before(
     # INVARIANT: backward compatibility. Every row predating OME-775 has a NULL revision, so
     # they must keep collapsing to best-per-spec rather than splintering into one row each.
     store = await _store_with_benchmark()
-    await store.submit(_submission(spec_id="spec-legacy", accuracy=0.60))
-    await store.submit(_submission(spec_id="spec-legacy", accuracy=0.85))
+    await store.submit(_submission(spec_id="spec-legacy", score=0.60))
+    await store.submit(_submission(spec_id="spec-legacy", score=0.85))
 
     rows = await store.leaderboard("hle")
 
     assert len(rows) == 1
-    assert rows[0].accuracy == 0.85
+    assert rows[0].score == 0.85
     assert rows[0].benchmark_revision is None
 
 
@@ -795,7 +798,7 @@ async def test_pre_existing_unverified_rows_are_not_backfilled(tortoise_db: None
         benchmark=benchmark,
         spec_id="legacy",
         url4_expression="x",
-        accuracy=0.5,
+        score=0.5,
         total_questions=2,
         correct_questions=1,
         ran_with_providers=["openai"],
@@ -822,7 +825,7 @@ async def test_mark_verified_flips_a_false_row_and_is_idempotent(
         benchmark=benchmark,
         spec_id="idem",
         url4_expression="x",
-        accuracy=0.5,
+        score=0.5,
         total_questions=2,
         correct_questions=1,
         ran_with_providers=["openai"],
