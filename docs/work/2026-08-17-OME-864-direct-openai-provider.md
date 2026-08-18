@@ -56,6 +56,19 @@ non-streaming, Chat Completions-only, globally cache-bypassed, and usage-account
   `openai/gpt-5.5` and `openai/gpt-5.6`), `openai/gpt-5-nano` for readiness, and offline
   implementation now with live verification deferred.
 
+## Post-commit review remediation
+
+- **Intent:** close the confirmed missing-live-test finding without guessing the unresolved live
+  behavior of the reasoning-model readiness probe.
+- **Planned changes:** add an owner-gated OpenAI live test that exercises the production API-key
+  validator with `openai/gpt-5-nano`; make no production classifier, OpenRouter, core-port, or client
+  lifecycle change without separate evidence and scope.
+- **Test plan:** prove the test artifact is absent, add the live-marked test, verify it skips without
+  explicit authorization/credentials, then run focused OpenAI tests and the full AIGateway gate.
+- **Acceptance:** the test is collected only as `live`, skips unless `AIGW_LIVE=1` and a local
+  `OPENAI_API_KEY` are both present, consumes no quota in normal gates, reports only sanitized
+  validation state, and will fail if the current one-token reasoning probe rejects a valid key.
+
 ## Outcome (fill at the end - required before COMMIT)
 
 - **Actual files:**
@@ -73,8 +86,8 @@ non-streaming, Chat Completions-only, globally cache-bypassed, and usage-account
 - **Commits:** this OME-864 implementation commit (`feat(aigateway): add direct OpenAI API-key
   provider`)
 - **Gates:** baseline full gate green; final focused regression set 90 passed; final full AIGateway
-  lint, format, Pyright, no-enterprise, and coverage test gates green; independent final review found
-  no remaining correctness or security findings
+  lint, format, Pyright, no-enterprise, and coverage test gates green; final source audit found no
+  remaining correctness or security findings
 - **Deviations:**
   - Live seed/readiness verification is deferred by owner choice and remains the release blocker.
   - The append-only check is intentionally skipped for the one existing Codex namespace test whose
@@ -86,3 +99,16 @@ non-streaming, Chat Completions-only, globally cache-bypassed, and usage-account
     conservative classifier.
   - Exact evidence is not available for expired, permission-denied, or rate-limited OpenAI tuples;
     those public states stay explicit but unpromoted, and candidate responses return `unavailable`.
+
+### Post-commit live-test outcome
+
+- **Actual files:**
+  - `apps/aigateway/tests/live/test_openai_live.py`
+  - `docs/work/2026-08-17-OME-864-direct-openai-provider.md`
+- **Commits:** this follow-up commit (`test(aigateway): add OpenAI live readiness smoke`).
+- **Checks:** missing-file RED confirmed; one live test collected; no-authorization and no-key paths
+  each skipped without a network call; focused OpenAI/Codex regression `71 passed, 1 deselected`;
+  isolated pre-existing auth timing failure passed on rerun; repeated full AIGateway gate green with
+  the documented append-only exception.
+- **Status:** the live-test scaffold is complete. Release remains blocked until an owner-authorized
+  real-key run executes it; no production readiness behavior was guessed or changed.
