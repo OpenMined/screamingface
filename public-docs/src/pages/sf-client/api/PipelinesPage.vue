@@ -16,7 +16,7 @@ const pipelineSig = `sf.Pipeline(
 )`
 
 const pipelineExample = `pipeline = sf.Pipeline(
-    ["openrouter/openai/gpt-5.5", "anthropic/claude-opus-4-8"],
+    ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"],
 )
 report = sf.evaluate(pipeline, benchmark="ifeval", limit=1)`
 </script>

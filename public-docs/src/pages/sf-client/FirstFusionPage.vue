@@ -16,7 +16,7 @@ sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
 sf.connect("anthropic", api_key=os.environ["ANTHROPIC_API_KEY"])`
 
 const build = `fusion = sf.Fusion(
-    ["openrouter/openai/gpt-5.5", "anthropic/claude-opus-4-8"],
+    ["openrouter/deepseek/deepseek-v4-pro", "anthropic/claude-opus-4-8"],
     synthesizer="anthropic/claude-opus-4-8",
 )`
 

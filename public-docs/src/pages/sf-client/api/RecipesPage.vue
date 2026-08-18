@@ -10,8 +10,8 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-const equality = `a = sf.Model("openrouter/openai/gpt-5.5")
-b = sf.Model("openrouter/openai/gpt-5.5")
+const equality = `a = sf.Model("openrouter/deepseek/deepseek-v4-pro")
+b = sf.Model("openrouter/deepseek/deepseek-v4-pro")
 
 a == b`
 const equalityOut = `True`
@@ -32,9 +32,9 @@ const selfCorrectiveSig = `sf.SelfCorrective(
 )`
 
 const correctiveExample = `loop = sf.CorrectiveLoop(
-    ["openrouter/openai/gpt-5.5", "anthropic/claude-opus-4-8"],
-    judge="anthropic/claude-opus-4-8",
-    max_rounds=2,
+    ["openrouter/deepseek/deepseek-v4-pro", "openrouter/qwen/qwen3.8-2.4t-a95b", "openrouter/z-ai/glm-5.2"],
+    judge="openrouter/moonshotai/kimi-k3",
+    max_rounds=3,
 )
 report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
 </script>
@@ -123,6 +123,41 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
       into one candidate expression on the client, so it runs on any benchmark that advertises a
       check.
     </p>
+
+    <p>
+      The two corrective recipes are the bottom row of a small grid: the same models, run with or
+      without a correction loop.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th>Solo</th>
+          <th>Panel</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>No loop</strong></td>
+          <td><code>Model</code></td>
+          <td><code>Fusion</code></td>
+        </tr>
+        <tr>
+          <td><strong>Corrective</strong></td>
+          <td><code>SelfCorrective</code></td>
+          <td><code>CorrectiveLoop</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <Note>
+      What a correction round costs depends on the benchmark's check surface. A deterministic
+      verifier such as <code>ifeval</code> checks every draft for free, so only the correction
+      rounds add model spend. A rubric-graded benchmark such as <code>healthbench-worst30</code> or
+      <code>draco</code> spends a judge call per draft on every round, first-round pass included,
+      and <code>max_rounds</code> caps that.
+    </Note>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
       <svg
