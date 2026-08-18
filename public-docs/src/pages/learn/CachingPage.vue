@@ -60,7 +60,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <h2>Where the compute comes from</h2>
 
-    <p>There are two ways to run. They differ in who supplies the compute and which cache you draw from.</p>
+    <p>
+      There are two ways to run. They differ in who supplies the compute and which cache you draw
+      from.
+    </p>
 
     <ul>
       <li>
@@ -93,7 +96,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#cc-arrow)">
+        <g
+          style="stroke: var(--text-2); stroke-width: 1.25; fill: none"
+          marker-end="url(#cc-arrow)"
+        >
           <path d="M326 54 C 220 68, 152 86, 141 104" />
           <path d="M354 54 C 460 68, 528 86, 539 104" />
           <path d="M140 162 V190" />
@@ -155,5 +161,66 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       The client code is identical either way; only the engine URL changes. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through both.
     </p>
+
+    <h2>Providers</h2>
+
+    <p>
+      Whichever engine you run, these are the providers it can reach. Caching is provider-agnostic:
+      every call is keyed by its exact request, so a hit is a hit no matter who would have served
+      it. How you connect each one varies (a pasted key, a local runtime, or a login through a CLI
+      tool); the
+      <RouterLink to="/sf-client/guides/connections">Connect a provider</RouterLink> guide has the
+      specifics.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th>Reached via</th>
+          <th>What it is</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>openrouter</code></td>
+          <td>API key</td>
+          <td>
+            A router over many hosted models (OpenAI, Anthropic, Google, DeepSeek, Qwen and more)
+            behind one key.
+          </td>
+        </tr>
+        <tr>
+          <td><code>anthropic</code></td>
+          <td>API key</td>
+          <td>Claude models, direct.</td>
+        </tr>
+        <tr>
+          <td><code>huggingface</code></td>
+          <td>API key</td>
+          <td>Hugging Face inference endpoints.</td>
+        </tr>
+        <tr>
+          <td><code>ollama</code></td>
+          <td>Local</td>
+          <td>Open-weight models on your own machine. No key and no per-call bill.</td>
+        </tr>
+        <tr>
+          <td><code>gemini-cli</code></td>
+          <td>CLI plugin</td>
+          <td>Google Gemini through the gemini CLI.</td>
+        </tr>
+        <tr>
+          <td><code>codex</code></td>
+          <td>CLI plugin</td>
+          <td>OpenAI models through the Codex CLI.</td>
+        </tr>
+        <tr>
+          <td><code>antigravity</code></td>
+          <td>CLI plugin</td>
+          <td>Gemini through the Antigravity CLI.</td>
+        </tr>
+      </tbody>
+    </table>
   </DocLayout>
 </template>
