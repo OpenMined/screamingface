@@ -56,8 +56,8 @@ const health = `screamingface status`
         ><code>packages/url4/…/dag</code></a
       >; the cloud service that wraps it, control plane, one-shot runner, and the streaming wire
       protocol, is
-      <a :href="`${GH_TREE}/apps/url4-cloud`" target="_blank" rel="noopener"
-        ><code>apps/url4-cloud</code></a
+      <a :href="`${GH_TREE}/apps/screamingface-engine`" target="_blank" rel="noopener"
+        ><code>apps/screamingface-engine</code></a
       >.
     </p>
 
@@ -127,8 +127,8 @@ const health = `screamingface status`
       that wants the whole system inside its own walls, or <strong>hosted</strong> for shared,
       subsidized capacity that we run. The cloud deployment (Kubernetes Jobs, a streaming event bus,
       a Helm chart) lives in
-      <a :href="`${GH_TREE}/apps/url4-cloud`" target="_blank" rel="noopener"
-        ><code>apps/url4-cloud</code></a
+      <a :href="`${GH_TREE}/apps/screamingface-engine`" target="_blank" rel="noopener"
+        ><code>apps/screamingface-engine</code></a
       >. A local run needs none of it.
     </p>
 
@@ -142,8 +142,8 @@ const health = `screamingface status`
 
     <ul>
       <li>
-        <a :href="`${GH_TREE}/apps/url4-cloud`" target="_blank" rel="noopener"
-          ><code>apps/url4-cloud</code></a
+        <a :href="`${GH_TREE}/apps/screamingface-engine`" target="_blank" rel="noopener"
+          ><code>apps/screamingface-engine</code></a
         >: the engine service (backend, runner, shared wire protocol).
       </li>
       <li>

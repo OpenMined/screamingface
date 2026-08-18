@@ -1,0 +1,24 @@
+screamingface-engine {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+The App (stateless REST + WebSocket control plane) is running as:
+  Deployment/{{ include "screamingface-engine.fullname" . }}
+  Service/{{ include "screamingface-engine.fullname" . }} (port {{ .Values.service.port }})
+
+RBAC (namespace-scoped): the App runs Runner Jobs via ServiceAccount
+"{{ include "screamingface-engine.serviceAccountName" . }}", bound to Role/{{ include "screamingface-engine.fullname" . }}
+(batch/jobs: create,get,list,watch,delete · pods: get,list · pods/log: get).
+
+{{- if .Values.ingress.enabled }}
+
+Reachable via Ingress:
+{{- range .Values.ingress.hosts }}
+  https://{{ .host }}
+{{- end }}
+{{- else }}
+
+Port-forward to reach the App locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "screamingface-engine.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+{{- end }}
+
+NATS bus: {{ .Values.config.natsUrl }}
+{{- if not .Values.nats.enabled }} (external — reusing an existing in-cluster NATS with JetStream){{- end }}

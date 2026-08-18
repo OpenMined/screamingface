@@ -50,7 +50,7 @@ def bundled_runner_config() -> Path:
     path = Path(str(resource)).resolve()
     if path.is_file():
         return path
-    checkout = Path(__file__).resolve().parents[5] / "apps" / "url4-cloud" / "url4.toml"
+    checkout = Path(__file__).resolve().parents[5] / "apps" / "screamingface-engine" / "url4.toml"
     if checkout.is_file():
         return checkout
     raise FileNotFoundError(f"bundled URL4 runner config not found: {path}")

@@ -40,7 +40,8 @@ _WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 _CANDIDATE_URL4 = "(@)!'hello'"
 
 ENGINE_RESULT_CAP_BYTES = 1_048_576
-"""`url4_cloud.runner.executor.Url4Executor.result_cap` — the largest body the Engine emits.
+"""`screamingface_engine.runner.executor.Url4Executor.result_cap` — the largest body the Engine
+emits.
 
 The Engine truncates a result body to exactly this, then wraps it in a CloudEvent envelope,
 so the frame on the wire is ALWAYS larger than the cap. A Client whose frame limit equals

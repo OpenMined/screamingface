@@ -18,7 +18,7 @@
 # rest of the repo to the daemon is pure transfer cost.
 apps/aigateway
 apps/scoreboard
-apps/url4-cloud
+apps/screamingface-engine
 packages
 docs
 .docs

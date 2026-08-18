@@ -16,7 +16,7 @@ const cloudDiagram = (dark: boolean) =>
 
 const components = [
   { name: 'url4: the protocol', path: 'packages/url4' },
-  { name: 'engine: the cloud service', path: 'apps/url4-cloud' },
+  { name: 'engine: the cloud service', path: 'apps/screamingface-engine' },
   { name: 'engine: the DAG executor', path: 'packages/url4/src/url4/dag' },
   { name: 'AI gateway', path: 'apps/aigateway' },
   { name: 'Client: the Python library', path: 'packages/screamingface' },

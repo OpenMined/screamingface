@@ -94,12 +94,12 @@ stack-up:
         echo "Scoreboard database migration failed"
         exit 1
     }
-    echo "syncing engine venv ({{engine_repo}}/apps/url4-cloud)…"
-    (cd {{engine_repo}}/apps/url4-cloud && uv sync) || {
-        echo "URL4 Cloud environment failed to sync under {{engine_repo}}/apps/url4-cloud"
+    echo "syncing engine venv ({{engine_repo}}/apps/screamingface-engine)…"
+    (cd {{engine_repo}}/apps/screamingface-engine && uv sync) || {
+        echo "URL4 Cloud environment failed to sync under {{engine_repo}}/apps/screamingface-engine"
         exit 1
     }
-    # WHY generated, not hardcoded: the Engine registry (url4_cloud.benchmarks.builtins)
+    # WHY generated, not hardcoded: the Engine registry (screamingface_engine.benchmarks.builtins)
     # owns benchmark identity — ids, display names, and the computed REVISION the board
     # partitions ranking on (OME-775). Seeding from the running checkout's registry means
     # the local Scoreboard always accepts exactly the benchmarks this Engine serves, at
@@ -107,8 +107,8 @@ stack-up:
     # changed. Local-dev convenience only: production registration stays an operator
     # action (SCOREBOARD_SEED_BENCHMARKS in the chart).
     seed_json=$(
-        cd {{engine_repo}}/apps/url4-cloud
-        .venv/bin/python -c 'import json; from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS; print(json.dumps([{"id": b.id, "display_name": b.title, "description": b.description, "revision": b.revision} for b in BUILTIN_BENCHMARKS]))'
+        cd {{engine_repo}}/apps/screamingface-engine
+        .venv/bin/python -c 'import json; from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS; print(json.dumps([{"id": b.id, "display_name": b.title, "description": b.description, "revision": b.revision} for b in BUILTIN_BENCHMARKS]))'
     )
     (
         cd {{repo}}/apps/scoreboard
@@ -143,7 +143,7 @@ stack-up:
     fi
     if [ "$start_engine" = 1 ]; then
         (
-            cd {{engine_repo}}/apps/url4-cloud
+            cd {{engine_repo}}/apps/screamingface-engine
             URL4_BENCHMARK_ASSETS={{assets}} \
                 URL4_CLOUD_AIGATEWAY_BASE_URL=http://127.0.0.1:9105 \
                 nohup .venv/bin/url4-cloud serve --local \
@@ -248,6 +248,6 @@ stack-logs:
 
 # One-time: download pinned benchmark assets into {{assets}}
 stack-prepare:
-    cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.draco.prepare --out {{assets}}/draco
-    cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.ifeval.prepare --out {{assets}}/ifeval
-    cd {{engine_repo}}/apps/url4-cloud && uv run --with datasets python -m url4_cloud.benchmarks.healthbench.prepare --out {{assets}}/healthbench
+    cd {{engine_repo}}/apps/screamingface-engine && uv run --with datasets python -m screamingface_engine.benchmarks.draco.prepare --out {{assets}}/draco
+    cd {{engine_repo}}/apps/screamingface-engine && uv run --with datasets python -m screamingface_engine.benchmarks.ifeval.prepare --out {{assets}}/ifeval
+    cd {{engine_repo}}/apps/screamingface-engine && uv run --with datasets python -m screamingface_engine.benchmarks.healthbench.prepare --out {{assets}}/healthbench

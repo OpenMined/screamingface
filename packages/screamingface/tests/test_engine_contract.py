@@ -569,7 +569,7 @@ def test_decoder_scalar_helpers_reject_invalid_wire_values() -> None:
 
 
 def _null_sequenced_log(body: str = "cache policy fixed by first attach") -> str:
-    """The verbatim wire shape of url4_cloud.notices.warn through url4's encoder.
+    """The verbatim wire shape of screamingface_engine.notices.warn through url4's encoder.
 
     The sequence keys are PRESENT and null rather than omitted, because ``encode`` does not
     pass ``exclude_none``. A hand-written fixture would assume otherwise.

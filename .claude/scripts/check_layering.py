@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LAYERING gate for apps/url4-cloud.
+"""LAYERING gate for apps/screamingface-engine.
 
 One image ships two modes, and the whole point of that shape is a rule about what may reach what:
 
@@ -28,7 +28,7 @@ likewise never gains the ability to evaluate an expression in-process.
 
 SCOPE NOTE: the wire contract lives inside the url4 engine distribution (`url4.streaming`), so
 importing it loads the engine as well. That much is unenforceable by construction; what is
-enforced is the split between the two halves of `url4_cloud`.
+enforced is the split between the two halves of `screamingface_engine`.
 
 Run:  python3 .claude/scripts/check_layering.py
 Exit: 0 clean · 1 a rule was violated · 2 structural error (the source tree is missing).
@@ -41,9 +41,9 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-SRC = ROOT / "apps/url4-cloud/src/url4_cloud"
+SRC = ROOT / "apps/screamingface-engine/src/screamingface_engine"
 
-# Submodules of `url4_cloud` that belong to each half. Anything not named in either — `job_env`,
+# Submodules of `screamingface_engine` that belong to each half. Anything not named in either — `job_env`,
 # `subjects`, `adapters.jetstream`, `testing` — is a shared leaf both halves may import.
 CONTROL_PLANE = {
     "app",
@@ -63,7 +63,7 @@ CONTROL_PLANE = {
 }
 RUN_MODE = {"runner"}
 
-# (subtree under url4_cloud/, forbidden url4_cloud submodules, why)
+# (subtree under screamingface_engine/, forbidden screamingface_engine submodules, why)
 RULES: list[tuple[str, set[str], str]] = [
     (
         "runner",
@@ -84,7 +84,7 @@ _EXEMPT = {
     # It imports each lazily, inside the branch that runs it, so neither mode pays for the other.
     "cli.py",
     # WHY: `local` FUSES both modes on purpose — one process that serves the control plane AND
-    # executes runs on it (`url4-cloud serve --local`). It is the single declared exception to the
+    # executes runs on it (`screamingface-engine serve --local`). It is the single declared exception to the
     # disjointness rule, and it is listed in CONTROL_PLANE above so that being exempt is a visible
     # decision rather than an accident of not being scanned. It too imports the run mode lazily,
     # inside `create_local_app`, so a deployed App never pays for the engine.
@@ -93,12 +93,12 @@ _EXEMPT = {
 
 
 def _package_of(path: pathlib.Path) -> list[str]:
-    """The dotted package a module lives in, as parts: `rest/routes.py` -> [url4_cloud, rest]."""
-    return ["url4_cloud", *path.relative_to(SRC).parent.parts]
+    """The dotted package a module lives in, as parts: `rest/routes.py` -> [screamingface_engine, rest]."""
+    return ["screamingface_engine", *path.relative_to(SRC).parent.parts]
 
 
-def imported_url4_cloud_submodules(path: pathlib.Path) -> set[str]:
-    """`url4_cloud.X` / `url4_cloud.X.Y` names imported by ``path``, as {"X", "X.Y"}.
+def imported_screamingface_engine_submodules(path: pathlib.Path) -> set[str]:
+    """`screamingface_engine.X` / `screamingface_engine.X.Y` names imported by ``path``, as {"X", "X.Y"}.
 
     Includes function-local imports, which are exactly how a boundary violation likes to hide,
     TYPE_CHECKING-only ones, which are erased at runtime but still describe the boundary, and
@@ -112,9 +112,9 @@ def imported_url4_cloud_submodules(path: pathlib.Path) -> set[str]:
     found: set[str] = set()
 
     def record(module: str | None) -> None:
-        if not module or not module.startswith("url4_cloud"):
+        if not module or not module.startswith("screamingface_engine"):
             return
-        parts = module.split(".")[1:]  # drop the "url4_cloud" root
+        parts = module.split(".")[1:]  # drop the "screamingface_engine" root
         if parts:
             found.add(parts[0])
             if len(parts) > 1:
@@ -127,16 +127,16 @@ def imported_url4_cloud_submodules(path: pathlib.Path) -> set[str]:
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
                 record(node.module)
-                # `from url4_cloud import job_env` — the submodule is the imported NAME, not the
-                # module path, so it would otherwise read as a bare `url4_cloud` import.
-                if node.module == "url4_cloud":
+                # `from screamingface_engine import job_env` — the submodule is the imported NAME, not the
+                # module path, so it would otherwise read as a bare `screamingface_engine` import.
+                if node.module == "screamingface_engine":
                     for alias in node.names:
-                        record(f"url4_cloud.{alias.name}")
+                        record(f"screamingface_engine.{alias.name}")
                 continue
             # Relative: level 1 is this module's own package, each extra level walks up one.
             package = _package_of(path)
             base = package[: len(package) - (node.level - 1)]
-            if not base or base[0] != "url4_cloud":
+            if not base or base[0] != "screamingface_engine":
                 continue
             if node.module:
                 record(".".join([*base, node.module]))
@@ -199,9 +199,11 @@ def check_layers() -> list[str]:
         for path in files_for(subtree):
             if path.name in _EXEMPT:
                 continue
-            for module in sorted(imported_url4_cloud_submodules(path) & forbidden):
+            for module in sorted(
+                imported_screamingface_engine_submodules(path) & forbidden
+            ):
                 offenders.append(
-                    f"  {path.relative_to(ROOT)}: imports url4_cloud.{module}\n      {why}"
+                    f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n      {why}"
                 )
     # A shared leaf is shared precisely BECAUSE it depends on neither half; one that reaches into
     # either stops being a leaf and silently couples every importer to that half.
@@ -213,9 +215,11 @@ def check_layers() -> list[str]:
     for path in shared_leaf_files():
         if path.name in _EXEMPT:
             continue
-        for module in sorted(imported_url4_cloud_submodules(path) & (CONTROL_PLANE | RUN_MODE)):
+        for module in sorted(
+            imported_screamingface_engine_submodules(path) & (CONTROL_PLANE | RUN_MODE)
+        ):
             offenders.append(
-                f"  {path.relative_to(ROOT)}: imports url4_cloud.{module}\n      {shared_why}"
+                f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n      {shared_why}"
             )
     return offenders
 
@@ -232,7 +236,9 @@ def main() -> int:
             "and subjects; otherwise it belongs in the half that runs it."
         )
         return 1
-    print("LAYERING OK: url4_cloud.runner and the control plane stay disjoint.")
+    print(
+        "LAYERING OK: screamingface_engine.runner and the control plane stay disjoint."
+    )
     return 0
 
 

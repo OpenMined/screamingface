@@ -1,0 +1,330 @@
+# MUST STAY 1 until the subscriber gate is shared. Raising this is NOT safe today.
+#
+# WHY: the 428 gate ("attach a WebSocket before starting the run") is answered from
+# `ws/registry.py`, an IN-PROCESS dict of live connections — not from NATS. So with two replicas
+# and no session affinity, a WebSocket accepted on pod A and a `GET /?q=` routed to pod B gives a
+# permanent 428: the run can never start, and whether it works is a coin flip per request. The
+# App is stateless in every other respect, which is exactly what makes this one easy to miss.
+#
+# To go above 1, do ONE of:
+#   - implement the NATS interest check spec §4 actually specifies (consumer count for the
+#     topic), which makes the gate genuinely stateless; or
+#   - pin a client to one replica for the whole run: `sessionAffinity: ClientIP` on the Service
+#     AND matching affinity on the ingress/Gateway, which is a workaround, not a fix — it breaks
+#     again the moment that replica restarts.
+#
+# AIDEV-NOTE: going above 1 for an availability target? Add a PodDisruptionBudget at the same
+# time, or a node drain can still evict every replica at once. It is deliberately NOT shipped
+# here — at replicaCount 1 a PDB is either a placebo (maxUnavailable:1 permits a full outage)
+# or a deadlock (minAvailable:1 blocks drains forever), and this chart has no stated SLO to
+# size one against.
+replicaCount: 1
+
+# The control-plane image. Runner Jobs use the matching benchmark image configured under
+# `runner.image`; private grading assets therefore never reach the client-facing process.
+# Build-time OCI labels are listed in README.md (org.opencontainers.image.*).
+image:
+  repository: ghcr.io/openmined/screamingface-engine
+  tag: ""            # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+# PINNED DELIBERATELY (OME-876). The chart was renamed from `url4-cloud` to
+# `screamingface-engine`; this keeps everything the chart's name FEEDS exactly where it was.
+#
+# `Chart.name` flows into `app.kubernetes.io/name` and, through `fullname`, into every object's
+# name. Three things depend on those not moving:
+#   1. `app.kubernetes.io/name` is part of the Deployment's `spec.selector`.
+#   2. apps/aigateway's NetworkPolicy admits this App's Pods BY that label. A mismatch is denied
+#      at the CNI and looks like a connect timeout with nothing in the gateway's logs.
+#   3. `fullname` is the `lookup` key in templates/secret.yaml that re-reads the already-issued
+#      JWT signing secret. If it moves, the lookup misses and every live capability token dies.
+#
+# So emptying this value is a BREAKING deployment change, not a cleanup: it renames 12 objects,
+# changes an immutable-ish selector, and needs a coordinated edit in another chart. OME-877 carries
+# that migration in three phases (widen aigateway's allowlist → pin the JWT secret and flip this →
+# narrow the allowlist). Until then, leave it.
+nameOverride: "url4-cloud"
+fullnameOverride: ""
+
+serviceAccount:
+  # The App's ServiceAccount — the RoleBinding subject that lets the stateless App schedule Jobs in
+  # its own namespace (spec §9). Must exist for the RBAC bootstrap; keep `create: true` in-cluster.
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC bootstrap (spec §9): namespace-scoped Role + RoleBinding so the App can manage Runner Jobs
+# ONLY in its own namespace. Verbs are exactly what `K8sJobRunner` calls: create/get/list/watch/
+# delete on batch/jobs, get/list on pods (+ pods/log) for status and logs.
+rbac:
+  create: true
+
+podAnnotations: {}
+podLabels: {}
+
+# Pod-level context. `seccompProfile` is not optional decoration: without it the pod is REJECTED
+# by any namespace labelled `pod-security.kubernetes.io/enforce: restricted`, so omitting it
+# quietly makes the chart undeployable into a properly locked-down namespace.
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+
+# App config → ConfigMap (env-prefixed URL4_CLOUD_*, consumed by screamingface_engine.config.Settings).
+config:
+  # Where the App reaches NATS. Empty + `nats.enabled` => built from `nats.fullnameOverride`;
+  # empty with the subchart off is a render-time failure (see the `screamingface-engine.natsUrl` helper).
+  # JetStream must be enabled on whichever NATS this names.
+  natsUrl: ""
+  # Stateless iat-capability window in seconds — start rejected when now-iat exceeds it (spec §4).
+  iatWindowS: 60
+  # Sync-hold cap (seconds); a run outliving it degrades to 202 async (spec §5).
+  syncMaxWaitS: 30
+  # Idle interval between WS heartbeat frames for liveness (spec §6).
+  wsHeartbeatS: 15
+  # k8s Job activeDeadlineSeconds ceiling = 16h (spec §3); the Runner Job's hard timeout.
+  jobDeadlineS: 57600
+  # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
+  # image's own default. Must be one of the models that url4.toml declares.
+  aigatewayModel: ""
+  # Where scheduled Runner Jobs reach aigateway. Empty = forward nothing, and the Runner falls
+  # back to loopback (127.0.0.1:9105) — which inside a Job Pod is that Pod itself, so any
+  # deployment doing real inference MUST set this to the aigateway Service URL.
+  aigatewayBaseUrl: ""
+  # NOTE: there is deliberately no `port` here. The App serves on a hardcoded 9108 (cli.py) and
+  # reads no port from its environment, so a value could only ever misconfigure the containerPort
+  # away from the port actually being listened on. Use `service.port` to change what the cluster
+  # dials; the container side is fixed.
+
+# Tavily web tools (spec 2026-07-23) — lets the aigateway connector declare web_search/web_fetch
+# and run its bounded tool-calling loop. Disabled => the Runner never sees TAVILY_API_KEY and the
+# connector stays deny-by-default (dec:W5), with a request body identical to the no-tools shape.
+#
+# INVARIANT: the App attaches the Secret to each Runner Job by reference (envFrom.secretRef), never the
+# literal key — a Job spec is not a secret (readable with `get jobs`, echoed by `kubectl describe`
+# and the audit log). The App therefore never reads this value and needs NO extra RBAC, and
+# rotating the Secret takes effect on the next Job with no App restart.
+tavily:
+  enabled: false
+  # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
+  # / Sealed Secrets flow). Empty + enabled => the chart creates one from `apiKey` below.
+  # NOTE: the credential must be keyed `TAVILY_API_KEY` in the Secret — each Runner Job attaches
+  # it with `envFrom.secretRef`, which injects keys under their own names and cannot rename.
+  existingSecret: ""
+  # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
+  # pass it with `--set-file tavily.apiKey=<path>` or `--set`, or use `existingSecret`.
+  apiKey: ""
+
+# JWT topic-capability signing secret (spec §4). HS256; never logged. When `create: true` the chart
+# generates a random 64-char secret (reused across upgrades via lookup), else supply `existingSecret`.
+auth:
+  create: true
+  existingSecret: ""       # when set and create=false, read the JWT secret from this Secret
+  jwtSecret: ""            # explicit override; empty => generated (persisted across upgrades)
+  jwtSecretKey: jwt-secret
+
+service:
+  type: ClusterIP
+  port: 9108
+
+# Gateway API edge — the front door for CLOUD deployments, and mutually exclusive with `ingress`
+# below (the chart fails if both are on). See templates/httproute.yaml for the timeout rationale.
+#
+# WHY the cloud shape prefers this over `ingress`: the mesh gateway in front of this route is what
+# establishes caller identity. Cloudflare Access authenticates the caller at the edge, the gateway
+# re-verifies that assertion and injects `X-User-Email`, and the App forwards it to each run, which
+# presents it to aigateway (https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/).
+# Reached through a plain Ingress instead, that header never exists and every run is unattributed.
+#
+# WHY it is nevertheless `false` HERE: a Gateway API edge needs a `parentRef.name`, and there is no
+# sane default for it — an HTTPRoute with no parentRef attaches to no Gateway and silently serves
+# nothing, which is exactly what `values.schema.json` refuses. Shipping `enabled: true` with an
+# empty name makes the chart's own defaults violate its schema, so `helm lint` and every bare
+# `helm template` fail. The cloud default therefore lives in `values-cloud.yaml`, which names a real
+# Gateway; this file stays installable on its own, with no edge rather than a broken one.
+#
+#   helm install screamingface-engine . -f values-cloud.yaml --set gateway.parentRef.name=<your-gateway>
+#
+# PREREQUISITES the chart does NOT install: Gateway API CRDs, a GatewayClass, a controller, and a
+# Gateway object with a listener for `hostnames` below. TLS attaches to that listener.
+#
+# NOTE: nothing about identity is configured here. The four headers are per-REQUEST and travel as
+# per-run Job env the App writes itself (`screamingface_engine/job_env.py`), so there is no chart value for
+# them — the only thing the chart decides is that requests arrive through a gateway that injects them.
+gateway:
+  enabled: false
+  annotations: {}
+  parentRef:
+    # The Gateway this route attaches to. REQUIRED when enabled — there is no sane default, which
+    # is why `enabled` is false above rather than this carrying a fabricated name.
+    name: ""
+    namespace: ""      # empty => same namespace as the release
+    sectionName: ""    # empty => attach to every listener on that Gateway
+  hostnames:
+    - url4.screamingface.ai
+  # Empty => derived from `config.jobDeadlineS`, so the edge can never cut a stream before the
+  # Job behind it has ended. Override only to tighten. Values are Gateway API durations ("30s").
+  timeouts:
+    request: ""
+    backendRequest: ""
+
+  # The identity-injecting half of the edge — an Envoy Gateway `SecurityPolicy` that re-verifies
+  # Cloudflare Access's assertion and turns the verified `email` claim into `X-User-Email`.
+  #
+  # WHY THE CHART OWNS THIS. It reads like cluster infrastructure, and the Gateway/GatewayClass/
+  # controller genuinely are. This object is not: it targets the HTTPRoute rendered right here by
+  # name, and its only per-environment inputs are two NON-SECRET strings. Left to hand-assembly it
+  # is the one piece whose absence FAILS OPEN — every other prerequisite announces itself (no
+  # GatewayClass, no address; no parentRef, no route), but a Gateway with no JWT filter installs
+  # cleanly, answers requests, and lets ANY caller set `X-User-Email` and become ANY principal.
+  # aigateway cannot tell the difference: `cloudflare_headers` mode trusts that header by design.
+  #
+  # PREREQUISITE: Envoy Gateway (the `SecurityPolicy` CRD is its extension, not core Gateway API).
+  # On another implementation leave this off and configure the equivalent JWT filter yourself —
+  # but do configure one, or do not run aigateway in `cloudflare_headers` mode.
+  cloudflareAccess:
+    enabled: false
+    # Your Cloudflare Access team domain, e.g. `acme.cloudflareaccess.com`. The issuer and the
+    # JWKS URL are both derived from it (`https://<teamDomain>` and
+    # `https://<teamDomain>/cdn-cgi/access/certs`) — Cloudflare fixes those paths, so accepting
+    # them separately would only create three ways to spell one team.
+    teamDomain: ""
+    # The Access application's AUD tag. REQUIRED and not merely advisory: without an audience
+    # check, ANY valid token from ANY application in the same Cloudflare team is accepted here.
+    audience: ""
+    # NOTE: the header name is deliberately NOT configurable. `X-User-Email` is the contract with
+    # aigateway (`core/auth/cloudflare_identity.py`), which reads that one name and no other, so a
+    # value here could only ever produce a mismatch that fails as a 401 at request time.
+
+ingress:
+  # DEPRECATED and no longer the default. REST + WebSocket share one HTTP route.
+  #
+  # INVARIANT: whichever controller serves this MUST have its response/idle timeouts raised
+  # above `config.jobDeadlineS`. Ingress cannot express that portably (it is a per-controller
+  # annotation, or static entrypoint config), which is precisely why `gateway` exists — if you
+  # stay on Ingress, that half of the edge contract is YOUR responsibility, not the chart's.
+  #
+  # AND the larger cost: an Ingress is not the mesh gateway, so no identity headers are injected.
+  # Runs served this way reach aigateway with no caller identity, which a gateway configured for
+  # header identity rejects outright. Staying on Ingress means also running aigateway in `jwt` mode.
+  #
+  # An existing deployment upgrading from a version where this was the default must either set the
+  # Gateway prerequisites and keep the new default, or set `ingress.enabled=true` +
+  # `gateway.enabled=false` here to pin the old edge.
+  enabled: false
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: url4.screamingface.ai
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: screamingface-engine-tls-staging
+      hosts:
+        - url4.screamingface.ai
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    # Memory only. A CPU limit would CFS-throttle the event loop in latency spikes even on an
+    # idle node; the request already gives the scheduler what it needs.
+    memory: 512Mi
+
+# Graceful shutdown, sized against the App's own behavior (see the Deployment's WHY): preStop
+# covers endpoint propagation, and the grace period must exceed preStop + the worst-case
+# `config.syncMaxWaitS` hold (30s) so a rollout never SIGKILLs mid-request.
+preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 45
+
+# The App implements /healthz (screamingface_engine/app.py); probes target it (k8s probe convention, §9).
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+# Runner Job template (spec §9). Rendered as a documented ConfigMap, NOT a live Job: the App builds
+# the real per-request Job in code (K8sJobRunner._manifest) — this is the operator reference so the
+# scheduled shape (run-once, 16 h deadline, labels the RBAC must cover) is visible and reviewable.
+runner:
+  # Which JobRunner substrate the App schedules on (screamingface_engine.config.RunnerBackend). `k8s` is the
+  # point of this chart; `none` degrades the App to a token-minting NATS bridge that cannot run.
+  backend: k8s
+  # Runner Jobs need benchmark datasets and private grading assets that the control plane must
+  # not carry. Empty values derive `<image.repository>-benchmark` with the control plane's
+  # resolved tag, keeping the two artifacts paired across mirrors and upgrades.
+  image:
+    repository: ""
+    tag: ""
+  #
+  # NOTE: there is deliberately no `command` here either. The Job's command is the mode switch
+  # `["screamingface-engine", "run"]`, pinned in code beside the Job spec that uses it
+  # (`adapters/k8s.py`). A value here rendered into nothing and was silently ignored, which is
+  # worse than not offering it. The entrypoint belongs to the image.
+  # The Runner Job's own requests/limits, forwarded into every scheduled Job. This is the
+  # workload that actually burns CPU/memory (it drives the url4 DAG engine and buffers model
+  # responses) — with nothing set it schedules BestEffort: placed blind, evicted first, and
+  # free to OOM the node it shares. Memory limit always; no CPU limit, so a run can burst into
+  # idle CPU instead of being CFS-throttled mid-inference.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  # Optional EXTENSION of how long finished Jobs are retained (seconds). Unset => the App derives
+  # `iatWindowS` + a 60s clock-skew margin (so 120s at the defaults).
+  #
+  # INVARIANT: the Job's deterministic name IS the single-use replay guard, so this may only ever
+  # be RAISED (e.g. to keep failed runs around for post-mortem); below `iatWindowS` the Job can be
+  # reclaimed while its token is still within `exp`, and is refused at startup.
+  #
+  # WHY it does NOT include jobDeadlineS: ttlSecondsAfterFinished counts from COMPLETION, and the
+  # Job already exists for the whole run — the guard only has to outlive the token, not the run.
+  # Including it retained ~960x more Job/Pod objects than needed (~14 KB of etcd per request), which
+  # is what actually caps this design's throughput.
+  jobTtlSeconds: ""
+
+# Optional in-cluster NATS (JetStream) subchart — default-disabled (see Chart.yaml). Enable only
+# after `helm dependency build`; otherwise reuse an existing NATS via `config.natsUrl`.
+nats:
+  enabled: false
+  # Passed through to the nats-io/k8s subchart when enabled. JetStream is required by the bus.
+  config:
+    jetstream:
+      enabled: true
+  # WHY explicitly off: the subchart defaults `natsBox.enabled: true`, which adds a Deployment
+  # running `sleep infinity` with the `nats` CLI on board. Nothing in this stack talks to it —
+  # it is an interactive debugging shell with network access to the bus, so it is idle attack
+  # surface in every environment that is not someone's laptop. Turn it on deliberately and
+  # temporarily (`--set nats.natsBox.enabled=true`) when you need `nats stream report`, rather
+  # than carrying it by default.
+  natsBox:
+    enabled: false
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

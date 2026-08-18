@@ -37,7 +37,7 @@ def require_runtime_extra() -> None:
     try:
         import aigateway  # noqa: F401
         import scoreboard  # noqa: F401
-        import url4_cloud  # noqa: F401
+        import screamingface_engine  # noqa: F401
         import uvicorn  # pyright: ignore[reportMissingImports]  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
@@ -99,9 +99,9 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object]:
     from aigateway.config import Settings as GatewaySettings
     from aigateway.main import create_app as create_gateway_app
     from pydantic import SecretStr  # pyright: ignore[reportMissingImports]
-    from url4_cloud import job_env
-    from url4_cloud.config import Settings as EngineSettings
-    from url4_cloud.local import create_local_app
+    from screamingface_engine import job_env
+    from screamingface_engine.config import Settings as EngineSettings
+    from screamingface_engine.local import create_local_app
 
     gateway = create_gateway_app(
         GatewaySettings(
@@ -133,7 +133,7 @@ def run_scoreboard(config: RuntimeConfig) -> None:
     from scoreboard.config import Settings
     from scoreboard.main import create_app
     from scoreboard.seed import _run
-    from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
+    from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 
     # The Engine owns benchmark identity and revision. Deriving the local Scoreboard catalogue
     # from that same registry prevents retired aliases or stale revisions from making a completed

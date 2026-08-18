@@ -18,4 +18,4 @@ __pycache__
 **/.codegraph
 # ...but a package's declared `readme` is build metadata — hatchling fails without it.
 !packages/url4/README.md
-!apps/url4-cloud/README.md
+!apps/screamingface-engine/README.md

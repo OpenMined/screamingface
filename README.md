@@ -91,7 +91,7 @@ Same client code either way; only the engine URL changes. The
 ```
 apps/
   aigateway/      AI gateway: holds provider keys (encrypted), one endpoint to every provider
-  url4-cloud/     the Engine: turns a url4 expression into a graded result
+  screamingface-engine/     the Engine: turns a url4 expression into a graded result
   scoreboard/     the public Leaderboard service
 packages/
   screamingface/  the Client: `pip install screamingface` (Python SDK)

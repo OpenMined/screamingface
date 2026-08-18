@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from screamingface._evaluation.candidate import _CandidateCompiler, _ResolvedRecipe
     from screamingface.recipe import Recipe
 
-# --- Transport contract (mirrors url4_cloud.benchmarks.ensemble.policy) -----------
+# --- Transport contract (mirrors screamingface_engine.benchmarks.ensemble.policy) -----------
 
 CORRECTIVE_API_VERSION = "v1"
 _CORRECTIVE_PREFIX = f"/ensemble/corrective/{CORRECTIVE_API_VERSION}"
