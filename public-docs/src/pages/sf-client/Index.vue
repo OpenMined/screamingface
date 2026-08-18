@@ -148,9 +148,9 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         providers, but the cache starts empty and you pay for the compute.
       </li>
       <li>
-        <strong>A hosted engine</strong> runs the same software as a service, which adds the shared
-        community cache and subsidized compute for selected cohorts. In exchange, your prompts and
-        your stored credentials are handled by an engine we operate.
+        <strong>A hosted engine</strong> runs the same software as a service and adds the shared
+        community cache, on compute we provide once you log in. It does not take your own provider
+        keys; bring-your-own-key is the local path, and your prompts run on an engine we operate.
       </li>
     </ul>
 
