@@ -42,7 +42,7 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
         "benchmark_id": "hle",
         "spec_id": "spec-1",
         "url4_expression": "url4://benchmark/spec-1",
-        "accuracy": 0.75,
+        "score": 0.75,
         "total_questions": 4,
         "correct_questions": 3,
         "ran_with_providers": ["openai"],

@@ -156,7 +156,7 @@ Submit a smoke score with an idempotency key. If `config.authMode=cloudflare_hea
 curl -fsS -X POST http://scoreboard.40.76.107.241.nip.io/v1/scores \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: score-007-smoke-1" \
-  -d '{"version":1,"benchmark_id":"hle","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","accuracy":0.5,"total_questions":2,"correct_questions":1,"ran_with_providers":["smoke"],"client_name":"curl","client_version":"0.1.0","client_platform":"k3s"}'
+  -d '{"version":1,"benchmark_id":"hle","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","score":0.5,"total_questions":2,"ran_with_providers":["smoke"],"client_name":"curl","client_version":"0.1.0","client_platform":"k3s"}'
 
 curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/hle
 ```

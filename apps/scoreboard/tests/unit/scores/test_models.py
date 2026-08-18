@@ -33,7 +33,7 @@ def test_score_model_table_names_and_indexes() -> None:
     assert Benchmark._meta.db_table == "benchmarks"
     assert Score._meta.db_table == "scores"
     assert IdempotencyKey._meta.db_table == "idempotency_keys"
-    assert ("benchmark_id", "accuracy") in Score._meta.indexes
+    assert ("benchmark_id", "score") in Score._meta.indexes
     assert ("benchmark_id", "spec_id", "submitted_at") in Score._meta.indexes
 
 

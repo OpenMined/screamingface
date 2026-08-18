@@ -34,7 +34,7 @@ def _sf_payload(**overrides: Any) -> dict[str, Any]:
         "benchmark_id": "hle",
         "spec_id": "hle-ensemble-three",
         "url4_expression": "url4://ensemble(claude,codex,gemini)/hle",
-        "accuracy": 0.81,
+        "score": 0.81,
         "total_questions": 1000,
         "correct_questions": 810,
         "ran_with_providers": ["claude", "codex", "gemini"],
@@ -79,7 +79,7 @@ async def test_sf_payload_round_trips_201(sf_client: AsyncClient) -> None:
     assert body["id"]
     assert body["benchmark_id"] == "hle"
     assert body["spec_id"] == "hle-ensemble-three"
-    assert body["accuracy"] == 0.81
+    assert body["score"] == 0.81
     assert body["total_questions"] == 1000
     assert body["correct_questions"] == 810
     assert body["ran_with_providers"] == ["claude", "codex", "gemini"]

@@ -41,7 +41,7 @@ class RankedLeaderboardEntry(BaseModel):
     # WHY: the board ranks best-per-spec PER REVISION (OME-775), so one spec can legitimately
     # appear twice. Without this field a client cannot tell why the two are not competing.
     benchmark_revision: str | None
-    accuracy: float
+    score: float
     total_questions: int
     ran_with_providers: list[str]
     submitted_at: datetime
@@ -78,9 +78,9 @@ class HistorySubmission(BaseModel):
     # WHY: a spec's history can span benchmark revisions, and two entries measured against
     # different revisions are not comparable to each other (OME-775).
     benchmark_revision: str | None
-    accuracy: float
+    score: float
     total_questions: int
-    correct_questions: int
+    correct_questions: int | None
     submitted_at: datetime
     submitted_by: SubmittedBy
     verified_by_screamingface: bool
@@ -126,7 +126,7 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
     return HistorySubmission(
         id=score.id,
         benchmark_revision=score.benchmark_revision,
-        accuracy=score.accuracy,
+        score=score.score,
         total_questions=score.total_questions,
         correct_questions=score.correct_questions,
         submitted_at=score.submitted_at,
@@ -212,7 +212,7 @@ async def get_spec_history(
     tags=["leaderboard"],
 )
 async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
-    """How much of `benchmark_id`'s accuracy frontier is held by open-reproducible
+    """How much of `benchmark_id`'s score frontier is held by open-reproducible
     stacks vs. proprietary ones (OME-323) — the current split plus the trend over
     time. Unknown benchmarks return 404. Deliberately benchmark-wide across every
     spec, not scoped per-spec like the ranked leaderboard above (spec §6).

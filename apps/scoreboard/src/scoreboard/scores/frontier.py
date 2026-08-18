@@ -29,17 +29,17 @@ def _compute_trend(scores: list[ScoreSchema]) -> tuple[FrontierPoint | None, lis
     """Walks Score rows ONLY, ordered by `submitted_at`. A Baseline's `imported_at`
     isn't a trustworthy real-world timestamp, so a Baseline never enters this walk
     at all — not merely "excluded from the printed list". The holder advances only
-    on a strict accuracy improvement — an exact tie leaves the existing holder in
+    on a strict score improvement — an exact tie leaves the existing holder in
     place (spec §6's tie-breaking resolution).
     """
     trend: list[FrontierPoint] = []
     current: FrontierPoint | None = None
     for score in sorted(scores, key=lambda s: s.submitted_at):
-        if current is not None and score.accuracy <= current.accuracy:
+        if current is not None and score.score <= current.score:
             continue
         current = FrontierPoint(
             at=score.submitted_at,
-            accuracy=score.accuracy,
+            score=score.score,
             openness=classify_score(score),
             holder="score",
             label=score.spec_id,
