@@ -99,6 +99,7 @@ class LeaderboardScore:
     client_platform: str | None
     verified_by_screamingface: bool
     metadata: Mapping[str, object] | None
+    scoreboard_url: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -115,7 +116,14 @@ class LeaderboardScore:
             "url4",
             Url4(_text(self.url4, "Leaderboard score url4")),
         )
-        for name in ("submitted_by", "client_name", "client_version", "client_platform"):
+        optional_fields = (
+            "submitted_by",
+            "client_name",
+            "client_version",
+            "client_platform",
+            "scoreboard_url",
+        )
+        for name in optional_fields:
             object.__setattr__(
                 self,
                 name,
@@ -140,6 +148,22 @@ class LeaderboardScore:
                 "metadata",
                 freeze_mapping(self.metadata, "Leaderboard score metadata"),
             )
+
+    def __repr__(self) -> str:
+        # WHY custom: the dataclass auto-repr printed the ENTIRE compiled url4
+        # expression (thousands of characters) the moment submit() returned into a
+        # notebook cell. The repr is a glanceable summary — the expression stays a
+        # field away on .url4, same trade Leaderboard.__repr__ already makes.
+        return (
+            f"LeaderboardScore({self.benchmark_id!r}, spec_id={self.spec_id!r}, "
+            f"score={self.score}, submitted_at={self.submitted_at.isoformat()}, "
+            f"id={str(self.id)!r})"
+        )
+
+    def _repr_html_(self) -> str:
+        from screamingface._ui.score_view import leaderboard_score_html
+
+        return leaderboard_score_html(self)
 
 
 @dataclass(frozen=True, slots=True)

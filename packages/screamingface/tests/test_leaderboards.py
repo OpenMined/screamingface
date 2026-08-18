@@ -288,6 +288,7 @@ def test_client_submits_a_candidate_result_without_repeating_report_fields() -> 
             "candidate_kind": "fusion",
             "run_id": "run-fusion-alpha",
         },
+        scoreboard_url=SCOREBOARD_URL,
     )
     assert seen[0].method == "POST"
     assert seen[0].url.path == "/v1/scores"
@@ -1049,3 +1050,54 @@ def test_leaderboard_widget_renders_negative_scores_without_percentages() -> Non
     assert "width:100.0%" in html, "the best (least negative) row fills the track"
     assert "width:0.0%" in html, "the floor row renders empty, never negative"
     assert "-40.0" not in html and "-114.3" not in html, "no ×100 percentage rendering"
+
+
+def test_leaderboard_score_repr_is_a_summary_not_a_url4_dump() -> None:
+    """WHY: submit() returns a LeaderboardScore straight into a notebook cell, and the
+    dataclass auto-repr printed the ENTIRE compiled url4 expression — a multi-thousand
+    character wall. The repr is a summary; the expression stays reachable via .url4."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_native_score_response(-1.1429))
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(
+            _candidate_result(score=-1.1429, case_scores=(-1.4, -0.886))
+        )
+
+    text = repr(submitted)
+    assert len(text) < 250, f"repr must stay one glanceable line, got {len(text)} chars"
+    assert "draco" in text
+    assert "fusion/alpha" in text
+    assert "-1.1429" in text
+    assert "candidate:0.0" not in text, "the compiled url4 expression must not leak into repr"
+
+
+def test_submitted_score_renders_as_an_sfds_card() -> None:
+    """The value submit() drops into a notebook cell renders as a brand card like the
+    Report panel — not as a repr dump. Plain benchmark-native number (never ×100), the
+    enormous url4 expression folded behind a disclosure."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_native_score_response(-1.1429))
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(
+            _candidate_result(score=-1.1429, case_scores=(-1.4, -0.886))
+        )
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "sf-report" in html, "reuses the vendored report-card system"
+    assert "Score published" in html
+    assert "draco" in html
+    assert "fusion/alpha" in html
+    assert "-1.1429" in html
+    assert "-114.3" not in html, "never a ×100 percentage rendering"
+    assert "<details" in html and "URL4" in html, "the expression stays folded"
+    assert "candidate:0.0" not in html.split("<details")[0], "url4 only inside the disclosure"
+    # The card deep-links to this score's spec page on the SAME Scoreboard it came
+    # from — localhost in a local stack, the deployed board in production.
+    assert f"href='{SCOREBOARD_URL}/spec.html?benchmark=draco&amp;spec=fusion%2Falpha'" in html, (
+        "links to the portal spec page on the originating Scoreboard"
+    )

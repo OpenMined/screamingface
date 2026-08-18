@@ -59,7 +59,8 @@ class Leaderboards:
     def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
         return _decode_score(
-            _sync_json(
+            scoreboard_url=self._scoreboard_url,
+            payload=_sync_json(
                 self._request,
                 self._scoreboard_url,
                 "POST",
@@ -67,19 +68,20 @@ class Leaderboards:
                 json=payload,
                 headers={"Idempotency-Key": candidate_result.run_id},
                 operation="submit a score to",
-            )
+            ),
         )
 
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
         return _decode_score(
-            _sync_json(
+            scoreboard_url=self._scoreboard_url,
+            payload=_sync_json(
                 self._request,
                 self._scoreboard_url,
                 "GET",
                 f"{_SCORES_PATH}/{selected}",
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
-            )
+            ),
         )
 
 
@@ -116,7 +118,8 @@ class AsyncLeaderboards:
     async def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
         return _decode_score(
-            await _async_json(
+            scoreboard_url=self._scoreboard_url,
+            payload=await _async_json(
                 self._request,
                 self._scoreboard_url,
                 "POST",
@@ -124,19 +127,20 @@ class AsyncLeaderboards:
                 json=payload,
                 headers={"Idempotency-Key": candidate_result.run_id},
                 operation="submit a score to",
-            )
+            ),
         )
 
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
         return _decode_score(
-            await _async_json(
+            scoreboard_url=self._scoreboard_url,
+            payload=await _async_json(
                 self._request,
                 self._scoreboard_url,
                 "GET",
                 f"{_SCORES_PATH}/{selected}",
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
-            )
+            ),
         )
 
 
@@ -263,7 +267,7 @@ def _decode_leaderboard(payload: object) -> Leaderboard:
         _invalid(str(exc), exc)
 
 
-def _decode_score(payload: object) -> LeaderboardScore:
+def _decode_score(payload: object, scoreboard_url: str | None = None) -> LeaderboardScore:
     root = _mapping(payload, "Leaderboard score")
     metadata = root.get("metadata")
     if metadata is not None and not isinstance(metadata, Mapping):
@@ -306,6 +310,7 @@ def _decode_score(payload: object) -> LeaderboardScore:
                 "Leaderboard score verified_by_screamingface",
             ),
             metadata=metadata,
+            scoreboard_url=scoreboard_url,
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
