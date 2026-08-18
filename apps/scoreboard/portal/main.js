@@ -150,6 +150,14 @@ window.ScorePortal = (function () {
     if (typeof value !== "number" || isNaN(value)) return EM_DASH;
     return (value * 100).toFixed(1) + "%";
   }
+  // INVARIANT (OME-866): a benchmark score is benchmark-native — fractional for
+  // DRACO, negative for HealthBench — so it renders as a plain number, never as a
+  // percentage. formatPercent stays for genuine shares (e.g. the frontier's
+  // open_share); do not point it at a score again.
+  function formatScore(value) {
+    if (typeof value !== "number" || isNaN(value)) return EM_DASH;
+    return String(parseFloat(value.toPrecision(4)));
+  }
   function formatQuestions(total) {
     if (typeof total !== "number" || isNaN(total)) return EM_DASH;
     return total.toLocaleString(PORTAL_LOCALE);
@@ -391,6 +399,7 @@ window.ScorePortal = (function () {
     showEmpty: showEmpty,
     describeError: describeError,
     formatPercent: formatPercent,
+    formatScore: formatScore,
     formatQuestions: formatQuestions,
     formatDate: formatDate,
     formatProviders: formatProviders,

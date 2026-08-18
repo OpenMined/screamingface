@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>screamingface — leaderboard</title>
-  <meta name="description" content="A screamingface benchmark leaderboard with accuracy, question counts, providers, and local rerun links.">
+  <meta name="description" content="A screamingface benchmark leaderboard with scores, question counts, providers, and local rerun links.">
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
   <link rel="stylesheet" href="fonts.css">
@@ -50,7 +50,7 @@
     </div>
 
     <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
-      <div class="s"><span class="k">Best accuracy</span><div class="v gain" id="summary-best">—</div></div>
+      <div class="s"><span class="k">Best score</span><div class="v gain" id="summary-best">—</div></div>
       <div class="s"><span class="k">Specs shown</span><div class="v" id="summary-specs">—</div></div>
       <div class="s" id="summary-frontier-card" hidden><span class="k">Open frontier share</span><div class="v" id="summary-frontier">—</div></div>
     </div>
@@ -58,8 +58,8 @@
     <div id="leaderboard-status" class="state" role="status" aria-live="polite">Loading…</div>
 
     <div id="leaderboard-climb-section" hidden>
-      <h2>Accuracy</h2>
-      <!-- Visual duplicate of the table's accuracy column (viz-a climb
+      <h2>Score</h2>
+      <!-- Visual duplicate of the table's score column (viz-a climb
            direction); the table below remains the accessible data source. -->
       <div id="leaderboard-climb" class="climb" aria-hidden="true"></div>
     </div>
