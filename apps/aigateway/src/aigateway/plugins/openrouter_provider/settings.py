@@ -91,8 +91,9 @@ def _default_model_slugs() -> list[str]:
         "openrouter/anthropic/claude-opus-4.8",
         # AIDEV-NOTE: the DRACO benchmark judge. arXiv:2602.11685 §4.2 PINS it, and the
         # benchmarks repo warns that a different judge materially changes the scores — so it is
-        # seeded here rather than left to a deployment. `apps/url4-cloud/url4.toml` declares the
-        # matching route; `test_declared_models_match_aigateway.py` fails if the two drift.
+        # seeded here rather than left to a deployment. `apps/screamingface-engine/url4.toml`
+        # declares the matching route; `test_declared_models_match_aigateway.py` fails if the
+        # two drift.
         "openrouter/google/gemini-3.1-pro-preview",
         # The remaining DRACO candidate lineup, also used by the Fusion and
         # CorrectiveEnsemble examples. These must be real gateway seeds: merely adding them to

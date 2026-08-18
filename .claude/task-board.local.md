@@ -17,8 +17,16 @@ labels:  # RECONCILED 2026-07-15 (OME-443) vs live Linear (list_issue_labels). S
     "aigateway": "f92de050-b7ec-41fe-a14a-d30c0d0be267"              # parent: app
     "aigateway/deployment": "874aa881-360e-4362-b80a-39c2ae823d97"  # parent: app
     "scoreboard": "3f8aa7fc-e9a0-461f-8a6b-0bf2dd7cf4d9"            # parent: app
-    "url4-engine": "b9bdd9c0-b03b-47e0-86c9-b3f45305212a"          # parent: app — url4 grammar/parser/DAG exec + cloud runner (apps/runner) until an app/runner label exists
-    "url4-cloud": "295a9fe1-826e-49f8-8f11-e4f438aa27a1"           # parent: app — single-process REST+WS url4 execution app (apps/url4-cloud) (OME-513)
+    # RECONCILED 2026-08-18 (OME-876) against live Linear via `linear label list --all`:
+    # this ID's label was RENAMED in Linear from "url4-engine" to "url4-sdk". Same label, new name.
+    "url4-sdk": "b9bdd9c0-b03b-47e0-86c9-b3f45305212a"             # parent: app — url4 grammar/parser/DAG exec
+    # The Engine app (apps/screamingface-engine). This is the label to APPLY for that app's work;
+    # live issues already carry it (e.g. OME-676, OME-304).
+    "screamingface-engine": "cc1ac9b3-45af-4bec-a112-560ad1f52680"  # parent: app — the ScreamingFace Engine
+    # LEGACY, retained: the Engine app's previous name. Still exists in Linear and still applied to
+    # issues filed before the rename, so it must stay resolvable for reading history. Do NOT apply
+    # it to new work — the landing group is single-select, so it would collide.
+    "url4-cloud": "295a9fe1-826e-49f8-8f11-e4f438aa27a1"           # parent: app — legacy (pre-OME-876)
     "desktop": "cef9d753-9675-4f7d-8ae7-afc7af802887"              # parent: app
     "desktop/benchmarks": "53bb9d19-95a2-4479-9acd-6ea6423ae251"    # parent: app
     "desktop/ensemble": "d55512f6-389d-4fc4-877a-6a6be434c4c1"      # parent: app

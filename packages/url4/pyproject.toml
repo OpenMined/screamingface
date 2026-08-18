@@ -37,7 +37,7 @@ server = ["uvicorn>=0.30"]
 # `url4.observe` imports pydantic. Making it mandatory would have every embedder of the ENGINE
 # install a wire-format library for a subsystem they never touch, which is the same doctrine
 # `observe.py` states for itself — the engine core does not gain a transport dependency because
-# an embedder wants to watch a run. `apps/url4-cloud` depends on `url4[streaming]`.
+# an embedder wants to watch a run. `apps/screamingface-engine` depends on `url4[streaming]`.
 streaming = ["pydantic>=2.13.4"]
 
 # The `url4` CLI: `url4 serve` (HTTP node) and `url4 eval` (network-free one-shot).
@@ -81,7 +81,7 @@ filterwarnings = [
 
 [tool.coverage.run]
 # `url4.streaming` is the url4-cloud wire contract. It ships from this distribution, but its tests
-# live with its only consumers, in apps/url4-cloud/tests — that suite gates it via `--cov=url4.streaming`.
+# live with its only consumers, in apps/screamingface-engine/tests — that suite gates it via `--cov=url4.streaming`.
 # Measuring it here too would drag this package's engine-focused 95% gate down to whatever the
 # streaming contract happens to score, which is a number this suite has no way to move.
 omit = ["src/url4/streaming/*"]

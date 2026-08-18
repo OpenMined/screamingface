@@ -33,7 +33,7 @@ manifest, lockfile, tests, and README. The stack name is what the tooling takes.
 | `aigateway` | `apps/aigateway` | LiteLLM-based AI Gateway — provider OAuth, encrypted credential store (service, port 9105) |
 | `aigateway-ui` | `apps/aigateway-ui` | Admin console for gateway accounts and their provider API keys (Next.js service, port 9107) |
 | `scoreboard` | `apps/scoreboard` | Public benchmark scoreboard + demo portal (service, port 9106) |
-| `url4-cloud` | `apps/url4-cloud` | Single-process REST + WebSocket url4 execution app (service, port 9108) |
+| `screamingface-engine` | `apps/screamingface-engine` | Single-process REST + WebSocket url4 execution app (service, port 9108) |
 | `url4` | `packages/url4` | url4 expression protocol — grammar, parser, AST, interpreter (library) |
 | `screamingface` | `packages/screamingface` | Public Python Client SDK for Engine-owned benchmark evaluation (library) |
 
@@ -78,7 +78,7 @@ uv sync --extra notebook
 **One command per stack — the gates CI runs, in CI's order, plus one CI doesn't:**
 
 ```bash
-uv run .claude/scripts/run_gates.py <stack>   # aigateway | aigateway-ui | scoreboard | url4 | url4-cloud | screamingface
+uv run .claude/scripts/run_gates.py <stack>   # aigateway | aigateway-ui | scoreboard | url4 | screamingface-engine | screamingface
 ```
 
 It resolves the stack from [`.claude/sdlc.local.md`](.claude/sdlc.local.md), runs its gates
@@ -114,13 +114,13 @@ being edited or deleted, so a change can't quietly weaken the suite it inherited
 genuinely must change an existing test, that's a deliberate call to raise in review, not a gate
 to route around — `--skip-append-only` exists for that conversation, and skipping it belongs in
 your PR description. Everything else matches CI step for step
-(`aigateway-tests.yml`, `scoreboard-tests.yml`, `url4-tests.yml`, `url4-cloud-tests.yml`,
+(`aigateway-tests.yml`, `scoreboard-tests.yml`, `url4-tests.yml`, `screamingface-engine-tests.yml`,
 `screamingface-tests.yml`).
 
 An unknown stack fails fast and tells you the real ones:
 
 ```
-CONFIG ERROR: stack 'docs' not in .claude/sdlc.local.md (has: aigateway, scoreboard, url4, screamingface, url4-cloud, aigateway-ui)
+CONFIG ERROR: stack 'docs' not in .claude/sdlc.local.md (has: aigateway, scoreboard, url4, screamingface, screamingface-engine, aigateway-ui)
 ```
 
 Docs-only changes (`README`, `CONTRIBUTING`, `docs/`) have no stack and no CI — there is

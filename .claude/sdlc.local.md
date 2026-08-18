@@ -48,8 +48,8 @@ stacks:
       - uv run --extra notebook python scripts/check_notebooks.py
       - uv build
       - uv run python scripts/check_distribution.py
-  - name: url4-cloud
-    root: apps/url4-cloud
+  - name: screamingface-engine
+    root: apps/screamingface-engine
     skill: sdlc-python
     test_globs: ["tests/**"]
     gates:
@@ -59,7 +59,7 @@ stacks:
       # One venv holds every distribution, so no runtime check can prove the boundaries —
       # this gate keeps url4.streaming conceptual and every concrete adapter in its own deployable.
       - python3 ../../.claude/scripts/check_layering.py
-      - uv run pytest --cov=url4_cloud --cov=url4.streaming --cov-fail-under=80 -q
+      - uv run pytest --cov=screamingface_engine --cov=url4.streaming --cov-fail-under=80 -q
   # The first non-Python stack. run_gates.py is stack-agnostic — it shells this `gates:` list with
   # cwd = root — so nothing in the runner needed changing. `npm ci` (not `install`) is deliberate:
   # it installs FROM the lockfile and fails when package.json disagrees, which is this stack's

@@ -439,7 +439,7 @@ def _heartbeat() -> dict[str, object]:
 def _unsequenced_log() -> dict[str, object]:
     """An out-of-band control-plane notice, in the shape url4-cloud really emits.
 
-    Reproduced from ``url4_cloud.notices.warn`` through ``url4.streaming.codec.encode``:
+    Reproduced from ``screamingface_engine.notices.warn`` through ``url4.streaming.codec.encode``:
     both emitters (the re-attach cache-policy warning in ``ws/bridge.py`` and the
     cache-control override in ``rest/routes.py``) bypass the broker sequencer, and ``encode``
     does not pass ``exclude_none`` — so the sequence keys are PRESENT and null rather than

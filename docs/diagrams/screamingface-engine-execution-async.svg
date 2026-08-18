@@ -39,5 +39,5 @@
 <rect x="824.5" y="606.2" width="311.0" height="19.6" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.55)" stroke-width="1"/><text x="980.0" y="620.0" text-anchor="middle" font-size="11" fill="#e2e8f0">8  Started · log · cost · Result · Terminated</text>
 <line x1="813" y1="692" x2="187" y2="692" stroke="#fb923c" stroke-width="1.6" stroke-dasharray="2,3" marker-end="url(#ah-bus)"/>
 <rect x="334.6" y="666.2" width="330.8" height="19.6" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.55)" stroke-width="1"/><text x="500.0" y="680.0" text-anchor="middle" font-size="11" fill="#e2e8f0">9  CloudEvents stream (WS) — Result arrives here</text>
-<text x="660" y="768" text-anchor="middle" font-size="10" fill="#475569">url4-cloud · url4-cloud-execution-async · 2026-07-22 · companion to docs/protocol.md · OME-555</text>
+<text x="660" y="768" text-anchor="middle" font-size="10" fill="#475569">screamingface-engine · screamingface-engine-execution-async · 2026-07-22 · companion to docs/protocol.md · OME-555</text>
 </svg>

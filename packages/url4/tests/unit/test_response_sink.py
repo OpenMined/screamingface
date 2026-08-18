@@ -1,5 +1,5 @@
 """The response-sink seam: ``url4.observe.current_response_sink()`` lets a
-ctx-less world handler (e.g. the aigateway connector in ``apps/url4-cloud``)
+ctx-less world handler (e.g. the aigateway connector in ``apps/screamingface-engine``)
 report a model call's ``finish_reason`` and provider ``refusal`` tied to the
 current node's span, without holding an
 :class:`~url4.dag.node.ExecutionContext`.

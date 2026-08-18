@@ -102,7 +102,7 @@ seedBenchmarks:
   ttlSecondsAfterFinished: 600
   annotations: {}
   # The `revision` of each entry MUST match the Engine benchmark's computed REVISION exactly
-  # (apps/url4-cloud/src/url4_cloud/benchmarks/<name>/definition.py). A submission carries the
+  # (apps/screamingface-engine/src/url4_cloud/benchmarks/<name>/definition.py). A submission carries the
   # Engine's value, and the board ranks per revision — a mismatch makes every real submission
   # look incomparable to the registered board. Re-copy these whenever a benchmark's dataset or
   # protocol revision changes; seeding is idempotent, so redeploying just moves the value.
@@ -123,7 +123,7 @@ seedBenchmarks:
         The canonical 541-prompt instruction-following benchmark, graded by deterministic
         strict and loose verification. Each Case invokes the Candidate exactly once.
       # WHY no dataset_url: the IFEval dataset is vendored inside the Engine
-      # (url4_cloud.benchmarks.ifeval.vendor), so no single public URL is authoritative.
+      # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
       revision: 0b88a52b5f10a6d9
     - id: healthbench-worst30
       display_name: HealthBench Worst-30% Challenge

@@ -43,5 +43,5 @@
 <rect x="214.2" y="726.2" width="251.6" height="19.6" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.55)" stroke-width="1"/><text x="340.0" y="740.0" text-anchor="middle" font-size="11" fill="#e2e8f0">10  ai.url4.stop   (optional cancel)</text>
 <line x1="507" y1="812" x2="1133" y2="812" stroke="#34d399" stroke-width="1.6" marker-end="url(#ah-backend)"/>
 <rect x="723.9" y="786.2" width="192.2" height="19.6" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.55)" stroke-width="1"/><text x="820.0" y="800.0" text-anchor="middle" font-size="11" fill="#e2e8f0">11  stop Job + purge stream</text>
-<text x="660" y="888" text-anchor="middle" font-size="10" fill="#475569">url4-cloud · url4-cloud-execution-stream · 2026-07-22 · companion to docs/protocol.md · OME-555</text>
+<text x="660" y="888" text-anchor="middle" font-size="10" fill="#475569">screamingface-engine · screamingface-engine-execution-stream · 2026-07-22 · companion to docs/protocol.md · OME-555</text>
 </svg>

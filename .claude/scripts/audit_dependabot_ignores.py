@@ -167,7 +167,7 @@ def probe_ci_matrix(blocker: dict, floor: tuple[int, int | None]) -> tuple[bool,
                 if k == key:
                     # AIDEV-NOTE: both shapes occur and BOTH must be read. The test
                     # matrices use a list ["3.12","3.13"]; a scalar "3.12" still appears on
-                    # single-version jobs (url4-cloud's conformance job, and any workflow
+                    # single-version jobs (screamingface-engine's conformance job, and any workflow
                     # that pins one interpreter deliberately). An earlier version handled
                     # only the list and fell through to "no matrix -> still blocking",
                     # which was the right answer by accident.

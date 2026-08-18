@@ -22,7 +22,7 @@ INVARIANT (OME-800): never name an `engine` here. OpenRouter selects the model's
 search when it has one and falls back to Exa when it does not — but only while `engine` is
 unspecified. Naming `native` forces the built-in path even for a model that has none, which
 errors, and turns "this provider searches natively" into a per-MODEL fact every consumer has
-to track as its own list. `apps/url4-cloud` used to carry exactly that list.
+to track as its own list. `apps/screamingface-engine` used to carry exactly that list.
 """
 
 

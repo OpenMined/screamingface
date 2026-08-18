@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OME-555 — url4-cloud execution flow diagrams (diagramming skill design system).
+"""OME-555 — screamingface-engine execution flow diagrams (diagramming skill design system).
 
 Sequence-style flow: coloured actor boxes + lifelines + numbered interaction arrows with label
 chips, on the dark slate canvas with the universal text halo. Emits standalone SVG (deliverable is
@@ -136,7 +136,7 @@ def make(
 
     parts.append(
         f'<text x="{width / 2:.0f}" y="{height - 24:.0f}" text-anchor="middle" font-size="10" '
-        f'fill="#475569">url4-cloud · {esc(fname)} · 2026-07-22 · companion to docs/protocol.md · OME-555</text>'
+        f'fill="#475569">screamingface-engine · {esc(fname)} · 2026-07-22 · companion to docs/protocol.md · OME-555</text>'
     )
     parts.append("</svg>")
 
@@ -176,7 +176,7 @@ make(
     "Synchronous execution",
     "GET / holds until the terminal frame (bounded by SYNC_MAX_WAIT) and returns the Result body",
     SYNC,
-    "url4-cloud-execution-sync",
+    "screamingface-engine-execution-sync",
 )
 
 ASYNC = [
@@ -195,7 +195,7 @@ make(
     "Asynchronous execution",
     "Prefer: respond-async returns 202 immediately; the Result arrives on the WebSocket stream",
     ASYNC,
-    "url4-cloud-execution-async",
+    "screamingface-engine-execution-async",
 )
 
 STREAM = [
@@ -216,5 +216,5 @@ make(
     "Streaming · resume · cancel",
     "WebSocket frames carry a monotonic sequence; a client can re-attach and replay, or cancel",
     STREAM,
-    "url4-cloud-execution-stream",
+    "screamingface-engine-execution-stream",
 )
