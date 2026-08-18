@@ -40,7 +40,12 @@ from pathlib import Path
 
 from url4_cloud import job_env
 from url4_cloud.models.builtins import BUILTIN_MODEL_WORLD
-from url4_cloud.models.registry import ROUTE_ID_RE, ModelRegistry
+from url4_cloud.models.registry import (
+    ROUTE_ID_RE,
+    ModelRegistry,
+    decode_route_id,
+    encode_route_id,
+)
 
 DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
 
@@ -182,12 +187,17 @@ def routes_for(models: Sequence[ModelSpec]) -> dict[str, ModelSpec]:
 def declared_model_ids(
     env: Mapping[str, str], *, registry: ModelRegistry = BUILTIN_MODEL_WORLD
 ) -> frozenset[str]:
-    """Return the model ids from the same fully validated world the Runner consumes."""
+    """Return the REAL gateway ids from the same fully validated world the Runner consumes.
+
+    WHY decoded: this is what discovery compares against aigateway's own `GET /v1/models`
+    response, whose `id` field is always the real (colon-bearing) id — `section.models[*].id`
+    is the url4-ROUTE form (OME-873), and the two would never match for the 29 otherwise.
+    """
 
     section = load_config(env, registry=registry).aigateway
     if section is None:
         return frozenset()
-    return frozenset(model.id for model in section.models)
+    return frozenset(decode_route_id(model.id) for model in section.models)
 
 
 def load_config(
@@ -261,7 +271,7 @@ def _parse_aigateway(
         ),
     )
     section = _apply_env(section, env)
-    _reject_unroutable_default(section.default_model, registry)
+    _reject_unroutable_default(section.default_model)
     _require_declared(section.default_model, models)
     return section
 
@@ -278,17 +288,19 @@ def _apply_env(section: AigatewaySection, env: Mapping[str, str]) -> AigatewaySe
     return section
 
 
-def _reject_unroutable_default(default_model: str, registry: ModelRegistry) -> None:
-    """A `default_route` naming an `aigateway_only` id can never resolve.
+def _reject_unroutable_default(default_model: str) -> None:
+    """A `default_route` naming the REAL (colon-bearing) form of an id can never resolve.
 
-    WHY a distinct error: `_require_declared` would report it as "not a declared model" beside a
-    list of 88 ids, which reads like a typo. The real cause is that the id contains ':' and no
-    URL4 path segment may (url4 spec §8, OME-819).
+    WHY a distinct error: `_require_declared` would report it as "not a declared model" beside
+    a list of 88+ ids, which reads like a typo. The real cause is that the operator wrote the
+    gateway's own id verbatim — the declared world only ever holds the `~`-encoded route form
+    (OME-873), so this can never be a membership miss by coincidence.
     """
-    if default_model in registry.aigateway_only:
+    if ":" in default_model:
         raise WorldConfigError(
-            f"default_route {'/' + default_model!r} cannot be a route — the gateway serves this "
-            "model but its id contains ':', which no URL4 path segment may contain"
+            f"default_route {'/' + default_model!r} cannot be a route — it contains ':', which "
+            f"no URL4 path segment may contain; use {'/' + encode_route_id(default_model)!r} "
+            "(the same id with ':' encoded as '~') instead"
         )
 
 
@@ -329,10 +341,20 @@ def _declared_models(value: object) -> tuple[ModelSpec, ...]:
 
 
 def _merge(registry: ModelRegistry, declared: tuple[ModelSpec, ...]) -> tuple[ModelSpec, ...]:
-    """The registry's routable ids, with the TOML array layered on top.
+    """The registry's routable AND aigateway-only ids, with the TOML array layered on top.
 
-    INVARIANT: exactly one spec per id. `routes_for` maps `"/" + id`, so a second spec for one
-    id would collapse silently and whichever lost would take its capability with it.
+    INVARIANT: exactly one spec per ROUTE id. `routes_for` maps `"/" + id`, so a second spec
+    for one route id would collapse silently and whichever lost would take its capability
+    with it. The dict is keyed by the route id — `encode_route_id` of the real id — for every
+    source, so a TOML override of an `aigateway_only` model (which can only ever name the
+    encoded form; `ROUTE_ID_RE` bars a literal ':') lines up with the compiled entry it means
+    to replace without any special-casing (OME-873).
+
+    `ModelSpec.id` is therefore ALWAYS the url4-route form, for every entry, whether it came
+    from the registry or from TOML. The real gateway id is recovered with `decode_route_id`
+    exactly where a real request or a comparison against aigateway's own catalog needs it
+    (`runner/connector.py`, `catalog/executable.py`) — nowhere else needs to know the
+    distinction.
 
     A TOML entry for a registry id REPLACES that spec, which is how `web_search = false` reaches
     a compiled route. A TOML entry for an unknown id is appended. Nothing removes an id: the
@@ -341,6 +363,9 @@ def _merge(registry: ModelRegistry, declared: tuple[ModelSpec, ...]) -> tuple[Mo
     merged: dict[str, ModelSpec] = {
         model_id: ModelSpec(id=model_id) for model_id in sorted(registry.routable)
     }
+    for model_id in sorted(registry.aigateway_only):
+        route_id = encode_route_id(model_id)
+        merged[route_id] = ModelSpec(id=route_id)
     for spec in declared:
         merged[spec.id] = spec
     if not merged:

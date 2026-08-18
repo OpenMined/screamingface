@@ -155,7 +155,14 @@ async def test_production_builder_wraps_the_gateway_source_with_the_declared_rou
 
     assert service is not None
     catalog = await service.fetch(Credential.derive())
-    assert catalog.body["data"] == [{"id": _DECLARED, "object": "model"}]
+    # OME-873: `_GATEWAY_ONLY` (real, colon-bearing) is declared via BUILTIN_MODEL_WORLD's
+    # aigateway_only partition, so it is now retained too — under its `~`-encoded, url4-route
+    # id, never its real form. See test_executable_catalog_route_encoding.py for the isolated
+    # unit coverage of the rewrite itself.
+    assert catalog.body["data"] == [
+        {"id": _DECLARED, "object": "model"},
+        {"id": "huggingface/google/gemma-2-2b-it~featherless-ai", "object": "model"},
+    ]
     await service.aclose()
 
 

@@ -24,9 +24,12 @@ def _world(table: dict[str, object], registry: ModelRegistry = _REGISTRY) -> Aig
 def test_registry_ids_reach_the_declared_world_without_any_toml_entry() -> None:
     section = _world({"default_route": "/anthropic/claude-haiku-4-5"})
 
+    # OME-873: the aigateway_only seed ("org/model:novita") reaches the world too, under its
+    # `~`-encoded route id — see test_an_aigateway_only_id_enters_the_world_under_its_encoded_id.
     assert {m.id for m in section.models} == {
         "anthropic/claude-haiku-4-5",
         "anthropic/claude-opus-5",
+        "huggingface/org/model~novita",
     }
 
 
@@ -71,10 +74,16 @@ def test_a_toml_entry_duplicating_a_registry_id_yields_exactly_one_spec() -> Non
     assert len(routes_for(section.models)) == len(ids)
 
 
-def test_an_aigateway_only_id_never_enters_the_world() -> None:
+def test_an_aigateway_only_id_enters_the_world_under_its_encoded_id() -> None:
+    # OME-873 supersedes this test's old name/claim ("never enters the world"): the real,
+    # colon-bearing id still never appears as a route id — see
+    # test_declared_model_ids_reports_the_real_gateway_id in test_model_route_encoding.py — but
+    # the model itself IS now addressable, under its `~`-encoded form.
     section = _world({"default_route": "/anthropic/claude-haiku-4-5"})
 
-    assert "huggingface/org/model:novita" not in {m.id for m in section.models}
+    ids = {m.id for m in section.models}
+    assert "huggingface/org/model~novita" in ids
+    assert "huggingface/org/model:novita" not in ids
 
 
 def test_a_default_route_declared_only_by_the_registry_validates() -> None:

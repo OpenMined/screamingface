@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from url4_cloud import job_env
-from url4_cloud.models.registry import EMPTY_MODEL_WORLD
+from url4_cloud.models.registry import EMPTY_MODEL_WORLD, decode_route_id
 from url4_cloud.world_config import WorldConfigError, declared_model_ids, load_config, parse_config
 
 
@@ -43,4 +43,7 @@ def test_control_plane_and_runner_read_the_same_declared_ids() -> None:
     section = load_config(env).aigateway
 
     assert section is not None
-    assert declared_model_ids(env) == frozenset(item.id for item in section.models)
+    # OME-873: `declared_model_ids` reports the REAL gateway id (what aigateway's own catalog
+    # names), while `section.models[*].id` is the url4-ROUTE form — decode to compare like for
+    # like. The two are still one invariant: same world, two projections of the same ids.
+    assert declared_model_ids(env) == frozenset(decode_route_id(item.id) for item in section.models)

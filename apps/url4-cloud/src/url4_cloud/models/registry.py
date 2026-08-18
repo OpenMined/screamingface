@@ -33,11 +33,33 @@ allowed to disagree.
 """
 
 _COLON = ":"
+_TILDE = "~"
 
 
 def is_route_legal(model_id: str) -> bool:
     """Whether ``model_id`` can be a url4 route path, segment for segment."""
     return ROUTE_ID_RE.fullmatch(model_id) is not None
+
+
+def encode_route_id(model_id: str) -> str:
+    """The url4-route form of a gateway id: ``:`` escaped as ``~`` (OME-873).
+
+    INVARIANT: a no-op on any id with no colon, so callers may apply it unconditionally to
+    every declared id rather than branching on "is this one of the 29". The inverse of
+    :func:`decode_route_id`.
+    """
+    return model_id.replace(_COLON, _TILDE)
+
+
+def decode_route_id(route_id: str) -> str:
+    """The real gateway id a route path names: ``~`` reverted to ``:`` (OME-873).
+
+    INVARIANT: a no-op on any route id with no tilde. Safe to call unconditionally at the
+    point a real request or comparison against aigateway's own catalog is made, because ``~``
+    is reserved exclusively for this escape (see the seed-validation guard below) — no
+    routable id may carry a literal one.
+    """
+    return route_id.replace(_TILDE, _COLON)
 
 
 def canonical_id(provider: str, slug: str) -> str:
@@ -101,10 +123,13 @@ class ModelRegistry:
 
     @property
     def aigateway_only(self) -> frozenset[str]:
-        """Ids aigateway serves that url4 cannot route, because they carry a ``:``.
+        """Ids aigateway serves that carry a ``:`` and so cannot be a url4 route VERBATIM.
 
-        INVARIANT: never routed and never advertised. Declared anyway so the drift guard can
-        assert set equality against aigateway's seeds, and so OME-819 has an exact work-list.
+        WHY the name survives OME-873: this partition is a pure function of the RAW id (see
+        `test_the_unroutable_ids_are_exactly_the_colon_bearing_ones`) and stays so on purpose —
+        `encode_route_id` (this module) is what makes these routable, applied one layer up in
+        `world_config._merge`, not a change to this classification. An id here still can never
+        be routed under its own, real form.
         """
         return self._aigateway_only
 
@@ -133,7 +158,16 @@ def _validate(model_id: str) -> None:
     WHY a colon is tolerated here but every other illegal character is not: the colon is a known
     grammar limit with 29 real ids behind it, handled by the partition. Anything else is a typo,
     and filing a typo under ``aigateway_only`` would hide it from the equality guard forever.
+
+    WHY a literal '~' is refused even though it IS in `ROUTE_ID_RE`'s charset (OME-873): '~' is
+    reserved exclusively as `encode_route_id`'s colon-escape. A legitimate id carrying one would
+    be indistinguishable from an encoded colon id and could collide with one on decode.
     """
+    if _TILDE in model_id:
+        raise ValueError(
+            f"model id {model_id!r} contains '~', which is reserved to encode a colon-bearing "
+            "id as a url4 route (see encode_route_id) — a real gateway id may never carry one"
+        )
     if not is_route_legal(model_id.replace(_COLON, "")):
         raise ValueError(
             f"model id {model_id!r} is not a valid URL4 expression path — each segment may "
@@ -150,5 +184,7 @@ __all__ = [
     "ModelRegistry",
     "ProviderSeed",
     "canonical_id",
+    "decode_route_id",
+    "encode_route_id",
     "is_route_legal",
 ]

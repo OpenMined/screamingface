@@ -21,6 +21,7 @@ from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
 from url4_cloud.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from url4_cloud.model_outcomes import bind_model_outcome, record_model_outcome
+from url4_cloud.models.registry import decode_route_id
 from url4_cloud.operation_calls import operation_call_identity, record_operation_call
 from url4_cloud.retrieval_policy import (
     RetrievalPolicy,
@@ -482,6 +483,11 @@ async def _chat_completion_loop(
         ResolutionError: the loop exceeds `cfg.web_tool_max_iterations` without a final
             answer — the model keeps calling tools instead of returning content.
     """
+    # WHY decoded once, here: `spec.id` is ALWAYS the url4-route form (OME-873) — decoding is a
+    # no-op for the 88 ids with no colon, so this is safe unconditionally. Everything past this
+    # line that reaches aigateway or reports what aigateway actually billed uses `real_model_id`;
+    # error messages below keep `spec.id` (the route form), since that's what the caller wrote.
+    real_model_id = decode_route_id(spec.id)
     tools, extra = _retrieval_request(
         cfg=cfg,
         spec=spec,
@@ -493,12 +499,12 @@ async def _chat_completion_loop(
     sampling = model_params(params)
     headers = _headers(profile, identity_headers)
     for _ in range(cfg.web_tool_max_iterations):
-        body = {"model": spec.id, "messages": messages, **sampling, **extra}
+        body = {"model": real_model_id, "messages": messages, **sampling, **extra}
         resp, outcome = await _fetch_completion(
             http_client, headers=headers, body=body, cache=cache
         )
         data = _json_or_raise(resp)
-        _report_usage(spec.id, data.get("usage"), data.get("_aigw"), outcome)
+        _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
