@@ -64,13 +64,13 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
       to accuracy.
     </p>
 
-    <h2>What the Client gives you</h2>
+    <h2>What the Client provides</h2>
 
     <ul>
       <li>
-        <strong>Grading you did not perform yourself.</strong> Benchmark answer keys, rubrics, and
-        judges live on the engine and are never returned to the Client, so a score does not rest on
-        trusting whoever produced it.
+        <strong>Held-out grading.</strong> Benchmark answer keys, rubrics, and judges live on the
+        engine and are never returned to the Client, so a score does not rest on trusting whoever
+        produced it.
       </li>
       <li>
         <strong>A reproducible artifact for every run.</strong> Each evaluation compiles to one
@@ -83,7 +83,7 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         are billed to your own accounts rather than resold to you.
       </li>
       <li>
-        <strong>Exploration you pay for once.</strong> Every model response is
+        <strong>Caching.</strong> Every model response is
         <RouterLink to="/learn/caching">cached</RouterLink> against its exact request, so comparing
         many fusion candidates over one benchmark is billed only for the calls that have not been
         made before. A model shared between two candidates answers once, and swapping a single
@@ -95,9 +95,9 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         visible at the same time as the gain.
       </li>
       <li>
-        <strong>Earlier work you can build on.</strong> Recipes published to the leaderboard can be
-        imported, modified, and re-run, and on a hosted engine the cache is shared across the
-        community, so repeating someone else's run usually costs a fraction of the original.
+        <strong>Reusable recipes.</strong> Recipes published to the leaderboard can be imported,
+        modified, and re-run, and on a hosted engine the cache is shared across the community, so
+        repeating someone else's run usually costs a fraction of the original.
       </li>
     </ul>
 

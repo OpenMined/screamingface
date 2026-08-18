@@ -43,9 +43,9 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
     <p>
       A <strong>benchmark</strong> is the exam. It is owned entirely by
       <RouterLink to="/learn/engine">the engine</RouterLink> and it owns everything about how
-      candidates are judged: which cases exist, in what order they are asked,
-      which judge model grades them, how grades become a score. Your candidate answers; it does not
-      get a say in any of that.
+      candidates are judged: which cases exist, in what order they are asked, which judge model
+      grades them, how grades become a score. Your candidate answers; it does not get a say in any
+      of that.
     </p>
 
     <p>
@@ -55,10 +55,9 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
     </p>
 
     <blockquote>
-      <strong>Only a subset of benchmarks is available so far.</strong> This is an early, deliberately
-      small set, and we're working on expanding it massively so fusion research can thrive. If there's
-      a benchmark you'd want to run first, we'd love to hear it — tell us on
-      <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener">GitHub</a>.
+      <strong>Only a subset of benchmarks is available so far.</strong> This is an early,
+      deliberately small set, and we're working on expanding it massively so fusion research can
+      thrive. If there's a benchmark you'd want to run first, we'd love to hear it.
     </blockquote>
 
     <h2>What you can do with it</h2>
@@ -82,19 +81,34 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
       <tbody>
         <tr>
           <td><code>sf.benchmarks.list()</code></td>
-          <td>Lists every benchmark this engine publishes, a free discovery request that calls no model.</td>
+          <td>
+            Lists every benchmark this engine publishes, a free discovery request that calls no
+            model.
+          </td>
         </tr>
         <tr>
           <td><code>sf.benchmarks.get(benchmark_id)</code></td>
-          <td>Fetches one benchmark's identity card. A protocol variant has its own id, such as <code>ifeval/self-corrective</code>, and its own revision.</td>
+          <td>
+            Fetches one benchmark's identity card. A protocol variant has its own id, such as
+            <code>ifeval/self-corrective</code>, and its own revision.
+          </td>
         </tr>
         <tr>
-          <td><code>sf.Benchmark</code> <code>.id</code> <code>.title</code> <code>.description</code> <code>.revision</code> <code>.case_count</code></td>
-          <td>The identity card itself: its id, what it measures, the opaque revision hash of the pinned protocol, and its size.</td>
+          <td>
+            <code>sf.Benchmark</code> <code>.id</code> <code>.title</code> <code>.description</code>
+            <code>.revision</code> <code>.case_count</code>
+          </td>
+          <td>
+            The identity card itself: its id, what it measures, the opaque revision hash of the
+            pinned protocol, and its size.
+          </td>
         </tr>
         <tr>
           <td><code>sf.BenchmarkInfo</code></td>
-          <td>The pinned subset a report carries, so an old result still names the exact revision it ran against.</td>
+          <td>
+            The pinned subset a report carries, so an old result still names the exact revision it
+            ran against.
+          </td>
         </tr>
       </tbody>
     </table>
