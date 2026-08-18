@@ -175,9 +175,9 @@ client.leaderboards.submit(report.candidates.only)`
           <td>When it was published, and by whom where that is recorded.</td>
         </tr>
         <tr>
-          <td><code>verified_by_openmined</code></td>
+          <td><code>verified_by_screamingface</code></td>
           <td><code>bool</code></td>
-          <td>Whether OpenMined re-ran the entry and confirmed the score.</td>
+          <td>Whether ScreamingFace re-ran the entry and confirmed the score.</td>
         </tr>
       </tbody>
     </table>
@@ -295,9 +295,9 @@ client.leaderboards.submit(report.candidates.only)`
           <td>When it was published, and by whom.</td>
         </tr>
         <tr>
-          <td><code>verified_by_openmined</code></td>
+          <td><code>verified_by_screamingface</code></td>
           <td><code>bool</code></td>
-          <td>Whether OpenMined re-ran it and confirmed the score.</td>
+          <td>Whether ScreamingFace re-ran it and confirmed the score.</td>
         </tr>
         <tr>
           <td><code>metadata</code></td>

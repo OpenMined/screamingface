@@ -37,7 +37,7 @@ sf.leaderboards.submit(report.candidates.only)
 [sf.leaderboards.submit(c) for c in report.candidates]`
 
 const fetchScore = `score = sf.leaderboards.get_score("57cc25d7-00bf-44ec-bf9d-55d66cd1e003")
-score.accuracy, score.correct_questions, score.total_questions, score.verified_by_openmined`
+score.accuracy, score.correct_questions, score.total_questions, score.verified_by_screamingface`
 const fetchScoreOut = `(1.0, 1, 1, False)`
 
 const remix = `plan = score.url4.to_python()   # Model / Fusion / Pipeline, free
@@ -53,8 +53,8 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
   >
     <p>
       A <strong>leaderboard</strong> is one benchmark's public ranking on the ScreamingFace
-      Leaderboard. The Client reads and writes it through <code>sf.leaderboards</code>. Discovery and
-      reads are free. They hit the leaderboard, not a model, and they do not need a provider
+      Leaderboard. The Client reads and writes it through <code>sf.leaderboards</code>. Discovery
+      and reads are free. They hit the leaderboard, not a model, and they do not need a provider
       connection.
     </p>
 
@@ -62,8 +62,8 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       Each ranked row keeps the exact
       <RouterLink to="/sf-client/guides/reproduce-and-share"><code>url4</code></RouterLink>
       that produced the score, so anyone can fork or re-run the recipe. The leaderboard also stores
-      whether OpenMined independently re-ran it (<code>verified_by_openmined</code>). That flag is
-      separate from who submitted the row: a submission starts unverified.
+      whether ScreamingFace independently re-ran it (<code>verified_by_screamingface</code>). That
+      flag is separate from who submitted the row: a submission starts unverified.
     </p>
 
     <p>
@@ -166,14 +166,15 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
 
     <p>
       Each entry carries <code>accuracy</code>, <code>total_questions</code>, the providers used,
-      who submitted it when that is known, the <code>verified_by_openmined</code> flag, and the
+      who submitted it when that is known, the <code>verified_by_screamingface</code> flag, and the
       <code>url4</code> expression. Notebook displays render the board as an interactive widget; the
       fields above are what each entry holds.
     </p>
 
     <p>
       On this board both rows are unverified smoke submissions. Treat
-      <code>verified_by_openmined=True</code> as the trust signal, not the mere presence of a row.
+      <code>verified_by_screamingface=True</code> as the trust signal, not the mere presence of a
+      row.
     </p>
 
     <h3>3 · Point the Client at a leaderboard</h3>
@@ -234,9 +235,9 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     </div>
 
     <p>
-      A fresh submission returns with <code>verified_by_openmined=False</code>. Verification is a
-      later, independent mark after OpenMined re-runs the recipe. Read that field before you trust a
-      number you did not produce yourself.
+      A fresh submission returns with <code>verified_by_screamingface=False</code>. Verification is
+      a later, independent mark after ScreamingFace re-runs the recipe. Read that field before you
+      trust a number you did not produce yourself.
     </p>
 
     <h3>6 · Remix or replay from the board</h3>
@@ -257,8 +258,9 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
 
     <p>
       Anyone with write access can publish a score. The board stores the claim and the recipe.
-      <code>verified_by_openmined</code> means OpenMined re-executed that recipe and accepted the
-      result. Until that flag is true, treat the row as a submission, not a verified ranking.
+      <code>verified_by_screamingface</code> means ScreamingFace re-executed that recipe and
+      accepted the result. Until that flag is true, treat the row as a submission, not a verified
+      ranking.
     </p>
 
     <h2>Links</h2>
