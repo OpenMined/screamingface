@@ -91,9 +91,68 @@ Boundary/error cases covered by test 3's exception list: the `nameOverride` pin,
 - `uv lock --check` clean
 - Release identity carries `1.3.0` forward → next tag `screamingface-engine-v1.4.0`
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** 353 changed — 301 renames, 10 added, 7 deleted, 35 modified. Matches the plan's
+  five batches. The 7 deletions are 4 heavily-rewritten modules and the 3 regenerated PNGs, which
+  git recorded as delete+add rather than rename; the 10 additions are their counterparts plus the
+  3 new test modules.
+
+- **Commits:**
+  - `d79e3a4e` — docs(screamingface-engine): spec, plan and ledger for the app rename
+  - `b36dc3b4` — feat(screamingface-engine): rename the app, package and chart from url4-cloud
+  - `be47dabc` — ci(screamingface-engine): rename the CI lanes, release identity and images
+  - `1da55586` — docs(screamingface-engine): update agent config, diagrams and stale paths
+
+- **Gates:** `run_gates.py screamingface-engine` → **ALL GATES GREEN** (append-only test check ·
+  ruff check · ruff format · pyright · check_layering · pytest with
+  `--cov=screamingface_engine --cov=url4.streaming --cov-fail-under=80`). Engine suite **1733
+  passed, 5 skipped**. Also verified: `verify_chart_wiring.py` **31/31**; `packages/url4` **1146
+  passed**; `apps/aigateway` ruff/format clean + **844 passed**; `packages/screamingface`
+  ruff/format clean + the 3 touched modules **47 passed**.
+
+- **Acceptance — the Path A test:** `helm template` of the pristine `main` chart vs the renamed one
+  (309 lines each) differs only in `# Source:`, `helm.sh/chart`, the image repository, the
+  per-render random `jwt-secret`, and the two `checksum/*` annotations. **All 9 object names are
+  identical**, `app.kubernetes.io/name` is `url4-cloud` on both sides, and the Deployment selector
+  is unchanged. The `checksum/*` change is the intended mechanism — the ConfigMap content changed,
+  so pods roll.
+
+### Deviations
+
+1. **Dated `docs/spec/` and `docs/plan/` are NOT rewritten.** The plan listed them as live docs.
+   They are per-unit historical artifacts like `docs/work/`, so rewriting their prose would falsify
+   them. The new spec carries a supersession note instead. Their filenames are also referenced by
+   historical ledgers, which the rewrite would have dangled.
+2. **Runtime invocation names retained.** `K8sJobRunner`'s `("url4-cloud", "run")` and the image
+   `CMD ["url4-cloud"]` stay, alongside both console aliases, because App and image are separate
+   objects that roll at different moments. The chart's Deployment `command` DID move — it travels
+   in the same pod template as its image, so it has no skew. `OME-877` moves the rest together.
+3. **76 line-length violations**, unanticipated: `screamingface_engine` is 9 characters longer than
+   `url4_cloud`, so wrapped prose overflowed. Re-wrapped across 44 files (delegated as a mechanical
+   transform, then independently re-verified against the gates and the survivor assertions).
+4. **Two task-board card entries were stale independently of this rename** and were corrected
+   against live Linear: `url4-engine` had been renamed to `url4-sdk`, and the `screamingface-engine`
+   landing label — already applied to live issues — had no entry at all.
+5. **Broken paths fixed in three other components**, beyond the planned scope but factually broken
+   by the move: `packages/screamingface/justfile` (executable recipes), the public-docs Engine and
+   Architecture pages (GitHub links that would 404), and `apps/aigateway-ui/.dockerignore`. Paths
+   only — prose in other components was left for its owners.
+6. **`pre-commit run --all-files` had to be partially reverted.** It "fixed" 37 files of
+   pre-existing non-compliance across unrelated apps, packages and a historical `docs/tasks/`
+   mirror. All 37 were restored to `HEAD` so this PR carries only its own change.
+
+### Notes for the next agent
+
+- **The shell wrapper truncates `helm` stdout before a redirect**, writing a literal
+  `... (262 lines truncated)` marker into the output file — and a wrapped `diff` then reported two
+  truncated renders as "Files are identical". Use `rtk proxy helm …` for any chart measurement. The
+  `test_chart_identity.py` helm test is unaffected because it shells out from Python.
+- `packages/screamingface` has **pre-existing failures unrelated to this work**, confirmed identical
+  on pristine `main`: 1 collection error (`ipywidgets` absent) and 4 progress-panel timing failures.
+- Version `1.3.0` carries forward. Commit types are non-breaking deliberately, so release-please
+  cuts **`screamingface-engine-v1.4.0`** rather than a major bump. Renaming a published image
+  repository is arguably major; if a `2.0.0` is wanted, that is an owner call and needs a
+  `BREAKING CHANGE:` footer.
+
+**Status:** work complete, gates green, awaiting PR review. Closes on merge.
