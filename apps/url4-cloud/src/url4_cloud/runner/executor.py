@@ -43,6 +43,7 @@ from url4.streaming.protocol import (
     TokenUsage,
 )
 from url4.streaming.protocol.taxonomy import CostBreakdown
+from url4_cloud.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from url4_cloud.runner.cache_counters import RunCacheCounters
 
 _logger = logging.getLogger(__name__)
@@ -130,6 +131,57 @@ class _Bridge:
             await self._wake.wait()
 
 
+def _pricing_version(total: Decimal | None) -> str:
+    """`PRICING_VERSION` when a total is known, `UNPRICED` otherwise.
+
+    INVARIANT: the ONLY switch a consumer reads to decide dash-versus-figure. Degrade to `UNPRICED`,
+    never to a zero that reads as "this was free".
+    """
+    return UNPRICED if total is None else PRICING_VERSION
+
+
+def _token_usage(usage: _SpanUsage) -> TokenUsage:
+    """The wire token counts for one span.
+
+    AIDEV-NOTE: the wire's `TokenUsage` fields are non-optional ints, so a class the gateway did not
+    report flattens to 0 here — "unknown" and "zero" are indistinguishable ON THE WIRE for tokens.
+    That is tolerable because tokens do NOT enter the price under this pricing method: the amount is
+    provider-authored, so an unknown cache class cannot make the cost wrong. If a rate-card method
+    ever multiplies these counts, that stops being true and the wire type has to gain optionality
+    first.
+    """
+    return TokenUsage(
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cache_read_tokens=usage.cache_read_tokens or 0,
+        cache_creation_tokens=usage.cache_creation_tokens or 0,
+        reasoning_tokens=usage.reasoning_tokens or 0,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _SpanUsage:
+    """One span's accumulated model accounting, folded from its `Usage` events.
+
+    FEATURE: per-run cost reporting (OME-849). Replaced a positional 4-tuple: nine fields read as
+    `usage[2]` is unreadable, and the tuple could not express "not reported".
+
+    INVARIANT: an optional field is `None` when no call reported it — never zero. `cost_usd` `None`
+    means this span is UNPRICED, which is a different claim from `Decimal("0")` ("the calls were
+    genuinely free", e.g. every one served from cache).
+    """
+
+    provider: str
+    model: str
+    response_model: str | None
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int | None
+    cache_creation_tokens: int | None
+    reasoning_tokens: int | None
+    cost_usd: Decimal | None
+
+
 @dataclass
 class _SpanState:
     """An in-flight span's accumulated fields, held between its `NodeStarted` and matching
@@ -139,7 +191,7 @@ class _SpanState:
     detail: str
     start: datetime
     parent_span_id: str | None
-    usage: tuple[str, str, int, int] | None = field(default=None)
+    usage: _SpanUsage | None = field(default=None)
     # INVARIANT: a LIST, accumulated — one span can make several model calls (the web-tools loop
     # is the normal case), and each round trip's reason is separately auditable.
     #
@@ -174,7 +226,32 @@ class _RunState:
         self.cache_counters = RunCacheCounters()
         self._sum_input = 0
         self._sum_output = 0
+        # WHY these three are summed as plain ints while the SPAN-level equivalents poison through
+        # `accumulate`: money and tokens have different escape hatches on the wire.
+        #
+        # A run whose price is unknowable says so — `pricing_version: "unpriced"` exists for it —
+        # so poisoning the money total loses nothing. `TokenUsage`'s fields are non-optional ints
+        # with no such spelling, so poisoning a token class cannot publish "unknown"; it publishes
+        # ZERO, which is a false claim rather than an absent one, and it discards the real counts
+        # the reporting calls did supply.
+        #
+        # INVARIANT (OME-869): at RUN level an unreported class contributes nothing and never
+        # erases what its siblings reported. The mixed-provider case is the one that matters — one
+        # model reports cache reads and no reasoning, another the reverse — where poisoning would
+        # zero BOTH real figures to encode an uncertainty the frame cannot carry anyway.
+        #
+        # AIDEV-NOTE: do NOT "make this consistent" with the span-level `accumulate` calls in
+        # `_fold_usage`. The asymmetry is the decision. A span is one model, so mixed reporting is
+        # unlikely there; a run spans many, so it is the normal case. If `TokenUsage` ever gains
+        # optional counts, revisit this — then poisoning could finally say what it means.
+        self._sum_cache_read = 0
+        self._sum_cache_creation = 0
+        self._sum_reasoning = 0
         self._providers_models: set[tuple[str, str]] = set()
+        # `None` until the first priced call: a run that made no model call at all stays unpriced,
+        # which is the shape it published before cost reporting existed.
+        self._subtree_cost: Decimal | None = None
+        self._subtree_unpriced = False
 
     def map(self, event: ObservationEvent) -> list[Traced]:
         """Fold one observation event into run state, returning the wire frames it produces.
@@ -250,7 +327,21 @@ class _RunState:
     def _fold_usage(self, event: Usage) -> None:
         self._sum_input += event.input_tokens
         self._sum_output += event.output_tokens
+        self._sum_cache_read += event.cache_read_tokens or 0
+        self._sum_cache_creation += event.cache_creation_tokens or 0
+        self._sum_reasoning += event.reasoning_tokens or 0
         self._providers_models.add((event.provider, event.model))
+        # INVARIANT: the run total latches UNPRICED on the first call it cannot price, and never
+        # unlatches. A grand total that silently omits a step while presenting itself as a total is
+        # worse than no total — the consumer cannot tell a complete sum from a lossy one. Counted
+        # here rather than in `_finish` for the same reason the token sums are: a round trip on a
+        # span this run never opened still spent money.
+        if event.cost_usd is None:
+            self._subtree_unpriced = True
+        elif self._subtree_cost is None:
+            self._subtree_cost = event.cost_usd
+        else:
+            self._subtree_cost += event.cost_usd
         span = self.spans.get(event.span_id) if event.span_id is not None else None
         if span is None:
             return
@@ -260,12 +351,36 @@ class _RunState:
         # (as this once did) kept only the final round trip and silently dropped every earlier
         # one from both the span frame and its `scope="self"` cost frame, while `subtree` stayed
         # correct — per-node cost that under-reports against a run total that does not.
-        prior_in, prior_out = (span.usage[2], span.usage[3]) if span.usage else (0, 0)
-        span.usage = (
-            event.provider,
-            event.model,
-            prior_in + event.input_tokens,
-            prior_out + event.output_tokens,
+        prior = span.usage
+        if prior is None:
+            # Seeding rather than accumulating from zero is what lets a genuine `None` in the FIRST
+            # round trip poison the class, instead of being mistaken for "nothing seen yet".
+            span.usage = _SpanUsage(
+                provider=event.provider,
+                model=event.model,
+                response_model=event.response_model,
+                input_tokens=event.input_tokens,
+                output_tokens=event.output_tokens,
+                cache_read_tokens=event.cache_read_tokens,
+                cache_creation_tokens=event.cache_creation_tokens,
+                reasoning_tokens=event.reasoning_tokens,
+                cost_usd=event.cost_usd,
+            )
+            return
+        span.usage = _SpanUsage(
+            provider=event.provider,
+            model=event.model,
+            # Last reported wins, and an unreported one leaves the earlier standing: a later round
+            # trip that named no served model must not blank one an earlier trip did name.
+            response_model=event.response_model or prior.response_model,
+            input_tokens=prior.input_tokens + event.input_tokens,
+            output_tokens=prior.output_tokens + event.output_tokens,
+            cache_read_tokens=accumulate(prior.cache_read_tokens, event.cache_read_tokens),
+            cache_creation_tokens=accumulate(
+                prior.cache_creation_tokens, event.cache_creation_tokens
+            ),
+            reasoning_tokens=accumulate(prior.reasoning_tokens, event.reasoning_tokens),
+            cost_usd=accumulate(prior.cost_usd, event.cost_usd),
         )
 
     def _finish(self, event: NodeFinished) -> list[Traced]:
@@ -282,11 +397,15 @@ class _RunState:
         span_data = SpanData(
             name=detail or kind,
             operation=kind,
-            provider=usage[0] if usage else None,
-            request_model=usage[1] if usage else None,
-            response_model=usage[1] if usage else None,
-            input_tokens=usage[2] if usage else None,
-            output_tokens=usage[3] if usage else None,
+            provider=usage.provider if usage else None,
+            request_model=usage.model if usage else None,
+            # AIDEV-NOTE: this deliberately still ECHOES the requested model when the provider named
+            # no served one, unlike `url4.observe.Usage.response_model`, whose invariant forbids
+            # the echo. Changing `SpanData`'s long-standing behaviour is a wire change for every
+            # existing run and belongs to its own unit of work, not to OME-849.
+            response_model=(usage.response_model or usage.model) if usage else None,
+            input_tokens=usage.input_tokens if usage else None,
+            output_tokens=usage.output_tokens if usage else None,
             # Empty -> None so the attribute is simply ABSENT rather than an empty list, matching
             # how OTel treats `gen_ai.*` attributes. This collapses "no model call" and "a call
             # that reported no reason" into the same wire shape — intended, not an oversight.
@@ -308,11 +427,14 @@ class _RunState:
                 Traced(
                     payload=CostUsageData(
                         scope="self",
-                        provider=usage[0],
-                        model=usage[1],
-                        pricing_version="unpriced",
-                        usage=TokenUsage(input_tokens=usage[2], output_tokens=usage[3]),
-                        cost=CostBreakdown(total_usd=Decimal("0")),
+                        provider=usage.provider,
+                        model=usage.model,
+                        pricing_version=_pricing_version(usage.cost_usd),
+                        usage=_token_usage(usage),
+                        # INVARIANT: an unpriced span publishes total 0 with the `unpriced` version,
+                        # exactly as it did before cost reporting existed — the consumer reads the
+                        # version, not the number, to decide whether to show a figure at all.
+                        cost=CostBreakdown(total_usd=usage.cost_usd or Decimal("0")),
                     ),
                     # INVARIANT: the self-scoped cost carries the SAME span as the span frame it
                     # accompanies. Without it every `scope="self"` frame in a run is published
@@ -345,13 +467,23 @@ class _RunState:
 
     def build_subtree(self) -> CostUsageData:
         provider, model = self._subtree_provider_model()
+        # INVARIANT: priced only when EVERY observed call was priced. `_subtree_unpriced` latches
+        # on the first one that was not; a run with no model call at all has `_subtree_cost is
+        # None` and stays unpriced — the shape it published before cost reporting existed.
+        total = None if self._subtree_unpriced else self._subtree_cost
         return CostUsageData(
             scope="subtree",
             provider=provider,
             model=model,
-            pricing_version="unpriced",
-            usage=TokenUsage(input_tokens=self._sum_input, output_tokens=self._sum_output),
-            cost=CostBreakdown(total_usd=Decimal("0")),
+            pricing_version=_pricing_version(total),
+            usage=TokenUsage(
+                input_tokens=self._sum_input,
+                output_tokens=self._sum_output,
+                cache_read_tokens=self._sum_cache_read,
+                cache_creation_tokens=self._sum_cache_creation,
+                reasoning_tokens=self._sum_reasoning,
+            ),
+            cost=CostBreakdown(total_usd=total or Decimal("0")),
         )
 
     def _subtree_provider_model(self) -> tuple[str, str]:
