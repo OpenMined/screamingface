@@ -90,6 +90,14 @@ candidate.score`
       just three cases, so this stays quick and cheap while you are finding your feet.
     </p>
 
+    <Note>
+      <code>ifeval</code> is one of several benchmarks the engine publishes. Others include
+      <code>draco</code> (deep research) and <code>healthbench-worst30</code> (hard medical
+      conversations); list everything available with <code>sf.benchmarks.list()</code>, and see
+      <RouterLink to="/sf-client/guides/benchmarks">Choose a benchmark</RouterLink> for how to pick
+      one.
+    </Note>
+
     <div class="not-prose">
       <NbCell :count="4" :code="run" />
     </div>
@@ -109,6 +117,23 @@ candidate.score`
     <p>
       That is a whole evaluation: compose, run, read. Nothing here was mocked — the same three steps
       scale from three cases to a full benchmark.
+    </p>
+
+    <h2>How far this goes</h2>
+
+    <p>
+      What you built is a <strong>parallel fan-out</strong>: the members answer at once and a
+      synthesizer folds their drafts into one. That is one of two ways recipes compose. The other is
+      a <RouterLink to="/sf-client/api/pipelines">Pipeline</RouterLink>, the serial counterpart,
+      where each stage refines the previous stage's answer instead of running alongside it.
+    </p>
+
+    <p>
+      Recipes nest, so the reach is larger than it looks. A member, a synthesizer, or a pipeline
+      stage can itself be a <RouterLink to="/sf-client/api/fusions">Fusion</RouterLink> or a
+      Pipeline: a fusion of pipelines, a pipeline whose last stage is a fusion, a fusion whose
+      synthesizer is itself a fusion. Every one is built from those same two moves, parallel and
+      serial. Start flat, like here, and add depth when a task needs it.
     </p>
 
     <h2>Where to go next</h2>
