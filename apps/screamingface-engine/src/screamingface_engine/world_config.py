@@ -34,6 +34,7 @@ loud error rather than a silent no-op, so a config that looks like it works actu
 
 from __future__ import annotations
 
+import json
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -46,6 +47,7 @@ from screamingface_engine.models.registry import (
     ModelRegistry,
     decode_route_id,
     encode_route_id,
+    is_route_legal,
 )
 
 DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
@@ -272,9 +274,47 @@ def _parse_aigateway(
         ),
     )
     section = _apply_env(section, env)
+    section = _apply_extra_models(section, env)
     _reject_unroutable_default(section.default_model)
     _require_declared(section.default_model, models)
     return section
+
+
+def _apply_extra_models(section: AigatewaySection, env: Mapping[str, str]) -> AigatewaySection:
+    """Merge dynamically admitted ids (OME-880) into the world — ADDITIVELY only.
+
+    The App writes ``URL4_CLOUD_EXTRA_MODELS`` onto a run when the gateway has
+    dynamically admitted models this deployment; the run's world must route them
+    or the pre-spend admission promise breaks mid-run. An id already declared
+    keeps its declared spec (the overlay can never weaken a compiled route);
+    unknown ids are appended with the same defaults a compiled OpenRouter route
+    gets (``ModelSpec`` defaults, ``web_search=True``).
+
+    WHY malformed fails LOUD: this env is App-written, never caller input, so an
+    unreadable value is a bug — dropping it silently would resurface as a
+    mid-run 404 with no trail back to the cause.
+    """
+    raw = env.get(job_env.EXTRA_MODELS)
+    if raw is None or not raw.strip():
+        return section
+    try:
+        value = json.loads(raw)
+    except ValueError as exc:
+        raise WorldConfigError(f"{job_env.EXTRA_MODELS} is not valid JSON: {raw!r}") from exc
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise WorldConfigError(
+            f"{job_env.EXTRA_MODELS} must be a JSON array of model ids, got {raw!r}"
+        )
+    for model_id in value:
+        if ":" in model_id or not is_route_legal(model_id):
+            raise WorldConfigError(
+                f"{job_env.EXTRA_MODELS} entry {model_id!r} cannot be a url4 route"
+            )
+    declared_ids = {model.id for model in section.models}
+    extras = tuple(ModelSpec(id=model_id) for model_id in value if model_id not in declared_ids)
+    if not extras:
+        return section
+    return replace(section, models=section.models + extras)
 
 
 def _apply_env(section: AigatewaySection, env: Mapping[str, str]) -> AigatewaySection:

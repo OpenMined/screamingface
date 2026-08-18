@@ -18,8 +18,9 @@ format.
 
 from __future__ import annotations
 
+import json
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
 
@@ -125,6 +126,29 @@ url4-INTERNAL: it is never sent to the gateway, whose cache-control grammar is c
 key and BYPASSES on any other. It travels only so the value survives to read-back, where an entry's
 age can be compared against it.
 """
+
+EXTRA_MODELS = "URL4_CLOUD_EXTRA_MODELS"
+"""Dynamically admitted model ids this run's world must ALSO route (OME-880).
+
+A JSON array of gateway model ids. Per-run for the same reason the identity is: the overlay
+does not exist until the gateway admits something, so Helm cannot supply it — the App writes
+the CURRENT overlay onto every scheduled run, which is what lets a model admitted a second
+ago reach the very next run. The run mode merges these ADDITIVELY into the declared world
+(:func:`screamingface_engine.world_config.parse_config`); an id already declared keeps its declared
+spec, so the overlay can never weaken a compiled route.
+"""
+
+
+def extra_models_to_env(ids: Sequence[str]) -> dict[str, str]:
+    """Render the admitted overlay as the Job env key that carries it.
+
+    An empty overlay renders NOTHING — the common case (no dynamic admission
+    this deployment) leaves the Job spec exactly as it was before OME-880.
+    """
+    if not ids:
+        return {}
+    return {EXTRA_MODELS: json.dumps(sorted(ids))}
+
 
 _TRUE, _FALSE = "true", "false"
 
@@ -264,6 +288,7 @@ WRITTEN_BY_APP = frozenset(
         AIGATEWAY_PROFILE,
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,
+        EXTRA_MODELS,
         *IDENTITY_HEADER_ENV.values(),
     }
 )
@@ -298,6 +323,7 @@ __all__ = [
     "DEFAULT_STREAM_GRACE_S",
     "DEPLOY_TIME",
     "EXPRESSION",
+    "EXTRA_MODELS",
     "IDENTITY_HEADER_ENV",
     "JOB_DEADLINE_S",
     "NATS_URL",
@@ -313,6 +339,7 @@ __all__ = [
     "WRITTEN_BY_APP",
     "cache_policy_from_env",
     "cache_policy_to_env",
+    "extra_models_to_env",
     "identity_from_env",
     "identity_from_headers",
     "identity_to_env",

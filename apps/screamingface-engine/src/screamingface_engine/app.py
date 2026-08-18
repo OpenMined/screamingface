@@ -272,12 +272,17 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     settings = Settings()
     _require_prod_secret(settings)
     stream = JetStreamConsumer(settings.nats_url)
-    job_runner = build_job_runner(settings)
+    # Catalog first (OME-880): the job runner needs the admitted-model overlay so a
+    # dynamically admitted model is routable by the very next scheduled run.
+    catalog = build_executable_catalog_service(settings, os.environ)
+    job_runner = build_job_runner(
+        settings,
+        extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
+    )
     if job_runner is None:
         logging.warning(
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
-    catalog = build_executable_catalog_service(settings, os.environ)
     connections = build_connections(settings)
     app = create_app(
         settings,

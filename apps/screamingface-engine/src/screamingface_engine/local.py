@@ -150,13 +150,6 @@ def create_local_app(
     run_env = _with_runner_config(env if env is not None else os.environ)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)
-    job_runner = InProcessJobRunner(
-        stream,
-        partial(build_executor, benchmarks=benchmarks),
-        base_env=run_env,
-        max_concurrent_runs=settings.local_max_concurrent_runs,
-        max_history=settings.local_max_run_history,
-    )
     # INVARIANT: the local default is substituted ONCE, here, before anything reads the address —
     # so discovery and connections resolve the same gateway by construction rather than by two
     # call sites agreeing. This substitution used to sit BELOW the catalog and feed only
@@ -164,7 +157,17 @@ def create_local_app(
     # deployment shape whose address is known in advance, while `/v1/connections` on that very
     # address answered 200 (OME-795).
     settings = _with_local_gateway(settings)
+    # Catalog before the runner (OME-880): the runner takes the admitted-model overlay so a
+    # dynamically admitted model is routable by the very next local run.
     catalog = build_executable_catalog_service(settings, run_env)
+    job_runner = InProcessJobRunner(
+        stream,
+        partial(build_executor, benchmarks=benchmarks),
+        base_env=run_env,
+        max_concurrent_runs=settings.local_max_concurrent_runs,
+        max_history=settings.local_max_run_history,
+        extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
+    )
     connections = build_connections(settings)
     app = create_app(
         settings,

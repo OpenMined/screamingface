@@ -137,6 +137,17 @@ class CachedCatalog:
     def entry_count(self) -> int:
         return len(self._entries)
 
+    def invalidate(self) -> None:
+        """Drop every cached entry so the next fetch re-reads upstream (OME-880).
+
+        Called when a model is dynamically admitted: the upstream catalog just
+        changed, so serving the pre-admission body for the rest of the TTL would
+        advertise a world the gateway no longer serves. In-flight fetches are
+        deliberately untouched — one may still store a pre-admission body, which
+        then ages out on the ordinary TTL (an accepted, rare staleness window).
+        """
+        self._entries.clear()
+
     async def aclose(self) -> None:
         """Release the upstream client, if this service owns one. Idempotent.
 
