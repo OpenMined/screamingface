@@ -6,8 +6,8 @@ import type { NavEntry } from '@/composables/useDocNavigation'
 // nothing else changes.
 export const sfClientVersion = {
   prefix: 'Based on state at commit',
-  label: 'b698fcff',
-  url: 'https://github.com/OpenMined/screamingface/commit/b698fcffd20d3dbe19c17a7b6654e302adeaf6ee',
+  label: '90a104e3',
+  url: 'https://github.com/OpenMined/screamingface/commit/90a104e39186801553103b9342b60dcd64677562',
 }
 
 // The "Get started with SF Client" navbar tab: everything but the reference —
