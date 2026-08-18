@@ -12,16 +12,17 @@ import { learnNavigation as navigation } from '@/navigation/learn'
   >
     <p>
       Evaluating a fusion means many model calls, and calls cost money and time. ScreamingFace keeps
-      that cost low in two ways: it caches every call, and it gives you a choice of where the
-      compute comes from.
+      that cost low in two ways: it caches calls to the providers that support it, and it gives you
+      a choice of where the compute comes from.
     </p>
 
-    <h2>Every call is cached</h2>
+    <h2>How caching works</h2>
 
     <p>
-      When the <RouterLink to="/learn/engine">engine</RouterLink> calls a model, it stores the
-      response keyed by the exact request. Reuse the same model in another candidate, or run the
-      same evaluation again, and the stored response is served instead of paying for it twice.
+      When the <RouterLink to="/learn/engine">engine</RouterLink> calls a model on a provider that
+      supports caching, it stores the response keyed by the exact request. Reuse the same model in
+      another candidate, or run the same evaluation again, and the stored response is served instead
+      of paying for it twice. Only some providers support it; the Providers table below shows which.
     </p>
 
     <ul>
@@ -165,10 +166,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <h2>Providers</h2>
 
     <p>
-      Whichever engine you run, these are the providers it can reach. Caching is provider-agnostic:
-      every call is keyed by its exact request, so a hit is a hit no matter who would have served
-      it. How you connect each one varies (a pasted key, a local runtime, or a login through a CLI
-      tool); the
+      Whichever engine you run, these are the providers it can reach. Caching is opt-in per
+      provider, and only <code>anthropic</code> and <code>openrouter</code> are served from the
+      cache today; the rest bypass it and dispatch every time. How you connect each one varies (a
+      pasted key or a login through a CLI tool); the
       <RouterLink to="/sf-client/guides/connections">Connect a provider</RouterLink> guide has the
       specifics.
     </p>
@@ -178,6 +179,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
         <tr>
           <th>Provider</th>
           <th>Reached via</th>
+          <th>Cached?</th>
           <th>What it is</th>
         </tr>
       </thead>
@@ -185,6 +187,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
         <tr>
           <td><code>openrouter</code></td>
           <td>API key</td>
+          <td>Yes</td>
           <td>
             A router over many hosted models (OpenAI, Anthropic, Google, DeepSeek, Qwen and more)
             behind one key.
@@ -193,31 +196,31 @@ import { learnNavigation as navigation } from '@/navigation/learn'
         <tr>
           <td><code>anthropic</code></td>
           <td>API key</td>
+          <td>Yes</td>
           <td>Claude models, direct.</td>
         </tr>
         <tr>
           <td><code>huggingface</code></td>
           <td>API key</td>
+          <td>No</td>
           <td>Hugging Face inference endpoints.</td>
-        </tr>
-        <tr>
-          <td><code>ollama</code></td>
-          <td>Local</td>
-          <td>Open-weight models on your own machine. No key and no per-call bill.</td>
         </tr>
         <tr>
           <td><code>gemini-cli</code></td>
           <td>CLI plugin</td>
+          <td>No</td>
           <td>Google Gemini through the gemini CLI.</td>
         </tr>
         <tr>
           <td><code>codex</code></td>
           <td>CLI plugin</td>
+          <td>No</td>
           <td>OpenAI models through the Codex CLI.</td>
         </tr>
         <tr>
           <td><code>antigravity</code></td>
           <td>CLI plugin</td>
+          <td>No</td>
           <td>Gemini through the Antigravity CLI.</td>
         </tr>
       </tbody>
