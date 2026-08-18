@@ -51,6 +51,18 @@ def _validate(paths: tuple[PurePosixPath, ...], *, source: bool) -> None:
         raise SystemExit("wheel contains application or test code")
     if not source and PurePosixPath("screamingface/py.typed") not in paths:
         raise SystemExit("wheel does not declare its inline types with screamingface/py.typed")
+    if not source:
+        required_runtime_files = {
+            PurePosixPath("aigateway/__init__.py"),
+            PurePosixPath("scoreboard/__init__.py"),
+            PurePosixPath("url4/__init__.py"),
+            PurePosixPath("url4_cloud/__init__.py"),
+            PurePosixPath("screamingface/_runtime/resources/url4.toml"),
+            PurePosixPath("screamingface/_runtime/scoreboard_portal/index.html"),
+        }
+        missing_runtime = sorted(map(str, required_runtime_files - set(paths)))
+        if missing_runtime:
+            raise SystemExit(f"wheel is missing bundled runtime material: {missing_runtime}")
     # WHY: Apache-2.0 section 4(a) requires the licence to travel with every redistribution.
     # A packaging change can drop it silently, and the failure is legal rather than functional
     # — nothing breaks at runtime, so only an assertion catches it.

@@ -8,6 +8,20 @@ Evaluate composable Candidate Recipes against URL4-native research Benchmarks.
 > `healthbench-worst30` challenge as complete URL4 Benchmark resources. There is no fixture,
 > embedded benchmark runtime, or Client-side execution fallback.
 
+## Local notebook runtime
+
+Install the SDK, notebook tools, and local services together:
+
+```bash
+pip install "screamingface[runtime,notebook]"
+screamingface prepare draco  # first run only
+screamingface up
+```
+
+`screamingface up` starts AI Gateway, Scoreboard, and the Engine in the background. Use
+`screamingface status`, `screamingface logs`, and `screamingface down` to manage them. Runtime
+state is stored under `~/.screamingface` by default; set `SCREAMINGFACE_DATA_DIR` to override it.
+
 ## Target v1 workflow
 
 The approved Python workflow is:

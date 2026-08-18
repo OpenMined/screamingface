@@ -20,7 +20,6 @@ dependencies = [
     "httpx>=0.27",
     "pynacl>=1.5",
     "pyyaml>=6.0",
-    "url4>=1.3.0",
     "websockets>=16.1,<17",
 ]
 
@@ -28,6 +27,9 @@ dependencies = [
 Homepage = "https://screamingface.ai"
 Repository = "https://github.com/ScreamingFace/screamingface"
 Issues = "https://github.com/ScreamingFace/screamingface/issues"
+
+[project.scripts]
+screamingface = "screamingface._runtime.cli:main"
 
 [project.optional-dependencies]
 notebook = [
@@ -37,6 +39,24 @@ notebook = [
     "nbclient>=0.10",
     "nbformat>=5.10",
 ]
+runtime = [
+    "aiosqlite==0.22.1",
+    "bcrypt==5.0.0",
+    "cryptography==50.0.0",
+    "datasets==5.0.0",
+    "fastapi>=0.141.1",
+    "immutabledict>=4.2.0",
+    "kubernetes>=31.0.0",
+    "langdetect>=1.0.9",
+    "litellm==1.87.0",
+    "nats-py>=2.9.0",
+    "nltk>=3.9.1",
+    "prometheus-client>=0.21.0",
+    "pydantic-settings>=2.14.2",
+    "pyjwt==2.13.0",
+    "tortoise-orm[asyncpg]==1.1.7",
+    "uvicorn[standard]>=0.52.1",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -45,8 +65,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/screamingface"]
 
-[tool.uv.sources]
-url4 = { path = "../url4", editable = true }
+[tool.hatch.build.hooks.custom]
+path = "scripts/runtime_build_hook.py"
 
 [tool.ruff]
 line-length = 100
@@ -71,6 +91,11 @@ testpaths = ["tests"]
 filterwarnings = [
     "error::DeprecationWarning:screamingface",
 ]
+
+[tool.coverage.run]
+# The SDK test job intentionally installs only the notebook extra. The optional
+# runtime is exercised by its clean-wheel and live-stack integration checks.
+omit = ["src/screamingface/_runtime/*"]
 
 [dependency-groups]
 dev = [
