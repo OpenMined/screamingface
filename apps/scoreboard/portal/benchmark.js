@@ -334,17 +334,6 @@
     state.benchmarkId = id;
     initTabStrip(id);
 
-    // OME-872: the explainer infographic is keyed by benchmark id and entirely
-    // optional — `hidden` comes off only when the asset actually loads, so a
-    // benchmark that ships no infographic renders exactly as before. Failure is
-    // silent by design: this is supplementary, never load-bearing.
-    var infographic = document.getElementById("benchmark-infographic");
-    if (infographic) {
-      infographic.alt = "How the " + id + " benchmark works, at a glance";
-      infographic.addEventListener("load", function () { infographic.hidden = false; });
-      infographic.src = "assets/benchmarks/" + encodeURIComponent(id) + ".svg";
-    }
-
     P.showLoading(statusNode, "Loading leaderboard…");
     wrap.hidden = true;
 

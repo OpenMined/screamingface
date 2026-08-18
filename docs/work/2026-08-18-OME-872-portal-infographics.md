@@ -1,9 +1,9 @@
 ---
 ticket: OME-872
 stack: scoreboard (portal static only; no python)
-status: in_progress
+status: reverted
 started: 2026-08-18
-finished:
+finished: 2026-08-18
 ---
 
 # OME-872 — Render benchmark explainer infographics on the portal benchmark page
@@ -36,7 +36,11 @@ data-driven by benchmark id, fail-silent when no asset exists.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned
-- **Commits:** (pending owner review — uncommitted with the OME-870 batch)
-- **Gates:** portal Node tests 19 pass; live screenshot verified on healthbench-worst30
-- **Deviations:** none
+- **Actual files:** as planned (commit `fda71ced`), then fully reverted the same day at
+  owner request — the leaderboard is a public record of the best models for a wide
+  audience; benchmark-mechanics explainers are documentation and belong in the example
+  notebooks (OME-870), not on the portal. Notebooks keep their infographics.
+- **Commits:** `fda71ced` (add) + revert commit on the same PR #626.
+- **Gates:** portal Node tests 19 pass on both add and revert.
+- **Deviations:** outcome is a deliberate reversal, not a defect — recorded so the next
+  agent does not re-add the portal slot.
