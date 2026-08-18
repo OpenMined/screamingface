@@ -153,3 +153,54 @@ test("barWidth: a missing max is a zero-width bar, never NaN in CSS", () => {
   assert.equal(L.barWidth(0.5, undefined, undefined), 0);
   assert.equal(L.barWidth(NaN, 0, 1), 0);
 });
+
+/* --- bestEntryScore: the catalogue's "Best reproducible" figure (OME-874) --- */
+
+test("bestEntryScore: an empty or missing board has no best", () => {
+  assert.equal(L.bestEntryScore(null), null);
+  assert.equal(L.bestEntryScore({}), null);
+  assert.equal(L.bestEntryScore({ entries: [] }), null);
+});
+
+test("bestEntryScore: null, never 0, when there is nothing to report", () => {
+  // 0 is a real score on a benchmark that can go negative, so it must not double as
+  // "no submissions" — the portal renders an em dash for null and the number for 0.
+  assert.equal(L.bestEntryScore({ entries: [] }), null);
+  assert.equal(L.bestEntryScore({ entries: [entry("spec/zero", 0, false)] }), 0);
+});
+
+test("bestEntryScore: takes the highest entry, not the first", () => {
+  // The route orders by score descending, so the head is normally the answer. Scanning
+  // guards against a future reordering silently reporting the wrong benchmark best.
+  const board = {
+    entries: [entry("spec/a", 0.2, false), entry("spec/b", 0.9, false), entry("spec/c", 0.4, false)],
+  };
+
+  assert.equal(L.bestEntryScore(board), 0.9);
+});
+
+test("bestEntryScore: negative boards report their least-negative entry", () => {
+  // HealthBench worst-30 is negative for every serious entry (OME-866).
+  const board = { entries: [entry("spec/a", -1.143, false), entry("spec/b", -0.2, false)] };
+
+  assert.equal(L.bestEntryScore(board), -0.2);
+});
+
+test("bestEntryScore: baselines never count as our best", () => {
+  // INVARIANT: a baseline is an imported third-party number with no submitter. Letting one
+  // win this cell would publish an outside board's figure as our best result.
+  const board = {
+    entries: [entry("spec/a", 0.4, false)],
+    baselines: [{ model_name: "GPT-5.2", score: 0.99 }],
+  };
+
+  assert.equal(L.bestEntryScore(board), 0.4);
+});
+
+test("bestEntryScore: a malformed entry is skipped, not propagated", () => {
+  const board = {
+    entries: [{ spec_id: "spec/bad" }, entry("spec/good", 0.5, false), { spec_id: "x", score: NaN }],
+  };
+
+  assert.equal(L.bestEntryScore(board), 0.5);
+});

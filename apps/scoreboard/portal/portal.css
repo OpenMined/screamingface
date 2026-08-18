@@ -207,3 +207,17 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 @media (min-width: 621px) {
   .stats--two { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---- landing page ---------------------------------------------------------
+   Everything else the landing page needs (.kv, .note, .o-mark, .btn, .eyebrow)
+   comes from style.css. `.defs` carries no rule by design; it is a hook. */
+
+/* The glossary's first key. Green because green means verified in this system
+   and gold is reserved for the win. */
+.kv .dt-repro { color: var(--success-text-low); }
+
+/* The rail's last link, so nothing sits under the theme glyph. */
+.rail .rail-link--end { margin-right: var(--space-7); }
+
+/* The catalogue's Open link never breaks across lines. */
+td.col-open { white-space: nowrap; }

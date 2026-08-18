@@ -277,7 +277,7 @@ window.ScorePortal = (function () {
     return b.description || null;
   }
 
-  function benchmarkRow(b, submissionCount) {
+  function benchmarkRow(b, board) {
     var tr = document.createElement("tr");
 
     var nameTd = el("td", "cell-wrap");
@@ -287,7 +287,16 @@ window.ScorePortal = (function () {
     nameTd.appendChild(el("span", "mono faint", b.id));
     tr.appendChild(nameTd);
 
+    // Focus: editorial copy; absent for benchmarks that ship without one.
+    tr.appendChild(el("td", "cell-wrap", b.focus || EM_DASH));
+
+    var submissionCount = board && typeof board.count === "number" ? board.count : null;
     tr.appendChild(el("td", "num mono", typeof submissionCount === "number" ? submissionCount.toLocaleString(PORTAL_LOCALE) : EM_DASH));
+
+    // Best reproducible: formatScore, not formatPercent — scores are benchmark-native and can
+    // be fractional or negative. Em dash when the board is empty or the fetch failed.
+    var best = board && typeof board.best === "number" ? board.best : null;
+    tr.appendChild(el("td", "num mono", best === null ? EM_DASH : formatScore(best)));
 
     // dataset_url is API-provided/untrusted: only render it when it is a real
     // http(s) URL, so a javascript:/data: scheme can never reach the href.
@@ -307,8 +316,8 @@ window.ScorePortal = (function () {
     }
     tr.appendChild(datasetTd);
 
-    var lbTd = el("td");
-    lbTd.appendChild(link("", "benchmark.html?id=" + encodeURIComponent(b.id), "Leaderboard →"));
+    var lbTd = el("td", "col-open");
+    lbTd.appendChild(link("", "benchmark.html?id=" + encodeURIComponent(b.id), "Open →"));
     tr.appendChild(lbTd);
     return tr;
   }
@@ -342,10 +351,20 @@ window.ScorePortal = (function () {
   // closest honest proxy for "# submissions" without a dedicated endpoint.
   // top=200 is the route's own MAX_LEADERBOARD_TOP — the true ceiling, not a
   // number picked here.
-  function fetchSubmissionCount(benchmarkId) {
+  //
+  // This response already carries the ranked entries, so the catalogue's "Best reproducible"
+  // figure is read from the payload we were fetching anyway — no second request.
+  function fetchBoard(benchmarkId) {
     return fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "?top=200").then(
-      function (data) { return (data && data.entries && data.entries.length) || 0; },
-      function () { return null; } // count unknown, not zero — row still renders
+      function (data) {
+        // The entries-not-baselines decision lives in leaderboard-logic.js so it stays
+        // assertable without a browser — see bestEntryScore there.
+        return {
+          count: ((data && data.entries) || []).length,
+          best: window.SFLeaderboardLogic.bestEntryScore(data)
+        };
+      },
+      function () { return null; } // board unknown, not empty — row still renders
     );
   }
 
@@ -364,10 +383,10 @@ window.ScorePortal = (function () {
           showEmpty(statusNode, "No public benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
           return;
         }
-        return Promise.all(benchmarks.map(function (b) { return fetchSubmissionCount(b.id); })).then(
-          function (counts) {
+        return Promise.all(benchmarks.map(function (b) { return fetchBoard(b.id); })).then(
+          function (boards) {
             clear(listNode);
-            benchmarks.forEach(function (b, i) { listNode.appendChild(benchmarkRow(b, counts[i])); });
+            benchmarks.forEach(function (b, i) { listNode.appendChild(benchmarkRow(b, boards[i])); });
             setStatus(statusNode, null);
             wrapNode.hidden = false;
           }
