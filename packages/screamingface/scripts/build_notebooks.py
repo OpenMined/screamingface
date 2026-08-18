@@ -644,6 +644,10 @@ dimension at a time:
 where `sf.CorrectiveLoop` is the protocol from
 [this paper](https://openreview.net/pdf?id=XSIYfTm2h7) """),
         nbformat.v4.new_markdown_cell("""\
+<img src="assets/ifeval-benchmark.svg" width="900"
+  alt="IFEval at a glance: 541 prompts with machine-checkable constraints, one invocation
+  per prompt, free deterministic verification, score = all-strict prompts / 541"/>"""),
+        nbformat.v4.new_markdown_cell("""\
 ![The IFEval protocol grid: solo vs panel, no loop vs corrective](assets/ifeval-protocol-grid.png)
 """),
         nbformat.v4.new_markdown_cell("""\
@@ -766,6 +770,10 @@ averaging ~40 evaluation criteria.
 
 This notebook evaluates DRACO using new models (August 2026) and fusions of these models on
 [screamingface](https://github.com/OpenMined/screamingface)."""),
+        nbformat.v4.new_markdown_cell("""\
+<img src="assets/draco-benchmark.svg" width="900"
+  alt="DRACO at a glance: 100 research tasks, ~40 weighted rubric criteria each, judge
+  answers MET/UNMET per criterion, score = mean of weighted case scores in 0..1"/>"""),
         nbformat.v4.new_markdown_cell("""\
 ## Running things locally
 
@@ -898,6 +906,10 @@ def _healthbench_worst30_e2e() -> NotebookNode:
 
 Can a fusion of open-weights models improve on the baseline across the 157 hardest
 [HealthBench](https://openai.com/index/healthbench/) Professional conversations? """),
+        nbformat.v4.new_markdown_cell("""\
+<img src="assets/healthbench-worst30-benchmark.svg" width="900"
+  alt="HealthBench worst-30 at a glance: 157 hardest conversations, physician-written
+  rubrics where penalties subtract, unclamped case scores, raw mean keeps negatives"/>"""),
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
