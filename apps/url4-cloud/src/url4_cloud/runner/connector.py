@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import NoReturn
 
 import httpx
@@ -25,7 +26,7 @@ from url4_cloud.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
 )
-from url4_cloud.runner.accounting import read_aigw
+from url4_cloud.runner.accounting import CallAccounting, read_aigw
 from url4_cloud.runner.cache import policy_to_body_field
 from url4_cloud.runner.cache_readback import CacheOutcome, read_cache_outcome, requires_revalidation
 from url4_cloud.runner.errors import RunnerRequestError
@@ -313,7 +314,47 @@ def _token_count(*candidates: object) -> int:
     return 0
 
 
-def _report_usage(model: str, usage: dict | None, aigw: object = None) -> None:
+def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
+    """Report a cache hit: priced at zero, and zero tokens consumed.
+
+    WHY zero rather than the numbers the response carries: a hit replays a STORED response, whose
+    body still contains the original call's `usage`. aigateway says so explicitly — it labels the
+    cache reference `incurred_in_current_request: false` and publishes no attempts — and
+    `accounting.usd_from_aigw` already honours that boundary by refusing to price the reference.
+    Counting the same reference's tokens as freshly consumed treats one piece of evidence two
+    opposite ways, and inflates every consumption figure a cache-heavy run reports.
+
+    WHY explicit zeros rather than `None`: `None` means "the gateway did not report it". Here the
+    gateway reported something definite — nothing was consumed — and a run total must be able to
+    add that in rather than treat it as a gap.
+
+    INVARIANT: the price stays `Decimal("0")` and never `None`. Zero is a real claim about a real
+    saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so the two agree.
+
+    AIDEV-NOTE: hit-ness is decided by the caller from the published `CacheOutcome` (the response
+    headers), NOT from `_aigw`. That is deliberate — an older gateway emits the header and no
+    accounting block at all, and it keeps these token counts consistent with the `cache_status`
+    published beside them on the same span.
+    """
+    sink = current_usage_sink()
+    if sink is None:
+        return
+    sink(
+        provider=call.provider if call is not None and call.provider else provider_of(model),
+        model=model,
+        input_tokens=0,
+        output_tokens=0,
+        response_model=call.response_model if call is not None else None,
+        cache_read_tokens=0,
+        cache_creation_tokens=0,
+        reasoning_tokens=0,
+        cost_usd=call.cost_usd if call is not None else Decimal(0),
+    )
+
+
+def _report_usage(
+    model: str, usage: dict | None, aigw: object = None, cache: CacheOutcome | None = None
+) -> None:
     """Report one gateway round trip's token and cost evidence onto the calling node's span.
 
     FEATURE: per-run cost reporting (OME-849). Prefers aigateway's `_aigw` accounting, which states
@@ -324,12 +365,20 @@ def _report_usage(model: str, usage: dict | None, aigw: object = None) -> None:
     INVARIANT: reported per ROUND TRIP, not per turn. A tool loop is several gateway calls against
     one span and each carries its own accounting, so the span accumulates them (see
     `executor._RunState._fold_usage`).
+
+    INVARIANT (OME-868): a published `cache_status` of `hit` and a non-zero token count are a
+    CONTRADICTION, and this is the seam that keeps them consistent. A hit is served from the
+    gateway's store, so the provider consumed nothing this request — see
+    `_report_served_from_cache`.
     """
     sink = current_usage_sink()
     if sink is None:
         return
     call = read_aigw(aigw)
     if call is None and usage is None:
+        return
+    if cache is not None and cache.status == "hit":
+        _report_served_from_cache(model, call)
         return
     reported = usage or {}
     sink(
@@ -449,7 +498,7 @@ async def _chat_completion_loop(
             http_client, headers=headers, body=body, cache=cache
         )
         data = _json_or_raise(resp)
-        _report_usage(spec.id, data.get("usage"), data.get("_aigw"))
+        _report_usage(spec.id, data.get("usage"), data.get("_aigw"), outcome)
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
