@@ -27,6 +27,9 @@ class SeedBenchmark(BaseModel):
     # carries the Engine's value, and the two are compared for comparability (OME-775).
     # Optional because the retained legacy demo entries have no Engine revision.
     revision: str | None = Field(default=None, max_length=64)
+    # Short editorial line for the portal catalogue's "Focus" column (OME-874). Optional: it is
+    # copy someone writes, not a value the Engine derives.
+    focus: str | None = Field(default=None, max_length=120)
 
 
 _BENCHMARKS_ADAPTER = TypeAdapter(list[SeedBenchmark])
@@ -55,6 +58,7 @@ async def seed_benchmarks(benchmarks: Sequence[SeedBenchmark]) -> list[Benchmark
                 description=benchmark.description,
                 dataset_url=benchmark.dataset_url,
                 revision=benchmark.revision,
+                focus=benchmark.focus,
             )
         )
     return seeded

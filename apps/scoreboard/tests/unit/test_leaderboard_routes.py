@@ -629,3 +629,24 @@ async def test_a_stored_negative_zero_serves_a_positive_cost(
     entry = next(e for e in board.json()["entries"] if e["spec_id"] == "neg-zero")
     assert entry["run_cost_usd"] == "0.000000"
     assert history.json()["submissions"][0]["run_cost_usd"] == "0.000000"
+
+
+async def test_list_benchmarks_exposes_the_focus_line(async_client: httpx.AsyncClient) -> None:
+    # OME-874: the portal's Focus column reads this straight off /v1/benchmarks; a benchmark
+    # without one must serialise as null rather than being omitted from the payload.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="draco",
+        display_name="DRACO",
+        description="Fixture benchmark",
+        dataset_url=None,
+        focus="Research reports with citations",
+    )
+    await _register_benchmark(store, benchmark_id="hle")
+
+    response = await async_client.get("/v1/benchmarks")
+
+    assert response.status_code == 200
+    by_id = {benchmark["id"]: benchmark for benchmark in response.json()["benchmarks"]}
+    assert by_id["draco"]["focus"] == "Research reports with citations"
+    assert by_id["hle"]["focus"] is None

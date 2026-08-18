@@ -19,7 +19,7 @@ from scoreboard.scores.schemas import (
     ScoreSchema,
     SubmittedBy,
 )
-from scoreboard.scores.store import ScoreStore
+from scoreboard.scores.store import ScoreStore, benchmark_to_schema
 
 MAX_LEADERBOARD_TOP = 200
 MAX_HISTORY_LIMIT = 100
@@ -108,14 +108,10 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
     if benchmark is None:
         raise HTTPException(status_code=404, detail="Benchmark not found")
 
-    return BenchmarkSchema(
-        id=benchmark.id,
-        display_name=benchmark.display_name,
-        description=benchmark.description,
-        dataset_url=benchmark.dataset_url,
-        revision=benchmark.revision,
-        created_at=benchmark.created_at,
-    )
+    # INVARIANT: use the store's single mapper, never a second hand-written projection here.
+    # This function used to carry its own copy; adding `focus` (OME-874) broke that copy while
+    # the store's stayed correct, which is the OME-852 shape exactly.
+    return benchmark_to_schema(benchmark)
 
 
 def _ranked_entry(rank: int, entry: LeaderboardEntry) -> RankedLeaderboardEntry:

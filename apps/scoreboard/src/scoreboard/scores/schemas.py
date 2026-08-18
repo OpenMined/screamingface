@@ -360,6 +360,9 @@ class BenchmarkSchema(BaseModel):
     id: str
     display_name: str
     description: str | None
+    # Short editorial line for the portal catalogue's "Focus" column (OME-874). Null when the
+    # benchmark ships without one.
+    focus: str | None
     dataset_url: str | None
     # WHY exposed: a client comparing its run against the board needs to know which revision
     # the board is registered at, so it can tell a real score gap from an incomparable one.

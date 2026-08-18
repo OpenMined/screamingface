@@ -12,6 +12,13 @@ class BaseBenchmark(BaseScoreboardModel):
     id = fields.CharField(max_length=64, primary_key=True)
     display_name = fields.CharField(max_length=255)
     description = fields.TextField(null=True)
+    # A short editorial line — what this benchmark is actually about — shown as the portal
+    # catalogue's "Focus" column (OME-874). Editorial copy, not derived from the Engine, so it
+    # is nullable: a benchmark can ship without one and the cell renders an em dash.
+    focus = fields.CharField(max_length=120, null=True)
+    # AIDEV-NOTE: editorial copy, seeded by an operator through SCOREBOARD_SEED_BENCHMARKS.
+    # Deployed environments keep their own values file, so adding a value here does not
+    # propagate on its own — the platform team syncs it (same caveat as `revision`).
     dataset_url = fields.CharField(max_length=2048, null=True)
     # INVARIANT: mirrors the Engine benchmark's immutable REVISION — a sha256 over its
     # dataset + protocol (+ verifier) revisions. It identifies *what was measured*, so two
