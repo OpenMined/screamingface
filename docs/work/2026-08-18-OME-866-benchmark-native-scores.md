@@ -92,3 +92,21 @@ Client (`packages/screamingface`):
     follows the house pattern of 0004/0005 instead. Propose installing the plugin.
   - Ticket deltas (total_questions kept, metrics deferred, hash identity, NaN guards,
     negative rendering, baseline scale) recorded as a Linear comment for Keelan's review.
+
+## Follow-up (same unit, post-review): report_view percent fix
+
+Code review of PR #626 found the Report card still rendering `CandidateResult.score`
+through `_percent()` — HealthBench showed "-114.3%" directly above the submit receipt
+showing "-1.143". Fixed on owner instruction (Khoa, 2026-08-18).
+
+- **Files:** `src/screamingface/_ui/report_view.py` (new shared `_score_text`, score
+  cell now benchmark-native), `src/screamingface/_ui/score_view.py` (reuses
+  `_score_text` — one formatter for both sibling cards), `tests/test_report_panel.py`
+  (2 new native-rendering tests; 3 prior percent-pin assertions updated — they pinned
+  the pre-OME-866 percent contract this ticket retires; second sanctioned
+  `--skip-append-only`, same owner approval as above).
+- **Gates:** `run_gates.py screamingface --skip-append-only` ALL GREEN (885 passed).
+- **Left as-is (out of scope):** axis scores still render via `_percent`
+  (`report_view.py` `_axis_row`); the fusion-edge gilding rule `score > 0` never gilds
+  negative-scale boards; pre-push hook does not gate the screamingface stack at all —
+  gates were run manually.

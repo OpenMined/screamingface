@@ -125,7 +125,7 @@ def test_a_real_score_carries_the_fusion_edge() -> None:
     html = body(report_html(report(candidate("gemini-3-flash-preview", 0.62))))
 
     assert "sf-report__cell--score" in html
-    assert "62.0%" in html
+    assert ">0.62<" in html
 
 
 def test_a_zero_score_is_not_gilded() -> None:
@@ -133,7 +133,7 @@ def test_a_zero_score_is_not_gilded() -> None:
 
     # Colour means something: there is no win in a zero, so the cell stays neutral.
     assert "sf-report__cell--score" not in html
-    assert "0.0%" in html
+    assert ">0<" in html
 
 
 def test_an_ungraded_candidate_is_not_gilded_and_reads_as_incomplete() -> None:
@@ -141,6 +141,28 @@ def test_an_ungraded_candidate_is_not_gilded_and_reads_as_incomplete() -> None:
 
     assert "sf-report__cell--score" not in html
     assert "incomplete" in html
+
+
+def test_a_negative_score_renders_benchmark_native_not_as_percent() -> None:
+    # INVARIANT (OME-866): CandidateResult.score is benchmark-native — the report shows
+    # the Engine-graded number itself. HealthBench worst-30 grades are negative; a ×100
+    # percent rendering ("-114.3%") would misstate the published figure that the submit
+    # receipt (score_view) and the Leaderboard display directly below this card.
+    html = body(report_html(report(candidate("healthbench-fusion", -1.143))))
+
+    assert ">-1.143<" in html
+    assert "-114.3" not in html
+    # Only true ratios stay percentages: pass rate (0.5 in _METRICS) and coverage.
+    assert "50.0%" in html
+    assert "100.0%" in html
+
+
+def test_a_fractional_score_is_not_inflated_to_a_percent() -> None:
+    # DRACO's weighted 0.399 is a score, not a share of correct answers (OME-866).
+    html = body(report_html(report(candidate("draco-fusion", 0.399))))
+
+    assert ">0.399<" in html
+    assert "39.9%" not in html
 
 
 def test_every_candidate_gets_its_own_result_card() -> None:
@@ -155,7 +177,7 @@ def test_every_candidate_gets_its_own_result_card() -> None:
     )
 
     assert html.count("sf-report__card'") == 3
-    assert "81.4%" in html
+    assert ">0.814<" in html
 
 
 def test_the_receipt_strip_totals_the_whole_run() -> None:

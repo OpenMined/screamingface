@@ -277,7 +277,7 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
     # has no win in it, so the cell stays neutral rather than celebrating a null outcome.
     scored = candidate.score is not None and float(candidate.score) > 0
     cells = [
-        _cell("score", _percent(candidate.score), score=scored),
+        _cell("score", _score_text(candidate.score), score=scored),
         _cell("pass rate", _percent(_metric(metrics, "pass_rate"))),
         _cell("coverage", _percent(candidate.coverage)),
         # WHY (OME-793): the two dash meanings differ — cost is "not reported by this
@@ -811,6 +811,14 @@ def _short(value: str, keep: int = 12) -> str:
 
 def _percent(value: float | None) -> str:
     return "—" if value is None else f"{float(value) * 100:.1f}%"
+
+
+def _score_text(value: float | None) -> str:
+    # INVARIANT (OME-866): CandidateResult.score is benchmark-native — render the
+    # Engine-graded number as-is (DRACO 0.399, HealthBench -1.143), never ×100 or
+    # percent. `:g` keeps up to 6 significant digits, matching the submit receipt
+    # (score_view) so the same figure never renders two ways in one notebook.
+    return "—" if value is None else f"{float(value):g}"
 
 
 def _tokens_total(usage: Any) -> str:

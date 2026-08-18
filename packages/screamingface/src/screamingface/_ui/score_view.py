@@ -9,7 +9,7 @@ from urllib.parse import quote
 # WHY private imports from report_view: the score card is the Report panel's sibling —
 # same tokens, same grid, same disclosure — and duplicating that CSS here is how two
 # cards drift apart. One stylesheet, two renderers.
-from screamingface._ui.report_view import _STYLE, _cell, _clip, _stamp
+from screamingface._ui.report_view import _STYLE, _cell, _clip, _score_text, _stamp
 
 if TYPE_CHECKING:
     from screamingface.leaderboard import LeaderboardScore
@@ -36,9 +36,9 @@ def leaderboard_score_html(value: LeaderboardScore) -> str:
     receipt = " · ".join((questions, f"id {str(value.id)[:8]}…"))
     cells = [
         # INVARIANT (OME-866): the score renders as stored — plain number, no ×100,
-        # no percent. `:g` keeps up to 6 significant digits, so the receipt shows the
-        # published figure itself (-1.1429), not a rounded cousin (-1.143).
-        _cell("score", f"{value.score:g}", score=True),
+        # no percent. _score_text is shared with the Report card so the same figure
+        # never renders two ways in one notebook.
+        _cell("score", _score_text(value.score), score=True),
         _cell("spec", str(value.spec_id)),
         # "—" here is honest: the SDK never claims an author; identity is attached
         # by the Scoreboard's auth layer (or stays empty on a local stack).
