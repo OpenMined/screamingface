@@ -36,39 +36,41 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
 <template>
   <DocLayout
     title="Overview"
-    description="What ScreamingFace is, why a fusion can beat the best single model, and the smallest end-to-end run."
+    description="Open infrastructure for composing and measuring model fusions, and the smallest end-to-end run."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      ScreamingFace is an open-source Python Client for composing model ensembles, which it calls
-      <strong>fusions</strong>, and evaluating them against research benchmarks. You build a fusion
-      from providers you already hold keys for, evaluate it, and read back a score together with
-      what the run cost. The benchmark answer keys and the grading stay on the engine and results
-      are cached to lower the cost of fusion exploration.
+      ScreamingFace is open, Python-first infrastructure for composing model ensembles (it calls
+      them
+      <strong>fusions</strong>) and measuring them under grading you do not control. It is built
+      around one approach: advancing capability by composition, combining models you already have
+      rather than training new ones. You assemble a fusion from providers you hold keys for,
+      evaluate it against a research benchmark, and read back a score alongside what the run cost.
     </p>
 
     <p>
-      The reason to compose at all is that a fusion can score higher than any of the models inside
-      it. In a reproduction of the <strong>DRACO</strong> deep-research benchmark, the strongest
-      fusion reached <strong>68.6%</strong> where the best single model reached
-      <strong>60.2%</strong>, and five separate fusions beat every individual model (<a
+      A fusion can score higher than any single model within it. A reproduction of the
+      <strong>DRACO</strong> deep-research benchmark put the best fusion at
+      <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model (<a
         href="https://andrewtrask.substack.com/p/6-weeks-ago-frontier-ai-labs-lost"
         target="_blank"
         rel="noopener"
         >published results</a
-      >). The effect is reported repeatedly, for instance in
+      >), an effect that recurs across the ensemble literature, for instance in
       <em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em> (Skurikhin
-      et al., Los Alamos).
+      et al., Los Alamos). What the Client adds is less that claim than the apparatus around it:
+      grading it does not perform itself, a reproducible record of every run, and cost reported next
+      to accuracy.
     </p>
 
-    <h2>What the Client gives you</h2>
+    <h2>What the Client provides</h2>
 
     <ul>
       <li>
-        <strong>Grading you did not perform yourself.</strong> Benchmark answer keys, rubrics, and
-        judges live on the engine and are never returned to the Client, so a score does not rest on
-        trusting whoever produced it.
+        <strong>Held-out grading.</strong> Benchmark answer keys, rubrics, and judges live on the
+        engine and are never returned to the Client, so a score does not rest on trusting whoever
+        produced it.
       </li>
       <li>
         <strong>A reproducible artifact for every run.</strong> Each evaluation compiles to one
@@ -81,7 +83,7 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         are billed to your own accounts rather than resold to you.
       </li>
       <li>
-        <strong>Exploration you pay for once.</strong> Every model response is
+        <strong>Caching.</strong> Every model response is
         <RouterLink to="/learn/caching">cached</RouterLink> against its exact request, so comparing
         many fusion candidates over one benchmark is billed only for the calls that have not been
         made before. A model shared between two candidates answers once, and swapping a single
@@ -93,29 +95,51 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         visible at the same time as the gain.
       </li>
       <li>
-        <strong>Earlier work you can build on.</strong> Recipes published to the leaderboard can be
-        imported, modified, and re-run, and on a hosted engine the cache is shared across the
-        community, so repeating someone else's run usually costs a fraction of the original.
+        <strong>Reusable recipes.</strong> Recipes published to the leaderboard can be imported,
+        modified, and re-run, and on a hosted engine the cache is shared across the community, so
+        repeating someone else's run usually costs a fraction of the original.
       </li>
     </ul>
 
-    <h2>What url4 is</h2>
+    <h2>How it works</h2>
 
     <p>
-      A <strong>url4</strong> is a single-line expression following a given grammar and protocol,
-      that describes a composed system: which models take part, how their answers are combined, and
-      what each one is asked to do. It serves as both the record of what ran and the instruction for
-      running it again, which is what lets a published result carry its own method instead of
-      describing it in prose.
+      The Client never calls a model provider itself. It compiles your recipe into one
+      <strong>url4</strong> expression and hands that to an
+      <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
+      benchmark answer keys and does the grading.
     </p>
+
+    <p>
+      A <strong>url4</strong> is a single-line expression, following a fixed grammar and protocol,
+      that describes a composed system: which models take part, how their answers are combined, and
+      what each one is asked to do. It is both the record of what ran and the instruction for
+      running it again, so a published result carries its own method instead of describing it in
+      prose.
+    </p>
+
+    <p>
+      From there the engine resolves the expression, calls each model, applies the benchmark's
+      grader, and streams usage back while the run proceeds. What returns is the set of scores, any
+      failures, and the total cost. Because the url4 travels with the result, someone else can
+      repeat the evaluation and compare what they get against what you reported.
+    </p>
+
+    <figure class="not-prose diagram">
+      <img
+        :src="localDiagram(isDark)"
+        alt="Local request flow: the Client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
+      />
+      <figcaption>
+        <strong>The local flow.</strong> The Client compiles your recipe into one url4 expression
+        and hands it to an engine on your own machine; the engine fans model calls out through the
+        gateway to the providers you hold keys for, then streams scores and cost back.
+      </figcaption>
+    </figure>
 
     <h2>Two ways to run</h2>
 
-    <p>
-      The Client never calls a model provider itself. It sends work to an
-      <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
-      benchmark answer keys and performs the grading. You can point it at either of two.
-    </p>
+    <p>You point the Client at an engine in one of two places.</p>
 
     <ul>
       <li>
@@ -124,9 +148,9 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         providers, but the cache starts empty and you pay for the compute.
       </li>
       <li>
-        <strong>A hosted engine</strong> runs the same software as a service, which adds the shared
-        community cache and subsidized compute for selected cohorts. In exchange, your prompts and
-        your stored credentials are handled by an engine we operate.
+        <strong>A hosted engine</strong> runs the same software as a service and adds the shared
+        community cache, on compute we provide once you log in. It does not take your own provider
+        keys; bring-your-own-key is the local path, and your prompts run on an engine we operate.
       </li>
     </ul>
 
@@ -143,33 +167,10 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     </div>
 
     <p>
-      <code>score</code> is each candidate's benchmark-native score over the same cases, where
-      higher is better.
+      <code>score</code> is each candidate's accuracy over the same cases, where higher is better.
       The report carries no baseline or gain field, because the comparison is simply that you ran
       the solo model and the fusion in one call and can read both numbers.
     </p>
-
-    <h2>How it works</h2>
-
-    <p>
-      The Client compiles your recipe into one <strong>url4</strong> expression and hands it to the
-      <strong>engine</strong>. The engine resolves that expression, calls each model, applies the
-      benchmark's grader, and streams usage back while the run proceeds. What returns is the set of
-      scores, any failures, and the total cost. Because the url4 travels with the result, someone
-      else can repeat the evaluation and compare what they get against what you reported.
-    </p>
-
-    <figure class="not-prose diagram">
-      <img
-        :src="localDiagram(isDark)"
-        alt="Local request flow: the Client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
-      />
-      <figcaption>
-        <strong>The local flow.</strong> The Client compiles your recipe into one url4 expression
-        and hands it to an engine on your own machine; the engine fans model calls out through the
-        gateway to the providers you hold keys for, then streams scores and cost back.
-      </figcaption>
-    </figure>
   </DocLayout>
 </template>
 

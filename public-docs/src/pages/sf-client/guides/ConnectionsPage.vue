@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import Tabs from '@/components/ui/Tabs.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import ProviderConnections from '@/components/nb/ProviderConnections.vue'
@@ -151,34 +152,38 @@ const panelProviders: Provider[] = [
 
     <p>Point the Client at an engine. There are two ways, depending on where it runs.</p>
 
-    <h4>Hosted engine</h4>
+    <Tabs :labels="['Hosted engine', 'Local engine']">
+      <template #tab-0>
+        <p>
+          A hosted engine sits behind <strong>Cloudflare Access</strong>. There is no token to
+          paste: <code>login()</code> prints a URL and opens it in your browser, then polls an
+          encrypted transfer service and decrypts the returned token locally. The token lives only
+          in process memory and is sent as <code>Cf-Access-Token</code>.
+          <code>logout()</code> forgets it.
+        </p>
 
-    <p>
-      A hosted engine sits behind <strong>Cloudflare Access</strong>. There is no token to paste:
-      <code>login()</code> prints a URL and opens it in your browser, then polls an encrypted
-      transfer service and decrypts the returned token locally. The token lives only in process
-      memory and is sent as <code>Cf-Access-Token</code>. <code>logout()</code> forgets it.
-    </p>
+        <div class="not-prose">
+          <NbCell :count="1" :code="login" />
+        </div>
 
-    <div class="not-prose">
-      <NbCell :count="1" :code="login" />
-    </div>
+        <p>
+          In a notebook you rarely call this directly: the panel below handles it. A protected
+          engine shows a login row first and loads provider rows only once login succeeds.
+        </p>
+      </template>
 
-    <p>
-      In a notebook you rarely call this directly: the panel below handles it. A protected engine
-      shows a login row first and loads provider rows only once login succeeds.
-    </p>
+      <template #tab-1>
+        <p>
+          If you run the engine yourself, point the Client at it and skip the login step entirely: a
+          local engine advertises no Cloudflare Access, so the panel shows provider rows
+          immediately.
+        </p>
 
-    <h4>Local engine</h4>
-
-    <p>
-      If you run the engine yourself, point the Client at it and skip the login step entirely: a
-      local engine advertises no Cloudflare Access, so the panel shows provider rows immediately.
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="2" :code="local" />
-    </div>
+        <div class="not-prose">
+          <NbCell :count="2" :code="local" />
+        </div>
+      </template>
+    </Tabs>
 
     <h3>2 · Connect from a notebook</h3>
 

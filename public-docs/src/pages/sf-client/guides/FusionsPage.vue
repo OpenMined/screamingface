@@ -196,6 +196,50 @@ const fusionSig = `sf.Fusion(
       <NbCell :count="1" :code="basic"><NbTextOut :text="basicOut" /></NbCell>
     </div>
 
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        class="dg"
+        viewBox="0 0 620 150"
+        role="img"
+        aria-label="The pair fusion sends the question to opus and gpt; opus, reused as the synthesizer, writes the graded answer."
+      >
+        <defs>
+          <marker
+            id="fg-a1"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <g class="edge" marker-end="url(#fg-a1)">
+          <path d="M174 45 C 208 45, 208 75, 250 75" />
+          <path d="M174 105 C 208 105, 208 75, 250 75" />
+          <path d="M400 75 H448" />
+        </g>
+        <text x="103" y="18" text-anchor="middle" class="sub">members</text>
+        <text x="325" y="49" text-anchor="middle" class="sub">synthesizer</text>
+        <rect class="box stage" x="32" y="25" width="142" height="40" />
+        <rect class="box stage" x="32" y="85" width="142" height="40" />
+        <rect class="box synth" x="250" y="55" width="150" height="40" />
+        <rect class="box graded" x="448" y="55" width="160" height="40" />
+        <g class="lbl" text-anchor="middle">
+          <text x="103" y="49">opus</text>
+          <text x="103" y="109">gpt</text>
+          <text x="325" y="79">opus</text>
+          <text x="528" y="79">Graded answer</text>
+        </g>
+      </svg>
+      <figcaption class="dgcap">
+        <code>pair</code> asks opus and gpt the same question; opus, reused as the synthesizer,
+        writes the one answer the benchmark grades.
+      </figcaption>
+    </figure>
+
     <p>
       A Fusion always needs an explicit <code>synthesizer</code> (no default) and at least one
       member. Skip the synthesizer or pass an empty member list and construction fails.
@@ -227,6 +271,51 @@ const fusionSig = `sf.Fusion(
       <NbCell :count="3" :code="synth"><NbTextOut :text="synthOut" /></NbCell>
     </div>
 
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        class="dg"
+        viewBox="0 0 620 160"
+        role="img"
+        aria-label="The same two members, opus and gpt, but now gpt with its own prompt is the synthesizer that writes the graded answer."
+      >
+        <defs>
+          <marker
+            id="fg-a3"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <g class="edge" marker-end="url(#fg-a3)">
+          <path d="M174 45 C 208 45, 208 75, 250 75" />
+          <path d="M174 105 C 208 105, 208 75, 250 75" />
+          <path d="M400 75 H448" />
+        </g>
+        <text x="103" y="18" text-anchor="middle" class="sub">members</text>
+        <text x="325" y="49" text-anchor="middle" class="sub">synthesizer</text>
+        <rect class="box stage" x="32" y="25" width="142" height="40" />
+        <rect class="box stage" x="32" y="85" width="142" height="40" />
+        <rect class="box synth" x="250" y="55" width="150" height="40" />
+        <rect class="box graded" x="448" y="55" width="160" height="40" />
+        <g class="lbl" text-anchor="middle">
+          <text x="103" y="49">opus</text>
+          <text x="103" y="109">gpt</text>
+          <text x="325" y="79">gpt</text>
+          <text x="528" y="79">Graded answer</text>
+        </g>
+        <text x="325" y="112" text-anchor="middle" class="sub">its own prompt</text>
+      </svg>
+      <figcaption class="dgcap">
+        Same members, different synthesizer: swap in gpt (with its own prompt) and it is a different
+        candidate, though opus and gpt still answer as members.
+      </figcaption>
+    </figure>
+
     <p>
       A model synthesizer has its own <code>prompt</code> and <code>params</code>, controlling how
       it writes the final answer, separate from how members answer. Set a different prompt on a
@@ -244,9 +333,60 @@ const fusionSig = `sf.Fusion(
       <NbCell :count="4" :code="nested"><NbTextOut :text="nestedOut" /></NbCell>
     </div>
 
+    <figure class="not-prose" style="margin: var(--space-6) 0">
+      <svg
+        class="dg"
+        viewBox="0 0 720 214"
+        role="img"
+        aria-label="The nested fusion: the pair fusion (opus and gpt combined by opus) and haiku are the two members; gpt synthesizes their answers into the graded answer."
+      >
+        <defs>
+          <marker
+            id="fg-a4"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
+          </marker>
+        </defs>
+        <rect class="frame" x="16" y="18" width="312" height="120" />
+        <text x="26" y="36" class="sub">pair (a fusion)</text>
+        <g class="edge" marker-end="url(#fg-a4)">
+          <path d="M132 63 C 166 63, 166 86, 200 86" />
+          <path d="M132 111 C 166 111, 166 86, 200 86" />
+          <path d="M304 86 C 372 86, 372 116, 432 116" />
+          <path d="M132 178 C 300 178, 330 116, 432 116" />
+          <path d="M552 116 H594" />
+        </g>
+        <rect class="box stage" x="28" y="48" width="104" height="30" />
+        <rect class="box stage" x="28" y="96" width="104" height="30" />
+        <rect class="box synth" x="200" y="71" width="104" height="30" />
+        <rect class="box stage" x="28" y="163" width="104" height="30" />
+        <rect class="box synth" x="432" y="96" width="120" height="40" />
+        <rect class="box graded" x="594" y="96" width="112" height="40" />
+        <text x="492" y="88" text-anchor="middle" class="sub">synthesizer</text>
+        <g class="lbl" text-anchor="middle">
+          <text x="80" y="67">opus</text>
+          <text x="80" y="115">gpt</text>
+          <text x="252" y="90">opus</text>
+          <text x="80" y="182">haiku</text>
+          <text x="492" y="120">gpt</text>
+          <text x="648" y="120">Graded answer</text>
+        </g>
+      </svg>
+      <figcaption class="dgcap">
+        The <code>nested</code> fusion has two members, the <code>pair</code> fusion and haiku, and
+        gpt synthesizes their answers. The inner pair shows up under its own resolved name.
+      </figcaption>
+    </figure>
+
     <p>
-      Members must be recipes: a <code>Model</code>, <code>Fusion</code>, or <code>Pipeline</code>
-      (or a route string, which gets normalized to a <code>Model</code>).
+      Members must be recipes: a <code>Model</code>, <code>Fusion</code>, or
+      <code>Pipeline</code> (or a route string, which gets normalized to a <code>Model</code>).
     </p>
 
     <h2>The <code>Fusion</code> class</h2>
@@ -350,3 +490,53 @@ const fusionSig = `sf.Fusion(
     </ul>
   </DocLayout>
 </template>
+
+<style scoped>
+/* Composition diagrams (shared style with the Pipelines guide): neutral boxes,
+   role encoded by border colour from the SFDS categorical --data-* palette. */
+.dg {
+  width: 100%;
+  height: auto;
+  font-family: var(--f-mono);
+  font-size: 13px;
+}
+.dg .box {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1.75;
+}
+.dg .stage {
+  stroke: var(--data-azure-500);
+}
+.dg .synth {
+  stroke: var(--data-orange-500);
+}
+.dg .graded {
+  stroke: var(--data-green-500);
+}
+.dg .lbl {
+  fill: var(--text);
+  font-weight: 500;
+}
+.dg .sub {
+  fill: var(--text-2);
+  font-size: 12px;
+}
+.dg .edge {
+  fill: none;
+  stroke: var(--text-2);
+  stroke-width: 1.25;
+}
+.dg .frame {
+  fill: none;
+  stroke: var(--border-2);
+  stroke-width: 1.25;
+}
+.dgcap {
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text-2);
+  margin-top: var(--space-4);
+  max-width: 62ch;
+}
+</style>
