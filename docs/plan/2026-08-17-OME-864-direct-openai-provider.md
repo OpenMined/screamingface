@@ -4,11 +4,11 @@
 
 This is the implementation plan for P0 issue
 [OME-864](https://linear.app/openmined/issue/OME-864/add-direct-openai-platform-api-key-provider-to-aigateway).
-The issue is `Pick Immediately`; implementation has not started.
+Implementation and owner-authorized live verification completed on 2026-08-18. Per owner ruling,
+Linear remained unchanged during this increment.
 
-Phase 1 may proceed with the owner-approved offline seed and deterministic tests. Release remains
-blocked until the owner supplies an approved OpenAI key mechanism, maximum validation spend, and
-dated direct-OpenAI Chat Completions evidence. Secret material is never recorded in this plan.
+The completed bounded live pass covers readiness, all fourteen concrete seeds, and one end-to-end
+AIGateway route request. Secret material and account identity are not recorded in this plan.
 
 `docs/spec/2026-08-17-OME-864-direct-openai-provider.md` owns scope and acceptance when planning
 artifacts differ. Per the owner ruling, Linear OME-864 remains unchanged for now; its broader wording
@@ -20,7 +20,7 @@ Planning assumptions to confirm before implementation:
 2. The P0 increment is non-streaming.
 3. Every P0 call is proven to remain on OpenAI Chat Completions; Responses API is separate.
 4. Direct model IDs use `openai/<model>` and never replace `codex/<model>`.
-5. The owner-approved offline seed contains twelve locked-runtime chat models; live account evidence
+5. The owner-approved seed contains fourteen locked-runtime chat models; live account evidence
    is required before release, not before source implementation.
 6. P0 dispatch is restricted to the registered seed so model listing, detailed contracts, and chat
    enforcement describe the same set. Unlisted models are a follow-up.
@@ -234,7 +234,9 @@ The approved values are:
 
 ```text
 default_models:
-  - openai/gpt-5.6
+  - openai/gpt-5.6-sol
+  - openai/gpt-5.6-terra
+  - openai/gpt-5.6-luna
   - openai/gpt-5.5
   - openai/gpt-5.1
   - openai/gpt-5
@@ -248,6 +250,12 @@ default_models:
   - openai/o4-mini
 validation_model: openai/gpt-5-nano
 ```
+
+The original offline seed used the official `gpt-5.6` family alias. Owner-authorized live evidence
+showed that Chat Completions resolves that alias to `gpt-5.6-sol`, while `/v1/models` publishes the
+three concrete `gpt-5.6-{sol,terra,luna}` IDs and not the alias. The owner therefore replaced the
+alias with all three concrete variants so the gateway catalog exposes the actual capability/cost
+choices without a duplicate default-to-Sol row.
 
 Before release:
 

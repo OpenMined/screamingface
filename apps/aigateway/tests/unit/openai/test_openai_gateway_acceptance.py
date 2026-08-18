@@ -30,9 +30,11 @@ def test_models_and_detail_publish_the_same_minimal_contract(authenticated_clien
 
     assert listing.status_code == 200, listing.text
     openai_models = [row for row in listing.json()["data"] if row["owned_by"] == "openai"]
-    assert len(openai_models) == 12
+    assert len(openai_models) == 14
     assert {row["id"] for row in openai_models} >= {
-        "openai/gpt-5.6",
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-luna",
         "openai/gpt-5.5",
         "openai/gpt-5-nano",
         "openai/gpt-4o",
@@ -49,7 +51,7 @@ def test_models_and_detail_publish_the_same_minimal_contract(authenticated_clien
 
     detail = authenticated_client.get(
         "/v1/model-parameters",
-        params={"model": "openai/gpt-5.6", "auth_type": "api_key"},
+        params={"model": "openai/gpt-5.6-sol", "auth_type": "api_key"},
     )
 
     assert detail.status_code == 200, detail.text
@@ -72,11 +74,11 @@ def test_models_and_detail_publish_the_same_minimal_contract(authenticated_clien
             "invalid_model",
         ),
         (
-            {"model": "openai/gpt-5.6", "messages": [], "temperature": 0.1},
+            {"model": "openai/gpt-5.6-sol", "messages": [], "temperature": 0.1},
             "unsupported_parameters",
         ),
         (
-            {"model": "openai/gpt-5.6", "messages": [], "stream": True},
+            {"model": "openai/gpt-5.6-sol", "messages": [], "stream": True},
             "streaming_not_supported",
         ),
     ],

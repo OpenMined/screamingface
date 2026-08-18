@@ -1,9 +1,9 @@
 ---
 ticket: OME-864
 stack: aigateway
-status: blocked
+status: done
 started: 2026-08-17
-finished:
+finished: 2026-08-18
 ---
 
 # OME-864 - Direct OpenAI Platform API-key provider
@@ -52,9 +52,10 @@ non-streaming, Chat Completions-only, globally cache-bypassed, and usage-account
 - Owner instructed that Linear remain unchanged during this increment, so its status is not moved.
 - `OPENAI_API_KEY` is currently unavailable locally. Live seed/readiness verification remains a
   release blocker unless the owner later supplies a safe local key and spend authorization.
-- Owner selected the twelve-model seed documented in the canonical spec (the reviewed ten plus
-  `openai/gpt-5.5` and `openai/gpt-5.6`), `openai/gpt-5-nano` for readiness, and offline
-  implementation now with live verification deferred.
+- Owner initially selected the twelve-model seed documented in the canonical spec (the reviewed ten
+  plus `openai/gpt-5.5` and the `openai/gpt-5.6` family alias), `openai/gpt-5-nano` for readiness,
+  and offline implementation with live verification deferred. The authorized live pass later
+  superseded the family alias with the three concrete Sol, Terra, and Luna variants.
 
 ## Post-commit review remediation
 
@@ -112,3 +113,63 @@ non-streaming, Chat Completions-only, globally cache-bypassed, and usage-account
   the documented append-only exception.
 - **Status:** the live-test scaffold is complete. Release remains blocked until an owner-authorized
   real-key run executes it; no production readiness behavior was guessed or changed.
+
+## Authorized live verification and readiness remediation
+
+- **Intent:** resolve the readiness false negative from owner-authorized live evidence while keeping
+  validation quota and latency bounded.
+- **Observed evidence:** the first live run timed out during the authentication stage; a direct safe
+  probe then returned `GET /v1/models` HTTP 200 with the expected list shape. The next live run
+  reached readiness and returned `unavailable`. A diagnostic request with
+  `max_completion_tokens: 1` returned HTTP 400 `invalid_request_error` before generation, while the
+  same request with `16` returned HTTP 200 `chat.completion`, `finish_reason: length`, an empty
+  string `content`, and exactly 16 reasoning/completion tokens. No raw provider message, prompt,
+  credential, organization, or project identity was recorded.
+- **Seed evidence:** the original eleven non-alias IDs were visible in `/v1/models`; `gpt-5.6` was
+  absent and its retrieve endpoint returned `404 model_not_found`, but Chat Completions accepted the
+  alias and returned concrete model `gpt-5.6-sol`. The live catalog lists
+  `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`, and locked LiteLLM 1.95.0 classifies all three
+  as OpenAI chat models. Owner decision: replace the alias with those three concrete variants,
+  yielding fourteen visible seeds and explicit capability/cost choices.
+- **Final-wire evidence:** the first end-to-end gateway route reached OpenAI but returned sanitized
+  HTTP 400. Direct Luna dispatch passed; production-plugin dispatch failed. Offline capture proved
+  LiteLLM emitted `ssl_verify: true` inside the provider JSON, and a bounded direct request with that
+  field returned HTTP 400 `unknown_parameter` for `ssl_verify`. Removing the body control preserved
+  TLS on the owned `httpx.AsyncClient(verify=True, trust_env=False)` and made the route pass.
+- **Planned changes:** retain the bounded readiness parameter, set its live-verified budget to 16,
+  update the exact wire-contract assertion, and pin the observed empty-string length response as a
+  valid readiness result. Replace the `gpt-5.6` family alias with the three live-listed concrete
+  variants and update catalog/dispatch/persistence contracts. Do not remove the budget or widen any
+  error tuple.
+- **Test plan:** run the focused validator tests, rerun the owner-gated live test, then run the full
+  AIGateway gate with the existing append-only exception.
+- **Acceptance:** the production validator sends `max_completion_tokens: 16`, accepts the observed
+  structurally valid empty-string completion, the live test reaches `VALID` at `READINESS`, no key is
+  exposed, and all non-live gates remain green.
+
+### Authorized live-remediation outcome
+
+- **Actual files:**
+  - `apps/aigateway/src/aigateway/plugins/openai_provider/plugin.py`
+  - `apps/aigateway/src/aigateway/plugins/openai_provider/api_key_validation.py`
+  - `apps/aigateway/src/aigateway/plugins/openai_provider/settings.py`
+  - `apps/aigateway/tests/live/test_openai_live.py`
+  - `apps/aigateway/tests/unit/openai/test_openai_api_key_validation.py`
+  - `apps/aigateway/tests/unit/openai/test_openai_dispatch.py`
+  - `apps/aigateway/tests/unit/openai/test_openai_gateway_acceptance.py`
+  - `apps/aigateway/tests/unit/openai/test_openai_persistence.py`
+  - `apps/aigateway/tests/unit/openai/test_openai_provider.py`
+  - `docs/plan/2026-08-17-OME-864-direct-openai-provider.md`
+  - `docs/spec/2026-08-17-OME-864-direct-openai-provider.md`
+  - `docs/tasks/2026-08-17-OME-864-direct-openai-provider.md`
+  - `docs/work/2026-08-17-OME-864-direct-openai-provider.md`
+- **Commits:** this live-remediation commit (`fix(aigateway): apply OpenAI live verification
+  fixes`).
+- **Checks:** validator unit suite `24 passed`; owner-gated readiness passed; end-to-end gateway route
+  passed; all fourteen concrete seeds passed the production-plugin sweep; focused OpenAI/Codex
+  regression `74 passed, 3 live deselected`; the pre-existing auth timing test flaked once and passed
+  in isolation; repeated full AIGateway lint, format, Pyright, no-enterprise, and coverage gates
+  green with the documented append-only exception.
+- **Status:** readiness and final-wire behavior are live-confirmed. All OME-864 code and
+  provider-verification gates are complete; no credential, raw provider message, prompt,
+  organization, or project identity was recorded.

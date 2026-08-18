@@ -11,7 +11,9 @@ from aigateway.core.plugin_base import PluginSettings
 
 def _default_models() -> list[str]:
     return [
-        "openai/gpt-5.6",
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-luna",
         "openai/gpt-5.5",
         "openai/gpt-5.1",
         "openai/gpt-5",

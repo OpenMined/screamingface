@@ -80,8 +80,8 @@ native `client=` behavior are locked-version contracts enforced by final-wire te
 
 ## Live-release blocker
 
-Source implementation proceeds with deterministic offline coverage. Release remains blocked until
-the owner provides all of the following without recording secret material in this specification:
+Source implementation proceeds with deterministic offline coverage. The owner-authorized live pass
+must provide all of the following without recording secret material in this specification:
 
 - an OpenAI API key available through an approved local live-test mechanism;
 - an explicit maximum spend for the bounded Models/readiness validation requests;
@@ -89,10 +89,16 @@ the owner provides all of the following without recording secret material in thi
 - live account confirmation for the approved low-cost validation model;
 - dated evidence that every selected seed is visible to the account and reaches Chat Completions.
 
-The owner-approved offline seed is:
+Completed 2026-08-18: readiness, all fourteen concrete seeds, and one end-to-end AIGateway route
+smoke passed. The only live-discovered final-wire defect was `ssl_verify` leaking into OpenAI JSON;
+removing that body field preserved TLS verification on the owned HTTP client and made the route pass.
+
+The owner-approved seed, revised from the family alias after live catalog evidence, is:
 
 ```text
-openai/gpt-5.6
+openai/gpt-5.6-sol
+openai/gpt-5.6-terra
+openai/gpt-5.6-luna
 openai/gpt-5.5
 openai/gpt-5.1
 openai/gpt-5
@@ -106,9 +112,9 @@ openai/o3
 openai/o4-mini
 ```
 
-The approved readiness model is `openai/gpt-5-nano`. Locked runtime metadata classifies all twelve
-as direct OpenAI chat models. Live account visibility and real readiness remain release gates, not
-source-implementation prerequisites.
+The approved readiness model is `openai/gpt-5-nano`. Locked runtime metadata classifies all fourteen
+as direct OpenAI chat models. The owner-authorized live catalog lists all fourteen concrete IDs.
+Real Chat Completions evidence for every seed remains a release gate.
 
 Owner ruling: keep Linear OME-864 unchanged for now. This reviewed canonical spec and plan define the
 implementation increment. The separate OpenAI caching issue may be filed later and is not a P0
@@ -213,6 +219,13 @@ validation service and bounded validation transport:
 1. Authenticate with the fixed-origin `GET https://api.openai.com/v1/models` endpoint.
 2. Prove readiness with one minimal non-streaming Chat Completions request against an explicitly
    configured, live-verified low-cost validation model.
+
+The owner-authorized 2026-08-18 live pass established the bounded readiness request for
+`openai/gpt-5-nano`: `max_completion_tokens: 1` is rejected with HTTP 400
+`invalid_request_error`, while `16` returns HTTP 200 `chat.completion` with
+`finish_reason: length`, empty-string assistant content, and exactly 16 reasoning/completion tokens.
+P0 therefore pins 16 as the live-verified upper bound; omitting the parameter would remove the
+deterministic quota and latency ceiling from credential validation.
 
 `ApiKeyValidationStage.AUTHENTICATION` and `.READINESS` are core-enforced: an authentication-only
 `VALID` result is downgraded to `MISCONFIGURED` and cannot authorize persistence. The finite table

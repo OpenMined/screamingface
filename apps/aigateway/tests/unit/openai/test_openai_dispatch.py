@@ -69,7 +69,9 @@ def _capture_client_factory(
     ("model", "expected_token_field"),
     [
         ("openai/gpt-4o", "max_tokens"),
-        ("openai/gpt-5.6", "max_completion_tokens"),
+        ("openai/gpt-5.6-sol", "max_completion_tokens"),
+        ("openai/gpt-5.6-terra", "max_completion_tokens"),
+        ("openai/gpt-5.6-luna", "max_completion_tokens"),
     ],
 )
 @pytest.mark.asyncio
@@ -123,6 +125,7 @@ async def test_dispatch_pins_chat_completions_and_selected_account_context(
     assert payload["model"] == model.split("/", 1)[1]
     assert payload[expected_token_field] == 7
     assert ({"max_tokens", "max_completion_tokens"} - {expected_token_field}).isdisjoint(payload)
+    assert "ssl_verify" not in payload
     assert _SELECTED_KEY not in request.content.decode()
     assert constructor_kwargs[0]["api_key"] == _SELECTED_KEY
     assert constructor_kwargs[0]["base_url"] == "https://api.openai.com/v1"
@@ -134,7 +137,7 @@ async def test_dispatch_pins_chat_completions_and_selected_account_context(
 def test_prepare_chat_body_keeps_only_gateway_owned_origin() -> None:
     prepared = PLUGIN.prepare_chat_body(
         {
-            "model": "openai/gpt-5.6",
+            "model": "openai/gpt-5.6-sol",
             "messages": [{"role": "user", "content": "ping"}],
             "max_tokens": 7,
             "api_key": "caller-key",
@@ -154,7 +157,7 @@ def test_prepare_chat_body_keeps_only_gateway_owned_origin() -> None:
     )
 
     assert prepared == {
-        "model": "openai/gpt-5.6",
+        "model": "openai/gpt-5.6-sol",
         "messages": [{"role": "user", "content": "ping"}],
         "max_tokens": 7,
         "api_base": "https://api.openai.com/v1",
@@ -182,7 +185,7 @@ async def test_nonempty_ambient_custom_headers_fail_closed(
     with pytest.raises(HTTPException) as raised:
         await PLUGIN.chat_completion(
             {
-                "model": "openai/gpt-5.6",
+                "model": "openai/gpt-5.6-sol",
                 "messages": [],
                 "api_key": _SELECTED_KEY,
                 "api_base": "https://api.openai.com/v1",
@@ -208,7 +211,7 @@ async def test_process_global_litellm_headers_fail_closed(
     with pytest.raises(HTTPException) as raised:
         await PLUGIN.chat_completion(
             {
-                "model": "openai/gpt-5.6",
+                "model": "openai/gpt-5.6-sol",
                 "messages": [],
                 "api_key": _SELECTED_KEY,
                 "api_base": "https://api.openai.com/v1",
@@ -230,7 +233,7 @@ async def test_process_global_litellm_headers_fail_closed(
         ("model_fallbacks", ["openai/gpt-4o-mini"]),
         ("callbacks", [object()]),
         ("pre_call_rules", [object()]),
-        ("model_alias_map", {"openai/gpt-5.6": "openai/gpt-4o"}),
+        ("model_alias_map", {"openai/gpt-5.6-sol": "openai/gpt-4o"}),
         ("proxy_auth", _FalseyProxyAuth()),
         ("drop_params", True),
     ],
@@ -253,7 +256,7 @@ async def test_process_global_routing_or_observation_state_fails_closed(
     with pytest.raises(HTTPException) as raised:
         await PLUGIN.chat_completion(
             {
-                "model": "openai/gpt-5.6",
+                "model": "openai/gpt-5.6-sol",
                 "messages": [],
                 "api_key": _SELECTED_KEY,
                 "api_base": "https://api.openai.com/v1",
@@ -277,7 +280,7 @@ async def test_missing_selected_key_fails_before_dispatch(monkeypatch: pytest.Mo
     with pytest.raises(HTTPException) as raised:
         await PLUGIN.chat_completion(
             {
-                "model": "openai/gpt-5.6",
+                "model": "openai/gpt-5.6-sol",
                 "messages": [],
                 "api_base": "https://api.openai.com/v1",
             }

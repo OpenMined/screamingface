@@ -20,6 +20,7 @@ Canonical artifacts:
 - Plan: `docs/plan/2026-08-17-OME-864-direct-openai-provider.md`
 
 Offline source implementation and deterministic verification are complete on the dedicated branch.
-Release remains blocked until the approved twelve-model seed and `openai/gpt-5-nano` readiness probe
-are verified with an owner-supplied local key and bounded spend. Per owner instruction, Linear
+The owner-supplied bounded live pass verified `openai/gpt-5-nano` readiness, all fourteen concrete
+seed IDs in the account catalog and Chat Completions, and one end-to-end AIGateway route request.
+OME-864 has no remaining code or provider-verification blocker. Per owner instruction, Linear
 OME-864 remains unchanged for now; the separate OpenAI caching issue will be filed later.

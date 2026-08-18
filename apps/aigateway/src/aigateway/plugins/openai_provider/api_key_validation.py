@@ -16,6 +16,9 @@ from aigateway.core.api_key_validation_http import (
 from .settings import OpenAIPluginSettings
 
 _API_BASE = "https://api.openai.com/v1"
+# WHY: OpenAI rejects 1 with HTTP 400 for gpt-5-nano; 16 is the live-verified bounded budget that
+# returns a structurally valid length-limited Chat Completions response.
+_READINESS_MAX_COMPLETION_TOKENS = 16
 
 # Every actionable row needs all three pieces of upstream evidence. The invalid-key row was
 # captured with a synthetic key on 2026-08-17; the billing rows are the exact codes in OpenAI's
@@ -190,7 +193,7 @@ class OpenAIApiKeyValidator:
                     headers=headers,
                     json_body={
                         "model": upstream_model,
-                        "max_completion_tokens": 1,
+                        "max_completion_tokens": _READINESS_MAX_COMPLETION_TOKENS,
                         "stream": False,
                         "messages": [{"role": "user", "content": "ping"}],
                     },

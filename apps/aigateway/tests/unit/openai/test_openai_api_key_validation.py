@@ -61,11 +61,36 @@ async def test_validation_authenticates_then_proves_chat_readiness() -> None:
     assert all(request.headers["authorization"] == f"Bearer {_KEY}" for request in requests)
     assert json.loads(requests[1].content) == {
         "model": "gpt-5-nano",
-        "max_completion_tokens": 1,
+        "max_completion_tokens": 16,
         "stream": False,
         "messages": [{"role": "user", "content": "ping"}],
     }
     assert _KEY not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_length_limited_reasoning_response_with_empty_content_is_ready() -> None:
+    validator, _requests = _validator(
+        [
+            httpx.Response(200, json={"object": "list", "data": []}),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "length",
+                            "message": {"role": "assistant", "content": ""},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+
+    result = await validator.validate(_KEY)
+
+    assert result.state is ApiKeyValidationState.VALID
+    assert result.stage is ApiKeyValidationStage.READINESS
 
 
 @pytest.mark.parametrize("stage", list(ApiKeyValidationStage))
@@ -213,7 +238,7 @@ async def test_malformed_http_200_readiness_never_authorizes_persistence(payload
 async def test_unregistered_validation_model_is_misconfigured_without_network() -> None:
     settings = OpenAIPluginSettings.model_construct(
         enabled=True,
-        default_models=["openai/gpt-5.6"],
+        default_models=["openai/gpt-5.6-sol"],
         validation_model="openai/unregistered",
     )
     validator, requests = _validator([], settings=settings)

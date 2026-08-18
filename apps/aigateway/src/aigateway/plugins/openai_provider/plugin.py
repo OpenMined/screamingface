@@ -175,7 +175,6 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
         dispatch_body["cache"] = {"no-cache": True, "no-store": True}
         dispatch_body["num_retries"] = 0
         dispatch_body["max_retries"] = 0
-        dispatch_body["ssl_verify"] = True
         dispatch_body["_skip_responses_api_bridge"] = True
 
         default_headers: dict[str, Any] = {

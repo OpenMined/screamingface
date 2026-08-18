@@ -11,7 +11,9 @@ from aigateway.plugins.openai_provider.plugin import PLUGIN, OpenAIProviderPlugi
 from aigateway.plugins.openai_provider.settings import OpenAIPluginSettings
 
 DEFAULT_MODELS = [
-    "openai/gpt-5.6",
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-terra",
+    "openai/gpt-5.6-luna",
     "openai/gpt-5.5",
     "openai/gpt-5.1",
     "openai/gpt-5",
@@ -93,7 +95,7 @@ def test_settings_require_nonempty_unique_seed_and_registered_validation_model()
 
 
 def test_max_tokens_is_the_only_enabled_parameter() -> None:
-    rules = PLUGIN.chat_parameter_rules(model="openai/gpt-5.6", auth_type="api_key")
+    rules = PLUGIN.chat_parameter_rules(model="openai/gpt-5.6-sol", auth_type="api_key")
 
     assert len(rules) == 1
     rule = rules[0]
@@ -105,7 +107,9 @@ def test_max_tokens_is_the_only_enabled_parameter() -> None:
 
 
 def test_max_tokens_has_locked_runtime_evidence() -> None:
-    observations = PLUGIN.chat_parameter_observations(model="openai/gpt-5.6", auth_type="api_key")
+    observations = PLUGIN.chat_parameter_observations(
+        model="openai/gpt-5.6-sol", auth_type="api_key"
+    )
 
     assert [(item.request_path, item.support, item.source) for item in observations] == [
         ("max_tokens", "supported", "openai:locked-runtime")
@@ -115,7 +119,7 @@ def test_max_tokens_has_locked_runtime_evidence() -> None:
 def test_provider_bypasses_global_cache_and_contributes_no_accounting_strategy() -> None:
     assert isinstance(
         PLUGIN.global_cache_projection(
-            {"model": "openai/gpt-5.6", "messages": [{"role": "user", "content": "hi"}]}
+            {"model": "openai/gpt-5.6-sol", "messages": [{"role": "user", "content": "hi"}]}
         ),
         CacheBypass,
     )

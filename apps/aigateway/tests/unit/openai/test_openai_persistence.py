@@ -224,7 +224,7 @@ def test_chat_selects_openai_api_key_connection_by_label(
             "id": "chatcmpl-test",
             "object": "chat.completion",
             "created": 1,
-            "model": "gpt-5.6",
+            "model": "gpt-5.6-sol",
             "choices": [
                 {
                     "index": 0,
@@ -240,7 +240,7 @@ def test_chat_selects_openai_api_key_connection_by_label(
         "/v1/chat/completions",
         headers={"X-Profile": "selected"},
         json={
-            "model": "openai/gpt-5.6",
+            "model": "openai/gpt-5.6-sol",
             "messages": [{"role": "user", "content": "ping"}],
         },
     )
@@ -299,7 +299,7 @@ def test_chat_selects_named_openai_profile(authenticated_client, monkeypatch) ->
             "id": "chatcmpl-test",
             "object": "chat.completion",
             "created": 1,
-            "model": "gpt-5.6",
+            "model": "gpt-5.6-sol",
             "choices": [
                 {
                     "index": 0,
@@ -315,7 +315,7 @@ def test_chat_selects_named_openai_profile(authenticated_client, monkeypatch) ->
         "/v1/chat/completions",
         headers={"X-Profile": "second"},
         json={
-            "model": "openai/gpt-5.6",
+            "model": "openai/gpt-5.6-sol",
             "messages": [{"role": "user", "content": "ping"}],
         },
     )
