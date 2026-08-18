@@ -101,23 +101,45 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
       </li>
     </ul>
 
-    <h2>What url4 is</h2>
+    <h2>How it works</h2>
 
     <p>
-      A <strong>url4</strong> is a single-line expression following a given grammar and protocol,
-      that describes a composed system: which models take part, how their answers are combined, and
-      what each one is asked to do. It serves as both the record of what ran and the instruction for
-      running it again, which is what lets a published result carry its own method instead of
-      describing it in prose.
+      The Client never calls a model provider itself. It compiles your recipe into one
+      <strong>url4</strong> expression and hands that to an
+      <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
+      benchmark answer keys and does the grading.
     </p>
+
+    <p>
+      A <strong>url4</strong> is a single-line expression, following a fixed grammar and protocol,
+      that describes a composed system: which models take part, how their answers are combined, and
+      what each one is asked to do. It is both the record of what ran and the instruction for
+      running it again, so a published result carries its own method instead of describing it in
+      prose.
+    </p>
+
+    <p>
+      From there the engine resolves the expression, calls each model, applies the benchmark's
+      grader, and streams usage back while the run proceeds. What returns is the set of scores, any
+      failures, and the total cost. Because the url4 travels with the result, someone else can
+      repeat the evaluation and compare what they get against what you reported.
+    </p>
+
+    <figure class="not-prose diagram">
+      <img
+        :src="localDiagram(isDark)"
+        alt="Local request flow: the Client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
+      />
+      <figcaption>
+        <strong>The local flow.</strong> The Client compiles your recipe into one url4 expression
+        and hands it to an engine on your own machine; the engine fans model calls out through the
+        gateway to the providers you hold keys for, then streams scores and cost back.
+      </figcaption>
+    </figure>
 
     <h2>Two ways to run</h2>
 
-    <p>
-      The Client never calls a model provider itself. It sends work to an
-      <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
-      benchmark answer keys and performs the grading. You can point it at either of two.
-    </p>
+    <p>You point the Client at an engine in one of two places.</p>
 
     <ul>
       <li>
@@ -149,28 +171,6 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
       The report carries no baseline or gain field, because the comparison is simply that you ran
       the solo model and the fusion in one call and can read both numbers.
     </p>
-
-    <h2>How it works</h2>
-
-    <p>
-      The Client compiles your recipe into one <strong>url4</strong> expression and hands it to the
-      <strong>engine</strong>. The engine resolves that expression, calls each model, applies the
-      benchmark's grader, and streams usage back while the run proceeds. What returns is the set of
-      scores, any failures, and the total cost. Because the url4 travels with the result, someone
-      else can repeat the evaluation and compare what they get against what you reported.
-    </p>
-
-    <figure class="not-prose diagram">
-      <img
-        :src="localDiagram(isDark)"
-        alt="Local request flow: the Client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
-      />
-      <figcaption>
-        <strong>The local flow.</strong> The Client compiles your recipe into one url4 expression
-        and hands it to an engine on your own machine; the engine fans model calls out through the
-        gateway to the providers you hold keys for, then streams scores and cost back.
-      </figcaption>
-    </figure>
   </DocLayout>
 </template>
 
