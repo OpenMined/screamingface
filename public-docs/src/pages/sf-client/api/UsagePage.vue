@@ -153,7 +153,7 @@ const usageOut = `Usage(input_tokens=103, output_tokens=398, cache_read_tokens=0
         </tr>
         <tr>
           <td><code>case_id</code></td>
-          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td><code>int&nbsp;|&nbsp;str&nbsp;|&nbsp;None</code></td>
           <td>Which case failed, when the failure was specific to one.</td>
         </tr>
         <tr>

@@ -40,9 +40,12 @@ const evaluateSig = `sf.evaluate(
     :version="version"
   >
     <p>
-      A <RouterLink to="/sf-client/api/clients">Client</RouterLink> exposes these as attributes. The
-      same names sit on <code>sf</code> itself, acting on a Client the library builds for you, which
-      is what a notebook wants.
+      Every name on this page works two ways. On a
+      <RouterLink to="/sf-client/api/clients">Client</RouterLink> you build yourself, they are its
+      attributes and methods: <code>client.benchmarks</code>, <code>client.evaluate(...)</code>. On
+      the <code>sf</code> module, the same names act on a default Client the library creates and
+      manages for you, so a script or notebook can call <code>sf.evaluate(...)</code> without
+      constructing one.
     </p>
 
     <div class="not-prose">

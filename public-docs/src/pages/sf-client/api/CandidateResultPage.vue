@@ -60,7 +60,10 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
         <tr>
           <td><code>kind</code></td>
           <td><code>str</code></td>
-          <td>One of <code>model</code>, <code>fusion</code> or <code>pipeline</code>.</td>
+          <td>
+            One of <code>model</code>, <code>fusion</code>, <code>pipeline</code>,
+            <code>corrective_loop</code> or <code>self_corrective</code>.
+          </td>
         </tr>
         <tr>
           <td><code>score</code></td>
@@ -125,8 +128,9 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>members</code></td>
           <td><code>tuple[MemberResult, ...]</code></td>
           <td>
-            Direct members, for a fusion. Always empty for a <code>model</code> or
-            <code>pipeline</code> candidate, and at least one entry for a fusion.
+            The candidate's direct members. Always empty for a <code>model</code>,
+            <code>pipeline</code> or <code>self_corrective</code> candidate; at least one entry for
+            a <code>fusion</code>; at least two for a <code>corrective_loop</code>.
           </td>
         </tr>
         <tr>
@@ -180,6 +184,137 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
     <div class="not-prose">
       <NbCell :count="8" :code="cases"><NbTextOut :text="casesOut" /></NbCell>
     </div>
+
+    <h2>CaseResult</h2>
+
+    <p>
+      A <code>CaseResult</code> is the complete retained result for one selected case. Its
+      <code>status</code> records the closed outcome, and the remaining fields carry the prompt, the
+      answer, the grade, and anything that went wrong. A scored case carries an
+      <code>output</code> and a numeric <code>grade</code> and no failures; a refused case carries a
+      <code>refusal</code> and no output; a failed case carries <code>failures</code> and no numeric
+      grade.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>status</code></td>
+          <td><code>str</code></td>
+          <td>
+            The closed outcome: <code>scored</code>, <code>refused</code> or <code>failed</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>case_id</code></td>
+          <td><code>int&nbsp;|&nbsp;str</code></td>
+          <td>The benchmark's identifier for this case.</td>
+        </tr>
+        <tr>
+          <td><code>input</code></td>
+          <td><code>str</code></td>
+          <td>The case prompt as it was sent, structured multi-turn cases included.</td>
+        </tr>
+        <tr>
+          <td><code>output</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>The candidate's answer, or <code>None</code> when it refused or failed.</td>
+        </tr>
+        <tr>
+          <td><code>finish_reason</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>Why generation stopped, when the engine reported it.</td>
+        </tr>
+        <tr>
+          <td><code>refusal</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>The provider's refusal message, set only on a refused case.</td>
+        </tr>
+        <tr>
+          <td><code>stop_reason</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            For a multi-round case, why the loop stopped: <code>passed</code> or
+            <code>max_rounds</code>. <code>None</code> for a single-round case.
+          </td>
+        </tr>
+        <tr>
+          <td><code>rounds_executed</code></td>
+          <td><code>int&nbsp;|&nbsp;None</code></td>
+          <td>
+            How many rounds ran, present together with <code>stop_reason</code> and
+            <code>None</code> otherwise.
+          </td>
+        </tr>
+        <tr>
+          <td><code>grade</code></td>
+          <td><code>CaseGrade&nbsp;|&nbsp;None</code></td>
+          <td>The grade behind the case score. <code>None</code> when the case was not graded.</td>
+        </tr>
+        <tr>
+          <td><code>failures</code></td>
+          <td><code>tuple[Failure, ...]</code></td>
+          <td>This case's own failures, each naming this case. Empty when nothing went wrong.</td>
+        </tr>
+        <tr>
+          <td><code>operations</code></td>
+          <td><code>tuple[CaseOperation, ...]&nbsp;|&nbsp;None</code></td>
+          <td>
+            The per-operation outputs captured during the run, or <code>None</code> when the engine
+            attributed none. See <a href="#case-operation">CaseOperation</a> below.
+          </td>
+        </tr>
+        <tr>
+          <td><code>metadata</code></td>
+          <td><code>Mapping[str, object]</code></td>
+          <td>Anything else the engine recorded with the case. Empty when it recorded nothing.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2 id="case-operation">CaseOperation</h2>
+
+    <p>
+      A <code>CaseOperation</code> carries one operation's captured terminal output for a case: the
+      member or synthesis text the engine attributed to that step's stable operation id, so a
+      fusion's contribution can be read back from a saved report. Its <code>output</code> and
+      <code>finish_reason</code> stay <code>None</code> when the engine could not attribute the
+      output unambiguously. Reach these through <code>CaseResult.operations</code>.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>operation_id</code></td>
+          <td><code>str</code></td>
+          <td>The step this output belongs to, matching an <code>OperationInfo.id</code>.</td>
+        </tr>
+        <tr>
+          <td><code>output</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>The step's terminal output, or <code>None</code> when it was not attributed.</td>
+        </tr>
+        <tr>
+          <td><code>finish_reason</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>Why that step stopped, or <code>None</code> when it was not attributed.</td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>How a case is graded</h2>
 
@@ -494,7 +629,10 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
         <tr>
           <td><code>kind</code></td>
           <td><code>str</code></td>
-          <td>One of <code>model</code>, <code>fusion</code> or <code>pipeline</code>.</td>
+          <td>
+            One of <code>model</code>, <code>fusion</code>, <code>pipeline</code>,
+            <code>corrective_loop</code> or <code>self_corrective</code>.
+          </td>
         </tr>
         <tr>
           <td><code>models</code></td>
