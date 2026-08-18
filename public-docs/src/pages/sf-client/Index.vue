@@ -36,30 +36,32 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
 <template>
   <DocLayout
     title="Overview"
-    description="What ScreamingFace is, why a fusion can beat the best single model, and the smallest end-to-end run."
+    description="Open infrastructure for composing and measuring model fusions, and the smallest end-to-end run."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      ScreamingFace is an open-source Python Client for composing model ensembles, which it calls
-      <strong>fusions</strong>, and evaluating them against research benchmarks. You build a fusion
-      from providers you already hold keys for, evaluate it, and read back a score together with
-      what the run cost. The benchmark answer keys and the grading stay on the engine and results
-      are cached to lower the cost of fusion exploration.
+      ScreamingFace is open, Python-first infrastructure for composing model ensembles (it calls
+      them
+      <strong>fusions</strong>) and measuring them under grading you do not control. It is built
+      around one approach: advancing capability by composition, combining models you already have
+      rather than training new ones. You assemble a fusion from providers you hold keys for,
+      evaluate it against a research benchmark, and read back a score alongside what the run cost.
     </p>
 
     <p>
-      The reason to compose at all is that a fusion can score higher than any of the models inside
-      it. In a reproduction of the <strong>DRACO</strong> deep-research benchmark, the strongest
-      fusion reached <strong>68.6%</strong> where the best single model reached
-      <strong>60.2%</strong>, and five separate fusions beat every individual model (<a
+      The premise is a documented one: a fusion can score higher than any single model within it. A
+      reproduction of the <strong>DRACO</strong> deep-research benchmark put the best fusion at
+      <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model (<a
         href="https://andrewtrask.substack.com/p/6-weeks-ago-frontier-ai-labs-lost"
         target="_blank"
         rel="noopener"
         >published results</a
-      >). The effect is reported repeatedly, for instance in
+      >), an effect that recurs across the ensemble literature, for instance in
       <em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em> (Skurikhin
-      et al., Los Alamos).
+      et al., Los Alamos). What the Client adds is less that claim than the apparatus around it:
+      grading it does not perform itself, a reproducible record of every run, and cost reported next
+      to accuracy.
     </p>
 
     <h2>What the Client gives you</h2>
