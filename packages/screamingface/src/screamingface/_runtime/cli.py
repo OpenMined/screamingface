@@ -220,7 +220,7 @@ def _prepare(config: RuntimeConfig, benchmark: str | None, *, all_benchmarks: bo
             [
                 sys.executable,
                 "-m",
-                f"url4_cloud.benchmarks.{name}.prepare",
+                f"screamingface_engine.benchmarks.{name}.prepare",
                 "--out",
                 str(destination),
             ],

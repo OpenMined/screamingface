@@ -56,7 +56,7 @@ def _validate(paths: tuple[PurePosixPath, ...], *, source: bool) -> None:
             PurePosixPath("aigateway/__init__.py"),
             PurePosixPath("scoreboard/__init__.py"),
             PurePosixPath("url4/__init__.py"),
-            PurePosixPath("url4_cloud/__init__.py"),
+            PurePosixPath("screamingface_engine/__init__.py"),
             PurePosixPath("screamingface/_runtime/resources/url4.toml"),
             PurePosixPath("screamingface/_runtime/scoreboard_portal/index.html"),
         }

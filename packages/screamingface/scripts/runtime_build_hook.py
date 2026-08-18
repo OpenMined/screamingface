@@ -30,11 +30,15 @@ class CustomBuildHook(BuildHookInterface):
                 "screamingface/_runtime/scoreboard_artifacts",
                 "scoreboard/artifacts",
             ),
-            (apps / "url4-cloud" / "src" / "url4_cloud", "url4_cloud", "url4-cloud/src/url4_cloud"),
             (
-                apps / "url4-cloud" / "url4.toml",
+                apps / "screamingface-engine" / "src" / "screamingface_engine",
+                "screamingface_engine",
+                "screamingface-engine/src/screamingface_engine",
+            ),
+            (
+                apps / "screamingface-engine" / "url4.toml",
                 "screamingface/_runtime/resources/url4.toml",
-                "url4-cloud/url4.toml",
+                "screamingface-engine/url4.toml",
             ),
             (url4, "url4", "url4/src/url4"),
         )

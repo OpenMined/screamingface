@@ -50,7 +50,8 @@ def test_plain_sdk_import_does_not_load_server_packages() -> None:
             sys.executable,
             "-c",
             "import sys, screamingface; "
-            "print(any(name in sys.modules for name in ('uvicorn', 'aigateway', 'url4_cloud')))",
+            "print(any(name in sys.modules "
+            "for name in ('uvicorn', 'aigateway', 'screamingface_engine')))",
         ],
         text=True,
     )
