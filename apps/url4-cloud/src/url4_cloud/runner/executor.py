@@ -226,6 +226,27 @@ class _RunState:
         self.cache_counters = RunCacheCounters()
         self._sum_input = 0
         self._sum_output = 0
+        # WHY these three are summed as plain ints while the SPAN-level equivalents poison through
+        # `accumulate`: money and tokens have different escape hatches on the wire.
+        #
+        # A run whose price is unknowable says so — `pricing_version: "unpriced"` exists for it —
+        # so poisoning the money total loses nothing. `TokenUsage`'s fields are non-optional ints
+        # with no such spelling, so poisoning a token class cannot publish "unknown"; it publishes
+        # ZERO, which is a false claim rather than an absent one, and it discards the real counts
+        # the reporting calls did supply.
+        #
+        # INVARIANT (OME-869): at RUN level an unreported class contributes nothing and never
+        # erases what its siblings reported. The mixed-provider case is the one that matters — one
+        # model reports cache reads and no reasoning, another the reverse — where poisoning would
+        # zero BOTH real figures to encode an uncertainty the frame cannot carry anyway.
+        #
+        # AIDEV-NOTE: do NOT "make this consistent" with the span-level `accumulate` calls in
+        # `_fold_usage`. The asymmetry is the decision. A span is one model, so mixed reporting is
+        # unlikely there; a run spans many, so it is the normal case. If `TokenUsage` ever gains
+        # optional counts, revisit this — then poisoning could finally say what it means.
+        self._sum_cache_read = 0
+        self._sum_cache_creation = 0
+        self._sum_reasoning = 0
         self._providers_models: set[tuple[str, str]] = set()
         # `None` until the first priced call: a run that made no model call at all stays unpriced,
         # which is the shape it published before cost reporting existed.
@@ -306,6 +327,9 @@ class _RunState:
     def _fold_usage(self, event: Usage) -> None:
         self._sum_input += event.input_tokens
         self._sum_output += event.output_tokens
+        self._sum_cache_read += event.cache_read_tokens or 0
+        self._sum_cache_creation += event.cache_creation_tokens or 0
+        self._sum_reasoning += event.reasoning_tokens or 0
         self._providers_models.add((event.provider, event.model))
         # INVARIANT: the run total latches UNPRICED on the first call it cannot price, and never
         # unlatches. A grand total that silently omits a step while presenting itself as a total is
@@ -452,7 +476,13 @@ class _RunState:
             provider=provider,
             model=model,
             pricing_version=_pricing_version(total),
-            usage=TokenUsage(input_tokens=self._sum_input, output_tokens=self._sum_output),
+            usage=TokenUsage(
+                input_tokens=self._sum_input,
+                output_tokens=self._sum_output,
+                cache_read_tokens=self._sum_cache_read,
+                cache_creation_tokens=self._sum_cache_creation,
+                reasoning_tokens=self._sum_reasoning,
+            ),
             cost=CostBreakdown(total_usd=total or Decimal("0")),
         )
 
