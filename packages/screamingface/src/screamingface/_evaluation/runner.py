@@ -63,7 +63,11 @@ def evaluate_sync(
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
     catalog = load_models()
-    _validate_required_models(evaluation, catalog.models)
+    deferred = _validate_required_models(evaluation, catalog.models)
+    # The admission probe (OME-878): a details fetch for each missing-but-admissible
+    # Model — the Engine admits it or the decoded refusal raises here, pre-spend.
+    for model in deferred:
+        load_model_details(model)
     preflight_sync(tuple(evaluation.candidates), load_model_details)
     observer = _sync_event_observer(
         on_event,
@@ -104,7 +108,11 @@ async def evaluate_async(
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
     catalog = await load_models()
-    _validate_required_models(evaluation, catalog.models)
+    deferred = _validate_required_models(evaluation, catalog.models)
+    # The admission probe (OME-878): a details fetch for each missing-but-admissible
+    # Model — the Engine admits it or the decoded refusal raises here, pre-spend.
+    for model in deferred:
+        await load_model_details(model)
     await preflight_async(tuple(evaluation.candidates), load_model_details)
     observer = _async_event_observer(
         on_event,
@@ -320,26 +328,53 @@ async def _run_candidates_async(
     return tuple(zip(candidates, outcomes, strict=True))
 
 
+_OPENROUTER_PREFIX = "openrouter/"
+
+
+def _defers_to_details_probe(model_id: str) -> bool:
+    """True when a missing ``model_id`` may still be dynamically admitted (OME-878).
+
+    Exactly ``openrouter/<author>/<model>`` — no ``~`` (the Engine's colon
+    escape) and no ``:`` — mirroring the Engine's own admissibility gate. Such
+    an id is not refused from the listing: the per-model details probe is what
+    makes the Engine ask the gateway to admit it, and the probe's answer is the
+    availability verdict.
+    """
+    if not model_id.startswith(_OPENROUTER_PREFIX) or "~" in model_id or ":" in model_id:
+        return False
+    segments = model_id.split("/")
+    return len(segments) == 3 and all(segments)
+
+
 def _validate_required_models(
     evaluation: _Evaluation,
     available: Sequence[ModelInfo],
-) -> None:
+) -> tuple[str, ...]:
+    """Refuse hopeless missing Models now; return the ones the probe decides.
+
+    Returns the OpenRouter-shaped missing ids (possibly empty). The caller
+    probes model details for each — a free, pre-spend request that triggers
+    dynamic admission on the Engine (OME-878) and either succeeds or raises the
+    decoded refusal. Every other missing id keeps the immediate refusal below.
+    """
     from screamingface.errors import PlanningError
 
     available_ids = {model.id for model in available}
     missing = tuple(model for model in evaluation.required_models if model not in available_ids)
-    if not missing:
-        return
-    if len(missing) == 1:
-        message = f"Model {missing[0]!r} is not available on this Engine"
+    deferred = tuple(model for model in missing if _defers_to_details_probe(model))
+    hopeless = tuple(model for model in missing if model not in set(deferred))
+    if not hopeless:
+        return deferred
+    if len(hopeless) == 1:
+        message = f"Model {hopeless[0]!r} is not available on this Engine"
     else:
-        names = ", ".join(repr(model) for model in missing)
+        names = ", ".join(repr(model) for model in hopeless)
         message = f"Models {names} are not available on this Engine"
     raise PlanningError(
         message,
         code="model_unavailable",
         permanent=True,
-        details={"models": list(missing)},
+        details={"models": list(hopeless)},
     )
 
 

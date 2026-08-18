@@ -230,6 +230,24 @@ def _response_json(response: httpx.Response, label: str) -> object:
         ) from exc
 
 
+# OME-878: refusal codes the Engine relays from the gateway's dynamic-admission
+# decision. Each is pre-spend and names which knob to turn; only a catalog outage
+# is worth retrying.
+_ADMISSION_REFUSAL_CODES = frozenset(
+    {
+        "model_not_on_openrouter",
+        "provider_disabled",
+        "provider_not_credentialed",
+        "dynamic_admission_disabled",
+        "dynamic_admission_unsupported",
+        "openrouter_catalog_unavailable",
+        "invalid_model_id",
+        "unknown_provider",
+        "model_not_admitted",
+    }
+)
+
+
 def _raise_model_details_error(response: httpx.Response) -> None:
     """Preserve AI Gateway's profile/model diagnostic relayed by the Engine."""
 
@@ -237,7 +255,10 @@ def _raise_model_details_error(response: httpx.Response) -> None:
         root = response.json()
     except ValueError:
         return
-    if not isinstance(root, Mapping) or not isinstance(root.get("detail"), Mapping):
+    if not isinstance(root, Mapping):
+        return
+    if not isinstance(root.get("detail"), Mapping):
+        _raise_model_not_installed(response, root)
         return
     detail = root["detail"]
     code = detail.get("code")
@@ -277,6 +298,39 @@ def _raise_model_details_error(response: httpx.Response) -> None:
             permanent=True,
             details=dict(detail),
         )
+    if code in _ADMISSION_REFUSAL_CODES and isinstance(detail.get("message"), str):
+        # The gateway already wrote the human sentence ("connect an OpenRouter
+        # API key first", "check the id at openrouter.ai/models") — relay it
+        # verbatim rather than paraphrasing it into something vaguer.
+        raise PlanningError(
+            detail["message"],
+            code=str(code),
+            status=response.status_code,
+            permanent=code != "openrouter_catalog_unavailable",
+            details=dict(detail),
+        )
+
+
+def _raise_model_not_installed(response: httpx.Response, root: Mapping[str, object]) -> None:
+    """Decode the Engine's own RFC 9457 not-installed 404 into today's wording.
+
+    WHY: the dynamic-admission probe (OME-878) asks model details for a model
+    the listing does not carry. Against an Engine that cannot admit (older
+    build, or admission declined upstream without a relayed body) the honest
+    answer is exactly the pre-probe refusal — not a generic contract error.
+    """
+    if response.status_code != 404 or not isinstance(root.get("detail"), str):
+        return
+    model = response.request.url.params.get("model")
+    if not model:
+        return
+    raise PlanningError(
+        f"Model {model!r} is not available on this Engine",
+        code="model_unavailable",
+        status=response.status_code,
+        permanent=True,
+        details={"models": [model]},
+    )
 
 
 def _unreachable(engine_url: str, label: str, cause: Exception) -> NoReturn:
