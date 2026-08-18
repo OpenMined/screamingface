@@ -1,5 +1,61 @@
 # Changelog
 
+## [1.4.0](https://github.com/OpenMined/screamingface/compare/url4-cloud-v1.3.0...url4-cloud-v1.4.0) (2026-08-18)
+
+
+### Features
+
+* `sf.CorrectiveLoop` and `sf.SelfCorrective` Independent Decision Protocols ([3c61290](https://github.com/OpenMined/screamingface/commit/3c612909d4f22df38ccf6aa8b53d1e084724231e))
+* **aigateway:** register the open-weight notebook lineup members ([770257d](https://github.com/OpenMined/screamingface/commit/770257dccbb18fdbff596d903d9f6d3f93047f21))
+* **benchmarks:** flatten public identities ([dfd8eb9](https://github.com/OpenMined/screamingface/commit/dfd8eb97b431d9ae02cf51edc334bd357c0b9b10))
+* **benchmarks:** report corrective loop execution ([a644505](https://github.com/OpenMined/screamingface/commit/a644505d58054fc415380f5539257a6d67d62d40))
+* **benchmarks:** report corrective loop execution ([7f92c69](https://github.com/OpenMined/screamingface/commit/7f92c696646367062a23aec7ac22e16bce070cae))
+* DRACO check surface (draco-pass.v1) — sf.CorrectiveLoop runs on DRACO ([7ea9b7b](https://github.com/OpenMined/screamingface/commit/7ea9b7bc63d2f18ad31b901460eaed954f68ecbb))
+* report real run cost from provider-authored OpenRouter evidence ([05d85f1](https://github.com/OpenMined/screamingface/commit/05d85f1fb136b24c8d8b43f4bf656e6c93a93f20))
+* rubric_check component — sf.CorrectiveLoop runs on HealthBench ([bba683d](https://github.com/OpenMined/screamingface/commit/bba683def740b9f0840ba32a03f397343d5166ff))
+* **screamingface:** enhance LeaderboardScore with scoreboard_url and improve HTML rendering ([24855ce](https://github.com/OpenMined/screamingface/commit/24855ce4856093aa6f0500fc2b1a1a5e146606d9))
+* **url4-cloud:** add the declared model registry ([c7091c2](https://github.com/OpenMined/screamingface/commit/c7091c29bebf352dfd15593d5e9abdd0c6a30b54))
+* **url4-cloud:** capture member and synthesis outputs in benchmark case artifacts ([8d70086](https://github.com/OpenMined/screamingface/commit/8d700860ba96c97eacf158d4c151629da9dfad67))
+* **url4-cloud:** capture member and synthesis outputs in benchmark case artifacts ([28d8752](https://github.com/OpenMined/screamingface/commit/28d8752800359a2aff272694bdda26865ca364bb))
+* **url4-cloud:** extract rubric_check and onboard HealthBench as configuration only ([b39c8d3](https://github.com/OpenMined/screamingface/commit/b39c8d3af45772ac9212f2567696828e73329021))
+* **url4-cloud:** give DRACO a paid check surface so CorrectiveLoop runs on it ([4a8b77a](https://github.com/OpenMined/screamingface/commit/4a8b77ad4a4b59607c965a02a125156dd6fb8c99))
+* **url4-cloud:** implement benchmark failure policy ([ebc6a96](https://github.com/OpenMined/screamingface/commit/ebc6a960033220df1c3ea677276d03f20135750c))
+* **url4-cloud:** implement benchmark failure policy ([599d451](https://github.com/OpenMined/screamingface/commit/599d4510c9fa68974087f6fb30424a4d14f43d49))
+* **url4-cloud:** lift the corrective loop into a generic ensemble substrate behind a check-surface port ([e1f18a2](https://github.com/OpenMined/screamingface/commit/e1f18a2b3cbc775128a5cc137fe923fcb51edf8d))
+* **url4-cloud:** merge the model registry into the declared world ([3a53274](https://github.com/OpenMined/screamingface/commit/3a532748ac98f42171da97d8a6384287d72e53b5))
+* **url4-cloud:** populate the declared model world from aigateway's compiled seeds ([90a104e](https://github.com/OpenMined/screamingface/commit/90a104e39186801553103b9342b60dcd64677562))
+* **url4-cloud:** price runs from provider-authored cost evidence ([884aedd](https://github.com/OpenMined/screamingface/commit/884aedd6aad3af0bf2c647decb696feaab865d85))
+* **url4-cloud:** record why a Run stream ended ([dabaf05](https://github.com/OpenMined/screamingface/commit/dabaf0504d2cfe72a877fda0ca9c5fe1286c4002))
+* **url4-cloud:** route colon-bearing model ids via a ~ encoding ([3d1037a](https://github.com/OpenMined/screamingface/commit/3d1037a746fdedaa1dc583c8fe30836dc105f4b6))
+* **url4-cloud:** route colon-bearing model ids via a ~ encoding ([d91d3d5](https://github.com/OpenMined/screamingface/commit/d91d3d505e7fa4b7ff76df9fed12ce75e7f33929))
+* **url4-cloud:** seed the declared model world from every compiled provider ([3026b67](https://github.com/OpenMined/screamingface/commit/3026b6707affd0ff55b0aeea6040e57b8a9607ea))
+
+
+### Bug Fixes
+
+* address Filip's PR [#626](https://github.com/OpenMined/screamingface/issues/626) review (both passes on bf7f12f) ([99ab98c](https://github.com/OpenMined/screamingface/commit/99ab98c3b76b509170cb9b13ef0b99fb211949a4))
+* attribute and remove websocket_disconnected drops ([151d257](https://github.com/OpenMined/screamingface/commit/151d2575d7777c2b19a560816ff91244bcb96011))
+* **benchmarks:** preserve outcomes through grading failures ([6f16122](https://github.com/OpenMined/screamingface/commit/6f16122b9e9d94ca5f074ac0ce1abee842ffbd42))
+* **benchmarks:** preserve outcomes through grading failures ([c3f3f97](https://github.com/OpenMined/screamingface/commit/c3f3f97a52f72bc6fe37436b1c73f7911802341e))
+* close corrective loop review gaps ([3f7cacd](https://github.com/OpenMined/screamingface/commit/3f7cacdc6c5e43f405170689dfc22be1ff7c7743))
+* complete corrective recipe execution contracts ([2229ff0](https://github.com/OpenMined/screamingface/commit/2229ff0e031a94688033c108d5538f8c321a9a51))
+* reconcile DRACO adapter with merged loop contracts ([cf9d9d6](https://github.com/OpenMined/screamingface/commit/cf9d9d622d7e42df80ec58d9555c5307bf14b3af))
+* **url4-cloud:** aggregate DRACO 5-pass verdicts into check outcomes ([d0f5b3a](https://github.com/OpenMined/screamingface/commit/d0f5b3a0f4f366a67c40be48a10a73d4f1235821))
+* **url4-cloud:** carry DRACO check invocations through corrective loops ([7a1afb6](https://github.com/OpenMined/screamingface/commit/7a1afb622fae1b9bbf3bcad256037f46ccb7ef43))
+* **url4-cloud:** carry every token class into the run totals ([c29d591](https://github.com/OpenMined/screamingface/commit/c29d591ed0c5305e398f08a1b456d0b9fee41ea3))
+* **url4-cloud:** enforce LANL refusal identity ([97c56ef](https://github.com/OpenMined/screamingface/commit/97c56efdecbb9ee71474c3964a922fe32d249c7b))
+* **url4-cloud:** keep check bookkeeping out of model params ([263e9e3](https://github.com/OpenMined/screamingface/commit/263e9e331ebc34bab91e61afff768267d4826257))
+* **url4-cloud:** keep provider refusals visible end-to-end ([6f00cf7](https://github.com/OpenMined/screamingface/commit/6f00cf7d76038ed50c4785797fcad076e640e559))
+* **url4-cloud:** keep provider refusals visible end-to-end (OME-825) ([05170eb](https://github.com/OpenMined/screamingface/commit/05170eb2ead276d7392cded7780112108dd289a6))
+* **url4-cloud:** keep the LANL protocol label at v1 ([59737df](https://github.com/OpenMined/screamingface/commit/59737df7ee9dd89d56685305d0371d62dce2419d))
+* **url4-cloud:** make local mode reach a successful run out of the box ([b698fcf](https://github.com/OpenMined/screamingface/commit/b698fcffd20d3dbe19c17a7b6654e302adeaf6ee))
+* **url4-cloud:** make local mode reach a successful run out of the box ([f6964de](https://github.com/OpenMined/screamingface/commit/f6964deeb0f77827957e68a3bcac93e4a4459c22))
+* **url4-cloud:** name token exhaustion and unstarve the DRACO check judge ([587c80e](https://github.com/OpenMined/screamingface/commit/587c80e7125a5cecae853b362c14141949dd5056))
+* **url4-cloud:** preserve rubric check invocation contracts ([9313586](https://github.com/OpenMined/screamingface/commit/931358632e48756cdd5e8b2f1d3e8616d3140a17))
+* **url4-cloud:** raise the local concurrent run ceiling above the Client fan-out ([7cbe4c8](https://github.com/OpenMined/screamingface/commit/7cbe4c8c4ab77e1bcbc05aaba28a359ec46a3dbc))
+* **url4-cloud:** raise the local concurrent run ceiling above the Client fan-out ([0cdd068](https://github.com/OpenMined/screamingface/commit/0cdd068c89cac679d5dcceb22cb724d3367d6d90))
+* **url4-cloud:** stop counting a cache hit's replayed tokens as consumed ([9fec9d7](https://github.com/OpenMined/screamingface/commit/9fec9d7f7b6677d30a882dc207cf9815c21252d9))
+
 ## [1.3.0](https://github.com/OpenMined/screamingface/compare/url4-cloud-v1.2.1...url4-cloud-v1.3.0) (2026-08-13)
 
 
