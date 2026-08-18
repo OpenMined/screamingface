@@ -17,6 +17,7 @@ class _ConnectionPanelState:
 
     hosted: bool
     engine_url: str
+    provider_mutations_enabled: bool
     connections: tuple[Connection, ...] = ()
     notice: str | None = None
     access_pending: bool = False

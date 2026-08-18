@@ -166,7 +166,10 @@ def static_panel_html(
         if state.hosted
         else ""
     )
-    rows = "".join(_static_row(item) for item in state.connections)
+    rows = "".join(
+        _static_row(item, provider_mutations_enabled=state.provider_mutations_enabled)
+        for item in state.connections
+    )
     table = (
         f"<div class='sf-conn-tbl'>{_column_head_html()}{access}{rows}</div>"
         if (access or rows)
@@ -258,7 +261,12 @@ class _NotebookConnectionView:
 
     def _interactive_row(self, connection: Connection):
         widgets = self._widgets
-        meta = widgets.HTML(value=_meta_html(connection))
+        meta = widgets.HTML(
+            value=_meta_html(
+                connection,
+                provider_mutations_enabled=self._state.provider_mutations_enabled,
+            )
+        )
         meta.layout.flex = "1 1 auto"
         meta.layout.min_width = "0"
         return self._row(meta, self._controls_for(connection))
@@ -275,7 +283,9 @@ class _NotebookConnectionView:
         return row
 
     def _controls_for(self, connection: Connection) -> list[Any]:
-        if connection.provider in self._state.flows:
+        if not self._state.provider_mutations_enabled:
+            controls = []
+        elif connection.provider in self._state.flows:
             controls = self._oauth_controls(connection)
         elif connection.status == "pending":
             controls = self._pending_controls(connection)
@@ -397,20 +407,49 @@ def _source_html(text: str | None) -> str:
     return f"<span class='sf-connections__source'>{escape(text) if text else '—'}</span>"
 
 
-def _meta_html(connection: Connection) -> str:
+def _provider_presentation(
+    connection: Connection,
+    *,
+    provider_mutations_enabled: bool,
+) -> tuple[str, str | None]:
+    status = _provider_status(
+        connection,
+        provider_mutations_enabled=provider_mutations_enabled,
+    )
+    if provider_mutations_enabled:
+        return status, connection.account_label
+    # On a hosted Engine the connection rows are caller-scoped BYOK state, not the
+    # operator-managed credentials used for execution. Every provider the hosted Engine
+    # advertises is therefore presented as managed availability; its caller status must not
+    # make a deployment credential look unavailable.
+    return status, "Available via ScreamingFace"
+
+
+def _provider_status(connection: Connection, *, provider_mutations_enabled: bool) -> str:
+    return connection.status if provider_mutations_enabled else "connected"
+
+
+def _meta_html(connection: Connection, *, provider_mutations_enabled: bool) -> str:
+    status, source = _provider_presentation(
+        connection,
+        provider_mutations_enabled=provider_mutations_enabled,
+    )
     return (
         "<div class='sf-connections__meta'>"
         "<span class='sf-conn-prov'>"
         f"{_icon_html(connection.provider, connection.display_name)}"
         f"<span class='sf-connections__provider'>{escape(connection.display_name)}</span>"
         "</span>"
-        f"{_status_html(connection.status)}"
-        f"{_source_html(connection.account_label)}</div>"
+        f"{_status_html(status)}"
+        f"{_source_html(source)}</div>"
     )
 
 
-def _static_row(connection: Connection) -> str:
-    return f"<div class='sf-connections__row'>{_meta_html(connection)}</div>"
+def _static_row(connection: Connection, *, provider_mutations_enabled: bool) -> str:
+    return (
+        "<div class='sf-connections__row'>"
+        f"{_meta_html(connection, provider_mutations_enabled=provider_mutations_enabled)}</div>"
+    )
 
 
 def _screaming_mark_html() -> str:

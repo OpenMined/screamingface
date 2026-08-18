@@ -542,7 +542,7 @@ def test_hosted_panel_prompts_for_engine_login_before_loading_providers() -> Non
     assert client.connections.calls == 1
     assert panel.connections == (connection,)
     assert "authenticated" in _text(root)
-    assert [button.description for button in _buttons(root)] == ["Log out", "Connect"]
+    assert [button.description for button in _buttons(root)] == ["Log out"]
 
     _button(root, "Log out").click()
 
@@ -810,7 +810,7 @@ async def test_unprotected_remote_engine_skips_the_access_login_row() -> None:
 
     assert "Hosted Engine" not in _text(root)
     assert "OpenRouter" in _text(root)
-    assert [button.description for button in _buttons(root)] == ["Connect"]
+    assert [button.description for button in _buttons(root)] == []
     root.close()
 
 
@@ -856,4 +856,82 @@ def test_non_screamingface_hosted_engine_shows_a_neutral_label_without_the_mark(
     assert "ScreamingFace Hosted Engine" not in text
     assert "😱" not in text
     assert "login required" in text
+    root.close()
+
+
+def test_authenticated_hosted_provider_rows_show_managed_availability_without_controls() -> None:
+    connected = sf.Connection(
+        provider="openrouter",
+        display_name="OpenRouter",
+        auth_methods=("api_key",),
+        status="connected",
+        auth_method="api_key",
+        account_label="private-account@example.com",
+    )
+    caller_disconnected = sf.Connection(
+        provider="anthropic",
+        display_name="Anthropic",
+        auth_methods=("api_key", "oauth"),
+        status="not_connected",
+        auth_method=None,
+        account_label=None,
+    )
+
+    class Connections:
+        def list(self) -> tuple[sf.Connection, ...]:
+            return (connected, caller_disconnected)
+
+    class HostedClient:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticated = True
+        authenticating = False
+        connections = Connections()
+
+    panel = _panel(HostedClient())
+    root = panel.widget()
+
+    text = _text(root)
+    html = panel._repr_html_()
+    representation = repr(panel)
+    assert [button.description for button in _buttons(root)] == ["Log out"]
+    assert "Available via ScreamingFace" in text
+    assert "Available via ScreamingFace" in html
+    assert text.count("Connected") == 2
+    assert "unavailable" not in text
+    assert "unavailable" not in html
+    assert "private-account@example.com" not in text
+    assert "private-account@example.com" not in html
+    assert "openrouter=connected" in representation
+    assert "anthropic=connected" in representation
+    assert "not_connected" not in representation
+    root.close()
+
+
+@pytest.mark.parametrize("engine_url", ["http://localhost:9108", "http://[::1]:9108"])
+def test_loopback_provider_rows_keep_byok_controls(engine_url: str) -> None:
+    connection = sf.Connection(
+        provider="openrouter",
+        display_name="OpenRouter",
+        auth_methods=("api_key",),
+        status="not_connected",
+        auth_method=None,
+        account_label=None,
+    )
+
+    class Connections:
+        def list(self) -> tuple[sf.Connection, ...]:
+            return (connection,)
+
+    class LocalClient:
+        authenticated = False
+        authenticating = False
+        connections = Connections()
+
+        def __init__(self) -> None:
+            self.engine_url = engine_url
+
+    panel = _panel(LocalClient())
+    root = panel.widget()
+
+    assert [button.description for button in _buttons(root)] == ["Connect"]
     root.close()
