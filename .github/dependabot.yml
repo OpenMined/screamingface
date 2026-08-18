@@ -23,7 +23,7 @@
 #   can sit indefinitely while `-security` and `-minor` keep flowing.
 #
 # NOT fixable by any setting here (OME-740): Dependabot cannot keep the two `FROM` lines of
-# apps/url4-cloud/Dockerfile in step, because ghcr.io/astral-sh/uv and python are different
+# apps/screamingface-engine/Dockerfile in step, because ghcr.io/astral-sh/uv and python are different
 # images. See the INVARIANT in that Dockerfile; base-image bumps there need a human.
 version: 2
 updates:
@@ -91,19 +91,19 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "uv"
-    directory: "/apps/url4-cloud"
+    directory: "/apps/screamingface-engine"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      url4-cloud-python-security:
+      screamingface-engine-python-security:
         applies-to: security-updates
         patterns: ["*"]
-      url4-cloud-python-minor:
+      screamingface-engine-python-minor:
         applies-to: version-updates
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      url4-cloud-python-major:
+      screamingface-engine-python-major:
         applies-to: version-updates
         patterns: ["*"]
         update-types: ["major"]
@@ -190,16 +190,16 @@ updates:
   # group has exactly ONE member and there is nothing to pair the runtime with. #491 proved it
   # within minutes of this file merging: it moved `python:` alone and left the uv builder behind,
   # exactly as #439 did. No setting in this file can fix that. The only real guards are the
-  # INVARIANT comment in each Dockerfile and a CI step that RUNS the built image (url4-cloud has
+  # INVARIANT comment in each Dockerfile and a CI step that RUNS the built image (screamingface-engine has
   # one — "Smoke both modes"; aigateway and scoreboard do not).
   #
   # `ignore: python >=3.14` below is not about that fault — it is about test coverage. Every
   # Python matrix in this repo runs 3.12/3.13 (aigateway-tests.yml, scoreboard-tests.yml,
-  # url4-cloud-tests.yml, url4-tests.yml), so a 3.14 base image would ship an interpreter no test
+  # screamingface-engine-tests.yml, url4-tests.yml), so a 3.14 base image would ship an interpreter no test
   # here has ever exercised. LIFT THE IGNORE when those matrices gain 3.14 — that is the trigger,
   # and removing the entry is how you retry.
   - package-ecosystem: "docker"
-    directory: "/apps/url4-cloud"
+    directory: "/apps/screamingface-engine"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
@@ -208,10 +208,10 @@ updates:
       - dependency-name: "python"
         versions: [">=3.14"]
     groups:
-      url4-cloud-docker-security:
+      screamingface-engine-docker-security:
         applies-to: security-updates
         patterns: ["*"]
-      url4-cloud-docker-version:
+      screamingface-engine-docker-version:
         applies-to: version-updates
         patterns: ["*"]
 

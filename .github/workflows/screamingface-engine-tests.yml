@@ -1,17 +1,17 @@
-name: url4-cloud-tests
+name: screamingface-engine-tests
 on:
   push:
     paths:
-      - "apps/url4-cloud/**"
+      - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
-      - ".github/workflows/url4-cloud-tests.yml"
+      - ".github/workflows/screamingface-engine-tests.yml"
   pull_request:
     paths:
-      - "apps/url4-cloud/**"
+      - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
-      - ".github/workflows/url4-cloud-tests.yml"
+      - ".github/workflows/screamingface-engine-tests.yml"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,7 @@ permissions:
 
 # Rapid pushes to the same ref would otherwise run duplicate matrices to completion.
 concurrency:
-  group: url4-cloud-tests-${{ github.ref }}
+  group: screamingface-engine-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
         python-version: ["3.12", "3.13"]
     defaults:
       run:
-        working-directory: apps/url4-cloud
+        working-directory: apps/screamingface-engine
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -58,7 +58,7 @@ jobs:
           uv run pytest \
             --tb=short \
             --junitxml=results.xml \
-            --cov=url4_cloud \
+            --cov=screamingface_engine \
             --cov=url4.streaming \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
@@ -68,14 +68,14 @@ jobs:
         uses: dorny/test-reporter@v3
         if: always()
         with:
-          name: url4-cloud Test Results (${{ matrix.python-version }})
-          path: apps/url4-cloud/results.xml
+          name: screamingface-engine Test Results (${{ matrix.python-version }})
+          path: apps/screamingface-engine/results.xml
           reporter: java-junit
       - name: Coverage report
         uses: orgoro/coverage@v3.3
         if: always() && github.event_name == 'pull_request'
         with:
-          coverageFile: apps/url4-cloud/coverage.xml
+          coverageFile: apps/screamingface-engine/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           thresholdAll: 0.80
 
@@ -94,7 +94,7 @@ jobs:
         options: --name nats-conformance
     defaults:
       run:
-        working-directory: apps/url4-cloud
+        working-directory: apps/screamingface-engine
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -145,29 +145,29 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          file: apps/url4-cloud/Dockerfile
+          file: apps/screamingface-engine/Dockerfile
           push: false
           load: true
-          tags: url4-cloud:ci
+          tags: screamingface-engine:ci
       - name: Build the DRACO benchmark image
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: apps/url4-cloud/Dockerfile.benchmark
+          file: apps/screamingface-engine/Dockerfile.benchmark
           build-contexts: |
-            url4-cloud-ci=docker-image://url4-cloud:ci
+            screamingface-engine-ci=docker-image://screamingface-engine:ci
           build-args: |
-            BASE=url4-cloud-ci
+            BASE=screamingface-engine-ci
           push: false
           load: true
-          tags: url4-cloud-benchmark:ci
+          tags: screamingface-engine-benchmark:ci
       # Both argv modes must at least start from the built image: the entrypoint is the mode
       # switch, so a broken one is a deployment that cannot run either half.
       - name: Smoke both modes
         run: |
-          docker run --rm url4-cloud:ci url4-cloud --help
-          docker run --rm url4-cloud:ci url4-cloud run --help
-          docker run --rm url4-cloud-benchmark:ci url4-cloud run --help
+          docker run --rm screamingface-engine:ci screamingface-engine --help
+          docker run --rm screamingface-engine:ci screamingface-engine run --help
+          docker run --rm screamingface-engine-benchmark:ci screamingface-engine run --help
 
   chart:
     name: Render the Helm chart
@@ -179,10 +179,10 @@ jobs:
       # every template aborts on the `natsUrl` `fail` when it is unset. Templating is the check
       # that actually exercises the templates; linting only reads them.
       - name: Lint
-        run: helm lint apps/url4-cloud/deploy/helm
+        run: helm lint apps/screamingface-engine/deploy/helm
       - name: Template with an external NATS
         run: |
-          helm template url4-cloud apps/url4-cloud/deploy/helm \
+          helm template screamingface-engine apps/screamingface-engine/deploy/helm \
             --set config.natsUrl=nats://nats.example:4222 > /dev/null
       # WHY no `helm dependency build`: the NATS subchart is already vendored at
       # `charts/nats-1.2.2.tgz`, matching `Chart.lock`. `dependency build` re-resolves
@@ -192,16 +192,16 @@ jobs:
       # straight from `charts/`, so nothing needs re-fetching here.
       - name: Template with the bundled NATS subchart
         run: |
-          helm template url4-cloud apps/url4-cloud/deploy/helm \
+          helm template screamingface-engine apps/screamingface-engine/deploy/helm \
             --set nats.enabled=true \
-            --set config.natsUrl=nats://url4-cloud-nats:4222 > /dev/null
+            --set config.natsUrl=nats://screamingface-engine-nats:4222 > /dev/null
       # The cloud posture lives in its own values file (it needs a Gateway name the chart cannot
       # know), so nothing above exercises it — bare `helm template` renders no HTTPRoute at all.
       # Without this step `values-cloud.yaml` could drift out of the schema unnoticed until a deploy.
       - name: Template the cloud values (Gateway API edge)
         run: |
-          rendered=$(helm template url4-cloud apps/url4-cloud/deploy/helm \
-            -f apps/url4-cloud/deploy/helm/values-cloud.yaml \
+          rendered=$(helm template screamingface-engine apps/screamingface-engine/deploy/helm \
+            -f apps/screamingface-engine/deploy/helm/values-cloud.yaml \
             --set gateway.parentRef.name=ci-gateway \
             --set gateway.cloudflareAccess.teamDomain=ci.cloudflareaccess.com \
             --set gateway.cloudflareAccess.audience=ci-aud \
@@ -217,7 +217,7 @@ jobs:
       # SUCCEEDS, an install could render an edge that authenticates nobody.
       - name: An enabled Cloudflare Access filter with no team domain must be refused
         run: |
-          if helm template url4-cloud apps/url4-cloud/deploy/helm \
+          if helm template screamingface-engine apps/screamingface-engine/deploy/helm \
                --set gateway.enabled=true \
                --set gateway.parentRef.name=ci-gateway \
                --set gateway.cloudflareAccess.enabled=true \
@@ -229,7 +229,7 @@ jobs:
       # traffic, so values.schema.json refuses it. If this ever SUCCEEDS, that guard is gone.
       - name: An enabled Gateway with no parentRef must be refused
         run: |
-          if helm template url4-cloud apps/url4-cloud/deploy/helm \
+          if helm template screamingface-engine apps/screamingface-engine/deploy/helm \
                --set gateway.enabled=true \
                --set config.natsUrl=nats://x:4222 >/dev/null 2>&1; then
             echo "::error::values.schema.json accepted gateway.enabled=true with an empty parentRef.name"
@@ -239,7 +239,7 @@ jobs:
       # this ever SUCCEEDS, the schema stopped guarding the values file.
       - name: A stale value must be refused
         run: |
-          if helm template url4-cloud apps/url4-cloud/deploy/helm \
+          if helm template screamingface-engine apps/screamingface-engine/deploy/helm \
                --set config.natsUrl=nats://x:4222 \
                --set runner.image=stale/removed:v1 >/dev/null 2>&1; then
             echo "::error::values.schema.json accepted a removed key (runner.image)"

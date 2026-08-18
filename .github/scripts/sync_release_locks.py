@@ -5,8 +5,8 @@ WHY THIS EXISTS
 ---------------
 release-please bumps `version` in a package's `pyproject.toml` and nothing else. Every
 `uv.lock` records that same version — its own workspace's editable root entry, and for
-`apps/url4-cloud` also the editable `url4` path dependency it pins. So a release PR opens
-with a lockfile that no longer matches its `pyproject.toml`, and `url4-cloud-tests` fails
+`apps/screamingface-engine` also the editable `url4` path dependency it pins. So a release PR opens
+with a lockfile that no longer matches its `pyproject.toml`, and `screamingface-engine-tests` fails
 on its first step (`uv lock --check`) before ruff, pyright or pytest ever run. `main` then
 goes red the same way once the release merges.
 
@@ -15,7 +15,7 @@ PR #504). This script closes the loop: the release PR is re-locked in the same j
 opens it, so it is correct from the moment it exists.
 
 Every workspace is re-locked, not just the released one, because the version churn crosses
-workspace boundaries: releasing `packages/url4` invalidates `apps/url4-cloud/uv.lock` too.
+workspace boundaries: releasing `packages/url4` invalidates `apps/screamingface-engine/uv.lock` too.
 A workspace whose lock is already current re-locks to a no-op, so the sweep is safe and it
 also heals drift that arrived by some other route.
 

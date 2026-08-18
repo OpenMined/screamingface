@@ -59,13 +59,13 @@ ignores:
       are capped by different packages for different reasons. Do not unify them; they lift on
       unrelated triggers.
 
-  - directory: /apps/url4-cloud
+  - directory: /apps/screamingface-engine
     dependency: python
     versions: ">=3.14"
     ticket: OME-747
     blocker:
       kind: ci_matrix
-      workflow: .github/workflows/url4-cloud-tests.yml
+      workflow: .github/workflows/screamingface-engine-tests.yml
       matrix_key: python-version
     note: >-
       NOT upstream-blocked. Python 3.14 works; we simply do not test against it. Lifting this is
@@ -80,7 +80,7 @@ ignores:
       workflow: .github/workflows/aigateway-tests.yml
       matrix_key: python-version
     note: >-
-      NOT upstream-blocked; see the url4-cloud entry. Extending this matrix is what lifts it.
+      NOT upstream-blocked; see the screamingface-engine entry. Extending this matrix is what lifts it.
 
   - directory: /apps/scoreboard
     dependency: python
@@ -91,4 +91,4 @@ ignores:
       workflow: .github/workflows/scoreboard-tests.yml
       matrix_key: python-version
     note: >-
-      NOT upstream-blocked; see the url4-cloud entry. Extending this matrix is what lifts it.
+      NOT upstream-blocked; see the screamingface-engine entry. Extending this matrix is what lifts it.

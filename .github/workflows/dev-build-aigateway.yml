@@ -42,7 +42,7 @@ jobs:
       - run: az acr login --name acropenmined
       - uses: docker/build-push-action@v7
         with:
-          # Context is the repo root — matches the release workflows (url4-cloud's
+          # Context is the repo root — matches the release workflows (screamingface-engine's
           # Dockerfile COPYs packages/url4 from outside its own directory).
           context: .
           file: apps/aigateway/Dockerfile

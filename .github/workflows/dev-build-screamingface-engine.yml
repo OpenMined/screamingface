@@ -2,21 +2,21 @@
 # so a dev environment can track main automatically. Release builds are untouched
 # — this never tags 'latest' and never publishes charts. Single-arch (amd64) for
 # speed; dev clusters are amd64.
-name: Dev build url4-cloud
+name: Dev build screamingface-engine
 on:
   push:
     branches: [main]
     paths:
-      - "apps/url4-cloud/**"
+      - "apps/screamingface-engine/**"
       - "packages/url4/**"
-      - ".github/workflows/dev-build-url4-cloud.yml"
+      - ".github/workflows/dev-build-screamingface-engine.yml"
   workflow_dispatch:
 permissions:
   contents: read
   packages: write
   id-token: write # OIDC → Azure; no stored credentials
 concurrency:
-  group: dev-build-url4-cloud-${{ github.ref }}
+  group: dev-build-screamingface-engine-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   image:
@@ -45,21 +45,21 @@ jobs:
       - run: az acr login --name acropenmined
       - uses: docker/build-push-action@v7
         with:
-          # Context is the repo root — matches the release workflows (url4-cloud's
+          # Context is the repo root — matches the release workflows (screamingface-engine's
           # Dockerfile COPYs packages/url4 from outside its own directory).
           context: .
-          file: apps/url4-cloud/Dockerfile
+          file: apps/screamingface-engine/Dockerfile
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/openmined/screamingface-url4-cloud:main-${{ steps.sha.outputs.short }}
-            acropenmined.azurecr.io/screamingface-url4-cloud:main-${{ steps.sha.outputs.short }}
-            acropenmined.azurecr.io/screamingface-url4-cloud:main-${{ github.sha }}
+            ghcr.io/openmined/screamingface-engine:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-engine:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-engine:main-${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=dev-url4-cloud
-          cache-to: type=gha,scope=dev-url4-cloud,mode=max
+          cache-from: type=gha,scope=dev-screamingface-engine
+          cache-to: type=gha,scope=dev-screamingface-engine,mode=max
 
   benchmark-image:
     needs: image
@@ -81,14 +81,14 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          file: apps/url4-cloud/Dockerfile.benchmark
+          file: apps/screamingface-engine/Dockerfile.benchmark
           platforms: linux/amd64
           push: true
           build-args: |
-            BASE=ghcr.io/openmined/screamingface-url4-cloud:main-${{ needs.image.outputs.short }}
+            BASE=ghcr.io/openmined/screamingface-engine:main-${{ needs.image.outputs.short }}
           tags: |
-            ghcr.io/openmined/screamingface-url4-cloud-benchmark:main-${{ needs.image.outputs.short }}
-            acropenmined.azurecr.io/screamingface-url4-cloud-benchmark:main-${{ needs.image.outputs.short }}
-            acropenmined.azurecr.io/screamingface-url4-cloud-benchmark:main-${{ github.sha }}
-          cache-from: type=gha,scope=dev-url4-cloud-benchmark
-          cache-to: type=gha,scope=dev-url4-cloud-benchmark,mode=max
+            ghcr.io/openmined/screamingface-engine-benchmark:main-${{ needs.image.outputs.short }}
+            acropenmined.azurecr.io/screamingface-engine-benchmark:main-${{ needs.image.outputs.short }}
+            acropenmined.azurecr.io/screamingface-engine-benchmark:main-${{ github.sha }}
+          cache-from: type=gha,scope=dev-screamingface-engine-benchmark
+          cache-to: type=gha,scope=dev-screamingface-engine-benchmark,mode=max

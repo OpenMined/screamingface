@@ -40,13 +40,13 @@
       "include-component-in-tag": true,
       "version-file": "packages/screamingface/pyproject.toml"
     },
-    "apps/url4-cloud": {
+    "apps/screamingface-engine": {
       "release-type": "python",
-      "package-name": "url4-cloud",
-      "component": "url4-cloud",
+      "package-name": "screamingface-engine",
+      "component": "screamingface-engine",
       "tag-separator": "-",
       "include-component-in-tag": true,
-      "version-file": "apps/url4-cloud/pyproject.toml"
+      "version-file": "apps/screamingface-engine/pyproject.toml"
     },
     "apps/scoreboard": {
       "release-type": "python",
