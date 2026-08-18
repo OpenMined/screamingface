@@ -21,4 +21,11 @@ async def list_models(request: Request, _current: CurrentAccount) -> dict:
     data = [
         model_row(plugin, entry) for plugin in registry.all() for entry in plugin.register_models()
     ]
+    # OME-879: dynamically admitted models (deployment-lifetime, app.state only)
+    # join the listing after the seeded catalog. The admit route never stores a
+    # seeded id here, so no row can appear twice.
+    for model_id, entry in request.app.state.admitted_models.items():
+        plugin = registry.get(model_id.split("/", 1)[0])
+        if plugin is not None:
+            data.append(model_row(plugin, entry))
     return {"object": "list", "data": data}

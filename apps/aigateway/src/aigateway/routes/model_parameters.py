@@ -113,7 +113,9 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         canonical_model_id(custom_llm_provider=provider, model_name=entry.model_name)
         for entry in plugin.register_models()
     }
-    if model not in known:
+    # OME-879: dynamically admitted ids resolve like seeded ones — a model the
+    # gateway agreed to serve must not 404 on its own contract endpoint.
+    if model not in known and model not in request.app.state.admitted_models:
         raise HTTPException(
             status_code=404,
             detail={"code": "model_not_found", "provider": provider, "model": model},

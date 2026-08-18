@@ -35,6 +35,33 @@ class ModelEntry:
     litellm_params: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ModelAdmission:
+    """Outcome of a dynamic model-admission attempt (OME-879).
+
+    Think of it as the gateway's answer to "may this model join the served
+    catalog right now?": either a grant carrying the ``ModelEntry`` to serve, or
+    a refusal carrying a diagnostic ``code`` + ``message`` that name which knob
+    to turn — all decided BEFORE any money is spent.
+
+    INVARIANT: a grant always carries an entry; a refusal always carries a code.
+    Use the two constructors, never the raw dataclass fields.
+    """
+
+    admitted: bool
+    entry: ModelEntry | None = None
+    code: str | None = None
+    message: str | None = None
+
+    @classmethod
+    def granted(cls, entry: ModelEntry) -> ModelAdmission:
+        return cls(admitted=True, entry=entry)
+
+    @classmethod
+    def refused(cls, code: str, message: str) -> ModelAdmission:
+        return cls(admitted=False, code=code, message=message)
+
+
 class CredentialStrategy(ABC):
     """Per-provider credential producer (the auth "port").
 

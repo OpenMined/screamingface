@@ -206,6 +206,12 @@ class DiscoveryRuntime:
         return self._limits
 
     @property
+    def client(self) -> DiscoveryHttpClient:
+        # OME-879: the admit route reuses the SAME bounded transport for its
+        # catalog-membership check, so admission gains no new egress surface.
+        return self._client
+
+    @property
     def cache(self) -> EvidenceCache:
         return self._cache
 

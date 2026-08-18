@@ -51,6 +51,7 @@ from .routes import (
     auth_session,
     chat,
     health,
+    model_admission,
     model_parameters,
     models,
     oauth_connections,
@@ -376,6 +377,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
     app.state.discovery_runtime = _build_discovery_runtime(settings)
+    # OME-879: dynamic-admission state. Deliberately app-state-only (deployment
+    # lifetime): a restart forgets every admission and nothing is persisted.
+    app.state.admitted_models = {}
+    app.state.admission_catalog_cache = {}
 
     for plugin in registry.all():
         auth_router = plugin.auth_router()
@@ -391,6 +396,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(oauth_connections.router)
     app.include_router(health.router)
     app.include_router(models.router)
+    app.include_router(model_admission.router)
     app.include_router(providers.router)
     app.include_router(model_parameters.router)
     app.include_router(chat.router)

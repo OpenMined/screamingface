@@ -27,10 +27,15 @@ from typing import TYPE_CHECKING, Any, cast
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.cache_ports import CacheBypass
-from aigateway.core.parameter_discovery import DiscoverySourceRef
+from aigateway.core.parameter_discovery import (
+    DiscoveryHttpClient,
+    DiscoveryLimits,
+    DiscoverySourceRef,
+)
 from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
     CredentialStrategy,
+    ModelAdmission,
     ModelEntry,
     ProviderPluginBase,
 )
@@ -44,6 +49,7 @@ from aigateway.plugins.taxonomy import (
     UsageAccountingStrategy,
 )
 
+from .admission import admit_openrouter_model
 from .api_key_validation import OpenRouterApiKeyValidator
 from .discovery import (
     LOCAL_SOURCE,
@@ -182,6 +188,26 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             ModelEntry(model_name=slug, litellm_params={"model": slug})
             for slug in self.settings.default_models
         ]
+
+    async def admit_model(
+        self,
+        model_id: str,
+        *,
+        discovery_client: DiscoveryHttpClient | None,
+        discovery_limits: DiscoveryLimits | None,
+        catalog_cache: dict[str, Any],
+        credentialed: bool,
+    ) -> ModelAdmission:
+        # OME-879: the decision ladder lives in `admission.py`; this override is
+        # only the port wiring.
+        return await admit_openrouter_model(
+            model_id,
+            settings=self.settings,
+            client=discovery_client,
+            limits=discovery_limits,
+            cache=catalog_cache,
+            credentialed=credentialed,
+        )
 
     def supports_api_key(self) -> bool:
         return True
