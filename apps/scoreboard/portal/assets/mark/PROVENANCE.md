@@ -1,3 +1,7 @@
+<!-- This file is inside the served portal tree and is publicly fetchable.
+     Keep it free of ticket ids, repository paths and anything else internal;
+     tests/unit/test_portal_static.py enforces that. -->
+
 # The 😱 mark — vendored asset
 
 The ScreamingFace mark, set **as the lowercase "o"** in the landing hero
@@ -17,7 +21,7 @@ So `Fusi😱ns` typed literally is a brand violation, not a shortcut. The mark i
 | | |
 |---|---|
 | Upstream | `https://brand.screamingface.ai/assets/mark/sf-mark-640.png` |
-| Fetched | 2026-08-18 (`OME-874`) |
+| Fetched | 2026-08-18 |
 | Original | PNG RGBA, 608 × 640, 415,559 bytes |
 | Source sha256 | `cdf5d9dbce79a8e9a2cb04eaec551de1c333c1c58af5589d8c2c35e68a5e56d8` |
 | Shipped | `sf-mark-128.png` — PNG RGBA, 121 × 128, 26,410 bytes |
@@ -37,8 +41,8 @@ Resampling is not redrawing — the brand rule forbids recolouring, boxing or re
 of which this does. 128 px is a 2× cushion: the mark renders at `.46em` of a `clamp(44px…76px)`
 hero, so ~35 px tall at most.
 
-Assets stay **app-local** under `portal/` (no CDN, no external host) — see
-`.claude/skills/working-in-this-repo`.
+Assets stay **app-local** under `portal/` — no CDN, no external host — so the public board
+never depends on another origin at render time.
 
 ## Re-syncing
 

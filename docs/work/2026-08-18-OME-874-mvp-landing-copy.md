@@ -74,6 +74,24 @@ The rationale that moved here rather than staying in the served files:
 - **The Dataset column** is not in the mockup, whose data is mock; ours links published JSONL that
   `data.html` serves, so dropping it would break a working path to a real artifact. Owner confirmed.
 
+**D5 was under-enforced and review caught it.** My audit grepped `*.html`, `*.js` and `*.css` — the
+file types I had been editing — and missed that I had *created* a markdown file inside the served
+tree. `portal/assets/mark/PROVENANCE.md` shipped publicly (`200 text/markdown`) carrying the ticket
+id on line 20 and a `.claude/skills/...` path on line 41. The PR body's claim of "zero internal
+references in served files" was false when written; both the file and that claim are corrected.
+
+Worth recording because two reviews disagreed and both were right: the security pass explicitly
+cleared this file — *"no secrets, no internal hostnames, no credentials"* — which is true against a
+security bar, where this is a non-finding. The code review judged it against D5, where it is a
+violation. A file can be harmless and still break a stated rule.
+
+The real fix is not the scrub but the guard: `test_served_markdown_carries_no_internal_references`
+now fetches every `*.md` under `portal/` through the app and fails on `OME-`, `.claude/` or
+`worktrees/`. Verified by reintroducing the original leak and watching it fail. D5 had been a
+paragraph in this ledger with nothing enforcing it, which is exactly how it was missed.
+
+Scope of that guard is deliberately markdown-only — see below.
+
 **Pre-existing leak, NOT fixed here.** The same audit found **~42** `OME-` references already on
 `main` in served portal files — `benchmark.js` 19, `main.js` 11, `leaderboard-logic.js` 9,
 `portal.css` 8, `index.html` 4 (the last now 0 of mine). Those predate this branch and sit in files

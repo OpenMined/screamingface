@@ -132,3 +132,32 @@ def test_the_hero_mark_is_vendored_not_hotlinked(tmp_path: Path) -> None:
         asset = client.get("/" + source.lstrip("/"))
         assert asset.status_code == 200
         assert asset.headers["content-type"] == "image/png"
+
+
+def test_served_markdown_carries_no_internal_references(tmp_path: Path) -> None:
+    """The portal tree is mounted whole, so every file in it is public.
+
+    WHY this test exists: the portal ships unminified and `register_portal` mounts
+    `portal/` at `/`, so a maintainer note dropped next to an asset is served to anyone who
+    asks for it. `assets/mark/PROVENANCE.md` shipped with a ticket id and a `.claude/` path
+    before review caught it — the policy existed, nothing enforced it.
+
+    SCOPE, deliberately narrow: markdown only. The JS and CSS in this tree already carry ~42
+    ticket references that predate this test; widening it to those is its own unit of work,
+    and a test that fails on arrival gets skipped rather than fixed.
+    """
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    documents = sorted(portal.rglob("*.md"))
+    assert documents, "expected at least one markdown file under portal/"
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for document in documents:
+            route = "/" + document.relative_to(portal).as_posix()
+            assert client.get(route).status_code == 200, route
+
+            text = document.read_text(encoding="utf-8")
+            leaks = [token for token in ("OME-", ".claude/", "worktrees/") if token in text]
+            assert not leaks, (
+                f"{route} is publicly served and leaks {leaks}. Keep internal references out of "
+                "the portal tree — put the reasoning in docs/work/ instead."
+            )
