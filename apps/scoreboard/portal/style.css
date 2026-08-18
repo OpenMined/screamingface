@@ -191,6 +191,7 @@ p, li, .desc, .note { text-wrap: pretty; }
   padding: var(--space-4) var(--space-5) var(--space-5); margin: 0 0 var(--space-5);
   font-family: var(--f-mono); font-size: var(--text-sm); line-height: var(--leading-snug); }
 .note b, .note strong { color: var(--terminal-strong); }
+.infographic { display: block; width: 100%; height: auto; margin: var(--sp-4, 18px) 0; border: 1px solid var(--terminal-line); border-radius: var(--radius-window); }
 .note > .kicker { display: flex; align-items: center; justify-content: center; position: relative;
   margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5)) var(--space-4);
   padding: var(--space-2) var(--space-5); background: var(--terminal-chrome); border-bottom: 1px solid var(--terminal-line);
