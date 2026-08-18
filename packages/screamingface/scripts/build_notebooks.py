@@ -69,23 +69,6 @@ def _notebook(*cells: NotebookNode) -> NotebookNode:
     )
 
 
-def _local_stack_cell() -> NotebookNode:
-    return nbformat.v4.new_markdown_cell(
-        """## Before running
-
-From a terminal in `packages/screamingface/`:
-
-```bash
-screamingface prepare draco  # first run only: download pinned Benchmark assets
-screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services."""
-    )
-
-
 def _draco_candidate_policy_cell(*, synthesis: bool = False) -> NotebookNode:
     source = _string_assignment("DRACO_ANSWER_PROMPT", _DRACO_ANSWER_PROMPT_PARTS)
     if synthesis:
@@ -112,7 +95,7 @@ Report, publish its Candidate Result, and replay its URL4. The wider interface i
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal in `packages/screamingface/`:
+From a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -244,7 +227,7 @@ Every state-changing or paid example is either descriptive or guarded off by def
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal in `packages/screamingface/`:
+From a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -653,10 +636,10 @@ where `sf.CorrectiveLoop` is the protocol from
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal in `packages/screamingface/`:
+From a terminal:
 
 ```bash
-screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface prepare ifeval  # first run only: download pinned Benchmark assets
 screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
@@ -777,7 +760,7 @@ This notebook evaluates DRACO using new models (August 2026) and fusions of thes
         nbformat.v4.new_markdown_cell("""\
 ## Running things locally
 
-From a terminal in `packages/screamingface/`:
+From a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -913,10 +896,10 @@ Can a fusion of open-weights models improve on the baseline across the 157 harde
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal in `packages/screamingface/`:
+From a terminal:
 
 ```bash
-screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface prepare healthbench  # first run only: download pinned Benchmark assets
 screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
@@ -1022,10 +1005,10 @@ Every installed Benchmark advertises whether its check surface is free or paid:
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal in `packages/screamingface/`:
+From a terminal:
 
 ```bash
-screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface prepare --all  # first run only: download all three Benchmark assets
 screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from screamingface._runtime import cli
+from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig
 
 
@@ -55,3 +56,31 @@ def test_plain_sdk_import_does_not_load_server_packages() -> None:
     )
 
     assert output.strip() == "False"
+
+
+def test_local_runtime_enables_openrouter_without_overriding_an_explicit_choice() -> None:
+    default_environment: dict[str, str] = {}
+    disabled_environment = {"AIGW_OPENROUTER_ENABLED": "false"}
+
+    enable_local_providers(default_environment)
+    enable_local_providers(disabled_environment)
+
+    assert default_environment == {"AIGW_OPENROUTER_ENABLED": "true"}
+    assert disabled_environment == {"AIGW_OPENROUTER_ENABLED": "false"}
+
+
+def test_scoreboard_seed_is_derived_from_engine_benchmark_identity() -> None:
+    class Benchmark:
+        id = "ifeval"
+        title = "IFEval"
+        description = "Deterministic instruction following"
+        revision = "revision-from-engine"
+
+    assert json.loads(scoreboard_seed_json([Benchmark()])) == [
+        {
+            "id": "ifeval",
+            "display_name": "IFEval",
+            "description": "Deterministic instruction following",
+            "revision": "revision-from-engine",
+        }
+    ]

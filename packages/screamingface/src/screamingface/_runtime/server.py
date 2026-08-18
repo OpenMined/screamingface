@@ -12,6 +12,7 @@ from collections.abc import Iterator, Mapping
 from types import FrameType
 from typing import Any, Protocol
 
+from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
 
 SERVICES = {
@@ -30,6 +31,9 @@ class Server(Protocol):
 
 
 def require_runtime_extra() -> None:
+    # Configure provider discovery before importing URL4 Cloud: its compiled model world may load
+    # AI Gateway plugins, whose module-level instances capture provider settings at import time.
+    enable_local_providers(os.environ)
     try:
         import aigateway  # noqa: F401
         import scoreboard  # noqa: F401
@@ -129,20 +133,12 @@ def run_scoreboard(config: RuntimeConfig) -> None:
     from scoreboard.config import Settings
     from scoreboard.main import create_app
     from scoreboard.seed import _run
+    from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS
 
-    asyncio.run(
-        _run(
-            json.dumps(
-                [
-                    {
-                        "id": "draco/smoke",
-                        "display_name": "DRACO Smoke",
-                        "description": "Local end-to-end development protocol",
-                    }
-                ]
-            )
-        )
-    )
+    # The Engine owns benchmark identity and revision. Deriving the local Scoreboard catalogue
+    # from that same registry prevents retired aliases or stale revisions from making a completed
+    # local evaluation impossible to publish.
+    asyncio.run(_run(scoreboard_seed_json(BUILTIN_BENCHMARKS)))
     settings = Settings(
         host="127.0.0.1",
         port=9106,
