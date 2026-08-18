@@ -14,19 +14,26 @@ const { toggleTheme } = themeStore
 // section you introduce (see src/navigation/ for the matching sidebar data).
 const products = [
   { name: 'Home', path: '/' },
-  { name: 'ScreamingFace Client', path: '/sf-client' },
+  { name: 'Get started with SF Client', path: '/sf-client' },
+  { name: 'API reference', path: '/sf-client/api/modules' },
   { name: 'Learn more', path: '/learn' },
 ]
 
 const currentProduct = computed(() => {
   const path = route.path
-  if (path.startsWith('/sf-client')) return 'ScreamingFace Client'
+  if (path.startsWith('/sf-client/api')) return 'API reference'
+  if (path.startsWith('/sf-client')) return 'Get started with SF Client'
   if (path.startsWith('/learn')) return 'Learn more'
   return 'Home'
 })
 
 const isActive = (productPath: string) => {
   if (productPath === '/') return route.path === '/'
+  // Both tabs live under /sf-client/*, so the reference tab owns /sf-client/api/*
+  // and the get-started tab owns everything else under /sf-client.
+  if (productPath.startsWith('/sf-client/api')) return route.path.startsWith('/sf-client/api')
+  if (productPath === '/sf-client')
+    return route.path.startsWith('/sf-client') && !route.path.startsWith('/sf-client/api')
   return route.path.startsWith(productPath)
 }
 

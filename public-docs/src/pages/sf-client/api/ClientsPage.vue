@@ -7,7 +7,7 @@ import NbTextOut from '@/components/nb/NbTextOut.vue'
 import Note from '@/components/ui/Note.vue'
 import { SF_ENGINE_URL } from '@/lib/engine'
 import {
-  sfClientNavigation as navigation,
+  sfClientReferenceNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
@@ -53,28 +53,22 @@ async def main():
 
 asyncio.run(main())`
 const asyncOut = `(29, '${SF_ENGINE_URL}')`
-
-const connection = `client.connections.get("openrouter")`
-const connectionOut = `Connection(provider='openrouter', display_name='OpenRouter', auth_methods=('api_key',), status='connected', auth_method='api_key', account_label=None)`
-
-const panel = `client.connect()`
-const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connected)`
 </script>
 
 <template>
   <DocLayout
     title="Clients"
-    description="Client, AsyncClient, and provider connections."
+    description="Client and AsyncClient — how you reach an engine."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      A <code>Client</code> is the connection to one Engine, and the object that every other page in
+      A <code>Client</code> is the connection to one engine, and the object that every other page in
       this reference depends on: recipes are passed to it, and benchmarks and reports come back from
-      it. This page covers <code>Client</code> itself, alongside <code>AsyncClient</code> for the
-      same interface over <code>await</code>, <code>Connection</code> for a provider's state on the
-      Engine, and <code>ConnectionPanel</code> for the interactive view that
-      <code>connect()</code> returns.
+      it. This page covers <code>Client</code> itself and <code>AsyncClient</code> for the same
+      interface over <code>await</code>. The connection values it returns — <code>Connection</code>,
+      the OAuth flows, and <code>ConnectionPanel</code> — are documented under
+      <RouterLink to="/sf-client/api/connections">Connections</RouterLink>.
     </p>
 
     <h2>Client</h2>
@@ -83,7 +77,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
 
     <p>
       Creating a <code>Client</code> opens no connection and makes no request. The first call that
-      needs the Engine is the first one that talks to it.
+      needs the engine is the first one that talks to it.
     </p>
 
     <div class="not-prose">
@@ -91,11 +85,11 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
     </div>
 
     <Note>
-      <code>DEFAULT_ENGINE_URL</code> is a hosted Engine, so a <code>Client()</code> with no
-      arguments talks to one we operate. To use a local Engine, pass its address explicitly, or set
+      <code>DEFAULT_ENGINE_URL</code> is a hosted engine, so a <code>Client()</code> with no
+      arguments talks to one we operate. To use a local engine, pass its address explicitly, or set
       <code>SCREAMINGFACE_ENGINE_URL</code> and use the module-level functions.
-      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted ScreamingFace Leaderboard. Both constants live in
-      <code>screamingface.client</code>.
+      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted ScreamingFace Leaderboard. Both
+      constants live in <code>screamingface.client</code>.
     </Note>
 
     <h3>Properties</h3>
@@ -112,7 +106,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
         <tr>
           <td><code>engine_url</code></td>
           <td><code>str</code></td>
-          <td>The Engine origin this Client was built for. Fixed for the Client's life.</td>
+          <td>The engine origin this Client was built for. Fixed for the Client's life.</td>
         </tr>
         <tr>
           <td><code>closed</code></td>
@@ -134,7 +128,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
           <td><code>str</code></td>
           <td>
             Where <RouterLink to="/sf-client/guides/leaderboards">leaderboard</RouterLink>
-            submissions go. Separate from the Engine, and separately configurable.
+            submissions go. Separate from the engine, and separately configurable.
           </td>
         </tr>
         <tr>
@@ -142,7 +136,7 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
           <td>catalogue</td>
           <td>
             <code>models.list()</code> returns the
-            <RouterLink to="/sf-client/api/benchmarks">ModelInfo</RouterLink> routes this Engine can
+            <RouterLink to="/sf-client/api/benchmarks">ModelInfo</RouterLink> routes this engine can
             reach.
           </td>
         </tr>
@@ -222,14 +216,14 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
     <h3>connect() and disconnect()</h3>
 
     <p>
-      <code>connect(provider, api_key=...)</code> stores a provider credential on the Engine and
+      <code>connect(provider, api_key=...)</code> stores a provider credential on the engine and
       returns the resulting <code>Connection</code>. <code>connect()</code> with no arguments
       returns a <code>ConnectionPanel</code> instead. <code>disconnect(provider)</code> removes the
       credential and is safe to call repeatedly.
     </p>
 
     <p>
-      Passing a key requires a secure origin: an <code>https</code> Engine, or a local one over
+      Passing a key requires a secure origin: an <code>https</code> engine, or a local one over
       <code>http</code>. Supplying <code>api_key</code> without a provider raises
       <code>TypeError</code>; a provider without <code>api_key</code> raises
       <code>ValueError</code>.
@@ -253,8 +247,8 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
     <CodeBlock :code="withBlock" language="python" />
 
     <p>
-      <code>login(timeout=300.0)</code> and <code>logout()</code> apply to hosted Engines that sit
-      behind browser-based access. A local Engine needs neither.
+      <code>login(timeout=300.0)</code> and <code>logout()</code> apply to hosted engines that sit
+      behind browser-based access. A local engine needs neither.
     </p>
 
     <h2>AsyncClient</h2>
@@ -297,121 +291,6 @@ const panelOut = `ConnectionPanel(engine='${SF_ENGINE_URL}', openrouter=connecte
       <code>evaluate()</code>, <code>connect()</code>, <code>disconnect()</code>,
       <code>login()</code> and <code>logout()</code> are all awaited. The properties
       (<code>engine_url</code>, <code>closed</code>, <code>authenticated</code>) are not.
-    </p>
-
-    <h2>Connection</h2>
-
-    <p>
-      A <code>Connection</code> is sanitized provider state as the Engine reports it. It never
-      carries the credential itself, so an API key cannot be read back out of one.
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="4" :code="connection"><NbTextOut :text="connectionOut" /></NbCell>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Meaning</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>provider</code></td>
-          <td><code>str</code></td>
-          <td>Identifier, such as <code>openrouter</code>.</td>
-        </tr>
-        <tr>
-          <td><code>display_name</code></td>
-          <td><code>str</code></td>
-          <td>Human-readable name, such as <code>OpenRouter</code>.</td>
-        </tr>
-        <tr>
-          <td><code>auth_methods</code></td>
-          <td><code>tuple[str, ...]</code></td>
-          <td>
-            What this provider supports: <code>api_key</code>, <code>oauth</code>, or both. Never
-            empty.
-          </td>
-        </tr>
-        <tr>
-          <td><code>status</code></td>
-          <td><code>str</code></td>
-          <td>
-            One of <code>disconnected</code>, <code>pending</code>, <code>connected</code>,
-            <code>needs_reauth</code> or <code>error</code>.
-          </td>
-        </tr>
-        <tr>
-          <td><code>auth_method</code></td>
-          <td><code>str&nbsp;|&nbsp;None</code></td>
-          <td>
-            Which method is in use, or <code>None</code> when not connected. Always one of
-            <code>auth_methods</code>.
-          </td>
-        </tr>
-        <tr>
-          <td><code>account_label</code></td>
-          <td><code>str&nbsp;|&nbsp;None</code></td>
-          <td>Which account, where the provider identifies one.</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h2>ConnectionPanel</h2>
-
-    <p>
-      A <code>ConnectionPanel</code> is what <code>client.connect()</code> returns when called with
-      no arguments: a live view of every provider the Engine knows about. Within a notebook it
-      renders as an interactive widget, allowing a key to be pasted without placing it in a cell.
-      Outside a notebook it remains readable as a value.
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="5" :code="panel"><NbTextOut :text="panelOut" /></NbCell>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Member</th>
-          <th>Meaning</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>engine</code></td>
-          <td>The Engine origin this panel is bound to.</td>
-        </tr>
-        <tr>
-          <td><code>connections</code></td>
-          <td>The <code>Connection</code> values as of the last refresh.</td>
-        </tr>
-        <tr>
-          <td><code>authenticated</code> / <code>authenticating</code></td>
-          <td>Mirror the Client's login state.</td>
-        </tr>
-        <tr>
-          <td><code>refresh()</code></td>
-          <td>Re-read connections from the Engine and return them.</td>
-        </tr>
-        <tr>
-          <td><code>widget()</code></td>
-          <td>The notebook widget, when you want to place it yourself.</td>
-        </tr>
-        <tr>
-          <td><code>close()</code></td>
-          <td>Release the panel's background work. It does not close the Client.</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <p>
-      See the <RouterLink to="/sf-client/guides/connections">Connections guide</RouterLink> for
-      choosing between the panel and a direct <code>connect()</code> call.
     </p>
   </DocLayout>
 </template>

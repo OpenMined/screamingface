@@ -36,7 +36,7 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
       these, whether it is a single model, a
       <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>, or a whole benchmark run. The
       line is also an <strong>address</strong>: hand it to the
-      <RouterLink to="/learn/engine">Engine</RouterLink> and it resolves, the way a URL resolves.
+      <RouterLink to="/learn/engine">engine</RouterLink> and it resolves, the way a URL resolves.
     </p>
 
     <p>
@@ -52,7 +52,7 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
     <p>
       A url4 string has two layers. The <strong>grammar</strong>, <code>(data)!intent</code>, is
       what you write and what a node parses: sources in parentheses, an intent after the
-      <code>!</code>. The <strong>protocol</strong> is how any conforming node, such as the Engine,
+      <code>!</code>. The <strong>protocol</strong> is how any conforming node, such as the engine,
       resolves each source, runs the intent, and returns a result. You write the grammar; the
       protocol is what makes the same string runnable anywhere.
     </p>
@@ -82,7 +82,7 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
 
     <p>
       <strong>Model mode</strong> (the spec's <em>LLM mode</em>). Sources are context and the intent
-      is a natural-language prompt. The Engine feeds the resolved sources to a model, or to a
+      is a natural-language prompt. The engine feeds the resolved sources to a model, or to a
       <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> of models, and synthesizes one
       answer. This is the mode the Client uses: a Fusion is a url4 expression in model mode.
     </p>
@@ -90,7 +90,7 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
     <p>
       <strong>Compute mode</strong> (the spec's <em>remote data science</em>, or <em>RDS</em>,
       mode). Sources are structured inputs and the intent points at code, a script or a notebook.
-      The Engine binds the inputs to the code's contract and runs it, so computation can run next to
+      The engine binds the inputs to the code's contract and runs it, so computation can run next to
       data that never has to move. A single expression can chain the two: a compute step that
       prepares data, feeding a model step that summarizes it. The whole chain stays one addressable
       url4.
@@ -117,10 +117,10 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
     <h2>An address, not just a string</h2>
 
     <p>
-      Because the whole request lives in one URI, the Engine treats a url4 expression the way
+      Because the whole request lives in one URI, the engine treats a url4 expression the way
       <code>http</code> treats a URL: as an address it resolves. The same expression always
       describes the same work, which makes the call cacheable and safe to repeat. Save a Fusion's
-      url4, hand it to an <RouterLink to="/learn/engine">Engine</RouterLink>, and it runs like any
+      url4, hand it to an <RouterLink to="/learn/engine">engine</RouterLink>, and it runs like any
       other model call. A source inside one expression can be the result of another expression on
       another node, so fusions nest into larger systems without anyone having to unpack them.
     </p>
@@ -131,7 +131,7 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
       without understanding the grammar, and attribution metadata travels <em>with</em> the request
       instead of beside it. To serve and call a url4 node yourself, see the
       <RouterLink to="/learn/url4-sdk">url4 SDK</RouterLink>, which exposes the same shape the
-      Engine does.
+      engine does.
     </p>
 
     <h2>Why it exists</h2>

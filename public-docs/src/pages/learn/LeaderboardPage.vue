@@ -12,7 +12,7 @@ sf.leaderboards.list()                      # benchmarks with a public board
 
 board = sf.leaderboards.get("draco", top=10)
 for entry in board.entries:
-    print(entry.rank, entry.accuracy, entry.verified_by_openmined)
+    print(entry.rank, entry.accuracy, entry.verified_by_screamingface)
 
 board.baselines                             # single-model numbers, for comparison`
 
@@ -66,9 +66,9 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
         idempotency window replays the original instead of creating a duplicate.
       </li>
       <li>
-        <strong>Independent re-run.</strong> OpenMined re-runs the submission. Entries that survive
-        carry <code>verified_by_openmined</code>, which is the flag worth reading before you trust a
-        row.
+        <strong>Independent re-run.</strong> ScreamingFace re-runs the submission. Entries that
+        survive carry <code>verified_by_screamingface</code>, which is the flag worth reading before
+        you trust a row.
       </li>
       <li>
         <strong>Ranking.</strong> The board keeps the best result per spec, ties broken by recency,
@@ -101,7 +101,7 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
       usually far cheaper than the original run was.
     </p>
 
-    <h2>From the client</h2>
+    <h2>From the Client</h2>
 
     <p>
       The <RouterLink to="/sf-client">Client</RouterLink> reads and writes the board directly. To
@@ -133,7 +133,7 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
 
     <blockquote>
       The board is not a vote and not a vendor chart. Rankings come from graded benchmark runs
-      behind the <RouterLink to="/learn/engine">Engine</RouterLink>'s trust boundary, where the
+      behind the <RouterLink to="/learn/engine">engine</RouterLink>'s trust boundary, where the
       answer keys stay, and no rank can be bought or self-reported.
     </blockquote>
 

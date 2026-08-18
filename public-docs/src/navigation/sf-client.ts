@@ -6,57 +6,78 @@ import type { NavEntry } from '@/composables/useDocNavigation'
 // nothing else changes.
 export const sfClientVersion = {
   prefix: 'Based on state at commit',
-  label: 'b698fcff',
-  url: 'https://github.com/OpenMined/screamingface/commit/b698fcffd20d3dbe19c17a7b6654e302adeaf6ee',
+  label: '90a104e3',
+  url: 'https://github.com/OpenMined/screamingface/commit/90a104e39186801553103b9342b60dcd64677562',
 }
 
-// ScreamingFace Client sidebar (OME-666). A group labels its children and is
-// never clickable; a link points at a page. Overview is a plain top-level link,
-// so it sits above the labelled groups without needing a group of its own.
-// API Reference is added by the tickets that own those pages.
+// The "Get started with SF Client" navbar tab: everything but the reference —
+// Overview, Tutorials (learn by doing) and How-to guides (solve one goal),
+// following the Divio documentation system. The pure API reference is its own
+// navbar tab; see `sfClientReferenceNavigation` below. A group labels its
+// children and is never clickable; a link points at a page.
 export const sfClientNavigation: NavEntry[] = [
   { title: 'Overview', path: '/sf-client' },
   {
-    title: 'Get Started',
+    title: 'Tutorials',
     children: [
-      { title: 'Quickstart', path: '/sf-client/quickstartPage' },
       { title: 'Installation', path: '/sf-client/installation' },
+      { title: 'Your first fusion', path: '/sf-client/first-fusion' },
+      { title: 'Reproduce DRACO state-of-art', path: '/sf-client/quickstartPage' },
     ],
   },
   {
-    title: 'User Guides',
+    title: 'How-to guides',
     children: [
-      { title: 'Clients', path: '/sf-client/guides/clients' },
-      { title: 'Connections', path: '/sf-client/guides/connections' },
+      { title: 'Connect a provider', path: '/sf-client/guides/connections' },
       {
-        title: 'Compose',
+        title: 'Compose a candidate',
         children: [
           { title: 'Models', path: '/sf-client/guides/models' },
           { title: 'Fusions', path: '/sf-client/guides/fusions' },
           { title: 'Pipelines', path: '/sf-client/guides/pipelines' },
         ],
       },
-      { title: 'Benchmarks', path: '/sf-client/guides/benchmarks' },
-      { title: 'Running an evaluation', path: '/sf-client/guides/running-an-evaluation' },
-      { title: 'Leaderboards', path: '/sf-client/guides/leaderboards' },
-      { title: 'Reproduce & share (URL4)', path: '/sf-client/guides/reproduce-and-share' },
+      { title: 'Choose a benchmark', path: '/sf-client/guides/benchmarks' },
+      { title: 'Run an evaluation', path: '/sf-client/guides/running-an-evaluation' },
+      { title: 'Publish to the leaderboard', path: '/sf-client/guides/leaderboards' },
+      { title: 'Reproduce & share', path: '/sf-client/guides/reproduce-and-share' },
+      { title: 'Manage the Client', path: '/sf-client/guides/clients' },
     ],
   },
+]
+
+// The "API reference" navbar tab — the pure Divio Reference mode. The `sf`
+// namespace (functions + submodules), then classes by role, so every public
+// symbol has exactly one home. Pages under /sf-client/api/* consume this tree.
+export const sfClientReferenceNavigation: NavEntry[] = [
+  { title: 'The sf namespace', path: '/sf-client/api/modules' },
   {
-    title: 'API Reference',
+    title: 'Classes',
     children: [
+      { title: 'Client & session', path: '/sf-client/api/clients' },
       {
-        title: 'Core classes',
+        title: 'Candidates',
         children: [
-          { title: 'Recipes', path: '/sf-client/api/recipes' },
-          { title: 'Models', path: '/sf-client/api/models' },
-          { title: 'Benchmarks', path: '/sf-client/api/benchmarks' },
-          { title: 'Reports', path: '/sf-client/api/reports' },
-          { title: 'CandidateResult', path: '/sf-client/api/candidate-result' },
-          { title: 'Usage', path: '/sf-client/api/usage' },
-          { title: 'Clients', path: '/sf-client/api/clients' },
+          { title: 'Recipe', path: '/sf-client/api/recipes' },
+          { title: 'Model', path: '/sf-client/api/models' },
+          { title: 'Fusion', path: '/sf-client/api/fusions' },
+          { title: 'Pipeline', path: '/sf-client/api/pipelines' },
+          { title: 'Url4', path: '/sf-client/api/url4' },
         ],
       },
+      { title: 'Benchmark', path: '/sf-client/api/benchmarks' },
+      { title: 'Connections', path: '/sf-client/api/connections' },
+      {
+        title: 'Results & grading',
+        children: [
+          { title: 'Report', path: '/sf-client/api/reports' },
+          { title: 'CandidateResult', path: '/sf-client/api/candidate-result' },
+          { title: 'Usage', path: '/sf-client/api/usage' },
+        ],
+      },
+      { title: 'Leaderboard', path: '/sf-client/api/leaderboards' },
+      { title: 'Run events', path: '/sf-client/api/events' },
+      { title: 'Errors & warnings', path: '/sf-client/api/errors' },
     ],
   },
 ]

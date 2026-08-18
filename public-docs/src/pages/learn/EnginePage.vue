@@ -24,10 +24,10 @@ const health = `screamingface status`
     :navigation="navigation"
   >
     <p>
-      The Engine is the runtime that runs
+      The engine is the runtime that runs
       <RouterLink to="/learn/url4">url4</RouterLink> expressions. The
       <RouterLink to="/sf-client">Client</RouterLink> never calls a model provider itself. It hands
-      a url4 expression to an Engine. The Engine does the work: schedules the graph, reaches the
+      a url4 expression to an engine. The engine does the work: schedules the graph, reaches the
       providers, and streams back usage and the result. Because it sits between you and the
       providers, it is also the system's <strong>trust boundary</strong>, the one place that holds
       both your credentials and the benchmark answer keys.
@@ -36,7 +36,7 @@ const health = `screamingface status`
     <p>
       You mostly will not touch it directly. The
       <RouterLink to="/sf-client">Client</RouterLink> talks to it for you, and the only decision
-      that usually matters is which Engine to point at.
+      that usually matters is which engine to point at.
     </p>
 
     <h2>How it executes</h2>
@@ -64,9 +64,9 @@ const health = `screamingface status`
     <h2>The trust boundary</h2>
 
     <p>
-      The Engine holds what must not leak. Provider credentials are handed to it once and stored
+      The engine holds what must not leak. Provider credentials are handed to it once and stored
       encrypted at rest (AES-256-GCM) by the AI gateway's credential store, and are never returned
-      to the client. Benchmark answer keys, rubrics, and grading stay engine-side. That separation
+      to the Client. Benchmark answer keys, rubrics, and grading stay engine-side. That separation
       is what makes a score mean something: the code being graded cannot read the answers it is
       being graded against, and neither can the person who wrote it.
     </p>
@@ -85,7 +85,7 @@ const health = `screamingface status`
         master key <code>AIGATEWAY_SECRET_KEY</code> is never stored with the data or logged.
       </li>
       <li>
-        <strong>One endpoint, every provider</strong>: the Engine fans out to open and closed
+        <strong>One endpoint, every provider</strong>: the engine fans out to open and closed
         providers alike through the LiteLLM-based gateway, so a fusion can mix models from different
         vendors behind a single connection.
       </li>
@@ -98,31 +98,31 @@ const health = `screamingface status`
     <h2>Running one</h2>
 
     <p>
-      Your own Engine ships in the client package, behind the <code>runtime</code> extra. Three
+      Your own engine ships in the client package, behind the <code>runtime</code> extra. Three
       commands install it, fetch the benchmark data it reads from disk, and start it:
     </p>
 
     <CodeBlock :code="runLocal" language="bash" />
 
     <p>
-      That serves the Engine on <code>127.0.0.1:9108</code>, alongside the gateway that holds your
+      That serves the engine on <code>127.0.0.1:9108</code>, alongside the gateway that holds your
       provider keys and a local leaderboard. <code>screamingface status</code> reports each of the
       three, and <code>screamingface down</code> stops them. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide covers the rest,
-      including when a local Engine needs its own web-search key.
+      including when a local engine needs its own web-search key.
     </p>
 
     <CodeBlock :code="health" language="bash" />
 
     <p>
-      Point the Client at an Engine with one call. Its default is a hosted Engine, so a local one is
+      Point the Client at an engine with one call. Its default is a hosted engine, so a local one is
       always named explicitly:
     </p>
 
     <CodeBlock :code="point" language="python" />
 
     <p>
-      The same Engine runs three ways: <strong>bundled</strong> invisibly inside the Client and
+      The same engine runs three ways: <strong>bundled</strong> invisibly inside the Client and
       <RouterLink to="/learn/url4-sdk">SDK</RouterLink>, <strong>self-hosted</strong> for a team
       that wants the whole system inside its own walls, or <strong>hosted</strong> for shared,
       subsidized capacity that we run. The cloud deployment (Kubernetes Jobs, a streaming event bus,
@@ -133,7 +133,7 @@ const health = `screamingface status`
     </p>
 
     <blockquote>
-      The Engine is not a router. A router picks one model per call. The Engine composes many into a
+      The engine is not a router. A router picks one model per call. The engine composes many into a
       graph. It is not open compute either: hosted capacity is subsidized for chosen cohorts, and
       self-hosting is on your own hardware.
     </blockquote>
@@ -144,7 +144,7 @@ const health = `screamingface status`
       <li>
         <a :href="`${GH_TREE}/apps/url4-cloud`" target="_blank" rel="noopener"
           ><code>apps/url4-cloud</code></a
-        >: the Engine service (backend, runner, shared wire protocol).
+        >: the engine service (backend, runner, shared wire protocol).
       </li>
       <li>
         <a :href="`${GH_TREE}/packages/url4/src/url4/dag`" target="_blank" rel="noopener"

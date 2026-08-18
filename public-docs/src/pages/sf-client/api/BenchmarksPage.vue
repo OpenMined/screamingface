@@ -6,7 +6,7 @@ import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import Note from '@/components/ui/Note.vue'
 import {
-  sfClientNavigation as navigation,
+  sfClientReferenceNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
@@ -25,27 +25,27 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
     :version="version"
   >
     <p>
-      A benchmark is a fixed set of cases, owned by the Engine and pinned by a revision. This page
+      A benchmark is a fixed set of cases, owned by the engine and pinned by a revision. This page
       covers <code>Benchmark</code> itself, alongside <code>BenchmarkInfo</code> for the compact
       identity a report keeps of it. See the
       <RouterLink to="/sf-client/guides/benchmarks">Benchmarks guide</RouterLink> for choosing which
       benchmark to run, and the <RouterLink to="/sf-client/api/models">Models page</RouterLink> for
-      the model routes the Engine can run a benchmark against.
+      the model routes the engine can run a benchmark against.
     </p>
 
     <p>
-      A <RouterLink to="/sf-client/api/clients">Client</RouterLink> returns these values which are
-      all read-only and assigning to a field raises
+      A <RouterLink to="/sf-client/api/clients">Client</RouterLink> returns these values, which are
+      all read-only, and assigning to a field raises
       <code>FrozenInstanceError: cannot assign to field 'provider'</code>. They also never refresh
-      themselves and the Client needs to be called again when current data is desired.
+      themselves, so the Client needs to be called again when current data is desired.
     </p>
 
     <h2>Benchmark</h2>
 
     <p>
-      A <code>Benchmark</code> is the Engine's record of one benchmark, carrying its identity, its
+      A <code>Benchmark</code> is the engine's record of one benchmark, carrying its identity, its
       size, and what it measures. <code>client.benchmarks.get(id)</code> returns a single benchmark
-      and <code>client.benchmarks.list()</code> returns every benchmark the Engine offers. Protocol
+      and <code>client.benchmarks.list()</code> returns every benchmark the engine offers. Protocol
       variants are separate entries with their own ids, so the list holds <code>ifeval</code> beside
       <code>ifeval/self-corrective</code>.
     </p>
@@ -103,8 +103,8 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
     </table>
 
     <Note>
-      A <code>Benchmark</code> carries no case data. The client cannot page a benchmark's prompts,
-      because the cases and their answer keys stay on the Engine. Case text becomes visible after a
+      A <code>Benchmark</code> carries no case data. The Client cannot page a benchmark's prompts,
+      because the cases and their answer keys stay on the engine. Case text becomes visible after a
       run, through the <code>CaseResult</code> values on
       <RouterLink to="/sf-client/api/reports">CandidateResult.cases</RouterLink>.
     </Note>
@@ -164,9 +164,6 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
       <code>case_count</code> rejects zero and negative values:
     </p>
 
-    <CodeBlock
-      code="ValueError: Benchmark case_count must be a positive integer"
-      language="text"
-    />
+    <CodeBlock code="ValueError: Benchmark case_count must be a positive integer" language="text" />
   </DocLayout>
 </template>

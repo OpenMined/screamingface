@@ -99,7 +99,7 @@ url4 serve`
 
     <p>
       A url4 node can also be served over HTTP, so other expressions can call it as a source. This
-      is the same shape the <RouterLink to="/learn/engine">Engine</RouterLink> exposes. Serving
+      is the same shape the <RouterLink to="/learn/engine">engine</RouterLink> exposes. Serving
       needs uvicorn, which comes with the <code>url4[server]</code> extra rather than the base
       install:
     </p>
@@ -121,7 +121,7 @@ url4 serve`
       <strong>url4 SDK vs the ScreamingFace Client.</strong> This library is the low-level protocol:
       parse, build, and run url4. The
       <RouterLink to="/sf-client">ScreamingFace Client</RouterLink> (<code>screamingface</code>) is
-      the research-facing layer on top: it composes fusions and benchmarks, drives an Engine, and
+      the research-facing layer on top: it composes fusions and benchmarks, drives an engine, and
       reads back scored reports. Reach for the SDK when you are working with url4 itself; reach for
       the Client when you are running evaluations.
     </blockquote>

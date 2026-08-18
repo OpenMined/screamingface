@@ -5,7 +5,7 @@ import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import {
-  sfClientNavigation as navigation,
+  sfClientReferenceNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
@@ -140,7 +140,7 @@ const usageOut = `Usage(input_tokens=103, output_tokens=398, cache_read_tokens=0
           <td><code>bool&nbsp;|&nbsp;None</code></td>
           <td>
             Whether running the same thing again could plausibly succeed, or <code>None</code> when
-            the Engine did not say.
+            the engine did not say.
           </td>
         </tr>
         <tr>
@@ -153,14 +153,14 @@ const usageOut = `Usage(input_tokens=103, output_tokens=398, cache_read_tokens=0
         </tr>
         <tr>
           <td><code>case_id</code></td>
-          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td><code>int&nbsp;|&nbsp;str&nbsp;|&nbsp;None</code></td>
           <td>Which case failed, when the failure was specific to one.</td>
         </tr>
         <tr>
           <td><code>metadata</code></td>
           <td><code>Mapping[str, object]</code></td>
           <td>
-            Whatever else the Engine attached to this failure. Empty when it attached nothing.
+            Whatever else the engine attached to this failure. Empty when it attached nothing.
           </td>
         </tr>
       </tbody>

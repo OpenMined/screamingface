@@ -12,16 +12,17 @@ import { learnNavigation as navigation } from '@/navigation/learn'
   >
     <p>
       Evaluating a fusion means many model calls, and calls cost money and time. ScreamingFace keeps
-      that cost low in two ways: it caches every call, and it gives you a choice of where the
-      compute comes from.
+      that cost low in two ways: it caches calls to the providers that support it, and it gives you
+      a choice of where the compute comes from.
     </p>
 
-    <h2>Every call is cached</h2>
+    <h2>How caching works</h2>
 
     <p>
-      When the <RouterLink to="/learn/engine">engine</RouterLink> calls a model, it stores the
-      response keyed by the exact request. Reuse the same model in another candidate, or run the
-      same evaluation again, and the stored response is served instead of paying for it twice.
+      When the <RouterLink to="/learn/engine">engine</RouterLink> calls a model on a provider that
+      supports caching, it stores the response keyed by the exact request. Reuse the same model in
+      another candidate, or run the same evaluation again, and the stored response is served instead
+      of paying for it twice. Only some providers support it; the Providers table below shows which.
     </p>
 
     <ul>
@@ -60,7 +61,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <h2>Where the compute comes from</h2>
 
-    <p>There are two ways to run. They differ in who supplies the compute and which cache you draw from.</p>
+    <p>
+      There are two ways to run. They differ in who supplies the compute and which cache you draw
+      from.
+    </p>
 
     <ul>
       <li>
@@ -93,7 +97,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#cc-arrow)">
+        <g
+          style="stroke: var(--text-2); stroke-width: 1.25; fill: none"
+          marker-end="url(#cc-arrow)"
+        >
           <path d="M326 54 C 220 68, 152 86, 141 104" />
           <path d="M354 54 C 460 68, 528 86, 539 104" />
           <path d="M140 162 V190" />
@@ -155,5 +162,68 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       The client code is identical either way; only the engine URL changes. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through both.
     </p>
+
+    <h2>Providers</h2>
+
+    <p>
+      Whichever engine you run, these are the providers it can reach. Caching is opt-in per
+      provider, and only <code>anthropic</code> and <code>openrouter</code> are served from the
+      cache today; the rest bypass it and dispatch every time. How you connect each one varies (a
+      pasted key or a login through a CLI tool); the
+      <RouterLink to="/sf-client/guides/connections">Connect a provider</RouterLink> guide has the
+      specifics.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th>Reached via</th>
+          <th>Cached?</th>
+          <th>What it is</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>openrouter</code></td>
+          <td>API key</td>
+          <td>Yes</td>
+          <td>
+            A router over many hosted models (OpenAI, Anthropic, Google, DeepSeek, Qwen and more)
+            behind one key.
+          </td>
+        </tr>
+        <tr>
+          <td><code>anthropic</code></td>
+          <td>API key</td>
+          <td>Yes</td>
+          <td>Claude models, direct.</td>
+        </tr>
+        <tr>
+          <td><code>huggingface</code></td>
+          <td>API key</td>
+          <td>No</td>
+          <td>Hugging Face inference endpoints.</td>
+        </tr>
+        <tr>
+          <td><code>gemini-cli</code></td>
+          <td>CLI plugin</td>
+          <td>No</td>
+          <td>Google Gemini through the gemini CLI.</td>
+        </tr>
+        <tr>
+          <td><code>codex</code></td>
+          <td>CLI plugin</td>
+          <td>No</td>
+          <td>OpenAI models through the Codex CLI.</td>
+        </tr>
+        <tr>
+          <td><code>antigravity</code></td>
+          <td>CLI plugin</td>
+          <td>No</td>
+          <td>Gemini through the Antigravity CLI.</td>
+        </tr>
+      </tbody>
+    </table>
   </DocLayout>
 </template>

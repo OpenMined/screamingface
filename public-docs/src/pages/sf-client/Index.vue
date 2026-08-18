@@ -41,11 +41,11 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     :version="version"
   >
     <p>
-      ScreamingFace is an open-source Python client for composing model ensembles, which it calls
+      ScreamingFace is an open-source Python Client for composing model ensembles, which it calls
       <strong>fusions</strong>, and evaluating them against research benchmarks. You build a fusion
       from providers you already hold keys for, evaluate it, and read back a score together with
-      what the run cost. The benchmark answer keys and the grading stay on the engine and results are cached to lower
-      the cost of fusion exploration.
+      what the run cost. The benchmark answer keys and the grading stay on the engine and results
+      are cached to lower the cost of fusion exploration.
     </p>
 
     <p>
@@ -62,12 +62,12 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
       et al., Los Alamos).
     </p>
 
-    <h2>What the client gives you</h2>
+    <h2>What the Client gives you</h2>
 
     <ul>
       <li>
         <strong>Grading you did not perform yourself.</strong> Benchmark answer keys, rubrics, and
-        judges live on the engine and are never returned to the client, so a score does not rest on
+        judges live on the engine and are never returned to the Client, so a score does not rest on
         trusting whoever produced it.
       </li>
       <li>
@@ -102,16 +102,17 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     <h2>What url4 is</h2>
 
     <p>
-      A <strong>url4</strong> is a single-line expression following a given grammar and protocol, that describes a composed system: which models
-      take part, how their answers are combined, and what each one is asked to do. It serves as both
-      the record of what ran and the instruction for running it again, which is what lets a
-      published result carry its own method instead of describing it in prose.
+      A <strong>url4</strong> is a single-line expression following a given grammar and protocol,
+      that describes a composed system: which models take part, how their answers are combined, and
+      what each one is asked to do. It serves as both the record of what ran and the instruction for
+      running it again, which is what lets a published result carry its own method instead of
+      describing it in prose.
     </p>
 
     <h2>Two ways to run</h2>
 
     <p>
-      The client never calls a model provider itself. It sends work to an
+      The Client never calls a model provider itself. It sends work to an
       <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
       benchmark answer keys and performs the grading. You can point it at either of two.
     </p>
@@ -130,7 +131,7 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     </ul>
 
     <p>
-      Client code is identical either way and only the engine URL differs, so the decision is
+      The code you write is identical either way and only the engine URL differs, so the decision is
       reversible. The <RouterLink to="/sf-client/installation">Installation</RouterLink> guide
       covers both.
     </p>
@@ -150,7 +151,7 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     <h2>How it works</h2>
 
     <p>
-      The client compiles your recipe into one <strong>url4</strong> expression and hands it to the
+      The Client compiles your recipe into one <strong>url4</strong> expression and hands it to the
       <strong>engine</strong>. The engine resolves that expression, calls each model, applies the
       benchmark's grader, and streams usage back while the run proceeds. What returns is the set of
       scores, any failures, and the total cost. Because the url4 travels with the result, someone
@@ -160,12 +161,12 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     <figure class="not-prose diagram">
       <img
         :src="localDiagram(isDark)"
-        alt="Local request flow: the client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
+        alt="Local request flow: the Client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
       />
       <figcaption>
-        <strong>The local flow.</strong> The client compiles your recipe into one url4 expression and
-        hands it to an engine on your own machine; the engine fans model calls out through the gateway
-        to the providers you hold keys for, then streams scores and cost back.
+        <strong>The local flow.</strong> The Client compiles your recipe into one url4 expression
+        and hands it to an engine on your own machine; the engine fans model calls out through the
+        gateway to the providers you hold keys for, then streams scores and cost back.
       </figcaption>
     </figure>
   </DocLayout>

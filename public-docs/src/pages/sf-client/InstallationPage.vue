@@ -64,7 +64,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 <template>
   <DocLayout
     title="Installation"
-    description="Install the client, and point it at an engine you run yourself, or a hosted one."
+    description="Install the Client, and point it at an engine you run yourself, or a hosted one."
     :navigation="navigation"
     :version="version"
   >
@@ -72,7 +72,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <ul>
       <li>
-        The <strong>client</strong>, a Python library. It never calls a model provider itself, so it
+        The <strong>Client</strong>, a Python library. It never calls a model provider itself, so it
         always needs an engine to talk to.
       </li>
       <li>
@@ -88,9 +88,9 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       </li>
     </ul>
 
-    <p>The client code is the same either way, so pick whichever you prefer.</p>
+    <p>The code you write is the same either way, so pick whichever you prefer.</p>
 
-    <h2>1 · Install the client</h2>
+    <h2>1 · Install the Client</h2>
 
     <p>Python <strong>3.12 or newer</strong>. In a notebook, one cell:</p>
 
@@ -122,10 +122,10 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
     <CodeBlock :code="pypiRuntime" language="bash" />
 
     <p>
-      <code>[runtime]</code> is what turns the client install into a working engine: it brings in
+      <code>[runtime]</code> is what turns the Client install into a working engine: it brings in
       the server stack the local runtime needs, and it installs the
       <code>screamingface</code> command used in Option A. It is a much heavier install than the
-      client alone, so skip it if you are pointing at a hosted engine.
+      Client alone, so skip it if you are pointing at a hosted engine.
     </p>
 
     <p>A quick check that it worked:</p>
@@ -183,11 +183,15 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
     </p>
 
     <Note>
-      By default the client reads and writes the <strong>hosted ScreamingFace Leaderboard</strong> at
+      By default the Client reads and writes the
+      <strong>hosted ScreamingFace Leaderboard</strong> at
       <code>leaderboard.dev.screamingface.ai</code>, even when the rest of your stack is local.
       Override it the same way you set the engine — <code>sf.configure()</code> takes a
       <code>scoreboard_url</code> next to <code>engine_url</code>, so
-      <code>sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")</code>
+      <code
+        >sf.configure(engine_url="http://127.0.0.1:9108",
+        scoreboard_url="http://127.0.0.1:9106")</code
+      >
       points both at your local stack.
     </Note>
 
@@ -224,7 +228,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       Benchmarks like DRACO ask candidates to research an answer, which means the model needs to
       search the web. <strong>Most of the time this is handled for you:</strong> most providers
       search natively, and the engine just asks them to. The exception is providers that offer no
-      web search of their own — <strong>Hugging Face</strong> routes in particular — where the engine
+      web search of their own, <strong>Hugging Face</strong> routes in particular, where the engine
       falls back to a <strong>bounded tool loop it runs against Tavily</strong>. Only those routes
       need a key.
     </p>
@@ -260,7 +264,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       candidates are asked to follow instructions, not to look anything up.
     </p>
 
-    <h4>Point the client at it</h4>
+    <h4>Point the Client at it</h4>
 
     <div class="not-prose">
       <NbCell :count="2" :code="localPoint" />
@@ -271,7 +275,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
     <h3>Option B: Reach a hosted engine</h3>
 
     <p>
-      Prefer not to run anything yourself? Point the client at a hosted engine instead. Name it once
+      Prefer not to run anything yourself? Point the Client at a hosted engine instead. Name it once
       and every later call uses it.
     </p>
 
@@ -306,7 +310,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <Collapsible title='"Local runtime dependencies are missing" or command not found'>
       <p>
-        The client is installed but the engine is not. The <code>screamingface</code> command and
+        The Client is installed but the engine is not. The <code>screamingface</code> command and
         the server stack both come from the <code>[runtime]</code> extra:
       </p>
       <CodeBlock :code="pypiRuntime" language="bash" />

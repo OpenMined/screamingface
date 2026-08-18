@@ -19,6 +19,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/InstallationPage.vue'),
     },
     {
+      path: '/sf-client/first-fusion',
+      name: 'sf-client-first-fusion',
+      component: () => import('@/pages/sf-client/FirstFusionPage.vue'),
+    },
+    {
       path: '/sf-client/quickstartPage',
       name: 'sf-client-quickstart',
       component: () => import('@/pages/sf-client/QuickstartPage.vue'),
@@ -102,6 +107,46 @@ const router = createRouter({
       path: '/sf-client/api/clients',
       name: 'sf-client-api-clients',
       component: () => import('@/pages/sf-client/api/ClientsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/fusions',
+      name: 'sf-client-api-fusions',
+      component: () => import('@/pages/sf-client/api/FusionsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/pipelines',
+      name: 'sf-client-api-pipelines',
+      component: () => import('@/pages/sf-client/api/PipelinesPage.vue'),
+    },
+    {
+      path: '/sf-client/api/url4',
+      name: 'sf-client-api-url4',
+      component: () => import('@/pages/sf-client/api/Url4Page.vue'),
+    },
+    {
+      path: '/sf-client/api/connections',
+      name: 'sf-client-api-connections',
+      component: () => import('@/pages/sf-client/api/ConnectionsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/modules',
+      name: 'sf-client-api-modules',
+      component: () => import('@/pages/sf-client/api/ModulesPage.vue'),
+    },
+    {
+      path: '/sf-client/api/errors',
+      name: 'sf-client-api-errors',
+      component: () => import('@/pages/sf-client/api/ErrorsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/events',
+      name: 'sf-client-api-events',
+      component: () => import('@/pages/sf-client/api/EventsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/leaderboards',
+      name: 'sf-client-api-leaderboards',
+      component: () => import('@/pages/sf-client/api/LeaderboardsPage.vue'),
     },
     {
       path: '/learn',

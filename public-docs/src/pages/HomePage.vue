@@ -8,7 +8,7 @@ const docs = [
     title: 'Overview',
     to: '/sf-client',
     kicker: 'start here',
-    desc: 'What ScreamingFace is, the smallest end-to-end example, and how the client, engine, and url4 fit together.',
+    desc: 'What ScreamingFace is, the smallest end-to-end example, and how the Client, engine, and url4 fit together.',
   },
   {
     title: 'Quickstart',
@@ -20,7 +20,7 @@ const docs = [
     title: 'Installation',
     to: '/sf-client/installation',
     kicker: 'setup',
-    desc: 'Install the screamingface client and point it at an engine.',
+    desc: 'Install the ScreamingFace Client and point it at an engine.',
     draft: true,
   },
   {
@@ -45,8 +45,8 @@ const GITHUB = 'https://github.com/OpenMined'
       </h1>
       <p class="lead">
         ScreamingFace is an open toolkit for composing model <em>fusions</em>: several models
-        answering together, graded against a real benchmark. Every run reproduces from a
-        single line, on your own keys.
+        answering together, graded against a real benchmark. Every run reproduces from a single
+        line, on your own keys.
       </p>
 
       <div class="actions">
@@ -56,7 +56,7 @@ const GITHUB = 'https://github.com/OpenMined'
         <a class="btn btn--sec" :href="GITHUB" target="_blank" rel="noopener noreferrer">GitHub</a>
       </div>
 
-      <div class="term" role="img" aria-label="Install the client with pip install screamingface">
+      <div class="term" role="img" aria-label="Install the Client with pip install screamingface">
         <div class="term__bar">
           <span class="term__dot"></span><span class="term__dot"></span
           ><span class="term__dot"></span>
@@ -93,7 +93,9 @@ const GITHUB = 'https://github.com/OpenMined'
           </dd>
         </div>
         <div class="def">
-          <dt><RouterLink to="/learn/url4"><code>url4</code></RouterLink></dt>
+          <dt>
+            <RouterLink to="/learn/url4"><code>url4</code></RouterLink>
+          </dt>
           <dd>
             A grammar and protocol: one line that describes a fusion and its benchmark run, and
             reproduces it. It is also an address the engine resolves, so anyone holding the
@@ -101,9 +103,11 @@ const GITHUB = 'https://github.com/OpenMined'
           </dd>
         </div>
         <div class="def">
-          <dt><RouterLink to="/learn/engine"><code>engine</code></RouterLink></dt>
+          <dt>
+            <RouterLink to="/learn/engine"><code>engine</code></RouterLink>
+          </dt>
           <dd>
-            The runtime that executes a fusion. You point the client at one you run locally, or a
+            The runtime that executes a fusion. You point the Client at one you run locally, or a
             hosted one.
           </dd>
         </div>

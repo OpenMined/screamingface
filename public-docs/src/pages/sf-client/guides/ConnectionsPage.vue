@@ -54,10 +54,10 @@ const panelProviders: Provider[] = [
   >
     <p>
       A <strong>connection</strong> is a provider credential
-      <RouterLink to="/learn/engine">the engine</RouterLink> holds on your behalf. The
-      client never talks to OpenRouter, Anthropic or any other provider directly. It sends your key
-      to the engine once, the engine passes it to AI Gateway to validate and store encrypted, and
-      every later model call is dispatched there.
+      <RouterLink to="/learn/engine">the engine</RouterLink> holds on your behalf. The Client never
+      talks to OpenRouter, Anthropic or any other provider directly. It sends your key to the engine
+      once, the engine passes it to AI Gateway to validate and store encrypted, and every later
+      model call is dispatched there.
     </p>
 
     <p>
@@ -69,7 +69,7 @@ const panelProviders: Provider[] = [
     <h2>What you can do with it</h2>
 
     <ul>
-      <li>Login to the engine, or point the client at your own engine instead.</li>
+      <li>Login to the engine, or point the Client at your own engine instead.</li>
       <li>
         Connect a provider interactively from a notebook, or with an explicit key from a script.
       </li>
@@ -110,7 +110,10 @@ const panelProviders: Provider[] = [
         </tr>
         <tr>
           <td><code>sf.connections.get(provider)</code></td>
-          <td>Fetches a single provider by name, returning its current state as a <code>Connection</code>.</td>
+          <td>
+            Fetches a single provider by name, returning its current state as a
+            <code>Connection</code>.
+          </td>
         </tr>
         <tr>
           <td><code>sf.disconnect(provider)</code></td>
@@ -128,7 +131,9 @@ const panelProviders: Provider[] = [
         </tr>
         <tr>
           <td><code>sf.ConnectionPanel</code></td>
-          <td>The live widget that <code>sf.connect()</code> returns when called with no arguments.</td>
+          <td>
+            The live widget that <code>sf.connect()</code> returns when called with no arguments.
+          </td>
         </tr>
         <tr>
           <td><code>sf.Client.login()</code> · <code>sf.Client.logout()</code></td>
@@ -144,7 +149,7 @@ const panelProviders: Provider[] = [
 
     <h3>1 · Configure engine</h3>
 
-    <p>Point the client at an engine. There are two ways, depending on where it runs.</p>
+    <p>Point the Client at an engine. There are two ways, depending on where it runs.</p>
 
     <h4>Hosted engine</h4>
 
@@ -167,7 +172,7 @@ const panelProviders: Provider[] = [
     <h4>Local engine</h4>
 
     <p>
-      If you run the engine yourself, point the client at it and skip the login step entirely: a
+      If you run the engine yourself, point the Client at it and skip the login step entirely: a
       local engine advertises no Cloudflare Access, so the panel shows provider rows immediately.
     </p>
 

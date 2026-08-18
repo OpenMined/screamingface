@@ -102,7 +102,10 @@ client.close()`
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <g style="stroke: var(--text-2); stroke-width: 1.25; fill: none" marker-end="url(#ev-arrow)">
+        <g
+          style="stroke: var(--text-2); stroke-width: 1.25; fill: none"
+          marker-end="url(#ev-arrow)"
+        >
           <path d="M164 66 C 206 66, 206 100, 246 100" />
           <path d="M164 140 C 206 140, 206 100, 246 100" />
           <path d="M450 100 H534" />
@@ -155,7 +158,7 @@ client.close()`
       <li>Cap the number of cases with <code>limit</code>.</li>
       <li>Pick a protocol variant by naming its own benchmark id.</li>
       <li>Watch the run live, or turn off the progress display.</li>
-      <li>Use an explicit client, sync or with <code>await</code>.</li>
+      <li>Use an explicit Client, sync or with <code>await</code>.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -169,20 +172,35 @@ client.close()`
       </thead>
       <tbody>
         <tr>
-          <td><code>sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None)</code></td>
-          <td>Runs one or more candidates against a benchmark's protocol concurrently, returning a single <code>sf.Report</code>. Validates everything before the first paid request.</td>
+          <td>
+            <code
+              >sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None)</code
+            >
+          </td>
+          <td>
+            Runs one or more candidates against a benchmark's protocol concurrently, returning a
+            single <code>sf.Report</code>. Validates everything before the first paid request.
+          </td>
         </tr>
         <tr>
-          <td><code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code></td>
-          <td>Same call on an explicit client you manage yourself, sync or with <code>await</code>. Only way to talk to two engines from one process.</td>
+          <td>
+            <code>sf.Client.evaluate(...)</code> · <code>await sf.AsyncClient.evaluate(...)</code>
+          </td>
+          <td>
+            Same call on an explicit Client you manage yourself, sync or with <code>await</code>.
+            Only way to talk to two engines from one process.
+          </td>
         </tr>
         <tr>
           <td><code>sf.configure(engine_url=…)</code></td>
-          <td>Repoints the shared client so every later <code>sf.evaluate()</code> call uses that engine.</td>
+          <td>
+            Repoints the shared Client so every later <code>sf.evaluate()</code> call uses that
+            engine.
+          </td>
         </tr>
         <tr>
           <td><code>sf.close()</code></td>
-          <td>Releases the shared client.</td>
+          <td>Releases the shared Client.</td>
         </tr>
       </tbody>
     </table>
@@ -235,8 +253,8 @@ client.close()`
       Read <code>coverage</code> beside the score. It is the fraction of the selected cases the
       score was computed from, and anything below <code>1.0</code> means the engine graded only part
       of the run and the score describes that part. A candidate can also finish with both a score
-      and entries in <code>failures</code>, which is a completed run carrying warnings worth
-      reading rather than a broken one.
+      and entries in <code>failures</code>, which is a completed run carrying warnings worth reading
+      rather than a broken one.
     </p>
 
     <h3>3 · Evaluate several at once</h3>
@@ -293,7 +311,7 @@ client.close()`
 
     <p>
       <code>on_event</code> receives typed events in sequence as the run executes, and
-      <code>progress=False</code> silences the default display. If your callback raises, the client
+      <code>progress=False</code> silences the default display. If your callback raises, the Client
       cancels every active run and re-raises your exception.
     </p>
 
