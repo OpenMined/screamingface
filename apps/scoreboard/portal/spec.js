@@ -15,7 +15,7 @@
     var tr = document.createElement("tr");
     tr.appendChild(P.el("td", null, P.formatDate(s.submitted_at)));
     tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
-    tr.appendChild(P.el("td", "num", P.formatPercent(s.accuracy)));
+    tr.appendChild(P.el("td", "num", P.formatScore(s.score)));
     tr.appendChild(P.el("td", "num", P.formatQuestions(s.total_questions)));
     return tr;
   }
@@ -88,8 +88,8 @@
           return;
         }
 
-        var best = Math.max.apply(null, submissions.map(function (s) { return s.accuracy; }));
-        document.getElementById("best-accuracy").textContent = P.formatPercent(best);
+        var best = Math.max.apply(null, submissions.map(function (s) { return s.score; }));
+        document.getElementById("best-score").textContent = P.formatScore(best);
         // Bare number: the .stats cell label ("Submissions") carries the word.
         document.getElementById("submission-count").textContent = submissions.length.toLocaleString();
 

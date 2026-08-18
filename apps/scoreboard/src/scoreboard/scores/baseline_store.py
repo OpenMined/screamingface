@@ -19,7 +19,7 @@ def _baseline_to_schema(model: Baseline) -> BaselineSchema:
         id=model.id,
         benchmark_id=cast(str, getattr(model, "benchmark_id")),
         model_name=model.model_name,
-        accuracy=model.accuracy,
+        score=model.score,
         source=model.source,
         source_url=model.source_url,
         imported_at=model.imported_at,
@@ -55,7 +55,7 @@ class BaselineStore:
             model_name=row.model_name,
             source=row.source,
             defaults={
-                "accuracy": row.accuracy,
+                "score": row.score,
                 "source_url": row.source_url,
                 "metadata": row.metadata,
             },
@@ -71,7 +71,7 @@ class BaselineStore:
             return [await self.import_baseline(row, using_db=connection) for row in rows]
 
     async def list_baselines(self, benchmark_id: str) -> list[BaselineSchema]:
-        rows = await Baseline.filter(benchmark_id=benchmark_id).order_by("-accuracy")
+        rows = await Baseline.filter(benchmark_id=benchmark_id).order_by("-score")
         # INVARIANT: one row that fails schema validation (e.g. metadata written
         # before the bound existed, or inserted outside the import path) must not
         # take down the whole board — skip it, keep serving every valid row

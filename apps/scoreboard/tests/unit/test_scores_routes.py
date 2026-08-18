@@ -26,7 +26,7 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
         "spec_id": "spec-1",
         "url4_expression": "url4://benchmark/spec-1",
         "submitted_by": "tester",
-        "accuracy": 0.75,
+        "score": 0.75,
         "total_questions": 4,
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
@@ -140,10 +140,10 @@ async def test_post_score_without_idempotency_key_dedupes_identical_recipe(
     # client-supplied header — a resubmitted identical recipe returns the existing
     # row instead of creating a duplicate (OME-391 / C28).
     first = await score_client.post(
-        "/v1/scores", json=_valid_payload(accuracy=0.5, correct_questions=2)
+        "/v1/scores", json=_valid_payload(score=0.5, correct_questions=2)
     )
     second = await score_client.post(
-        "/v1/scores", json=_valid_payload(accuracy=0.5, correct_questions=2)
+        "/v1/scores", json=_valid_payload(score=0.5, correct_questions=2)
     )
 
     assert first.status_code == 201
@@ -180,7 +180,7 @@ async def test_post_score_with_expired_idempotency_key_creates_new_row(
     # content-hash dedup guard this test isn't exercising.
     second = await score_client.post(
         "/v1/scores",
-        json=_valid_payload(accuracy=1.0, correct_questions=4),
+        json=_valid_payload(score=1.0, correct_questions=4),
         headers=headers,
     )
 
@@ -189,39 +189,20 @@ async def test_post_score_with_expired_idempotency_key_creates_new_row(
     assert second.json()["id"] != first.json()["id"]
 
 
-async def test_post_score_accuracy_mismatch_returns_400(score_client: AsyncClient) -> None:
+async def test_post_score_never_cross_checks_score_against_counts(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT (OME-866): the Engine benchmark is the sole scoring authority — the
+    # route's old ±0.01 accuracy-vs-correct/total tolerance check was deleted, not
+    # replaced. A score that disagrees with the optional binary-era counts is stored
+    # exactly as submitted (the pre-OME-866 version of this test asserted 400 here).
     response = await score_client.post(
         "/v1/scores",
-        json=_valid_payload(accuracy=0.5, total_questions=100, correct_questions=10),
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["field"] == "accuracy"
-
-
-async def test_post_score_accuracy_at_edge_tolerance_passes(score_client: AsyncClient) -> None:
-    response = await score_client.post(
-        "/v1/scores",
-        json=_valid_payload(accuracy=0.82, total_questions=1000, correct_questions=810),
+        json=_valid_payload(score=0.5, total_questions=100, correct_questions=10),
     )
 
     assert response.status_code == 201
-
-
-async def test_post_score_accuracy_just_outside_tolerance_returns_400(
-    score_client: AsyncClient,
-) -> None:
-    response = await score_client.post(
-        "/v1/scores",
-        json=_valid_payload(
-            accuracy=0.8200000000005,
-            total_questions=1000,
-            correct_questions=810,
-        ),
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["field"] == "accuracy"
+    assert response.json()["score"] == 0.5
 
 
 async def test_post_score_unknown_benchmark_id_returns_404(score_client: AsyncClient) -> None:
@@ -253,11 +234,13 @@ async def test_post_score_url4_expression_too_long_returns_422(
     assert response.json()["detail"][0]["loc"] == ["body", "url4_expression"]
 
 
-async def test_post_score_invalid_accuracy_returns_422(score_client: AsyncClient) -> None:
-    response = await score_client.post("/v1/scores", json=_valid_payload(accuracy=1.5))
+async def test_post_score_non_finite_score_returns_422(score_client: AsyncClient) -> None:
+    # WHY the string: JSON itself cannot carry NaN, so the boundary the route defends
+    # is a coercible-looking value that is not a strict finite number (OME-866).
+    response = await score_client.post("/v1/scores", json=_valid_payload(score="NaN"))
 
     assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["body", "accuracy"]
+    assert response.json()["detail"][0]["loc"] == ["body", "score"]
 
 
 async def test_post_score_store_unavailable_returns_503(
@@ -359,7 +342,7 @@ async def test_post_score_missing_identity_header_wins_over_bad_accuracy(
     # the accuracy check back above _resolve_submitter must fail this test (400, not 401).
     response = await cloudflare_score_client.post(
         "/v1/scores",
-        json=_valid_payload(accuracy=0.5, total_questions=100, correct_questions=10),
+        json=_valid_payload(score=0.5, total_questions=100, correct_questions=10),
     )
 
     assert response.status_code == 401

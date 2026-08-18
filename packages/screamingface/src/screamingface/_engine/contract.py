@@ -347,7 +347,17 @@ def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage
         ),
         Decimal(),
     )
-    if total != parts:
+    # WHY guarded on `parts` (OME-861): a provider may author ONE amount with no per-class split —
+    # OpenRouter reports exactly that — so the Engine legitimately publishes a total with every
+    # component at zero (`url4.streaming`'s CostBreakdown accepts Σ components <= total_usd since
+    # OME-850). A bare `total != parts` therefore fired on EVERY priced run, which is noise a reader
+    # cannot act on, in a library people run in notebooks.
+    # INVARIANT: an ABSENT breakdown is silence, not disagreement. A breakdown that WAS supplied and
+    # still disagrees is incoherent and keeps its warning — the guard narrows the condition, it does
+    # not remove it. Either way `total_usd` wins, because it is the authoritative field.
+    # AIDEV-NOTE: residual — a genuinely PARTIAL breakdown (some classes known, summing below the
+    # total) still warns. No producer sends one today; revisit if that changes.
+    if parts and total != parts:
         _LOG.warning(
             "SF Engine cost total_usd does not equal its parts; using total_usd "
             "(total=%s, parts=%s)",

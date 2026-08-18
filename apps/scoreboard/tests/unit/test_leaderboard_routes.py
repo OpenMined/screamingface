@@ -30,18 +30,18 @@ def _submission(
     *,
     benchmark_id: str = "hle",
     spec_id: str = "spec-1",
-    accuracy: float = 0.75,
+    score: float = 0.75,
     providers: list[str] | None = None,
     submitted_by: str | None = "tester",
 ) -> ScoreSubmission:
     total_questions = 1000
-    correct_questions = int(accuracy * total_questions)
+    correct_questions = int(score * total_questions)
     return ScoreSubmission(
         benchmark_id=benchmark_id,
         spec_id=spec_id,
-        url4_expression=f"url4://benchmark/{benchmark_id}/{spec_id}/{accuracy}",
+        url4_expression=f"url4://benchmark/{benchmark_id}/{spec_id}/{score}",
         submitted_by=submitted_by,
-        accuracy=accuracy,
+        score=score,
         total_questions=total_questions,
         correct_questions=correct_questions,
         ran_with_providers=providers or ["openai"],
@@ -94,11 +94,11 @@ async def test_get_leaderboard_returns_ranked_best_score_per_spec(
     store = ScoreStore()
     await _register_benchmark(store)
     await _register_benchmark(store, benchmark_id="other", display_name="Other Benchmark")
-    await store.submit(_submission(spec_id="spec-a", accuracy=0.6, providers=["openai"]))
-    await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["anthropic"]))
-    await store.submit(_submission(spec_id="spec-b", accuracy=0.95, providers=["openai", "gemini"]))
-    await store.submit(_submission(spec_id="spec-c", accuracy=0.7, providers=["gemini"]))
-    await store.submit(_submission(benchmark_id="other", spec_id="spec-z", accuracy=1.0))
+    await store.submit(_submission(spec_id="spec-a", score=0.6, providers=["openai"]))
+    await store.submit(_submission(spec_id="spec-a", score=0.9, providers=["anthropic"]))
+    await store.submit(_submission(spec_id="spec-b", score=0.95, providers=["openai", "gemini"]))
+    await store.submit(_submission(spec_id="spec-c", score=0.7, providers=["gemini"]))
+    await store.submit(_submission(benchmark_id="other", spec_id="spec-z", score=1.0))
 
     response = await async_client.get("/v1/leaderboard/hle")
 
@@ -107,7 +107,7 @@ async def test_get_leaderboard_returns_ranked_best_score_per_spec(
     assert body["benchmark"]["id"] == "hle"
     assert [entry["rank"] for entry in body["entries"]] == [1, 2, 3]
     assert [entry["spec_id"] for entry in body["entries"]] == ["spec-b", "spec-a", "spec-c"]
-    assert [entry["accuracy"] for entry in body["entries"]] == [0.95, 0.9, 0.7]
+    assert [entry["score"] for entry in body["entries"]] == [0.95, 0.9, 0.7]
     assert body["entries"][0]["ran_with_providers"] == ["openai", "gemini"]
     # OME-820: verified defaults to True as a placeholder that asserts NOTHING —
     # nothing re-runs submissions and nothing attests where a run executed. The
@@ -121,8 +121,8 @@ async def test_get_leaderboard_breaks_accuracy_ties_by_newer_submission(
 ) -> None:
     store = ScoreStore()
     await _register_benchmark(store)
-    older, _ = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["older"]))
-    newer, _ = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["newer"]))
+    older, _ = await store.submit(_submission(spec_id="spec-a", score=0.9, providers=["older"]))
+    newer, _ = await store.submit(_submission(spec_id="spec-a", score=0.9, providers=["newer"]))
     await Score.filter(id=older.id).update(
         submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
     )
@@ -145,7 +145,7 @@ async def test_get_leaderboard_clamps_top_to_max(
     await _register_benchmark(store)
     for index in range(205):
         accuracy = (1000 - index) / 1000
-        await store.submit(_submission(spec_id=f"spec-{index:03d}", accuracy=accuracy))
+        await store.submit(_submission(spec_id=f"spec-{index:03d}", score=accuracy))
 
     response = await async_client.get("/v1/leaderboard/hle", params={"top": 999})
 
@@ -170,9 +170,9 @@ async def test_get_spec_history_returns_submissions_newest_first(
 ) -> None:
     store = ScoreStore()
     await _register_benchmark(store)
-    older, _ = await store.submit(_submission(spec_id="spec-history", accuracy=0.5))
-    newer, _ = await store.submit(_submission(spec_id="spec-history", accuracy=0.8))
-    await store.submit(_submission(spec_id="other-spec", accuracy=0.95))
+    older, _ = await store.submit(_submission(spec_id="spec-history", score=0.5))
+    newer, _ = await store.submit(_submission(spec_id="spec-history", score=0.8))
+    await store.submit(_submission(spec_id="other-spec", score=0.95))
     await Score.filter(id=older.id).update(
         submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
     )
@@ -190,14 +190,14 @@ async def test_get_spec_history_returns_submissions_newest_first(
         str(newer.id),
         str(older.id),
     ]
-    assert [submission["accuracy"] for submission in body["submissions"]] == [0.8, 0.5]
+    assert [submission["score"] for submission in body["submissions"]] == [0.8, 0.5]
     assert set(body["submissions"][0]) == {
         "id",
         # OME-775: a spec's history can span benchmark revisions, and entries measured against
         # different revisions are not comparable. Owner-approved contract change; the
         # assertion stays exact rather than being loosened to a subset check.
         "benchmark_revision",
-        "accuracy",
+        "score",
         "total_questions",
         "correct_questions",
         "submitted_at",
@@ -216,7 +216,7 @@ async def test_get_spec_history_clamps_limit_to_max(
     store = ScoreStore()
     await _register_benchmark(store)
     for index in range(105):
-        await store.submit(_submission(spec_id="spec-history", accuracy=index / 200))
+        await store.submit(_submission(spec_id="spec-history", score=index / 200))
 
     response = await async_client.get(
         "/v1/leaderboard/hle/spec-history/history",
@@ -283,7 +283,7 @@ async def test_get_leaderboard_returns_imported_baselines_ordered_by_accuracy(
         BaselineImportRow(
             benchmark_id="demo-benchmark",
             model_name="Model A",
-            accuracy=0.55,
+            score=0.55,
             source="lmarena",
         )
     )
@@ -291,7 +291,7 @@ async def test_get_leaderboard_returns_imported_baselines_ordered_by_accuracy(
         BaselineImportRow(
             benchmark_id="demo-benchmark",
             model_name="Model B",
-            accuracy=0.71,
+            score=0.71,
             source="artificial_analysis",
             source_url="https://artificialanalysis.ai/demo-benchmark",
         )
@@ -355,15 +355,13 @@ async def test_get_frontier_reflects_real_submissions(
     await _register_benchmark(ScoreStore())
     await async_client.post(
         "/v1/scores",
-        json=_submission(spec_id="spec-1", accuracy=0.5, providers=["huggingface"]).model_dump(
+        json=_submission(spec_id="spec-1", score=0.5, providers=["huggingface"]).model_dump(
             mode="json"
         ),
     )
     await async_client.post(
         "/v1/scores",
-        json=_submission(spec_id="spec-2", accuracy=0.9, providers=["openai"]).model_dump(
-            mode="json"
-        ),
+        json=_submission(spec_id="spec-2", score=0.9, providers=["openai"]).model_dump(mode="json"),
     )
 
     response = await async_client.get("/v1/leaderboard/hle/frontier")

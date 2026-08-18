@@ -30,7 +30,7 @@ def _validate_run_cost(value: Decimal | None) -> Decimal | None:
     Only two things are actually unstorable and therefore rejected: a negative or
     non-finite value, and one above the column ceiling. Everything else is
     normalized rather than refused, because a 422 here discards the WHOLE
-    submission — the accuracy result along with the cost.
+    submission — the score result along with the cost.
 
     WHY, in the order the rules apply:
       * float noise on a representable value (0.07 * 3 == 0.21000000000000002) is
@@ -74,7 +74,7 @@ def _validate_run_cost(value: Decimal | None) -> Decimal | None:
     # run which cost real money as free and hand it the cheapest slot on the Pareto
     # frontier. Clamping to one quantum expresses exactly that: it rounds away from
     # zero, so the figure is never understated (it cannot buy frontier position) and
-    # the submission is never discarded, which rejecting did — the accuracy result
+    # the submission is never discarded, which rejecting did — the score result
     # went with it. Overstates by at most one quantum. See spec 2.2's 2nd revision.
     return max(value.quantize(COST_QUANTUM, rounding=ROUND_HALF_UP), COST_QUANTUM)
 
@@ -273,9 +273,11 @@ class ScoreSubmission(BaseModel):
     spec_id: str
     url4_expression: Annotated[str, Field(max_length=32_000)]
     submitted_by: str | None = None
-    accuracy: float
+    # the exact primary score the Engine Benchmark produced — any
+    # finite number, higher is better
+    score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
     total_questions: int
-    correct_questions: int
+    correct_questions: int | None = None
     ran_with_providers: list[str]
     ran_at_local: datetime | None = None
     # Nested client metadata, matching the SF "Publish to Leaderboard" wire shape
@@ -329,13 +331,6 @@ class ScoreSubmission(BaseModel):
             raise ValueError("identifier fields must be non-empty")
         return value
 
-    @field_validator("accuracy")
-    @classmethod
-    def validate_accuracy(cls, value: float) -> float:
-        if not 0 <= value <= 1:
-            raise ValueError("accuracy must be between 0 and 1")
-        return value
-
     @field_validator("total_questions")
     @classmethod
     def validate_total_questions(cls, value: int) -> int:
@@ -345,14 +340,14 @@ class ScoreSubmission(BaseModel):
 
     @field_validator("correct_questions")
     @classmethod
-    def validate_correct_questions(cls, value: int) -> int:
-        if value < 0:
+    def validate_correct_questions(cls, value: int | None) -> int | None:
+        if value is not None and value < 0:
             raise ValueError("correct_questions must be non-negative")
         return value
 
     @model_validator(mode="after")
     def validate_questions(self) -> ScoreSubmission:
-        if self.correct_questions > self.total_questions:
+        if self.correct_questions is not None and self.correct_questions > self.total_questions:
             raise ValueError("correct_questions cannot exceed total_questions")
         return self
 
@@ -387,9 +382,11 @@ class ScoreSchema(BaseModel):
     url4_expression: str
     submitted_by: SubmittedBy
     submitted_at: datetime
-    accuracy: float
+    score: float
     total_questions: int
-    correct_questions: int
+    # WHY nullable: only binary-graded benchmarks ever had a correctness count; rows
+    # submitted after OME-866 carry None unless the client sent one.
+    correct_questions: int | None
     ran_with_providers: list[str]
     ran_at_local: datetime | None
     client_name: str | None
@@ -413,7 +410,7 @@ class LeaderboardEntry(BaseModel):
     # spec needs the revision to know why they are not competing (OME-775). Null for rows that
     # predate the column and for imported baselines.
     benchmark_revision: str | None
-    accuracy: float
+    score: float
     total_questions: int
     ran_with_providers: list[str]
     submitted_at: datetime
@@ -434,7 +431,7 @@ class BaselineSchema(BaseModel):
     id: UUID
     benchmark_id: str
     model_name: str
-    accuracy: float
+    score: float
     source: str
     source_url: str | None
     imported_at: datetime
@@ -450,13 +447,13 @@ class BaselineSchema(BaseModel):
 
 class FrontierPoint(BaseModel):
     """One step of the open/closed frontier trend (OME-323, spec §5/§6): the
-    running-best accuracy at the moment it changed, and whether the entry holding
+    running-best score at the moment it changed, and whether the entry holding
     that position was open or closed."""
 
     model_config = ConfigDict(extra="forbid")
 
     at: datetime
-    accuracy: float
+    score: float
     openness: Literal["open", "closed"]
     # INVARIANT: always "score" — a Baseline's imported_at isn't a trustworthy
     # real-world timestamp, so it never participates in this walk (spec §6).
@@ -503,10 +500,11 @@ class BaselineImportRow(BaseModel):
     model_name: str
     # WHY: strict + no-inf-nan closes a Pydantic v2 laziness gap where JSON true/false
     # coerce to 1.0/0.0 and numeric strings coerce to float, letting malformed source
-    # data silently become a plausible-looking score (found in PR review). The range
-    # check stays a separate validator below so its error message doesn't change for
-    # an existing test.
-    accuracy: Annotated[float, Field(strict=True, allow_inf_nan=False)]
+    # data silently become a plausible-looking score (found in PR review).
+    # INVARIANT (OME-866): benchmark-native — an imported baseline ranks against
+    # community entries on ONE board, so its score must be on that benchmark's native
+    # scale. Any finite number is storable; there is no universal 0..1 range.
+    score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
     source: str
     # WHY: this is returned through the public API and a future client will likely
     # render it as a link — restrict to http(s) so a javascript:/data: URI can't
@@ -519,13 +517,6 @@ class BaselineImportRow(BaseModel):
     def validate_identifiers(cls, value: str) -> str:
         if not value:
             raise ValueError("identifier fields must be non-empty")
-        return value
-
-    @field_validator("accuracy")
-    @classmethod
-    def validate_accuracy(cls, value: float) -> float:
-        if not 0 <= value <= 1:
-            raise ValueError("accuracy must be between 0 and 1")
         return value
 
     @field_validator("source_url")

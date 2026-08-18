@@ -15,7 +15,6 @@ distinguish rows. OME-821 replaces it with a real distinction.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Annotated, Any, cast
 from uuid import UUID
 
@@ -40,7 +39,6 @@ from scoreboard.scores.store import ScoreStore
 
 router = APIRouter(prefix="/v1", tags=["scores"])
 
-ACCURACY_TOLERANCE = Decimal("0.01")
 STORE_UNAVAILABLE_DETAIL = "score store unavailable"
 UNTRUSTED_PEER_DETAIL = (
     "This service accepts header identity only from the networks it was configured to trust."
@@ -148,20 +146,9 @@ async def submit_score(
     submitted_by = await _resolve_submitter(request, submission)
     submission = submission.model_copy(update={"submitted_by": submitted_by})
 
-    submitted_accuracy = Decimal(str(submission.accuracy))
-    expected_accuracy = Decimal(submission.correct_questions) / Decimal(submission.total_questions)
-    if abs(submitted_accuracy - expected_accuracy) > ACCURACY_TOLERANCE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=_field_error_detail(
-                "accuracy",
-                (
-                    f"accuracy {submission.accuracy} does not match "
-                    f"correct_questions/total_questions={expected_accuracy:.6f} "
-                    f"within {ACCURACY_TOLERANCE}"
-                ),
-            ),
-        )
+    # INVARIANT (OME-866): the Engine benchmark is the sole scoring authority. The old
+    # ±0.01 accuracy-vs-correct/total cross-check was DELETED here, not replaced — the
+    # Scoreboard never recomputes, normalizes or second-guesses the submitted score.
 
     try:
         if not await Benchmark.exists(id=submission.benchmark_id):

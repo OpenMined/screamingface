@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import platform
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
@@ -58,7 +59,8 @@ class Leaderboards:
     def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
         return _decode_score(
-            _sync_json(
+            scoreboard_url=self._scoreboard_url,
+            payload=_sync_json(
                 self._request,
                 self._scoreboard_url,
                 "POST",
@@ -66,19 +68,20 @@ class Leaderboards:
                 json=payload,
                 headers={"Idempotency-Key": candidate_result.run_id},
                 operation="submit a score to",
-            )
+            ),
         )
 
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
         return _decode_score(
-            _sync_json(
+            scoreboard_url=self._scoreboard_url,
+            payload=_sync_json(
                 self._request,
                 self._scoreboard_url,
                 "GET",
                 f"{_SCORES_PATH}/{selected}",
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
-            )
+            ),
         )
 
 
@@ -115,7 +118,8 @@ class AsyncLeaderboards:
     async def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
         return _decode_score(
-            await _async_json(
+            scoreboard_url=self._scoreboard_url,
+            payload=await _async_json(
                 self._request,
                 self._scoreboard_url,
                 "POST",
@@ -123,19 +127,20 @@ class AsyncLeaderboards:
                 json=payload,
                 headers={"Idempotency-Key": candidate_result.run_id},
                 operation="submit a score to",
-            )
+            ),
         )
 
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
         return _decode_score(
-            await _async_json(
+            scoreboard_url=self._scoreboard_url,
+            payload=await _async_json(
                 self._request,
                 self._scoreboard_url,
                 "GET",
                 f"{_SCORES_PATH}/{selected}",
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
-            )
+            ),
         )
 
 
@@ -262,7 +267,7 @@ def _decode_leaderboard(payload: object) -> Leaderboard:
         _invalid(str(exc), exc)
 
 
-def _decode_score(payload: object) -> LeaderboardScore:
+def _decode_score(payload: object, scoreboard_url: str | None = None) -> LeaderboardScore:
     root = _mapping(payload, "Leaderboard score")
     metadata = root.get("metadata")
     if metadata is not None and not isinstance(metadata, Mapping):
@@ -276,11 +281,11 @@ def _decode_score(payload: object) -> LeaderboardScore:
             url4=Url4(_text(root.get("url4_expression"), "Leaderboard score url4_expression")),
             submitted_by=_optional_text(root.get("submitted_by"), "Leaderboard score submitted_by"),
             submitted_at=_timestamp(root.get("submitted_at"), "Leaderboard score submitted_at"),
-            accuracy=_number(root.get("accuracy"), "Leaderboard score accuracy"),
+            score=_number(root.get("score"), "Leaderboard score score"),
             total_questions=_integer(
                 root.get("total_questions"), "Leaderboard score total_questions"
             ),
-            correct_questions=_integer(
+            correct_questions=_optional_integer(
                 root.get("correct_questions"), "Leaderboard score correct_questions"
             ),
             ran_with_providers=tuple(
@@ -305,6 +310,7 @@ def _decode_score(payload: object) -> LeaderboardScore:
                 "Leaderboard score verified_by_screamingface",
             ),
             metadata=metadata,
+            scoreboard_url=scoreboard_url,
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
@@ -313,15 +319,13 @@ def _decode_score(payload: object) -> LeaderboardScore:
 def _submission(candidate_result: CandidateResult) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
-    accuracy, correct_questions = _accuracy_result(candidate_result)
     return {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
         "spec_id": candidate_result.name,
         "url4_expression": candidate_result.url4,
-        "accuracy": accuracy,
+        "score": _score_value(candidate_result),
         "total_questions": len(candidate_result.cases),
-        "correct_questions": correct_questions,
         "ran_with_providers": list(_providers(candidate_result.models)),
         "ran_at_local": _timestamp_text(candidate_result.completed_at),
         "client": {
@@ -337,22 +341,24 @@ def _submission(candidate_result: CandidateResult) -> dict[str, object]:
     }
 
 
-def _accuracy_result(candidate_result: CandidateResult) -> tuple[float, int]:
-    accuracy = candidate_result.score
-    if accuracy is None:
+def _score_value(candidate_result: CandidateResult) -> float:
+    """The Engine's benchmark-native score, submitted verbatim (OME-866).
+
+    INVARIANT: the Engine-side Benchmark is the sole scoring authority — the Client
+    never derives a replacement from Case grades, normalizes, or bounds the value.
+    The only universal facts about a rankable score are that it exists and is finite
+    (DRACO is fractional, HealthBench worst-30 is negative), so those are the only
+    checks made before HTTP.
+
+    WHY the explicit isfinite: NaN used to be rejected as a side effect of the deleted
+    0..1 range check; without this guard `json.dumps(nan)` would emit invalid JSON.
+    """
+    score = candidate_result.score
+    if score is None:
         raise ValueError("an unscored CandidateResult cannot be submitted")
-    if not 0 <= accuracy <= 1:
-        raise ValueError("CandidateResult score must be between 0 and 1 for the Scoreboard")
-    grades = tuple(
-        case.grade.score if case.grade is not None else None for case in candidate_result.cases
-    )
-    if any(score not in {0, 0.0, 1, 1.0} for score in grades):
-        raise ValueError("Scoreboard submission requires every Case grade to be binary (0 or 1)")
-    correct = sum(score == 1 for score in grades)
-    expected = correct / len(grades)
-    if abs(accuracy - expected) > 0.01:
-        raise ValueError("CandidateResult score must match correct Cases / total Cases within 0.01")
-    return accuracy, correct
+    if not math.isfinite(score):
+        raise ValueError("CandidateResult score must be a finite number for the Scoreboard")
+    return score
 
 
 def _providers(models: Sequence[str]) -> tuple[str, ...]:
@@ -390,7 +396,7 @@ def _decode_entry(value: object) -> LeaderboardEntry:
         return LeaderboardEntry(
             rank=_integer(root.get("rank"), "Leaderboard entry rank"),
             spec_id=_text(root.get("spec_id"), "Leaderboard entry spec_id"),
-            accuracy=_number(root.get("accuracy"), "Leaderboard entry accuracy"),
+            score=_number(root.get("score"), "Leaderboard entry score"),
             total_questions=_integer(
                 root.get("total_questions"), "Leaderboard entry total_questions"
             ),
@@ -419,7 +425,7 @@ def _decode_baseline(value: object) -> LeaderboardBaseline:
             id=UUID(_text(root.get("id"), "Leaderboard baseline id")),
             benchmark_id=_text(root.get("benchmark_id"), "Leaderboard baseline benchmark_id"),
             model_name=_text(root.get("model_name"), "Leaderboard baseline model_name"),
-            accuracy=_number(root.get("accuracy"), "Leaderboard baseline accuracy"),
+            score=_number(root.get("score"), "Leaderboard baseline score"),
             source=_text(root.get("source"), "Leaderboard baseline source"),
             source_url=_optional_text(root.get("source_url"), "Leaderboard baseline source_url"),
             imported_at=_timestamp(root.get("imported_at"), "Leaderboard baseline imported_at"),
@@ -455,6 +461,10 @@ def _integer(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         _invalid(f"{label} must be an integer")
     return value
+
+
+def _optional_integer(value: object, label: str) -> int | None:
+    return None if value is None else _integer(value, label)
 
 
 def _number(value: object, label: str) -> float:

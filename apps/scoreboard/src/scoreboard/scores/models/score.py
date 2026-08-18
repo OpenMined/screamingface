@@ -17,9 +17,9 @@ class BaseScore(BaseScoreboardModel):
     url4_expression = fields.TextField()
     submitted_by = fields.CharField(max_length=255, null=True)
     submitted_at = fields.DatetimeField(auto_now_add=True)
-    accuracy = fields.FloatField()
+    score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
-    correct_questions = fields.IntField()
+    correct_questions = fields.IntField(null=True)
     ran_with_providers = fields.JSONField()
     ran_at_local = fields.DatetimeField(null=True)
     client_name = fields.CharField(max_length=128, null=True)
@@ -64,8 +64,8 @@ class BaseScore(BaseScoreboardModel):
     metadata = fields.JSONField(null=True)
     # WHY Decimal and not Float: this is money. Binary floating point cannot
     # represent it exactly, and a leaderboard that publishes a dollar figure
-    # should not accumulate representation error in it. `accuracy` above stays a
-    # FloatField deliberately — a ratio is not currency.
+    # should not accumulate representation error in it. `score` above stays a
+    # FloatField deliberately — a benchmark score is not currency.
     #
     # WHY these bounds: both ends of the real range have to fit. A cache-served
     # smoke run costs fractions of a cent (0.000123 is representable here), and a
@@ -104,7 +104,7 @@ class Score(BaseScore):
     class Meta:
         table = "scores"
         indexes = (
-            ("benchmark_id", "accuracy"),
+            ("benchmark_id", "score"),
             ("benchmark_id", "spec_id", "submitted_at"),
         )
 

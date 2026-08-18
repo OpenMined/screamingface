@@ -42,19 +42,33 @@ class CostBreakdown(BaseModel):
     cache_creation_usd: Decimal = Decimal("0")
     reasoning_usd: Decimal = Decimal("0")
     total_usd: Decimal
-    """Sum of the per-type costs — enforced by the validator below."""
+    """The authoritative cost of this scope.
+
+    The per-type fields above are an OPTIONAL partial breakdown: a producer fills in the classes it
+    has evidence for and leaves the rest at zero. Only this field is guaranteed to be populated.
+    """
 
     @model_validator(mode="after")
-    def _total_is_sum(self) -> "CostBreakdown":
-        parts = (
+    def _total_covers_components(self) -> "CostBreakdown":
+        # WHY bounded-by rather than equal-to (OME-849): a provider may author one amount with no
+        # per-class split — OpenRouter reports exactly that — and demanding equality forces the
+        # producer to invent a breakdown it does not have, which is a false claim in a structured
+        # field. So an INCOMPLETE breakdown is legal.
+        # INVARIANT: components may be incomplete, never larger than the whole. A breakdown claiming
+        # more than the total is incoherent whichever number you trust, so that half of the old
+        # equality rule survives.
+        # AIDEV-NOTE: the consumer already behaves this way — screamingface's engine contract warns
+        # on a total that disagrees with its components and then uses total_usd. Do not restore
+        # equality here without changing that consumer too.
+        components = (
             self.input_usd
             + self.output_usd
             + self.cache_read_usd
             + self.cache_creation_usd
             + self.reasoning_usd
         )
-        if self.total_usd != parts:
-            raise ValueError(f"total_usd {self.total_usd} != Σ parts {parts}")
+        if components > self.total_usd:
+            raise ValueError(f"Σ components {components} > total_usd {self.total_usd}")
         return self
 
 

@@ -13,7 +13,7 @@ class BaseBaseline(BaseScoreboardModel):
 
     id = fields.UUIDField(primary_key=True, default=uuid.uuid4)
     model_name = fields.CharField(max_length=255)
-    accuracy = fields.FloatField()
+    score = fields.FloatField()
     source = fields.CharField(max_length=64)
     source_url = fields.CharField(max_length=2048, null=True)
     imported_at = fields.DatetimeField(auto_now_add=True)

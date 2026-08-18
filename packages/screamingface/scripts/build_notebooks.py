@@ -77,7 +77,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -116,7 +116,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -184,8 +184,10 @@ artifact_path"""),
 ## 5 · Publish and retrieve
 
 Publication accepts the evaluated `CandidateResult` directly. It derives the Benchmark id,
-compiled URL4, models, accuracy counts, timestamps, and idempotency key from that immutable
-result. Publication is independently opt-in so **Run All** never changes the Scoreboard.
+compiled URL4, models, the Benchmark-native score, timestamps, and idempotency key from that
+immutable result — the score is submitted exactly as the Engine reported it, and the
+Scoreboard ranks it without recalculating. Publication is independently opt-in so
+**Run All** never changes the Scoreboard.
 
 The local Scoreboard accepts writes without login. Hosted deployments may require an
 edge-verified identity or keep score submission closed."""),
@@ -246,7 +248,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -642,6 +644,10 @@ dimension at a time:
 where `sf.CorrectiveLoop` is the protocol from
 [this paper](https://openreview.net/pdf?id=XSIYfTm2h7) """),
         nbformat.v4.new_markdown_cell("""\
+<img src="assets/ifeval-benchmark.svg" width="900"
+  alt="IFEval at a glance: 541 prompts with machine-checkable constraints, one invocation
+  per prompt, free deterministic verification, score = all-strict prompts / 541"/>"""),
+        nbformat.v4.new_markdown_cell("""\
 ![The IFEval protocol grid: solo vs panel, no loop vs corrective](assets/ifeval-protocol-grid.png)
 """),
         nbformat.v4.new_markdown_cell("""\
@@ -651,7 +657,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -731,8 +737,20 @@ corrective_loop_report = sf.evaluate(
     limit=2,
 )
 corrective_loop_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Send the score to the Scoreboard
+
+Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
+score** exactly as the Engine graded it — fractional or negative values included — and the
+Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
+the public Leaderboard."""),
         nbformat.v4.new_code_cell("""\
-"""),
+PUBLISH_RESULT = False
+
+submission = (
+    sf.leaderboards.submit(corrective_loop_report.candidates.only) if PUBLISH_RESULT else None
+)
+submission"""),
     )
 
 
@@ -753,13 +771,17 @@ averaging ~40 evaluation criteria.
 This notebook evaluates DRACO using new models (August 2026) and fusions of these models on
 [screamingface](https://github.com/OpenMined/screamingface)."""),
         nbformat.v4.new_markdown_cell("""\
+<img src="assets/draco-benchmark.svg" width="900"
+  alt="DRACO at a glance: 100 research tasks, ~40 weighted rubric criteria each, judge
+  answers MET/UNMET per criterion, score = mean of weighted case scores in 0..1"/>"""),
+        nbformat.v4.new_markdown_cell("""\
 ## Running things locally
 
 From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -842,8 +864,18 @@ best_open_source = sf.Fusion(
         nbformat.v4.new_code_cell("""\
 report = sf.evaluate(best_open_source, benchmark="draco", limit=1)
 report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Send the score to the Scoreboard
+
+Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
+score** exactly as the Engine graded it — fractional or negative values included — and the
+Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
+the public Leaderboard."""),
         nbformat.v4.new_code_cell("""\
-"""),
+PUBLISH_RESULT = False
+
+submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH_RESULT else None
+submission"""),
     )
 
 
@@ -875,13 +907,17 @@ def _healthbench_worst30_e2e() -> NotebookNode:
 Can a fusion of open-weights models improve on the baseline across the 157 hardest
 [HealthBench](https://openai.com/index/healthbench/) Professional conversations? """),
         nbformat.v4.new_markdown_cell("""\
+<img src="assets/healthbench-worst30-benchmark.svg" width="900"
+  alt="HealthBench worst-30 at a glance: 157 hardest conversations, physician-written
+  rubrics where penalties subtract, unclamped case scores, raw mean keeps negatives"/>"""),
+        nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
 From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -950,8 +986,18 @@ best_open_source = sf.Fusion(
         nbformat.v4.new_code_cell("""\
 report = sf.evaluate(best_open_source, benchmark="healthbench-worst30", limit=1)
 report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Send the score to the Scoreboard
+
+Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
+score** exactly as the Engine graded it — fractional or negative values included — and the
+Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
+the public Leaderboard."""),
         nbformat.v4.new_code_cell("""\
-"""),
+PUBLISH_RESULT = False
+
+submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH_RESULT else None
+submission"""),
     )
 
 
@@ -980,7 +1026,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -1056,6 +1102,25 @@ Research-quality prompts with weighted rubrics; the longest and most expensive o
         nbformat.v4.new_code_cell("""\
 draco_report = sf.evaluate(corrective_loop, benchmark="draco", limit=1)
 draco_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Send the scores to the Scoreboard
+
+Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
+score** exactly as the Engine graded it — fractional or negative values included — and the
+Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
+the public Leaderboard."""),
+        nbformat.v4.new_code_cell("""\
+PUBLISH_RESULT = False
+
+submissions = (
+    [
+        sf.leaderboards.submit(report.candidates.only)
+        for report in (ifeval_report, healthbench_report, draco_report)
+    ]
+    if PUBLISH_RESULT
+    else None
+)
+submissions"""),
     )
 
 

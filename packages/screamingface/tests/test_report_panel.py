@@ -125,15 +125,21 @@ def test_a_real_score_carries_the_fusion_edge() -> None:
     html = body(report_html(report(candidate("gemini-3-flash-preview", 0.62))))
 
     assert "sf-report__cell--score" in html
-    assert "62.0%" in html
+    assert ">0.62<" in html
 
 
-def test_a_zero_score_is_not_gilded() -> None:
-    html = body(report_html(report(candidate("m", 0.0))))
+def test_any_finite_score_is_gilded_zero_and_negative_included() -> None:
+    # WHY (OME-866): scores are benchmark-native, so zero and negative are real
+    # graded outcomes, not null ones — HealthBench worst-30 is all-negative, and a
+    # 0.0 there ranks above every negative row. A `> 0` gate was a leftover 0..1
+    # accuracy assumption; only an unscored candidate stays neutral.
+    zero = body(report_html(report(candidate("m", 0.0))))
+    negative = body(report_html(report(candidate("m", -1.143))))
 
-    # Colour means something: there is no win in a zero, so the cell stays neutral.
-    assert "sf-report__cell--score" not in html
-    assert "0.0%" in html
+    assert "sf-report__cell--score" in zero
+    assert ">0<" in zero
+    assert "sf-report__cell--score" in negative
+    assert ">-1.143<" in negative
 
 
 def test_an_ungraded_candidate_is_not_gilded_and_reads_as_incomplete() -> None:
@@ -141,6 +147,28 @@ def test_an_ungraded_candidate_is_not_gilded_and_reads_as_incomplete() -> None:
 
     assert "sf-report__cell--score" not in html
     assert "incomplete" in html
+
+
+def test_a_negative_score_renders_benchmark_native_not_as_percent() -> None:
+    # INVARIANT (OME-866): CandidateResult.score is benchmark-native — the report shows
+    # the Engine-graded number itself. HealthBench worst-30 grades are negative; a ×100
+    # percent rendering ("-114.3%") would misstate the published figure that the submit
+    # receipt (score_view) and the Leaderboard display directly below this card.
+    html = body(report_html(report(candidate("healthbench-fusion", -1.143))))
+
+    assert ">-1.143<" in html
+    assert "-114.3" not in html
+    # Only true ratios stay percentages: pass rate (0.5 in _METRICS) and coverage.
+    assert "50.0%" in html
+    assert "100.0%" in html
+
+
+def test_a_fractional_score_is_not_inflated_to_a_percent() -> None:
+    # DRACO's weighted 0.399 is a score, not a share of correct answers (OME-866).
+    html = body(report_html(report(candidate("draco-fusion", 0.399))))
+
+    assert ">0.399<" in html
+    assert "39.9%" not in html
 
 
 def test_every_candidate_gets_its_own_result_card() -> None:
@@ -155,7 +183,7 @@ def test_every_candidate_gets_its_own_result_card() -> None:
     )
 
     assert html.count("sf-report__card'") == 3
-    assert "81.4%" in html
+    assert ">0.814<" in html
 
 
 def test_the_receipt_strip_totals_the_whole_run() -> None:

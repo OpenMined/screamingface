@@ -1,10 +1,10 @@
 /* ScreamingFace Leaderboard Portal — benchmark (top-N) page.
  *
  * Reads ?id=<benchmark_id>, fetches /v1/leaderboard/{id}, and renders a
- * client-side sortable table. Default sort is accuracy DESC. The Rank column
+ * client-side sortable table. Default sort is score DESC. The Rank column
  * always shows the backend-provided rank (best-per-spec), even when the user
  * sorts by another column — we only reorder rows for display, never recompute
- * the backend's best-per-spec selection (which breaks accuracy ties by newest
+ * the backend's best-per-spec selection (which breaks score ties by newest
  * submission).
  */
 (function (P) {
@@ -32,7 +32,7 @@
     // Keeping the honest label until a backend field exists.
     { key: "ran_with_providers", label: "Backends", sort: null },
     { key: "submitted_by", label: "Author", sort: "string", dir: "asc" },
-    { key: "accuracy", label: "Accuracy", sort: "number", dir: "desc", cls: "num" },
+    { key: "score", label: "Score", sort: "number", dir: "desc", cls: "num" },
     // WHY Questions is gone: OME-769's column list is #, Name, Models, Author,
     // Accuracy, Submitted, Run locally — Questions is not in it. Adding Author
     // and the mark column pushed the table past its container (1205px into
@@ -43,7 +43,7 @@
     { key: "__run", label: "Run Locally", sort: null, cls: "col-run" },
   ];
 
-  var state = { entries: [], benchmarkId: null, sortKey: "accuracy", sortDir: "desc" };
+  var state = { entries: [], benchmarkId: null, sortKey: "score", sortDir: "desc" };
 
   function compare(a, b, key, type, dir) {
     var av = a[key], bv = b[key], res = 0;
@@ -101,13 +101,20 @@
 
   var L = window.SFLeaderboardLogic;
 
-  // The widest accuracy bar on screen. Deliberately the best accuracy of ALL
+  // The widest score bar on screen. Deliberately the best score of ALL
   // entries, verified or not — the bar is a like-for-like visual comparison of
   // the rows present, so scaling it to the reproducible-only maximum would let
   // an unverified row overflow its own track.
-  function bestAccuracy(entries) {
+  function bestScore(entries) {
     if (!entries.length) return null;
-    return Math.max.apply(null, entries.map(function (e) { return e.accuracy; }));
+    return Math.max.apply(null, entries.map(function (e) { return e.score; }));
+  }
+
+  // The bar origin: scores are benchmark-native (OME-866), so a negative board
+  // needs its own floor — barWidth shifts the origin to min(0, lowest).
+  function lowestScore(entries) {
+    if (!entries.length) return null;
+    return Math.min.apply(null, entries.map(function (e) { return e.score; }));
   }
 
   // The mark cell. Rendered on EVERY row so the column exists structurally;
@@ -115,7 +122,7 @@
   //
   // WHY empty: the SOTA medal was descoped from OME-769 in review. The medal has
   // to name the best *reproduced* run, but `/v1/leaderboard` returns one row per
-  // spec chosen by accuracy alone (`RowNumber().over(spec_id).orderby(accuracy)`),
+  // spec chosen by score alone (`RowNumber().over(spec_id).orderby(score)`),
   // so a spec whose top run is unverified hides its own verified run entirely.
   // A verified 0.80 for spec A is invisible when A also has an unverified 0.90 —
   // no client-side logic can recover it, and badging A's displayed 0.90 row as
@@ -138,14 +145,14 @@
   //
   // AIDEV-NOTE: the `.grad` fill variant animates; it is reserved for the single
   // hero win in the design system, so plain `.score-fill` is used per row here.
-  function renderAccuracyCell(accuracy, barMax) {
+  function renderScoreCell(score, barMin, barMax) {
     var td = P.el("td", "num");
     var cell = P.el("span", "score-cell");
-    cell.appendChild(P.el("span", "num", P.formatPercent(accuracy)));
+    cell.appendChild(P.el("span", "num", P.formatScore(score)));
     var track = P.el("span", "score-track");
     track.setAttribute("aria-hidden", "true");
     var fill = P.el("span", "score-fill");
-    fill.style.width = L.barWidth(accuracy, barMax).toFixed(1).replace(/\.0$/, "") + "%";
+    fill.style.width = L.barWidth(score, barMin, barMax).toFixed(1).replace(/\.0$/, "") + "%";
     track.appendChild(fill);
     cell.appendChild(track);
     td.appendChild(cell);
@@ -154,17 +161,18 @@
 
   function renderBody(bodyNode) {
     P.clear(bodyNode);
-    var barMax = bestAccuracy(state.entries);
+    var barMax = bestScore(state.entries);
+    var barMin = lowestScore(state.entries);
     sortedEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
-      // INVARIANT: this marks the row with the highest accuracy on screen — a
+      // INVARIANT: this marks the row with the highest score on screen — a
       // "leading" signal, NOT a reproduction claim. SFDS defines gain as the
       // leading-row/SOTA colour, so gold here is sanctioned, but the accessible
       // text below must not promise reproduction. Nothing here is reproduced:
       // no service re-runs submissions (OME-414) and the verification UI was
       // withdrawn in OME-820, so there is no per-row signal to point at. The
       // medal that *would* assert reproduction is descoped to OME-771.
-      var isLeader = barMax !== null && entry.accuracy === barMax;
+      var isLeader = barMax !== null && entry.score === barMax;
       if (isLeader) tr.className = "sota";
 
       tr.appendChild(P.el("td", "num", entry.rank));
@@ -173,15 +181,15 @@
       var specTd = P.el("td", "cell-wrap");
       specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));
       // Colour must not be the only carrier of the meaning — and the wording is
-      // deliberately "highest accuracy", not "state of the art": this row may be
+      // deliberately "highest score", not "state of the art": this row may be
       // unverified.
-      if (isLeader) specTd.appendChild(P.el("span", "sr-only", " (highest accuracy)"));
+      if (isLeader) specTd.appendChild(P.el("span", "sr-only", " (highest score)"));
       tr.appendChild(specTd);
 
       tr.appendChild(P.el("td", null, P.formatProviders(entry.ran_with_providers)));
       // formatSubmitter already renders an em-dash for a null/blank submitter.
       tr.appendChild(P.el("td", null, P.formatSubmitter(entry.submitted_by)));
-      tr.appendChild(renderAccuracyCell(entry.accuracy, barMax));
+      tr.appendChild(renderScoreCell(entry.score, barMin, barMax));
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
 
       var runTd = document.createElement("td");
@@ -207,7 +215,7 @@
       return;
     }
 
-    var best = bestAccuracy(entries);
+    var best = bestScore(entries);
     // OME-820: the "Verified rows" stat is gone, not relabelled. verified_by_screamingface
     // now carries no trustworthy verification semantics — nothing re-runs submissions
     // and nothing attests where a run executed — so counting it measures nothing.
@@ -218,12 +226,12 @@
     // reading as a verification tally while actually tracking submission date. Same
     // argument retires the pool filter. Both return with OME-821 (review of #588).
     // Bare numbers: the .stats cell labels ("Specs shown") already carry the words.
-    document.getElementById("summary-best").textContent = P.formatPercent(best);
+    document.getElementById("summary-best").textContent = P.formatScore(best);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
     summaryNode.hidden = false;
   }
 
-  // OME-323: how much of this benchmark's accuracy frontier is held by
+  // OME-323: how much of this benchmark's score frontier is held by
   // open-reproducible stacks vs. proprietary ones. Fetched and rendered
   // independently of the main leaderboard call — a failure here must not
   // block or error out the leaderboard itself, it's a supplementary stat.
@@ -255,12 +263,14 @@
     card.hidden = false;
   }
 
-  // Climb accuracy bars (brand viz-a direction): one row per spec, the SOTA
+  // Climb score bars (brand viz-a direction): one row per spec, the SOTA
   // entry carries the sota (gain) fill — same story color as tr.sota.
   // Purely visual: aria-hidden, the table is the accessible representation.
   //
-  // The fill keys off the raw maximum accuracy, matching the row treatment in
-  // renderBody — both mean "leading", neither claims reproduction.
+  // The fill keys off the shared barWidth normalization, matching the table's
+  // score cells — both mean "leading", neither claims reproduction. Raw
+  // score*100 widths died with the binary contract: a negative HealthBench
+  // score would render a negative CSS width (OME-866).
   function renderClimb(entries) {
     var section = document.getElementById("leaderboard-climb-section");
     var node = document.getElementById("leaderboard-climb");
@@ -269,18 +279,19 @@
       section.hidden = true;
       return;
     }
-    var best = bestAccuracy(entries);
+    var best = bestScore(entries);
+    var floor = lowestScore(entries);
     P.clear(node);
     L.orderRows(entries)
       .forEach(function (entry) {
         var row = P.el("div", "row");
         row.appendChild(P.el("span", "lbl", entry.spec_id));
         var track = P.el("span", "track");
-        var fill = P.el("span", "fill " + (entry.accuracy === best ? "sota" : "base"));
-        fill.style.width = ((entry.accuracy * 100).toFixed(1) + "%").replace(".0%", "%");
+        var fill = P.el("span", "fill " + (entry.score === best ? "sota" : "base"));
+        fill.style.width = L.barWidth(entry.score, floor, best).toFixed(1).replace(/\.0$/, "") + "%";
         track.appendChild(fill);
         row.appendChild(track);
-        row.appendChild(P.el("span", "val", P.formatPercent(entry.accuracy)));
+        row.appendChild(P.el("span", "val", P.formatScore(entry.score)));
         node.appendChild(row);
       });
     section.hidden = false;
