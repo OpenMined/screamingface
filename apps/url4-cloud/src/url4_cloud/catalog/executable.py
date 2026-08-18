@@ -15,6 +15,7 @@ from url4_cloud.catalog.port import (
     ModelParameterSource,
     compute_etag,
 )
+from url4_cloud.models.registry import decode_route_id, encode_route_id
 
 
 class ExecutableCatalogSource(CatalogService, Protocol):
@@ -73,10 +74,15 @@ class ExecutableCatalog:
         # is absent or not a string, cannot equal a declared id — so the acceptance contract
         # ("every id returned is a declared route") holds without a separate shape check, and an
         # unknown future field on a RETAINED document still passes through untouched.
+        #
+        # WHY rewrite `id` here (OME-873): `self._model_ids` holds the REAL gateway ids (what
+        # aigateway's own `data[].id` names, and what the membership check above compares
+        # against), but what a caller should put in a url4 expression is the `~`-encoded route
+        # id. `encode_route_id` is a no-op for the ids with no colon, so this applies uniformly.
         body = {
             **catalog.body,
             "data": [
-                item
+                {**item, "id": encode_route_id(item["id"])}
                 for item in data
                 if isinstance(item, Mapping) and item.get("id") in self._model_ids
             ],
@@ -108,9 +114,14 @@ class ExecutableModelParameterSource:
         credential: Credential,
         model: str,
     ) -> ModelParameterResponse:
-        if model not in self._model_ids:
+        # `model` arrives as the caller wrote it — the same `~`-encoded id `GET /v1/models` just
+        # advertised (OME-873). `self._model_ids` holds the REAL ids, and aigateway itself has
+        # never heard of '~', so both the membership check and the forwarded call need the
+        # decoded form; `ModelNotInstalled` echoes back what the caller actually sent.
+        real_model = decode_route_id(model)
+        if real_model not in self._model_ids:
             raise ModelNotInstalled(model)
-        return await self._source.fetch_model_parameters(credential, model)
+        return await self._source.fetch_model_parameters(credential, real_model)
 
 
 __all__ = ["ExecutableCatalog", "ExecutableCatalogSource", "ExecutableModelParameterSource"]
