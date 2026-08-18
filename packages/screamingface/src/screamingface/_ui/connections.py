@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 from screamingface._ui.connection_state import _ConnectionPanelState, _user_message
 from screamingface._ui.connection_view import (
     _NotebookConnectionView,
+    _provider_status,
     static_panel_html,
 )
 from screamingface._ui.engine_origin import _is_hosted_engine
@@ -82,6 +83,10 @@ class ConnectionPanel:
         self._state = _ConnectionPanelState(
             hosted=hosted,
             engine_url=client.engine_url,
+            # Temporary tester-release policy: only a loopback Engine exposes BYOK controls.
+            # Keep this separate from `hosted`, which may later be cleared when a remote Engine
+            # reports that it does not require Cloudflare Access.
+            provider_mutations_enabled=not hosted,
             access_check_pending=(
                 hosted
                 and not client.authenticated
@@ -152,7 +157,12 @@ class ConnectionPanel:
         display(self.widget())
 
     def __repr__(self) -> str:
-        statuses = ", ".join(f"{item.provider}={item.status}" for item in self._state.connections)
+        provider_mutations_enabled = self._state.provider_mutations_enabled
+        statuses = ", ".join(
+            f"{item.provider}="
+            f"{_provider_status(item, provider_mutations_enabled=provider_mutations_enabled)}"
+            for item in self._state.connections
+        )
         access = (
             f", access={'authenticated' if self._client.authenticated else 'login_required'}"
             if self._state.hosted
