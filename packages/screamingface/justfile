@@ -14,15 +14,18 @@ default:
     @just --list
 
 # Sync the SDK venv and open JupyterLab in examples/ (run just stack-up first).
-# Notebooks talk to the LOCAL engine by default — a bare sf.connect() would
-# otherwise reach the deployed fusion.dev engine, silently testing whatever is
-# deployed there instead of this checkout. Export SCREAMINGFACE_ENGINE_URL to
-# target another engine deliberately.
+# Notebooks talk to the LOCAL engine AND local scoreboard by default — a bare
+# sf.connect() would otherwise reach the deployed fusion.dev engine (silently
+# testing whatever is deployed there instead of this checkout), and the submit
+# cells would publish to the deployed leaderboard.dev scoreboard (OME-866).
+# Export SCREAMINGFACE_ENGINE_URL / SCREAMINGFACE_SCOREBOARD_URL to target
+# other deployments deliberately.
 jupyter:
     #!/usr/bin/env bash
     set -euo pipefail
     uv sync --extra notebook
     SCREAMINGFACE_ENGINE_URL=${SCREAMINGFACE_ENGINE_URL:-http://127.0.0.1:9108} \
+        SCREAMINGFACE_SCOREBOARD_URL=${SCREAMINGFACE_SCOREBOARD_URL:-http://127.0.0.1:9106} \
         uv run jupyter lab examples
 
 # Start AI Gateway (:9105), scoreboard (:9106), and url4-cloud engine (:9108) in the background
@@ -96,10 +99,20 @@ stack-up:
         echo "URL4 Cloud environment failed to sync under {{engine_repo}}/apps/url4-cloud"
         exit 1
     }
+    # WHY generated, not hardcoded: the Engine registry (url4_cloud.benchmarks.builtins)
+    # owns benchmark identity — ids, display names, and the computed REVISION the board
+    # partitions ranking on (OME-775). Seeding from the running checkout's registry means
+    # the local Scoreboard always accepts exactly the benchmarks this Engine serves, at
+    # the revision it serves them — a hardcoded list here drifted the moment either side
+    # changed. Local-dev convenience only: production registration stays an operator
+    # action (SCOREBOARD_SEED_BENCHMARKS in the chart).
+    seed_json=$(
+        cd {{engine_repo}}/apps/url4-cloud
+        .venv/bin/python -c 'import json; from url4_cloud.benchmarks.builtins import BUILTIN_BENCHMARKS; print(json.dumps([{"id": b.id, "display_name": b.title, "description": b.description, "revision": b.revision} for b in BUILTIN_BENCHMARKS]))'
+    )
     (
         cd {{repo}}/apps/scoreboard
-        .venv/bin/python -m scoreboard.seed --benchmarks-json \
-            '[{"id":"draco/smoke","display_name":"DRACO Smoke","description":"Local end-to-end development protocol"}]'
+        .venv/bin/python -m scoreboard.seed --benchmarks-json "$seed_json"
     )
     if [ "$start_gateway" = 1 ]; then
         # AUTH DISABLED = anonymous loopback mode; no admin bootstrap, key stored under

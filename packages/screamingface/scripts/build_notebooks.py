@@ -77,7 +77,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -116,7 +116,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -248,7 +248,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -653,7 +653,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -773,7 +773,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -905,7 +905,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
@@ -1014,7 +1014,7 @@ From a terminal in `packages/screamingface/`:
 
 ```bash
 just stack-prepare  # first run only: download pinned Benchmark assets
-just stack-up       # start AI Gateway :9105 and Engine :9108
+just stack-up       # start AI Gateway :9105, Scoreboard :9106, and Engine :9108
 just stack-status
 ```
 
