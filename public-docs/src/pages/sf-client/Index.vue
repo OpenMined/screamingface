@@ -50,8 +50,8 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     </p>
 
     <p>
-      The premise is a documented one: a fusion can score higher than any single model within it. A
-      reproduction of the <strong>DRACO</strong> deep-research benchmark put the best fusion at
+      A fusion can score higher than any single model within it. A reproduction of the
+      <strong>DRACO</strong> deep-research benchmark put the best fusion at
       <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model (<a
         href="https://andrewtrask.substack.com/p/6-weeks-ago-frontier-ai-labs-lost"
         target="_blank"
