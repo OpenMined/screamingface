@@ -1,0 +1,28 @@
+apiVersion: v2
+name: screamingface-engine
+description: >-
+  ScreamingFace screamingface-engine — a stateless REST + WebSocket control plane that mints JWT
+  topic-capability tokens, schedules url4 Runner Jobs (batch/v1) in its own namespace, and bridges
+  NATS telemetry to WebSocket clients.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - url4
+  - screamingface
+  - nats
+  - kubernetes-jobs
+  - websocket
+sources:
+  - https://github.com/openmined/screamingface
+# NATS (JetStream) is the telemetry bus between the Runner Jobs and the App (spec §9). It is
+# declared as an optional chart dependency: default-disabled so an existing cluster NATS can be
+# reused via `config.natsUrl`. Enable with `--set nats.enabled=true` after `helm dependency build`.
+# NOTE: pin `version` to the release you vendor from nats-io/k8s (confirm before enabling); the
+# value below is the reference default and is not resolved unless `nats.enabled=true`.
+dependencies:
+  - name: nats
+    version: "1.2.2"
+    repository: https://nats-io.github.io/k8s/helm/charts/
+    condition: nats.enabled

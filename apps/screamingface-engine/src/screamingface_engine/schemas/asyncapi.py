@@ -1,0 +1,118 @@
+"""Builds the AsyncAPI 3.0 document for the `/ws` telemetry channel: one CloudEvents 1.0
+message per protocol event, split into the `receiveTelemetry` (app→client) and `sendCommand`
+(client→app) operations. Served at `/asyncapi.json` as the companion to the OpenAPI doc."""
+
+from typing import Any
+
+from screamingface_engine.schemas.protocol_schemas import (
+    EVENT_TYPE,
+    INBOUND_EVENTS,
+    OUTBOUND_EVENTS,
+    protocol_component_schemas,
+)
+
+ASYNCAPI_VERSION = "3.0.0"
+CHANNEL = "stream"
+CHANNEL_ADDRESS = "/ws"
+
+INFO_DESCRIPTION = """\
+The screamingface-engine telemetry stream. One **CloudEvents 1.0** event per WebSocket message
+(subprotocol `cloudevents.json`, docs/protocol.md §8). The client *receives* lifecycle/log/span/
+cost/heartbeat/result/terminated events and *sends* stop/attach commands.
+
+`ai.url4.attach` carries more than a resume point: its optional **`cache`** object declares
+whether the run may participate in the gateway's response cache, which it otherwise does by
+default. `{"cache": {"participate": false}}` declines for the whole run — every leaf, every
+fan-out branch. Omitting the object, sending `null`, or sending `{}` all state *nothing*, which
+is not the same as declining and stays distinguishable from it.
+
+Two rules govern it, and both are announced rather than silent:
+
+- **The first attach wins.** A re-attach carrying a different policy does not restate it — the
+  run's gateway calls may already have executed under the original one, so a mid-run change would
+  make the run's cache behaviour unreproducible. The client is told with a `warn` `ai.url4.log`.
+- **A `Cache-Control` header on the `GET /` that starts the run overrides this frame**, since it
+  is the later, run-scoped statement. That override is announced the same way.
+
+The outcome comes back on `ai.url4.span` as `cache_status` / `cache_reason`, plus one run summary
+`ai.url4.log` carrying the hit, miss and bypass-by-reason totals.
+"""
+
+
+def _messages_map(events: tuple[type, ...]) -> dict[str, dict[str, Any]]:
+    """`$ref` each event name to its `components/messages` entry, for an operation's message
+    list."""
+    return {e.__name__: {"$ref": f"#/components/messages/{e.__name__}"} for e in events}
+
+
+def _component_messages() -> dict[str, dict[str, Any]]:
+    """Builds the `components/messages` map: one AsyncAPI message per protocol event, named by
+    its CloudEvents `type` (`EVENT_TYPE`) and pointing at the matching `components/schemas`
+    entry."""
+    messages: dict[str, dict[str, Any]] = {}
+    for event in (*OUTBOUND_EVENTS, *INBOUND_EVENTS):
+        name = event.__name__
+        messages[name] = {
+            "name": EVENT_TYPE[name],
+            "title": name,
+            "contentType": "application/cloudevents+json",
+            "payload": {"$ref": f"#/components/schemas/{name}"},
+        }
+    return messages
+
+
+def build_asyncapi() -> dict[str, Any]:
+    """Assembles the full AsyncAPI 3.0 document served at `/asyncapi.json`."""
+    all_messages = {**_messages_map(OUTBOUND_EVENTS), **_messages_map(INBOUND_EVENTS)}
+    return {
+        "asyncapi": ASYNCAPI_VERSION,
+        "info": {
+            "title": "screamingface-engine stream",
+            "version": "0.1.0",
+            "description": INFO_DESCRIPTION,
+            "license": {
+                "name": "Apache-2.0",
+                "url": "https://www.apache.org/licenses/LICENSE-2.0",
+            },
+        },
+        "defaultContentType": "application/cloudevents+json",
+        "servers": {
+            "public": {
+                "host": "cloud.screamingface.ai",
+                "protocol": "wss",
+                "pathname": CHANNEL_ADDRESS,
+                "description": "The screamingface-engine WebSocket bridge "
+                "(CloudEvents structured mode).",
+            }
+        },
+        "channels": {
+            CHANNEL: {
+                "address": CHANNEL_ADDRESS,
+                "title": "url4 telemetry stream",
+                "description": "CloudEvents 1.0 frames for one url4 run (topic = JWT `sub`).",
+                "messages": all_messages,
+            }
+        },
+        "operations": {
+            "receiveTelemetry": {
+                "action": "receive",
+                "channel": {"$ref": f"#/channels/{CHANNEL}"},
+                "summary": "Telemetry the client receives (app→client).",
+                "messages": [
+                    {"$ref": f"#/channels/{CHANNEL}/messages/{e.__name__}"} for e in OUTBOUND_EVENTS
+                ],
+            },
+            "sendCommand": {
+                "action": "send",
+                "channel": {"$ref": f"#/channels/{CHANNEL}"},
+                "summary": "Commands the client sends (client→app).",
+                "messages": [
+                    {"$ref": f"#/channels/{CHANNEL}/messages/{e.__name__}"} for e in INBOUND_EVENTS
+                ],
+            },
+        },
+        "components": {
+            "messages": _component_messages(),
+            "schemas": protocol_component_schemas(),
+        },
+    }
