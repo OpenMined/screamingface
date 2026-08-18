@@ -60,7 +60,7 @@ def _get_response() -> dict[str, object]:
             {
                 "rank": 1,
                 "spec_id": "fusion/alpha",
-                "accuracy": 0.82,
+                "score": 0.82,
                 "total_questions": 100,
                 "ran_with_providers": ["openrouter", "gemini-cli"],
                 "submitted_at": SUBMITTED_AT,
@@ -74,7 +74,7 @@ def _get_response() -> dict[str, object]:
                 "id": BASELINE_ID,
                 "benchmark_id": "draco",
                 "model_name": "single/model",
-                "accuracy": 0.61,
+                "score": 0.61,
                 "source": "published-paper",
                 "source_url": "https://example.com/paper",
                 "imported_at": IMPORTED_AT,
@@ -93,7 +93,7 @@ def _score_response() -> dict[str, object]:
         "url4_expression": _linked_url4(),
         "submitted_by": "researcher@example.com",
         "submitted_at": SUBMITTED_AT,
-        "accuracy": 0.5,
+        "score": 0.5,
         "total_questions": 2,
         "correct_questions": 1,
         "ran_with_providers": ["openrouter", "gemini-cli"],
@@ -234,7 +234,7 @@ def test_client_gets_one_ranked_leaderboard_with_baselines() -> None:
         sf.LeaderboardEntry(
             rank=1,
             spec_id="fusion/alpha",
-            accuracy=0.82,
+            score=0.82,
             total_questions=100,
             ran_with_providers=("openrouter", "gemini-cli"),
             submitted_at=datetime(2026, 8, 8, 12, 30, tzinfo=UTC),
@@ -274,7 +274,7 @@ def test_client_submits_a_candidate_result_without_repeating_report_fields() -> 
         url4=sf.Url4(_linked_url4()),
         submitted_by="researcher@example.com",
         submitted_at=datetime(2026, 8, 8, 12, 30, tzinfo=UTC),
-        accuracy=0.5,
+        score=0.5,
         total_questions=2,
         correct_questions=1,
         ran_with_providers=("openrouter", "gemini-cli"),
@@ -295,7 +295,8 @@ def test_client_submits_a_candidate_result_without_repeating_report_fields() -> 
     payload = seen[0].read().decode()
     assert '"benchmark_id":"draco"' in payload
     assert '"spec_id":"fusion/alpha"' in payload
-    assert '"correct_questions":1' in payload
+    assert '"score":0.5' in payload
+    assert '"correct_questions"' not in payload
     assert '"ran_with_providers":["openrouter","gemini-cli"]' in payload
 
 
@@ -350,8 +351,8 @@ def test_leaderboard_rich_display_uses_the_brand_board_with_only_real_fields() -
     assert "sf-lb__row--winner" in html
     assert "fusion/alpha" in html
     assert "single/model" in html
-    assert "82.0" in html
-    assert "61.0" in html
+    assert "0.82" in html
+    assert "0.61" in html
     # OME-832: the "verified only" control was removed. verified_by_screamingface became
     # uniform in OME-820, so the checkbox filtered nothing. Inverted rather than
     # deleted so it still catches the control being re-added before OME-821.
@@ -547,7 +548,7 @@ def _invalid_board_payloads() -> tuple[object, ...]:
     cast(list[dict[str, object]], nonconsecutive_entry_rank["entries"])[0]["rank"] = 2
 
     invalid_entry_accuracy = _get_response()
-    cast(list[dict[str, object]], invalid_entry_accuracy["entries"])[0]["accuracy"] = True
+    cast(list[dict[str, object]], invalid_entry_accuracy["entries"])[0]["score"] = True
 
     invalid_entry_verification = _get_response()
     cast(list[dict[str, object]], invalid_entry_verification["entries"])[0][
@@ -608,20 +609,64 @@ def test_scoreboard_rejects_malformed_wire_values_at_the_http_seam() -> None:
         assert exc_info.value.permanent is True
 
 
-def test_scoreboard_submission_validates_the_complete_accuracy_contract() -> None:
+def test_scoreboard_submission_validates_the_score_contract() -> None:
+    # INVARIANT (OME-866): the ONLY client-side gates are "is a CandidateResult",
+    # "has a score" and "score is finite". The pre-OME-866 version of this test also
+    # demanded 0..1, binary Case grades and score==correct/total — all deleted WITH
+    # the binary contract, never to return as client-side recomputation.
     client = _sync_client(lambda _: pytest.fail("invalid result reached the Scoreboard"))
 
-    invalid: tuple[tuple[object, str], ...] = (
-        (object(), "sf.CandidateResult"),
-        (_candidate_result(score=1.1), "between 0 and 1"),
-        (_candidate_result(case_scores=(0.5, 0.0)), "binary"),
-        (_candidate_result(score=0.0), "must match"),
+    def _failed_case(case_id: int) -> sf.CaseResult:
+        return sf.CaseResult(
+            case_id=case_id,
+            input=f"Question {case_id}",
+            output=None,
+            finish_reason=None,
+            grade=None,
+            failures=(
+                sf.Failure(
+                    stage="grading",
+                    code="fixture_ungraded",
+                    message="the fixture Case could not be graded",
+                    case_id=case_id,
+                ),
+            ),
+            metadata={},
+        )
+
+    def _unscored_result() -> sf.CandidateResult:
+        # A genuinely unscored CandidateResult: no numeric Case grade anywhere, so
+        # score=None survives report construction and reaches the submission adapter.
+        template = _candidate_result()
+        return sf.CandidateResult(
+            benchmark=template.benchmark,
+            run_id=template.run_id,
+            started_at=template.started_at,
+            completed_at=template.completed_at,
+            name=template.name,
+            kind=template.kind,
+            url4=str(template.url4),
+            models=template.models,
+            operations=template.operations,
+            score=None,
+            coverage=0.0,
+            metrics={},
+            cases=(_failed_case(1), _failed_case(2)),
+            members=template.members,
+            failures=(),
+            usage=template.usage,
+        )
+
+    invalid: tuple[tuple[Callable[[], object], str], ...] = (
+        (lambda: object(), "sf.CandidateResult"),
+        (lambda: _unscored_result(), "unscored"),
+        (lambda: _candidate_result(score=float("inf")), "finite"),
     )
 
     with client:
-        for candidate, message in invalid:
+        for build, message in invalid:
             with pytest.raises((TypeError, ValueError), match=message):
-                client.leaderboards.submit(cast(Any, candidate))
+                client.leaderboards.submit(cast(Any, build()))
 
 
 @pytest.mark.asyncio
@@ -665,7 +710,7 @@ def test_public_leaderboard_values_defend_their_invariants() -> None:
         (lambda: replace(info, display_name=" "), ValueError, "must be non-empty"),
         (lambda: replace(info, created_at=naive), ValueError, "timezone-aware"),
         (lambda: replace(entry, rank=0), ValueError, "positive integer"),
-        (lambda: replace(entry, accuracy=float("nan")), ValueError, "between 0 and 1"),
+        (lambda: replace(entry, score=float("nan")), ValueError, "must be a finite number"),
         (
             lambda: replace(entry, ran_with_providers=cast(Any, "openrouter")),
             TypeError,
@@ -759,7 +804,7 @@ def test_empty_and_unforkable_leaderboards_have_complete_widget_states() -> None
     invalid_entry = sf.LeaderboardEntry(
         rank=1,
         spec_id="external/candidate",
-        accuracy=0.5,
+        score=0.5,
         total_questions=2,
         ran_with_providers=("external",),
         submitted_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
@@ -799,7 +844,7 @@ def _chip_board(*, verified: bool, forkable: bool) -> sf.Leaderboard:
     entry = sf.LeaderboardEntry(
         rank=1,
         spec_id="fusion/alpha",
-        accuracy=0.9,
+        score=0.9,
         total_questions=10,
         ran_with_providers=("openrouter",),
         submitted_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
@@ -811,7 +856,7 @@ def _chip_board(*, verified: bool, forkable: bool) -> sf.Leaderboard:
         id=uuid4(),
         benchmark_id="draco",
         model_name="single/model",
-        accuracy=0.6,
+        score=0.6,
         source="LMArena",
         source_url="https://example.invalid/board",
         imported_at=datetime(2026, 8, 1, 10, tzinfo=UTC),
@@ -871,3 +916,136 @@ def test_a_candidate_is_never_labelled_baseline(verified: bool) -> None:
 
     assert "baseline" not in candidate_row
     assert "<span class='sf-lb__chip'>baseline</span>" in html  # the real baseline still has it
+
+
+# --- OME-866: benchmark-native scores ------------------------------------------------
+
+
+def _native_score_response(score: float) -> dict[str, object]:
+    """The post-OME-866 wire shape: `score`, no universal correctness counts."""
+    payload = _score_response()
+    payload.pop("accuracy", None)
+    payload["score"] = score
+    payload["correct_questions"] = None
+    return payload
+
+
+def test_submit_sends_the_engine_score_unchanged_for_fractional_case_grades() -> None:
+    """INVARIANT (OME-866): the Engine Benchmark is the sole scoring authority — the
+    Client submits `CandidateResult.score` verbatim and never derives a replacement
+    from Case grades. DRACO's weighted rubric grades are fractional, which the old
+    binary contract rejected."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_native_score_response(0.399))
+
+    candidate = _candidate_result(score=0.399, case_scores=(0.62, 0.18))
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(candidate)
+
+    assert submitted.score == 0.399
+    body = seen[0].read().decode()
+    assert '"score":0.399' in body
+    assert '"total_questions":2' in body
+    assert "accuracy" not in body
+    assert "correct_questions" not in body
+
+
+def test_submit_accepts_a_negative_healthbench_score() -> None:
+    """HealthBench worst-30 reports an unclipped mean that is negative for every
+    serious baseline; the Client must pass it through untouched."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_native_score_response(-1.143))
+
+    candidate = _candidate_result(score=-1.143, case_scores=(-1.4, -0.886))
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(candidate)
+
+    assert submitted.score == -1.143
+    assert '"score":-1.143' in seen[0].read().decode()
+
+
+def test_submit_rejects_a_non_finite_score_before_http() -> None:
+    """INVARIANT (OME-866 don't-regress): NaN and infinities never reach the wire —
+    previously rejected only as a side effect of the deleted 0..1 range check."""
+    client = _sync_client(lambda _: pytest.fail("a non-finite score reached the Scoreboard"))
+
+    with client, pytest.raises(ValueError, match="finite"):
+        client.leaderboards.submit(_candidate_result(score=float("nan")))
+
+
+def test_leaderboard_values_accept_negative_scores() -> None:
+    """Public Leaderboard values carry any finite benchmark-native score."""
+    entry_payload = {
+        "rank": 1,
+        "spec_id": "fusion/alpha",
+        "score": -1.143,
+        "total_questions": 30,
+        "ran_with_providers": ["openrouter"],
+        "submitted_at": SUBMITTED_AT,
+        "submitted_by": None,
+        "verified_by_screamingface": True,
+        "url4_expression": _linked_url4(),
+    }
+    board = {
+        "benchmark": _benchmark(),
+        "entries": [entry_payload],
+        "baselines": [],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=board)
+
+    with _sync_client(handler) as client:
+        value = client.leaderboards.get("draco")
+
+    assert value.entries[0].score == -1.143
+
+
+def test_leaderboard_widget_renders_negative_scores_without_percentages() -> None:
+    """INVARIANT (OME-866): the notebook widget renders benchmark-native scores as plain
+    numbers with min..max-normalized bars. On an all-negative HealthBench board the old
+    `score * 100` / `score / max` math produced "-114.3" and negative CSS widths — the
+    floor row must render an EMPTY track, the best row a full one, and nothing negative.
+    """
+    entries = tuple(
+        sf.LeaderboardEntry(
+            rank=rank,
+            spec_id=name,
+            score=score,
+            total_questions=30,
+            ran_with_providers=("openrouter",),
+            submitted_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
+            submitted_by=None,
+            verified_by_screamingface=False,
+            url4=sf.Url4("(@)!'not a ScreamingFace candidate'"),
+        )
+        for rank, (name, score) in enumerate(
+            (("fusion/best", -0.4), ("fusion/worst", -1.143)), start=1
+        )
+    )
+    board = sf.Leaderboard(
+        benchmark=sf.LeaderboardInfo(
+            id="healthbench_worst30",
+            display_name="HealthBench worst-30",
+            description=None,
+            dataset_url=None,
+            created_at=datetime(2026, 8, 1, 10, tzinfo=UTC),
+        ),
+        entries=entries,
+        baselines=(),
+    )
+
+    html = cast(Any, board)._repr_html_()
+
+    assert "-0.4" in html
+    assert "-1.143" in html
+    assert "width:-" not in html, "a negative CSS width is invalid and collapses the track"
+    assert "width:100.0%" in html, "the best (least negative) row fills the track"
+    assert "width:0.0%" in html, "the floor row renders empty, never negative"
+    assert "-40.0" not in html and "-114.3" not in html, "no ×100 percentage rendering"

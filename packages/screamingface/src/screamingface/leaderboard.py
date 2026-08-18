@@ -43,7 +43,7 @@ class LeaderboardEntry:
 
     rank: int
     spec_id: str
-    accuracy: float
+    score: float
     total_questions: int
     ran_with_providers: tuple[str, ...]
     submitted_at: datetime
@@ -54,7 +54,7 @@ class LeaderboardEntry:
     def __post_init__(self) -> None:
         _positive_int(self.rank, "Leaderboard rank")
         object.__setattr__(self, "spec_id", _text(self.spec_id, "Leaderboard spec_id"))
-        _accuracy(self.accuracy, "Leaderboard accuracy")
+        _score(self.score, "Leaderboard score")
         _positive_int(self.total_questions, "Leaderboard total_questions")
         object.__setattr__(
             self,
@@ -87,9 +87,11 @@ class LeaderboardScore:
     url4: Url4
     submitted_by: str | None
     submitted_at: datetime
-    accuracy: float
+    score: float
     total_questions: int
-    correct_questions: int
+    # WHY optional: only binary-graded benchmarks ever had a correctness count —
+    # DRACO/HealthBench submissions carry None (OME-866).
+    correct_questions: int | None
     ran_with_providers: tuple[str, ...]
     ran_at_local: datetime | None
     client_name: str | None
@@ -120,11 +122,9 @@ class LeaderboardScore:
                 _optional_text(getattr(self, name), f"Leaderboard score {name}"),
             )
         _aware_datetime(self.submitted_at, "Leaderboard score submitted_at")
-        _accuracy(self.accuracy, "Leaderboard score accuracy")
+        _score(self.score, "Leaderboard score score")
         _positive_int(self.total_questions, "Leaderboard score total_questions")
-        _nonnegative_int(self.correct_questions, "Leaderboard score correct_questions")
-        if self.correct_questions > self.total_questions:
-            raise ValueError("Leaderboard score correct_questions cannot exceed total_questions")
+        _optional_correct_questions(self.correct_questions, self.total_questions)
         object.__setattr__(
             self,
             "ran_with_providers",
@@ -149,7 +149,7 @@ class LeaderboardBaseline:
     id: UUID
     benchmark_id: str
     model_name: str
-    accuracy: float
+    score: float
     source: str
     source_url: str | None
     imported_at: datetime
@@ -164,7 +164,7 @@ class LeaderboardBaseline:
                 name,
                 _text(getattr(self, name), f"Leaderboard baseline {name}"),
             )
-        _accuracy(self.accuracy, "Leaderboard baseline accuracy")
+        _score(self.score, "Leaderboard baseline score")
         if self.source_url is not None:
             selected = _text(self.source_url, "Leaderboard baseline source_url")
             parts = urlsplit(selected)
@@ -234,14 +234,20 @@ def _nonnegative_int(value: object, label: str) -> None:
         raise ValueError(f"{label} must be a non-negative integer")
 
 
-def _accuracy(value: object, label: str) -> None:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int | float)
-        or not math.isfinite(value)
-        or not 0 <= value <= 1
-    ):
-        raise ValueError(f"{label} must be a finite number between 0 and 1")
+def _optional_correct_questions(correct: int | None, total: int) -> None:
+    if correct is None:
+        return
+    _nonnegative_int(correct, "Leaderboard score correct_questions")
+    if correct > total:
+        raise ValueError("Leaderboard score correct_questions cannot exceed total_questions")
+
+
+def _score(value: object, label: str) -> None:
+    # INVARIANT (OME-866): benchmark-native — any finite number, higher is better
+    # within a benchmark. There is no universal 0..1 range (DRACO is fractional,
+    # HealthBench worst-30 is negative); finiteness is the only universal bound.
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise ValueError(f"{label} must be a finite number")
 
 
 def _aware_datetime(value: object, label: str) -> None:
