@@ -142,8 +142,42 @@ Boundary/error cases covered by test 3's exception list: the `nameOverride` pin,
    pre-existing non-compliance across unrelated apps, packages and a historical `docs/tasks/`
    mirror. All 37 were restored to `HEAD` so this PR carries only its own change.
 
+7. **The unit became genuinely cross-component mid-flight, and cannot be split.** `main` advanced
+   by two commits while this was in progress, and PR #590 ("Add pip-installable ScreamingFace
+   runtime") introduced coupling that did not exist at the branch point:
+   `packages/screamingface/scripts/runtime_build_hook.py` **vendors the Engine's source tree into
+   the SDK wheel and sdist**, and `screamingface._runtime.server` **imports the Engine as a Python
+   module**. The scan done at planning time correctly concluded that nothing outside the app
+   imported `url4_cloud`; that answer expired.
+
+   Owner decision: keep one PR and record it here rather than decompose into an epic. Atomicity is
+   forced — the SDK's build hook validates that the Engine paths exist before building, so any
+   split leaves `main` unbuildable. Five sites needed updating (the hook's two source tuples
+   including the wheel destination, five imports in `_runtime/server.py`, the prepare-module path
+   in `_runtime/cli.py`, the expected vendored path in `check_distribution.py`, and the checkout
+   fallback in `_runtime/config.py`).
+
+   **Only CI caught this.** Nothing local did: an already-installed editable venv does not re-run
+   the build hook, so `uv run pytest` stayed green while a fresh `uv sync` failed.
+
+8. **One prior test changed with explicit owner approval** (`packages/screamingface/tests/
+   test_runtime_cli.py`). It asserts that importing `screamingface` does not eagerly load heavy
+   modules and named `url4_cloud` in that list. Leaving it was the unsafe option: the module cannot
+   appear in `sys.modules` under the old name again, so the assertion would have passed vacuously
+   forever. The append-only gate flagged it and the work stopped until approved.
+
 ### Notes for the next agent
 
+- **A path built from separate components defeats a literal search.**
+  `_runtime/config.py` had `Path(...) / "apps" / "url4-cloud" / "url4.toml"`, which no grep for
+  `apps/url4-cloud` can find. When auditing a rename, search the bare token too, not only the
+  joined path — and read the whole result rather than truncating it, which is how this one survived
+  the first pass.
+- **The append-only gate is blind under a directory rename.** Test files that move to a new path
+  have no counterpart at `HEAD`, so they read as *added* and any change inside them goes unflagged.
+  This branch did sweep 13 prior engine test files (comment prose, opaque fixture strings, and two
+  real path constants); no assertion's meaning changed and the suite total held at 1738, but the
+  green gate is not evidence of that — only reading the diff is.
 - **The shell wrapper truncates `helm` stdout before a redirect**, writing a literal
   `... (262 lines truncated)` marker into the output file — and a wrapped `diff` then reported two
   truncated renders as "Files are identical". Use `rtk proxy helm …` for any chart measurement. The
