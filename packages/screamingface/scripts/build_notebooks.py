@@ -184,8 +184,10 @@ artifact_path"""),
 ## 5 · Publish and retrieve
 
 Publication accepts the evaluated `CandidateResult` directly. It derives the Benchmark id,
-compiled URL4, models, accuracy counts, timestamps, and idempotency key from that immutable
-result. Publication is independently opt-in so **Run All** never changes the Scoreboard.
+compiled URL4, models, the Benchmark-native score, timestamps, and idempotency key from that
+immutable result — the score is submitted exactly as the Engine reported it, and the
+Scoreboard ranks it without recalculating. Publication is independently opt-in so
+**Run All** never changes the Scoreboard.
 
 The local Scoreboard accepts writes without login. Hosted deployments may require an
 edge-verified identity or keep score submission closed."""),
@@ -731,8 +733,20 @@ corrective_loop_report = sf.evaluate(
     limit=2,
 )
 corrective_loop_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Send the score to the Scoreboard
+
+Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
+score** exactly as the Engine graded it — fractional or negative values included — and the
+Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
+the public Leaderboard."""),
         nbformat.v4.new_code_cell("""\
-"""),
+PUBLISH_RESULT = False
+
+submission = (
+    sf.leaderboards.submit(corrective_loop_report.candidates.only) if PUBLISH_RESULT else None
+)
+submission"""),
     )
 
 
@@ -842,8 +856,18 @@ best_open_source = sf.Fusion(
         nbformat.v4.new_code_cell("""\
 report = sf.evaluate(best_open_source, benchmark="draco", limit=1)
 report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Send the score to the Scoreboard
+
+Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
+score** exactly as the Engine graded it — fractional or negative values included — and the
+Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
+the public Leaderboard."""),
         nbformat.v4.new_code_cell("""\
-"""),
+PUBLISH_RESULT = False
+
+submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH_RESULT else None
+submission"""),
     )
 
 
@@ -950,8 +974,18 @@ best_open_source = sf.Fusion(
         nbformat.v4.new_code_cell("""\
 report = sf.evaluate(best_open_source, benchmark="healthbench-worst30", limit=1)
 report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Send the score to the Scoreboard
+
+Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
+score** exactly as the Engine graded it — fractional or negative values included — and the
+Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
+the public Leaderboard."""),
         nbformat.v4.new_code_cell("""\
-"""),
+PUBLISH_RESULT = False
+
+submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH_RESULT else None
+submission"""),
     )
 
 
@@ -1056,6 +1090,25 @@ Research-quality prompts with weighted rubrics; the longest and most expensive o
         nbformat.v4.new_code_cell("""\
 draco_report = sf.evaluate(corrective_loop, benchmark="draco", limit=1)
 draco_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Send the scores to the Scoreboard
+
+Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
+score** exactly as the Engine graded it — fractional or negative values included — and the
+Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
+the public Leaderboard."""),
+        nbformat.v4.new_code_cell("""\
+PUBLISH_RESULT = False
+
+submissions = (
+    [
+        sf.leaderboards.submit(report.candidates.only)
+        for report in (ifeval_report, healthbench_report, draco_report)
+    ]
+    if PUBLISH_RESULT
+    else None
+)
+submissions"""),
     )
 
 
