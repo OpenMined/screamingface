@@ -156,7 +156,7 @@ Submit a smoke score with an idempotency key. If `config.authMode=cloudflare_hea
 curl -fsS -X POST http://scoreboard.40.76.107.241.nip.io/v1/scores \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: score-007-smoke-1" \
-  -d '{"version":1,"benchmark_id":"hle","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","score":0.5,"total_questions":2,"ran_with_providers":["smoke"],"client_name":"curl","client_version":"0.1.0","client_platform":"k3s"}'
+  -d '{"version":1,"benchmark_id":"hle","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","score":0.5,"total_questions":2,"ran_with_providers":["smoke"],"client":{"name":"curl","version":"0.1.0","platform":"k3s"}}'
 
 curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/hle
 ```
@@ -231,6 +231,9 @@ column.** If one does, pick one:
 `verified_by_screamingface`) is the first migration in this category. It is safe on dev, which runs
 a single replica, and was deliberately shipped as a plain rename because production had no users at
 the time. Re-check that assumption before releasing it.
+
+`0006_benchmark_native_scores` (OME-866, renaming `accuracy` to `score` and making
+`correct_questions` nullable) is the second. Same reasoning, same rollout options as above.
 
 ## Troubleshooting
 

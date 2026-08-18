@@ -8,6 +8,7 @@ from html import escape
 from typing import overload
 
 from screamingface._ui.leaderboard_style import LEADERBOARD_STYLE
+from screamingface._ui.report_view import _score_text
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
@@ -237,13 +238,6 @@ def _board_row(value: _DisplayRow, rank: int, floor: float, span: float) -> str:
         f"<span class='sf-lb__questions' role='cell'>{questions}</span>"
         f"<span class='sf-lb__action' role='cell'>{_row_action(value)}</span></div>"
     )
-
-
-def _score_text(value: float) -> str:
-    # Plain benchmark-native number, up to 4 significant digits — never a percentage
-    # (OME-866: percent rendering returns only with benchmark-declared presentation
-    # metadata, in a follow-up).
-    return f"{value:.4g}"
 
 
 def _row_chip(value: _DisplayRow) -> str:

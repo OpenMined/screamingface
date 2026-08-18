@@ -110,3 +110,38 @@ showing "-1.143". Fixed on owner instruction (Khoa, 2026-08-18).
   (`report_view.py` `_axis_row`); the fusion-edge gilding rule `score > 0` never gilds
   negative-scale boards; pre-push hook does not gate the screamingface stack at all —
   gates were run manually.
+
+## Follow-up (same unit): Filip's PR #626 review, both passes on `bf7f12f`
+
+All 8 findings verified against the codebase before acting; 7 addressed in the working
+tree (uncommitted — owner reviews manually before any commit), 1 is a release-ordering
+owner action.
+
+- **P1 loader:** `examples/helpers.py::load_candidate_result` now carries
+  `status`/`refusal`/`stop_reason`/`rounds_executed` and reconstructs `failures`, so
+  exported reports with refused/failed Cases reopen without tripping the CaseResult
+  outcome contract. New `tests/test_examples_helpers.py` (round-trips a mixed
+  scored/refused/failed export through the real helper file).
+- **P1 IFEval description:** the Markdown rewrite in
+  `apps/url4-cloud/.../ifeval/definition.py` reverted to the merge-base prose (portal
+  renders descriptions via `textContent`; also the only out-of-app change on this PR —
+  a prose improvement belongs on its own ticket per the repo rule).
+- **P2 precision:** one score formatter — `report_view._score_text` (`%g`, 6 sig
+  digits) is now imported by `leaderboard_view` (its local `.4g` copy deleted) and
+  mirrored by `portal/main.js::formatScore` (`toPrecision(4)`→`(6)`). Direction chosen:
+  6 digits everywhere (the exact Engine figure, e.g. `-1.1429`), not rounding the
+  notebook down to 4 — existing receipt tests pin `-1.1429`.
+- **P3 gilding:** `scored = score is not None` (was `> 0`); zero and negative gild.
+  `test_a_zero_score_is_not_gilded` rewritten to
+  `test_any_finite_score_is_gilded_zero_and_negative_included` — it pinned the retired
+  0..1 rule; third sanctioned append-only exception, same owner approval, pending
+  owner's manual review of the diff.
+- **P2/P3 docs:** DEPLOYMENT.md smoke payload nests `client{}`; breaking-migrations
+  section now lists `0006`. public-docs Leaderboard pages (learn/, sf-client/guides/,
+  sf-client/api/, plus one line on sf-client/Index.vue) moved to `score` +
+  benchmark-native wording; binary-tolerance validation paragraphs replaced.
+- **Gates:** screamingface 889 passed / 1 skipped; scoreboard 318 passed / 2 skipped;
+  portal Node 19 passed. public-docs not built (text-only template edits).
+- **Owner actions:** release sequencing — cut `screamingface` 0.2.0 only from a commit
+  including this PR (0.1.1 clients 422 after the flip); 0006 rollout needs the
+  maintenance-window/expand-contract choice already noted above.

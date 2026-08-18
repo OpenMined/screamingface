@@ -143,7 +143,8 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     </div>
 
     <p>
-      <code>score</code> is each candidate's accuracy over the same cases, where higher is better.
+      <code>score</code> is each candidate's benchmark-native score over the same cases, where
+      higher is better.
       The report carries no baseline or gain field, because the comparison is simply that you ran
       the solo model and the fusion in one call and can read both numbers.
     </p>

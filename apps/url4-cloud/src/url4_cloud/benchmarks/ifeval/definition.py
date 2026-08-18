@@ -107,9 +107,11 @@ IFEVAL = Benchmark(
     id=BENCHMARK_ID,
     title="IFEval",
     description=(
-        "[IFEval](https://arxiv.org/abs/2311.07911) contains 541 instruction-following "
-        "prompts with deterministic checks for requirements such as word counts, required "
-        "sections, and forbidden punctuation."
+        "The canonical 541-prompt instruction-following benchmark "
+        "(https://arxiv.org/abs/2311.07911), graded by deterministic strict and loose "
+        "verification. Each Case invokes the Candidate exactly once. Case ids are the "
+        "official IFEval keys; one pinned-dataset row (key 2785) is patched to the "
+        "official harness prompt, whose text matches its graded constraints."
     ),
     revision=REVISION,
     case_count=CASE_COUNT,

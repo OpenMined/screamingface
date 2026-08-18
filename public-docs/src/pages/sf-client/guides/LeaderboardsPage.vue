@@ -37,8 +37,8 @@ sf.leaderboards.submit(report.candidates.only)
 [sf.leaderboards.submit(c) for c in report.candidates]`
 
 const fetchScore = `score = sf.leaderboards.get_score("57cc25d7-00bf-44ec-bf9d-55d66cd1e003")
-score.accuracy, score.correct_questions, score.total_questions, score.verified_by_screamingface`
-const fetchScoreOut = `(1.0, 1, 1, False)`
+score.score, score.total_questions, score.verified_by_screamingface`
+const fetchScoreOut = `(1.0, 1, False)`
 
 const remix = `plan = score.url4.to_python()   # Model / Fusion / Pipeline, free
 sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
@@ -113,7 +113,8 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
           <td><code>sf.leaderboards.submit(candidate_result)</code></td>
           <td>
             Publishes one evaluated <code>CandidateResult</code>. The Client derives benchmark id,
-            spec id, url4, accuracy counts, providers, and the idempotency key from that result.
+            spec id, url4, the benchmark-native score, providers, and the idempotency key from
+            that result.
           </td>
         </tr>
         <tr>
@@ -135,8 +136,8 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
 
     <p>
       Ranking is best-per-spec: for each <code>spec_id</code> the leaderboard keeps the highest
-      accuracy, and breaks ties by newest <code>submitted_at</code>. The table is then ordered by
-      accuracy descending. Baselines are imported separately and sit beside community entries; they
+      score, and breaks ties by newest <code>submitted_at</code>. The table is then ordered by
+      score descending. Baselines are imported separately and sit beside community entries; they
       are not the same as a submitted score.
     </p>
 
@@ -165,7 +166,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     </div>
 
     <p>
-      Each entry carries <code>accuracy</code>, <code>total_questions</code>, the providers used,
+      Each entry carries <code>score</code>, <code>total_questions</code>, the providers used,
       who submitted it when that is known, the <code>verified_by_screamingface</code> flag, and the
       <code>url4</code> expression. Notebook displays render the board as an interactive widget; the
       fields above are what each entry holds.
@@ -208,19 +209,18 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     </div>
 
     <p>
-      The Client posts <code>accuracy</code>, <code>correct_questions</code>,
-      <code>total_questions</code>, the compiled <code>url4_expression</code>, provider names, and
-      client metadata. The <code>Idempotency-Key</code> header is the candidate's
-      <code>run_id</code>, so a retry of the same run replays the original score instead of
-      inserting a duplicate.
+      The Client posts <code>score</code>, <code>total_questions</code>, the compiled
+      <code>url4_expression</code>, provider names, and client metadata. The
+      <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>, so a retry of
+      the same run replays the original score instead of inserting a duplicate.
     </p>
 
     <p>
-      The leaderboard's accuracy contract is strict: every case grade must be binary (<code>0</code>
-      or <code>1</code>), and <code>score</code> must match <code>correct / total</code> within
-      <code>0.01</code>. Rubric-only results that do not reduce to that shape are rejected before
-      they leave the Client. IFEval fits; some judge-scored protocols do not until their grades are
-      represented as binary cases.
+      The score is benchmark-native: the Client submits <code>CandidateResult.score</code> exactly
+      as the benchmark's own grading produced it — fractional for DRACO's weighted rubrics,
+      negative for HealthBench worst-30 — and never derives a replacement from case grades,
+      normalizes, or bounds it. The only universal requirements are that a score exists and is a
+      finite number; unscored or non-finite results are rejected before HTTP.
     </p>
 
     <h3>5 · Fetch a published score</h3>

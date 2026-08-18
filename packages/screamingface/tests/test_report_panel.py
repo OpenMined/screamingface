@@ -128,12 +128,18 @@ def test_a_real_score_carries_the_fusion_edge() -> None:
     assert ">0.62<" in html
 
 
-def test_a_zero_score_is_not_gilded() -> None:
-    html = body(report_html(report(candidate("m", 0.0))))
+def test_any_finite_score_is_gilded_zero_and_negative_included() -> None:
+    # WHY (OME-866): scores are benchmark-native, so zero and negative are real
+    # graded outcomes, not null ones — HealthBench worst-30 is all-negative, and a
+    # 0.0 there ranks above every negative row. A `> 0` gate was a leftover 0..1
+    # accuracy assumption; only an unscored candidate stays neutral.
+    zero = body(report_html(report(candidate("m", 0.0))))
+    negative = body(report_html(report(candidate("m", -1.143))))
 
-    # Colour means something: there is no win in a zero, so the cell stays neutral.
-    assert "sf-report__cell--score" not in html
-    assert ">0<" in html
+    assert "sf-report__cell--score" in zero
+    assert ">0<" in zero
+    assert "sf-report__cell--score" in negative
+    assert ">-1.143<" in negative
 
 
 def test_an_ungraded_candidate_is_not_gilded_and_reads_as_incomplete() -> None:

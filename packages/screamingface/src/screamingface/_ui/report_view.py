@@ -273,9 +273,11 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
     # Repeat count belongs in the context line: a 7th figure would orphan a grid row.
     repeats = f" · {int(runs)} runs" if runs and runs > 1 else ""
     ctx = f"· {report.benchmark.id} · {state}{repeats}"
-    # The fusion edge marks a result worth showing. An ungraded or zero-scoring candidate
-    # has no win in it, so the cell stays neutral rather than celebrating a null outcome.
-    scored = candidate.score is not None and float(candidate.score) > 0
+    # The fusion edge marks a rankable result. Any finite benchmark-native score —
+    # including zero and negative (HealthBench worst-30 is all-negative) — is a real
+    # outcome worth highlighting; only an unscored candidate stays neutral (OME-866:
+    # a `> 0` gate here was a leftover 0..1 accuracy assumption).
+    scored = candidate.score is not None
     cells = [
         _cell("score", _score_text(candidate.score), score=scored),
         _cell("pass rate", _percent(_metric(metrics, "pass_rate"))),
@@ -816,8 +818,11 @@ def _percent(value: float | None) -> str:
 def _score_text(value: float | None) -> str:
     # INVARIANT (OME-866): CandidateResult.score is benchmark-native — render the
     # Engine-graded number as-is (DRACO 0.399, HealthBench -1.143), never ×100 or
-    # percent. `:g` keeps up to 6 significant digits, matching the submit receipt
-    # (score_view) so the same figure never renders two ways in one notebook.
+    # percent. `:g` keeps up to 6 significant digits. This is the ONE score
+    # formatter — the submit receipt (score_view) and board widget
+    # (leaderboard_view) import it, and the portal mirrors the 6-digit rule
+    # (formatScore in portal/main.js), so the same figure never renders two ways
+    # between the notebook and the board.
     return "—" if value is None else f"{float(value):g}"
 
 

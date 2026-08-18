@@ -102,14 +102,32 @@ def load_candidate_result(
             checks=(),
         )
 
+    def _failure(value):
+        return sf.Failure(
+            stage=value["stage"],
+            code=value["code"],
+            message=value["message"],
+            retryable=value.get("retryable"),
+            operation_id=value.get("operation_id"),
+            case_id=value.get("case_id"),
+            metadata=value.get("metadata") or {},
+        )
+
     def _case(value):
+        # INVARIANT: status/refusal/failures must survive the round trip — a refused
+        # Case without its refusal (or a failed Case without its failures) violates
+        # the CaseResult outcome contract and the constructor rejects it.
         return sf.CaseResult(
+            status=value.get("status"),
             case_id=value["case_id"],
             input=value["input"],
             output=value.get("output"),
             finish_reason=value.get("finish_reason"),
+            refusal=value.get("refusal"),
+            stop_reason=value.get("stop_reason"),
+            rounds_executed=value.get("rounds_executed"),
             grade=_grade(value.get("grade")),
-            failures=(),
+            failures=tuple(_failure(f) for f in value.get("failures") or ()),
             metadata=value.get("metadata") or {},
         )
 
