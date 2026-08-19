@@ -1,9 +1,9 @@
 ---
 ticket: OME-899
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-08-19
-finished:
+finished: 2026-08-19
 ---
 
 # OME-899 — Authenticate protected Scoreboard requests
@@ -42,7 +42,7 @@ reads interactive or risking duplicate score submissions.
 
 - **Actual files:** sync/async Client Scoreboard-auth wiring and replay declaration;
   Leaderboard regression/lifecycle tests; required OME-899 task, spec, plan, and work artifacts.
-- **Commits:** this implementation commit — authenticate protected Scoreboard requests.
+- **Commits:** `4d27a2a6` — authenticate protected Scoreboard requests.
 - **Gates:** `python3 .claude/scripts/run_gates.py screamingface` — ALL GATES GREEN;
   focused Client/Leaderboard suites — 73 passed; live protected `get_score` through the patched
   public interface — expected `404 unknown_score`, no Access 302.

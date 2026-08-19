@@ -1,7 +1,7 @@
 ---
 id: OME-899
 linear_url: https://linear.app/openmined/issue/OME-899/authenticate-protected-scoreboard-requests-in-the-python-sdk
-status: In Progress
+status: In Review
 priority: P1
 labels: [py-screamingface, auth+subsidies, autonomous, agentic]
 created: 2026-08-19
