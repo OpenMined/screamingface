@@ -114,10 +114,6 @@ sf.configure(
 )
 
 BENCHMARK_ID = "draco\""""),
-        nbformat.v4.new_code_cell("""\
-from helpers import openrouter_credits
-
-openrouter_credits()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 1 · Leaderboards
 
@@ -239,10 +235,6 @@ Use `screamingface logs` to inspect startup failures and `screamingface down` wh
 management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf"""),
-        nbformat.v4.new_code_cell("""\
-from helpers import openrouter_credits
-
-openrouter_credits()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Choose a Client lifecycle
 
@@ -910,10 +902,6 @@ management stays outside the notebook so **Run All** never starts or stops local
 import screamingface as sf
 
 sf.connect()"""),
-        nbformat.v4.new_code_cell("""\
-from helpers import openrouter_credits
-
-openrouter_credits()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run the benchmark with 1 model"""),
         nbformat.v4.new_code_cell("""\
