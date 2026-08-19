@@ -138,15 +138,26 @@ class CachedCatalog:
         return len(self._entries)
 
     def invalidate(self) -> None:
-        """Drop every cached entry so the next fetch re-reads upstream (OME-880).
+        """Expire every cached entry so the next fetch re-reads upstream (OME-880).
 
         Called when a model is dynamically admitted: the upstream catalog just
         changed, so serving the pre-admission body for the rest of the TTL would
         advertise a world the gateway no longer serves. In-flight fetches are
         deliberately untouched — one may still store a pre-admission body, which
         then ages out on the ordinary TTL (an accepted, rare staleness window).
+
+        INVARIANT (review F5): expiry, never deletion. The bodies stay so the
+        stale-on-error fallback keeps its material — an admission followed by a
+        gateway blip a second later must degrade to a slightly-stale list, not to
+        a fleet-wide 502 (the module's own "an upstream blip must not empty every
+        client's model list" promise). `fetched_at` only ever moves BACKWARD here:
+        moving it forward would extend an old entry's stale life past
+        ``stale_max_s``.
         """
-        self._entries.clear()
+        now = self._clock()
+        expired = now - self._ttl_s - 1.0
+        for entry in self._entries.values():
+            entry.fetched_at = min(entry.fetched_at, expired)
 
     async def aclose(self) -> None:
         """Release the upstream client, if this service owns one. Idempotent.

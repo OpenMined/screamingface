@@ -27,8 +27,12 @@ from screamingface_engine.catalog.admission import (
 )
 from screamingface_engine.catalog.aigateway import AigatewayCatalogSource
 from screamingface_engine.catalog.cache import CachedCatalog
-from screamingface_engine.catalog.executable import ExecutableCatalog, ExecutableModelParameterSource
+from screamingface_engine.catalog.executable import (
+    ExecutableCatalog,
+    ExecutableModelParameterSource,
+)
 from screamingface_engine.catalog.port import (
+    CatalogError,
     Credential,
     ModelCatalog,
     ModelNotInstalled,
@@ -264,6 +268,117 @@ async def test_non_admissible_ids_never_trigger_an_admit_call(model_id: str) -> 
     assert admitter is not None and admitter.calls == []
 
 
+# --- the heal on a forwarded 404 (review F1) ---------------------------------
+
+
+class _SequencedParamSource:
+    """Answers each fetch from a queue — models a gateway that restarted and
+    forgot its admissions (404) until re-admitted."""
+
+    def __init__(self, responses: list[ModelParameterResponse]) -> None:
+        self._responses = list(responses)
+        self.fetched: list[str] = []
+
+    async def fetch_model_parameters(
+        self, credential: Credential, model: str
+    ) -> ModelParameterResponse:
+        self.fetched.append(model)
+        return self._responses.pop(0)
+
+
+_NOT_FOUND = ModelParameterResponse(status=404, content=b'{"detail":"Not Found"}')
+_OK = ModelParameterResponse(status=200, content=b"{}")
+
+
+def _healing_source(
+    answer: AdmissionAnswer, params: _SequencedParamSource
+) -> tuple[ExecutableModelParameterSource, AdmittedModels, _Admitter, list[bool]]:
+    admitted = AdmittedModels()
+    admitted.add(_TARGET)
+    invalidations: list[bool] = []
+    admitter = _Admitter(answer)
+    source = ExecutableModelParameterSource(
+        params,
+        frozenset({_DECLARED}),
+        admitted=admitted,
+        admission_source=admitter,
+        on_admitted=lambda: invalidations.append(True),
+    )
+    return source, admitted, admitter, invalidations
+
+
+@pytest.mark.asyncio
+async def test_a_forwarded_404_for_an_overlay_id_heals_by_readmitting() -> None:
+    # STORY: the gateway restarted (its admitted set is in-memory by design); the
+    # engine's overlay must not outlive that answer — the saved notebook's next
+    # lookup re-admits and proceeds instead of failing until an ENGINE restart.
+    params = _SequencedParamSource([_NOT_FOUND, _OK])
+    source, admitted, admitter, invalidations = _healing_source(
+        AdmissionAnswer(outcome="admitted"), params
+    )
+
+    response = await source.fetch_model_parameters(_CREDENTIAL, _TARGET)
+
+    assert response.status == 200
+    assert params.fetched == [_TARGET, _TARGET]
+    assert admitter.calls == [_TARGET]
+    assert _TARGET in admitted
+    assert invalidations == [True]
+
+
+@pytest.mark.asyncio
+async def test_a_heal_refusal_relays_the_gateway_diagnosis_and_evicts() -> None:
+    params = _SequencedParamSource([_NOT_FOUND])
+    source, admitted, _, _ = _healing_source(
+        AdmissionAnswer(outcome="refused", code="provider_not_credentialed", message="connect"),
+        params,
+    )
+
+    response = await source.fetch_model_parameters(_CREDENTIAL, _TARGET)
+
+    assert response.status == 404
+    assert json.loads(response.content)["detail"]["code"] == "provider_not_credentialed"
+    # INVARIANT: the overlay never contradicts the gateway's latest answer.
+    assert _TARGET not in admitted
+
+
+@pytest.mark.asyncio
+async def test_a_heal_against_an_unsupported_gateway_degrades_to_not_installed() -> None:
+    params = _SequencedParamSource([_NOT_FOUND])
+    source, admitted, _, _ = _healing_source(AdmissionAnswer(outcome="unsupported"), params)
+
+    with pytest.raises(ModelNotInstalled):
+        await source.fetch_model_parameters(_CREDENTIAL, _TARGET)
+    assert _TARGET not in admitted
+
+
+@pytest.mark.asyncio
+async def test_the_heal_is_bounded_to_one_readmission() -> None:
+    # A gateway that grants but still 404s is inconsistent; the second 404 is
+    # returned as-is rather than looping grant->404->grant forever.
+    params = _SequencedParamSource([_NOT_FOUND, _NOT_FOUND])
+    source, _, admitter, _ = _healing_source(AdmissionAnswer(outcome="admitted"), params)
+
+    response = await source.fetch_model_parameters(_CREDENTIAL, _TARGET)
+
+    assert response.status == 404
+    assert params.fetched == [_TARGET, _TARGET]
+    assert admitter.calls == [_TARGET]
+
+
+@pytest.mark.asyncio
+async def test_a_declared_ids_404_passes_through_without_admission() -> None:
+    # Only OVERLAY ids heal — a declared id's 404 is the gateway's own verdict to
+    # relay, exactly as today.
+    params = _SequencedParamSource([_NOT_FOUND])
+    source, _, admitter, _ = _healing_source(AdmissionAnswer(outcome="admitted"), params)
+
+    response = await source.fetch_model_parameters(_CREDENTIAL, _DECLARED)
+
+    assert response.status == 404
+    assert admitter.calls == []
+
+
 # --- the catalog projection with the overlay --------------------------------
 
 
@@ -344,6 +459,37 @@ async def test_invalidate_forces_the_next_fetch_upstream() -> None:
     assert upstream.fetches == 2
 
 
+class _FlakyUpstream(_UpstreamCatalog):
+    """An upstream that can be flipped into an outage after serving once."""
+
+    def __init__(self, ids: list[str]) -> None:
+        super().__init__(ids)
+        self.failing = False
+
+    async def fetch(self, credential: Credential) -> ModelCatalog:
+        if self.failing:
+            raise CatalogError("gateway blip")
+        return await super().fetch(credential)
+
+
+@pytest.mark.asyncio
+async def test_invalidate_keeps_the_stale_body_for_outage_fallback() -> None:
+    # INVARIANT (review F5): invalidation is expiry, not deletion. An admission
+    # followed by a gateway blip must serve the slightly-stale list — never turn
+    # every `GET /v1/models` into a 502 because the fallback bodies were dropped.
+    upstream = _FlakyUpstream([_DECLARED])
+    cached = CachedCatalog(upstream, ttl_s=300.0, stale_max_s=3600.0)
+
+    before = await cached.fetch(_CREDENTIAL)
+    cached.invalidate()
+    upstream.failing = True
+
+    served = await cached.fetch(_CREDENTIAL)
+
+    assert served.etag == before.etag
+    assert cached.counters.stale_serves == 1
+
+
 # --- the runner world reads URL4_CLOUD_EXTRA_MODELS -------------------------
 
 _MINIMAL_TOML = """
@@ -355,6 +501,20 @@ models = ["claude-haiku-4-5"]
 
 
 def _world(env: dict[str, str]):
+    # `include_extra_models=True` is the RUNNER-boot parse (review F3) — the only
+    # path that reads the Job-scoped overlay key.
+    import tomllib
+
+    return parse_config(
+        tomllib.loads(_MINIMAL_TOML),
+        env,
+        registry=EMPTY_MODEL_WORLD,
+        include_extra_models=True,
+    )
+
+
+def _app_world(env: dict[str, str]):
+    """The App's own parse — extras deliberately NOT opted in."""
     import tomllib
 
     return parse_config(tomllib.loads(_MINIMAL_TOML), env, registry=EMPTY_MODEL_WORLD)
@@ -389,6 +549,36 @@ def test_a_malformed_extra_models_value_fails_loud(raw: str) -> None:
     # value is a bug — silently dropping it would hide the bug as a mid-run 404.
     with pytest.raises(WorldConfigError):
         _world({job_env.EXTRA_MODELS: raw})
+
+
+def test_an_overlay_delivered_default_route_boots() -> None:
+    # STORY (review F2): an operator points URL4_CLOUD_AIGATEWAY_MODEL at a model
+    # that arrives only via the admitted overlay — the run must boot, because the
+    # id IS in the world once the overlay merges.
+    env = {
+        job_env.AIGATEWAY_MODEL: f"/{_TARGET}",
+        job_env.EXTRA_MODELS: json.dumps([_TARGET]),
+    }
+    section = _world(env).aigateway
+    assert section is not None
+    assert section.default_model == _TARGET
+
+
+def test_the_app_parse_path_ignores_a_well_formed_ambient_value() -> None:
+    # INVARIANT (review F3): the overlay key is Job-scoped. The App's own parse
+    # (default, no opt-in) must not absorb it — otherwise an ambient value smuggles
+    # ids into the declared projection without ever passing admission.
+    section = _app_world({job_env.EXTRA_MODELS: json.dumps([_TARGET])}).aigateway
+    assert section is not None
+    assert f"/{_TARGET}" not in routes_for(section.models)
+
+
+def test_the_app_parse_path_survives_a_malformed_ambient_value() -> None:
+    # WHY no raise: a malformed value only matters where the key is READ (the
+    # Runner boot). Raising here would 503 the App's whole catalog for a value it
+    # was never supposed to consume.
+    section = _app_world({job_env.EXTRA_MODELS: "not json"}).aigateway
+    assert section is not None
 
 
 # --- the job-env helpers -----------------------------------------------------

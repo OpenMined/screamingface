@@ -76,3 +76,39 @@ world — the `JobRunner.schedule` port (packages/url4) stays untouched.
   (adapter-construction `extra_models` provider) so admitted models are routable by run
   processes — without it the admission promise would break mid-run. Making the SDK's
   availability check defer to model-parameters is a third unit (`OME-881`, py-screamingface).
+
+
+## Review fixes (2026-08-19, PR #633)
+
+Ultrareview findings 1-5 land here as a follow-up commit on the same branch (paths now
+`apps/screamingface-engine` after the OME-876 rename on main):
+
+- **F1** — the admitted overlay heals on a forwarded 404: a parameters miss for an
+  overlay id evicts it and re-runs admission once (grant -> retry fetch; refusal ->
+  relay). A gateway restart now self-heals on the next request. `AdmittedModels`
+  gains `discard()`; the invariant becomes "the overlay never contradicts the
+  gateway's latest answer", not "add-only".
+- **F2** — `default_model` is validated against `section.models` AFTER
+  `_apply_extra_models` merges the overlay ids, so an overlay-delivered default boots.
+- **F3** — `parse_config` no longer reads `URL4_CLOUD_EXTRA_MODELS` ambiently; extras
+  become an explicit opt-in of the runner-boot path only, so the App's own parse can
+  neither 503 on a malformed ambient value nor absorb un-admitted ids.
+- **F4** — the K8s adapter always writes the `URL4_CLOUD_EXTRA_MODELS` env entry
+  (explicit env wins over `envFrom`), neutralizing stale ConfigMap values exactly like
+  the inprocess pop.
+- **F5** — `CachedCatalog.invalidate()` expires entries (ages `fetched_at` past TTL)
+  instead of deleting them, preserving the stale-on-error fallback bodies.
+
+### Prior-test amendments (owner-approved 2026-08-19)
+
+The append-only gate flagged these; Khoa approved all three in-session:
+
+1. `apps/screamingface-engine/tests/unit/test_runner_job_env_isolation.py` — the exact-set
+   env assertion gains `URL4_CLOUD_EXTRA_MODELS` (F4 always writes it), with a dated
+   justification comment mirroring the STREAM_GRACE_S precedent.
+2. `packages/screamingface/tests/test_client_run.py` — two fake-engine handlers now 404
+   details for unlisted models (fixture fidelity for F10's defer-all); every assertion
+   byte-identical.
+3. This PR's own test files — probe-count / empty-overlay pins overturned by F10/F4.
+
+Final gate runs used `--skip-append-only` on that approval; all other gates unweakened.

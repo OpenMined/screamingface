@@ -204,7 +204,10 @@ def declared_model_ids(
 
 
 def load_config(
-    env: Mapping[str, str], *, registry: ModelRegistry = BUILTIN_MODEL_WORLD
+    env: Mapping[str, str],
+    *,
+    registry: ModelRegistry = BUILTIN_MODEL_WORLD,
+    include_extra_models: bool = False,
 ) -> WorldConfig:
     """Read and validate the declared world from ``env``'s config path."""
     path = Path(env.get(job_env.RUNNER_CONFIG, DEFAULT_CONFIG_PATH))
@@ -213,7 +216,7 @@ def load_config(
             raw = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise WorldConfigError(f"cannot read world config {str(path)!r}: {exc}") from exc
-    return parse_config(raw, env, registry=registry)
+    return parse_config(raw, env, registry=registry, include_extra_models=include_extra_models)
 
 
 def parse_config(
@@ -221,12 +224,19 @@ def parse_config(
     env: Mapping[str, str],
     *,
     registry: ModelRegistry = BUILTIN_MODEL_WORLD,
+    include_extra_models: bool = False,
 ) -> WorldConfig:
     """Validate a parsed TOML mapping into a :class:`WorldConfig`. Fail-fast.
 
     INVARIANT: ``registry`` is the base world and the TOML array layers on top of it. Both the
     App and the Runner call through here, so their views of the world cannot diverge — the
     property that lets discovery promise exactly what execution accepts.
+
+    ``include_extra_models`` (review F3): ``URL4_CLOUD_EXTRA_MODELS`` is a JOB-scoped
+    key the App writes onto each scheduled run — only the Runner-boot path opts in.
+    Default-off means the App's own parse (``declared_model_ids``) physically cannot
+    absorb an ambient value: a leftover key can neither 503 discovery nor smuggle
+    un-admitted ids into the declared projection.
     """
     _reject_unsupported_tables(raw)
     table = raw.get("aigateway")
@@ -234,7 +244,9 @@ def parse_config(
         return WorldConfig()
     if not isinstance(table, Mapping):
         raise WorldConfigError(f"[aigateway] must be a table, got {table!r}")
-    return WorldConfig(aigateway=_parse_aigateway(table, env, registry))
+    return WorldConfig(
+        aigateway=_parse_aigateway(table, env, registry, include_extra_models=include_extra_models)
+    )
 
 
 def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
@@ -253,7 +265,11 @@ def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
 
 
 def _parse_aigateway(
-    table: Mapping[str, object], env: Mapping[str, str], registry: ModelRegistry
+    table: Mapping[str, object],
+    env: Mapping[str, str],
+    registry: ModelRegistry,
+    *,
+    include_extra_models: bool = False,
 ) -> AigatewaySection:
     unknown = sorted(set(map(str, table)) - _AIGATEWAY_KEYS)
     if unknown:
@@ -274,9 +290,13 @@ def _parse_aigateway(
         ),
     )
     section = _apply_env(section, env)
-    section = _apply_extra_models(section, env)
+    if include_extra_models:
+        section = _apply_extra_models(section, env)
     _reject_unroutable_default(section.default_model)
-    _require_declared(section.default_model, models)
+    # WHY `section.models` and not the local `models` (review F2): the default may
+    # legitimately arrive via the admitted overlay — validating against the
+    # pre-overlay tuple would refuse a world that DOES declare it.
+    _require_declared(section.default_model, section.models)
     return section
 
 

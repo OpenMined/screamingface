@@ -289,12 +289,15 @@ class K8sJobRunner(IdentityAwareJobRunner):
             for name, value in job_env.cache_policy_to_env(cache).items()
         )
         # The admitted-model overlay (OME-880), read at SCHEDULE time. Plain `value`: model ids
-        # are public catalog names, not credentials. An empty overlay writes nothing.
-        if self._extra_models is not None:
-            env.extend(
-                {"name": name, "value": value}
-                for name, value in job_env.extra_models_to_env(self._extra_models()).items()
-            )
+        # are public catalog names, not credentials.
+        # INVARIANT (review F4): the entry is ALWAYS written — empty when there is no
+        # overlay — because an explicit env entry beats `envFrom`. This is the k8s
+        # rendering of the inprocess adapter's unconditional pop: a stale
+        # URL4_CLOUD_EXTRA_MODELS left in the Helm-owned ConfigMap can never leak
+        # onto a Job.
+        overlay = () if self._extra_models is None else self._extra_models()
+        rendered = job_env.extra_models_to_env(overlay).get(job_env.EXTRA_MODELS, "")
+        env.append({"name": job_env.EXTRA_MODELS, "value": rendered})
         return env
 
     def _env_from(self) -> list[dict[str, object]]:

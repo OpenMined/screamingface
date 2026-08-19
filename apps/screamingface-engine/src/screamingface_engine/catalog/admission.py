@@ -45,9 +45,12 @@ def is_dynamically_admissible(model_id: str) -> bool:
 class AdmittedModels:
     """The runtime overlay of dynamically admitted model ids (deployment lifetime).
 
-    INVARIANT: add-only and in-memory. Nothing persists an admission and nothing
-    removes one — a restart empties the overlay, which is the whole teardown
-    contract.
+    INVARIANT: in-memory, and never allowed to contradict the gateway's latest
+    answer. Nothing persists an admission — a restart empties the overlay, which
+    is the whole teardown contract. The one removal path is the heal on a
+    forwarded 404 (see ``ExecutableModelParameterSource``): a gateway that
+    restarted has forgotten its admissions, so the stale overlay entry is
+    discarded and re-admission decides afresh.
     """
 
     def __init__(self) -> None:
@@ -58,6 +61,9 @@ class AdmittedModels:
 
     def add(self, model_id: str) -> None:
         self._ids.add(model_id)
+
+    def discard(self, model_id: str) -> None:
+        self._ids.discard(model_id)
 
     @property
     def ids(self) -> tuple[str, ...]:
