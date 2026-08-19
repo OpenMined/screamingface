@@ -50,7 +50,10 @@ class Client:
     ) -> None:
         import httpx
 
-        from screamingface._engine.auth import _default_caller_auth
+        from screamingface._access.auth import (
+            _AccessTokenStore,
+            _client_caller_auth,
+        )
         from screamingface._engine.benchmark import BenchmarkResources
         from screamingface._engine.catalog import Benchmarks, Models
         from screamingface._engine.connections import Connections
@@ -61,22 +64,32 @@ class Client:
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
         self._auth_listeners = _AuthListeners()
-        self._auth = _default_caller_auth(self._engine_url)
+        self._access_tokens = _AccessTokenStore()
+        self._engine_auth = _client_caller_auth(
+            self._engine_url,
+            token_store=self._access_tokens,
+            discovery_error=_engine_access_discovery_error,
+        )
+        self._scoreboard_auth = _client_caller_auth(
+            self._scoreboard_url,
+            token_store=self._access_tokens,
+        )
         self._http = httpx.Client(
             base_url=self._engine_url,
             timeout=30.0,
-            auth=self._auth,
+            auth=self._engine_auth,
             transport=http_transport,
         )
         self._scoreboard_http = httpx.Client(
             base_url=self._scoreboard_url,
             timeout=30.0,
+            auth=self._scoreboard_auth,
             transport=scoreboard_transport,
         )
         self._transport: SyncRunTransport = (
             run_transport
             if run_transport is not None
-            else Url4CloudTransport(self._engine_url, self._auth)
+            else Url4CloudTransport(self._engine_url, self._engine_auth)
         )
         self.models: Models = Models(self._http_get, self._engine_url)
         self.benchmarks: Benchmarks = Benchmarks(self._http_get, self._engine_url)
@@ -103,13 +116,19 @@ class Client:
     def authenticated(self) -> bool:
         """Whether this process currently holds hosted caller credentials."""
 
-        return self._auth.authenticated
+        return self._engine_auth.authenticated
+
+    @property
+    def _auth(self) -> object:
+        """Compatibility alias for older internal integrations."""
+
+        return self._engine_auth
 
     @property
     def authenticating(self) -> bool:
         """Whether a hosted caller login is currently waiting for completion."""
 
-        return self._auth.authenticating
+        return self._engine_auth.authenticating
 
     def _repr_html_(self) -> str:
         from screamingface._ui.cards import client_card_html
@@ -121,13 +140,13 @@ class Client:
 
         self._require_open()
         try:
-            self._auth.login(timeout=timeout)
+            self._engine_auth.login(timeout=timeout)
         finally:
             self._auth_listeners.notify()
 
     def _cancel_login(self) -> None:
         self._require_open()
-        self._auth.cancel_login()
+        self._engine_auth.cancel_login()
         self._auth_listeners.notify()
 
     def _subscribe_auth(self, callback: Callable[[], None]) -> Callable[[], None]:
@@ -136,14 +155,20 @@ class Client:
 
     def _access_required(self) -> bool:
         self._require_open()
-        return self._auth.access_required()
+        return self._engine_auth.access_required()
 
     def logout(self) -> None:
         """Forget caller credentials and start Cloudflare Access browser logout."""
 
         self._require_open()
-        self._auth.logout()
-        self._auth_listeners.notify()
+        try:
+            self._engine_auth.logout()
+        finally:
+            try:
+                self._scoreboard_auth.logout()
+            finally:
+                self._access_tokens.clear()
+                self._auth_listeners.notify()
 
     def close(self) -> None:
         if self._closed:
@@ -157,8 +182,14 @@ class Client:
                 try:
                     self._scoreboard_http.close()
                 finally:
-                    self._auth.close()
-                    self._closed = True
+                    try:
+                        self._scoreboard_auth.close()
+                    finally:
+                        try:
+                            self._engine_auth.close()
+                        finally:
+                            self._access_tokens.clear()
+                            self._closed = True
 
     @overload
     def evaluate(
@@ -309,6 +340,7 @@ class Client:
         params: Mapping[str, str | int] | None = None,
         json: Any = None,
         headers: Mapping[str, str] | None = None,
+        replay_safe: bool = False,
     ) -> httpx.Response:
         self._require_open()
         return self._scoreboard_http.request(
@@ -317,6 +349,7 @@ class Client:
             params=params,
             json=json,
             headers=headers,
+            extensions={_REPLAY_SAFE: replay_safe},
         )
 
 
@@ -334,7 +367,10 @@ class AsyncClient:
     ) -> None:
         import httpx
 
-        from screamingface._engine.auth import _default_caller_auth
+        from screamingface._access.auth import (
+            _AccessTokenStore,
+            _client_caller_auth,
+        )
         from screamingface._engine.benchmark import AsyncBenchmarkResources
         from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels
         from screamingface._engine.connections import AsyncConnections
@@ -345,22 +381,32 @@ class AsyncClient:
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
         self._auth_listeners = _AuthListeners()
-        self._auth = _default_caller_auth(self._engine_url)
+        self._access_tokens = _AccessTokenStore()
+        self._engine_auth = _client_caller_auth(
+            self._engine_url,
+            token_store=self._access_tokens,
+            discovery_error=_engine_access_discovery_error,
+        )
+        self._scoreboard_auth = _client_caller_auth(
+            self._scoreboard_url,
+            token_store=self._access_tokens,
+        )
         self._http = httpx.AsyncClient(
             base_url=self._engine_url,
             timeout=30.0,
-            auth=self._auth,
+            auth=self._engine_auth,
             transport=http_transport,
         )
         self._scoreboard_http = httpx.AsyncClient(
             base_url=self._scoreboard_url,
             timeout=30.0,
+            auth=self._scoreboard_auth,
             transport=scoreboard_transport,
         )
         self._transport: AsyncRunTransport = (
             run_transport
             if run_transport is not None
-            else AsyncUrl4CloudTransport(self._engine_url, self._auth)
+            else AsyncUrl4CloudTransport(self._engine_url, self._engine_auth)
         )
         self.models: AsyncModels = AsyncModels(self._http_get, self._engine_url)
         self.benchmarks: AsyncBenchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
@@ -387,13 +433,19 @@ class AsyncClient:
     def authenticated(self) -> bool:
         """Whether this process currently holds hosted caller credentials."""
 
-        return self._auth.authenticated
+        return self._engine_auth.authenticated
+
+    @property
+    def _auth(self) -> object:
+        """Compatibility alias for older internal integrations."""
+
+        return self._engine_auth
 
     @property
     def authenticating(self) -> bool:
         """Whether a hosted caller login is currently waiting for completion."""
 
-        return self._auth.authenticating
+        return self._engine_auth.authenticating
 
     def _repr_html_(self) -> str:
         from screamingface._ui.cards import client_card_html
@@ -405,13 +457,13 @@ class AsyncClient:
 
         self._require_open()
         try:
-            await self._auth.login_async(timeout=timeout)
+            await self._engine_auth.login_async(timeout=timeout)
         finally:
             self._auth_listeners.notify()
 
     def _cancel_login(self) -> None:
         self._require_open()
-        self._auth.cancel_login()
+        self._engine_auth.cancel_login()
         self._auth_listeners.notify()
 
     def _subscribe_auth(self, callback: Callable[[], None]) -> Callable[[], None]:
@@ -420,14 +472,20 @@ class AsyncClient:
 
     async def _access_required(self) -> bool:
         self._require_open()
-        return await asyncio.to_thread(self._auth.access_required)
+        return await asyncio.to_thread(self._engine_auth.access_required)
 
     async def logout(self) -> None:
         """Forget caller credentials and start Cloudflare Access browser logout."""
 
         self._require_open()
-        await self._auth.logout_async()
-        self._auth_listeners.notify()
+        try:
+            await self._engine_auth.logout_async()
+        finally:
+            try:
+                await self._scoreboard_auth.logout_async()
+            finally:
+                self._access_tokens.clear()
+                self._auth_listeners.notify()
 
     async def aclose(self) -> None:
         if self._closed:
@@ -441,8 +499,14 @@ class AsyncClient:
                 try:
                     await self._scoreboard_http.aclose()
                 finally:
-                    await asyncio.to_thread(self._auth.close)
-                    self._closed = True
+                    try:
+                        await asyncio.to_thread(self._scoreboard_auth.close)
+                    finally:
+                        try:
+                            await asyncio.to_thread(self._engine_auth.close)
+                        finally:
+                            self._access_tokens.clear()
+                            self._closed = True
 
     @overload
     async def evaluate(
@@ -578,6 +642,7 @@ class AsyncClient:
         params: Mapping[str, str | int] | None = None,
         json: Any = None,
         headers: Mapping[str, str] | None = None,
+        replay_safe: bool = False,
     ) -> httpx.Response:
         self._require_open()
         return await self._scoreboard_http.request(
@@ -586,6 +651,7 @@ class AsyncClient:
             params=params,
             json=json,
             headers=headers,
+            extensions={_REPLAY_SAFE: replay_safe},
         )
 
 
@@ -594,6 +660,15 @@ def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
         raise TypeError("benchmark must not be passed when evaluating a complete URL4")
     if limit is not None:
         raise TypeError("limit must not be passed when evaluating a complete URL4")
+
+
+def _engine_access_discovery_error(origin: str) -> BaseException:
+    from screamingface.errors import EngineUnavailableError
+
+    return EngineUnavailableError(
+        "Could not reach the SF Engine to discover Cloudflare Access authentication",
+        engine_url=origin,
+    )
 
 
 __all__ = ["AsyncClient", "Client", "DEFAULT_ENGINE_URL", "DEFAULT_SCOREBOARD_URL"]

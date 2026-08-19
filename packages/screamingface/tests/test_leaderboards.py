@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -12,6 +12,8 @@ from url4 import expr, render, src, text
 
 import screamingface as sf
 from screamingface import _default_client
+from screamingface._access import auth as auth_module
+from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import _compiled_operation
 
@@ -187,6 +189,130 @@ def _async_client(handler: Callable[[httpx.Request], httpx.Response]) -> sf.Asyn
         scoreboard_url=SCOREBOARD_URL,
         scoreboard_transport=httpx.MockTransport(handler),
     )
+
+
+class _TokenAuth(httpx.Auth):
+    def __init__(self, token: str) -> None:
+        self.token = token
+        self.logout_calls = 0
+        self.close_calls = 0
+
+    def auth_flow(self, request: httpx.Request) -> Iterator[httpx.Request]:
+        request.headers["Cf-Access-Token"] = self.token
+        yield request
+
+    def logout(self) -> None:
+        self.logout_calls += 1
+
+    async def logout_async(self) -> None:
+        self.logout()
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+def test_protected_score_actions_use_scoreboard_origin_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tokens = iter(("engine-token", "scoreboard-token"))
+    monkeypatch.setattr(
+        auth_module,
+        "_default_caller_auth",
+        lambda _origin: _TokenAuth(next(tokens)),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("Cf-Access-Token") != "scoreboard-token":
+            return httpx.Response(
+                302,
+                headers={"location": "https://access.example/login?kid=" + "a" * 64},
+            )
+        assert request.extensions[_REPLAY_SAFE] is True
+        return httpx.Response(
+            201 if request.method == "POST" else 200,
+            json=_score_response(),
+        )
+
+    with _sync_client(handler) as client:
+        fetched = client.leaderboards.get_score(SCORE_ID)
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    assert fetched.id == UUID(SCORE_ID)
+    assert submitted.id == UUID(SCORE_ID)
+
+
+def test_client_owns_scoreboard_authentication_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auths: list[_TokenAuth] = []
+
+    def auth(_origin: str) -> _TokenAuth:
+        value = _TokenAuth(f"token-{len(auths)}")
+        auths.append(value)
+        return value
+
+    monkeypatch.setattr(auth_module, "_default_caller_auth", auth)
+    client = _sync_client(lambda _request: httpx.Response(200, json=_score_response()))
+
+    client.logout()
+    client.close()
+
+    assert len(auths) == 2
+    assert [value.logout_calls for value in auths] == [1, 1]
+    assert [value.close_calls for value in auths] == [1, 1]
+
+
+@pytest.mark.asyncio
+async def test_async_protected_score_actions_use_scoreboard_origin_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tokens = iter(("engine-token", "scoreboard-token"))
+    monkeypatch.setattr(
+        auth_module,
+        "_default_caller_auth",
+        lambda _origin: _TokenAuth(next(tokens)),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("Cf-Access-Token") != "scoreboard-token":
+            return httpx.Response(
+                302,
+                headers={"location": "https://access.example/login?kid=" + "a" * 64},
+            )
+        assert request.extensions[_REPLAY_SAFE] is True
+        return httpx.Response(
+            201 if request.method == "POST" else 200,
+            json=_score_response(),
+        )
+
+    async with _async_client(handler) as client:
+        fetched = await client.leaderboards.get_score(SCORE_ID)
+        submitted = await client.leaderboards.submit(_candidate_result())
+
+    assert fetched.id == UUID(SCORE_ID)
+    assert submitted.id == UUID(SCORE_ID)
+
+
+@pytest.mark.asyncio
+async def test_async_client_owns_scoreboard_authentication_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auths: list[_TokenAuth] = []
+
+    def auth(_origin: str) -> _TokenAuth:
+        value = _TokenAuth(f"token-{len(auths)}")
+        auths.append(value)
+        return value
+
+    monkeypatch.setattr(auth_module, "_default_caller_auth", auth)
+    client = _async_client(lambda _request: httpx.Response(200, json=_score_response()))
+
+    await client.logout()
+    await client.aclose()
+
+    assert len(auths) == 2
+    assert [value.logout_calls for value in auths] == [1, 1]
+    assert [value.close_calls for value in auths] == [1, 1]
 
 
 def test_client_lists_scoreboard_registered_leaderboards() -> None:

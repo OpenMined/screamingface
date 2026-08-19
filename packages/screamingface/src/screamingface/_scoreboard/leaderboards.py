@@ -39,7 +39,13 @@ class Leaderboards:
 
     def list(self) -> Sequence[LeaderboardInfo]:
         return _decode_list(
-            _sync_json(self._request, self._scoreboard_url, "GET", _BENCHMARKS_PATH)
+            _sync_json(
+                self._request,
+                self._scoreboard_url,
+                "GET",
+                _BENCHMARKS_PATH,
+                replay_safe=True,
+            )
         )
 
     def get(self, benchmark_id: str, *, top: int = 50) -> Leaderboard:
@@ -51,6 +57,7 @@ class Leaderboards:
                 self._scoreboard_url,
                 "GET",
                 f"{_LEADERBOARD_PATH}/{quote(selected, safe='')}",
+                replay_safe=True,
                 params={"top": limit},
                 missing=("unknown_leaderboard", f"Leaderboard {selected!r} is not registered"),
             )
@@ -67,6 +74,7 @@ class Leaderboards:
                 _SCORES_PATH,
                 json=payload,
                 headers={"Idempotency-Key": candidate_result.run_id},
+                replay_safe=True,
                 operation="submit a score to",
             ),
         )
@@ -80,6 +88,7 @@ class Leaderboards:
                 self._scoreboard_url,
                 "GET",
                 f"{_SCORES_PATH}/{selected}",
+                replay_safe=True,
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
             ),
         )
@@ -98,7 +107,13 @@ class AsyncLeaderboards:
 
     async def list(self) -> Sequence[LeaderboardInfo]:
         return _decode_list(
-            await _async_json(self._request, self._scoreboard_url, "GET", _BENCHMARKS_PATH)
+            await _async_json(
+                self._request,
+                self._scoreboard_url,
+                "GET",
+                _BENCHMARKS_PATH,
+                replay_safe=True,
+            )
         )
 
     async def get(self, benchmark_id: str, *, top: int = 50) -> Leaderboard:
@@ -110,6 +125,7 @@ class AsyncLeaderboards:
                 self._scoreboard_url,
                 "GET",
                 f"{_LEADERBOARD_PATH}/{quote(selected, safe='')}",
+                replay_safe=True,
                 params={"top": limit},
                 missing=("unknown_leaderboard", f"Leaderboard {selected!r} is not registered"),
             )
@@ -126,6 +142,7 @@ class AsyncLeaderboards:
                 _SCORES_PATH,
                 json=payload,
                 headers={"Idempotency-Key": candidate_result.run_id},
+                replay_safe=True,
                 operation="submit a score to",
             ),
         )
@@ -139,6 +156,7 @@ class AsyncLeaderboards:
                 self._scoreboard_url,
                 "GET",
                 f"{_SCORES_PATH}/{selected}",
+                replay_safe=True,
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
             ),
         )
@@ -150,6 +168,7 @@ def _sync_json(
     method: str,
     path: str,
     *,
+    replay_safe: bool,
     params: Mapping[str, object] | None = None,
     json: Mapping[str, object] | None = None,
     headers: Mapping[str, str] | None = None,
@@ -157,7 +176,14 @@ def _sync_json(
     operation: str = "load",
 ) -> object:
     try:
-        response = request(method, path, params=params, json=json, headers=headers)
+        response = request(
+            method,
+            path,
+            params=params,
+            json=json,
+            headers=headers,
+            replay_safe=replay_safe,
+        )
     except httpx.HTTPError as exc:
         _unreachable(scoreboard_url, exc)
     return _response_json(response, scoreboard_url, missing, operation)
@@ -169,6 +195,7 @@ async def _async_json(
     method: str,
     path: str,
     *,
+    replay_safe: bool,
     params: Mapping[str, object] | None = None,
     json: Mapping[str, object] | None = None,
     headers: Mapping[str, str] | None = None,
@@ -176,7 +203,14 @@ async def _async_json(
     operation: str = "load",
 ) -> object:
     try:
-        response = await request(method, path, params=params, json=json, headers=headers)
+        response = await request(
+            method,
+            path,
+            params=params,
+            json=json,
+            headers=headers,
+            replay_safe=replay_safe,
+        )
     except httpx.HTTPError as exc:
         _unreachable(scoreboard_url, exc)
     return _response_json(response, scoreboard_url, missing, operation)
