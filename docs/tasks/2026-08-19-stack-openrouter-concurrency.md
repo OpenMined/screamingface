@@ -17,7 +17,10 @@ Engine evaluation fans out up to 32; queued calls burn the Engine's 600s per-cal
 inside the gateway's semaphore and die without ever reaching OpenRouter.
 
 Change: one env line in the gateway launch block of `packages/screamingface/justfile` —
-`AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES='{"openrouter": 32}'`.
+`AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES='{"openrouter": 32}'` — plus (owner-directed,
+replacing canceled OME-891) an INFO log in `aigateway/core/concurrency.py` announcing the
+limit each provider's semaphore is created with, so the gateway log proves the limit in
+force.
 
 Out of scope: hosted deployments (operator action via the aigateway chart's `extraEnv`),
 the gateway code default, and the 600s timeout itself. Long-term fix: `OME-886`.
