@@ -31,13 +31,14 @@ from .chat_credentials import _credential_target_for_chat
 
 router = APIRouter()
 
-# WHY a cap (review F7): the admitted set has no eviction, so without a ceiling one
-# authenticated caller with one key could loop-admit OpenRouter's whole catalog and
-# permanently fatten every tenant's `GET /v1/models` and every scheduled run's env.
-# The value sits far above real use (a notebook admits a handful) and far below the
-# discovery parser's 10k ceiling. A real teardown story (LRU/TTL/admin delete) is a
-# follow-up design decision, not invented here.
-_MAX_ADMITTED_MODELS = 256
+# WHY a cap (review F7): the admitted set has no eviction, so without a ceiling a
+# runaway loop could grow every tenant's `GET /v1/models` and every scheduled run's
+# env without bound. The value sits ABOVE OpenRouter's whole public catalog (~415
+# models as of 2026-08-19), so no legitimate use — even "admit everything" — ever
+# hits it; it exists purely as a backstop against catalog growth and abuse, and
+# stays far below the discovery parser's 10k document ceiling. A real teardown
+# story (LRU/TTL/admin delete) is a follow-up design decision, not invented here.
+_MAX_ADMITTED_MODELS = 1024
 
 
 class _AdmitRequest(BaseModel):
@@ -52,6 +53,41 @@ def _answer(model_id: str, *, admitted: bool, code: str | None, message: str | N
         "code": code,
         "message": message,
     }
+
+
+def _capacity_refusal(model_id: str) -> dict:
+    return _answer(
+        model_id,
+        admitted=False,
+        code="admission_capacity_reached",
+        message=(
+            f"this deployment has dynamically admitted {_MAX_ADMITTED_MODELS} models, "
+            "its capacity — seed the model statically (AIGW_OPENROUTER_DEFAULT_MODELS) "
+            "or restart the gateway to clear dynamic admissions"
+        ),
+    )
+
+
+def _store_admission(admitted_models: dict[str, Any], model_id: str, entry: Any) -> bool:
+    """Insert under the cap — the DEFINITIVE enforcement point.
+
+    WHY here and not only at the top of the route: between the route's cheap
+    pre-check and this insert sit two awaits (credential resolution and the
+    catalog dial). Concurrent admissions interleave at those awaits, so N
+    requests could all pass a pre-check taken at ``len == cap - 1`` and then all
+    insert, overshooting the cap. This function has NO awaits between its check
+    and its insert, which under asyncio's single-threaded loop makes the pair
+    atomic — the pre-check is a cost optimization, this is the law.
+
+    An id a rival admitted during the window is a grant (idempotence outranks
+    the cap, exactly like the route's known-model short-circuit).
+    """
+    if model_id in admitted_models:
+        return True
+    if len(admitted_models) >= _MAX_ADMITTED_MODELS:
+        return False
+    admitted_models[model_id] = entry
+    return True
 
 
 async def _credential_verdict(
@@ -120,18 +156,10 @@ async def admit_model(request: Request, current: CurrentAccount, body: _AdmitReq
         return _answer(model_id, admitted=True, code=None, message=None)
 
     # Capacity before any credential or catalog work (review F7): a full set is a
-    # refusal that must cost nothing.
+    # refusal that must cost nothing. This pre-check is NOT the enforcement —
+    # `_store_admission` below is; awaits sit between here and the insert.
     if len(admitted_models) >= _MAX_ADMITTED_MODELS:
-        return _answer(
-            model_id,
-            admitted=False,
-            code="admission_capacity_reached",
-            message=(
-                f"this deployment has dynamically admitted {_MAX_ADMITTED_MODELS} models, "
-                "its capacity — seed the model statically (AIGW_OPENROUTER_DEFAULT_MODELS) "
-                "or restart the gateway to clear dynamic admissions"
-            ),
-        )
+        return _capacity_refusal(model_id)
 
     credentialed, relayed = await _credential_verdict(
         request, account_id=str(current.id), provider=provider, plugin=plugin
@@ -153,5 +181,7 @@ async def admit_model(request: Request, current: CurrentAccount, body: _AdmitReq
     )
     if not decision.admitted or decision.entry is None:
         return _answer(model_id, admitted=False, code=decision.code, message=decision.message)
-    admitted_models[model_id] = decision.entry
+    if not _store_admission(admitted_models, model_id, decision.entry):
+        # A rival admission filled the last slot while this one was at the dial.
+        return _capacity_refusal(model_id)
     return _answer(model_id, admitted=True, code=None, message=None)

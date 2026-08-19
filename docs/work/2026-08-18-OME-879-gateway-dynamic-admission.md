@@ -16,7 +16,7 @@ answer surface: a `POST /v1/models/admit` endpoint that checks the dynamic-admis
 the id shape, provider enablement, credentials, and OpenRouter's public catalog (OME-479
 discovery transport, TTL-cached) — then either registers the model live (in-memory, for the
 deployment's lifetime) or refuses pre-spend with a diagnostic code naming which knob to
-turn. Plan: `.dk/plans/2026-08-18-openrouter-dynamic-model-admission.md` (approved by Khoa
+turn. Plan: `.dk/plans/2026-08-18-openrouter-dynamic-model-admission.md` (owner-approved
 2026-08-18).
 
 ## Planned changes
@@ -82,3 +82,18 @@ Ultrareview findings 6, 7, 9 land here as a follow-up commit on the same branch:
 - **F9** — the shared `app.state.admission_catalog_cache` is namespaced per provider
   (`cache.setdefault(provider, {})`) so a second `admit_model` plugin cannot collide
   with OpenRouter's `ids`/`expires_at` keys.
+
+### Follow-up: cap race (owner review, 2026-08-19, PR #633)
+
+Owner review of the review-fix round: concurrent admissions can bypass the 256-model cap.
+The pre-check and the dict insert are separated by two awaits (credential resolution, the
+catalog dial), so N requests can all pass the pre-check at len == cap-1 and all insert.
+Fix: `_store_admission` — check+insert with NO awaits between them (atomic under asyncio's
+single-threaded loop) as the DEFINITIVE enforcement; the top-of-route check remains as the
+cheap pre-dial refusal. Race reproduced deterministically in a test by making the awaited
+plugin decision itself admit a rival into the last slot.
+
+Owner follow-up on the same pass: `_MAX_ADMITTED_MODELS` raised 256 → 1024 — above
+OpenRouter's whole public catalog (~415 on 2026-08-19), so the cap is purely a runaway
+backstop, never a lid on legitimate use. Safe to raise BECAUSE the insert-time guard now
+actually enforces it.

@@ -385,3 +385,55 @@ async def test_the_catalog_cache_is_namespaced_per_provider(
     cache = cast(FastAPI, authenticated_client.app).state.admission_catalog_cache
     assert set(cache) == {"openrouter"}
     assert "ids" in cache["openrouter"]
+
+
+@pytest.mark.asyncio
+async def test_a_concurrent_admission_cannot_bypass_the_cap(
+    monkeypatch: pytest.MonkeyPatch, openrouter_enabled, authenticated_client, credential_blobs
+) -> None:
+    # THE RACE (PR #633 follow-up): the route's cap pre-check and its dict insert are
+    # separated by two awaits (credential resolution, the catalog dial). A rival
+    # admission landing INSIDE that window used to slip past the pre-check and
+    # overshoot the cap. The rival is simulated deterministically: the awaited
+    # plugin decision itself fills the last slot before returning its grant —
+    # the insert-time guard, not the pre-check, must hold the line.
+    from aigateway.plugins.openrouter_provider import plugin as plugin_module
+    from aigateway.routes import model_admission as route_module
+
+    monkeypatch.setattr(route_module, "_MAX_ADMITTED_MODELS", 1)
+    http = _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
+    _install_runtime(authenticated_client, http)
+    await _credential(credential_blobs, authenticated_client)
+
+    app = cast(FastAPI, authenticated_client.app)
+    real_admit = plugin_module.PLUGIN.admit_model
+
+    async def rival_wins_the_window(model_id: str, **kwargs):
+        app.state.admitted_models["openrouter/rival/model"] = object()
+        return await real_admit(model_id, **kwargs)
+
+    monkeypatch.setattr(plugin_module.PLUGIN, "admit_model", rival_wins_the_window)
+
+    body = _admit(authenticated_client, _TARGET)
+
+    assert body["admitted"] is False
+    assert body["code"] == "admission_capacity_reached"
+    assert _TARGET not in app.state.admitted_models
+    # INVARIANT: the cap holds — exactly the rival's slot, never cap+1.
+    assert len(app.state.admitted_models) == 1
+
+
+def test_the_insert_time_guard_is_idempotent_and_capped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aigateway.routes import model_admission as route_module
+    from aigateway.routes.model_admission import _store_admission
+
+    monkeypatch.setattr(route_module, "_MAX_ADMITTED_MODELS", 1)
+    admitted: dict = {"openrouter/a/b": object()}
+
+    # An id a rival admitted during the window is a grant (idempotence outranks
+    # the cap), while a NEW id at capacity is refused.
+    assert _store_admission(admitted, "openrouter/a/b", object()) is True
+    assert _store_admission(admitted, "openrouter/c/d", object()) is False
+    assert len(admitted) == 1

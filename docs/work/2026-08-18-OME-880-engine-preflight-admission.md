@@ -101,7 +101,7 @@ Ultrareview findings 1-5 land here as a follow-up commit on the same branch (pat
 
 ### Prior-test amendments (owner-approved 2026-08-19)
 
-The append-only gate flagged these; Khoa approved all three in-session:
+The append-only gate flagged these; the owner approved all three in-session:
 
 1. `apps/screamingface-engine/tests/unit/test_runner_job_env_isolation.py` — the exact-set
    env assertion gains `URL4_CLOUD_EXTRA_MODELS` (F4 always writes it), with a dated
