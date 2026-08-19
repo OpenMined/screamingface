@@ -31,11 +31,18 @@ logger = logging.getLogger(__name__)
 IDEMPOTENCY_TTL = timedelta(hours=24)
 
 
-def _benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
+def benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
+    """The ONE Benchmark -> DTO mapping.
+
+    WHY public: `routes/leaderboard.py` used to carry a second hand-written copy of this
+    projection. Adding `focus` (OME-874) broke that copy and not this one — the same
+    semantic-conflict shape that took main red in OME-852. One mapper, one place to update.
+    """
     return BenchmarkSchema(
         id=model.id,
         display_name=model.display_name,
         description=model.description,
+        focus=model.focus,
         dataset_url=model.dataset_url,
         revision=model.revision,
         created_at=model.created_at,
@@ -296,6 +303,7 @@ class ScoreStore:
         description: str | None = None,
         dataset_url: str | None = None,
         revision: str | None = None,
+        focus: str | None = None,
     ) -> BenchmarkSchema:
         benchmark, _ = await Benchmark.update_or_create(
             defaults={
@@ -303,14 +311,15 @@ class ScoreStore:
                 "description": description,
                 "dataset_url": dataset_url,
                 "revision": revision,
+                "focus": focus,
             },
             id=benchmark_id,
         )
-        return _benchmark_to_schema(benchmark)
+        return benchmark_to_schema(benchmark)
 
     async def list_benchmarks(self) -> list[BenchmarkSchema]:
         rows = await Benchmark.all().order_by("id")
-        return [_benchmark_to_schema(benchmark) for benchmark in rows]
+        return [benchmark_to_schema(benchmark) for benchmark in rows]
 
     async def _resolve_existing(
         self,

@@ -106,8 +106,28 @@
     return pct > 100 ? 100 : pct;
   }
 
+  // The catalogue's "Best reproducible" figure for one benchmark.
+  //
+  // INVARIANT: entries only, never baselines — a baseline is an imported reference number with
+  // no submitter, so ranking one here would present an outside board's figure as the best
+  // result on this one. Entries arrive ordered by score descending; the scan guards against a
+  // future reordering.
+  //
+  // Returns null rather than 0 when there is nothing to report: 0 is a real score on a
+  // benchmark whose scores can go negative.
+  function bestEntryScore(board) {
+    var entries = (board && board.entries) || [];
+    var best = null;
+    entries.forEach(function (entry) {
+      if (!entry || typeof entry.score !== "number" || isNaN(entry.score)) return;
+      if (best === null || entry.score > best) best = entry.score;
+    });
+    return best;
+  }
+
   return {
     isReproducible: isReproducible,
+    bestEntryScore: bestEntryScore,
     sotaScore: sotaScore,
     isSota: isSota,
     orderRows: orderRows,

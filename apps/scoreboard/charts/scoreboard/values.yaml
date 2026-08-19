@@ -117,6 +117,7 @@ seedBenchmarks:
         paper-identical.
       dataset_url: https://huggingface.co/datasets/perplexity-ai/draco
       revision: 1c58b3085912e304
+      focus: Research reports with citations
     - id: ifeval
       display_name: IFEval
       description: >-
@@ -125,6 +126,7 @@ seedBenchmarks:
       # WHY no dataset_url: the IFEval dataset is vendored inside the Engine
       # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
       revision: 0b88a52b5f10a6d9
+      focus: Instruction following
     - id: healthbench-worst30
       display_name: HealthBench Worst-30% Challenge
       description: >-
@@ -133,6 +135,7 @@ seedBenchmarks:
         rubric; safety mistakes subtract points, so per-case scores can be negative.
       dataset_url: https://huggingface.co/datasets/openai/healthbench
       revision: 6cd57aee171fbdc4
+      focus: Clinical safety, hardest cases
     # --- Legacy demo entries, deliberately retained (OME-775 D2) -----------------------
     # No Engine revision exists for these; they predate the Engine benchmark catalogue.
     - id: livetruth-latest

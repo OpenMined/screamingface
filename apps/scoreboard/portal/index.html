@@ -22,32 +22,38 @@
 <body>
   <div class="rail">
     <span class="brand"><span class="m">😱</span> screamingface</span><span class="sep">/</span>
-    <nav class="crumbs"><a href="index.html" class="here">portal</a></nav>
+    <nav class="crumbs"><a href="index.html" class="here">leaderboard</a></nav>
     <span class="spacer"></span>
     <nav class="rail-nav" aria-label="Site">
       <a class="rail-link" href="index.html#benchmarks">benchmarks</a>
       <a class="rail-link" href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener">github</a>
-      <a class="rail-link" href="https://docs.screamingface.ai" target="_blank" rel="noopener">docs</a>
+      <a class="rail-link rail-link--end" href="https://docs.screamingface.ai" target="_blank" rel="noopener">docs</a>
     </nav>
     <button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
   </div>
 
   <div class="wrap wide">
     <header class="masthead">
-      <div class="eyebrow">Benchmark receipts</div>
-      <h1>Results you can reproduce, not just read.</h1>
+      <div class="eyebrow">Leaderboard</div>
+      <h1>Fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="o">ns, ranked and reproducible.</h1>
     </header>
 
     <p class="lead">A <em>fusion</em> is one or more models scored on a public benchmark.</p>
 
-    <p><a href="https://screamingface.ai/">Install screamingface — one command</a></p>
+    <dl class="kv defs">
+      <dt class="dt-repro">Reproducible</dt>
+      <dd>Ran on shared compute and stored on the global cache. Anyone can re-run it and get the same
+      score.</dd>
+      <dt>Unverified</dt>
+      <dd>Self-reported, or imported from a third-party board. Not yet reproduced on the global cache.</dd>
+      <dt>Solo model</dt>
+      <dd>A single model, shown as a reference baseline (no submitter).</dd>
+    </dl>
 
     <div class="note">
-      <span class="kicker">Verification</span>
-      OpenMined is not independently re-running submissions yet, so this board makes no
-      reproduction claim: treat every score as self-reported. Every leaderboard row keeps
-      its URL4 expression, so you can rerun the claim before trusting it.
-    </div>
+      <span class="kicker">Read this first</span> The top of each leaderboard is the best submitted result: the current SOTA. Every row keeps its URL4 expression, so you can rerun any claim before trusting it.</div>
+
+    <p><a class="btn" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Get started with ScreamingFace →</a></p>
 
     <div class="stats" aria-label="Live portal counts">
       <div class="s"><span class="k">Benchmarks</span><div class="v" id="stat-benchmarks">—</div></div>
@@ -66,9 +72,11 @@
         <thead>
           <tr>
             <th>Benchmark</th>
+            <th>Focus</th>
             <th class="num">Fusions</th>
+            <th class="num">Best reproducible</th>
             <th>Dataset</th>
-            <th>Leaderboard</th>
+            <th>Open</th>
           </tr>
         </thead>
         <tbody id="benchmark-list"></tbody>
@@ -77,10 +85,11 @@
 
     <div class="foot">
       <span>😱 screamingface</span>
-      <span><a href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>
+      <span><a href="https://scoreboard.screamingface.ai/" rel="noopener noreferrer">scoreboard.screamingface.ai</a></span>
     </div>
   </div>
 
+  <script src="leaderboard-logic.js" defer></script>
   <script src="main.js" defer></script>
   <script src="theme.js" defer></script>
 </body>

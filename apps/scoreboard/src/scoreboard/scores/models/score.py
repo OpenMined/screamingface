@@ -34,23 +34,16 @@ class BaseScore(BaseScoreboardModel):
     # unattested client payload. This field therefore asserts nothing today.
     #
     # INVARIANT: the public portal must not claim more than this. index.html and
-    # benchmark.html state that scores are self-reported and that this column does not
-    # yet distinguish rows. They previously said "Verified means OpenMined
-    # independently reproduced the run", which this default would have turned into a
-    # false claim on every row. Change the default and that copy together, or the
-    # board lies.
+    # benchmark.html say the top row is the best *submitted* result and never call any row
+    # verified or reproduced. They previously said "Verified means OpenMined independently
+    # reproduced the run", which this default would have turned into a false claim on every
+    # row. Change the default and that copy together, or the board lies.
     #
-    # INVARIANT: never client-settable. Absent from ScoreSubmission, so sending it is a
-    # 422. The trust signal must not be assertable by the party it exists to constrain.
-    #
-    # AIDEV-NOTE: OME-821 replaces this with a real distinction (self-reported vs
-    # OpenMined-run); OME-414 is what makes "reproduced" possible at all. Until one of
-    # them lands, do not build a UI that filters or ranks on this field. Not because
-    # the value is uniform — rows predating this change keep false, since D5 forbids a
-    # backfill — but because the value certifies nothing either way. A filter would
-    # therefore split rows by whether they predate the default change while presenting
-    # itself as a verification filter, which is worse than filtering nothing
-    # (review of #588).
+    # AIDEV-NOTE (OME-874): the mockup's note claimed the board filters to reproduced rows by
+    # default and offered a toggle for the rest. Both describe machinery that does not exist —
+    # the query never filters on this field — so the two sentences were removed and the third
+    # kept with one word changed ("verified" -> "submitted"). The copy and the pool filter are
+    # one change, not two: restore that wording only alongside OME-771.
     verified_by_screamingface = fields.BooleanField(default=True)
     # INVARIANT: the Engine benchmark revision this score was produced against. The
     # leaderboard partitions ranking on (spec_id, benchmark_revision) so results measured

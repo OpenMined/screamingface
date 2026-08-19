@@ -77,3 +77,27 @@ async def test_load_benchmarks_json_still_rejects_an_unknown_key() -> None:
     # rather than silently registering a benchmark without its revision.
     with pytest.raises(ValueError, match="invalid benchmark seed payload"):
         load_benchmarks_json('[{"id":"draco","display_name":"DRACO","revsion":"typo"}]')
+
+
+# --- OME-874: benchmarks carry a short editorial "focus" line -------------------------------
+
+
+async def test_seed_benchmarks_persists_the_focus(tortoise_db: None) -> None:
+    seeded = await seed_benchmarks(
+        load_benchmarks_json(
+            '[{"id":"draco","display_name":"DRACO","focus":"Research reports with citations"}]'
+        )
+    )
+
+    assert seeded[0].focus == "Research reports with citations"
+    assert (await Benchmark.get(id="draco")).focus == "Research reports with citations"
+
+
+async def test_seed_benchmarks_allows_an_absent_focus(tortoise_db: None) -> None:
+    # WHY: focus is editorial copy rather than data we derive, so a benchmark can legitimately
+    # ship without one — the portal renders an em dash instead of an empty cell.
+    seeded = await seed_benchmarks(
+        load_benchmarks_json('[{"id":"hle","display_name":"News Hallucinations"}]')
+    )
+
+    assert seeded[0].focus is None
