@@ -47,7 +47,7 @@ the completed gradeable subset, independently for every Candidate.
   executor bridge; public Client Event decoding, state fold, notebook/text rendering; contract,
   replay, fallback, theme, and regression tests; spec/plan/task/ledger artifacts.
 - **Commits:** this PR — `feat(benchmarks): stream provisional evaluation progress`.
-- **Gates:** Engine unit suite: 1,728 passed, 6 skipped. SDK suite: 912 passed, 1 skipped.
+- **Gates:** Engine suite: 1,740 passed, 6 skipped. SDK suite: 912 passed, 1 skipped.
   Focused cross-stack suites: 118 passed.
 - **Deviations:** the initial segmented stage-occupancy bar was replaced after live review with the
   brand completion bar because one running Case otherwise rendered as 100% complete. Existing

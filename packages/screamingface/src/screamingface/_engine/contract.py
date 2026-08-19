@@ -154,9 +154,16 @@ class _RunState:
         return _Accepted(event=event)
 
     def _log(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        event = _log(envelope, data)
-        if isinstance(event, events.BenchmarkProgress):
+        if not _is_benchmark_progress(data):
+            return _Accepted(event=_log(envelope, data))
+        try:
+            event = _log(envelope, data)
+            if not isinstance(event, events.BenchmarkProgress):  # pragma: no cover - kind pins it
+                raise ExecutionError("SF Engine Benchmark progress kind was not preserved")
             self._validate_benchmark_progress(event)
+        except ExecutionError:
+            _LOG.warning("Ignored invalid SF Engine Benchmark progress Event", exc_info=True)
+            return _Accepted()
         return _Accepted(event=event)
 
     def _validate_benchmark_progress(self, event: events.BenchmarkProgress) -> None:
@@ -316,6 +323,13 @@ def _log(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Event:
         severity_text=severity,
         body=_raw_text(data, "body"),
         attributes=attributes,
+    )
+
+
+def _is_benchmark_progress(data: Mapping[str, object]) -> bool:
+    attributes = data.get("attributes")
+    return isinstance(attributes, Mapping) and (
+        attributes.get("screamingface.event.kind") == _BENCHMARK_PROGRESS_KIND
     )
 
 

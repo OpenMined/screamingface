@@ -8,9 +8,10 @@ execution and ordered telemetry transport; it does not learn Benchmark concepts 
 `packages/url4` is unchanged.
 
 Snapshots travel as a strictly named structured `ai.url4.log` record on the existing sequenced
-CloudEvents stream. The Engine maps a non-droppable, run-scoped internal progress signal into that
+CloudEvents stream. The Engine maps a best-effort, run-scoped internal progress signal into that
 record. The Client recognizes only the exact ScreamingFace semantic convention and decodes it into
-a public immutable `BenchmarkProgress` Event; ordinary logs remain ordinary logs.
+a public immutable `BenchmarkProgress` Event; ordinary logs remain ordinary logs. A publication,
+decoding, or monotonicity failure drops only that snapshot and can never fail the Evaluation.
 
 ## Snapshot contract
 

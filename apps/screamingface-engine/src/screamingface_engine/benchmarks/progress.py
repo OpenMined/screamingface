@@ -186,7 +186,11 @@ class _ProgressSession:
     ) -> None:
         if signal == progress.last_signal:
             return
-        self.sink(signal)
+        try:
+            self.sink(signal)
+        except Exception:
+            _logger.warning("Benchmark progress publication skipped", exc_info=True)
+            return
         progress.last_signal = signal
 
     def _progress(

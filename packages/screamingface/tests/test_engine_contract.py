@@ -749,34 +749,36 @@ def test_replayed_benchmark_progress_is_idempotent() -> None:
     assert state.accept(progress).event is None
 
 
-def test_benchmark_progress_rejects_monotonic_accounting_regressions() -> None:
+def test_benchmark_progress_drops_monotonic_accounting_regressions() -> None:
     state = _RunState(URL4)
     state.accept(frame("ai.url4.log", _benchmark_progress_data(), sequence=1))
 
-    with pytest.raises(sf.ExecutionError, match="count regressed"):
-        state.accept(
-            frame(
-                "ai.url4.log",
-                _benchmark_progress_data(
-                    **{
-                        "cases.queued": 3,
-                        "cases.complete": 0,
-                        "cases.scored": 0,
-                        "score.coverage": 0.0,
-                        "score.provisional": None,
-                    }
-                ),
-                sequence=2,
-            )
+    accepted = state.accept(
+        frame(
+            "ai.url4.log",
+            _benchmark_progress_data(
+                **{
+                    "cases.queued": 3,
+                    "cases.complete": 0,
+                    "cases.scored": 0,
+                    "score.coverage": 0.0,
+                    "score.provisional": None,
+                }
+            ),
+            sequence=2,
         )
+    )
+
+    assert accepted.event is None
 
 
-def test_benchmark_progress_rejects_an_inconsistent_stage_partition() -> None:
-    with pytest.raises(sf.ExecutionError, match="sum to total_cases"):
-        _RunState(URL4).accept(
-            frame(
-                "ai.url4.log",
-                _benchmark_progress_data(**{"cases.queued": 0}),
-                sequence=1,
-            )
+def test_benchmark_progress_drops_an_inconsistent_stage_partition() -> None:
+    accepted = _RunState(URL4).accept(
+        frame(
+            "ai.url4.log",
+            _benchmark_progress_data(**{"cases.queued": 0}),
+            sequence=1,
         )
+    )
+
+    assert accepted.event is None

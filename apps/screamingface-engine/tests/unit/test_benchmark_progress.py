@@ -188,6 +188,25 @@ def test_invalid_progress_metadata_never_changes_the_pass_through_value() -> Non
     assert snapshots == []
 
 
+def test_progress_sink_failure_never_changes_the_pass_through_value() -> None:
+    endpoint = progress_endpoint(_adapter())
+
+    def broken_sink(_signal: BenchmarkProgressSignal) -> None:
+        raise RuntimeError("progress queue is full")
+
+    with benchmark_progress_session(broken_sink):
+        value = endpoint(
+            Request(
+                "fixture",
+                json.dumps({"case_id": 1, "value": "candidate answer"}),
+                "candidate:2",
+                {},
+            )
+        )
+
+    assert value == "candidate answer"
+
+
 def test_final_reconciliation_does_not_repeat_an_identical_complete_snapshot() -> None:
     adapter = BenchmarkProgressAdapter(
         benchmark_id="fixture",

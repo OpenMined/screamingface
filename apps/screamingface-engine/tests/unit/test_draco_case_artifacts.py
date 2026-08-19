@@ -15,6 +15,7 @@ import pytest
 from benchmark_support import install_benchmarks
 
 from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
+from screamingface_engine.benchmarks.progress import benchmark_progress_session
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world_config import ModelSpec
 from url4 import Node, RelExpr, build, expr, render, src, text
@@ -109,7 +110,8 @@ async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) ->
         )
         install_benchmarks(world.node, tmp_path, benchmarks=(DRACO,))
         try:
-            result = await world.node.evaluate(_link(candidate, build(benchmark)))
+            with benchmark_progress_session(lambda _signal: None):
+                result = await world.node.evaluate(_link(candidate, build(benchmark)))
         finally:
             await world.aclose()
 
