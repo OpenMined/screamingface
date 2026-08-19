@@ -6,7 +6,7 @@ type: feature
 priority: 2
 labels: [scoreboard, agentic, autonomous]
 created: 2026-08-18
-closed:
+closed: 2026-08-19
 ---
 
 # Replicate the leaderboard-mvp landing copy and UI on the portal
