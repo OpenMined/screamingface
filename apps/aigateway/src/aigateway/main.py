@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import logs
 from .config import Settings
 from .core.api_key_validation_service import ApiKeyValidationService
 from .core.auth.bootstrap_admin import ensure_admin_account
@@ -328,6 +329,9 @@ def _describe_admin_security(app: FastAPI) -> None:
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings()
+    # WHY ordered before _attach_log_filter: the redaction filter is added to
+    # the "aigateway" logger's handlers, so our handler must exist first.
+    logs.configure()
     _attach_log_filter()
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)

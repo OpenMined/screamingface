@@ -29,6 +29,12 @@ single run's worst-case fan-out removes the queue entirely.
   `provider concurrency limit applied provider=openrouter limit=32`. Once per provider per
   process; re-logged only when the configured limit changes. Structured admission telemetry
   stays with `OME-886`.
+- `apps/aigateway/src/aigateway/logs.py` (new) + `create_app()` wiring in `main.py` —
+  found live-testing the log line: aigateway never configures app logging, so every
+  `aigateway.*` INFO record fell through to `logging.lastResort` (WARNING+) and was
+  discarded in every deployment. Same defect the engine fixed in
+  `screamingface_engine/logs.py`; mirrored here (apps must not import each other's
+  internals). `AIGW_LOG_LEVEL` env, default INFO, idempotent handler, propagate off.
 
 ## Test plan
 

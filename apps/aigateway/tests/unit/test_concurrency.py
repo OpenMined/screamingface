@@ -165,10 +165,13 @@ async def test_reacquisition_at_same_limit_does_not_log_again(
     app = _app()
     async with provider_slot(app, "openrouter", 32):
         pass
+    # WHY clear: caplog accumulates from test start, so the first (legitimate)
+    # creation log would trip the assertion once the app logger runs at INFO.
+    caplog.clear()
     with caplog.at_level("INFO", logger="aigateway.core.concurrency"):
         async with provider_slot(app, "openrouter", 32):
             pass
-    assert not caplog.records
+    assert not [r for r in caplog.records if r.name == "aigateway.core.concurrency"]
 
 
 @pytest.mark.asyncio
