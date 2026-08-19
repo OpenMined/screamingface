@@ -33,17 +33,19 @@ class BaseScore(BaseScoreboardModel):
     # scoreboard_url, and the chart ships authMode: disabled, so a submission is an
     # unattested client payload. This field therefore asserts nothing today.
     #
-    # AMENDED (OME-874, owner decision 2026-08-18): the portal copy is now deliberately
-    # FORWARD-LOOKING and no longer matches this field. index.html and benchmark.html state
-    # that the top of each board is the best reproducible result; neither the filter nor the
-    # signal behind that exists yet. The owner's rationale, quoted on the ticket: "it's not
-    # dishonest, it's just to present what purpose this leaderboard serves long term."
+    # INVARIANT: the public portal must not claim more than this. index.html and
+    # benchmark.html state that scores are self-reported and that nothing on the board has
+    # been independently reproduced. They previously said "Verified means OpenMined
+    # independently reproduced the run", which this default would have turned into a
+    # false claim on every row. Change the default and that copy together, or the
+    # board lies.
     #
-    # So the previous invariant here — "change the default and that copy together, or the
-    # board lies" — has been consciously suspended for the landing and benchmark pages. It is
-    # recorded rather than deleted so a future reader does not "restore" the old copy as a
-    # bug fix. What survives unchanged is the rule BELOW: this field still certifies nothing,
-    # so nothing may filter or rank on it. Copy may promise; code may not pretend.
+    # AIDEV-NOTE (OME-874): forward-looking copy was tried here and reverted in review. The
+    # mockup's wording ("the board only shows results we've reproduced", "toggle on
+    # self-reported runs") is coherent ONLY because its default view is filtered. Ported to
+    # an unfiltered board it contradicts itself — an unverified 0.99 outranks a verified 0.40
+    # — and points at a toggle that does not exist. The lesson is not "avoid ambition": it is
+    # that this copy and the pool filter are one change, not two.
     #
     # INVARIANT: never client-settable. Absent from ScoreSubmission, so sending it is a
     # 422. The trust signal must not be assertable by the party it exists to constrain.

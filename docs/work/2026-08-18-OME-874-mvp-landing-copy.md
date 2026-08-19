@@ -165,3 +165,45 @@ Written RED first, then made green:
 - **Commits:**
 - **Gates:**
 - **Deviations:**
+
+## Review finding (Dmitry, 2026-08-19): the aspirational copy was not implementable
+
+Both points were correct and both are fixed.
+
+**1. The `benchmark.html` note contradicted itself.** It read *"The top of this board is the best
+reproducible result: the current SOTA. Self-reported runs can rank above it."* If a self-reported
+run can rank above the top, the top is not the best reproducible result. Verified against the code
+rather than argued: `_build_leaderboard_query` selects `verified_by_screamingface` but never filters
+on it, and orders by `score DESC` — so an unverified `0.99` genuinely outranks a verified `0.40`.
+
+That sentence was **mine**, written for D6, not brand copy: the mockup's benchmark page carries no
+note box at all (0 `class="note"`, 0 occurrences of "Read this first"). Strict fidelity would have
+deleted the box; rewording it moves toward the mockup, not away.
+
+**2. `index.html` instructed a control that does not exist.** *"Toggle on self-reported runs"* —
+there is no toggle on that page, on the benchmark page, or anywhere in the product; `OME-771` is
+Blocked. That is broken UX rather than a premature claim.
+
+### Why this supersedes D1–D3
+
+The owner chose forward-looking copy on 2026-08-18 believing it was a wording question. It was not.
+The mockup's wording is coherent **only because its default view is filtered to reproducible rows** —
+"the top is the best verified result" is true of a *filtered* board, and "toggle on self-reported
+runs" names the control doing the filtering. Ported to an unfiltered board, the same sentences
+contradict themselves and point at nothing.
+
+So this copy and the pool filter (`OME-771` → `OME-821` → `OME-414`) are **one change, not two**.
+Both notes now state what is true — every score self-reported, nothing independently reproduced,
+every row rerunnable via its URL4 — and name verified ranking as a future state rather than a
+current one. The ambition is kept; the false present tense is gone.
+
+**Glossary left untouched.** The `Reproducible` definition stays verbatim per the owner's
+instruction. It is a definition of a term, not an assertion that rows are in that category, and it
+reads coherently beside a note saying nothing has been reproduced yet.
+
+**`models/score.py` reverted** to the original invariant, with a note recording that forward-looking
+copy was tried and why it failed — so the next person reaches for the filter rather than the wording.
+
+**Owner action:** the `index.html` note was verbatim mockup copy that @Irina locked on 2026-08-18.
+Changing it is a deviation from that instruction, made because the review demonstrated it was not
+implementable. She needs to confirm before merge.
