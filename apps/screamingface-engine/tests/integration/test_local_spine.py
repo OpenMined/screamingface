@@ -244,8 +244,11 @@ def test_a_big_result_streams_as_a_claim_ticket_and_redeems_whole(
     assert redeemed.text.endswith(_BIG_PAYLOAD)
     assert len(redeemed.content) == artifact["size_bytes"]
 
-    # The claim is redeemed: a second fetch finds nothing (delete-on-fetch).
-    assert client.get(f"/artifacts/{artifact['id']}", headers=_cap(token)).status_code == 404
+    # INVARIANT: fetching never deletes — a retry (or a second ticket deduped onto the
+    # same content) must still find the parcel; only the TTL sweep removes it.
+    again = client.get(f"/artifacts/{artifact['id']}", headers=_cap(token))
+    assert again.status_code == 200
+    assert again.content == redeemed.content
 
 
 def test_the_sync_get_path_serves_a_big_result_whole(big_result_client: TestClient) -> None:
