@@ -21,6 +21,7 @@ from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass, GlobalCacheProj
 from ._contract import ProviderPluginBase
 from ._ports import (
     CredentialStrategy,
+    ModelAdmission,
     ModelEntry,
     OAuthCodeExchangeRequest,
     OAuthConfig,
@@ -45,6 +46,7 @@ __all__ = [
     "CacheBypass",
     "CredentialStrategy",
     "GlobalCacheProjection",
+    "ModelAdmission",
     "ModelEntry",
     "OAuthCodeExchangeRequest",
     "OAuthConfig",

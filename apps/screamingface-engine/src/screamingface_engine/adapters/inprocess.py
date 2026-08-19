@@ -13,7 +13,7 @@ identity, same single-use 409 guard — a task registry instead of a cluster.
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from screamingface_engine import job_env
 from screamingface_engine.ports import IdentityAwareJobRunner
@@ -83,9 +83,13 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         base_env: Mapping[str, str] | None = None,
         max_concurrent_runs: int = DEFAULT_MAX_CONCURRENT_RUNS,
         max_history: int = DEFAULT_MAX_HISTORY,
+        extra_models: Callable[[], Sequence[str]] | None = None,
     ) -> None:
         self._stream = stream
         self._factory = executor_factory
+        # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows while
+        # the app runs, and a model admitted a second ago must reach the very next run.
+        self._extra_models = extra_models
         # WHY injected rather than read from os.environ here: the deploy-time half of a run's
         # environment (aigateway base URL, Tavily key, runner config path) is ambient in local
         # mode, and taking it as a parameter is what keeps this class testable without monkey-
@@ -172,6 +176,11 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         for name in (job_env.CACHE_PARTICIPATE, job_env.CACHE_MAX_AGE_S):
             env.pop(name, None)
         env.update(job_env.cache_policy_to_env(cache))
+        # INVARIANT: same reset as identity/cache policy — the CURRENT overlay replaces any
+        # ambient value, so a stale admitted set in `_base_env` never leaks onto a run (OME-880).
+        env.pop(job_env.EXTRA_MODELS, None)
+        if self._extra_models is not None:
+            env.update(job_env.extra_models_to_env(self._extra_models()))
         return env
 
     # --- the JobRunner port -----------------------------------------------------------------

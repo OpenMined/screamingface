@@ -28,6 +28,7 @@ from ..api_key_validation import ApiKeyValidator
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from ._ports import (
     CredentialStrategy,
+    ModelAdmission,
     ModelEntry,
     OAuthCodeExchangeRequest,
     OAuthConfig,
@@ -37,6 +38,7 @@ from ._ports import (
 if TYPE_CHECKING:
     from ..credential_blob.store import CredentialBlobStore
     from ..oauth.identity import AccountIdentity
+    from ..parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
     from ..profile_index import ProfileIndexStore
     from ..profile_models import AuthMode, AuthType
 
@@ -58,6 +60,35 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     @abstractmethod
     def register_models(self) -> list[ModelEntry]:
         """Return the model_list entries this plugin contributes."""
+
+    async def admit_model(
+        self,
+        model_id: str,
+        *,
+        discovery_client: DiscoveryHttpClient | None,
+        discovery_limits: DiscoveryLimits | None,
+        catalog_cache: dict[str, Any],
+        credentialed: bool,
+    ) -> ModelAdmission:
+        """Decide whether ``model_id`` may join the served catalog at runtime (OME-879).
+
+        The default answer is a refusal: dynamic admission is opt-in per
+        provider, and only a provider with an authoritative public catalog to
+        validate against (OpenRouter today) overrides this.
+
+        Args: ``discovery_client``/``discovery_limits`` are the bounded
+        discovery transport (``None`` when discovery is disabled);
+        ``catalog_cache`` is app-owned mutable scratch the provider may use to
+        TTL-cache its catalog; ``credentialed`` says whether the CALLING account
+        holds a usable credential for this provider — the route resolves it,
+        because credential scoping is account+profile shaped and lives in core.
+        Returns a ``ModelAdmission`` — never raises for a refusal.
+        """
+        del model_id, discovery_client, discovery_limits, catalog_cache, credentialed
+        return ModelAdmission.refused(
+            "dynamic_admission_unsupported",
+            f"provider {self.custom_llm_provider!r} does not support dynamic model admission",
+        )
 
     def conformance_models(self) -> list[ModelEntry]:
         """Return deterministic model representatives for contract conformance.

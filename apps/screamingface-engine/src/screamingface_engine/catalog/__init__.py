@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 
 import httpx
 
+from screamingface_engine.catalog.admission import AdmittedModels, ModelAdmissionSource
 from screamingface_engine.catalog.aigateway import AigatewayCatalogSource
 from screamingface_engine.catalog.cache import CacheCounters, CachedCatalog, CatalogService
 from screamingface_engine.catalog.executable import (
@@ -105,10 +106,27 @@ def build_executable_catalog_service(
         return None
     logger.info("model discovery projects onto %d declared route(s)", len(model_ids))
     source = build_catalog_service(settings, client_factory=client_factory)
+    # OME-880: dynamic admission wiring. The gateway adapter doubles as the admission source
+    # (structural check, so a future parameter-only source simply gets no dynamic admission);
+    # a grant invalidates the cached catalog so `GET /v1/models` re-reads upstream.
+    parameter_source = None if source is None else source.model_parameter_source
+    admission_source = (
+        parameter_source if isinstance(parameter_source, ModelAdmissionSource) else None
+    )
     # `source is None` cannot happen — it guards on the same base URL checked above — but the
     # narrowing is expressed rather than asserted, so the two guards drifting apart degrades
     # exactly like an unconfigured deployment instead of raising at import time under `-O`.
-    return None if source is None else ExecutableCatalog(source, model_ids)
+    return (
+        None
+        if source is None
+        else ExecutableCatalog(
+            source,
+            model_ids,
+            admitted=AdmittedModels(),
+            admission_source=admission_source,
+            on_admitted=source.invalidate,
+        )
+    )
 
 
 __all__ = [

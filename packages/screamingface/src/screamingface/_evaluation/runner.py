@@ -8,7 +8,10 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from screamingface.errors import PlanningError
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
 from screamingface._evaluation.benchmark import _BenchmarkResource
@@ -56,6 +59,7 @@ def evaluate_sync(
 
     from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.results import report_from_outcomes
+    from screamingface.errors import PlanningError
 
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
@@ -63,7 +67,14 @@ def evaluate_sync(
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
     catalog = load_models()
-    _validate_required_models(evaluation, catalog.models)
+    # The availability probe (OME-878): a details fetch for EVERY listing-missing
+    # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
+    # pre-spend), or answers a plain 404 that reads as today's refusal.
+    for model in _missing_required_models(evaluation, catalog.models):
+        try:
+            load_model_details(model)
+        except PlanningError as exc:
+            _reraise_probe_miss(model, exc)
     preflight_sync(tuple(evaluation.candidates), load_model_details)
     observer = _sync_event_observer(
         on_event,
@@ -97,6 +108,7 @@ async def evaluate_async(
 
     from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.results import report_from_outcomes
+    from screamingface.errors import PlanningError
 
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
@@ -104,7 +116,14 @@ async def evaluate_async(
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
     catalog = await load_models()
-    _validate_required_models(evaluation, catalog.models)
+    # The availability probe (OME-878): a details fetch for EVERY listing-missing
+    # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
+    # pre-spend), or answers a plain 404 that reads as today's refusal.
+    for model in _missing_required_models(evaluation, catalog.models):
+        try:
+            await load_model_details(model)
+        except PlanningError as exc:
+            _reraise_probe_miss(model, exc)
     await preflight_async(tuple(evaluation.candidates), load_model_details)
     observer = _async_event_observer(
         on_event,
@@ -320,27 +339,43 @@ async def _run_candidates_async(
     return tuple(zip(candidates, outcomes, strict=True))
 
 
-def _validate_required_models(
+def _missing_required_models(
     evaluation: _Evaluation,
     available: Sequence[ModelInfo],
-) -> None:
+) -> tuple[str, ...]:
+    """The required Models the listing does not carry — every one defers to the probe.
+
+    WHY no admissibility grammar here (review F10): the Engine and Gateway are the
+    only authorities on what can be dynamically admitted (OME-878); a third copy of
+    their shape rules in the SDK already diverged once and would force a lockstep
+    three-component release the day a second provider admits. The probe is a free,
+    pre-spend request: an Engine that admits lets the run proceed, one that refuses
+    answers with a decoded diagnostic, and one that cannot admit at all answers
+    with a plain 404 — which the probe rewrites into exactly today's refusal.
+    """
+    available_ids = {model.id for model in available}
+    return tuple(model for model in evaluation.required_models if model not in available_ids)
+
+
+def _reraise_probe_miss(model: str, exc: PlanningError) -> None:
+    """Rewrite the probe's plain-404 answer into today's availability refusal.
+
+    WHY here and not in the shared details decoder (review F8): only the probe
+    KNOWS it asked about a listing-missing model, so only the probe may read a
+    bare 404 as "not available on this Engine". On every other details call a
+    bare 404 stays what it really is — a deployment problem
+    (``engine_contract_error``), e.g. a reverse proxy without the route.
+    """
     from screamingface.errors import PlanningError
 
-    available_ids = {model.id for model in available}
-    missing = tuple(model for model in evaluation.required_models if model not in available_ids)
-    if not missing:
-        return
-    if len(missing) == 1:
-        message = f"Model {missing[0]!r} is not available on this Engine"
-    else:
-        names = ", ".join(repr(model) for model in missing)
-        message = f"Models {names} are not available on this Engine"
-    raise PlanningError(
-        message,
-        code="model_unavailable",
-        permanent=True,
-        details={"models": list(missing)},
-    )
+    if exc.code == "engine_contract_error" and exc.status == 404:
+        raise PlanningError(
+            f"Model {model!r} is not available on this Engine",
+            code="model_unavailable",
+            permanent=True,
+            details={"models": [model]},
+        ) from exc
+    raise exc
 
 
 def _validate_check_surface(

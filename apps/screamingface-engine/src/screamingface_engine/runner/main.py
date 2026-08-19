@@ -200,7 +200,10 @@ def build_executor(
     """
 
     async def _world() -> World:
-        resolved = config if config is not None else load_config(env)
+        # `include_extra_models`: the Runner boot is the ONE parse that reads the
+        # Job-scoped URL4_CLOUD_EXTRA_MODELS overlay (review F3) — this env IS the
+        # Job's own, written by the App at schedule time.
+        resolved = config if config is not None else load_config(env, include_extra_models=True)
         section = resolved.aigateway
         if section is None:
             if len(benchmarks):

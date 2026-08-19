@@ -6,7 +6,7 @@
 """
 
 import functools
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 from screamingface_engine.adapters.k8s import BatchV1JobsClient, K8sJobRunner
@@ -53,11 +53,15 @@ def build_job_runner(
     settings: Settings,
     *,
     k8s_client_factory: Callable[[], BatchV1JobsClient] = _in_cluster_batch_client,
+    extra_models: Callable[[], Sequence[str]] | None = None,
 ) -> JobRunner | None:
     """Selects the `JobRunner` adapter for `settings.runner`.
 
     Returns `None` when no runner is configured (e.g. local mode, where nothing schedules
     Jobs) rather than raising — callers decide whether the absence of a runner is fatal.
+
+    ``extra_models`` (OME-880) is the dynamically-admitted-model overlay, read at schedule
+    time and written onto each Job as ``URL4_CLOUD_EXTRA_MODELS``.
     """
     if settings.runner == "k8s":
         # WHY: `command` is left to K8sJobRunner's default — the image entrypoint has one
@@ -71,5 +75,6 @@ def build_job_runner(
             env_secrets=(settings.tavily_secret_name,) if settings.tavily_secret_name else (),
             resources=settings.runner_resources,
             job_ttl_s=settings.effective_job_ttl_s,
+            extra_models=extra_models,
         )
     return None

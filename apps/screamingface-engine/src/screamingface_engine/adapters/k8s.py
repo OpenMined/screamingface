@@ -9,7 +9,7 @@ would cost a per-run Secret plus the RBAC to write one.
 """
 
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol
 
 from kubernetes.client import ApiException
@@ -126,6 +126,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
         resources: Mapping[str, Mapping[str, str]] | None = None,
         job_ttl_s: int | None = None,
         request_timeout_s: float | None = None,
+        extra_models: Callable[[], Sequence[str]] | None = None,
     ) -> None:
         self._client = client
         self._request_timeout_s = request_timeout_s
@@ -136,6 +137,9 @@ class K8sJobRunner(IdentityAwareJobRunner):
         self._env_secrets = list(env_secrets)
         self._resources = resources
         self._job_ttl_s = job_ttl_s
+        # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows while
+        # the app runs, and a model admitted a second ago must reach the very next Job.
+        self._extra_models = extra_models
 
     async def schedule(
         self,
@@ -284,6 +288,16 @@ class K8sJobRunner(IdentityAwareJobRunner):
             {"name": name, "value": value}
             for name, value in job_env.cache_policy_to_env(cache).items()
         )
+        # The admitted-model overlay (OME-880), read at SCHEDULE time. Plain `value`: model ids
+        # are public catalog names, not credentials.
+        # INVARIANT (review F4): the entry is ALWAYS written — empty when there is no
+        # overlay — because an explicit env entry beats `envFrom`. This is the k8s
+        # rendering of the inprocess adapter's unconditional pop: a stale
+        # URL4_CLOUD_EXTRA_MODELS left in the Helm-owned ConfigMap can never leak
+        # onto a Job.
+        overlay = () if self._extra_models is None else self._extra_models()
+        rendered = job_env.extra_models_to_env(overlay).get(job_env.EXTRA_MODELS, "")
+        env.append({"name": job_env.EXTRA_MODELS, "value": rendered})
         return env
 
     def _env_from(self) -> list[dict[str, object]]:

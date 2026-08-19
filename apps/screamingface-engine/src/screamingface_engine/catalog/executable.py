@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+from collections.abc import Callable, Mapping
 from typing import Protocol
 
+from screamingface_engine.catalog.admission import (
+    AdmittedModels,
+    ModelAdmissionSource,
+    is_dynamically_admissible,
+)
 from screamingface_engine.catalog.cache import CacheCounters, CatalogService
 from screamingface_engine.catalog.port import (
     CatalogBadResponse,
@@ -40,16 +46,36 @@ class ExecutableCatalog:
     Projection happens after that fetch so one deployment-level route set cannot leak into the
     Gateway adapter's provider/profile contract. Retained model documents and unknown top-level
     fields pass through unchanged.
+
+    OME-880: beside the frozen declared set there is a mutable ``AdmittedModels`` overlay —
+    ids the gateway dynamically admitted this deployment. Overlay members survive the
+    projection exactly like declared ids; the overlay is fed by the model-parameter source
+    below, never here.
     """
 
-    def __init__(self, source: ExecutableCatalogSource, model_ids: frozenset[str]) -> None:
+    def __init__(
+        self,
+        source: ExecutableCatalogSource,
+        model_ids: frozenset[str],
+        *,
+        admitted: AdmittedModels | None = None,
+        admission_source: ModelAdmissionSource | None = None,
+        on_admitted: Callable[[], None] | None = None,
+    ) -> None:
         self._source = source
         self._model_ids = model_ids
+        self._admitted = admitted if admitted is not None else AdmittedModels()
         parameter_source = source.model_parameter_source
         self._model_parameter_source = (
             None
             if parameter_source is None
-            else ExecutableModelParameterSource(parameter_source, model_ids)
+            else ExecutableModelParameterSource(
+                parameter_source,
+                model_ids,
+                admitted=self._admitted,
+                admission_source=admission_source,
+                on_admitted=on_admitted,
+            )
         )
 
     @property
@@ -59,6 +85,11 @@ class ExecutableCatalog:
     @property
     def entry_count(self) -> int:
         return self._source.entry_count
+
+    @property
+    def admitted_model_ids(self) -> tuple[str, ...]:
+        """The overlay's ids — what the App injects into a run's env (OME-880)."""
+        return self._admitted.ids
 
     async def fetch(self, credential: Credential) -> ModelCatalog:
         catalog = await self._source.fetch(credential)
@@ -84,7 +115,8 @@ class ExecutableCatalog:
             "data": [
                 {**item, "id": encode_route_id(item["id"])}
                 for item in data
-                if isinstance(item, Mapping) and item.get("id") in self._model_ids
+                if isinstance(item, Mapping)
+                and (item.get("id") in self._model_ids or item.get("id") in self._admitted)
             ],
         }
         return ModelCatalog(body=body, etag=compute_etag(body))
@@ -102,12 +134,57 @@ class ExecutableCatalog:
         return self._model_parameter_source
 
 
-class ExecutableModelParameterSource:
-    """Reject model-parameter lookups outside the same declared execution world."""
+def _refusal_response(model: str, code: str | None, message: str | None) -> ModelParameterResponse:
+    """A refusal rendered in aigateway's own 404 body shape (OME-880).
 
-    def __init__(self, source: ModelParameterSource, model_ids: frozenset[str]) -> None:
+    WHY this shape and not a new one: caller-correctable gateway statuses already
+    pass through this proxy verbatim as ``{"detail": {code, ...}}``, and the SDK
+    decodes that one shape — so an admission refusal that wears it needs no new
+    wire, no new REST mapping, and no second decoder.
+    """
+    detail = {
+        "code": code or "model_not_admitted",
+        "message": message or "the model was not admitted by the gateway",
+        "provider": "openrouter",
+        "model": model,
+    }
+    return ModelParameterResponse(
+        status=404,
+        content=json.dumps({"detail": detail}, separators=(",", ":")).encode(),
+    )
+
+
+class ExecutableModelParameterSource:
+    """Reject model-parameter lookups outside the same declared execution world.
+
+    OME-880: for an OpenRouter-shaped miss this source first asks the gateway to
+    dynamically admit the model. The flow, in execution order: (1) declared →
+    forward; (2) overlay member → forward, but a forwarded 404 means the gateway
+    restarted and forgot its admissions, so the stale overlay entry is discarded
+    and admission re-runs once — self-healing on the very next request instead
+    of poisoning every retry until an ENGINE restart (review F1); (3) not a
+    dynamically admissible shape, or no admission source wired → today's
+    ``ModelNotInstalled``; (4) ask the gateway — a grant joins the overlay,
+    fires ``on_admitted`` (catalog-cache invalidation, so ``GET /v1/models``
+    lists it with a fresh ETag) and forwards; a refusal returns the
+    gateway-shaped 404 body; an unanswerable gateway degrades to
+    ``ModelNotInstalled``. All pre-spend.
+    """
+
+    def __init__(
+        self,
+        source: ModelParameterSource,
+        model_ids: frozenset[str],
+        *,
+        admitted: AdmittedModels | None = None,
+        admission_source: ModelAdmissionSource | None = None,
+        on_admitted: Callable[[], None] | None = None,
+    ) -> None:
         self._source = source
         self._model_ids = model_ids
+        self._admitted = admitted if admitted is not None else AdmittedModels()
+        self._admission_source = admission_source
+        self._on_admitted = on_admitted
 
     async def fetch_model_parameters(
         self,
@@ -119,8 +196,39 @@ class ExecutableModelParameterSource:
         # never heard of '~', so both the membership check and the forwarded call need the
         # decoded form; `ModelNotInstalled` echoes back what the caller actually sent.
         real_model = decode_route_id(model)
-        if real_model not in self._model_ids:
+        if real_model in self._model_ids:
+            return await self._source.fetch_model_parameters(credential, real_model)
+        if real_model in self._admitted:
+            response = await self._source.fetch_model_parameters(credential, real_model)
+            if response.status != 404:
+                return response
+            # HEAL (review F1): a 404 for an OVERLAY id means the gateway restarted
+            # and forgot the admission (its admitted set is deliberately in-memory).
+            # The overlay must never contradict the gateway's latest answer, so the
+            # stale entry is dropped and admission decides afresh — bounded to one
+            # retry: whatever the re-admitted fetch returns is the answer.
+            self._admitted.discard(real_model)
+        return await self._admit_and_fetch(credential, model, real_model)
+
+    async def _admit_and_fetch(
+        self,
+        credential: Credential,
+        model: str,
+        real_model: str,
+    ) -> ModelParameterResponse:
+        """Ask the gateway to admit ``real_model``, then forward on a grant."""
+        if self._admission_source is None or not is_dynamically_admissible(real_model):
             raise ModelNotInstalled(model)
+        answer = await self._admission_source.admit_model(credential, real_model)
+        if answer.outcome == "refused":
+            return _refusal_response(model, answer.code, answer.message)
+        if answer.outcome != "admitted":
+            # INVARIANT (graceful fallback): a gateway without the admit
+            # endpoint leaves behavior byte-identical to today's.
+            raise ModelNotInstalled(model)
+        self._admitted.add(real_model)
+        if self._on_admitted is not None:
+            self._on_admitted()
         return await self._source.fetch_model_parameters(credential, real_model)
 
 

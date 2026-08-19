@@ -103,6 +103,19 @@ def _model_row(model: str) -> dict[str, object]:
     }
 
 
+def _not_installed_response() -> httpx.Response:
+    """The Engine's RFC 9457 404 for a model outside its world (OME-878)."""
+    return httpx.Response(
+        404,
+        json={
+            "type": "about:blank",
+            "title": "Not Found",
+            "detail": "the model is not installed on this Engine",
+            "status": 404,
+        },
+    )
+
+
 def _engine(request: httpx.Request) -> httpx.Response:
     if request.url.path == "/v1/models":
         response = httpx.Response(
@@ -390,6 +403,14 @@ def test_evaluate_rejects_an_unavailable_model_before_execution() -> None:
                     "data": [_model_row("provider/judge")],
                 },
             )
+        # Fixture fidelity (OME-878/review F10): a real Engine 404s details for a
+        # model outside its world; the SDK's availability probe receives that 404
+        # instead of the old pre-probe listing refusal. Assertions below unchanged.
+        if (
+            request.url.path == "/v1/model-parameters"
+            and request.url.params["model"] == "missing/model"
+        ):
+            return _not_installed_response()
         return _engine(request)
 
     transport = _ForbiddenTransport()
@@ -427,6 +448,13 @@ def test_evaluate_rejects_an_unavailable_fusion_model_before_execution() -> None
                     ],
                 },
             )
+        # Fixture fidelity (OME-878/review F10): same as above — the probe for the
+        # unlisted synthesizer receives a real Engine's not-installed 404.
+        if (
+            request.url.path == "/v1/model-parameters"
+            and request.url.params["model"] == "provider/synthesis"
+        ):
+            return _not_installed_response()
         return _engine(request)
 
     fusion = sf.Fusion(

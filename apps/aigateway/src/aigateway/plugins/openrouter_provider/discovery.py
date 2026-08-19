@@ -106,6 +106,26 @@ def _catalog_vocabulary(rows: list[Any]) -> frozenset[str]:
     return frozenset(vocabulary)
 
 
+def parse_catalog_model_ids(catalog: Any) -> frozenset[str] | None:
+    """The set of upstream model ids the public catalog document lists (OME-879).
+
+    Membership evidence for dynamic admission, nothing more. Returns ``None``
+    for an unreadable document so the caller can refuse with a distinct
+    "catalog unavailable" verdict — an outage must never read as "your model is
+    a typo" (that refusal would wrongly tell the user to fix a correct id).
+    """
+    if not isinstance(catalog, Mapping):
+        return None
+    data = catalog.get("data")
+    if not isinstance(data, list):
+        return None
+    if len(data) > _MAX_CATALOG_MODELS:
+        raise DiscoveryError("model_catalog_too_large")
+    return frozenset(
+        row["id"] for row in data if isinstance(row, Mapping) and isinstance(row.get("id"), str)
+    )
+
+
 def parse_model_catalog_observations(
     catalog: Any, *, upstream_model_id: str
 ) -> tuple[ProviderParameterObservation, ...]:

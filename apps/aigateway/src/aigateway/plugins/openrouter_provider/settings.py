@@ -202,6 +202,10 @@ class OpenRouterPluginSettings(PluginSettings):
     # resolve credentials for dispatch (plan D2 — fail closed in the plugin,
     # never a provider branch in the loader/registry).
     enabled: bool = False
+    # OME-879: gates POST /v1/models/admit (dynamic admission against the live
+    # OpenRouter catalog). Default ON — prod can pin a closed world by setting
+    # AIGW_OPENROUTER_DYNAMIC=false without a breaking change.
+    dynamic: bool = True
     default_models: list[str] = Field(default_factory=_default_model_slugs)
     validation_model: str = "openrouter/openrouter/free"
 

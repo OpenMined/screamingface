@@ -63,9 +63,15 @@ async def test_runner_job_env_is_exactly_what_the_app_set() -> None:
     # configured values would silently disagree — a grace longer than the deadline slack is a pod
     # SIGKILLed mid-teardown. It is per-run by that argument, not deploy-time, so the invariant
     # this test protects is unchanged and the assertion stays exact.
+    # EXTRA_MODELS joined on 2026-08-19 (OME-880, PR #633 review F4): the admitted-model
+    # overlay is a per-run, schedule-time value, and the entry is written even when EMPTY —
+    # an explicit env entry beats `envFrom`, which is exactly what keeps a stale
+    # URL4_CLOUD_EXTRA_MODELS left in the Helm ConfigMap from leaking onto a Job. Same
+    # invariant, one more per-run key.
     assert names == {
         job_env.TOPIC,
         job_env.EXPRESSION,
         job_env.JOB_DEADLINE_S,
         job_env.STREAM_GRACE_S,
+        job_env.EXTRA_MODELS,
     }

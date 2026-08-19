@@ -12,6 +12,7 @@ from typing import Any, Never
 
 import httpx
 
+from screamingface_engine.catalog.admission import AdmissionAnswer
 from screamingface_engine.catalog.port import (
     CatalogBadResponse,
     CatalogRejected,
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 _CATALOG_PATH = "/v1/models"
 _MODEL_PARAMETERS_PATH = "/v1/model-parameters"
+_ADMIT_PATH = "/v1/models/admit"
 # WHY: these statuses describe caller-correctable identity, profile, or model choices. Preserve
 # their JSON verbatim; mask every server/transport failure behind the Engine's stable 502/504.
 _CALLER_CORRECTABLE_STATUSES = frozenset({400, 401, 403, 404, 409})
@@ -91,6 +93,29 @@ class AigatewayCatalogSource:
         _validate_model_parameters(body, model)
         return ModelParameterResponse(status=response.status_code, content=response.content)
 
+    async def admit_model(self, credential: Credential, model: str) -> AdmissionAnswer:
+        """Ask the gateway to dynamically admit ``model`` for this caller (OME-880).
+
+        Total by design — it never raises. Anything short of a well-formed
+        admit/refuse answer (endpoint missing on an older gateway, transport
+        failure, unreadable body, non-200 status) collapses to ``unsupported``,
+        which the caller treats exactly like today's not-installed refusal.
+        """
+        body: object = None
+        try:
+            response = await self._client.post(
+                _ADMIT_PATH, json={"model_id": model}, headers=_headers(credential)
+            )
+            if response.status_code == 200:
+                body = response.json(parse_constant=_reject_non_json_constant)
+            else:
+                logger.info("aigateway admit endpoint answered status=%d", response.status_code)
+        except httpx.HTTPError:
+            logger.warning("aigateway admit request failed at the transport layer")
+        except ValueError:
+            logger.warning("aigateway admit response was not JSON")
+        return _decode_admission(body)
+
     async def _request(
         self,
         path: str,
@@ -141,6 +166,21 @@ class AigatewayCatalogSource:
         if not isinstance(body, dict):
             raise bad_response(bad_response.detail)
         return body
+
+
+def _decode_admission(body: object) -> AdmissionAnswer:
+    """Read one admit-endpoint body into an answer. Anything unreadable is ``unsupported``."""
+    if not isinstance(body, dict) or not isinstance(body.get("admitted"), bool):
+        return AdmissionAnswer(outcome="unsupported")
+    if body["admitted"]:
+        return AdmissionAnswer(outcome="admitted")
+    code = body.get("code")
+    message = body.get("message")
+    return AdmissionAnswer(
+        outcome="refused",
+        code=code if isinstance(code, str) else None,
+        message=message if isinstance(message, str) else None,
+    )
 
 
 def _reject_non_json_constant(value: str) -> Never:
