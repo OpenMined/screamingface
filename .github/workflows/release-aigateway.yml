@@ -61,8 +61,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/openmined/screamingface-aigateway:${{ needs.verify.outputs.version }}
-            ghcr.io/openmined/screamingface-aigateway:latest
+            ghcr.io/screamingface/screamingface-aigateway:${{ needs.verify.outputs.version }}
+            ghcr.io/screamingface/screamingface-aigateway:latest
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.verify.outputs.version }}
@@ -103,7 +103,7 @@ jobs:
       - name: Push Helm chart
         env:
           VERSION: ${{ needs.verify.outputs.version }}
-        run: helm push "dist/charts/aigateway-$VERSION.tgz" oci://ghcr.io/openmined/screamingface/charts
+        run: helm push "dist/charts/aigateway-$VERSION.tgz" oci://ghcr.io/screamingface/screamingface/charts
 
   release:
     needs: [verify, image, chart]
@@ -119,12 +119,12 @@ jobs:
           body: |
             Container image:
             ```
-            docker pull ghcr.io/openmined/screamingface-aigateway:${{ needs.verify.outputs.version }}
+            docker pull ghcr.io/screamingface/screamingface-aigateway:${{ needs.verify.outputs.version }}
             ```
 
             Helm chart:
             ```
-            helm pull oci://ghcr.io/openmined/screamingface/charts/aigateway --version ${{ needs.verify.outputs.version }}
+            helm pull oci://ghcr.io/screamingface/screamingface/charts/aigateway --version ${{ needs.verify.outputs.version }}
             ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -136,8 +136,8 @@ jobs:
         run: |
           gh release delete "$TAG" --repo OpenMined/sf-installer --yes 2>/dev/null || true
           NOTES=$(printf 'AI Gateway container image: `%s`\nAI Gateway Helm chart: `%s`\n' \
-            "ghcr.io/openmined/screamingface-aigateway:$VERSION" \
-            "oci://ghcr.io/openmined/screamingface/charts/aigateway --version $VERSION"
+            "ghcr.io/screamingface/screamingface-aigateway:$VERSION" \
+            "oci://ghcr.io/screamingface/screamingface/charts/aigateway --version $VERSION"
           )
           gh release create "$TAG" \
             --repo OpenMined/sf-installer \

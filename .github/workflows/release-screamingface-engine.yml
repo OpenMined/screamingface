@@ -51,7 +51,7 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     env:
-      REPO: ghcr.io/openmined/screamingface-engine
+      REPO: ghcr.io/screamingface/screamingface-engine
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -83,8 +83,8 @@ jobs:
     needs: [verify, image]
     runs-on: ubuntu-latest
     env:
-      REPO: ghcr.io/openmined/screamingface-engine-benchmark
-      BASE: ghcr.io/openmined/screamingface-engine
+      REPO: ghcr.io/screamingface/screamingface-engine-benchmark
+      BASE: ghcr.io/screamingface/screamingface-engine
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -138,12 +138,12 @@ jobs:
           body: |
             Control-plane image:
             ```
-            docker pull ghcr.io/openmined/screamingface-engine:${{ needs.verify.outputs.version }}
+            docker pull ghcr.io/screamingface/screamingface-engine:${{ needs.verify.outputs.version }}
             ```
 
             DRACO benchmark Runner image:
             ```
-            docker pull ghcr.io/openmined/screamingface-engine-benchmark:${{ needs.verify.outputs.version }}
+            docker pull ghcr.io/screamingface/screamingface-engine-benchmark:${{ needs.verify.outputs.version }}
             ```
 
             Helm chart: OCI publish deferred until the NATS dependency is pinned (see OME-567).

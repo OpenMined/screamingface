@@ -52,7 +52,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/openmined/screamingface-engine:main-${{ steps.sha.outputs.short }}
+            ghcr.io/screamingface/screamingface-engine:main-${{ steps.sha.outputs.short }}
             acropenmined.azurecr.io/screamingface-engine:main-${{ steps.sha.outputs.short }}
             acropenmined.azurecr.io/screamingface-engine:main-${{ github.sha }}
           labels: |
@@ -85,9 +85,9 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            BASE=ghcr.io/openmined/screamingface-engine:main-${{ needs.image.outputs.short }}
+            BASE=ghcr.io/screamingface/screamingface-engine:main-${{ needs.image.outputs.short }}
           tags: |
-            ghcr.io/openmined/screamingface-engine-benchmark:main-${{ needs.image.outputs.short }}
+            ghcr.io/screamingface/screamingface-engine-benchmark:main-${{ needs.image.outputs.short }}
             acropenmined.azurecr.io/screamingface-engine-benchmark:main-${{ needs.image.outputs.short }}
             acropenmined.azurecr.io/screamingface-engine-benchmark:main-${{ github.sha }}
           cache-from: type=gha,scope=dev-screamingface-engine-benchmark

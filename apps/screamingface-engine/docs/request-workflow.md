@@ -6,7 +6,7 @@ run‑once **Runner Job** Pod, through the **aigateway connector**, and finally 
 **aigateway** service — and back to the client as a CloudEvents stream.
 
 **Both ends of that trip are the same image.** `apps/screamingface-engine` ships one distribution
-(`screamingface_engine`) and one image (`ghcr.io/openmined/screamingface-engine`) with two modes
+(`screamingface_engine`) and one image (`ghcr.io/screamingface/screamingface-engine`) with two modes
 selected by argv: `screamingface-engine serve` is the App, `screamingface-engine run` is the Job. The halves are kept
 apart by an import rule, not by packaging — see `.claude/scripts/check_layering.py`.
 

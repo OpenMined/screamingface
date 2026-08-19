@@ -55,7 +55,7 @@ def test_k8s_runner_is_built_from_settings() -> None:
     settings = Settings(
         runner="k8s",
         namespace="url4-prod",
-        runner_image="ghcr.io/openmined/url4-cloud:1.2.3",
+        runner_image="ghcr.io/screamingface/url4-cloud:1.2.3",
         nats_url="nats://nats.url4-prod:4222",
     )
     loaded: list[bool] = []
@@ -68,7 +68,7 @@ def test_k8s_runner_is_built_from_settings() -> None:
     assert isinstance(runner, K8sJobRunner)
     assert loaded == [True]
     assert runner._namespace == "url4-prod"
-    assert runner._image == "ghcr.io/openmined/url4-cloud:1.2.3"
+    assert runner._image == "ghcr.io/screamingface/url4-cloud:1.2.3"
     # The Job runs the App's OWN image in run mode, so the command IS the mode switch.
     assert runner._command == ["url4-cloud", "run"]
 
