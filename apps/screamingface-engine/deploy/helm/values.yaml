@@ -24,7 +24,7 @@ replicaCount: 1
 # `runner.image`; private grading assets therefore never reach the client-facing process.
 # Build-time OCI labels are listed in README.md (org.opencontainers.image.*).
 image:
-  repository: ghcr.io/openmined/screamingface-engine
+  repository: ghcr.io/screamingface/screamingface-engine
   tag: ""            # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 

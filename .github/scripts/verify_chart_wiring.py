@@ -354,7 +354,7 @@ url4_benchmark_tags = {
 }
 check(
     {
-        "ghcr.io/openmined/screamingface-engine-benchmark:"
+        "ghcr.io/screamingface/screamingface-engine-benchmark:"
         "main-${{ needs.image.outputs.short }}",
         "acropenmined.azurecr.io/screamingface-engine-benchmark:"
         "main-${{ needs.image.outputs.short }}",

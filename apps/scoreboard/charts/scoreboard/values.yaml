@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/openmined/screamingface-scoreboard
+  repository: ghcr.io/screamingface/screamingface-scoreboard
   tag: ""
   pullPolicy: IfNotPresent
 

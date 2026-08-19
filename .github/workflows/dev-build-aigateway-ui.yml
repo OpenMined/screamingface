@@ -64,7 +64,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/openmined/screamingface-aigateway-ui:main-${{ steps.sha.outputs.short }}
+            ghcr.io/screamingface/screamingface-aigateway-ui:main-${{ steps.sha.outputs.short }}
             acropenmined.azurecr.io/screamingface-aigateway-ui:main-${{ steps.sha.outputs.short }}
             acropenmined.azurecr.io/screamingface-aigateway-ui:main-${{ github.sha }}
           labels: |

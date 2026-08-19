@@ -4,8 +4,8 @@ This runbook deploys `apps/scoreboard` as a containerized FastAPI service on Kub
 
 ## Artifacts
 
-- Container image: `ghcr.io/openmined/screamingface-scoreboard:<version>`.
-- App chart: `oci://ghcr.io/openmined/screamingface/charts/scoreboard`.
+- Container image: `ghcr.io/screamingface/screamingface-scoreboard:<version>`.
+- App chart: `oci://ghcr.io/screamingface/screamingface/charts/scoreboard`.
 - Demo database chart in this repo: `apps/scoreboard/charts/db`.
 
 The demo database chart is a single `postgres:16-alpine` Deployment with a PVC. It is useful for k3s smoke tests and demos, but it has no HA, backups, PITR, or managed upgrade policy.
@@ -18,7 +18,7 @@ Build an amd64 image for a single-node Linux k3s server:
 docker buildx build \
   --platform linux/amd64 \
   -f apps/scoreboard/Dockerfile \
-  -t ghcr.io/openmined/screamingface-scoreboard:sf188-local \
+  -t ghcr.io/screamingface/screamingface-scoreboard:sf188-local \
   --load \
   .
 ```
@@ -26,14 +26,14 @@ docker buildx build \
 Check the image size target from the SCORE-007 acceptance criteria:
 
 ```bash
-SIZE_BYTES=$(docker image inspect ghcr.io/openmined/screamingface-scoreboard:sf188-local --format '{{.Size}}')
+SIZE_BYTES=$(docker image inspect ghcr.io/screamingface/screamingface-scoreboard:sf188-local --format '{{.Size}}')
 test "$SIZE_BYTES" -lt 209715200
 ```
 
 Import the local image into k3s containerd when you do not want to push a temporary tag:
 
 ```bash
-docker save ghcr.io/openmined/screamingface-scoreboard:sf188-local \
+docker save ghcr.io/screamingface/screamingface-scoreboard:sf188-local \
   | ssh adminuser@40.76.107.241 \
       "sudo k3s ctr -n k8s.io images import --platform linux/amd64 -"
 ```
@@ -87,7 +87,7 @@ For production, use managed Postgres and a Secret with a `database-url` key:
 kubectl -n scoreboard create secret generic scoreboard-db \
   --from-literal=database-url='postgres://scoreboard:<password>@<host>:5432/scoreboard'
 
-helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/scoreboard \
+helm upgrade --install scoreboard oci://ghcr.io/screamingface/screamingface/charts/scoreboard \
   --version 0.1.0 \
   --namespace scoreboard \
   --values apps/scoreboard/charts/scoreboard/values-prod.yaml \
@@ -101,7 +101,7 @@ helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/s
 Set `config.authMode: cloudflare_headers` (default: `disabled`) to require the mesh-verified `X-User-Email` identity header on `POST /v1/scores` instead of trusting the client-supplied `submitted_by` free text (OME-404, following OME-326). This is sound ONLY while the service is reachable exclusively through the chain that injects that header — set `config.allowedNetworks` (comma-separated CIDRs) to the peers permitted to present it:
 
 ```bash
-helm upgrade scoreboard oci://ghcr.io/openmined/screamingface/charts/scoreboard \
+helm upgrade scoreboard oci://ghcr.io/screamingface/screamingface/charts/scoreboard \
   --namespace scoreboard \
   --reuse-values \
   --set config.authMode=cloudflare_headers \

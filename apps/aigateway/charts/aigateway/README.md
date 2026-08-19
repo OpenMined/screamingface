@@ -107,7 +107,7 @@ Production database infrastructure should be managed separately, for example Clo
 Published releases include the app chart in GHCR:
 
 ```bash
-helm install aigw oci://ghcr.io/openmined/screamingface/charts/aigateway \
+helm install aigw oci://ghcr.io/screamingface/screamingface/charts/aigateway \
   --version 0.2.0 \
   --namespace aigw
 ```

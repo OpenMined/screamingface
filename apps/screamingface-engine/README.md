@@ -14,7 +14,7 @@ REST + WebSocket url4 execution runner (k8s Jobs + NATS). Design: `docs/spec/202
 · epic OME-513.
 
 One app, one image, two modes — `apps/screamingface-engine/`, package `screamingface_engine`, image
-`ghcr.io/openmined/screamingface-engine`. The mode is chosen by **argv**, never sniffed from
+`ghcr.io/screamingface/screamingface-engine`. The mode is chosen by **argv**, never sniffed from
 the environment:
 
 - **`screamingface-engine serve`** — the stateless control-plane App (REST + WebSocket). The **default** when

@@ -203,7 +203,7 @@ LABEL org.opencontainers.image.title="screamingface-engine" \
       org.opencontainers.image.vendor="OpenMined"
 ```
 
-`image.repository` defaults to `ghcr.io/openmined/screamingface-engine`; the tag defaults to the
+`image.repository` defaults to `ghcr.io/screamingface/screamingface-engine`; the tag defaults to the
 chart `appVersion`. Both the Deployment and every Runner Job resolve to that one reference.
 
 ## Lint / render

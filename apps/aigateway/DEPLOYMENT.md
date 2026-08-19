@@ -4,8 +4,8 @@ This runbook deploys `apps/aigateway` as a containerized FastAPI service on Kube
 
 ## Artifacts
 
-- Container image: `ghcr.io/openmined/screamingface-aigateway:<version>`.
-- App chart: `oci://ghcr.io/openmined/screamingface/charts/aigateway`.
+- Container image: `ghcr.io/screamingface/screamingface-aigateway:<version>`.
+- App chart: `oci://ghcr.io/screamingface/screamingface/charts/aigateway`.
 - Demo database chart in this repo: `apps/aigateway/charts/db`.
 
 The demo database chart is a single `postgres:16-alpine` Deployment with a PVC. It is useful for k3s smoke tests and demos, but it has no HA, backups, PITR, or managed upgrade policy.
@@ -18,7 +18,7 @@ Build an amd64 image for a single-node Linux k3s server:
 docker buildx build \
   --platform linux/amd64 \
   -f apps/aigateway/Dockerfile \
-  -t ghcr.io/openmined/screamingface-aigateway:sf186-local \
+  -t ghcr.io/screamingface/screamingface-aigateway:sf186-local \
   --load \
   .
 ```
@@ -28,7 +28,7 @@ Import the local image into k3s containerd when you do not want to push a tempor
 ```bash
 export K3S_SSH_TARGET='adminuser@k3s-host.example.com'
 
-docker save ghcr.io/openmined/screamingface-aigateway:sf186-local \
+docker save ghcr.io/screamingface/screamingface-aigateway:sf186-local \
   | ssh "$K3S_SSH_TARGET" \
       "sudo k3s ctr -n k8s.io images import --platform linux/amd64 -"
 ```
@@ -87,7 +87,7 @@ kubectl -n aigw create secret generic aigw-auth \
   --from-literal=jwt-secret="$(openssl rand -base64 48)" \
   --from-literal=admin-password="$(openssl rand -base64 24)"
 
-helm upgrade --install aigw oci://ghcr.io/openmined/screamingface/charts/aigateway \
+helm upgrade --install aigw oci://ghcr.io/screamingface/screamingface/charts/aigateway \
   --version 0.2.0 \
   --namespace aigw \
   --set auth.createSecret=false \
