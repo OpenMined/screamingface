@@ -17,6 +17,7 @@ connection is the only path that does not change that posture.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from url4.streaming.protocol import CachePolicy, OutboundFrame
 
@@ -24,6 +25,25 @@ Notify = Callable[[OutboundFrame], None]
 """How one live connection accepts an out-of-band frame. Synchronous and non-blocking by
 contract: it is called from a request handler, so it hands the frame to that connection's own
 outbound queue and returns — it must never await the socket."""
+
+
+class AudienceListener(Protocol):
+    """Where the registry announces a topic's audience arriving and leaving.
+
+    FEATURE: tie a run's lifetime to its audience (OME-890). The 428 gate proves an audience
+    exists when a run is scheduled and then nothing asks again, so these two edges are what let
+    anything downstream react to "my last subscriber vanished".
+
+    INVARIANT: both methods are synchronous and must not raise. They run inside `add`/`remove`,
+    and `remove` runs in the WS endpoint's `finally` — a path that also executes under
+    cancellation, where an exception would mask the very disconnect it is reporting.
+    """
+
+    def audience_arrived(self, topic: str) -> None:
+        """``topic`` went from no subscribers to one."""
+
+    def audience_left(self, topic: str) -> None:
+        """``topic``'s last subscriber disconnected."""
 
 
 @dataclass
@@ -50,9 +70,23 @@ class ConnectionRegistry:
 
     def __init__(self) -> None:
         self._sessions: dict[str, _Session] = {}
+        self._audience: AudienceListener | None = None
+
+    def listen(self, audience: AudienceListener) -> None:
+        """Register the one listener for audience transitions — COMPOSITION ROOT ONLY.
+
+        A setter rather than a constructor argument because the registry is built before the
+        reaper that watches it, and the reaper needs the registry (`app.py::create_app`).
+        """
+        self._audience = audience
 
     def add(self, topic: str) -> None:
-        self._sessions.setdefault(topic, _Session()).subscribers += 1
+        session = self._sessions.setdefault(topic, _Session())
+        session.subscribers += 1
+        # INVARIANT: 0->1 ONLY. `add_notifier` can create a session at zero subscribers, and the
+        # second of two watchers attaching must not read as "the audience arrived".
+        if session.subscribers == 1 and self._audience is not None:
+            self._audience.audience_arrived(topic)
 
     def remove(self, topic: str) -> None:
         session = self._sessions.get(topic)
@@ -61,6 +95,10 @@ class ConnectionRegistry:
         session.subscribers -= 1
         if session.subscribers <= 0:
             del self._sessions[topic]
+            # INVARIANT: 1->0 ONLY, and announced AFTER the session is discarded, so a listener
+            # that asks `has_subscriber` from inside the callback gets the post-transition answer.
+            if self._audience is not None:
+                self._audience.audience_left(topic)
 
     async def has_subscriber(self, topic: str) -> bool:
         session = self._sessions.get(topic)

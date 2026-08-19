@@ -1,7 +1,7 @@
 ---
 ticket: OME-890
 stack: screamingface-engine
-status: planned   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-08-19
 finished:
 ---
