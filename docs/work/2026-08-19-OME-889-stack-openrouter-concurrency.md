@@ -22,7 +22,13 @@ single run's worst-case fan-out removes the queue entirely.
 
 - `packages/screamingface/justfile` — add
   `AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES='{"openrouter": 32}'` to the gateway launch env
-  in `stack-up`, with a WHY comment. No other files.
+  in `stack-up`, with a WHY comment.
+- (owner-directed scope addition, replacing canceled `OME-891`)
+  `apps/aigateway/src/aigateway/core/concurrency.py` — INFO log when a provider's
+  semaphore is created/rebuilt, so the gateway log itself proves which limit is in force:
+  `provider concurrency limit applied provider=openrouter limit=32`. Once per provider per
+  process; re-logged only when the configured limit changes. Structured admission telemetry
+  stays with `OME-886`.
 
 ## Test plan
 
@@ -30,6 +36,11 @@ single run's worst-case fan-out removes the queue entirely.
   behavioral: `just stack-up`, then confirm the gateway process env carries the override
   (`ps eww <pid>` / log line) — the invariant protected is "local gateway admits ≥ one run's
   full fan-out for openrouter".
+- Log line (append-only additions to `apps/aigateway/tests/unit/test_concurrency.py`):
+  (1) first acquisition for a provider logs provider + effective limit at INFO;
+  (2) re-acquisition at the same limit does NOT log again (no per-request noise);
+  (3) a limit change logs the new limit (invariant: the log always reflects the limit in
+  force). Gates: full aigateway stack via `run_gates.py aigateway`.
 
 ## Acceptance
 
@@ -40,10 +51,14 @@ single run's worst-case fan-out removes the queue entirely.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** `packages/screamingface/justfile` (as planned) + this ledger + the
-  `docs/tasks/` mirror.
+  `docs/tasks/` mirror + (owner-directed addition) `apps/aigateway/src/aigateway/core/
+  concurrency.py` and `apps/aigateway/tests/unit/test_concurrency.py`.
 - **Commits:** 0b5d4dc8 — fix(py-screamingface): raise local stack openrouter gateway
-  concurrency to 32
-- **Gates:** no justfile test harness; verified by parsing the env through the real gateway
-  settings: `Settings()` with the override yields `effective_provider_limit(s, "openrouter")
-  == 32` and `effective_provider_limit(s, "gemini") == 4`. Pre-commit hooks passed.
-- **Deviations:** none.
+  concurrency to 32; 48779683 — feat(aigateway): log the concurrency limit applied per
+  provider.
+- **Gates:** justfile env verified through the real settings parser
+  (`effective_provider_limit("openrouter") == 32`, others 4). Log line: TDD (3 appended
+  tests, RED first) + `run_gates.py aigateway` ALL GREEN (ruff check/format, pyright,
+  no-enterprise check, pytest cov≥80, append-only test check).
+- **Deviations:** scope grew by owner decision — the observability log line originally
+  filed as `OME-891` was folded in here and `OME-891` canceled.
