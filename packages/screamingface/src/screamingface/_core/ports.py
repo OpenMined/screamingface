@@ -17,15 +17,35 @@ type AsyncEventObserver = Callable[[Event], None | Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
+class _ResultArtifact:
+    """Claim ticket for a result the Engine spilled instead of sending inline (OME-892).
+
+    The transport redeems it (`GET /artifacts/{id}`) and verifies `size_bytes` + `sha256`
+    before any decoding sees the bytes.
+    """
+
+    id: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class _RunOutcome:
-    """Transport-neutral root result retained for strict Report decoding."""
+    """Transport-neutral root result retained for strict Report decoding.
+
+    INVARIANT: exactly one of `result_body` / `artifact` is set when the contract layer
+    builds this; the transport materializes an artifact outcome into a full `result_body`
+    (artifact=None) before anything downstream decodes it — Report construction never
+    sees an unredeemed ticket.
+    """
 
     run_id: str
     started_at: datetime
     completed_at: datetime
-    result_body: str
+    result_body: str | None
     media_type: str | None
     root_usage: Usage | None
+    artifact: _ResultArtifact | None = None
 
 
 class SyncRunTransport(Protocol):

@@ -42,4 +42,5 @@ def test_real_url4_cloud_runner_completes_the_confirmed_transport_lifecycle() ->
     with closing(Url4CloudTransport(_ENGINE_URL)) as transport:
         outcome = transport.run(candidate, None)
 
+    assert outcome.result_body is not None
     assert outcome.result_body.strip()

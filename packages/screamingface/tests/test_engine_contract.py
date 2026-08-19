@@ -11,6 +11,7 @@ import pytest
 import screamingface as sf
 from screamingface._engine import contract as _engine_contract
 from screamingface._engine.contract import _RunState
+from screamingface.errors import ExecutionError
 
 URL4 = "(@)!'hello'"
 
@@ -707,3 +708,62 @@ def test_unsequenced_lifecycle_frames_are_still_rejected(
     # would corrupt the billing total the user reads in their Report.
     with pytest.raises(sf.ExecutionError, match="sequence"):
         _RunState(URL4).accept(frame(event_type, data, sequence=None))
+
+
+# FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892).
+# A result frame may carry an artifact claim ticket instead of an inline body; the state
+# machine surfaces it on the outcome for the transport to redeem before anyone decodes it.
+
+_SHA = "9f" * 32
+
+
+def _artifact_data(**overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "body": None,
+        "media_type": None,
+        "artifact": {"id": _SHA, "size_bytes": 11, "sha256": _SHA},
+    }
+    value.update(overrides)
+    return value
+
+
+def test_state_decodes_an_artifact_result() -> None:
+    state = _RunState(URL4)
+    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+    state.accept(frame("ai.url4.result", _artifact_data(), sequence=2))
+    terminated = state.accept(
+        frame("ai.url4.terminated", {"status": "succeeded", "error": None}, sequence=3)
+    )
+
+    outcome = terminated.outcome
+    assert outcome is not None
+    # INVARIANT: the raw outcome carries the UNREDEEMED ticket — result_body stays None
+    # until the transport fetches and verifies; nothing downstream may guess at content.
+    assert outcome.result_body is None
+    assert outcome.artifact is not None
+    assert outcome.artifact.id == _SHA
+    assert outcome.artifact.size_bytes == 11
+    assert outcome.artifact.sha256 == _SHA
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        {"id": "../etc/passwd", "size_bytes": 11, "sha256": "9f" * 32},
+        {"id": "9f" * 32, "size_bytes": "11", "sha256": "9f" * 32},
+        {"id": "9f" * 32, "size_bytes": 11},
+        "not a mapping",
+    ],
+)
+def test_state_rejects_malformed_artifact_references(artifact: object) -> None:
+    state = _RunState(URL4)
+    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+    with pytest.raises(ExecutionError):
+        state.accept(frame("ai.url4.result", {"body": None, "artifact": artifact}, sequence=2))
+
+
+def test_state_rejects_a_result_with_neither_body_nor_artifact() -> None:
+    state = _RunState(URL4)
+    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+    with pytest.raises(ExecutionError):
+        state.accept(frame("ai.url4.result", {"body": None, "media_type": None}, sequence=2))

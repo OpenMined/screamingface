@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from screamingface import events
-from screamingface._core.ports import _RunOutcome
+from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
 
@@ -51,7 +51,7 @@ class _RunState:
         self._run_id: str | None = None
         self._root_source: str | None = None
         self._started_at: datetime | None = None
-        self._result: tuple[str, str | None] | None = None
+        self._result: tuple[str | None, str | None, _ResultArtifact | None] | None = None
         self._root_usage: AccountingUsage | None = None
         self._last_sequence = 0
         self._event_ids: set[str] = set()
@@ -168,9 +168,17 @@ class _RunState:
             return _Accepted()
         if self._result is not None:
             raise ExecutionError("SF Engine emitted duplicate root result Events")
-        body = _raw_text(data, "body")
         media_type = _optional_text(data.get("media_type"), "media_type")
-        self._result = (body, media_type)
+        # FEATURE: deliver large results in full (OME-892) — a result frame carries either
+        # the inline body or an artifact claim ticket, never both and never neither.
+        artifact_raw = data.get("artifact")
+        if artifact_raw is not None:
+            if data.get("body") is not None:
+                raise ExecutionError("SF Engine result carries both a body and an artifact")
+            self._result = (None, media_type, _artifact_reference(artifact_raw))
+            return _Accepted()
+        body = _raw_text(data, "body")
+        self._result = (body, media_type, None)
         return _Accepted()
 
     def _terminated(
@@ -206,6 +214,7 @@ class _RunState:
                 result_body=self._result[0],
                 media_type=self._result[1],
                 root_usage=self._root_usage,
+                artifact=self._result[2],
             ),
         )
 
@@ -482,6 +491,29 @@ def _required_text(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ExecutionError(f"SF Engine {label} must be a non-empty string")
     return value.strip()
+
+
+_ARTIFACT_ID_HEX_LEN = 64
+
+
+def _artifact_reference(value: object) -> _ResultArtifact:
+    """Decode a result frame's artifact claim ticket, strictly (OME-892).
+
+    INVARIANT: an id/sha that is not lowercase sha256 hex is rejected here, before any
+    fetch — it is both the path-traversal guard and the integrity contract's precondition.
+    """
+    mapping = _object(value, "result artifact")
+    artifact_id = _raw_text(mapping, "id")
+    sha256 = _raw_text(mapping, "sha256")
+    for label, digest in (("id", artifact_id), ("sha256", sha256)):
+        if len(digest) != _ARTIFACT_ID_HEX_LEN or any(
+            ch not in "0123456789abcdef" for ch in digest
+        ):
+            raise ExecutionError(f"SF Engine result artifact {label} must be sha256 hex")
+    size_bytes = _integer(mapping.get("size_bytes"), "result artifact size_bytes")
+    if size_bytes < 1:
+        raise ExecutionError("SF Engine result artifact size_bytes must be positive")
+    return _ResultArtifact(id=artifact_id, size_bytes=size_bytes, sha256=sha256)
 
 
 def _raw_text(value: Mapping[str, object], name: str) -> str:

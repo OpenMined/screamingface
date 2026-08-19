@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import ssl
 import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace as _dataclass_replace
 from threading import Lock
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -20,7 +22,7 @@ from websockets.sync import client as sync_ws
 from websockets.sync.connection import Connection as SyncConnection
 from websockets.typing import Subprotocol
 
-from screamingface._core.ports import _RunOutcome
+from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.access_contract import _challenge_audience
 from screamingface._engine.auth import _default_caller_auth, _TransportAuth
@@ -40,14 +42,17 @@ _EVENT_RECEIVE_TIMEOUT_SECONDS = 120.0
 _STOP_TIMEOUT_SECONDS = 5.0
 # The Engine answers a stop for a Run it has already finished with one of these.
 _ALREADY_STOPPED_STATUSES = frozenset({404, 409, 410})
-# INVARIANT: this MUST stay above the Engine's result cap plus the frame that carries it.
-# The Engine truncates a result body to 1 MiB, then wraps it in a CloudEvent whose `data.body`
-# is a JSON string — escaping alone adds ~7% on a JSON report and can double it in the worst
-# case, before the envelope. `websockets` defaults `max_size` to 2**20, which is EXACTLY the
-# Engine's cap, so the default made every capped result undeliverable: the client refused the
-# frame with close 1009 and the Run surfaced as `websocket_disconnected`. Eight times the cap
-# clears the worst-case expansion with room to spare, and the bound still exists so that a
-# malformed or hostile stream cannot grow this process's heap without limit.
+# INVARIANT: this MUST stay above the Engine's INLINE result threshold plus the frame that
+# carries it. The Engine sends a result body inline only up to its inline cap (default
+# 1 MiB; larger results travel out-of-band as an artifact claim ticket — OME-892), wrapped
+# in a CloudEvent whose `data.body` is a JSON string — escaping alone adds ~7% on a JSON
+# report and can double it in the worst case, before the envelope. `websockets` defaults
+# `max_size` to 2**20, which is EXACTLY the inline cap, so the default made every cap-sized
+# result undeliverable: the client refused the frame with close 1009 and the Run surfaced
+# as `websocket_disconnected`. Eight times the cap clears the worst-case expansion with
+# room to spare, and the bound still exists so that a malformed or hostile stream cannot
+# grow this process's heap without limit. An operator who raises the Engine's
+# URL4_CLOUD_RESULT_INLINE_CAP_BYTES past 4 MiB must account for this client-side bound too.
 _MAX_FRAME_BYTES = 8 * 1024 * 1024
 
 
@@ -102,20 +107,22 @@ class Url4CloudTransport:
                         max_size=_MAX_FRAME_BYTES,
                         ssl=self._ssl,
                     ) as websocket:
-                        return self._run_connected(
+                        outcome = self._run_connected(
                             websocket,
                             lifecycle,
                             minted[-1],
                             candidate,
                             on_event,
                         )
+                    # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
+                    # By now the run is over and the WS is closed — a fetch failure here
+                    # must surface as its own error, never trip the socket-scoped
+                    # stop-on-interrupt arm into writing to a dead connection.
+                    return _materialize_sync(self._http, minted[-1], outcome)
                 except InvalidStatus as exc:
                     if attempt != 0 or not _is_access_websocket_rejection(exc):
                         raise
-                    self._caller_auth.reauthenticate()
-                    minted.append(_mint_sync(self._http))
-                    with self._active_lock:
-                        self._active_tokens.add(minted[-1])
+                    self._remint_after_challenge(minted)
             raise AssertionError("WebSocket authentication retry loop exhausted")
         except _ObserverRaised as exc:
             _copy_notes(exc, exc.original)
@@ -125,6 +132,17 @@ class Url4CloudTransport:
         finally:
             with self._active_lock:
                 self._active_tokens.difference_update(minted)
+
+    def _remint_after_challenge(self, minted: list[str]) -> None:
+        """Refresh Access auth and mint a fresh capability after a WS challenge.
+
+        WHY a NEW capability rather than the one in hand: its iat window is 60s and the
+        re-login can take minutes — see the async twin's inline comment.
+        """
+        self._caller_auth.reauthenticate()
+        minted.append(_mint_sync(self._http))
+        with self._active_lock:
+            self._active_tokens.add(minted[-1])
 
     def cancel_active(self) -> None:
         """Stop every run currently owned by this synchronous Client."""
@@ -274,13 +292,15 @@ class AsyncUrl4CloudTransport:
                     max_size=_MAX_FRAME_BYTES,
                     ssl=self._ssl,
                 ) as websocket:
-                    return await self._run_connected(
+                    outcome = await self._run_connected(
                         websocket,
                         lifecycle,
                         minted[-1],
                         candidate,
                         on_event,
                     )
+                # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
+                return await _materialize_async(self._http, minted[-1], outcome)
             except InvalidStatus as exc:
                 if attempt != 0 or not _is_access_websocket_rejection(exc):
                     raise
@@ -505,6 +525,137 @@ def _accepted(response: httpx.Response) -> None:
         raise ExecutionError("SF Engine did not acknowledge asynchronous execution")
     if not response.headers.get("Location"):
         raise ExecutionError("SF Engine asynchronous response is missing Location")
+
+
+_FETCH_ARTIFACT = "fetch the Run's result artifact"
+
+
+def _verified_artifact_text(artifact: _ResultArtifact, payload: bytes, digest_hex: str) -> str:
+    """Admit fetched bytes as the result ONLY when they match the claim ticket exactly.
+
+    INVARIANT: byte count and sha256 both match, or nothing downstream decodes —
+    a mismatched fetch must never turn into a half-parsed Report (GitHub #642's lesson).
+    """
+    if len(payload) != artifact.size_bytes or digest_hex != artifact.sha256:
+        raise ExecutionError(
+            f"SF Engine result artifact failed integrity verification: expected "
+            f"{artifact.size_bytes} bytes with sha256 {artifact.sha256}, received "
+            f"{len(payload)} bytes with sha256 {digest_hex}",
+            code="result_integrity_mismatch",
+            permanent=True,
+        )
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ExecutionError(
+            "SF Engine result artifact is not UTF-8 text",
+            code="result_integrity_mismatch",
+            permanent=True,
+        ) from exc
+
+
+# WHY retry here when run start has its own delays: the run is DONE and paid for — the
+# parcel sits on the server (fetching never deletes it), so a transient reset must never
+# cost the outcome. Network-level failures retry; HTTP problem responses (4xx/5xx) and
+# integrity mismatches are deterministic answers and do not.
+_ARTIFACT_FETCH_RETRY_DELAYS = (0.0, 0.2, 0.8)
+
+
+def _oversize(artifact: _ResultArtifact, received: int) -> ExecutionError:
+    return ExecutionError(
+        f"SF Engine result artifact exceeded its ticket: expected {artifact.size_bytes} "
+        f"bytes, received at least {received}",
+        code="result_integrity_mismatch",
+        permanent=True,
+    )
+
+
+def _fetch_artifact_once_sync(http: httpx.Client, token: str, artifact: _ResultArtifact) -> str:
+    """One fetch attempt. Lets `httpx.HTTPError` escape so the caller can retry it."""
+    digest = hashlib.sha256()
+    chunks: list[bytes] = []
+    received = 0
+    with http.stream(
+        "GET", f"/artifacts/{artifact.id}", headers={"URL4-Capability": token}
+    ) as response:
+        if not response.is_success:
+            response.read()
+            _raise_response(response, _FETCH_ARTIFACT)
+        for chunk in response.iter_bytes():
+            received += len(chunk)
+            # INVARIANT: never buffer past the ticket's declared size — the ticket is
+            # the memory bound, so a rogue 200 cannot OOM the researcher's process.
+            if received > artifact.size_bytes:
+                raise _oversize(artifact, received)
+            digest.update(chunk)
+            chunks.append(chunk)
+    return _verified_artifact_text(artifact, b"".join(chunks), digest.hexdigest())
+
+
+def _materialize_sync(http: httpx.Client, token: str, outcome: _RunOutcome) -> _RunOutcome:
+    """Redeem an artifact outcome into a full `result_body` before anyone decodes it."""
+    artifact = outcome.artifact
+    if artifact is None:
+        return outcome
+    last_error: httpx.HTTPError | None = None
+    for delay in _ARTIFACT_FETCH_RETRY_DELAYS:
+        if delay:
+            time.sleep(delay)
+        try:
+            body = _fetch_artifact_once_sync(http, token, artifact)
+        except httpx.HTTPError as exc:
+            last_error = exc
+            continue
+        return _dataclass_replace(outcome, result_body=body, artifact=None)
+    raise EngineUnavailableError(
+        "Could not fetch the Run's result artifact",
+        engine_url=_http_origin(http),
+    ) from last_error
+
+
+async def _fetch_artifact_once_async(
+    http: httpx.AsyncClient, token: str, artifact: _ResultArtifact
+) -> str:
+    """Async twin of `_fetch_artifact_once_sync`."""
+    digest = hashlib.sha256()
+    chunks: list[bytes] = []
+    received = 0
+    async with http.stream(
+        "GET", f"/artifacts/{artifact.id}", headers={"URL4-Capability": token}
+    ) as response:
+        if not response.is_success:
+            await response.aread()
+            _raise_response(response, _FETCH_ARTIFACT)
+        async for chunk in response.aiter_bytes():
+            received += len(chunk)
+            if received > artifact.size_bytes:
+                raise _oversize(artifact, received)
+            digest.update(chunk)
+            chunks.append(chunk)
+    return _verified_artifact_text(artifact, b"".join(chunks), digest.hexdigest())
+
+
+async def _materialize_async(
+    http: httpx.AsyncClient, token: str, outcome: _RunOutcome
+) -> _RunOutcome:
+    """Async twin of `_materialize_sync` — same retry, same verification."""
+    artifact = outcome.artifact
+    if artifact is None:
+        return outcome
+    last_error: httpx.HTTPError | None = None
+    for delay in _ARTIFACT_FETCH_RETRY_DELAYS:
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            body = await _fetch_artifact_once_async(http, token, artifact)
+        except httpx.HTTPError as exc:
+            last_error = exc
+            continue
+        return _dataclass_replace(outcome, result_body=body, artifact=None)
+    raise EngineUnavailableError(
+        "Could not fetch the Run's result artifact",
+        engine_url=_http_origin(http),
+    ) from last_error
 
 
 def _require_success(response: httpx.Response, operation: str) -> None:
