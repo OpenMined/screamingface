@@ -57,3 +57,31 @@ Everything else keeps today's immediate refusal.
   `model_unavailable` wording (previously that shape fell through to a generic
   `engine_contract_error`) — needed so an Engine without admission support answers the probe
   with the same message users see today.
+
+
+## Review fixes (2026-08-19, PR #633)
+
+Ultrareview findings 8 and 10 land here as a follow-up commit on the same branch:
+
+- **F8** — the plain-404 -> "not available on this Engine" rewrite moves out of the
+  shared model-details error path and into the probe call site only, so `models.get()`
+  and the parameter preflight keep diagnosing a route-missing 404 as a deployment
+  problem (`engine_contract_error`), never as a bad model id.
+- **F10** — `_defers_to_details_probe`'s grammar copy is deleted: EVERY missing model
+  id defers to the free pre-spend probe, keeping the Engine/Gateway as the only
+  admissibility authorities. The PR's own two probe-count tests are amended
+  accordingly (branch-local tests, not prior-cycle contract).
+
+### Prior-test amendments (owner-approved 2026-08-19)
+
+The append-only gate flagged these; Khoa approved all three in-session:
+
+1. `apps/screamingface-engine/tests/unit/test_runner_job_env_isolation.py` — the exact-set
+   env assertion gains `URL4_CLOUD_EXTRA_MODELS` (F4 always writes it), with a dated
+   justification comment mirroring the STREAM_GRACE_S precedent.
+2. `packages/screamingface/tests/test_client_run.py` — two fake-engine handlers now 404
+   details for unlisted models (fixture fidelity for F10's defer-all); every assertion
+   byte-identical.
+3. This PR's own test files — probe-count / empty-overlay pins overturned by F10/F4.
+
+Final gate runs used `--skip-append-only` on that approval; all other gates unweakened.

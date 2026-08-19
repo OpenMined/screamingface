@@ -3,13 +3,15 @@
 FEATURE: run any OpenRouter model (OME-878). The Engine's `/v1/models` listing
 used to be the SDK's whole availability authority, refusing a missing model
 before the per-model `GET /v1/model-parameters` call — the exact call that now
-triggers dynamic admission on the Engine (OME-880). For an OpenRouter-shaped
-missing id the SDK now probes that endpoint instead: an admitting Engine lets
-the run proceed; a refusing one answers with the gateway's diagnostic code,
-decoded into a clear `PlanningError` — all pre-spend, all $0.
+triggers dynamic admission on the Engine (OME-880). EVERY listing-missing id now
+probes that endpoint instead (review F10: the SDK keeps no admissibility grammar
+of its own — the Engine and Gateway are the only authorities): an admitting
+Engine lets the run proceed; a refusing one answers with the gateway's
+diagnostic code, decoded into a clear `PlanningError`; a non-admitting one
+answers a plain 404 that reads as today's refusal — all pre-spend, all $0.
 
-INVARIANT: everything that is NOT an admissible OpenRouter shape keeps today's
-immediate refusal, before any network probe.
+INVARIANT: a model the Engine does not serve still refuses BEFORE execution —
+the probe moved the refusal's source, never its timing.
 """
 
 from __future__ import annotations
@@ -228,18 +230,40 @@ def test_an_engine_without_admission_still_refuses_cleanly() -> None:
     "model_id",
     [
         "missing/model",  # not OpenRouter's namespace
-        "openrouter/x-ai/grok-4~fast",  # '~' colon escape — never dynamically admissible
+        "openrouter/x-ai/grok-4~fast",  # '~' colon escape — the ENGINE refuses it locally
     ],
 )
-def test_non_admissible_shapes_keep_the_immediate_refusal(model_id: str) -> None:
+def test_non_admissible_ids_probe_once_and_keep_todays_refusal(model_id: str) -> None:
+    # Review F10: the SDK holds no admissibility grammar — even a hopeless id
+    # defers to the free probe, and the Engine's local refusal (a plain 404, no
+    # gateway dial) decodes into byte-identical wording. One request, $0.
     probed: list[str] = []
     transport = _Transport()
-    client = _client(_engine({}, probed), transport)
+    client = _client(_engine({model_id: _NOT_INSTALLED}, probed), transport)
 
     with client, pytest.raises(sf.PlanningError) as caught:
         client.evaluate(sf.Model(model_id), benchmark="draco")
 
     assert caught.value.code == "model_unavailable"
-    # INVARIANT: refused BEFORE any probe — a hopeless id never costs a request.
-    assert probed == []
+    assert f"Model {model_id!r} is not available on this Engine" in str(caught.value)
+    assert probed == [model_id]
     assert transport.called is False
+
+
+def test_a_bare_404_outside_the_probe_stays_a_deployment_diagnosis() -> None:
+    # Review F8: only the probe may read a string-detail 404 as "model not
+    # available" — on an ordinary details call (a LISTED model, e.g. behind a
+    # reverse proxy missing the route) it stays a contract error pointing at the
+    # deployment, never at the model id.
+    probed: list[str] = []
+    handler = _engine({_JUDGE: httpx.Response(404, json={"detail": "Not Found"})}, probed)
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(handler),
+        run_transport=_Transport(),
+    )
+
+    with client, pytest.raises(sf.PlanningError) as caught:
+        client.models.get(_JUDGE)
+
+    assert caught.value.code == "engine_contract_error"

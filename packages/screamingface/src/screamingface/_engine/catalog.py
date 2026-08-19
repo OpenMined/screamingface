@@ -232,7 +232,7 @@ def _response_json(response: httpx.Response, label: str) -> object:
 
 # OME-878: refusal codes the Engine relays from the gateway's dynamic-admission
 # decision. Each is pre-spend and names which knob to turn; only a catalog outage
-# is worth retrying.
+# or a still-connecting profile is worth retrying.
 _ADMISSION_REFUSAL_CODES = frozenset(
     {
         "model_not_on_openrouter",
@@ -244,8 +244,16 @@ _ADMISSION_REFUSAL_CODES = frozenset(
         "invalid_model_id",
         "unknown_provider",
         "model_not_admitted",
+        "admission_capacity_reached",
+        # Relayed profile states (review F6): the profile EXISTS but needs its
+        # connection finished or redone — these carry no profile `name` field on
+        # this wire, so the profile-shaped branch above cannot decode them.
+        "auth_required",
+        "profile_pending_auth",
     }
 )
+
+_RETRYABLE_ADMISSION_CODES = frozenset({"openrouter_catalog_unavailable", "profile_pending_auth"})
 
 
 def _raise_model_details_error(response: httpx.Response) -> None:
@@ -258,7 +266,12 @@ def _raise_model_details_error(response: httpx.Response) -> None:
     if not isinstance(root, Mapping):
         return
     if not isinstance(root.get("detail"), Mapping):
-        _raise_model_not_installed(response, root)
+        # WHY plain return (review F8): a string-detail 404 here could as easily be
+        # a reverse proxy or a route-less server as the Engine's own not-installed
+        # answer — so the shared path keeps diagnosing it as a deployment problem
+        # (`engine_contract_error`). Only the availability PROBE, which knows it
+        # asked about a listing-missing model, rewrites that into today's
+        # "not available on this Engine" (see `_evaluation/runner.py`).
         return
     detail = root["detail"]
     code = detail.get("code")
@@ -306,31 +319,9 @@ def _raise_model_details_error(response: httpx.Response) -> None:
             detail["message"],
             code=str(code),
             status=response.status_code,
-            permanent=code != "openrouter_catalog_unavailable",
+            permanent=code not in _RETRYABLE_ADMISSION_CODES,
             details=dict(detail),
         )
-
-
-def _raise_model_not_installed(response: httpx.Response, root: Mapping[str, object]) -> None:
-    """Decode the Engine's own RFC 9457 not-installed 404 into today's wording.
-
-    WHY: the dynamic-admission probe (OME-878) asks model details for a model
-    the listing does not carry. Against an Engine that cannot admit (older
-    build, or admission declined upstream without a relayed body) the honest
-    answer is exactly the pre-probe refusal — not a generic contract error.
-    """
-    if response.status_code != 404 or not isinstance(root.get("detail"), str):
-        return
-    model = response.request.url.params.get("model")
-    if not model:
-        return
-    raise PlanningError(
-        f"Model {model!r} is not available on this Engine",
-        code="model_unavailable",
-        status=response.status_code,
-        permanent=True,
-        details={"models": [model]},
-    )
 
 
 def _unreachable(engine_url: str, label: str, cause: Exception) -> NoReturn:
