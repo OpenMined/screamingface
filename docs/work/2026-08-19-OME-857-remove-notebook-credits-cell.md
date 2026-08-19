@@ -18,14 +18,22 @@ from helpers import openrouter_credits
 openrouter_credits()
 ```
 
-`helpers.openrouter_credits()` makes a **live OpenRouter API call** (`GET
-https://openrouter.ai/api/v1/credits`) and raises `RuntimeError` when `OPENROUTER_KEY`
-is unset — a poor, network-dependent, non-deterministic lead-in for a public example
-notebook that must run cleanly under **Run All** without a provider key (00_quickstart
-already ships a committed traceback from this cell). Surfacing available provider
-credit/balance is a real product feature, tracked properly under `OME-893` (Surface
-available provider credit/balance for BYOK and hosted). This unit removes the ad-hoc
-notebook cell; the product surface is built under `OME-893`.
+`helpers.openrouter_credits()` reads a standalone `OPENROUTER_KEY` env var and prints that
+key's OpenRouter balance — but that figure is **disconnected from the account actually
+paying for the run in both provider modes**, so it misleads:
+
+- **BYOK** — the connected key is stored encrypted + write-only in the AI Gateway
+  credential store; the notebook cannot read it back, so the helper falls back to a
+  *separate* `OPENROUTER_KEY` env var that generally is **not** the key the user configured
+  their provider with.
+- **Hosted / subsidized engine** — runs are powered by OpenMined's shared credentials; the
+  user never sees or holds that key, so there is nothing meaningful to put in
+  `OPENROUTER_KEY`.
+
+Either way the printed credit belongs to the wrong (or no) account. Surfacing *real*
+per-mode credit/balance is a product feature, tracked under `OME-893` (Surface available
+provider credit/balance for BYOK and hosted). This unit removes the ad-hoc notebook cell;
+the product surface is built under `OME-893`.
 
 Folded into `OME-857` (Refresh the example notebooks: credits helper, …) per owner
 decision — that ticket owns the credits-helper notebook cells.
