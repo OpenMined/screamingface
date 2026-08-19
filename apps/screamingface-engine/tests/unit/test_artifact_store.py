@@ -113,3 +113,22 @@ def test_sweep_tolerates_files_vanishing_mid_scan(tmp_path: Path) -> None:
     with patch.object(Path, "stat", racing_stat):
         removed = store.sweep(ttl_seconds=0)
     assert removed >= 0  # no exception is the assertion; count depends on race timing
+
+
+def test_a_redeposited_parcel_restarts_its_ttl_clock(tmp_path: Path) -> None:
+    # INVARIANT: a dedup hit re-stamps mtime. Tickets are minted per run, but the file is
+    # shared by content — if a byte-identical result re-arrives just before the first
+    # copy's TTL, the NEW ticket must not point at a parcel the next sweep removes
+    # (review finding on PR #647).
+    store = ArtifactStore(tmp_path)
+    ref = store.write_text("the very same result")
+    # Past TTL but not yet collected — sweeps run hourly, so an expired parcel can sit
+    # on disk until the next tick. That is exactly when a re-deposit is dangerous.
+    past_ttl = time.time() - 86_500
+    os.utime(tmp_path / ref.id, (past_ttl, past_ttl))
+
+    again = store.write_text("the very same result")
+
+    assert again.id == ref.id
+    assert store.sweep(ttl_seconds=86_400) == 0
+    assert store.path_for(ref.id) is not None

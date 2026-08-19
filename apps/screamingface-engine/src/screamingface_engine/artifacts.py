@@ -50,7 +50,13 @@ class ArtifactStore:
         digest = hashlib.sha256(encoded).hexdigest()
         self._root.mkdir(parents=True, exist_ok=True)
         final = self._root / digest
-        if not final.exists():
+        # INVARIANT: a dedup hit re-stamps mtime — re-depositing a parcel restarts its
+        # TTL clock. Tickets are per run but the file is shared by content, so without
+        # the touch a byte-identical result re-arriving near (or past) the first copy's
+        # TTL would mint a fresh ticket pointing at a file the next sweep removes.
+        try:
+            os.utime(final)
+        except FileNotFoundError:
             tmp = self._root / f".{digest}.{uuid.uuid4().hex}.tmp"
             tmp.write_bytes(encoded)
             os.replace(tmp, final)
@@ -72,9 +78,9 @@ class ArtifactStore:
     def sweep(self, ttl_seconds: float, *, now: float | None = None) -> int:
         """Delete artifacts (and `.tmp` write leftovers) older than `ttl_seconds`.
 
-        Age is mtime-based: `write_text` stamps it and nothing rewrites a stored file
-        (content addressing), so mtime is the parcel's arrival time. Returns how many
-        files were removed.
+        Age is mtime-based: `write_bytes` stamps it on first write AND re-stamps it on
+        every dedup hit, so mtime is the parcel's LAST deposit time — the youngest
+        ticket's age, never the oldest's. Returns how many files were removed.
 
         INVARIANT: tolerant of concurrent life — a file may vanish between listing and
         stat (another sweep, an operator's rm); that is a completed job, not an error.
