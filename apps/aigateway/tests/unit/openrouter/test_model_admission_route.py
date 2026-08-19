@@ -73,7 +73,9 @@ def _install_runtime(client: TestClient, http: DiscoveryHttpClient) -> None:
     )
 
 
-async def _credential(credential_blobs, client: TestClient) -> None:
+async def _credential(
+    credential_blobs, client: TestClient, state: ProfileState = ProfileState.AUTHENTICATED
+) -> None:
     account_id = client.get("/v1/auth/me").json()["id"]
     await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
         Profile(
@@ -81,7 +83,7 @@ async def _credential(credential_blobs, client: TestClient) -> None:
             account_id=account_id,
             provider="openrouter",
             name="default",
-            state=ProfileState.AUTHENTICATED,
+            state=state,
             auth_type="api_key",
         )
     )
@@ -290,3 +292,96 @@ def test_a_provider_without_dynamic_admission_is_refused(
 def test_the_endpoint_requires_authentication(openrouter_enabled, client) -> None:
     resp = client.post("/v1/models/admit", json={"model_id": _TARGET})
     assert resp.status_code == 401
+
+
+# --- PR #633 review fixes ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_errored_profile_relays_reauth_not_no_key(
+    openrouter_enabled, authenticated_client, credential_blobs
+) -> None:
+    # STORY (review F6): a user with an EXPIRED key must be told to reconnect the
+    # profile they have — "connect a key first" would loop them on re-adding the
+    # same dead key forever.
+    http = _RoutingClient({MODELS_URL: _CATALOG})
+    _install_runtime(authenticated_client, http)
+    await _credential(credential_blobs, authenticated_client, state=ProfileState.ERROR)
+
+    body = _admit(authenticated_client, _TARGET)
+    assert body["admitted"] is False
+    assert body["code"] == "auth_required"
+    assert "reconnected" in body["message"]
+    assert http.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_pending_profile_relays_finish_connecting(
+    openrouter_enabled, authenticated_client, credential_blobs
+) -> None:
+    http = _RoutingClient({MODELS_URL: _CATALOG})
+    _install_runtime(authenticated_client, http)
+    await _credential(credential_blobs, authenticated_client, state=ProfileState.PENDING)
+
+    body = _admit(authenticated_client, _TARGET)
+    assert body["admitted"] is False
+    assert body["code"] == "profile_pending_auth"
+    assert "still connecting" in body["message"]
+    assert http.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_full_admitted_set_refuses_without_a_catalog_dial(
+    monkeypatch: pytest.MonkeyPatch, openrouter_enabled, authenticated_client, credential_blobs
+) -> None:
+    # INVARIANT (review F7): the admitted set is bounded — one caller looping over
+    # OpenRouter's catalog cannot permanently fatten every tenant's listing and
+    # every scheduled run's env. At capacity, refusal costs nothing upstream.
+    from aigateway.routes import model_admission as route_module
+
+    monkeypatch.setattr(route_module, "_MAX_ADMITTED_MODELS", 1)
+    http = _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
+    _install_runtime(authenticated_client, http)
+    await _credential(credential_blobs, authenticated_client)
+
+    assert _admit(authenticated_client, _TARGET)["admitted"] is True
+    body = _admit(authenticated_client, "openrouter/mistralai/ministral-3b-2512")
+    assert body["admitted"] is False
+    assert body["code"] == "admission_capacity_reached"
+    assert "capacity" in body["message"]
+    assert http.calls.count(MODELS_URL) == 1  # only the grant dialed
+
+
+@pytest.mark.asyncio
+async def test_an_already_admitted_model_readmits_even_at_capacity(
+    monkeypatch: pytest.MonkeyPatch, openrouter_enabled, authenticated_client, credential_blobs
+) -> None:
+    # WHY: idempotence outranks the cap — a saved notebook re-running against a
+    # full deployment must keep working for the models it already admitted.
+    from aigateway.routes import model_admission as route_module
+
+    monkeypatch.setattr(route_module, "_MAX_ADMITTED_MODELS", 1)
+    http = _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
+    _install_runtime(authenticated_client, http)
+    await _credential(credential_blobs, authenticated_client)
+
+    assert _admit(authenticated_client, _TARGET)["admitted"] is True
+    assert _admit(authenticated_client, _TARGET)["admitted"] is True
+
+
+@pytest.mark.asyncio
+async def test_the_catalog_cache_is_namespaced_per_provider(
+    openrouter_enabled, authenticated_client, credential_blobs
+) -> None:
+    # INVARIANT (review F9): each plugin gets its own compartment. OpenRouter's
+    # generic "ids"/"expires_at" keys land under "openrouter", so a second
+    # provider implementing `admit_model` can never read them as its own catalog.
+    http = _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
+    _install_runtime(authenticated_client, http)
+    await _credential(credential_blobs, authenticated_client)
+
+    assert _admit(authenticated_client, _TARGET)["admitted"] is True
+
+    cache = cast(FastAPI, authenticated_client.app).state.admission_catalog_cache
+    assert set(cache) == {"openrouter"}
+    assert "ids" in cache["openrouter"]

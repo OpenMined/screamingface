@@ -67,3 +67,18 @@ turn. Plan: `.dk/plans/2026-08-18-openrouter-dynamic-model-admission.md` (approv
   Credential check is account-scoped via the chat path's own resolution (admission and
   dispatch cannot disagree). Extra refusal codes beyond the plan: `invalid_model_id`,
   `unknown_provider`, `dynamic_admission_unsupported`, `openrouter_catalog_unavailable`.
+
+
+## Review fixes (2026-08-19, PR #633)
+
+Ultrareview findings 6, 7, 9 land here as a follow-up commit on the same branch:
+
+- **F6** — `_is_credentialed` no longer flattens reauth/pending profile states into
+  "no key": the admission answer relays the chat path's own `auth_required` /
+  `profile_pending_auth` code + message so the user is told to reconnect, not re-add.
+- **F7** — the admitted set gets a named cap (`_MAX_ADMITTED_MODELS`); at capacity the
+  route refuses with `admission_capacity_reached` instead of growing unboundedly.
+  Real eviction/teardown is a follow-up design ticket, not invented here.
+- **F9** — the shared `app.state.admission_catalog_cache` is namespaced per provider
+  (`cache.setdefault(provider, {})`) so a second `admit_model` plugin cannot collide
+  with OpenRouter's `ids`/`expires_at` keys.

@@ -19,6 +19,7 @@ credential verdict, which is core's own vocabulary (profiles/connections).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -29,6 +30,14 @@ from ..core.model_capabilities import canonical_model_id
 from .chat_credentials import _credential_target_for_chat
 
 router = APIRouter()
+
+# WHY a cap (review F7): the admitted set has no eviction, so without a ceiling one
+# authenticated caller with one key could loop-admit OpenRouter's whole catalog and
+# permanently fatten every tenant's `GET /v1/models` and every scheduled run's env.
+# The value sits far above real use (a notebook admits a handful) and far below the
+# discovery parser's 10k ceiling. A real teardown story (LRU/TTL/admin delete) is a
+# follow-up design decision, not invented here.
+_MAX_ADMITTED_MODELS = 256
 
 
 class _AdmitRequest(BaseModel):
@@ -45,15 +54,18 @@ def _answer(model_id: str, *, admitted: bool, code: str | None, message: str | N
     }
 
 
-async def _is_credentialed(
+async def _credential_verdict(
     request: Request, *, account_id: str, provider: str, plugin: Any
-) -> bool:
-    """True when the calling account can actually dispatch to ``provider``.
+) -> tuple[bool, tuple[str, str] | None]:
+    """(credentialed, relayed refusal) for the calling account on ``provider``.
 
     Reuses the chat path's credential resolution verbatim so admission and
-    dispatch cannot disagree about what "credentialed" means; its refusal
-    exceptions (missing/pending/errored profile) all collapse to False here —
-    the admission answer carries the diagnostic instead.
+    dispatch cannot disagree about what "credentialed" means. A profile that
+    EXISTS but is in a reauth/pending state is not "no key" (review F6): those
+    two states are relayed as their own (code, message) so the user is told to
+    finish or redo the connection — not to re-add a key they already have. Every
+    other refusal (typically a missing profile) collapses to plain
+    not-credentialed, and the plugin's ladder words that diagnosis.
     """
     profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     try:
@@ -64,9 +76,23 @@ async def _is_credentialed(
             profile_name=profile_name,
             plugin=plugin,
         )
-    except HTTPException:
-        return False
-    return profile is not None or connection is not None
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, Mapping) else {}
+        code = detail.get("code")
+        if code == "auth_required":
+            return False, (
+                "auth_required",
+                f"the {provider} profile {profile_name!r} must be reconnected — "
+                "reauthorize it, then retry",
+            )
+        if code == "profile_pending_auth":
+            return False, (
+                "profile_pending_auth",
+                f"the {provider} profile {profile_name!r} is still connecting — "
+                "finish the connection, then retry",
+            )
+        return False, None
+    return (profile is not None or connection is not None), None
 
 
 @router.post("/v1/models/admit")
@@ -93,15 +119,36 @@ async def admit_model(request: Request, current: CurrentAccount, body: _AdmitReq
     if model_id in known or model_id in admitted_models:
         return _answer(model_id, admitted=True, code=None, message=None)
 
-    credentialed = await _is_credentialed(
+    # Capacity before any credential or catalog work (review F7): a full set is a
+    # refusal that must cost nothing.
+    if len(admitted_models) >= _MAX_ADMITTED_MODELS:
+        return _answer(
+            model_id,
+            admitted=False,
+            code="admission_capacity_reached",
+            message=(
+                f"this deployment has dynamically admitted {_MAX_ADMITTED_MODELS} models, "
+                "its capacity — seed the model statically (AIGW_OPENROUTER_DEFAULT_MODELS) "
+                "or restart the gateway to clear dynamic admissions"
+            ),
+        )
+
+    credentialed, relayed = await _credential_verdict(
         request, account_id=str(current.id), provider=provider, plugin=plugin
     )
+    if relayed is not None:
+        code, message = relayed
+        return _answer(model_id, admitted=False, code=code, message=message)
     runtime = request.app.state.discovery_runtime
     decision = await plugin.admit_model(
         model_id,
         discovery_client=runtime.client if runtime is not None else None,
         discovery_limits=runtime.limits if runtime is not None else None,
-        catalog_cache=request.app.state.admission_catalog_cache,
+        # Per-provider compartment (review F9): plugins write generic keys
+        # ("ids"/"expires_at"), so handing every provider the same flat dict would
+        # let the second `admit_model` implementer read OpenRouter's catalog as
+        # its own — and vice versa.
+        catalog_cache=request.app.state.admission_catalog_cache.setdefault(provider, {}),
         credentialed=credentialed,
     )
     if not decision.admitted or decision.entry is None:
