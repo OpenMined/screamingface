@@ -1,9 +1,9 @@
 ---
 ticket: OME-890
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-08-19
-finished:
+finished: 2026-08-19
 ---
 
 # OME-890 — Stop Engine runs that keep spending after their client dies
@@ -105,9 +105,60 @@ Batch 4 — integration, on the local spine:
   socket and therefore what make subscriber-zero a prompt signal. Disabling them would
   silently regress the partition path.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** as planned, plus two the plan did not foresee:
+  - `deploy/helm/values.schema.json` — the chart validates `config` with
+    `additionalProperties: false`, so `helm template` refused `orphanGraceS` until the
+    schema declared it. Caught by rendering the chart, not by any Python gate.
+  - `src/screamingface_engine/reaper.py` grew a second protocol, `RunControl` (see
+    Deviations).
+  - Not needed after all: no change to `metrics.py`'s existing collectors, and no new
+    dependency (the invariant test is a scripted sequence, not `hypothesis`).
+
+  Full set (19 files, +2849/-7): `ws/registry.py`, `ws/__init__.py`, `reaper.py` (new),
+  `app.py`, `config.py`, `metrics.py`, `cli.py`, `.claude/scripts/check_layering.py`,
+  `deploy/helm/{values.yaml,values.schema.json,templates/configmap.yaml}`, four new test
+  files, four `docs/` artifacts.
+
+- **Commits:**
+  - `4c8274ef` — docs(work): add OME-890 spec, plan, ledger and task mirror
+  - `96585d83` — feat(screamingface-engine): announce WS audience arrive/leave transitions
+  - `db18912d` — feat(screamingface-engine): add the orphan-run reaper policy
+  - `b622f868` — feat(screamingface-engine): stop runs whose audience never comes back
+  - `6ebeaffa` — test(screamingface-engine): prove the orphan reaper end to end
+  - `c6bc2ad4` — refactor(screamingface-engine): narrow the reaper's runner dependency
+
+- **Gates:** `ALL GATES GREEN` on the final clean run (append-only check active) —
+  ruff check · ruff format · pyright · check_layering · pytest.
+  **1796 passed, 5 skipped**; coverage **93%** against the 80% floor.
+  `reaper.py` and `ws/registry.py` are both at 100%. 40 tests added across four files.
+
+- **Deviations:**
+  1. **`create_app` hit ruff's `max-statements = 26`** (27 > 26) when the wiring call and the
+     metrics registration were both added. Fixed the code rather than the gate: the
+     metrics registration moved inside `_install_orphan_reaper`, which is where it belongs
+     anyway — one function now owns everything about the reaper's presence in the App.
+     Note for the next change: `create_app` now sits exactly at the 26-statement ceiling.
+  2. **`RunControl` protocol added** during the wisdom review. `RunReaper` had declared the
+     whole `JobRunner` ABC while calling two of its five methods, which also forced four
+     `# type: ignore[arg-type]` escapes onto the tests' fakes — a Python-stack red flag.
+     Narrowing to a two-method protocol removed all four.
+  3. **Prior tests were edited** (comment/annotation only) to remove those escapes, which
+     tripped the append-only gate. Raised as a Confidence-Gate decision and **approved by
+     the owner**; that one gate run used `--skip-append-only`, and the final run passes the
+     check naturally. No assertion, test name, or coverage was changed.
+  4. **The uvicorn WS-ping assumption was verified, not assumed.** `ws_ping_interval=20` /
+     `ws_ping_timeout=20` on uvicorn 0.52.1, with no override in `cli.py`. This is what
+     makes subscriber-zero prompt (~40 s) for the sleep/partition cases rather than
+     dependent on TCP retransmission (~15–30 min). Recorded as an `INVARIANT:` comment at
+     both `uvicorn.run` call sites.
+  5. **Non-vacuity of the headline test was proved directly.** Running the same spine with
+     the reaper disabled shows the abandoned run *keeps* spending; with it enabled the run
+     is reaped and the executor's call count stops moving. So the committed test fails
+     without the feature.
+
+- **Residual risk carried forward** (documented in the spec, not fixed here): multi-replica
+  liveness needs a shared `SubscriberGate` before `replicaCount` can exceed 1 — the reaper
+  logs that assumption at startup; a control-plane restart in k8s mode leaves an unreapable
+  orphan bounded by `job_deadline_s`; and in-flight gateway calls still bill (OME-886).
