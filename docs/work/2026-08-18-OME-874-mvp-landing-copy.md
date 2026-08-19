@@ -185,8 +185,17 @@ missing mechanism present:
 
 Net deviation from the brand copy: **one word changed, two sentences removed, nothing invented.**
 
-`benchmark.html` carries S2 alone (that page has no note in the mockup at all, so mirroring the
-landing sentence is the smallest divergence available).
+`benchmark.html` carries the **same two sentences as the landing page**. Two facts settled this:
+the mockup has no note box on its benchmark page at all — it conveys the same meaning through a row
+legend, a per-row Status column, a "SOTA (reproducible)" stat and the pool toggle, every one of
+which needs the filter we lack — and Irina's instruction was scoped to *"the copy from the landing
+page"* (2026-08-14, repeated 2026-08-18). So there is no brand copy for that page to deviate from;
+its note was ours before this PR and stays ours.
+
+Matching the landing wording also fixes a gap the single-sentence version left: `benchmark.html`
+has **no glossary** (0 `kv defs` vs 1 on index), and deep links — the `Open →` column, spec pages,
+anything shared — land there directly. Without the second sentence that page offered a reader no
+context at all for what the numbers mean.
 
 ### What was tried and rejected first
 
