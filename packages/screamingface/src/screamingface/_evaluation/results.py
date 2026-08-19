@@ -26,6 +26,43 @@ from screamingface.report import (
     Usage,
 )
 
+# The marker pre-OME-892 Engines glued onto a cut result body. Recognized here so a run
+# against an OLD Engine fails with the real cause instead of the generic "must be JSON".
+_LEGACY_TRUNCATION_MARKER = "…[truncated]"
+
+
+def _decoded_result_body(outcome: _RunOutcome) -> object:
+    """Decode the root result body, naming truncation and unredeemed tickets precisely.
+
+    FEATURE: deliver large results in full (OME-892). Order of the checks: (1) a None
+    body means the transport failed to materialize an artifact outcome — a bug to name,
+    not a TypeError to leak; (2) JSON that parses is returned; (3) unparseable JSON
+    ending in the legacy marker is an OLD Engine's truncation — report the received byte
+    count so the researcher learns what happened from the error alone; (4) anything else
+    keeps the generic message.
+    """
+    body = outcome.result_body
+    if body is None:
+        raise ExecutionError(
+            "SF Engine Candidate result artifact was not materialized by the transport"
+        )
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:
+        if body.endswith(_LEGACY_TRUNCATION_MARKER):
+            # WHY "ends with the marker" phrasing: a body could conceivably end with
+            # this literal for another reason — the error states the evidence (marker +
+            # byte count) rather than asserting certainty about the cause.
+            raise ExecutionError(
+                "SF Engine candidate result is invalid JSON and ends with the Engine's "
+                f"truncation marker at {len(body.encode('utf-8'))} bytes — most likely "
+                "truncated by a pre-OME-892 Engine; upgrade the Engine to deliver large "
+                "results whole, or run with a smaller limit",
+                code="result_truncated",
+                permanent=True,
+            ) from exc
+        raise ExecutionError("SF Engine Candidate result must be JSON") from exc
+
 
 def report_from_outcomes(
     evaluation: _Evaluation,
@@ -46,10 +83,7 @@ def report_from_outcomes(
 def report_from_url4_outcome(candidate: Candidate, outcome: _RunOutcome) -> Report:
     """Decode an opaque replay after its result identifies the pinned Benchmark."""
 
-    try:
-        payload = json.loads(outcome.result_body)
-    except json.JSONDecodeError as exc:
-        raise ExecutionError("SF Engine Candidate result must be JSON") from exc
+    payload = _decoded_result_body(outcome)
     value = _mapping(payload, "Candidate result")
     if value.get("schema") != "screamingface.candidate-result.v1":
         raise ExecutionError("SF Engine Candidate result schema is unsupported")
@@ -123,10 +157,7 @@ def _candidate_payload(
     evaluation: _Evaluation,
     outcome: _RunOutcome,
 ) -> Mapping[str, object]:
-    try:
-        payload = json.loads(outcome.result_body)
-    except json.JSONDecodeError as exc:
-        raise ExecutionError("SF Engine Candidate result must be JSON") from exc
+    payload = _decoded_result_body(outcome)
     value = _mapping(payload, "Candidate result")
     _keys(
         value,

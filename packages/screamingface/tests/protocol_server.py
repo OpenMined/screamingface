@@ -53,7 +53,22 @@ class ProtocolState:
         "start_error",
         "start_auth_error",
         "stream_failed",
+        "artifact_result",
     ] = "success"
+    # OME-892 artifact mode: the result frame carries a claim ticket for `artifact_body`;
+    # `/artifacts/{id}` serves `artifact_served` when set (corruption seam), else the true
+    # bytes, or 404 when `artifact_missing`. Fetches are recorded as (path, capability).
+    artifact_body: str = "[test] " + "A" * 2048
+    artifact_served: bytes | None = None
+    artifact_missing: bool = False
+    artifact_fail_first: int = 0
+    artifact_requests: list[tuple[str, str | None]] = field(default_factory=list)
+    # OME-892 incident seam: real capability tokens live ~60 s while a run takes an hour,
+    # so every token minted BEFORE the result frame streamed is expired by redemption
+    # time. With this flag on, streaming the result expires all tokens minted so far and
+    # `/artifacts/{id}` 401s them — redemption succeeds only with a freshly minted token.
+    artifact_token_expiry: bool = False
+    expired_tokens: list[str] = field(default_factory=list)
 
     def mint_token(self) -> str:
         with self.lock:
@@ -115,8 +130,66 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 — stdlib handler API
         if self.headers.get("Upgrade", "").casefold() == "websocket":
             self._websocket()
+        elif urlsplit(self.path).path.startswith("/artifacts/"):
+            self._artifact()
         else:
             self._start()
+
+    def _artifact(self) -> None:
+        state = self.server.state
+        with state.lock:
+            state.artifact_requests.append((self.path, self.headers.get("URL4-Capability")))
+            transient_failure = state.artifact_fail_first > 0
+            if transient_failure:
+                state.artifact_fail_first -= 1
+        if transient_failure:
+            # A mid-transfer reset, not a clean HTTP error: shut the socket down hard so
+            # the client sees the drop IMMEDIATELY (close() alone leaves httpx waiting
+            # out its read timeout), then close — the transient the retry must survive.
+            import socket as _socket
+
+            self.connection.shutdown(_socket.SHUT_RDWR)
+            self.connection.close()
+            return
+        with state.lock:
+            expired = (
+                state.artifact_token_expiry
+                and self.headers.get("URL4-Capability") in state.expired_tokens
+            )
+        if expired:
+            self._json(
+                HTTPStatus.UNAUTHORIZED,
+                {
+                    "type": "about:blank",
+                    "title": "Unauthorized",
+                    "status": HTTPStatus.UNAUTHORIZED,
+                    "detail": "missing, invalid, or expired capability token",
+                },
+                media_type="application/problem+json",
+            )
+            return
+        if state.artifact_missing:
+            self._json(
+                HTTPStatus.NOT_FOUND,
+                {
+                    "type": "about:blank",
+                    "title": "Unknown artifact",
+                    "status": HTTPStatus.NOT_FOUND,
+                    "detail": "no artifact is stored under that id",
+                },
+                media_type="application/problem+json",
+            )
+            return
+        payload = (
+            state.artifact_served
+            if state.artifact_served is not None
+            else state.artifact_body.encode("utf-8")
+        )
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _start(self) -> None:
         self.server.state.start_attempts += 1
@@ -276,8 +349,19 @@ class _Handler(BaseHTTPRequestHandler):
             _send_server_text_frame(self.wfile, json.dumps(_advisory_error()))
         elif mode == "unsequenced_log":
             _send_server_text_frame(self.wfile, json.dumps(_unsequenced_log()))
-        for frame in _run_frames():
+        frames = (
+            _artifact_run_frames(self.server.state.artifact_body)
+            if mode == "artifact_result"
+            else _run_frames()
+        )
+        for frame in frames:
             _send_server_text_frame(self.wfile, json.dumps(frame))
+        state = self.server.state
+        if state.artifact_token_expiry:
+            # The run is over: every token minted so far is now older than the real
+            # engine's 60 s capability TTL — redemption must present a fresh mint.
+            with state.lock:
+                state.expired_tokens.extend(state.minted_tokens)
 
     def _stream_stop(self) -> None:
         _send_server_text_frame(self.wfile, json.dumps(_run_frames()[0]))
@@ -382,6 +466,23 @@ def _run_frames() -> tuple[dict[str, object], ...]:
             4,
         ),
     )
+
+
+def _artifact_run_frames(artifact_body: str) -> tuple[dict[str, object], ...]:
+    """The success run, but the result frame carries a claim ticket (OME-892)."""
+    encoded = artifact_body.encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+    frames = list(_run_frames())
+    frames[2] = _frame(
+        "ai.url4.result",
+        {
+            "body": None,
+            "media_type": None,
+            "artifact": {"id": digest, "size_bytes": len(encoded), "sha256": digest},
+        },
+        3,
+    )
+    return tuple(frames)
 
 
 def _gap_frames() -> tuple[dict[str, object], ...]:
@@ -523,9 +624,23 @@ def protocol_server(
         "start_error",
         "start_auth_error",
         "stream_failed",
+        "artifact_result",
     ] = "success",
+    artifact_body: str | None = None,
+    artifact_served: bytes | None = None,
+    artifact_missing: bool = False,
+    artifact_fail_first: int = 0,
+    artifact_token_expiry: bool = False,
 ) -> Iterator[ProtocolServer]:
-    state = ProtocolState(mode=mode)
+    state = ProtocolState(
+        mode=mode,
+        artifact_served=artifact_served,
+        artifact_missing=artifact_missing,
+        artifact_fail_first=artifact_fail_first,
+        artifact_token_expiry=artifact_token_expiry,
+    )
+    if artifact_body is not None:
+        state.artifact_body = artifact_body
     server = _Server(("127.0.0.1", 0), state)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

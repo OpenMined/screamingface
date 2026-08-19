@@ -330,6 +330,7 @@ def test_a_result_at_the_engine_cap_reaches_the_researcher() -> None:
         with closing(Url4CloudTransport(stub.url)) as transport:
             outcome = transport.run(_candidate(), None)
 
+    assert outcome.result_body is not None
     assert len(outcome.result_body.encode()) == ENGINE_RESULT_CAP_BYTES
 
 
@@ -342,6 +343,7 @@ async def test_a_result_at_the_engine_cap_reaches_an_async_researcher() -> None:
         finally:
             await transport.close()
 
+    assert outcome.result_body is not None
     assert len(outcome.result_body.encode()) == ENGINE_RESULT_CAP_BYTES
 
 

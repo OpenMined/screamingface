@@ -2,6 +2,7 @@ import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import pytest
@@ -9,7 +10,12 @@ from _fakes import MockExecutor, take
 
 from screamingface_engine import job_env
 from screamingface_engine.runner.executor import Url4Executor
-from screamingface_engine.runner.main import RunnerConfigError, build_executor, params_from_env
+from screamingface_engine.runner.main import (
+    RunnerConfigError,
+    build_executor,
+    params_from_env,
+    result_delivery_from_env,
+)
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
 from url4.core.errors import ResolutionError
@@ -434,3 +440,41 @@ async def test_build_executor_without_tavily_key_declares_no_tools() -> None:
 
     assert "tools" not in posts[0]
     assert "tool_choice" not in posts[0]
+
+
+# FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892).
+# The Runner's spill wiring is env-driven: caps and directory come from the same
+# URL4_CLOUD_* names the App's serve side reads, with tolerant fallbacks to the defaults.
+
+
+def test_result_delivery_from_env_defaults() -> None:
+    inline_cap, hard_cap, store = result_delivery_from_env({})
+    assert inline_cap == job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
+    assert hard_cap == job_env.DEFAULT_RESULT_HARD_CAP_BYTES
+    assert store is not None
+
+
+def test_result_delivery_from_env_reads_all_three(tmp_path: Path) -> None:
+    inline_cap, hard_cap, store = result_delivery_from_env(
+        {
+            job_env.RESULT_INLINE_CAP_BYTES: "2048",
+            job_env.RESULT_HARD_CAP_BYTES: "4096",
+            job_env.ARTIFACTS_DIR: str(tmp_path / "spill"),
+        }
+    )
+    assert inline_cap == 2048
+    assert hard_cap == 4096
+    assert store is not None
+    ref = store.write_text("where do I land?")
+    assert (tmp_path / "spill" / ref.id).is_file()
+
+
+def test_result_delivery_from_env_tolerates_unreadable_numbers() -> None:
+    # WHY tolerant, not strict: these are deploy-time knobs, and of the two wrong answers
+    # ("crash every run at boot" vs "run with the shipped default") the default is the one
+    # that costs nothing — matching how STREAM_GRACE_S is read.
+    inline_cap, hard_cap, _ = result_delivery_from_env(
+        {job_env.RESULT_INLINE_CAP_BYTES: "a lot", job_env.RESULT_HARD_CAP_BYTES: ""}
+    )
+    assert inline_cap == job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
+    assert hard_cap == job_env.DEFAULT_RESULT_HARD_CAP_BYTES

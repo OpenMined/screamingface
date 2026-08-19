@@ -20,8 +20,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal, cast
 
+from screamingface_engine import job_env
+from screamingface_engine.artifacts import ArtifactStore
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
+from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
 from url4.io.static import StaticIOLayer
@@ -47,8 +50,6 @@ from url4.streaming.protocol import (
 from url4.streaming.protocol.taxonomy import CostBreakdown
 
 _logger = logging.getLogger(__name__)
-
-_TRUNCATION_MARKER = "…[truncated]"
 
 
 class BridgeOverflowError(RuntimeError):
@@ -446,24 +447,49 @@ class _RunState:
             )
         return frames
 
-    def build_result(self, result_str: str, cap: int) -> ResultData:
-        """Build the final `ResultData`, truncating to `cap` UTF-8 bytes when needed.
+    def build_result(
+        self,
+        result_str: str,
+        *,
+        inline_cap: int,
+        hard_cap: int,
+        store: ArtifactStore | None,
+    ) -> ResultData:
+        """Build the final `ResultData`: inline, spilled whole, or refused — never cut.
 
-        A truncated body keeps as much of the original text as fits alongside
-        `_TRUNCATION_MARKER`, cutting on a byte boundary (`errors="ignore"` drops any partial
-        trailing character rather than raising). If even the marker alone doesn't fit in
-        `cap`, the body is the marker itself, truncated.
+        FEATURE: deliver large results in full instead of cutting them off at 1 MiB
+        (OME-892). Three-way fork by UTF-8 size, HARD CAP FIRST: (1) over `hard_cap` —
+        or over `inline_cap` with no store to spill into — raise `result_too_large`
+        naming both byte counts, which the lifecycle turns into a failed terminal event;
+        (2) ≤ `inline_cap` → the body rides the result frame exactly as before OME-892;
+        (3) otherwise the COMPLETE body is written to the content-addressed `store` and
+        the frame carries only the claim ticket (`ResultArtifact`).
+
+        WHY the hard cap is checked first: it is absolute. If the inline check ran first,
+        inverted knobs (inline_cap > hard_cap) would let an over-hard-cap body sail into
+        one WS frame — bypassing the ceiling and resurrecting the close-1009
+        `websocket_disconnected` failure the client's frame bound exists to prevent.
+
+        The body is encoded ONCE — the same bytes that are measured are the bytes written
+        (`write_bytes`), so a gigabyte-scale result never pays a second encoding copy.
+        Blocking work (hashing, disk write) is the CALLER's problem: `execute` runs this
+        whole method in a worker thread so the event loop pumping heartbeats never stalls.
+
+        INVARIANT: no branch emits a truncated body — the truncate-and-still-succeed
+        path of GitHub #642 is unrepresentable here.
         """
         encoded = result_str.encode("utf-8")
-        if len(encoded) <= cap:
+        allowed = hard_cap if store is not None else min(inline_cap, hard_cap)
+        if len(encoded) > allowed:
+            raise ResolutionError(
+                f"result is {len(encoded)} bytes, cap is {allowed} bytes",
+                code="result_too_large",
+                permanent=True,
+            )
+        if len(encoded) <= inline_cap:
             return ResultData(body=result_str, media_type=None)
-        marker = _TRUNCATION_MARKER.encode("utf-8")
-        if len(marker) > cap:
-            body = marker[:cap].decode("utf-8", errors="ignore")
-            return ResultData(body=body, media_type=None)
-        kept = encoded[: cap - len(marker)]
-        body = kept.decode("utf-8", errors="ignore") + _TRUNCATION_MARKER
-        return ResultData(body=body, media_type=None)
+        assert store is not None  # over inline yet allowed ⇒ a store existed above
+        return ResultData(media_type=None, artifact=store.write_bytes(encoded))
 
     def build_subtree(self) -> CostUsageData:
         provider, model = self._subtree_provider_model()
@@ -561,13 +587,21 @@ class Url4Executor(Executor):
         io: IOLayer | None = None,
         *,
         queue_cap: int = 1024,
-        result_cap: int = 1_048_576,
+        result_cap: int = job_env.DEFAULT_RESULT_INLINE_CAP_BYTES,
+        hard_cap: int = job_env.DEFAULT_RESULT_HARD_CAP_BYTES,
+        artifact_store: ArtifactStore | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
     ) -> None:
         self._io = io
         self._queue_cap = queue_cap
+        # WHY: `result_cap` is now the INLINE threshold (biggest body that rides the
+        # result frame), not a truncation point; `hard_cap` bounds the spill path. The
+        # result already sits in this process's memory when checked (string + encoded
+        # copy ≈ 2-3× its size), so operators size hard_cap to pod RAM, not disk.
         self._result_cap = result_cap
+        self._hard_cap = hard_cap
+        self._artifact_store = artifact_store
         self._world_aclose = world_aclose
         self._world_factory = world_factory
 
@@ -615,10 +649,17 @@ class Url4Executor(Executor):
             result_str = await task
             for frame in _closing_logs(bridge.dropped, state.cache_counters):
                 yield frame
-            yield Completed(
-                result=state.build_result(result_str, self._result_cap),
-                subtree_cost=state.build_subtree(),
+            # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
+            # bytes — synchronous disk work that would otherwise stall the very loop that
+            # pumps heartbeats, letting a client declare a FINISHING run dead.
+            result = await asyncio.to_thread(
+                state.build_result,
+                result_str,
+                inline_cap=self._result_cap,
+                hard_cap=self._hard_cap,
+                store=self._artifact_store,
             )
+            yield Completed(result=result, subtree_cost=state.build_subtree())
         finally:
             if not task.done():
                 task.cancel()

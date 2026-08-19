@@ -16,8 +16,10 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Request, Response
+from fastapi.responses import FileResponse
 
 from screamingface_engine import job_env, notices
+from screamingface_engine.artifacts import ArtifactStore
 from screamingface_engine.auth import (
     PROBLEM_MEDIA_TYPE,
     JwtCodec,
@@ -63,6 +65,7 @@ class _Deps:
     interest: SubscriberGate
     sessions: RunSessions
     settings: Settings
+    artifact_store: ArtifactStore | None = None
 
 
 def _deps(request: Request) -> _Deps:
@@ -85,6 +88,9 @@ def _deps(request: Request) -> _Deps:
         # make the frame carrier disappear the moment a test pinned the 428 behaviour.
         sessions=state.registry,
         settings=state.settings,
+        # Direct attribute, no getattr fallback: create_app always builds the store, so
+        # its absence is a wiring bug that must fail loudly, not degrade to 404s.
+        artifact_store=state.artifact_store,
     )
 
 
@@ -244,10 +250,28 @@ async def _await_terminal(
         return None
 
 
-def _result_response(result: ResultEvent | None) -> Response:
-    """Build the 200 response body from the run's ``ResultEvent``, or an empty 200 if none."""
+def _result_response(result: ResultEvent | None, store: ArtifactStore | None = None) -> Response:
+    """Build the 200 response body from the run's ``ResultEvent``, or an empty 200 if none.
+
+    FEATURE: deliver large results in full (OME-892) — a result frame may carry an artifact
+    reference instead of an inline body; this transactional GET path resolves it to the same
+    complete bytes the streaming client would fetch from ``GET /artifacts/{id}``.
+    """
     if result is None:
         return Response(status_code=200)
+    artifact = result.data.artifact
+    if artifact is not None:
+        path = store.path_for(artifact.id) if store is not None else None
+        if path is None:
+            # WHY 404 and not an empty 200: the run DID produce a result; serving nothing as
+            # success would be a quieter cousin of the truncation bug this feature removes.
+            raise ProblemException(
+                status=404,
+                title="Result artifact unavailable",
+                detail=f"the run's result was spilled to artifact {artifact.id!r}, which has "
+                "already been fetched or swept",
+            )
+        return FileResponse(path, media_type=result.data.media_type or "application/json")
     return Response(
         content=result.data.body,
         media_type=result.data.media_type or "application/json",
@@ -255,11 +279,15 @@ def _result_response(result: ResultEvent | None) -> Response:
     )
 
 
-def _terminal_response(terminated: TerminatedEvent, result: ResultEvent | None) -> Response:
+def _terminal_response(
+    terminated: TerminatedEvent,
+    result: ResultEvent | None,
+    store: ArtifactStore | None = None,
+) -> Response:
     """Map a terminal frame to its HTTP response: the Result body on success, else a problem."""
     status = terminated.data.status
     if status == "succeeded":
-        return _result_response(result)
+        return _result_response(result, store)
     # `.get` and not `[...]`: a terminal status added to the protocol but not mapped here would
     # otherwise surface as an unhandled KeyError — a bare 500 with a traceback, rather than a
     # response that still tells the caller the run ended and did not succeed.
@@ -316,7 +344,7 @@ async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
     outcome = await _await_terminal(deps.stream, topic, bound)
     if outcome is None:
         return _accepted(topic)
-    return _terminal_response(outcome[0], outcome[1])
+    return _terminal_response(outcome[0], outcome[1], deps.artifact_store)
 
 
 @router.post(

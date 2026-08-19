@@ -806,6 +806,7 @@ async def test_runner_composition_installs_benchmarks_with_the_injected_asset_ro
 
     assert roots == [Path("/immutable/assets")]
     assert isinstance(frames[-1], Completed)
+    assert frames[-1].result.body is not None
     assert decode_candidate_invocation(frames[-1].result.body) == (
         "Rayleigh scattering.",
         "stop",
