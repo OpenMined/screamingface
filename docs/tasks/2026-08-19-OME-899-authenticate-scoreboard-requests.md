@@ -17,6 +17,8 @@ instead of reaching the Scoreboard API.
 Add origin-aware Scoreboard authentication for synchronous and asynchronous Clients, preserve
 anonymous public reads, and permit authentication replay only for safe reads or the
 idempotency-keyed score submission. Include Scoreboard authentication in logout and shutdown, and
-keep the public submission interface free of private header manipulation.
+keep the public submission interface free of private header manipulation. Origins that prove the
+same Cloudflare Access audience must reuse one in-memory credential without a second browser login;
+origins with distinct audiences must authenticate separately.
 
 Full scope and acceptance criteria: the Linear issue body.

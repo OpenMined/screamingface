@@ -12,8 +12,8 @@ from url4 import expr, render, src, text
 
 import screamingface as sf
 from screamingface import _default_client
+from screamingface._access import auth as auth_module
 from screamingface._core.wire import _REPLAY_SAFE
-from screamingface._engine import auth as auth_module
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import _compiled_operation
 

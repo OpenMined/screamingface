@@ -7,7 +7,7 @@ import base64
 import json
 import threading
 import time
-from collections.abc import AsyncGenerator, Generator, Mapping
+from collections.abc import AsyncGenerator, Callable, Generator, Mapping
 from contextlib import closing
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -22,12 +22,14 @@ from websockets.exceptions import InvalidStatus
 from websockets.http11 import Response
 
 import screamingface as sf
+from screamingface._access import auth as access_auth_module
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.auth import (
     _access_audience,
     _access_authorization_url,
     _access_logout_url,
     _access_token,
+    _AccessTokenStore,
     _CloudflareAccessAuth,
     _decrypt_transfer,
     _LoginAttempt,
@@ -44,6 +46,7 @@ from screamingface._evaluation.model import (
 )
 
 _ENGINE = "https://engine.example"
+_SCOREBOARD = "https://scoreboard.example"
 _AUDIENCE = "a" * 64
 _TRANSFER_STORE = "https://login.cloudflareaccess.org"
 
@@ -133,6 +136,22 @@ class _AccessFixture:
         )
 
 
+def _shared_auth(
+    fixture: _AccessFixture,
+    origin: str,
+    token_store: _AccessTokenStore,
+) -> _CloudflareAccessAuth:
+    return _CloudflareAccessAuth(
+        origin,
+        access_transport=httpx.MockTransport(fixture.handler),
+        browser_presenter=fixture.browser_urls.append,
+        clock=fixture.clock.now,
+        wall_clock=fixture.clock.wall_now,
+        sleep=fixture.clock.sleep,
+        token_store=token_store,
+    )
+
+
 def _capture_login(auth: _CloudflareAccessAuth, errors: list[BaseException]) -> None:
     try:
         auth.login()
@@ -202,6 +221,219 @@ def test_protected_request_starts_login_and_retries_with_access_header() -> None
     assert response.json() == {"ok": True}
     assert headers == [None, fixture.application_tokens[0]]
     auth.close()
+
+
+def test_same_audience_origins_reuse_one_browser_login() -> None:
+    fixture = _AccessFixture()
+    token_store = _AccessTokenStore()
+    engine_auth = _shared_auth(fixture, _ENGINE, token_store)
+    scoreboard_auth = _shared_auth(fixture, _SCOREBOARD, token_store)
+    engine_auth.login()
+    headers: list[str | None] = []
+
+    def application(request: httpx.Request) -> httpx.Response:
+        token = request.headers.get("Cf-Access-Token")
+        headers.append(token)
+        return httpx.Response(200) if token else fixture.redirect()
+
+    with httpx.Client(
+        transport=httpx.MockTransport(application),
+        auth=scoreboard_auth,
+    ) as client:
+        response = client.post(
+            f"{_SCOREBOARD}/v1/scores",
+            headers={"Idempotency-Key": "run-1"},
+            extensions={_REPLAY_SAFE: True},
+        )
+
+    assert response.status_code == 200
+    assert headers == [None, fixture.application_tokens[0]]
+    assert len(fixture.browser_urls) == 1
+    engine_auth.close()
+    scoreboard_auth.close()
+
+
+def test_distinct_audience_origin_requires_its_own_browser_login() -> None:
+    fixture = _AccessFixture()
+    token_store = _AccessTokenStore()
+    engine_auth = _shared_auth(fixture, _ENGINE, token_store)
+    scoreboard_auth = _shared_auth(fixture, _SCOREBOARD, token_store)
+    engine_auth.login()
+    scoreboard_audience = "b" * 64
+
+    def application(request: httpx.Request) -> httpx.Response:
+        if len(fixture.browser_urls) == 2:
+            return httpx.Response(200)
+        location = "https://access.example/login?kid=" + scoreboard_audience
+        return httpx.Response(302, headers={"location": location})
+
+    with httpx.Client(
+        transport=httpx.MockTransport(application),
+        auth=scoreboard_auth,
+    ) as client:
+        response = client.get(
+            f"{_SCOREBOARD}/v1/scores/score-1",
+            extensions={_REPLAY_SAFE: True},
+        )
+
+    assert response.status_code == 200
+    assert len(fixture.browser_urls) == 2
+    query = parse_qs(urlsplit(fixture.browser_urls[-1]).query)
+    assert query["aud"] == [scoreboard_audience]
+    engine_auth.close()
+    scoreboard_auth.close()
+
+
+def _client_access_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[_AccessFixture, list[str | None], httpx.MockTransport]:
+    fixture = _AccessFixture()
+    headers: list[str | None] = []
+
+    def auth(
+        origin: str,
+        *,
+        token_store: _AccessTokenStore | None = None,
+        discovery_error: Callable[[str], BaseException] | None = None,
+    ) -> _CloudflareAccessAuth:
+        return _CloudflareAccessAuth(
+            origin,
+            access_transport=httpx.MockTransport(fixture.handler),
+            browser_presenter=fixture.browser_urls.append,
+            clock=fixture.clock.now,
+            wall_clock=fixture.clock.wall_now,
+            sleep=fixture.clock.sleep,
+            token_store=token_store,
+            **({"discovery_error": discovery_error} if discovery_error is not None else {}),
+        )
+
+    def scoreboard(request: httpx.Request) -> httpx.Response:
+        token = request.headers.get("Cf-Access-Token")
+        headers.append(token)
+        return httpx.Response(404) if token else fixture.redirect()
+
+    monkeypatch.setattr(access_auth_module, "_client_caller_auth", auth)
+    return fixture, headers, httpx.MockTransport(scoreboard)
+
+
+def test_client_reuses_engine_login_for_same_audience_scoreboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture, headers, scoreboard_transport = _client_access_fixture(monkeypatch)
+    with sf.Client(
+        engine_url=_ENGINE,
+        scoreboard_url=_SCOREBOARD,
+        scoreboard_transport=scoreboard_transport,
+    ) as client:
+        client.login()
+        with pytest.raises(sf.LeaderboardError) as caught:
+            client.leaderboards.get_score("00000000-0000-0000-0000-000000000001")
+        assert caught.value.code == "unknown_score"
+
+    assert headers == [None, fixture.application_tokens[0]]
+    assert len(fixture.browser_urls) == 1
+
+
+@pytest.mark.asyncio
+async def test_async_client_reuses_engine_login_for_same_audience_scoreboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture, headers, scoreboard_transport = _client_access_fixture(monkeypatch)
+    async with sf.AsyncClient(
+        engine_url=_ENGINE,
+        scoreboard_url=_SCOREBOARD,
+        scoreboard_transport=scoreboard_transport,
+    ) as client:
+        await client.login()
+        with pytest.raises(sf.LeaderboardError) as caught:
+            await client.leaderboards.get_score("00000000-0000-0000-0000-000000000001")
+        assert caught.value.code == "unknown_score"
+
+    assert headers == [None, fixture.application_tokens[0]]
+    assert len(fixture.browser_urls) == 1
+
+
+def test_client_logout_clears_credentials_for_every_observed_audience() -> None:
+    audience = "z" * 64
+    client = sf.Client()
+    private_client = cast(Any, client)
+    token = _access_token(_jwt(time.time() + 900), time.monotonic(), time.time())
+    private_client._access_tokens.put(audience, token)
+
+    client.logout()
+    assert private_client._access_tokens.usable(audience, time.monotonic()) is None
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_client_logout_clears_credentials_for_every_observed_audience() -> None:
+    audience = "z" * 64
+    client = sf.AsyncClient()
+    private_client = cast(Any, client)
+    token = _access_token(_jwt(time.time() + 900), time.monotonic(), time.time())
+    private_client._access_tokens.put(audience, token)
+
+    await client.logout()
+    assert private_client._access_tokens.usable(audience, time.monotonic()) is None
+    await client.aclose()
+
+
+def test_service_neutral_access_discovery_uses_authentication_error() -> None:
+    auth = access_auth_module._CloudflareAccessAuth(
+        "https://service.example",
+        access_transport=httpx.MockTransport(
+            lambda request: (_ for _ in ()).throw(httpx.ConnectError("offline", request=request))
+        ),
+        browser_presenter=lambda url: None,
+    )
+
+    with pytest.raises(sf.AuthenticationError) as caught:
+        auth.login()
+
+    assert not isinstance(caught.value, sf.EngineUnavailableError)
+    assert caught.value.code == "access_discovery_unreachable"
+    auth.close()
+
+
+def test_client_close_clears_all_credentials_even_when_auth_close_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audience = "z" * 64
+    client = sf.Client()
+    private_client = cast(Any, client)
+    token = _access_token(_jwt(time.time() + 900), time.monotonic(), time.time())
+    private_client._access_tokens.put(audience, token)
+
+    def fail() -> None:
+        raise RuntimeError("fixture close failure")
+
+    monkeypatch.setattr(private_client._engine_auth, "close", fail)
+    with pytest.raises(RuntimeError, match="fixture close failure"):
+        client.close()
+
+    assert private_client._access_tokens.usable(audience, time.monotonic()) is None
+    assert client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_async_client_close_clears_all_credentials_even_when_auth_close_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audience = "z" * 64
+    client = sf.AsyncClient()
+    private_client = cast(Any, client)
+    token = _access_token(_jwt(time.time() + 900), time.monotonic(), time.time())
+    private_client._access_tokens.put(audience, token)
+
+    def fail() -> None:
+        raise RuntimeError("fixture close failure")
+
+    monkeypatch.setattr(private_client._engine_auth, "close", fail)
+    with pytest.raises(RuntimeError, match="fixture close failure"):
+        await client.aclose()
+
+    assert private_client._access_tokens.usable(audience, time.monotonic()) is None
+    assert client.closed is True
 
 
 @pytest.mark.asyncio

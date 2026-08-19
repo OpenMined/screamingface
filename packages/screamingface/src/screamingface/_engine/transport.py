@@ -22,10 +22,11 @@ from websockets.sync import client as sync_ws
 from websockets.sync.connection import Connection as SyncConnection
 from websockets.typing import Subprotocol
 
+from screamingface._access.auth import _default_caller_auth
+from screamingface._access.base import _TransportAuth
+from screamingface._access.contract import _challenge_audience
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface._core.wire import _REPLAY_SAFE
-from screamingface._engine.access_contract import _challenge_audience
-from screamingface._engine.auth import _default_caller_auth, _TransportAuth
 from screamingface._engine.run_lifecycle import _Lifecycle
 from screamingface._evaluation.model import Candidate
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError

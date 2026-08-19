@@ -3,9 +3,9 @@
 1. Add sync and async regression tests at the public Leaderboards interface proving protected
    score reads and submissions use Scoreboard-origin authentication rather than Engine
    credentials.
-2. Bind a Scoreboard-origin Cloudflare Access adapter to each Scoreboard HTTP client at the
-   existing Client transport seam.
-3. Mark Scoreboard requests replay-safe only for read methods or requests carrying an
-   `Idempotency-Key`, and include the new adapter in logout and close lifecycles.
+2. Move the Cloudflare Access adapter to a service-neutral package, bind one adapter to each
+   origin, and share credentials only after both origins prove the same Access audience.
+3. Declare replay safety explicitly at each Leaderboards operation; permit score submission replay
+   only alongside its stable `Idempotency-Key`.
 4. Run focused Client/Leaderboard tests, static checks, and the full ScreamingFace gate.
-5. Exclude notebook execution changes, record the outcome, and open the OME-899 pull request.
+5. Exclude notebook execution changes, record the outcome, and update the OME-899 pull request.
