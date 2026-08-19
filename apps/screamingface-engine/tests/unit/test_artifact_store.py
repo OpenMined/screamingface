@@ -78,3 +78,38 @@ def test_sweep_removes_only_files_older_than_ttl(tmp_path: Path) -> None:
 
 def test_sweep_on_missing_root_is_a_noop(tmp_path: Path) -> None:
     assert ArtifactStore(tmp_path / "never-created").sweep(ttl_seconds=1) == 0
+
+
+def test_sweep_collects_stale_tmp_write_leftovers(tmp_path: Path) -> None:
+    # WHY: a crash mid-write leaves a `.tmp` file that `path_for` can never see — without
+    # this it would hold real bytes on disk forever, invisible to every other mechanism.
+    store = _store(tmp_path)
+    store.write_text("anchor")  # ensures the root exists
+    orphan = tmp_path / "artifacts" / (".{}.deadbeef.tmp".format("9f" * 32))
+    orphan.write_bytes(b"half-written parcel")
+    two_days_ago = time.time() - 2 * 86_400
+    os.utime(orphan, (two_days_ago, two_days_ago))
+
+    removed = store.sweep(ttl_seconds=86_400)
+
+    assert removed == 1
+    assert not orphan.exists()
+
+
+def test_sweep_tolerates_files_vanishing_mid_scan(tmp_path: Path) -> None:
+    # INVARIANT: a file deleted between listing and stat is a completed job, not a crash —
+    # the periodic sweeper must survive racing with anything else that removes files.
+    store = _store(tmp_path)
+    ref = store.write_text("here then gone")
+    real_stat = Path.stat
+
+    def racing_stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        if self.name == ref.id:
+            self.unlink(missing_ok=True)  # simulate a concurrent deletion
+        return real_stat(self, follow_symlinks=follow_symlinks)
+
+    from unittest.mock import patch
+
+    with patch.object(Path, "stat", racing_stat):
+        removed = store.sweep(ttl_seconds=0)
+    assert removed >= 0  # no exception is the assertion; count depends on race timing
