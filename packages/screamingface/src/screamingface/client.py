@@ -62,6 +62,7 @@ class Client:
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._auth = _default_caller_auth(self._engine_url)
+        self._scoreboard_auth = _default_caller_auth(self._scoreboard_url)
         self._http = httpx.Client(
             base_url=self._engine_url,
             timeout=30.0,
@@ -71,6 +72,7 @@ class Client:
         self._scoreboard_http = httpx.Client(
             base_url=self._scoreboard_url,
             timeout=30.0,
+            auth=self._scoreboard_auth,
             transport=scoreboard_transport,
         )
         self._transport: SyncRunTransport = (
@@ -142,8 +144,13 @@ class Client:
         """Forget caller credentials and start Cloudflare Access browser logout."""
 
         self._require_open()
-        self._auth.logout()
-        self._auth_listeners.notify()
+        try:
+            self._auth.logout()
+        finally:
+            try:
+                self._scoreboard_auth.logout()
+            finally:
+                self._auth_listeners.notify()
 
     def close(self) -> None:
         if self._closed:
@@ -157,8 +164,11 @@ class Client:
                 try:
                     self._scoreboard_http.close()
                 finally:
-                    self._auth.close()
-                    self._closed = True
+                    try:
+                        self._scoreboard_auth.close()
+                    finally:
+                        self._auth.close()
+                        self._closed = True
 
     @overload
     def evaluate(
@@ -317,6 +327,7 @@ class Client:
             params=params,
             json=json,
             headers=headers,
+            extensions={_REPLAY_SAFE: _scoreboard_replay_safe(method, headers)},
         )
 
 
@@ -346,6 +357,7 @@ class AsyncClient:
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._auth = _default_caller_auth(self._engine_url)
+        self._scoreboard_auth = _default_caller_auth(self._scoreboard_url)
         self._http = httpx.AsyncClient(
             base_url=self._engine_url,
             timeout=30.0,
@@ -355,6 +367,7 @@ class AsyncClient:
         self._scoreboard_http = httpx.AsyncClient(
             base_url=self._scoreboard_url,
             timeout=30.0,
+            auth=self._scoreboard_auth,
             transport=scoreboard_transport,
         )
         self._transport: AsyncRunTransport = (
@@ -426,8 +439,13 @@ class AsyncClient:
         """Forget caller credentials and start Cloudflare Access browser logout."""
 
         self._require_open()
-        await self._auth.logout_async()
-        self._auth_listeners.notify()
+        try:
+            await self._auth.logout_async()
+        finally:
+            try:
+                await self._scoreboard_auth.logout_async()
+            finally:
+                self._auth_listeners.notify()
 
     async def aclose(self) -> None:
         if self._closed:
@@ -441,8 +459,11 @@ class AsyncClient:
                 try:
                     await self._scoreboard_http.aclose()
                 finally:
-                    await asyncio.to_thread(self._auth.close)
-                    self._closed = True
+                    try:
+                        await asyncio.to_thread(self._scoreboard_auth.close)
+                    finally:
+                        await asyncio.to_thread(self._auth.close)
+                        self._closed = True
 
     @overload
     async def evaluate(
@@ -586,7 +607,16 @@ class AsyncClient:
             params=params,
             json=json,
             headers=headers,
+            extensions={_REPLAY_SAFE: _scoreboard_replay_safe(method, headers)},
         )
+
+
+def _scoreboard_replay_safe(method: str, headers: Mapping[str, str] | None) -> bool:
+    """Whether Access may repeat one Scoreboard request after browser login."""
+
+    return method.upper() in {"GET", "HEAD", "OPTIONS"} or bool(
+        headers and headers.get("Idempotency-Key")
+    )
 
 
 def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
