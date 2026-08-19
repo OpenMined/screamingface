@@ -168,3 +168,93 @@ def test_stopping_a_run_purges_its_stream(client: TestClient) -> None:
         response = client.delete("/", headers=_cap(token))
 
     assert response.status_code == 204
+
+
+# FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892).
+# The >threshold slice, network-free, through the REAL executor, lifecycle, REST and WS:
+# a big result rides the stream as a claim ticket, and redeeming it returns every byte.
+
+_BIG_PAYLOAD = "A" * 4096  # far over the 64-byte inline cap below, tiny for the test run
+
+
+@pytest.fixture
+def big_result_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
+    """A local-mode App whose real Url4Executor spills anything over 64 bytes."""
+    from pathlib import Path as _Path
+
+    from screamingface_engine.artifacts import ArtifactStore
+    from screamingface_engine.runner.executor import Url4Executor
+    from url4.io.static import StaticIOLayer
+
+    artifacts_dir: _Path = tmp_path_factory.mktemp("spill")
+    settings = Settings(jwt_secret=SECRET, artifacts_dir=str(artifacts_dir))
+    stream = InMemoryEventStream()
+    runner = InProcessJobRunner(
+        stream,
+        lambda _env: Url4Executor(
+            StaticIOLayer(fetch_map={"https://big": _BIG_PAYLOAD}),
+            result_cap=64,
+            artifact_store=ArtifactStore(artifacts_dir),
+        ),
+        base_env={},
+    )
+    app = create_app(settings, stream=stream, job_runner=runner)
+    app.router.on_shutdown.append(runner.aclose)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_a_big_result_streams_as_a_claim_ticket_and_redeems_whole(
+    big_result_client: TestClient,
+) -> None:
+    client = big_result_client
+    token = _token(client)
+    with client.websocket_connect(f"/ws?ticket={token}") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "specversion": "1.0",
+                    "id": "attach-big",
+                    "source": "/test",
+                    "type": "ai.url4.attach",
+                    "data": {},
+                }
+            )
+        )
+        client.get("/?q=https://big!go", headers=_cap(token))
+
+        result_data: dict[str, object] | None = None
+        terminal: dict[str, object] | None = None
+        while terminal is None:
+            frame = json.loads(ws.receive_text())
+            if frame["type"] == "ai.url4.result":
+                result_data = frame["data"]
+            if frame["type"] == "ai.url4.terminated":
+                terminal = frame["data"]
+
+    # INVARIANT: the stream never carries a cut body — over-cap results travel by reference.
+    assert terminal["status"] == "succeeded"
+    assert result_data is not None
+    assert result_data["body"] is None
+    artifact = result_data["artifact"]
+    assert isinstance(artifact, dict)
+
+    redeemed = client.get(f"/artifacts/{artifact['id']}", headers=_cap(token))
+    assert redeemed.status_code == 200
+    assert redeemed.text.endswith(_BIG_PAYLOAD)
+    assert len(redeemed.content) == artifact["size_bytes"]
+
+    # The claim is redeemed: a second fetch finds nothing (delete-on-fetch).
+    assert client.get(f"/artifacts/{artifact['id']}", headers=_cap(token)).status_code == 404
+
+
+def test_the_sync_get_path_serves_a_big_result_whole(big_result_client: TestClient) -> None:
+    client = big_result_client
+    token = _token(client)
+    with client.websocket_connect(f"/ws?ticket={token}"):
+        response = client.get("/?q=https://big!go", headers=_cap(token))
+
+    # WHY: the transactional GET is the result frame's second consumer — same complete
+    # bytes, no claim-ticket round trip visible to this caller.
+    assert response.status_code == 200
+    assert response.text.endswith(_BIG_PAYLOAD)

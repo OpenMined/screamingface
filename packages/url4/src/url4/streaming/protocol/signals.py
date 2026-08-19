@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from url4.streaming.protocol.taxonomy import CostBreakdown, ErrorInfo, TokenUsage
 
@@ -136,9 +136,51 @@ class HeartbeatData(BaseModel):
     pass
 
 
+class ResultArtifact(BaseModel):
+    """Claim ticket for a result too large to ride the stream inline (OME-892).
+
+    The node parks the full result as a content-addressed file and emits this reference
+    instead; the client redeems it over HTTP (`GET /artifacts/{id}`) and verifies
+    `size_bytes` + `sha256` before trusting the bytes.
+    """
+
+    model_config = ConfigDict(use_attribute_docstrings=True)
+
+    id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    """Content address: the lowercase sha256 hex of the UTF-8 body, which is also the
+    fetch path segment. The pattern is the path-traversal guard — an id that validates
+    can never name anything outside a flat artifact directory."""
+    size_bytes: int = Field(ge=1)
+    """Exact UTF-8 byte count of the complete body — the first integrity check."""
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    """Digest of the complete body — the second integrity check, kept as its own field so
+    `id` may change addressing scheme without changing what the client verifies."""
+
+
 class ResultData(BaseModel):
-    body: str
+    """The run's final result: a complete inline `body`, or an `artifact` claim ticket.
+
+    INVARIANT: exactly one of `body` / `artifact` is set. A body you can see is complete
+    and trustworthy; an artifact means the complete result is one HTTP GET away
+    (`GET /artifacts/{id}`, verified against the ticket's size and sha256). The
+    truncate-and-still-succeed path this replaces (GitHub #642) is unrepresentable.
+    """
+
+    body: str | None = None
     media_type: str | None = None
+    # WHY exclude_if and not exclude_none on the codec: `media_type: null` was on the wire
+    # before OME-892, so dropping every null would change frames old clients already parse.
+    # Omitting only an absent `artifact` keeps inline result frames byte-identical to
+    # pre-OME-892 — the ticket appears on the wire only when one is actually issued. (A
+    # wrap model_serializer would do the same but erases the model's JSON schema, which
+    # the Engine's OpenAPI docs gate rejects.)
+    artifact: ResultArtifact | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def _exactly_one_of_body_or_artifact(self) -> "ResultData":
+        if (self.body is None) == (self.artifact is None):
+            raise ValueError("exactly one of body or artifact must be set")
+        return self
 
 
 class TerminatedData(BaseModel):
