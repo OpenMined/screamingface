@@ -41,6 +41,12 @@ def _serve() -> None:
     # so a chart value for it could only ever point the probes and the Service's `targetPort` at a
     # port nothing listens on — which is exactly what `config.port` did before it was removed.
     # Changing this means changing the containerPort in the same commit.
+    # INVARIANT (OME-890): uvicorn's WS ping defaults are LOAD-BEARING and deliberately not
+    # overridden. `ws_ping_interval=20` / `ws_ping_timeout=20` are what close a partitioned or
+    # sleeping peer's socket within ~40s, which is what fires `ConnectionRegistry.remove` and so
+    # arms the orphan reaper. Disable or lengthen them and a dead client's run is detected only by
+    # TCP retransmission timeout (~15-30 min), which silently reopens most of the spend the
+    # reaper closed. Measured on uvicorn 0.52.1; re-check on a major bump.
     uvicorn.run(
         "screamingface_engine.app:create_app_from_env", factory=True, host="0.0.0.0", port=_PORT
     )
@@ -60,6 +66,7 @@ def _serve_local() -> None:
     # JWT secret, so the bind address is the only thing keeping it unreachable.
     from screamingface_engine.local import LOCAL_HOST
 
+    # INVARIANT: the WS ping defaults matter here too — see the note in `_serve` (OME-890).
     uvicorn.run(
         "screamingface_engine.local:create_local_app", factory=True, host=LOCAL_HOST, port=_PORT
     )

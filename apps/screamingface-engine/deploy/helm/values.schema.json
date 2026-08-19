@@ -57,6 +57,11 @@
           "maximum": 57600,
           "description": "Job activeDeadlineSeconds. INVARIANT: the 16h ceiling is spec \u00a73."
         },
+        "orphanGraceS": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds a run may keep going with no WebSocket subscriber before the App stops it (OME-890); 0 disables the reaper. INVARIANT: the audience count is in-process, so replicaCount must stay 1 while this is non-zero \u2014 a second replica would answer \"nobody is listening\" for runs another replica is streaming. Keep it above uvicorn's WS ping window (~40s), which is what closes a partitioned client's socket in the first place."
+        },
         "aigatewayBaseUrl": {
           "type": "string"
         },

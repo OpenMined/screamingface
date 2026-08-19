@@ -164,3 +164,34 @@ class _CatalogCollector:
 def register_catalog_metrics(metrics: Metrics, get_service: Callable[[], Any]) -> None:
     """Register a `_CatalogCollector` for `get_service` on `metrics.registry`."""
     metrics.registry.register(_CatalogCollector(get_service))
+
+
+class _ReaperCollector:
+    """A `prometheus_client` custom collector for the orphan reaper's counters (OME-890)."""
+
+    def __init__(self, get_reaper: Callable[[], Any]) -> None:
+        self._get_reaper = get_reaper
+
+    def collect(self) -> Iterable[Any]:
+        """Called by `prometheus_client` once per `/metrics` scrape."""
+        reaper = self._get_reaper()
+        if reaper is None:
+            return
+        yield CounterMetricFamily(
+            "screamingface_engine_orphan_runs_reaped",
+            "Runs stopped for having no WebSocket subscriber.",
+            value=reaper.reaped_total,
+        )
+        # WHY a gauge beside the counter: a value that never returns to zero is the only signal
+        # that distinguishes "the sweep task died" from "no orphans happened" — the counter reads
+        # identically in both cases.
+        yield GaugeMetricFamily(
+            "screamingface_engine_orphan_runs_armed",
+            "Runs currently inside their no-subscriber grace window.",
+            value=float(reaper.armed_count),
+        )
+
+
+def register_reaper_metrics(metrics: Metrics, get_reaper: Callable[[], Any]) -> None:
+    """Register a `_ReaperCollector` for `get_reaper` on `metrics.registry`."""
+    metrics.registry.register(_ReaperCollector(get_reaper))
