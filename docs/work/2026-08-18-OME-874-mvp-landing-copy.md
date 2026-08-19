@@ -166,44 +166,45 @@ Written RED first, then made green:
 - **Gates:**
 - **Deviations:**
 
-## Review finding (Dmitry, 2026-08-19): the aspirational copy was not implementable
+## Review finding (Dmitry, 2026-08-19): two mockup sentences describe machinery we do not have
 
-Both points were correct and both are fixed.
+Both points were correct and both are fixed with the smallest possible edit to the brand copy.
 
-**1. The `benchmark.html` note contradicted itself.** It read *"The top of this board is the best
-reproducible result: the current SOTA. Self-reported runs can rank above it."* If a self-reported
-run can rank above the top, the top is not the best reproducible result. Verified against the code
-rather than argued: `_build_leaderboard_query` selects `verified_by_screamingface` but never filters
-on it, and orders by `score DESC` — so an unverified `0.99` genuinely outranks a verified `0.40`.
+**Verified against the query, not the wording.** `_build_leaderboard_query` selects
+`verified_by_screamingface` but never filters on it, and orders by `score DESC` — so an unverified
+`0.99` genuinely outranks a verified `0.40`.
 
-That sentence was **mine**, written for D6, not brand copy: the mockup's benchmark page carries no
-note box at all (0 `class="note"`, 0 occurrences of "Read this first"). Strict fidelity would have
-deleted the box; rewording it moves toward the mockup, not away.
+The mockup's note is three sentences. Two of them describe *mechanisms*, and no rewording makes a
+missing mechanism present:
 
-**2. `index.html` instructed a control that does not exist.** *"Toggle on self-reported runs"* —
-there is no toggle on that page, on the benchmark page, or anywhere in the product; `OME-771` is
-Blocked. That is broken UX rather than a premature claim.
+| | Mockup sentence | Outcome |
+|---|---|---|
+| S1 | *"By default, the leaderboard only shows results we've reproduced ourselves."* | **Deleted** — describes a default filter that does not exist |
+| S2 | *"The top of each leaderboard is the best **verified** result: the current SOTA."* | **One word**: `verified` → `submitted`. Now true, and the SOTA payoff survives |
+| S3 | *"Toggle on self-reported runs…"* | **Deleted** — names a control that exists nowhere; `OME-771` is Blocked |
 
-### Why this supersedes D1–D3
+Net deviation from the brand copy: **one word changed, two sentences removed, nothing invented.**
 
-The owner chose forward-looking copy on 2026-08-18 believing it was a wording question. It was not.
-The mockup's wording is coherent **only because its default view is filtered to reproducible rows** —
-"the top is the best verified result" is true of a *filtered* board, and "toggle on self-reported
-runs" names the control doing the filtering. Ported to an unfiltered board, the same sentences
-contradict themselves and point at nothing.
+`benchmark.html` carries S2 alone (that page has no note in the mockup at all, so mirroring the
+landing sentence is the smallest divergence available).
 
-So this copy and the pool filter (`OME-771` → `OME-821` → `OME-414`) are **one change, not two**.
-Both notes now state what is true — every score self-reported, nothing independently reproduced,
-every row rerunnable via its URL4 — and name verified ranking as a future state rather than a
-current one. The ambition is kept; the false present tense is gone.
+### What was tried and rejected first
 
-**Glossary left untouched.** The `Reproducible` definition stays verbatim per the owner's
-instruction. It is a definition of a term, not an assertion that rows are in that category, and it
-reads coherently beside a note saying nothing has been reproduced yet.
+An earlier pass rewrote both notes into honest-but-defensive prose ("we do not re-run submissions
+yet", "nothing has been independently reproduced", "verified ranking arrives with re-run
+verification"). Owner rejected it: it buried the ambition under a disclaimer and used the
+"not yet / until that lands" construction throughout. The lesson recorded for next time — when copy
+asserts something untrue, cut the assertion, do not add a confession.
 
-**`models/score.py` reverted** to the original invariant, with a note recording that forward-looking
-copy was tried and why it failed — so the next person reaches for the filter rather than the wording.
+**The aspiration never left the page.** The glossary is untouched and still carries Irina's
+vocabulary verbatim: *"Reproducible — Ran on shared compute and stored on the global cache. Anyone
+can re-run it and get the same score"* and *"Unverified — Self-reported… Not yet reproduced on the
+global cache."* The note does not need to restate it.
 
-**Owner action:** the `index.html` note was verbatim mockup copy that @Irina locked on 2026-08-18.
-Changing it is a deviation from that instruction, made because the review demonstrated it was not
-implementable. She needs to confirm before merge.
+### Owner action
+
+S1 and S3 were verbatim mockup copy @Irina locked on 2026-08-18. Removing them is a deviation from
+that instruction, made because review showed they describe behaviour the board does not have — her
+call was a wording decision on what turned out to be an implementability question. The copy and the
+pool filter (`OME-771` → `OME-821` → `OME-414`) are one change, not two. She should confirm before
+merge.
