@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/OpenMined/screamingface/compare/aigateway-ui-v0.2.0...aigateway-ui-v0.3.0) (2026-08-19)
+
+
+### Features
+
+* **screamingface-engine:** rename apps/url4-cloud to apps/screamingface-engine ([3246d96](https://github.com/OpenMined/screamingface/commit/3246d96d05673e0707cf938cae65de2e696154c8))
+
+
+### Documentation
+
+* **screamingface-engine:** update agent config, diagrams and stale paths ([1d2c047](https://github.com/OpenMined/screamingface/commit/1d2c047b2c522dee3df2dc9ea920d36f05584eea))
+
 ## [0.2.0](https://github.com/OpenMined/screamingface/compare/aigateway-ui-v0.1.0...aigateway-ui-v0.2.0) (2026-08-04)
 
 
