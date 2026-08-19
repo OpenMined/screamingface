@@ -54,7 +54,7 @@ single run's worst-case fan-out removes the queue entirely.
   `docs/tasks/` mirror + (owner-directed addition) `apps/aigateway/src/aigateway/core/
   concurrency.py` and `apps/aigateway/tests/unit/test_concurrency.py`.
 - **Commits:** 0b5d4dc8 — fix(py-screamingface): raise local stack openrouter gateway
-  concurrency to 32; 48779683 — feat(aigateway): log the concurrency limit applied per
+  concurrency to 32; 9689fac4 — feat(aigateway): log the concurrency limit applied per
   provider.
 - **Gates:** justfile env verified through the real settings parser
   (`effective_provider_limit("openrouter") == 32`, others 4). Log line: TDD (3 appended
