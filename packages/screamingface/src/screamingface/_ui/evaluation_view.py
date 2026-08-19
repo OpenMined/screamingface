@@ -267,7 +267,7 @@ def _candidate_score_text(value: _CandidateCaseProgress) -> str:
 def _candidate_stage_text(value: _CandidateCaseProgress) -> str:
     parts: list[str] = []
     if value.running_candidate:
-        parts.append(f"{value.running_candidate} running Candidate")
+        parts.append(f"{value.running_candidate} generating")
     if value.grading:
         parts.append(f"{value.grading} grading")
     if value.queued:

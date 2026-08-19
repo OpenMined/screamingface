@@ -199,7 +199,7 @@ class _EvaluationProgress:
             coverage=event.coverage,
             score=event.provisional_score,
         )
-        self.activity = _case_activity(event)
+        self.activity = _case_activity(self.candidate_case_progress, self.model_calls)
         self._note(
             event,
             "score",
@@ -231,11 +231,16 @@ class _EvaluationProgress:
         if event.request_model in self.candidate_models:
             self.candidate_calls += 1
             role = "candidate"
-            self.activity = _calls_activity("Running candidate", self.candidate_calls)
+            fallback_activity = _calls_activity("Running candidate", self.candidate_calls)
         else:
             self.benchmark_calls += 1
             role = "grading"
-            self.activity = _calls_activity("Grading benchmark", self.benchmark_calls)
+            fallback_activity = _calls_activity("Grading benchmark", self.benchmark_calls)
+        self.activity = (
+            _case_activity(self.candidate_case_progress, self.model_calls)
+            if self.candidate_case_progress
+            else fallback_activity
+        )
         if event.status == "error":
             self.failed_calls += 1
         if event.refusal is not None:
@@ -307,12 +312,20 @@ def _calls_activity(phase: str, count: int) -> str:
     return f"{phase} · {count} {noun} completed"
 
 
-def _case_activity(event: BenchmarkProgress) -> str:
-    if event.grading_cases:
-        return f"Grading Cases · {event.complete_cases}/{event.total_cases} complete"
-    if event.running_candidate_cases:
-        return f"Running Cases · {event.complete_cases}/{event.total_cases} complete"
-    return f"Cases · {event.complete_cases}/{event.total_cases} complete"
+def _case_activity(
+    progress: dict[str, _CandidateCaseProgress], model_calls: int
+) -> str:
+    generating = any(value.running_candidate for value in progress.values())
+    grading = any(value.grading for value in progress.values())
+    if generating and grading:
+        phase = "Generating and grading responses"
+    elif generating:
+        phase = "Generating responses"
+    elif grading:
+        phase = "Grading responses"
+    else:
+        phase = "Finalizing evaluation"
+    return _calls_activity(phase, model_calls) if model_calls else phase
 
 
 def _score_text(value: float | None) -> str:

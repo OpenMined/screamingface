@@ -230,12 +230,22 @@ def test_panel_renders_separate_benchmark_native_progress_for_each_candidate() -
     html = evaluation_panel_html(progress, "healthbench-worst30")
 
     assert "panel" in html and "solo" in html
-    assert "40/157 complete · 2 running Candidate · 3 grading · 112 queued · 40 scored" in html
-    assert "12/157 complete · 1 running Candidate · 1 grading · 143 queued · 12 scored" in html
+    assert "40/157 complete · 2 generating · 3 grading · 112 queued · 40 scored" in html
+    assert "12/157 complete · 1 generating · 1 grading · 143 queued · 12 scored" in html
     assert "score so far · -0.42" in html
     assert "score so far · 0.11" in html
     assert "coverage · 25.5%" in html
     assert "55/314" not in html
+    assert progress.activity == "Generating and grading responses"
+
+    progress.observe(
+        model_span(
+            3,
+            request_model="openrouter/google/gemini-3.1-pro-preview",
+        )
+    )
+
+    assert progress.activity == "Generating and grading responses · 1 model call completed"
 
 
 def test_no_progress_events_preserve_the_existing_candidate_level_fallback() -> None:
