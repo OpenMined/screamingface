@@ -25,6 +25,7 @@ from screamingface_engine.benchmarks.draco.definition import (
     CRITERION_EVALUATION_ROUTE,
     JUDGE_MODEL,
     JUDGE_PASSES,
+    PROGRESS_ROUTE,
     REVISION,
     TASKS_ROUTE,
     VERDICT_ROUTE,
@@ -38,6 +39,10 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.progress import (
+    BenchmarkProgressAdapter,
+    install_progress,
+)
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from url4.peer.server import Request, Url4Node
 
@@ -45,6 +50,17 @@ from url4.peer.server import Request, Url4Node
 def install(node: Url4Node, root: Path) -> None:
     """Register the routes referenced by canonical DRACO."""
     cases_json, selected_cases, rubrics = _protocol_assets(root)
+    aggregate = _aggregate(selected_cases, rubrics)
+    progress = BenchmarkProgressAdapter(
+        benchmark_id=BENCHMARK_ID,
+        benchmark_revision=REVISION,
+        available_case_count=len(selected_cases),
+        case_order=lambda: tuple(
+            tasks.positive_case_id(str(case["id"])) for case in selected_cases
+        ),
+        aggregate=aggregate,
+    )
+    aggregate_with_progress = install_progress(node, route=PROGRESS_ROUTE, adapter=progress)
     node.data(CASES_ROUTE, cases_json, media_type="application/json")
     node.endpoint(TASKS_ROUTE)(_task_rows(root))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
@@ -70,10 +86,7 @@ def install(node: Url4Node, root: Path) -> None:
         aggregate_endpoint(
             label="DRACO",
             available_case_count=len(selected_cases),
-            aggregate=_aggregate(
-                selected_cases,
-                rubrics,
-            ),
+            aggregate=aggregate_with_progress,
         )
     )
 

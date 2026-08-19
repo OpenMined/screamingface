@@ -24,7 +24,7 @@ from screamingface.errors import (
     ProviderConnectionError,
     ScreamingFaceError,
 )
-from screamingface.events import Event
+from screamingface.events import BenchmarkProgress, Event
 from screamingface.fusion import Fusion
 from screamingface.leaderboard import (
     Leaderboard,
@@ -57,6 +57,7 @@ __all__ = [
     "AuthenticationError",
     "Benchmark",
     "BenchmarkInfo",
+    "BenchmarkProgress",
     "CaseGrade",
     "CaseResult",
     "CandidateResult",

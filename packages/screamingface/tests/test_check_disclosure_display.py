@@ -51,7 +51,9 @@ def test_a_rendering_panel_suppresses_the_warning(monkeypatch: pytest.MonkeyPatc
     # would reintroduce the red banner OME-845 removes.
     taken: dict[str, str | None] = {}
 
-    def fake_notebook_observer(total, benchmark, models, urls, check_disclosure=None):
+    def fake_notebook_observer(
+        total, benchmark, case_count, models, urls, candidate_names, check_disclosure=None
+    ):
         taken["disclosure"] = check_disclosure
         return lambda event: None
 

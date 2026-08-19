@@ -50,6 +50,7 @@ def evaluate_url4_sync(
         "URL4 replay",
         candidate_models=candidate.models,
         candidate_urls=(candidate.url4,),
+        candidate_names=(candidate.name,),
     )
     try:
         outcome = transport.run(candidate, observer)
@@ -82,6 +83,7 @@ async def evaluate_url4_async(
         "URL4 replay",
         candidate_models=candidate.models,
         candidate_urls=(candidate.url4,),
+        candidate_names=(candidate.name,),
     )
     try:
         outcome = await transport.run(candidate, observer)

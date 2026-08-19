@@ -47,6 +47,7 @@ from screamingface_engine.benchmarks.healthbench.definition import (
     CASES_ROUTE,
     CHECK_SURFACE_ROUTE,
     JUDGE_MODEL,
+    PROGRESS_ROUTE,
     REVISION,
     RUBRIC_EVALUATION_ROUTE,
     TASKS_ROUTE,
@@ -58,6 +59,10 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
     render_rubric_item,
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
+from screamingface_engine.benchmarks.progress import (
+    BenchmarkProgressAdapter,
+    install_progress,
+)
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -80,6 +85,7 @@ def install(node: Url4Node, root: Path) -> None:
         rubric_evaluation_route=RUBRIC_EVALUATION_ROUTE,
         case_evaluation_route=CASE_EVALUATION_ROUTE,
         aggregate_route=AGGREGATE_ROUTE,
+        progress_route=PROGRESS_ROUTE,
         check_surface_route=CHECK_SURFACE_ROUTE,
         benchmark_id=BENCHMARK_ID,
         benchmark_revision=REVISION,
@@ -97,6 +103,7 @@ def _install_protocol_once(
     rubric_evaluation_route: str,
     case_evaluation_route: str,
     aggregate_route: str,
+    progress_route: str,
     check_surface_route: str,
     benchmark_id: str,
     benchmark_revision: str,
@@ -105,6 +112,19 @@ def _install_protocol_once(
     if cases_route not in getattr(node, "_data", {}):
         node.data(cases_route, _cases(root, case_ids), media_type="application/json")
     routes = frozenset(node.processor_routes())
+    aggregate = _aggregate(root, benchmark_id, benchmark_revision, case_ids)
+    progress = BenchmarkProgressAdapter(
+        benchmark_id=benchmark_id,
+        benchmark_revision=benchmark_revision,
+        available_case_count=len(case_ids),
+        case_order=lambda: case_ids,
+        aggregate=aggregate,
+    )
+    aggregate_with_progress = install_progress(
+        node,
+        route=progress_route,
+        adapter=progress,
+    )
     endpoints = (
         (tasks_route, _rubric_tasks(root, case_ids)),
         # The mid-run check surface the corrective loop consumes. It closes over `node`
@@ -127,7 +147,7 @@ def _install_protocol_once(
             aggregate_endpoint(
                 label="HealthBench",
                 available_case_count=len(case_ids),
-                aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids),
+                aggregate=aggregate_with_progress,
             ),
         ),
     )

@@ -9,7 +9,7 @@ from decimal import Decimal
 from html import escape
 from typing import Any
 
-from screamingface._ui.evaluation_state import _EvaluationProgress
+from screamingface._ui.evaluation_state import _CandidateCaseProgress, _EvaluationProgress
 from screamingface._ui.style import FUSION_GRADIENT, STYLE
 from screamingface.events import Event
 
@@ -37,6 +37,7 @@ _STYLE = (
 .sf-eval__state .sq{{flex:0 0 auto;width:9px;height:9px;background:var(--sf-ink-3)}}
 .sf-eval__state.running .sq{{background:var(--sf-accent)}}
 .sf-eval__state.succeeded .sq{{background:var(--sf-success-solid)}}
+.sf-eval__state.incomplete .sq{{background:var(--sf-warning-solid)}}
 .sf-eval__state.failed .sq,.sf-eval__state.timed_out .sq,
 .sf-eval__state.stopped .sq{{background:var(--sf-blind)}}
 /* stat table: hairline cells, mono figures, tabular so digits stop jittering as they tick */
@@ -56,6 +57,23 @@ _STYLE = (
 .sf-eval__note{{margin-top:8px;padding:7px 10px;border:1px solid var(--sf-line);
   font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
   color:var(--sf-ink-2);line-height:1.5}}
+.sf-eval__candidates{{margin-top:14px;border:1px solid var(--sf-line)}}
+.sf-eval__candidate{{padding:10px 12px;border-bottom:1px solid var(--sf-line)}}
+.sf-eval__candidate:last-child{{border-bottom:0}}
+.sf-eval__candidate-head{{display:flex;align-items:baseline;justify-content:space-between;
+  gap:12px;font-family:"IBM Plex Mono",ui-monospace,monospace}}
+.sf-eval__candidate-name{{font-weight:600;color:var(--sf-ink);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}}
+.sf-eval__candidate-score{{color:var(--sf-accent);white-space:nowrap;
+  font-variant-numeric:tabular-nums}}
+.sf-eval__case-track{{height:8px;margin-top:8px;background:var(--sf-line);
+  overflow:hidden}}
+.sf-eval__case-fill{{display:block;height:100%;background-repeat:no-repeat;
+  background-position:right center;background-image:{FUSION_GRADIENT};
+  transition:width .35s ease-out}}
+.sf-eval__candidate-meta{{display:flex;justify-content:space-between;gap:12px;margin-top:6px;
+  color:var(--sf-ink-3);font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-variant-numeric:tabular-nums}}
 /* the feed: newest first, fixed height — proof of work, not a transcript */
 .sf-eval__feed{{margin-top:12px;border:1px solid var(--sf-line);max-height:132px;
   overflow:auto}}
@@ -102,6 +120,7 @@ def evaluation_panel_html(
         f"{_meta_html(progress, elapsed)}"
         f"{_activity_html(progress)}"
         f"{_note_html(check_disclosure)}"
+        f"{_candidate_progress_html(progress)}"
         f"{_stats_html(progress)}"
         f"{_feed_html(progress)}"
         f"{_error_html(progress)}</div>"
@@ -115,6 +134,8 @@ def _head_html(progress: _EvaluationProgress, benchmark: str | None) -> str:
 
 
 def _bar_html(progress: _EvaluationProgress) -> str:
+    if progress.has_case_progress:
+        return ""
     track = "sf-eval__track"
     fraction = progress.fraction
     if fraction is None:
@@ -157,6 +178,87 @@ def _note_html(check_disclosure: str | None) -> str:
     if check_disclosure is None:
         return ""
     return f"<div class='sf-eval__note'>check surface · {escape(check_disclosure)}</div>"
+
+
+def _candidate_progress_html(progress: _EvaluationProgress) -> str:
+    if not progress.has_case_progress and not progress.candidate_case_progress:
+        return ""
+    ordered_names = tuple(dict.fromkeys(progress.candidate_names_by_url.values()))
+    values = tuple(_candidate_progress_value(progress, name) for name in ordered_names)
+    seen = {value.name for value in values}
+    values += tuple(
+        value for name, value in progress.candidate_case_progress.items() if name not in seen
+    )
+    rows = "".join(_candidate_progress_row(value) for value in values)
+    return f"<div class='sf-eval__candidates'>{rows}</div>"
+
+
+def _candidate_progress_value(
+    progress: _EvaluationProgress,
+    name: str,
+) -> _CandidateCaseProgress:
+    existing = progress.candidate_case_progress.get(name)
+    if existing is not None:
+        return existing
+    if progress.case_count is None:
+        raise ValueError("Candidate Case progress requires a selected Case count")
+    return _CandidateCaseProgress(
+        name=name,
+        total=progress.case_count,
+        queued=progress.case_count,
+        running_candidate=0,
+        grading=0,
+        complete=0,
+        scored=0,
+        coverage=0.0,
+        score=None,
+    )
+
+
+def _candidate_progress_row(value: _CandidateCaseProgress) -> str:
+    total = value.total
+    complete_width = value.complete / total * 100
+    score = _candidate_score_text(value)
+    coverage = f"{value.coverage * 100:.1f}%"
+    background_size = 100 if complete_width == 0 else 10_000 / complete_width
+    fill = (
+        f"<span class='sf-eval__case-fill' style='width:{complete_width:.3f}%;"
+        f"background-size:{background_size:.1f}% 100%'></span>"
+    )
+    stages = _candidate_stage_text(value)
+    return (
+        "<div class='sf-eval__candidate'>"
+        "<div class='sf-eval__candidate-head'>"
+        f"<span class='sf-eval__candidate-name'>{escape(value.name)}</span>"
+        f"<span class='sf-eval__candidate-score'>{escape(score)}</span>"
+        "</div>"
+        f"<div class='sf-eval__case-track'>{fill}</div>"
+        "<div class='sf-eval__candidate-meta'>"
+        f"<span>{value.complete}/{total} complete · {escape(stages)} · "
+        f"{value.scored} scored</span>"
+        f"<span>coverage · {coverage}</span>"
+        "</div></div>"
+    )
+
+
+def _candidate_score_text(value: _CandidateCaseProgress) -> str:
+    if value.score is not None:
+        label = "score" if value.complete == value.total else "score so far"
+        return f"{label} · {value.score:.6g}"
+    if value.complete == value.total:
+        return "score unavailable"
+    return "score · awaiting first grade"
+
+
+def _candidate_stage_text(value: _CandidateCaseProgress) -> str:
+    parts: list[str] = []
+    if value.running_candidate:
+        parts.append(f"{value.running_candidate} running Candidate")
+    if value.grading:
+        parts.append(f"{value.grading} grading")
+    if value.queued:
+        parts.append(f"{value.queued} queued")
+    return " · ".join(parts) or "all Cases finished"
 
 
 def _stats_html(progress: _EvaluationProgress) -> str:
@@ -252,8 +354,10 @@ class _NotebookEvaluationView:
         self,
         total_candidates: int | None = None,
         benchmark: str | None = None,
+        case_count: int | None = None,
         candidate_models: tuple[str, ...] = (),
         candidate_urls: tuple[str, ...] = (),
+        candidate_names: tuple[str, ...] = (),
         *,
         check_disclosure: str | None = None,
         clock: Callable[[], float] | None = None,
@@ -263,8 +367,10 @@ class _NotebookEvaluationView:
 
         self._progress = _EvaluationProgress(
             total_candidates=total_candidates,
+            case_count=case_count,
             candidate_models=frozenset(candidate_models),
             candidate_urls=frozenset(candidate_urls),
+            candidate_names_by_url=_candidate_names(candidate_urls, candidate_names),
         )
         self._benchmark = benchmark
         self._check_disclosure = check_disclosure
@@ -326,6 +432,14 @@ class _NotebookEvaluationView:
 
         display(self._html)
         self._shown = True
+
+
+def _candidate_names(
+    candidate_urls: tuple[str, ...], candidate_names: tuple[str, ...]
+) -> dict[str, str]:
+    if len(candidate_names) != len(candidate_urls):
+        raise ValueError("Candidate progress names must match Candidate URLs")
+    return dict(zip(candidate_urls, candidate_names, strict=True))
 
 
 __all__: list[str] = []

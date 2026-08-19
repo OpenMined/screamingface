@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -108,6 +109,27 @@ class Log(Event):
     @property
     def attributes(self) -> Mapping[str, str | int | float | bool | None]:
         return self._attributes
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkProgress(Event):
+    """One Engine-authored, benchmark-native progress snapshot for a Candidate Run."""
+
+    benchmark_id: str = ""
+    benchmark_revision: str = ""
+    total_cases: int = 0
+    queued_cases: int = 0
+    running_candidate_cases: int = 0
+    grading_cases: int = 0
+    complete_cases: int = 0
+    scored_cases: int = 0
+    coverage: float = 0.0
+    provisional_score: float | None = None
+    kind: ClassVar[str] = "benchmark_progress"
+
+    def __post_init__(self) -> None:
+        super(BenchmarkProgress, self).__post_init__()
+        _validate_benchmark_progress(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +248,57 @@ def _optional_count(value: object, label: str) -> int | None:
     if value < 0:
         raise ValueError(f"{label} must be a non-negative integer")
     return value
+
+
+def _validate_benchmark_progress(value: BenchmarkProgress) -> None:
+    for name in ("benchmark_id", "benchmark_revision"):
+        object.__setattr__(value, name, _nonblank(getattr(value, name), name))
+    _validate_progress_counts(value)
+    _validate_progress_score(value)
+
+
+def _validate_progress_counts(value: BenchmarkProgress) -> None:
+    counts = (
+        value.total_cases,
+        value.queued_cases,
+        value.running_candidate_cases,
+        value.grading_cases,
+        value.complete_cases,
+        value.scored_cases,
+    )
+    if any(isinstance(count, bool) or not isinstance(count, int) or count < 0 for count in counts):
+        raise ValueError("BenchmarkProgress counts must be non-negative integers")
+    if value.total_cases < 1:
+        raise ValueError("BenchmarkProgress total_cases must be positive")
+    stage_total = (
+        value.queued_cases
+        + value.running_candidate_cases
+        + value.grading_cases
+        + value.complete_cases
+    )
+    if stage_total != value.total_cases:
+        raise ValueError("BenchmarkProgress stage counts must sum to total_cases")
+    if value.scored_cases > value.complete_cases:
+        raise ValueError("BenchmarkProgress scored_cases cannot exceed complete_cases")
+    if (
+        isinstance(value.coverage, bool)
+        or not isinstance(value.coverage, int | float)
+        or not math.isfinite(float(value.coverage))
+        or value.coverage != round(value.scored_cases / value.total_cases, 4)
+    ):
+        raise ValueError("BenchmarkProgress coverage must equal scored_cases / total_cases")
+
+
+def _validate_progress_score(value: BenchmarkProgress) -> None:
+    score = value.provisional_score
+    if score is not None and (
+        isinstance(score, bool)
+        or not isinstance(score, int | float)
+        or not math.isfinite(float(score))
+    ):
+        raise ValueError("BenchmarkProgress provisional_score must be finite or None")
+    if (value.scored_cases == 0) != (score is None):
+        raise ValueError("BenchmarkProgress provisional_score presence must match scored_cases")
 
 
 def _validate_span_times(start: datetime | None, end: datetime | None) -> None:

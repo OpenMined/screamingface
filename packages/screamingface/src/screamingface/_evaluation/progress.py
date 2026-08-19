@@ -8,7 +8,7 @@ import unicodedata
 from collections.abc import Callable
 from typing import TextIO
 
-from screamingface.events import Event, Log, Span, Started, Terminated
+from screamingface.events import BenchmarkProgress, Event, Log, Span, Started, Terminated
 
 _logger = logging.getLogger(__name__)
 
@@ -19,8 +19,10 @@ def _progress_observer(
     stream: TextIO | None = None,
     total_candidates: int | None = None,
     benchmark: str | None = None,
+    case_count: int | None = None,
     candidate_models: tuple[str, ...] = (),
     candidate_urls: tuple[str, ...] = (),
+    candidate_names: tuple[str, ...] = (),
     check_disclosure: str | None = None,
 ) -> Callable[[Event], None] | None:
     selected_stream = sys.stderr if stream is None else stream
@@ -31,7 +33,13 @@ def _progress_observer(
     # In a notebook the live panel is preferred; text remains the fallback everywhere.
     rich = (
         _notebook_observer(
-            total_candidates, benchmark, candidate_models, candidate_urls, check_disclosure
+            total_candidates,
+            benchmark,
+            case_count,
+            candidate_models,
+            candidate_urls,
+            candidate_names,
+            check_disclosure,
         )
         if enabled and in_notebook
         else None
@@ -53,8 +61,10 @@ def _progress_observer(
 def _notebook_observer(
     total_candidates: int | None,
     benchmark: str | None,
+    case_count: int | None,
     candidate_models: tuple[str, ...],
     candidate_urls: tuple[str, ...],
+    candidate_names: tuple[str, ...],
     check_disclosure: str | None = None,
 ) -> Callable[[Event], None] | None:
     """The live panel, or None when it cannot be built (text progress then carries it).
@@ -70,8 +80,10 @@ def _notebook_observer(
         return _NotebookEvaluationView(
             total_candidates,
             benchmark,
+            case_count,
             candidate_models,
             candidate_urls,
+            candidate_names,
             check_disclosure=check_disclosure,
         )
     except Exception:
@@ -82,29 +94,59 @@ def _notebook_observer(
 class _ProgressObserver:
     def __init__(self, stream: TextIO) -> None:
         self._stream = stream
+        self._benchmark_progress: dict[str, BenchmarkProgress] = {}
 
     def __call__(self, event: Event) -> None:
-        message = _message(event)
+        if isinstance(event, BenchmarkProgress):
+            self._benchmark_progress[event.run_id] = event
+        message = _message(event, benchmark_progress=self._benchmark_progress.get(event.run_id))
         if message is not None:
             self._stream.write(f"ScreamingFace · {_terminal_text(message)}\n")
             self._stream.flush()
 
 
-def _message(event: Event) -> str | None:
+def _message(
+    event: Event,
+    *,
+    benchmark_progress: BenchmarkProgress | None = None,
+) -> str | None:
     message: str | None = None
     if isinstance(event, Started):
         message = "Evaluation started"
+    elif isinstance(event, BenchmarkProgress):
+        score = _benchmark_score_text(event)
+        message = (
+            f"Cases {event.complete_cases}/{event.total_cases} complete · "
+            f"{event.scored_cases} scored · {score}"
+        )
     elif isinstance(event, Log):
         message = event.body or None
     elif isinstance(event, Span):
         message = _model_message(event)
     elif isinstance(event, Terminated):
-        message = _termination_message(event.status)
+        message = _termination_message(event.status, benchmark_progress)
     return message
 
 
-def _termination_message(status: str) -> str:
+def _benchmark_score_text(event: BenchmarkProgress) -> str:
+    if event.provisional_score is not None:
+        label = "score" if event.complete_cases == event.total_cases else "score so far"
+        return f"{label} {event.provisional_score:.6g}"
+    if event.complete_cases == event.total_cases:
+        return "score unavailable"
+    return "awaiting first grade"
+
+
+def _termination_message(
+    status: str,
+    benchmark_progress: BenchmarkProgress | None = None,
+) -> str:
     if status == "succeeded":
+        if benchmark_progress is not None and (
+            benchmark_progress.complete_cases < benchmark_progress.total_cases
+            or benchmark_progress.scored_cases < benchmark_progress.total_cases
+        ):
+            return "Evaluation incomplete"
         return "Evaluation finished"
     return f"Evaluation {status.replace('_', ' ')}"
 

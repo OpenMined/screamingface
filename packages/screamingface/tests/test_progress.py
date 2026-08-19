@@ -71,6 +71,30 @@ def test_successful_evaluation_uses_finished_as_its_public_terminal_wording() ->
     assert _message(terminated) == "Evaluation finished"
 
 
+def test_text_progress_does_not_call_an_unscored_benchmark_complete() -> None:
+    stream = StringIO()
+    observer = _progress_observer(True, stream=stream)
+    assert observer is not None
+    observer(
+        sf.BenchmarkProgress(
+            **envelope(),
+            benchmark_id="draco",
+            benchmark_revision="revision",
+            total_cases=1,
+            queued_cases=0,
+            running_candidate_cases=0,
+            grading_cases=0,
+            complete_cases=1,
+            scored_cases=0,
+            coverage=0.0,
+            provisional_score=None,
+        )
+    )
+    observer(sf.events.Terminated(**envelope(), status="succeeded"))
+
+    assert stream.getvalue().endswith("ScreamingFace · Evaluation incomplete\n")
+
+
 def test_progress_neutralizes_terminal_controls_and_multiline_log_spoofing() -> None:
     stream = StringIO()
     observer = _progress_observer(True, stream=stream)

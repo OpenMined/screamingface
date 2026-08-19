@@ -20,6 +20,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal, cast
 
+from screamingface_engine.benchmarks.progress import (
+    BenchmarkProgressSignal,
+    benchmark_progress_session,
+)
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
 from url4.dag import run as url4_run
@@ -50,6 +54,8 @@ _logger = logging.getLogger(__name__)
 
 _TRUNCATION_MARKER = "…[truncated]"
 
+type _BridgeEvent = ObservationEvent | BenchmarkProgressSignal
+
 
 class BridgeOverflowError(RuntimeError):
     """Raised by `_Bridge.on_event` when the backlog still exceeds the hard cap after the
@@ -72,7 +78,7 @@ class _Bridge:
     _HARD_CAP_MULTIPLIER = 8
 
     def __init__(self, maxsize: int) -> None:
-        self._buf: deque[ObservationEvent] = deque()
+        self._buf: deque[_BridgeEvent] = deque()
         self._max = maxsize
         self._hard_cap = maxsize * self._HARD_CAP_MULTIPLIER
         self._dropped = 0
@@ -92,6 +98,14 @@ class _Bridge:
         accounting. Only once the backlog still exceeds the hard cap after that eviction does
         this raise `BridgeOverflowError`.
         """
+        self._enqueue(event)
+
+    def on_progress(self, event: BenchmarkProgressSignal) -> None:
+        """Queue a semantic snapshot with the same non-droppable policy as lifecycle Events."""
+
+        self._enqueue(event)
+
+    def _enqueue(self, event: _BridgeEvent) -> None:
         # INVARIANT: _hard_cap > _max (_HARD_CAP_MULTIPLIER > 1) gives the buffer headroom to
         # grow past the soft cap before it hits the hard cap — NOT a guarantee that a Log is
         # available to evict. A backlog with no buffered Log at all is exactly the state that
@@ -120,7 +134,7 @@ class _Bridge:
         self._closed = True
         self._wake.set()
 
-    async def drain(self) -> AsyncIterator[ObservationEvent]:
+    async def drain(self) -> AsyncIterator[_BridgeEvent]:
         while True:
             if self._buf:
                 yield self._buf.popleft()
@@ -253,7 +267,7 @@ class _RunState:
         self._subtree_cost: Decimal | None = None
         self._subtree_unpriced = False
 
-    def map(self, event: ObservationEvent) -> list[Traced]:
+    def map(self, event: _BridgeEvent) -> list[Traced]:
         """Fold one observation event into run state, returning the wire frames it produces.
 
         Dispatches on event type: `RunStarted` records the trace/root ids (no frame);
@@ -262,7 +276,19 @@ class _RunState:
         `NodeFinished` closes the span and returns its `SpanData` frame, plus a `CostUsageData`
         frame when the span carried usage. Any other event type produces nothing.
         """
-        if isinstance(event, RunStarted):
+        frames: list[Traced] = []
+        if isinstance(event, BenchmarkProgressSignal):
+            frames = [
+                Traced(
+                    payload=LogData.at(
+                        "INFO",
+                        "benchmark progress",
+                        event.attributes(),
+                    ),
+                    span=None,
+                )
+            ]
+        elif isinstance(event, RunStarted):
             self.trace_id = event.trace_id
             self.root_span_id = event.root_span_id
         elif isinstance(event, NodeStarted):
@@ -273,14 +299,14 @@ class _RunState:
             # The engine attributes each log line to the span that emitted it; carry that through
             # so a consumer can tell WHICH node logged. A span-less line (logged outside any
             # node) legitimately has none and falls back to the run root.
-            return [Traced(payload=_log_frame(event), span=self._span_ref(event.span_id))]
+            frames = [Traced(payload=_log_frame(event), span=self._span_ref(event.span_id))]
         elif isinstance(event, Usage):
             self._fold_usage(event)
         elif isinstance(event, ModelResponse):
             self._fold_response(event)
         elif isinstance(event, NodeFinished):
-            return self._finish(event)
-        return []
+            frames = self._finish(event)
+        return frames
 
     def _span_ref(self, span_id: str | None) -> SpanRef | None:
         """A `SpanRef` for a live span, or None when the frame belongs to the run itself.
@@ -595,15 +621,16 @@ class Url4Executor(Executor):
 
         async def _drive() -> str:
             try:
-                if trace is not None:
-                    return await url4_run(
-                        url4,
-                        self._io,
-                        observer=bridge,
-                        trace_id=trace.trace_id,
-                        root_span_id=trace.root_span_id,
-                    )
-                return await url4_run(url4, self._io, observer=bridge)
+                with benchmark_progress_session(bridge.on_progress):
+                    if trace is not None:
+                        return await url4_run(
+                            url4,
+                            self._io,
+                            observer=bridge,
+                            trace_id=trace.trace_id,
+                            root_span_id=trace.root_span_id,
+                        )
+                    return await url4_run(url4, self._io, observer=bridge)
             finally:
                 bridge.close()
 

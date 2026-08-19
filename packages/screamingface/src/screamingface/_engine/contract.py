@@ -33,6 +33,7 @@ _UNSEQUENCED_TYPES = frozenset({"ai.url4.heartbeat", "ai.url4.error"})
 # durable fix is a distinct server-side CloudEvent type for advisory notices.
 _ADVISORY_TYPES = frozenset({"ai.url4.log"})
 _UNSEQUENCED_LABELS = {"ai.url4.heartbeat": "heartbeat"}
+_BENCHMARK_PROGRESS_KIND = "screamingface.benchmark.progress"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,7 @@ class _RunState:
         self._event_ids: set[str] = set()
         self._consecutive_replay_requests = 0
         self._stream_reattach_requests = 0
+        self._benchmark_progress: events.BenchmarkProgress | None = None
 
     def accept(self, raw: str | bytes) -> _Accepted:
         payload = _payload(raw)
@@ -152,7 +154,27 @@ class _RunState:
         return _Accepted(event=event)
 
     def _log(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        return _Accepted(event=_log(envelope, data))
+        event = _log(envelope, data)
+        if isinstance(event, events.BenchmarkProgress):
+            self._validate_benchmark_progress(event)
+        return _Accepted(event=event)
+
+    def _validate_benchmark_progress(self, event: events.BenchmarkProgress) -> None:
+        prior = self._benchmark_progress
+        if prior is not None:
+            if (
+                event.benchmark_id != prior.benchmark_id
+                or event.benchmark_revision != prior.benchmark_revision
+                or event.total_cases != prior.total_cases
+            ):
+                raise ExecutionError("SF Engine changed Benchmark progress identity")
+            if event.queued_cases > prior.queued_cases:
+                raise ExecutionError("SF Engine Benchmark progress queued count regressed")
+            if event.complete_cases < prior.complete_cases:
+                raise ExecutionError("SF Engine Benchmark progress complete count regressed")
+            if event.scored_cases < prior.scored_cases:
+                raise ExecutionError("SF Engine Benchmark progress scored count regressed")
+        self._benchmark_progress = event
 
     def _span(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
         return _Accepted(event=_span(envelope, data))
@@ -282,10 +304,12 @@ def _common_envelope(payload: Mapping[str, object]) -> dict[str, Any]:
     }
 
 
-def _log(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Log:
+def _log(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Event:
     severity = _severity(_text(data, "severity_text"))
     number = _integer(data.get("severity_number"), "log severity_number")
     attributes = _log_attributes(data.get("attributes", {}))
+    if attributes.get("screamingface.event.kind") == _BENCHMARK_PROGRESS_KIND:
+        return _benchmark_progress(envelope, attributes)
     return events.Log(
         **envelope,
         severity_number=number,
@@ -293,6 +317,49 @@ def _log(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Log:
         body=_raw_text(data, "body"),
         attributes=attributes,
     )
+
+
+def _benchmark_progress(
+    envelope: dict[str, Any],
+    attributes: Mapping[str, str | int | float | bool | None],
+) -> events.BenchmarkProgress:
+    expected = {
+        "screamingface.event.kind",
+        "benchmark.id",
+        "benchmark.revision",
+        "cases.total",
+        "cases.queued",
+        "cases.running_candidate",
+        "cases.grading",
+        "cases.complete",
+        "cases.scored",
+        "score.coverage",
+        "score.provisional",
+    }
+    if set(attributes) != expected:
+        raise ExecutionError("SF Engine Benchmark progress attributes are invalid")
+    try:
+        return events.BenchmarkProgress(
+            **envelope,
+            benchmark_id=_required_text(attributes.get("benchmark.id"), "benchmark id"),
+            benchmark_revision=_required_text(
+                attributes.get("benchmark.revision"), "benchmark revision"
+            ),
+            total_cases=_integer(attributes.get("cases.total"), "total Cases"),
+            queued_cases=_integer(attributes.get("cases.queued"), "queued Cases"),
+            running_candidate_cases=_integer(
+                attributes.get("cases.running_candidate"), "running Candidate Cases"
+            ),
+            grading_cases=_integer(attributes.get("cases.grading"), "grading Cases"),
+            complete_cases=_integer(attributes.get("cases.complete"), "complete Cases"),
+            scored_cases=_integer(attributes.get("cases.scored"), "scored Cases"),
+            coverage=_number(attributes.get("score.coverage"), "score coverage"),
+            provisional_score=_optional_number(
+                attributes.get("score.provisional"), "provisional score"
+            ),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ExecutionError(f"SF Engine Benchmark progress is invalid: {exc}") from exc
 
 
 def _span(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Span:
@@ -509,6 +576,19 @@ def _integer(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ExecutionError(f"SF Engine {label} must be a non-negative integer")
     return value
+
+
+def _number(value: object, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ExecutionError(f"SF Engine {label} must be a finite number")
+    selected = float(value)
+    if not math.isfinite(selected):
+        raise ExecutionError(f"SF Engine {label} must be a finite number")
+    return selected
+
+
+def _optional_number(value: object, label: str) -> float | None:
+    return None if value is None else _number(value, label)
 
 
 def _optional_integer(value: object, label: str) -> int | None:

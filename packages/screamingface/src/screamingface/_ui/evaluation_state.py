@@ -13,11 +13,24 @@ from datetime import datetime
 from decimal import Decimal
 from typing import cast
 
-from screamingface.events import Event, Log, Span, Started, Terminated, Usage
+from screamingface.events import BenchmarkProgress, Event, Log, Span, Started, Terminated, Usage
 
 # A candidate is one Engine run, so terminal Events are the only honest completion
 # signal — model Spans fire many times per candidate and cannot stand in for it.
 _TERMINAL_ORDER = ("failed", "timed_out", "stopped", "succeeded")
+
+
+@dataclass(frozen=True, slots=True)
+class _CandidateCaseProgress:
+    name: str
+    total: int
+    queued: int
+    running_candidate: int
+    grading: int
+    complete: int
+    scored: int
+    coverage: float
+    score: float | None
 
 
 @dataclass(slots=True)
@@ -25,9 +38,13 @@ class _EvaluationProgress:
     """Running totals for one `evaluate()` call."""
 
     total_candidates: int | None = None
+    case_count: int | None = None
     candidate_models: frozenset[str] = field(default_factory=frozenset)
     candidate_urls: frozenset[str] = field(default_factory=frozenset)
+    candidate_names_by_url: dict[str, str] = field(default_factory=dict)
     root_sources: set[str] = field(default_factory=set)
+    candidate_name_by_source: dict[str, str] = field(default_factory=dict)
+    candidate_case_progress: dict[str, _CandidateCaseProgress] = field(default_factory=dict)
     cache_counts: dict[str, tuple[int, int, int]] = field(default_factory=dict)
     completed: int = 0
     terminal_counts: dict[str, int] = field(default_factory=dict)
@@ -56,6 +73,8 @@ class _EvaluationProgress:
             self.arrival_elapsed_seconds = max(0.0, elapsed_seconds)
         if isinstance(event, Started):
             self._observe_started(event, elapsed_seconds)
+        elif isinstance(event, BenchmarkProgress):
+            self._observe_benchmark_progress(event, elapsed_seconds)
         elif isinstance(event, Log):
             self._observe_cache_log(event)
         elif isinstance(event, Span):
@@ -83,8 +102,19 @@ class _EvaluationProgress:
             return "running"
         for name in _TERMINAL_ORDER:
             if self.terminal_counts.get(name):
-                return name
+                return (
+                    "incomplete"
+                    if name == "succeeded" and self._has_incomplete_benchmark_result
+                    else name
+                )
         return "succeeded"
+
+    @property
+    def _has_incomplete_benchmark_result(self) -> bool:
+        return bool(self.candidate_case_progress) and any(
+            value.complete < value.total or value.scored < value.total
+            for value in self.candidate_case_progress.values()
+        )
 
     @property
     def fraction(self) -> float | None:
@@ -93,6 +123,12 @@ class _EvaluationProgress:
         if not self.total_candidates:
             return None
         return min(1.0, self.completed / self.total_candidates)
+
+    @property
+    def has_case_progress(self) -> bool:
+        """Whether the Evaluation knows enough to render every Candidate's Case row."""
+
+        return bool(self.candidate_case_progress)
 
     @property
     def elapsed_seconds(self) -> float | None:
@@ -136,10 +172,41 @@ class _EvaluationProgress:
         if self.candidate_urls and event.url4 not in self.candidate_urls:
             return
         self.root_sources.add(event.source)
+        name = self.candidate_names_by_url.get(event.url4)
+        if name is not None:
+            self.candidate_name_by_source[event.source] = name
         self.activity = "Running candidate" if self.total_candidates == 1 else "Running candidates"
         if not self.evaluation_started:
             self.evaluation_started = True
             self._note(event, "start", "evaluation started", elapsed_seconds)
+
+    def _observe_benchmark_progress(
+        self,
+        event: BenchmarkProgress,
+        elapsed_seconds: float | None,
+    ) -> None:
+        name = self.candidate_name_by_source.get(event.source)
+        if name is None:
+            return
+        self.candidate_case_progress[name] = _CandidateCaseProgress(
+            name=name,
+            total=event.total_cases,
+            queued=event.queued_cases,
+            running_candidate=event.running_candidate_cases,
+            grading=event.grading_cases,
+            complete=event.complete_cases,
+            scored=event.scored_cases,
+            coverage=event.coverage,
+            score=event.provisional_score,
+        )
+        self.activity = _case_activity(event)
+        self._note(
+            event,
+            "score",
+            f"{name} · {event.complete_cases}/{event.total_cases} Cases complete · "
+            f"{_progress_score_text(event)}",
+            elapsed_seconds,
+        )
 
     def _observe_root_terminated(
         self,
@@ -238,6 +305,27 @@ class _EvaluationProgress:
 def _calls_activity(phase: str, count: int) -> str:
     noun = "model call" if count == 1 else "model calls"
     return f"{phase} · {count} {noun} completed"
+
+
+def _case_activity(event: BenchmarkProgress) -> str:
+    if event.grading_cases:
+        return f"Grading Cases · {event.complete_cases}/{event.total_cases} complete"
+    if event.running_candidate_cases:
+        return f"Running Cases · {event.complete_cases}/{event.total_cases} complete"
+    return f"Cases · {event.complete_cases}/{event.total_cases} complete"
+
+
+def _score_text(value: float | None) -> str:
+    return "—" if value is None else f"{value:.6g}"
+
+
+def _progress_score_text(event: BenchmarkProgress) -> str:
+    if event.provisional_score is not None:
+        label = "score" if event.complete_cases == event.total_cases else "score so far"
+        return f"{label} {_score_text(event.provisional_score)}"
+    if event.complete_cases == event.total_cases:
+        return "score unavailable"
+    return "awaiting first grade"
 
 
 def _span_text(event: Span) -> str:

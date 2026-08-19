@@ -6,7 +6,7 @@ from screamingface_engine.benchmarks.case_execution import CASE_EXECUTION_ROUTE
 from screamingface_engine.benchmarks.evaluation import positive_count
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 
-EVALUATION_PROTOCOL_REVISION = "outcome-preserving-case-evaluation-v1"
+EVALUATION_PROTOCOL_REVISION = "benchmark-progress-v1"
 
 
 def preserve_candidate_outcome(
@@ -14,6 +14,8 @@ def preserve_candidate_outcome(
     candidate_invocation: Node,
     grading: Node,
     case_id: str,
+    progress_route: str | None = None,
+    selected_case_count: int | None = None,
 ) -> Node:
     """Keep one completed Candidate Invocation even when later grading fails."""
 
@@ -23,6 +25,7 @@ def preserve_candidate_outcome(
         raise TypeError("grading must be a URL4 Node")
     if not isinstance(case_id, str) or not case_id:
         raise TypeError("case_id must be non-empty URL4 text")
+    progress = _progress_settings(progress_route, selected_case_count)
     protected_grading = iterate(
         [
             struct(
@@ -58,9 +61,24 @@ def preserve_candidate_outcome(
         ),
         intent=Text("$case_execution"),
     )
+    if progress is None:
+        return expr(
+            src(case_execution, name="preserved_case", weight=0.0),
+            intent=Text("$preserved_case"),
+        )
+    route, count = progress
     return expr(
         src(case_execution, name="preserved_case", weight=0.0),
-        intent=Text("$preserved_case"),
+        src(
+            RelExpr(
+                path=route,
+                context=render(struct({"case_id": case_id, "value": "$preserved_case"})),
+                intent=Text(f"complete:{count}"),
+            ),
+            name="progressed_case",
+            weight=0.0,
+        ),
+        intent=Text("$progressed_case"),
     )
 
 
@@ -117,6 +135,18 @@ def _route(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.startswith("/"):
         raise ValueError(f"{label} must be an absolute URL4 path")
     return value
+
+
+def _progress_settings(
+    route: str | None, selected_case_count: int | None
+) -> tuple[str, int] | None:
+    if route is None and selected_case_count is None:
+        return None
+    selected_route = _route(route, "progress_route")
+    if selected_case_count is None:
+        raise ValueError("selected_case_count is required with progress_route")
+    positive_count(selected_case_count, "selected_case_count")
+    return selected_route, selected_case_count
 
 
 __all__ = [

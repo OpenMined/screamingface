@@ -25,6 +25,12 @@ from screamingface_engine.benchmarks.ifeval.definition import (
     CASES_ROUTE,
     CHECK_ROUTE,
     CHECK_SURFACE_ROUTE,
+    PROGRESS_ROUTE,
+    REVISION,
+)
+from screamingface_engine.benchmarks.progress import (
+    BenchmarkProgressAdapter,
+    install_progress,
 )
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -36,6 +42,15 @@ def install(node: Url4Node, root: Path) -> None:
     if CASES_ROUTE not in getattr(node, "_data", {}):
         node.data(CASES_ROUTE, _cases(root), media_type="application/json")
     routes = frozenset(node.processor_routes())
+    aggregate = _aggregate(root)
+    progress = BenchmarkProgressAdapter(
+        benchmark_id=BENCHMARK_ID,
+        benchmark_revision=REVISION,
+        available_case_count=CASE_COUNT,
+        case_order=lambda: scoring.load_case_order(root),
+        aggregate=aggregate,
+    )
+    aggregate_with_progress = install_progress(node, route=PROGRESS_ROUTE, adapter=progress)
     endpoints = (
         (CHECK_ROUTE, _check(root)),
         (CHECK_SURFACE_ROUTE, _check_surface(root)),
@@ -45,7 +60,7 @@ def install(node: Url4Node, root: Path) -> None:
             aggregate_endpoint(
                 label="IFEval aggregation",
                 available_case_count=CASE_COUNT,
-                aggregate=_aggregate(root),
+                aggregate=aggregate_with_progress,
             ),
         ),
     )

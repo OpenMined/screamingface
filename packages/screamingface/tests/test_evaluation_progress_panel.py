@@ -179,6 +179,175 @@ def test_panel_switches_to_a_completed_heading_and_surfaces_the_error() -> None:
     assert "engine exploded" in html
 
 
+def test_panel_renders_separate_benchmark_native_progress_for_each_candidate() -> None:
+    first_url = "(@)!'first'"
+    second_url = "(@)!'second'"
+    progress = _EvaluationProgress(
+        total_candidates=2,
+        case_count=157,
+        candidate_urls=frozenset({first_url, second_url}),
+        candidate_names_by_url={first_url: "panel", second_url: "solo"},
+    )
+    progress.observe(sf.events.Started(**envelope(1, run_id="run_1"), url4=first_url))
+    progress.observe(sf.events.Started(**envelope(1, run_id="run_2"), url4=second_url))
+    progress.observe(
+        sf.BenchmarkProgress(
+            **envelope(2, run_id="run_1"),
+            benchmark_id="healthbench-worst30",
+            benchmark_revision="revision",
+            total_cases=157,
+            queued_cases=112,
+            running_candidate_cases=2,
+            grading_cases=3,
+            complete_cases=40,
+            scored_cases=40,
+            coverage=0.2548,
+            provisional_score=-0.42,
+        )
+    )
+
+    first_html = evaluation_panel_html(progress, "healthbench-worst30")
+    assert "panel" in first_html and "solo" in first_html
+    assert first_html.count("0/157 complete · 157 queued · 0 scored") == 1
+    assert "sf-eval__case-fill" in first_html
+
+    progress.observe(
+        sf.BenchmarkProgress(
+            **envelope(2, run_id="run_2"),
+            benchmark_id="healthbench-worst30",
+            benchmark_revision="revision",
+            total_cases=157,
+            queued_cases=143,
+            running_candidate_cases=1,
+            grading_cases=1,
+            complete_cases=12,
+            scored_cases=12,
+            coverage=0.0764,
+            provisional_score=0.11,
+        )
+    )
+
+    html = evaluation_panel_html(progress, "healthbench-worst30")
+
+    assert "panel" in html and "solo" in html
+    assert "40/157 complete · 2 running Candidate · 3 grading · 112 queued · 40 scored" in html
+    assert "12/157 complete · 1 running Candidate · 1 grading · 143 queued · 12 scored" in html
+    assert "score so far · -0.42" in html
+    assert "score so far · 0.11" in html
+    assert "coverage · 25.5%" in html
+    assert "55/314" not in html
+
+
+def test_no_progress_events_preserve_the_existing_candidate_level_fallback() -> None:
+    url4 = "(@)!'candidate'"
+    progress = _EvaluationProgress(
+        total_candidates=1,
+        case_count=10,
+        candidate_urls=frozenset({url4}),
+        candidate_names_by_url={url4: "candidate"},
+    )
+    progress.observe(sf.events.Started(**envelope(1), url4=url4))
+
+    html = evaluation_panel_html(progress, "ifeval")
+
+    assert "sf-eval__track" in html
+    assert "<div class='sf-eval__candidates'>" not in html
+
+
+def test_case_progress_styles_support_light_and_dark_notebook_themes() -> None:
+    progress = _EvaluationProgress(
+        total_candidates=1,
+        case_count=1,
+        candidate_urls=frozenset({"(@)!'candidate'"}),
+        candidate_names_by_url={"(@)!'candidate'": "candidate"},
+    )
+    progress.observe(sf.events.Started(**envelope(1), url4="(@)!'candidate'"))
+    progress.observe(
+        sf.BenchmarkProgress(
+            **envelope(2),
+            benchmark_id="ifeval",
+            benchmark_revision="revision",
+            total_cases=1,
+            queued_cases=1,
+            running_candidate_cases=0,
+            grading_cases=0,
+            complete_cases=0,
+            scored_cases=0,
+            coverage=0.0,
+            provisional_score=None,
+        )
+    )
+
+    html = evaluation_panel_html(progress, "ifeval")
+
+    assert ".vscode-dark .sf-ui" in html
+    assert ".vscode-light .sf-ui" in html
+    assert "sf-eval__case-fill" in html
+
+
+def test_panel_renders_no_fabricated_score_before_a_case_is_gradeable() -> None:
+    url4 = "(@)!'candidate'"
+    progress = _EvaluationProgress(
+        total_candidates=1,
+        candidate_urls=frozenset({url4}),
+        candidate_names_by_url={url4: "candidate"},
+    )
+    progress.observe(sf.events.Started(**envelope(1), url4=url4))
+    progress.observe(
+        sf.BenchmarkProgress(
+            **envelope(2),
+            benchmark_id="ifeval",
+            benchmark_revision="revision",
+            total_cases=2,
+            queued_cases=1,
+            running_candidate_cases=1,
+            grading_cases=0,
+            complete_cases=0,
+            scored_cases=0,
+            coverage=0.0,
+            provisional_score=None,
+        )
+    )
+
+    html = evaluation_panel_html(progress, "ifeval")
+
+    assert "score · awaiting first grade" in html
+    assert "score so far · 0" not in html
+
+
+def test_transport_success_with_unscored_cases_is_presented_as_incomplete() -> None:
+    url4 = "(@)!'candidate'"
+    progress = _EvaluationProgress(
+        total_candidates=1,
+        candidate_urls=frozenset({url4}),
+        candidate_names_by_url={url4: "candidate"},
+    )
+    progress.observe(sf.events.Started(**envelope(1), url4=url4))
+    progress.observe(
+        sf.BenchmarkProgress(
+            **envelope(2),
+            benchmark_id="draco",
+            benchmark_revision="revision",
+            total_cases=1,
+            queued_cases=0,
+            running_candidate_cases=0,
+            grading_cases=0,
+            complete_cases=1,
+            scored_cases=0,
+            coverage=0.0,
+            provisional_score=None,
+        )
+    )
+    progress.observe(sf.events.Terminated(**envelope(3), status="succeeded"))
+
+    html = evaluation_panel_html(progress, "draco")
+
+    assert "Evaluation complete" in html
+    assert "sf-eval__state incomplete" in html
+    assert "score unavailable" in html
+    assert "evaluation incomplete" in html
+
+
 def test_the_clock_advances_between_events_not_only_on_them() -> None:
     """A long model call emits no Events; a frozen clock would read as a hang."""
 

@@ -70,8 +70,10 @@ def evaluate_sync(
         progress,
         len(evaluation.candidates),
         benchmark,
+        case_count=evaluation.case_count,
         candidate_models=_candidate_model_ids(tuple(evaluation.candidates)),
         candidate_urls=tuple(candidate.url4 for candidate in evaluation.candidates),
+        candidate_names=tuple(candidate.name for candidate in evaluation.candidates),
         check_disclosure=check_disclosure,
     )
     try:
@@ -111,8 +113,10 @@ async def evaluate_async(
         progress,
         len(evaluation.candidates),
         benchmark,
+        case_count=evaluation.case_count,
         candidate_models=_candidate_model_ids(tuple(evaluation.candidates)),
         candidate_urls=tuple(candidate.url4 for candidate in evaluation.candidates),
+        candidate_names=tuple(candidate.name for candidate in evaluation.candidates),
         check_disclosure=check_disclosure,
     )
     try:
@@ -135,8 +139,10 @@ def _sync_event_observer(
     progress: bool | None,
     total_candidates: int | None = None,
     benchmark: str | None = None,
+    case_count: int | None = None,
     candidate_models: tuple[str, ...] = (),
     candidate_urls: tuple[str, ...] = (),
+    candidate_names: tuple[str, ...] = (),
     check_disclosure: str | None = None,
 ) -> Callable[[Event], None] | None:
     from screamingface._evaluation.progress import _progress_observer
@@ -145,8 +151,10 @@ def _sync_event_observer(
         progress,
         total_candidates=total_candidates,
         benchmark=benchmark,
+        case_count=case_count,
         candidate_models=candidate_models,
         candidate_urls=candidate_urls,
+        candidate_names=candidate_names,
         check_disclosure=check_disclosure,
     )
     if builtin is None and callback is None:
@@ -159,8 +167,10 @@ def _async_event_observer(
     progress: bool | None,
     total_candidates: int | None = None,
     benchmark: str | None = None,
+    case_count: int | None = None,
     candidate_models: tuple[str, ...] = (),
     candidate_urls: tuple[str, ...] = (),
+    candidate_names: tuple[str, ...] = (),
     check_disclosure: str | None = None,
 ) -> Callable[[Event], Awaitable[None]] | None:
     from screamingface._evaluation.progress import _progress_observer
@@ -169,8 +179,10 @@ def _async_event_observer(
         progress,
         total_candidates=total_candidates,
         benchmark=benchmark,
+        case_count=case_count,
         candidate_models=candidate_models,
         candidate_urls=candidate_urls,
+        candidate_names=candidate_names,
         check_disclosure=check_disclosure,
     )
     if builtin is None and callback is None:

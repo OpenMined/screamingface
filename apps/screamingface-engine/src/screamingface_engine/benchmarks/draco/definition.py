@@ -78,6 +78,7 @@ VERDICT_ROUTE = f"{ROUTE_PREFIX}/criterion-verdict"
 CRITERION_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/criterion-evaluation"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+PROGRESS_ROUTE = f"{ROUTE_PREFIX}/progress"
 # The mid-run check surface (OME-829). The pass criterion is protocol semantics, so it
 # rides in the path: a different criterion is a different route, visible in the manifest
 # and in every Candidate url4 compiled against it.
@@ -89,6 +90,9 @@ def _build(case_count: int) -> Node:
         "$item.input",
         web_search=True,
         web_search_exclude=EXCLUDED_DOMAINS,
+        progress_route=PROGRESS_ROUTE,
+        case_id="$item.id",
+        selected_case_count=case_count,
     )
     judge_calls = tuple(
         src(
@@ -171,6 +175,8 @@ def _build(case_count: int) -> Node:
             candidate_invocation=candidate_invocation,
             grading=case_evaluation,
             case_id="$item.id",
+            progress_route=PROGRESS_ROUTE,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,

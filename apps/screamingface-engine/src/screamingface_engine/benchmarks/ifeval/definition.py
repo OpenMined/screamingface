@@ -53,6 +53,7 @@ CHECK_ROUTE = f"{ROUTE_PREFIX}/check"
 CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+PROGRESS_ROUTE = f"{ROUTE_PREFIX}/progress"
 
 
 def _build(case_count: int) -> Node:
@@ -62,7 +63,13 @@ def _build(case_count: int) -> Node:
     (arXiv:2311.07911), so scores compare directly to published IFEval results.
     """
 
-    candidate_invocation = candidate("$item.input", web_search=CANDIDATE_WEB_SEARCH)
+    candidate_invocation = candidate(
+        "$item.input",
+        web_search=CANDIDATE_WEB_SEARCH,
+        progress_route=PROGRESS_ROUTE,
+        case_id="$item.id",
+        selected_case_count=case_count,
+    )
     checked_call = RelExpr(
         path=CHECK_ROUTE,
         context="$candidate_invocation",
@@ -87,6 +94,8 @@ def _build(case_count: int) -> Node:
             candidate_invocation=candidate_invocation,
             grading=checked,
             case_id="$item.id",
+            progress_route=PROGRESS_ROUTE,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,

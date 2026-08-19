@@ -13,6 +13,7 @@ def test_public_v1_surface_has_no_legacy_aliases() -> None:
         "AuthenticationError",
         "Benchmark",
         "BenchmarkInfo",
+        "BenchmarkProgress",
         "CaseGrade",
         "CaseResult",
         "ModelCapability",

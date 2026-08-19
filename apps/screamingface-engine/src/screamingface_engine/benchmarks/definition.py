@@ -10,7 +10,7 @@ from typing import Literal
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_BINDING, CANDIDATE_ROUTE
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
-from url4 import Node, RelExpr, build, expr, render, src, text
+from url4 import Node, RelExpr, build, expr, render, src, struct, text
 from url4.peer.server import Url4Node
 
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
@@ -148,6 +148,9 @@ def candidate(
     binding: str = CANDIDATE_REF,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
+    progress_route: str | None = None,
+    case_id: str | None = None,
+    selected_case_count: int | None = None,
 ) -> Node:
     """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
 
@@ -164,17 +167,62 @@ def candidate(
     params: list[tuple[str, str]] = [("web_search", "true" if web_search else "false")]
     if excluded:
         params.append(("web_search_exclude", ":".join(excluded)))
+    candidate_input, sources = _candidate_progress_input(
+        input,
+        progress_route=progress_route,
+        case_id=case_id,
+        selected_case_count=selected_case_count,
+    )
     call = RelExpr(
         path=CANDIDATE_ROUTE,
-        context=input,
+        context=candidate_input,
         intent=text(binding),
         params=tuple(params),
     )
-    # A parameterized relative call needs an expression boundary to round-trip canonically.
-    return expr(
-        src(call, name="candidate_invocation", weight=0.0),
-        intent=text("$candidate_invocation"),
+    invocation = src(call, name="candidate_invocation", weight=0.0)
+    if progress_route is None:
+        # A parameterized relative call needs an expression boundary to round-trip canonically.
+        return expr(*sources, invocation, intent=text("$candidate_invocation"))
+    assert case_id is not None and selected_case_count is not None
+    grading_progress = RelExpr(
+        path=progress_route,
+        context=render(struct({"case_id": case_id, "value": "$candidate_invocation"})),
+        intent=text(f"grading:{selected_case_count}"),
     )
+    return expr(
+        *sources,
+        invocation,
+        src(grading_progress, name="grading_progress", weight=0.0),
+        intent=text("$grading_progress"),
+    )
+
+
+def _candidate_progress_input(
+    input: str,
+    *,
+    progress_route: str | None,
+    case_id: str | None,
+    selected_case_count: int | None,
+) -> tuple[str, tuple[Node, ...]]:
+    values = (progress_route, case_id, selected_case_count)
+    if all(value is None for value in values):
+        return input, ()
+    if not isinstance(progress_route, str) or not progress_route.startswith("/"):
+        raise ValueError("progress_route must be an absolute URL4 path")
+    if not isinstance(case_id, str) or not case_id:
+        raise ValueError("case_id must be non-empty URL4 text")
+    if (
+        isinstance(selected_case_count, bool)
+        or not isinstance(selected_case_count, int)
+        or selected_case_count < 1
+    ):
+        raise ValueError("selected_case_count must be a positive integer")
+    progress = RelExpr(
+        path=progress_route,
+        context=render(struct({"case_id": case_id, "value": input})),
+        intent=text(f"candidate:{selected_case_count}"),
+    )
+    return "$progress_input", (src(progress, name="progress_input", weight=0.0),)
 
 
 def link_candidate(candidate_expression: Node | str, protocol: Node | str) -> str:

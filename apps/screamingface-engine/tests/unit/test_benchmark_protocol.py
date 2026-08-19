@@ -156,11 +156,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        (DRACO, "6a9e0deb13a9e88868dc5452cce46527f89236be2aa34da3fbaa7afb413ecefa"),
-        (IFEVAL, "c01431240e88cbe76fcbebfa3cab9fb36f36f70e8fa28807a070bbe5fb3f21eb"),
+        (DRACO, "fd82428bbbb3c36a9ccb7f53f43891d2f23a0b72d92877a1082616dca41e3b37"),
+        (IFEVAL, "57145f75d8a368544fc7b4bfdb9f73a1c2ad99e1bd6fe5c1d204d43e1ce90c8f"),
         (
             HEALTHBENCH_WORST30,
-            "a5a729e1fcc53c7bb4c506f8a29a577ad4c68e983dcc32c6a9edcd33a443054c",
+            "3474ef935f5529fbb07cd9273059a72e69208423230ecebac5197fd9cea5ed9a",
         ),
     ),
 )

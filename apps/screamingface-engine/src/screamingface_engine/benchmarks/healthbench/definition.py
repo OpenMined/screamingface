@@ -83,11 +83,18 @@ VERDICT_ROUTE = f"{ROUTE_PREFIX}/rubric-verdict"
 RUBRIC_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/rubric-evaluation"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+PROGRESS_ROUTE = f"{ROUTE_PREFIX}/progress"
 CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface/{CHECK_CRITERION}"
 
 
 def _build(case_count: int) -> Node:
-    candidate_invocation = candidate("$item.input", web_search=False)
+    candidate_invocation = candidate(
+        "$item.input",
+        web_search=False,
+        progress_route=PROGRESS_ROUTE,
+        case_id="$item.id",
+        selected_case_count=case_count,
+    )
     """Build the whole benchmark as one url4 expression tree (a recipe, not a run).
 
     Think of it as an exam pipeline, written inside-out because each stage is
@@ -193,6 +200,8 @@ def _build(case_count: int) -> Node:
             candidate_invocation=candidate_invocation,
             grading=case_evaluation,
             case_id="$item.id",
+            progress_route=PROGRESS_ROUTE,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,

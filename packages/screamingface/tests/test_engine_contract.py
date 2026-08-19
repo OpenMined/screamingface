@@ -707,3 +707,76 @@ def test_unsequenced_lifecycle_frames_are_still_rejected(
     # would corrupt the billing total the user reads in their Report.
     with pytest.raises(sf.ExecutionError, match="sequence"):
         _RunState(URL4).accept(frame(event_type, data, sequence=None))
+
+
+def _benchmark_progress_data(**overrides: object) -> dict[str, object]:
+    attributes: dict[str, object] = {
+        "screamingface.event.kind": "screamingface.benchmark.progress",
+        "benchmark.id": "healthbench-worst30",
+        "benchmark.revision": "revision",
+        "cases.total": 4,
+        "cases.queued": 2,
+        "cases.running_candidate": 1,
+        "cases.grading": 0,
+        "cases.complete": 1,
+        "cases.scored": 1,
+        "score.coverage": 0.25,
+        "score.provisional": -0.4,
+    }
+    attributes.update(overrides)
+    return {
+        "severity_number": 9,
+        "severity_text": "INFO",
+        "body": "benchmark progress",
+        "attributes": attributes,
+    }
+
+
+def test_benchmark_progress_decodes_as_a_typed_public_event() -> None:
+    accepted = _RunState(URL4).accept(frame("ai.url4.log", _benchmark_progress_data(), sequence=1))
+
+    assert isinstance(accepted.event, sf.BenchmarkProgress)
+    assert accepted.event.provisional_score == -0.4
+    assert accepted.event.complete_cases == 1
+    assert accepted.event.coverage == 0.25
+
+
+def test_replayed_benchmark_progress_is_idempotent() -> None:
+    state = _RunState(URL4)
+    progress = frame("ai.url4.log", _benchmark_progress_data(), sequence=1)
+
+    assert isinstance(state.accept(progress).event, sf.BenchmarkProgress)
+    assert state.accept(progress).event is None
+
+
+def test_benchmark_progress_rejects_monotonic_accounting_regressions() -> None:
+    state = _RunState(URL4)
+    state.accept(frame("ai.url4.log", _benchmark_progress_data(), sequence=1))
+
+    with pytest.raises(sf.ExecutionError, match="count regressed"):
+        state.accept(
+            frame(
+                "ai.url4.log",
+                _benchmark_progress_data(
+                    **{
+                        "cases.queued": 3,
+                        "cases.complete": 0,
+                        "cases.scored": 0,
+                        "score.coverage": 0.0,
+                        "score.provisional": None,
+                    }
+                ),
+                sequence=2,
+            )
+        )
+
+
+def test_benchmark_progress_rejects_an_inconsistent_stage_partition() -> None:
+    with pytest.raises(sf.ExecutionError, match="sum to total_cases"):
+        _RunState(URL4).accept(
+            frame(
+                "ai.url4.log",
+                _benchmark_progress_data(**{"cases.queued": 0}),
+                sequence=1,
+            )
+        )
