@@ -61,7 +61,10 @@ single run's worst-case fan-out removes the queue entirely.
   concurrency.py` and `apps/aigateway/tests/unit/test_concurrency.py`.
 - **Commits:** 0b5d4dc8 — fix(py-screamingface): raise local stack openrouter gateway
   concurrency to 32; 9689fac4 — feat(aigateway): log the concurrency limit applied per
-  provider.
+  provider; e0766e22 — fix(aigateway): configure app logging so INFO records actually
+  emit (live test showed the line missing: uvicorn leaves the root logger handler-less,
+  so all aigateway.* INFO fell through to lastResort at WARNING; mirrored the engine's
+  logs.py).
 - **Gates:** justfile env verified through the real settings parser
   (`effective_provider_limit("openrouter") == 32`, others 4). Log line: TDD (3 appended
   tests, RED first) + `run_gates.py aigateway` ALL GREEN (ruff check/format, pyright,
