@@ -141,6 +141,55 @@ async def test_semaphore_is_keyed_per_provider() -> None:
     await blocker_task
 
 
+# STORY: as an operator raising AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES (OME-889),
+# I need the gateway log itself to prove which limit is in force — a typo'd env
+# var silently falls back to the default and reappears as mystery queueing.
+@pytest.mark.asyncio
+async def test_semaphore_creation_logs_effective_limit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = _app()
+    with caplog.at_level("INFO", logger="aigateway.core.concurrency"):
+        async with provider_slot(app, "openrouter", 32):
+            pass
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("provider=openrouter" in m and "limit=32" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_reacquisition_at_same_limit_does_not_log_again(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """INVARIANT: one line per provider per process — the log marks a limit
+    taking effect, never per-request traffic."""
+    app = _app()
+    async with provider_slot(app, "openrouter", 32):
+        pass
+    # WHY clear: caplog accumulates from test start, so the first (legitimate)
+    # creation log would trip the assertion once the app logger runs at INFO.
+    caplog.clear()
+    with caplog.at_level("INFO", logger="aigateway.core.concurrency"):
+        async with provider_slot(app, "openrouter", 32):
+            pass
+    assert not [r for r in caplog.records if r.name == "aigateway.core.concurrency"]
+
+
+@pytest.mark.asyncio
+async def test_limit_change_logs_new_limit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """INVARIANT: the latest logged limit is the limit in force — a rebuild
+    (config change) must re-announce itself."""
+    app = _app()
+    async with provider_slot(app, "openrouter", 4):
+        pass
+    with caplog.at_level("INFO", logger="aigateway.core.concurrency"):
+        async with provider_slot(app, "openrouter", 32):
+            pass
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("provider=openrouter" in m and "limit=32" in m for m in messages)
+
+
 @pytest.mark.asyncio
 async def test_limit_change_replaces_semaphore() -> None:
     """If the configured limit changes (e.g. settings hot-reload) the next

@@ -13,9 +13,12 @@ absorb).
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _provider_match_keys(provider: str) -> set[str]:
@@ -71,6 +74,12 @@ def _get_or_create_semaphore(app: Any, provider: str, limit: int) -> asyncio.Sem
         sem = asyncio.Semaphore(limit)
         sem._sf_limit = limit  # type: ignore[attr-defined]
         reg[provider] = sem
+        # WHY: the limit in force is otherwise invisible — a typo'd
+        # AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES silently falls back to the
+        # default and resurfaces as mystery queueing (OME-889). One line per
+        # provider per process (re-logged only on a limit change); structured
+        # admission telemetry is OME-886's territory.
+        logger.info("provider concurrency limit applied provider=%s limit=%d", provider, limit)
     return sem
 
 
