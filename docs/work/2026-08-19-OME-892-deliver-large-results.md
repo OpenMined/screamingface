@@ -161,6 +161,16 @@ deterministically (RED), fresh-mint fix turns it GREEN.
   the documented `--skip-append-only` (additive `protocol_server` seam, same precedent
   as deviation 2).
 
+## Reviewer follow-up (2026-08-19, same unit — dedup/TTL race)
+
+Keelan's review of PR #647 spotted: artifacts dedup by content hash but age by mtime,
+which only the FIRST write stamped — a byte-identical result re-arriving near/past the
+first copy's TTL minted a ticket pointing at a file the next sweep removes. Confirmed
+real in code (`write_bytes` skipped existing files). Fixed (3e6aba91): a dedup hit
+re-stamps mtime via `os.utime` (EAFP — the touch doubles as the existence probe,
+closing the exists-then-sweep TOCTOU as well); sweep docstring now states mtime = LAST
+deposit time. Engine gates ALL GREEN.
+
 ## Review-fix round (2026-08-19, same unit — 10 verified findings, all addressed)
 
 Owner-run review returned 10 confirmed findings; all fixed before commit:
