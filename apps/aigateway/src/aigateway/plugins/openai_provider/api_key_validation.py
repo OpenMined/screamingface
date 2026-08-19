@@ -13,7 +13,7 @@ from aigateway.core.api_key_validation_http import (
     ValidationHttpSession,
 )
 
-from .settings import OpenAIPluginSettings
+from .settings import OpenAIPluginSettings, is_route_valid_model_id, upstream_model_id
 
 _API_BASE = "https://api.openai.com/v1"
 # WHY: OpenAI rejects 1 with HTTP 400 for gpt-5-nano; 16 is the live-verified bounded budget that
@@ -139,13 +139,22 @@ def _classify(
 
 
 def _effective_model(settings: OpenAIPluginSettings) -> tuple[str, str] | None:
+    """The (gateway id, upstream id) to probe with, or ``None`` for a misconfiguration.
+
+    # OME-884: SYNTAX only. Membership in ``default_models`` used to be required here
+    # too, which made the published ``/v1/models`` catalog govern an operational
+    # readiness probe — so unpublishing a model silently reported every API key as
+    # locally misconfigured. Route-valid syntax is still mandatory, because a model id
+    # the grammar rejects could never reach OpenAI at all, and probing with it would
+    # trade a clear operator error for an opaque upstream one.
+    # INVARIANT: the SAME predicate settings validation, preparation and the
+    # global-cache projection use. ``model_construct`` bypasses field validation, so
+    # this check is load-bearing rather than redundant.
+    """
     selected = settings.validation_model
-    if selected not in settings.default_models or not selected.startswith("openai/"):
+    if not is_route_valid_model_id(selected):
         return None
-    upstream = selected.removeprefix("openai/")
-    if not upstream or "/" in upstream:
-        return None
-    return selected, upstream
+    return selected, upstream_model_id(selected)
 
 
 class OpenAIApiKeyValidator:

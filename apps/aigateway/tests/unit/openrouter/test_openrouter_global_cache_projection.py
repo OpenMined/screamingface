@@ -651,3 +651,34 @@ def test_the_projected_top_k_is_the_value_dispatch_will_actually_send() -> None:
     )
     projected = _projected(provider_params={"top_k": 3})["prepared"]
     assert dispatched["extra_body"]["top_k"] == projected["extra_body"]["top_k"]
+
+
+# --- OME-884: the same verdict through the WIDENED participation port ----------
+
+
+def test_the_operator_switch_is_the_whole_answer_whatever_model_is_passed() -> None:
+    """OME-884 widened the port to carry the raw requested model. OpenRouter ignores it.
+
+    ``test_a_disabled_provider_declines_to_participate_in_the_shared_cache`` above still
+    pins the DEFAULTED call, which is the form the base class documents and the form a
+    direct caller uses. This companion pins the form ``build_global_cache_plan`` actually
+    uses — the raw model, exactly as the caller sent it — and proves the widening changed
+    nothing here.
+
+    WHY OpenRouter needs no per-model branch, unlike direct OpenAI: its one per-model
+    refusal (`:online`) is KEY MATERIAL, not a participation question, and the projection
+    already bypasses it. So the operator switch remains the entire verdict, and the extra
+    argument must not be able to flip it in either direction — including for a model that
+    is not a string, since this gate runs before the request's shape is adjudicated.
+    """
+    disabled = _disabled_plugin()
+    enabled = _enabled_plugin()
+
+    for model in (_MODEL, f"{_MODEL}:online", "openai/gpt-4o", "", None, 7, ["a"], {"b": 1}):
+        assert disabled.participates_in_global_cache(model) is False, model
+        assert enabled.participates_in_global_cache(model) is True, model
+
+    # And the defaulted call agrees with the explicit one, so no caller sees a different
+    # answer depending on which form of the port it reaches for.
+    assert disabled.participates_in_global_cache() is disabled.participates_in_global_cache(_MODEL)
+    assert enabled.participates_in_global_cache() is enabled.participates_in_global_cache(_MODEL)
