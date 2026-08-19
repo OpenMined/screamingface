@@ -27,8 +27,14 @@ from screamingface_engine.catalog.port import ModelParameterSource
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.port import Connections
-from screamingface_engine.metrics import MetricsMiddleware, build_metrics, register_catalog_metrics
+from screamingface_engine.metrics import (
+    MetricsMiddleware,
+    build_metrics,
+    register_catalog_metrics,
+    register_reaper_metrics,
+)
 from screamingface_engine.ops import router as ops_router
+from screamingface_engine.reaper import RunReaper
 from screamingface_engine.rest import (
     SubscriberGate,
     artifact_router,
@@ -108,6 +114,8 @@ def create_app(
     registry = ConnectionRegistry()
     app.state.registry = registry
     app.state.interest = interest if interest is not None else registry
+    # FEATURE: tie a run's lifetime to its audience (OME-890).
+    _install_orphan_reaper(app, registry, job_runner, settings)
     if clock is not None:
         app.state.clock = clock
     install_problem_handlers(app)
@@ -153,6 +161,76 @@ def _install_artifact_sweeper(app: FastAPI, store: ArtifactStore, settings: Sett
 
     async def _stop() -> None:
         task = getattr(app.state, "artifact_sweep_task", None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    app.router.on_startup.append(_start)
+    app.router.on_shutdown.append(_stop)
+
+
+def _install_orphan_reaper(
+    app: FastAPI,
+    registry: ConnectionRegistry,
+    job_runner: JobRunner | None,
+    settings: Settings,
+) -> None:
+    """Wire the orphan-run reaper: arm on audience-empty, sweep on a cadence, stop on expiry.
+
+    FEATURE: tie a run's lifetime to its audience (OME-890). Modelled on
+    `_install_artifact_sweeper` above — the policy object owns no task, the loop is an asyncio
+    task on the App's own event loop, and shutdown cancels it so nothing outlives the App. No
+    sweep at startup, unlike that one: nothing can be armed before a WebSocket has attached and
+    then left, so a boot sweep would have nothing to look at.
+
+    INVARIANT: the reaper is handed `registry` — the REAL one — and never `app.state.interest`.
+    The gate seam answers "no subscriber" for every topic under `DenyAllGate`, which as a reap
+    input would stop every run in this process one grace window after boot. Same call as
+    `rest/routes.py::_deps` taking `registry` over `interest` for session state.
+    """
+    app.state.reaper = None
+    app.state.reaper_task = None
+    # WHY registered unconditionally, and via a getter: the collector reads whatever
+    # `app.state.reaper` holds at scrape time, so a stream-only App exposes no reaper series
+    # rather than a stale zero, and `/metrics` never depends on wiring order.
+    register_reaper_metrics(app.state.metrics, lambda: app.state.reaper)
+    if job_runner is None or settings.orphan_grace_s <= 0:
+        # WHY the early return: a stream-only App has nothing to stop, and an operator may turn
+        # the reaper off with `URL4_CLOUD_ORPHAN_GRACE_S=0`. Either way, no task is created — the
+        # many tests that inject no runner must not grow a background task.
+        return
+    reaper = RunReaper(job_runner, registry, grace_s=settings.orphan_grace_s)
+    app.state.reaper = reaper
+    registry.listen(reaper)
+
+    async def _sweep_forever() -> None:
+        while True:
+            await asyncio.sleep(reaper.tick_s)
+            # INVARIANT: one failed sweep must not kill the reaper. An unhandled exception here
+            # would end the task silently and every later orphan would run to the 16h ceiling
+            # with no signal at all — worse than the bug this fixes, because it would LOOK fixed.
+            # Log and keep the cadence. `CancelledError` is a BaseException and still propagates,
+            # so shutdown is unaffected.
+            try:
+                await reaper.sweep()
+            except Exception:
+                _logger.exception("orphan sweep failed; retrying next interval")
+
+    async def _start() -> None:
+        app.state.reaper_task = asyncio.get_running_loop().create_task(_sweep_forever())
+        # AIDEV-NOTE: the single-replica assumption is LOGGED, not merely noted in the chart. The
+        # audience count lives in this process's memory, so a second replica would answer "nobody
+        # is listening" for runs another replica is streaming and stop healthy runs. Multi-replica
+        # needs a shared SubscriberGate (NATS consumer interest) first.
+        _logger.info(
+            "orphan reaper armed grace_s=%.0f tick_s=%.0f (assumes a single replica)",
+            settings.orphan_grace_s,
+            reaper.tick_s,
+        )
+
+    async def _stop() -> None:
+        task = app.state.reaper_task
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

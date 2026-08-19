@@ -9,8 +9,8 @@ One image ships two modes, and the whole point of that shape is a rule about wha
     control plane   run mode                    Every concrete implementation, in the half that
     (serve)         (run)                       runs it — and the two halves stay disjoint.
 
-  Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · schemas
-                 adapters.k8s · adapters.factory    (FastAPI, uvicorn, the kubernetes client)
+  Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · reaper
+                 schemas · adapters.k8s · adapters.factory  (FastAPI, uvicorn, the k8s client)
   Run mode:      runner.executor (the url4 engine) · runner.connector · runner.main
 
   Shared leaves, importable by BOTH: job_env · subjects · adapters.jetstream · world_config
@@ -55,6 +55,11 @@ CONTROL_PLANE = {
     "local",
     "metrics",
     "ops",
+    # WHY named here rather than left unlisted (OME-890): an unlisted top-level module is a
+    # SHARED LEAF by this gate's own definition, importable by both halves — which would let a
+    # Runner Job import the control plane's orphan reaper. It watches WS subscriber counts and
+    # calls the job runner from the serving process; it belongs to the control plane.
+    "reaper",
     "rest",
     "schemas",
     "ws",

@@ -93,6 +93,12 @@ config:
   wsHeartbeatS: 15
   # k8s Job activeDeadlineSeconds ceiling = 16h (spec §3); the Runner Job's hard timeout.
   jobDeadlineS: 57600
+  # Seconds a run may keep going with NO WebSocket subscriber before the App stops it (OME-890).
+  # 0 disables the reaper. Keep this comfortably above uvicorn's WS ping window (~40s), which is
+  # what closes a partitioned client's socket in the first place — below it, the reaper races the
+  # detection it depends on. This bounds SPEND on runs whose client died; `jobDeadlineS` above
+  # remains the backstop.
+  orphanGraceS: 120
   # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
   # image's own default. Must be one of the models that url4.toml declares.
   aigatewayModel: ""

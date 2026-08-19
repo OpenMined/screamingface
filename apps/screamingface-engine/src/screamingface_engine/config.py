@@ -3,7 +3,7 @@ environment variables."""
 
 from typing import Literal, Self
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env
@@ -63,6 +63,16 @@ class Settings(BaseSettings):
     # decision on OME-892). Hourly is far finer than the 48h TTL it enforces, and one
     # directory scan an hour costs nothing.
     artifact_sweep_interval_s: float = 3600.0
+    # FEATURE: tie a run's lifetime to its audience (OME-890).
+    #
+    # WHY 120s: a run whose last WebSocket subscriber disconnects gets this long to get one back
+    # before the App stops it. Uvicorn needs up to ws_ping_interval + ws_ping_timeout (~40s on
+    # its defaults) to notice a partitioned peer, so anything much below a minute reaps mostly on
+    # clean closes while starting to risk live runs on slow reconnects. 0 disables the reaper.
+    #
+    # INVARIANT: this bounds SPEND, not correctness — job_deadline_s (16h) remains the backstop.
+    # Raising it costs money per orphaned run; lowering it risks stopping a live one.
+    orphan_grace_s: float = Field(default=120.0, ge=0.0)
     # INVARIANT: stateless iat window (seconds) — start rejected when now - iat exceeds it (§4).
     iat_window_s: int = 60
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
