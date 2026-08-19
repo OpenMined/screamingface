@@ -66,11 +66,17 @@ _STYLE = (
   text-overflow:ellipsis;white-space:nowrap}}
 .sf-eval__candidate-score{{color:var(--sf-accent);white-space:nowrap;
   font-variant-numeric:tabular-nums}}
-.sf-eval__case-track{{height:8px;margin-top:8px;background:var(--sf-line);
+.sf-eval__case-track{{position:relative;height:8px;margin-top:8px;background:var(--sf-line);
   overflow:hidden}}
 .sf-eval__case-fill{{display:block;height:100%;background-repeat:no-repeat;
   background-position:right center;background-image:{FUSION_GRADIENT};
   transition:width .35s ease-out}}
+.sf-eval__case-active{{position:absolute;top:0;height:100%;overflow:hidden}}
+.sf-eval__case-active::after{{content:"";display:block;width:38%;height:100%;
+  background-image:{FUSION_GRADIENT};background-repeat:no-repeat;background-size:100% 100%;
+  animation:sf-eval-sweep 1.5s ease-in-out infinite}}
+@media(prefers-reduced-motion:reduce){{.sf-eval__case-active::after{{animation:none;
+  width:100%;opacity:.5}}}}
 .sf-eval__candidate-meta{{display:flex;justify-content:space-between;gap:12px;margin-top:6px;
   color:var(--sf-ink-3);font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11px;font-variant-numeric:tabular-nums}}
@@ -218,12 +224,19 @@ def _candidate_progress_value(
 def _candidate_progress_row(value: _CandidateCaseProgress) -> str:
     total = value.total
     complete_width = value.complete / total * 100
+    active_width = (value.running_candidate + value.grading) / total * 100
     score = _candidate_score_text(value)
     coverage = f"{value.coverage * 100:.1f}%"
     background_size = 100 if complete_width == 0 else 10_000 / complete_width
     fill = (
         f"<span class='sf-eval__case-fill' style='width:{complete_width:.3f}%;"
         f"background-size:{background_size:.1f}% 100%'></span>"
+    )
+    active = (
+        f"<span class='sf-eval__case-active' aria-hidden='true' "
+        f"style='left:{complete_width:.3f}%;width:{active_width:.3f}%'></span>"
+        if active_width
+        else ""
     )
     stages = _candidate_stage_text(value)
     return (
@@ -232,7 +245,7 @@ def _candidate_progress_row(value: _CandidateCaseProgress) -> str:
         f"<span class='sf-eval__candidate-name'>{escape(value.name)}</span>"
         f"<span class='sf-eval__candidate-score'>{escape(score)}</span>"
         "</div>"
-        f"<div class='sf-eval__case-track'>{fill}</div>"
+        f"<div class='sf-eval__case-track'>{fill}{active}</div>"
         "<div class='sf-eval__candidate-meta'>"
         f"<span>{value.complete}/{total} complete · {escape(stages)} · "
         f"{value.scored} scored</span>"

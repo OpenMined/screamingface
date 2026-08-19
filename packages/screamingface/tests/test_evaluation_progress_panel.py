@@ -313,6 +313,8 @@ def test_panel_renders_no_fabricated_score_before_a_case_is_gradeable() -> None:
 
     assert "score · awaiting first grade" in html
     assert "score so far · 0" not in html
+    assert "sf-eval__case-active" in html
+    assert "prefers-reduced-motion:reduce" in html
 
 
 def test_panel_calls_out_grading_before_the_first_case_grade_is_available() -> None:
