@@ -151,6 +151,16 @@ retry loop instead of reusing the run-start token; fake-server seam `artifact_to
 expires all run tokens once the result frame streams, reproducing the incident
 deterministically (RED), fresh-mint fix turns it GREEN.
 
+- Commit: 4a45b6bb fix(py-screamingface): mint a fresh capability token to redeem
+  result artifacts (pushed to PR #647; PR body gained a "Live-run validation" section)
+- Gates: full SDK pytest 921 passed + ruff format/check + pyright clean on the three
+  touched files. The repo-wide format gate could not run green: the owner's live-session
+  notebook edits (`examples/07_ifeval.ipynb`, `examples/08_healthbench_worst30.ipynb`)
+  are unformatted AND `08` holds a plaintext OpenRouter API key — left untouched,
+  NEVER staged; owner to scrub before any notebook commit. Append-only gate run with
+  the documented `--skip-append-only` (additive `protocol_server` seam, same precedent
+  as deviation 2).
+
 ## Review-fix round (2026-08-19, same unit — 10 verified findings, all addressed)
 
 Owner-run review returned 10 confirmed findings; all fixed before commit:
