@@ -315,6 +315,36 @@ def test_panel_renders_no_fabricated_score_before_a_case_is_gradeable() -> None:
     assert "score so far · 0" not in html
 
 
+def test_panel_calls_out_grading_before_the_first_case_grade_is_available() -> None:
+    url4 = "(@)!'candidate'"
+    progress = _EvaluationProgress(
+        total_candidates=1,
+        candidate_urls=frozenset({url4}),
+        candidate_names_by_url={url4: "candidate"},
+    )
+    progress.observe(sf.events.Started(**envelope(1), url4=url4))
+    progress.observe(
+        sf.BenchmarkProgress(
+            **envelope(2),
+            benchmark_id="draco",
+            benchmark_revision="revision",
+            total_cases=1,
+            queued_cases=0,
+            running_candidate_cases=0,
+            grading_cases=1,
+            complete_cases=0,
+            scored_cases=0,
+            coverage=0.0,
+            provisional_score=None,
+        )
+    )
+
+    html = evaluation_panel_html(progress, "draco")
+
+    assert "score · grading in progress" in html
+    assert "score · awaiting first grade" not in html
+
+
 def test_transport_success_with_unscored_cases_is_presented_as_incomplete() -> None:
     url4 = "(@)!'candidate'"
     progress = _EvaluationProgress(

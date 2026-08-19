@@ -134,7 +134,7 @@ def _benchmark_score_text(event: BenchmarkProgress) -> str:
         return f"{label} {event.provisional_score:.6g}"
     if event.complete_cases == event.total_cases:
         return "score unavailable"
-    return "awaiting first grade"
+    return "grading in progress" if event.grading_cases else "awaiting first grade"
 
 
 def _termination_message(

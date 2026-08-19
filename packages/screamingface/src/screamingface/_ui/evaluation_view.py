@@ -247,7 +247,8 @@ def _candidate_score_text(value: _CandidateCaseProgress) -> str:
         return f"{label} · {value.score:.6g}"
     if value.complete == value.total:
         return "score unavailable"
-    return "score · awaiting first grade"
+    state = "grading in progress" if value.grading else "awaiting first grade"
+    return f"score · {state}"
 
 
 def _candidate_stage_text(value: _CandidateCaseProgress) -> str:

@@ -325,7 +325,7 @@ def _progress_score_text(event: BenchmarkProgress) -> str:
         return f"{label} {_score_text(event.provisional_score)}"
     if event.complete_cases == event.total_cases:
         return "score unavailable"
-    return "awaiting first grade"
+    return "grading in progress" if event.grading_cases else "awaiting first grade"
 
 
 def _span_text(event: Span) -> str:
