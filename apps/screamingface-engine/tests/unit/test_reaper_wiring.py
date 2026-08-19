@@ -7,11 +7,13 @@ import asyncio
 
 import pytest
 from _fakes import FixedGate, RecordingJobRunner
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from screamingface_engine.app import create_app
 from screamingface_engine.config import Settings
 from screamingface_engine.reaper import RunReaper
+from screamingface_engine.rest import SubscriberGate
 from screamingface_engine.testing import InMemoryEventStream
 
 SECRET = "reaper-wiring-secret"
@@ -21,14 +23,14 @@ def _app(
     *,
     grace_s: float = 120.0,
     job_runner: RecordingJobRunner | None = None,
-    interest: object | None = None,
-):
+    interest: SubscriberGate | None = None,
+) -> FastAPI:
     settings = Settings(jwt_secret=SECRET, orphan_grace_s=grace_s)
     return create_app(
         settings,
         stream=InMemoryEventStream(),
         job_runner=job_runner,
-        interest=interest,  # type: ignore[arg-type]
+        interest=interest,
     )
 
 

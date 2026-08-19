@@ -26,8 +26,6 @@ import time
 from collections.abc import Callable
 from typing import Protocol
 
-from url4.streaming.interfaces import JobRunner
-
 _logger = logging.getLogger(__name__)
 
 _MIN_TICK_S = 1.0
@@ -41,6 +39,20 @@ class Audience(Protocol):
     """The subscriber question, as `ConnectionRegistry` answers it."""
 
     async def has_subscriber(self, topic: str) -> bool: ...
+
+
+class RunControl(Protocol):
+    """The two things the reaper needs from a job runner, and deliberately nothing else.
+
+    WHY a narrow Protocol instead of the `JobRunner` ABC: reaping reads liveness and cancels. It
+    has no business scheduling a run or closing the runner, and declaring the whole ABC would say
+    it might. `IdentityAwareJobRunner` satisfies this structurally, so the composition root passes
+    the real runner unchanged.
+    """
+
+    async def exists(self, topic: str) -> bool: ...
+
+    async def stop(self, topic: str) -> None: ...
 
 
 class RunReaper:
@@ -58,7 +70,7 @@ class RunReaper:
 
     def __init__(
         self,
-        job_runner: JobRunner,
+        job_runner: RunControl,
         audience: Audience,
         *,
         grace_s: float,

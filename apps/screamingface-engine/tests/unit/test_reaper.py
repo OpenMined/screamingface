@@ -61,7 +61,7 @@ def _reaper(
     runner: _FakeRunner,
     grace_s: float = GRACE,
 ) -> RunReaper:
-    return RunReaper(runner, audience, grace_s=grace_s, clock=clock, tick_s=10.0)  # type: ignore[arg-type]
+    return RunReaper(runner, audience, grace_s=grace_s, clock=clock, tick_s=10.0)
 
 
 @pytest.mark.asyncio
@@ -231,8 +231,8 @@ def test_the_tick_is_derived_from_the_grace_window_with_a_floor() -> None:
     # window and gets a bounded overshoot instead of a second setting to keep consistent.
     runner, audience = _FakeRunner(), _FakeAudience()
 
-    assert RunReaper(runner, audience, grace_s=120.0).tick_s == pytest.approx(15.0)  # type: ignore[arg-type]
-    assert RunReaper(runner, audience, grace_s=0.5).tick_s == pytest.approx(1.0)  # type: ignore[arg-type]
+    assert RunReaper(runner, audience, grace_s=120.0).tick_s == pytest.approx(15.0)
+    assert RunReaper(runner, audience, grace_s=0.5).tick_s == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio
