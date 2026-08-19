@@ -132,6 +132,25 @@ SDK:
   5. `uv sync --all-extras` surfaced a pyright error CI never sees (CI syncs only
      `--extra notebook`); env re-pinned to CI's extras.
 
+## Live-run validation round (2026-08-19, same unit — real paid run, 1 defect found)
+
+Owner ran the full `healthbench-worst30` evaluation (157 cases, ~960 model calls, ~50 min)
+against the worktree engine. The result came out at 2,835,927 bytes (2.7 MiB > 1 MiB cap):
+
+- **Spill path VALIDATED with real money**: the engine wrote the content-addressed
+  artifact (sha-named file verified byte-identical) and the terminal event carried the
+  claim ticket — the exact #642 scenario that used to truncate-and-lie.
+- **Defect: redemption 401.** The SDK redeems with the capability token minted at run
+  START (`minted[-1]`); engine tokens live 60 s; the run took ~50 min → expired →
+  `GET /artifacts/{id}` 401. Unit/integration tests could not see it: they fetch
+  milliseconds after mint. TTL-only cleanup (review round, findings 1+2) preserved the
+  parcel on disk — the $30 outcome was recovered by hand, nothing lost.
+
+Fix (this round, TDD): `_materialize_sync/_async` mint a FRESH token inside the fetch
+retry loop instead of reusing the run-start token; fake-server seam `artifact_token_expiry`
+expires all run tokens once the result frame streams, reproducing the incident
+deterministically (RED), fresh-mint fix turns it GREEN.
+
 ## Review-fix round (2026-08-19, same unit — 10 verified findings, all addressed)
 
 Owner-run review returned 10 confirmed findings; all fixed before commit:

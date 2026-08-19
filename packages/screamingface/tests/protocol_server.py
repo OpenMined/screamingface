@@ -63,6 +63,12 @@ class ProtocolState:
     artifact_missing: bool = False
     artifact_fail_first: int = 0
     artifact_requests: list[tuple[str, str | None]] = field(default_factory=list)
+    # OME-892 incident seam: real capability tokens live ~60 s while a run takes an hour,
+    # so every token minted BEFORE the result frame streamed is expired by redemption
+    # time. With this flag on, streaming the result expires all tokens minted so far and
+    # `/artifacts/{id}` 401s them — redemption succeeds only with a freshly minted token.
+    artifact_token_expiry: bool = False
+    expired_tokens: list[str] = field(default_factory=list)
 
     def mint_token(self) -> str:
         with self.lock:
@@ -144,6 +150,23 @@ class _Handler(BaseHTTPRequestHandler):
 
             self.connection.shutdown(_socket.SHUT_RDWR)
             self.connection.close()
+            return
+        with state.lock:
+            expired = (
+                state.artifact_token_expiry
+                and self.headers.get("URL4-Capability") in state.expired_tokens
+            )
+        if expired:
+            self._json(
+                HTTPStatus.UNAUTHORIZED,
+                {
+                    "type": "about:blank",
+                    "title": "Unauthorized",
+                    "status": HTTPStatus.UNAUTHORIZED,
+                    "detail": "missing, invalid, or expired capability token",
+                },
+                media_type="application/problem+json",
+            )
             return
         if state.artifact_missing:
             self._json(
@@ -333,6 +356,12 @@ class _Handler(BaseHTTPRequestHandler):
         )
         for frame in frames:
             _send_server_text_frame(self.wfile, json.dumps(frame))
+        state = self.server.state
+        if state.artifact_token_expiry:
+            # The run is over: every token minted so far is now older than the real
+            # engine's 60 s capability TTL — redemption must present a fresh mint.
+            with state.lock:
+                state.expired_tokens.extend(state.minted_tokens)
 
     def _stream_stop(self) -> None:
         _send_server_text_frame(self.wfile, json.dumps(_run_frames()[0]))
@@ -601,12 +630,14 @@ def protocol_server(
     artifact_served: bytes | None = None,
     artifact_missing: bool = False,
     artifact_fail_first: int = 0,
+    artifact_token_expiry: bool = False,
 ) -> Iterator[ProtocolServer]:
     state = ProtocolState(
         mode=mode,
         artifact_served=artifact_served,
         artifact_missing=artifact_missing,
         artifact_fail_first=artifact_fail_first,
+        artifact_token_expiry=artifact_token_expiry,
     )
     if artifact_body is not None:
         state.artifact_body = artifact_body

@@ -118,7 +118,7 @@ class Url4CloudTransport:
                     # By now the run is over and the WS is closed — a fetch failure here
                     # must surface as its own error, never trip the socket-scoped
                     # stop-on-interrupt arm into writing to a dead connection.
-                    return _materialize_sync(self._http, minted[-1], outcome)
+                    return _materialize_sync(self._http, outcome)
                 except InvalidStatus as exc:
                     if attempt != 0 or not _is_access_websocket_rejection(exc):
                         raise
@@ -300,7 +300,7 @@ class AsyncUrl4CloudTransport:
                         on_event,
                     )
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
-                return await _materialize_async(self._http, minted[-1], outcome)
+                return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
                 if attempt != 0 or not _is_access_websocket_rejection(exc):
                     raise
@@ -592,8 +592,16 @@ def _fetch_artifact_once_sync(http: httpx.Client, token: str, artifact: _ResultA
     return _verified_artifact_text(artifact, b"".join(chunks), digest.hexdigest())
 
 
-def _materialize_sync(http: httpx.Client, token: str, outcome: _RunOutcome) -> _RunOutcome:
-    """Redeem an artifact outcome into a full `result_body` before anyone decodes it."""
+def _materialize_sync(http: httpx.Client, outcome: _RunOutcome) -> _RunOutcome:
+    """Redeem an artifact outcome into a full `result_body` before anyone decodes it.
+
+    INVARIANT: redemption presents a token minted AFTER the run ended, never the
+    run-start token. Capability tokens live ~60 s while an evaluation can run for
+    hours, so by redemption time every token minted before or during the run is
+    expired — reusing one 401s and strands a paid result on the server (the
+    2026-08-19 healthbench-worst30 live run, $30). The mint sits INSIDE the retry
+    loop so a transient mint failure is retried like a transient fetch failure.
+    """
     artifact = outcome.artifact
     if artifact is None:
         return outcome
@@ -602,7 +610,7 @@ def _materialize_sync(http: httpx.Client, token: str, outcome: _RunOutcome) -> _
         if delay:
             time.sleep(delay)
         try:
-            body = _fetch_artifact_once_sync(http, token, artifact)
+            body = _fetch_artifact_once_sync(http, _mint_sync(http), artifact)
         except httpx.HTTPError as exc:
             last_error = exc
             continue
@@ -635,10 +643,8 @@ async def _fetch_artifact_once_async(
     return _verified_artifact_text(artifact, b"".join(chunks), digest.hexdigest())
 
 
-async def _materialize_async(
-    http: httpx.AsyncClient, token: str, outcome: _RunOutcome
-) -> _RunOutcome:
-    """Async twin of `_materialize_sync` — same retry, same verification."""
+async def _materialize_async(http: httpx.AsyncClient, outcome: _RunOutcome) -> _RunOutcome:
+    """Async twin of `_materialize_sync` — same fresh mint, same retry, same verification."""
     artifact = outcome.artifact
     if artifact is None:
         return outcome
@@ -647,7 +653,7 @@ async def _materialize_async(
         if delay:
             await asyncio.sleep(delay)
         try:
-            body = await _fetch_artifact_once_async(http, token, artifact)
+            body = await _fetch_artifact_once_async(http, await _mint_async(http), artifact)
         except httpx.HTTPError as exc:
             last_error = exc
             continue

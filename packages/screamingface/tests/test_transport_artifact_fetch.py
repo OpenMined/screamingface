@@ -145,3 +145,31 @@ def test_an_oversized_response_is_cut_off_at_the_ticket_size_not_buffered() -> N
         with pytest.raises(ExecutionError) as excinfo:
             _run(engine.url)
     assert excinfo.value.code == "result_integrity_mismatch"
+
+
+def test_redemption_mints_a_fresh_token_because_run_tokens_expire() -> None:
+    # WHY: capability tokens live ~60 s while an evaluation runs for an hour — the 2026-08-19
+    # live run proved the run-start token is ALWAYS expired by redemption time (401, $30 of
+    # results stranded on disk). Redemption must present a token minted AFTER the run ended.
+    body = '{"cases":[' + "3," * 4000 + "3]}"
+    with protocol_server(
+        mode="artifact_result", artifact_body=body, artifact_token_expiry=True
+    ) as engine:
+        outcome = _run(engine.url)
+        assert outcome.result_body == body
+        # One mint to start the run, one fresh mint to redeem the ticket.
+        assert len(engine.state.minted_tokens) == 2
+        _, capability = engine.state.artifact_requests[-1]
+        assert capability == engine.state.minted_tokens[-1]
+
+
+def test_async_redemption_mints_a_fresh_token_because_run_tokens_expire() -> None:
+    body = '{"cases":[' + "4," * 4000 + "4]}"
+    with protocol_server(
+        mode="artifact_result", artifact_body=body, artifact_token_expiry=True
+    ) as engine:
+        outcome = asyncio.run(_arun(engine.url))
+        assert outcome.result_body == body
+        assert len(engine.state.minted_tokens) == 2
+        _, capability = engine.state.artifact_requests[-1]
+        assert capability == engine.state.minted_tokens[-1]
