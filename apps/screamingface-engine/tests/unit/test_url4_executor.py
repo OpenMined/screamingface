@@ -8,6 +8,7 @@ from typing import cast
 
 import pytest
 
+from screamingface_engine.artifacts import ArtifactStore
 from screamingface_engine.runner.executor import (
     BridgeOverflowError,
     Url4Executor,
@@ -81,6 +82,7 @@ async def test_frame_streams_before_the_run_finishes() -> None:
 
     last = frames[-1]
     assert isinstance(last, Completed)
+    assert last.result.body is not None
     assert "FAST" in last.result.body
     assert "GATED" in last.result.body
 
@@ -410,17 +412,71 @@ class _LongResultNode:
         return "X" * 50
 
 
+# FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892).
+# INVARIANT: no code path emits a truncated body. A result is delivered inline (≤ cap),
+# spilled whole to the artifact store (> cap), or the run FAILS with `result_too_large` —
+# the truncate-and-still-succeed path of GitHub #642 is unrepresentable.
+
+
 @pytest.mark.asyncio
-async def test_over_cap_result_is_truncated_with_marker() -> None:
-    executor = Url4Executor(StaticIOLayer(), result_cap=20)
+async def test_result_at_inline_cap_stays_inline(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "artifacts")
+    executor = Url4Executor(StaticIOLayer(), result_cap=50, artifact_store=store)
 
     frames = await _drain(executor, _LongResultNode())
 
     completed = frames[-1]
     assert isinstance(completed, Completed)
-    assert completed.result.body.endswith("…[truncated]")
-    assert completed.result.body.startswith("X")
-    assert len(completed.result.body.encode("utf-8")) <= 20
+    # WHY: boundary — exactly-at-cap is the biggest result that must stay byte-identical
+    # to the pre-OME-892 wire shape, so old SDKs never notice small runs changed.
+    assert completed.result.body == "X" * 50
+    assert completed.result.artifact is None
+
+
+@pytest.mark.asyncio
+async def test_over_cap_result_is_spilled_whole_to_the_artifact_store(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "artifacts")
+    executor = Url4Executor(StaticIOLayer(), result_cap=20, artifact_store=store)
+
+    frames = await _drain(executor, _LongResultNode())
+
+    completed = frames[-1]
+    assert isinstance(completed, Completed)
+    assert completed.result.body is None
+    ref = completed.result.artifact
+    assert ref is not None
+    assert ref.size_bytes == 50
+    path = store.path_for(ref.id)
+    assert path is not None
+    # The parcel is the COMPLETE result — nothing was cut.
+    assert path.read_text(encoding="utf-8") == "X" * 50
+
+
+@pytest.mark.asyncio
+async def test_result_over_hard_cap_fails_loudly_with_both_byte_counts(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "artifacts")
+    executor = Url4Executor(StaticIOLayer(), result_cap=10, hard_cap=30, artifact_store=store)
+
+    with pytest.raises(ResolutionError) as excinfo:
+        await _drain(executor, _LongResultNode())
+
+    assert excinfo.value.code == "result_too_large"
+    assert "50" in str(excinfo.value)  # actual bytes
+    assert "30" in str(excinfo.value)  # allowed bytes
+    # WHY: a refused result must not leave a parcel behind — nothing was deliverable.
+    assert not any((tmp_path / "artifacts").glob("*")) or not (tmp_path / "artifacts").exists()
+
+
+@pytest.mark.asyncio
+async def test_over_cap_without_a_store_fails_instead_of_truncating() -> None:
+    # WHY: an engine with no spill directory has no lossless path for a big result; the
+    # only honest outcomes are inline or failure — never a cut body.
+    executor = Url4Executor(StaticIOLayer(), result_cap=20, artifact_store=None)
+
+    with pytest.raises(ResolutionError) as excinfo:
+        await _drain(executor, _LongResultNode())
+
+    assert excinfo.value.code == "result_too_large"
 
 
 @pytest.mark.asyncio
@@ -597,3 +653,19 @@ def test_self_and_subtree_agree_when_the_run_is_a_single_node() -> None:
 
     assert self_cost.usage.input_tokens == subtree.usage.input_tokens
     assert self_cost.usage.output_tokens == subtree.usage.output_tokens
+
+
+@pytest.mark.asyncio
+async def test_hard_cap_governs_even_when_knobs_are_inverted(tmp_path: Path) -> None:
+    # WHY: inline_cap > hard_cap is an operator misconfiguration. If the inline check ran
+    # first, a result under the (huge) inline cap would sail into one WS frame, bypassing
+    # the hard cap and resurrecting the close-1009 websocket_disconnected failure the
+    # client's frame bound was built to kill. The hard cap is absolute: it wins.
+    store = ArtifactStore(tmp_path / "artifacts")
+    executor = Url4Executor(StaticIOLayer(), result_cap=100, hard_cap=30, artifact_store=store)
+
+    with pytest.raises(ResolutionError) as excinfo:
+        await _drain(executor, _LongResultNode())  # 50 bytes: ≤ inline, > hard
+
+    assert excinfo.value.code == "result_too_large"
+    assert "30" in str(excinfo.value)

@@ -19,6 +19,7 @@ import httpx
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
+from screamingface_engine.artifacts import ArtifactStore
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
@@ -50,6 +51,37 @@ def stream_grace_s(env: Mapping[str, str]) -> float:
     except ValueError:
         logger.warning("ignoring unparseable %s=%r", job_env.STREAM_GRACE_S, raw)
         return job_env.DEFAULT_STREAM_GRACE_S
+
+
+def _int_from_env(env: Mapping[str, str], name: str, default: int) -> int:
+    """One deploy-time integer, tolerantly. INVARIANT: never raises — same reasoning as
+    `stream_grace_s`: a typo'd knob must not take down every Job, and running with the
+    shipped default is the cheap wrong answer."""
+    raw = env.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("ignoring unparseable %s=%r", name, raw)
+        return default
+
+
+def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, ArtifactStore]:
+    """The Runner's result-delivery wiring: (inline cap, hard cap, spill store).
+
+    FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892).
+    Reads the same URL4_CLOUD_* names the App's `Settings` serve side reads, so the writer
+    and the `GET /artifacts/{id}` server resolve one directory by construction.
+    """
+    inline_cap = _int_from_env(
+        env, job_env.RESULT_INLINE_CAP_BYTES, job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
+    )
+    hard_cap = _int_from_env(
+        env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES
+    )
+    artifacts_dir = env.get(job_env.ARTIFACTS_DIR) or job_env.DEFAULT_ARTIFACTS_DIR
+    return inline_cap, hard_cap, ArtifactStore(Path(artifacts_dir))
 
 
 async def run_and_reclaim(
@@ -225,7 +257,13 @@ def build_executor(
                 cleanup.pop_all()
         return world.node, world.aclose
 
-    return Url4Executor(world_factory=_world)
+    inline_cap, hard_cap, artifact_store = result_delivery_from_env(env)
+    return Url4Executor(
+        world_factory=_world,
+        result_cap=inline_cap,
+        hard_cap=hard_cap,
+        artifact_store=artifact_store,
+    )
 
 
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)

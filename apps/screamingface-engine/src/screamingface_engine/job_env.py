@@ -18,7 +18,9 @@ format.
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 
 from url4.streaming.protocol import CachePolicy
@@ -201,6 +203,35 @@ RUNNER_CONFIG = "URL4_RUNNER_CONFIG"
 """Path to the declared world (:mod:`screamingface_engine.world_config`). Baked into
 the image; the App never writes it."""
 
+ARTIFACTS_DIR = "URL4_CLOUD_ARTIFACTS_DIR"
+"""Directory where over-threshold results are spilled as content-addressed files and from
+which ``GET /artifacts/{id}`` serves them (OME-892). One name read by BOTH the Runner (write
+side, via :func:`runner.main.build_executor`) and the App's ``Settings.artifacts_dir`` (serve
+side) so the two halves cannot be pointed at different directories by a one-sided edit.
+
+AIDEV-NOTE: in the `k8s` backend the Runner Job and the App are separate pods — this must
+name a SHARED volume there, which the chart does not yet mount (flagged on OME-892); local
+mode (one process) shares it by construction."""
+
+DEFAULT_ARTIFACTS_DIR = str(Path(tempfile.gettempdir()) / "screamingface-engine" / "artifacts")
+"""Fallback for an unset :data:`ARTIFACTS_DIR`. A temp path on purpose: artifacts are
+short-lived hand-offs (deleted on fetch, swept by TTL), not an archive."""
+
+RESULT_INLINE_CAP_BYTES = "URL4_CLOUD_RESULT_INLINE_CAP_BYTES"
+"""Largest result body (UTF-8 bytes) that rides the result frame inline; anything larger is
+spilled whole to :data:`ARTIFACTS_DIR`. Replaces the pre-OME-892 truncation cap."""
+
+DEFAULT_RESULT_INLINE_CAP_BYTES = 1_048_576
+"""1 MiB — the historical wire cap, kept so small runs stay byte-identical to before."""
+
+RESULT_HARD_CAP_BYTES = "URL4_CLOUD_RESULT_HARD_CAP_BYTES"
+"""Absolute result ceiling: past this the run FAILS with ``result_too_large`` instead of
+spilling. The result is already in Runner RAM when checked (string + encoded copy ≈ 2-3× its
+size), so size this to pod memory, not disk."""
+
+DEFAULT_RESULT_HARD_CAP_BYTES = 1_073_741_824
+"""1 GiB — clears a plausible full-benchmark-scale report while catching runaway output."""
+
 DEFAULT_NATS_URL = "nats://localhost:4222"
 """Fallback for an unset :data:`NATS_URL`. Lives beside the name it defaults so the two cannot
 drift — every reader of the variable needs the same answer for "and if it is absent?"."""
@@ -240,7 +271,16 @@ WRITTEN_BY_APP = frozenset(
 that breaks silently is an unread WRITE, not an unwritten READ (which simply falls back)."""
 
 DEPLOY_TIME = frozenset(
-    {NATS_URL, AIGATEWAY_BASE_URL, AIGATEWAY_MODEL, TAVILY_API_KEY, RUNNER_CONFIG}
+    {
+        NATS_URL,
+        AIGATEWAY_BASE_URL,
+        AIGATEWAY_MODEL,
+        TAVILY_API_KEY,
+        RUNNER_CONFIG,
+        ARTIFACTS_DIR,
+        RESULT_INLINE_CAP_BYTES,
+        RESULT_HARD_CAP_BYTES,
+    }
 )
 """Helm owns these end-to-end. The App writing one would make it two sources of truth again."""
 
@@ -248,9 +288,13 @@ __all__ = [
     "AIGATEWAY_BASE_URL",
     "AIGATEWAY_MODEL",
     "AIGATEWAY_PROFILE",
+    "ARTIFACTS_DIR",
     "CACHE_MAX_AGE_S",
     "CACHE_PARTICIPATE",
+    "DEFAULT_ARTIFACTS_DIR",
     "DEFAULT_NATS_URL",
+    "DEFAULT_RESULT_HARD_CAP_BYTES",
+    "DEFAULT_RESULT_INLINE_CAP_BYTES",
     "DEFAULT_STREAM_GRACE_S",
     "DEPLOY_TIME",
     "EXPRESSION",
@@ -258,6 +302,8 @@ __all__ = [
     "JOB_DEADLINE_S",
     "NATS_URL",
     "REQUIRED",
+    "RESULT_HARD_CAP_BYTES",
+    "RESULT_INLINE_CAP_BYTES",
     "RUNNER_CONFIG",
     "STREAM_GRACE_S",
     "SECRET",

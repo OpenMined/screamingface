@@ -50,6 +50,19 @@ class Settings(BaseSettings):
     # WHY the shared constant and not a literal: `job_env` states the fallback beside the variable
     # name so serve and run cannot be pointed at different brokers by a one-sided edit.
     nats_url: str = job_env.DEFAULT_NATS_URL
+    # FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892).
+    # Same env var (URL4_CLOUD_ARTIFACTS_DIR) the Runner's spill side reads — one name, so the
+    # writer and the `GET /artifacts/{id}` server cannot be pointed at different directories.
+    artifacts_dir: str = job_env.DEFAULT_ARTIFACTS_DIR
+    # WHY 48h: long enough for any client that survived its run to come back for the parcel
+    # (a run itself is bounded by job_deadline_s = 16h), short enough that crashed runs
+    # cannot pool disk for more than two days. Swept at App startup AND periodically.
+    artifact_ttl_s: int = 172_800
+    # WHY periodic and not startup-only: a hosted Engine pod can stay up for weeks, and a
+    # startup-only sweep would let abandoned parcels pool until the next redeploy (owner
+    # decision on OME-892). Hourly is far finer than the 48h TTL it enforces, and one
+    # directory scan an hour costs nothing.
+    artifact_sweep_interval_s: float = 3600.0
     # INVARIANT: stateless iat window (seconds) — start rejected when now - iat exceeds it (§4).
     iat_window_s: int = 60
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
