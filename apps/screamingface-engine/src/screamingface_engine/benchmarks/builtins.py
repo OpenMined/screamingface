@@ -7,10 +7,19 @@ from screamingface_engine.benchmarks.deployment import (
     BenchmarkDeployment,
     BenchmarkRegistration,
 )
+from screamingface_engine.benchmarks.draco.definition import (
+    ASSET_BUNDLE_ID as DRACO_ASSET_BUNDLE_ID,
+)
 from screamingface_engine.benchmarks.draco.definition import DRACO
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
+)
+from screamingface_engine.benchmarks.healthbench.exam import (
+    ASSET_BUNDLE_ID as HEALTHBENCH_ASSET_BUNDLE_ID,
+)
+from screamingface_engine.benchmarks.ifeval.definition import (
+    ASSET_BUNDLE_ID as IFEVAL_ASSET_BUNDLE_ID,
 )
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 
@@ -35,24 +44,27 @@ def _prepare_healthbench(out: Path) -> None:
     prepare(out)
 
 
-DRACO_ASSETS = BenchmarkAssetBundle(id="draco", prepare=_prepare_draco)
-IFEVAL_ASSETS = BenchmarkAssetBundle(id="ifeval", prepare=_prepare_ifeval)
-HEALTHBENCH_ASSETS = BenchmarkAssetBundle(id="healthbench", prepare=_prepare_healthbench)
+DRACO_ASSETS = BenchmarkAssetBundle(id=DRACO_ASSET_BUNDLE_ID, prepare=_prepare_draco)
+IFEVAL_ASSETS = BenchmarkAssetBundle(id=IFEVAL_ASSET_BUNDLE_ID, prepare=_prepare_ifeval)
+HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
+    id=HEALTHBENCH_ASSET_BUNDLE_ID,
+    prepare=_prepare_healthbench,
+)
 
 # WHY: this composition is the single source for both runtime discovery and image construction.
 # The two HealthBench boards are independent benchmark identities over one physical answer key,
 # so they intentionally share HEALTHBENCH_ASSETS and the deployment prepares it once.
 BUILTIN_DEPLOYMENT = BenchmarkDeployment(
     (
-        BenchmarkRegistration(benchmark=DRACO, assets=(DRACO_ASSETS,)),
-        BenchmarkRegistration(benchmark=IFEVAL, assets=(IFEVAL_ASSETS,)),
+        BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),
+        BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
         BenchmarkRegistration(
             benchmark=HEALTHBENCH_WORST30,
-            assets=(HEALTHBENCH_ASSETS,),
+            asset_bundle=HEALTHBENCH_ASSETS,
         ),
         BenchmarkRegistration(
             benchmark=HEALTHBENCH_PROFESSIONAL,
-            assets=(HEALTHBENCH_ASSETS,),
+            asset_bundle=HEALTHBENCH_ASSETS,
         ),
     )
 )

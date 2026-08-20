@@ -38,17 +38,17 @@ def test_deployment_prepares_each_shared_bundle_once_in_stable_directories(
     alpha = BenchmarkAssetBundle(id="alpha", prepare=calls.append)
     deployment = BenchmarkDeployment(
         (
-            BenchmarkRegistration(_benchmark("one"), assets=(shared,)),
-            BenchmarkRegistration(_benchmark("two"), assets=(shared, alpha)),
-            BenchmarkRegistration(_benchmark("assetless"), assets=()),
+            BenchmarkRegistration(_benchmark("one"), asset_bundle=shared),
+            BenchmarkRegistration(_benchmark("two"), asset_bundle=shared),
+            BenchmarkRegistration(_benchmark("three"), asset_bundle=alpha),
         )
     )
 
     prepared = deployment.prepare_assets(tmp_path)
 
     assert tuple(benchmark.id for benchmark in deployment.benchmarks) == (
-        "assetless",
         "one",
+        "three",
         "two",
     )
     assert calls == [tmp_path / "alpha", tmp_path / "shared"]
@@ -63,8 +63,8 @@ def test_conflicting_physical_bundles_cannot_share_a_directory_id() -> None:
     with pytest.raises(ValueError, match="conflicting BenchmarkAssetBundles"):
         BenchmarkDeployment(
             (
-                BenchmarkRegistration(_benchmark("one"), assets=(first,)),
-                BenchmarkRegistration(_benchmark("two"), assets=(second,)),
+                BenchmarkRegistration(_benchmark("one"), asset_bundle=first),
+                BenchmarkRegistration(_benchmark("two"), asset_bundle=second),
             )
         )
 
@@ -77,16 +77,16 @@ def test_asset_bundle_ids_are_safe_directory_names(bundle_id: str) -> None:
 
 def test_builtins_are_registered_with_their_physical_asset_bundles() -> None:
     registrations = {
-        registration.benchmark.id: tuple(bundle.id for bundle in registration.assets)
+        registration.benchmark.id: registration.asset_bundle.id
         for registration in BUILTIN_DEPLOYMENT.registrations
     }
 
     assert BUILTIN_DEPLOYMENT.benchmarks is BUILTIN_BENCHMARKS
     assert registrations == {
-        "draco": ("draco",),
-        "ifeval": ("ifeval",),
-        "healthbench-worst30": ("healthbench",),
-        "healthbench-professional": ("healthbench",),
+        "draco": "draco",
+        "ifeval": "ifeval",
+        "healthbench-worst30": "healthbench",
+        "healthbench-professional": "healthbench",
     }
 
 

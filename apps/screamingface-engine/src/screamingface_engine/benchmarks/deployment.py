@@ -31,29 +31,20 @@ class BenchmarkAssetBundle:
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkRegistration:
-    """One runtime Benchmark plus every asset bundle it requires.
+    """One runtime Benchmark plus the physical asset bundle it requires.
 
-    ``assets`` deliberately has no default: an assetless Benchmark must say ``assets=()`` so a
-    forgotten preparation declaration cannot look like an intentional no-assets protocol.
+    ``asset_bundle`` deliberately has no default. Every registered built-in Benchmark therefore
+    names a preparation path at construction; omission cannot masquerade as an assetless protocol.
     """
 
     benchmark: Benchmark
-    assets: tuple[BenchmarkAssetBundle, ...]
+    asset_bundle: BenchmarkAssetBundle
 
     def __post_init__(self) -> None:
         if not isinstance(self.benchmark, Benchmark):
             raise TypeError("BenchmarkRegistration benchmark must be a Benchmark")
-        if not isinstance(self.assets, tuple):
-            raise TypeError("BenchmarkRegistration assets must be a tuple")
-        selected: set[str] = set()
-        for bundle in self.assets:
-            if not isinstance(bundle, BenchmarkAssetBundle):
-                raise TypeError("BenchmarkRegistration assets must contain BenchmarkAssetBundles")
-            if bundle.id in selected:
-                raise ValueError(
-                    f"Benchmark {self.benchmark.id!r} declares asset bundle {bundle.id!r} twice"
-                )
-            selected.add(bundle.id)
+        if not isinstance(self.asset_bundle, BenchmarkAssetBundle):
+            raise TypeError("BenchmarkRegistration asset_bundle must be a BenchmarkAssetBundle")
 
 
 class BenchmarkDeployment:
@@ -73,11 +64,11 @@ class BenchmarkDeployment:
 
         bundles: dict[str, BenchmarkAssetBundle] = {}
         for registration in selected:
-            for bundle in registration.assets:
-                installed = bundles.get(bundle.id)
-                if installed is not None and installed is not bundle:
-                    raise ValueError(f"conflicting BenchmarkAssetBundles declare id {bundle.id!r}")
-                bundles[bundle.id] = bundle
+            bundle = registration.asset_bundle
+            installed = bundles.get(bundle.id)
+            if installed is not None and installed is not bundle:
+                raise ValueError(f"conflicting BenchmarkAssetBundles declare id {bundle.id!r}")
+            bundles[bundle.id] = bundle
         self._asset_bundles = tuple(bundles[bundle_id] for bundle_id in sorted(bundles))
 
     @property

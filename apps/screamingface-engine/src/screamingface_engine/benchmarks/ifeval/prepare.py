@@ -48,7 +48,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.ifeval.definition import CASE_COUNT, DATASET, DATASET_REVISION
+from screamingface_engine.benchmarks.ifeval.definition import (
+    ASSET_BUNDLE_ID,
+    CASE_COUNT,
+    DATASET,
+    DATASET_REVISION,
+)
+from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 
 
 class PrepareError(RuntimeError):
@@ -239,7 +245,11 @@ def prepare(out: Path) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ifeval-prepare", description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path("/opt/benchmarks/ifeval"))
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_BENCHMARK_ASSETS_ROOT / ASSET_BUNDLE_ID,
+    )
     parser.add_argument("--limit", type=int, default=None, help="cap the case count (probes)")
     args = parser.parse_args(argv)
 

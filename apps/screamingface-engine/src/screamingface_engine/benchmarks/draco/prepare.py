@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.draco.definition import (
+    ASSET_BUNDLE_ID,
     CASE_COUNT,
     DATASET,
     DATASET_REVISION,
@@ -47,6 +48,7 @@ from screamingface_engine.benchmarks.draco.definition import (
     RETRIEVAL_POLICY_ID,
 )
 from screamingface_engine.benchmarks.draco.scoring import flatten_criteria
+from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 
 COLUMN_QUESTION = "problem"
 COLUMN_RUBRIC = "answer"
@@ -243,7 +245,11 @@ def prepare(out: Path) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="draco-prepare", description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path("/opt/benchmarks/draco"))
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_BENCHMARK_ASSETS_ROOT / ASSET_BUNDLE_ID,
+    )
     parser.add_argument("--limit", type=int, default=None, help="cap the case count (probes)")
     args = parser.parse_args(argv)
 

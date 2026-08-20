@@ -48,6 +48,8 @@ from url4.peer.server import Url4Node
 
 type ExamMean = Callable[[Sequence[float]], float | None]
 
+ASSET_BUNDLE_ID = "healthbench"
+
 
 @dataclass(frozen=True, slots=True)
 class Routes:
@@ -302,7 +304,7 @@ def healthbench_benchmark(
 
         # INVARIANT: every board reads the SAME baked asset directory — one immutable
         # answer key, selected from at serve time, never a per-board bake.
-        install_runtime(node, assets / "healthbench", exam)
+        install_runtime(node, assets / ASSET_BUNDLE_ID, exam)
 
     benchmark = Benchmark(
         id=id,

@@ -18,6 +18,7 @@ from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 
 BENCHMARK_ID = "draco"
+ASSET_BUNDLE_ID = BENCHMARK_ID
 CASE_COUNT = 100
 DATASET = "perplexity-ai/draco"
 DATASET_REVISION = "ce076749809027649ebd331bcb70f42bf720d387"
@@ -182,7 +183,7 @@ def _install(node: Url4Node, assets: Path) -> None:
     # Lazy import keeps the resource-only control-plane path from loading filesystem runtime code.
     from screamingface_engine.benchmarks.draco.runtime import install
 
-    install(node, assets / BENCHMARK_ID)
+    install(node, assets / ASSET_BUNDLE_ID)
 
 
 DRACO = Benchmark(
