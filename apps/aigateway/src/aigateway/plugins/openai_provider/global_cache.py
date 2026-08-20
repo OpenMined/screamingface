@@ -54,7 +54,7 @@ from .settings import OFFICIAL_API_BASE, is_route_valid_model_id, upstream_model
 #     client pinned to ``verify=True``, ``trust_env=False``, ``follow_redirects=False``
 #     — TLS verification on, ambient proxy/CA environment ignored, no redirect
 #     following.
-#   * the exact installed LiteLLM behaviour (pinned at 1.95.0), which owns the
+#   * the exact installed LiteLLM behaviour (pinned at 1.97.0), which owns the
 #     ``max_tokens`` -> ``max_completion_tokens`` mapping for GPT-5/o-series models and
 #     the Chat-Completions handler selection. ``tests/unit/openai/test_openai_dispatch``
 #     pins both at the final HTTP wire; a change there is a mandatory bump here.

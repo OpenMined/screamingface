@@ -643,3 +643,28 @@ special Python package marker `openai/__init__.py`, as explicitly approved by th
   assertion changed.
 - No production file, dependency, cache contract, unrelated worktree file, staged deletion, stash,
   commit, remote branch, or pull request was changed by this cycle.
+
+## Review Cycle 4 — LiteLLM 1.97.0 re-certification after rebase
+
+### Intent
+
+Re-certify the exact-runtime assumptions after rebasing onto main, which upgraded the installed
+LiteLLM from 1.95.0 to 1.97.0, before publishing the branch.
+
+### Evidence and outcome
+
+- RED: the full AIGateway gate reached `3710 passed` and failed only the two deliberate installed-
+  version assertions, which still required 1.95.0 while the environment now reported 1.97.0.
+- Installed 1.97.0 still defines all twelve independently expected guarded globals plus
+  `modify_params`; it still has no module-level `additional_drop_params`.
+- `litellm.modify_params` is still initialized with
+  `bool(os.getenv("LITELLM_MODIFY_PARAMS", False))`. Both completion wrapper paths still require a
+  non-`None max_tokens`, a model, `litellm.modify_params is True`, and a supported call type before
+  computing a replacement ceiling.
+- The full pre-pin suite proved every other OME-884 behavior unchanged, including the fourteen
+  explicit token-field spellings, cache/dispatch asymmetry, and exhaustive ambient-global poison
+  cases. Update the current-runtime assertions and rationale to 1.97.0; do not change the cache
+  adapter revision because no keyed or wire behavior changed.
+- GREEN: the four directly affected suites returned `92 passed`, OpenAI plus OpenRouter returned
+  `1097 passed`, and the full AIGateway gate returned `ALL GATES GREEN` with the already authorized
+  append-only decision applied. `git diff --check` remained clean.

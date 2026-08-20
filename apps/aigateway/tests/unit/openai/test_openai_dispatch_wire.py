@@ -157,7 +157,7 @@ async def test_every_default_model_pins_its_token_field_at_the_final_http_wire(
 # request sends and therefore MUST bump ``GLOBAL_CACHE_ADAPTER_REVISION``. Ten of the
 # fourteen seeds had no committed expectation at all.
 #
-# INVARIANT: these expectations are OBSERVED FACTS about installed LiteLLM 1.95.0,
+# INVARIANT: these expectations are OBSERVED FACTS about installed LiteLLM 1.97.0,
 # captured at the final HTTP payload and written down by hand. They are deliberately NOT
 # derived at runtime from the same litellm being tested — a table computed from the system
 # under test asserts only that it agrees with itself.

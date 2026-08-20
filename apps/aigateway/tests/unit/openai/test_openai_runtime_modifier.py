@@ -6,7 +6,7 @@ with a locally computed ceiling on the ``acompletion`` path — for every provid
 this gateway has built the cache key.
 
 STORY: as an operator who set ``LITELLM_MODIFY_PARAMS=false`` (which ENABLES the flag, in
-LiteLLM 1.95.0) I still get correct answers: direct OpenAI stops caching, refuses only the
+LiteLLM 1.97.0) I still get correct answers: direct OpenAI stops caching, refuses only the
 requests LiteLLM would actually rewrite, and tells me why in the log.
 
 INVARIANT under test: the two verdicts are scoped DIFFERENTLY and the asymmetry runs in
@@ -63,7 +63,7 @@ class _ExplodingTruthiness:
 # WHY this hazard gets its own section rather than joining ``_UNSAFE_RUNTIME_STATES``:
 # every member of that table makes DISPATCH unsafe too, so the shared guard refuses the
 # request outright. ``litellm.modify_params`` is different in kind. Installed LiteLLM
-# 1.95.0 only rewrites a request that actually carries a ceiling
+# 1.97.0 only rewrites a request that actually carries a ceiling
 # (``litellm/utils.py:1656`` requires ``kwargs.get("max_tokens") is not None``), so a
 # request without one is untouched and refusing it would be a fabricated outage. The
 # owner-approved answer is therefore ASYMMETRIC: always decline the cache, refuse only
@@ -127,7 +127,7 @@ def test_the_modifier_decline_is_diagnosable_without_leaking_the_request(
     """The 503 a caller sees is deliberately sanitized, so the OPERATOR needs a log line.
 
     WHY this matters more than it looks: ``modify_params`` is
-    ``bool(os.getenv("LITELLM_MODIFY_PARAMS", False))`` in LiteLLM 1.95.0, so
+    ``bool(os.getenv("LITELLM_MODIFY_PARAMS", False))`` in LiteLLM 1.97.0, so
     ``LITELLM_MODIFY_PARAMS=false`` ENABLES it. Without a diagnostic naming the variable,
     an operator who typed ``false`` sees direct OpenAI stop caching with no way to tell why.
     """
@@ -208,7 +208,7 @@ async def test_an_enabled_modifier_still_dispatches_a_request_it_cannot_rewrite(
 ) -> None:
     """The reason the flag is NOT in the shared ambient tuple.
 
-    LiteLLM 1.95.0 only rewrites a request whose ``max_tokens`` is not ``None``. A request
+    LiteLLM 1.97.0 only rewrites a request whose ``max_tokens`` is not ``None``. A request
     without a ceiling is untouched, so refusing it would be an outage this gateway invented
     — which is precisely what putting the flag in ``_LITELLM_GLOBAL_TRUTHY_FIELDS`` would
     have caused, for the majority of real traffic.

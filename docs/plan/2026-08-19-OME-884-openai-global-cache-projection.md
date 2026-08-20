@@ -441,7 +441,7 @@ Fill the ledger Outcome with actual files, gates, deviations, and commit status 
 - `max_tokens` is keyed for every route-valid model and different models/values isolate.
 - All fourteen default models pin LiteLLM token-field mapping at final HTTP wire. Cycle 2
   strengthened this: each of the fourteen now has an EXPLICIT committed expected spelling
-  (`_EXPECTED_TOKEN_FIELD`), observed against installed LiteLLM 1.95.0 and asserted with the
+  (`_EXPECTED_TOKEN_FIELD`), observed against installed LiteLLM 1.97.0 and asserted with the
   other spelling's absence. Before that, only four were pinned by name and the remaining ten
   were covered by a spelling-agnostic "exactly one token field exists" assertion, which a
   single-model move between spellings would have passed.

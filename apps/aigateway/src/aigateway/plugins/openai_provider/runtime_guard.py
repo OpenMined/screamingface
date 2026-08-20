@@ -54,7 +54,7 @@ _LITELLM_GLOBAL_CALLBACK_FIELDS = (
 # INVARIANT: every member must EXIST on the installed LiteLLM, asserted by
 # ``test_every_guarded_global_still_exists_on_installed_litellm`` — a RENAMED global reads
 # ``None``, falsy, so the check would pass unguarded. (``additional_drop_params`` was
-# removed for that reason: 1.95.0 has no such module global, so it could never fire;
+# removed for that reason: 1.97.0 has no such module global, so it could never fire;
 # caller-supplied values are stripped at ingress.) ``callbacks`` stay out: they need the
 # ``"cache"`` exemption below, a different question.
 _LITELLM_GLOBAL_TRUTHY_FIELDS = (
@@ -229,7 +229,7 @@ def _ambient_modifier_is_enabled(litellm: Any) -> bool:
     """Whether LiteLLM will rewrite this request's ``max_tokens`` before dispatch.
 
     # WHY not in ``_LITELLM_GLOBAL_TRUTHY_FIELDS``: that tuple refuses dispatch too, and
-    # LiteLLM 1.95.0 rewrites only a request that carries a ceiling (``litellm/utils.py``
+    # LiteLLM 1.97.0 rewrites only a request that carries a ceiling (``litellm/utils.py``
     # requires ``kwargs.get("max_tokens") is not None``), so refusing one without would be
     # an outage this gateway invented. Blast radius must match the hazard.
     # INVARIANT: TOTAL and fail CLOSED. ``getattr`` takes NO default on purpose — a missing

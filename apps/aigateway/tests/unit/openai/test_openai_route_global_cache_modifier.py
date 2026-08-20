@@ -6,7 +6,7 @@ OpenAI must stop using the cache — without inventing an outage for the request
 cannot touch.
 
 STORY: as an operator who enabled the flag by accident (``LITELLM_MODIFY_PARAMS=false``
-enables it, in LiteLLM 1.95.0) I keep serving traffic; caching resumes, against the rows
+enables it, in LiteLLM 1.97.0) I keep serving traffic; caching resumes, against the rows
 already stored, the moment I unset the variable.
 
 INVARIANT under test, through the real app and the real store: the enabled flag causes

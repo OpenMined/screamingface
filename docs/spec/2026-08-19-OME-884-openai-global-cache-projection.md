@@ -68,7 +68,7 @@ Non-JSON transport guarantees cannot live in `prepared` and are folded into the 
 instead: `Omit()` sentinels suppressing `OpenAI-Organization` / `OpenAI-Project`, the
 request-local `AsyncOpenAI` client, `max_retries=0` on that client, and the httpx client's
 `verify=True` / `trust_env=False` / `follow_redirects=False`. The revision is also coupled to the
-exact installed LiteLLM behaviour (1.95.0), because stored rows survive deployments.
+exact installed LiteLLM behaviour (1.97.0), because stored rows survive deployments.
 
 Suppressing the organization and project headers is the explicit condition that licenses
 cross-account replay: two accounts sending the identical effective request produce byte-identical
@@ -117,7 +117,7 @@ Any exception inside participation is non-participation, never a request failure
 ### The ambient request modifier — the one deliberate asymmetry (owner decision, cycle 2)
 
 `litellm.modify_params` is NOT part of the shared core above, and that is a decision rather than an
-omission. Installed LiteLLM 1.95.0 defines it as `bool(os.getenv("LITELLM_MODIFY_PARAMS", False))`,
+omission. Installed LiteLLM 1.97.0 defines it as `bool(os.getenv("LITELLM_MODIFY_PARAMS", False))`,
 so any non-empty value enables it — `"false"` and `"0"` included. When enabled it replaces
 `kwargs["max_tokens"]` with a locally computed ceiling on the `acompletion` path, for every
 provider, *after* this gateway has built the cache key. Since `max_tokens` is direct OpenAI's one
