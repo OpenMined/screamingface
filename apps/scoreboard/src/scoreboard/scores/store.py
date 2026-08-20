@@ -16,6 +16,8 @@ from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.query_api import execute_pypika
 from tortoise.transactions import in_transaction
 
+from scoreboard.classification.openness import Openness
+
 from .models import Benchmark, IdempotencyKey, Score
 from .schemas import BenchmarkSchema, LeaderboardEntry, ScoreSchema, ScoreSubmission
 
@@ -69,7 +71,11 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         client_platform=model.client_platform,
         verified_by_screamingface=model.verified_by_screamingface,
         metadata=model.metadata,
-        openness_override=model.openness_override,
+        # WHY: tortoise-orm >=1.1.8 types CharField as `str | None`, which no longer
+        # satisfies the schema's `Openness | None`. The DB column is a bare CharField, so
+        # the narrowing is ours to assert; Pydantic still rejects a junk value on
+        # construction, which is what actually enforces the invariant at runtime.
+        openness_override=cast(Openness | None, model.openness_override),
         run_cost_usd=model.run_cost_usd,
     )
 
