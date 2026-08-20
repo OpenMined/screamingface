@@ -96,6 +96,48 @@ The publish delay moves over a 100x range. **The peak does not move.**
 Peak is approximately 3N — near the whole event count of the run — and it overflows on run
 SIZE alone, with a publisher that costs nothing.
 
+### The confirmed root cause
+
+`_Bridge`'s hard cap does not bound a sustained backlog. It bounds **how many events the
+engine emits between two chances for the drain to run**.
+
+The trace shows why. One run of 2408 operations alternates only **16** times: the producer
+emits hundreds of events with no interruption, then the consumer drains all of them with no
+interruption. `_Bridge.drain` never awaits while its buffer is non-empty, and the publish
+path does not suspend either, so the consumer always empties the buffer completely once the
+loop schedules it. The consumer is not behind. It cannot run at all during a burst.
+
+The burst comes from the DAG:
+
+- `url4/dag/executor.py:182` — `_eval` emits `NodeStarted` **before** it awaits anything.
+- `url4/dag/executor.py:186` — it then fans out over `node.deps` with a plain
+  `asyncio.gather`, with no bound.
+
+So a DAG of width W pushes about W `NodeStarted` events into the buffer in ONE event-loop
+slice. The measured burst grows linearly with the run and equals the peak:
+
+| N | total events | largest burst |
+|---|---|---|
+| 300 | 1204 | 606 |
+| 600 | 2404 | 1491 |
+| 1200 | 4804 | 3555 |
+| 2400 | 9604 | 7179 |
+
+7179 against a cap of 8192 predicts exactly the boundary measured earlier: N = 2000 passes,
+N = 3000 raises.
+
+`DEFAULT_RUN_CONCURRENCY` (32) does not help. Its docstring and
+`url4/dag/executor.py:391` are explicit: it bounds `ctx.io.fetch` calls through a
+`BoundedIOLayer`. It does not bound node resolution or the observation events they emit.
+
+Cache hits matter only at the margin. They let many calls finish in one coalesced burst, so
+the trailing `Usage` + `ModelResponse` + `NodeFinished` triples also arrive in a single
+slice, on top of the width. That matches the issue's own snapshot: 3465 `NodeStarted` for
+561 calls.
+
+**The 8192 cap is therefore a ceiling on DAG WIDTH.** A 100-Case DRACO Fusion is legitimately
+about 3500 nodes wide, so it sits right at the limit.
+
 ### What this means
 
 - The issue states the cause is "cached model responses produce events much faster than the
@@ -107,10 +149,16 @@ SIZE alone, with a publisher that costs nothing.
 - The committed work is still worth keeping on its own merits: 31 s to 0.59 s at a 10 ms
   round trip is a 50x wall-clock gain, and the high-water mark from step 3 is what made this
   measurable at all. Neither is the fix the issue asks for.
-- "Raise the 8192 cap", which the issue rejects as a delay tactic, is no longer obviously
-  wrong. The cap is the binding constraint and the publisher is not. 8192 buffered
-  `ObservationEvent`s is a few MB; a count-based cap chosen against an unmeasured cause is
-  the thing to revisit, ideally as a memory bound.
+- "Raise the 8192 cap", which the issue rejects as a delay tactic, is the correct direction.
+  The cap is the binding constraint, the publisher is not, and the quantity it protects is
+  tiny: 8192 buffered events measure **2.1 MB** (278 B and 232 B per event, measured). The
+  same process accepts a result of `DEFAULT_RESULT_HARD_CAP_BYTES` = **1 GiB**. It refuses
+  2.1 MB of telemetry.
+- The message "the consumer is not keeping up" is wrong by construction. The consumer always
+  drains the buffer completely once scheduled. A genuinely stuck consumer shows as NO drain
+  progress, which is a different and detectable signal — and the right thing for a bound to
+  watch.
+- The issue's Root cause and Suggested direction sections both need correcting.
 
 ### Outcome so far
 
