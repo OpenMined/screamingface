@@ -923,7 +923,7 @@ sf.connect()"""),
 `limit=1` runs a single Case — a cheap rehearsal that exercises the whole pipeline. Drop
 the argument to sit the whole exam."""),
         nbformat.v4.new_code_cell("""\
-PARAMS = {"max_tokens": 16384, "temperature": 0.0}
+PARAMS = {"max_tokens": 32768, "temperature": 0.0}
 
 deepseek = sf.Model(
     model="openrouter/deepseek/deepseek-v4-pro",
