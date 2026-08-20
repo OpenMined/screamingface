@@ -73,9 +73,11 @@ def test_models_and_detail_publish_the_same_minimal_contract(authenticated_clien
     ("body", "expected_code"),
     [
         # OME-884 (authorized contract change): ``openai/unregistered`` is ROUTE VALID
-        # and is now forwarded to OpenAI, which is the authority on whether it exists —
-        # see ``test_an_unsupported_model_is_refused_by_openai_and_never_stored``. What
-        # is still refused locally, before any credential is read, is a model ID the
+        # and is now forwarded to OpenAI, which is the authority on whether it exists.
+        # That is proven in ``test_openai_route_global_cache.py`` by
+        # ``test_a_route_valid_unsupported_model_misses_is_refused_by_openai_and_stores_nothing``
+        # (cycle 2: the name here was stale and pointed at no existing test). What is
+        # still refused locally, before any credential is read, is a model ID the
         # grammar rejects; that refusal is what keeps a malformed id out of the cache.
         (
             {"model": "openai/gpt 5", "messages": []},

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-import os
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
@@ -19,6 +17,11 @@ from aigateway.core.standard_parameters import direct_parameter_observations
 from .api_key_validation import OpenAIApiKeyValidator
 from .global_cache import gateway_dispatch_controls, project_global_cache_request
 from .parameters import openai_chat_parameter_rules
+from .runtime_guard import (
+    certifies_global_cache_participation,
+    has_unsafe_litellm_global_state,
+    modifier_refuses_dispatch,
+)
 from .settings import OFFICIAL_API_BASE, OpenAIPluginSettings, is_route_valid_model_id
 
 if TYPE_CHECKING:
@@ -31,36 +34,7 @@ if TYPE_CHECKING:
     from aigateway.plugins.taxonomy.types import CacheReference
 
 
-logger = logging.getLogger(__name__)
-
 _OBSERVATION_SOURCE = "openai:locked-runtime"
-# The environment variable LiteLLM reads to swap the OpenAI dispatch handler. Both the
-# handler it selects and the one it replaces are pinned by this plugin's adapter
-# revision, so an enabled flag is a runtime the revision does not describe.
-_EXPERIMENTAL_HANDLER_ENV = "EXPERIMENTAL_OPENAI_BASE_LLM_HTTP_HANDLER"
-_LITELLM_GLOBAL_CALLBACK_FIELDS = (
-    "callbacks",
-    "input_callback",
-    "success_callback",
-    "failure_callback",
-    "_async_input_callback",
-    "_async_success_callback",
-    "_async_failure_callback",
-)
-# Process-global LiteLLM state that disqualifies the runtime when merely TRUTHY. ONE
-# tuple rather than one branch each: the verdict and the reason are identical for every
-# member — ambient routing, mutation or parameter-dropping that this plugin's adapter
-# revision does not describe — so spelling them as separate early returns was a list
-# pretending to be control flow. ``callbacks`` stay out of it: they need the ``"cache"``
-# exemption below, which is a different question.
-_LITELLM_GLOBAL_TRUTHY_FIELDS = (
-    "model_fallbacks",
-    "headers",
-    "pre_call_rules",
-    "post_call_rules",
-    "drop_params",
-    "additional_drop_params",
-)
 
 
 def _credential_service_for(profile_name: str) -> str:
@@ -101,126 +75,6 @@ def _unsafe_environment_error() -> HTTPException:
     )
     cast("Any", error).aigw_non_retryable = True
     return error
-
-
-def litellm_env_flag_is_true(value: object) -> bool:
-    """Whether LiteLLM would read ``value`` from the environment as boolean true.
-
-    # INVARIANT: parity with the INSTALLED implementation, not with intuition.
-    # ``get_secret_bool`` delegates to ``str_to_bool``, which recognizes only
-    # ``"true"`` and ``"false"`` after ``.strip().lower()`` and answers ``None`` for
-    # everything else — so ``"yes"``, ``"1"``, ``"on"`` and ``""`` are NOT true, and an
-    # unset variable is not either. Guessing more generously here would fail OPEN: the
-    # gateway would refuse a runtime LiteLLM never entered.
-    # WHY total over ``object``: the caller passes ``os.environ.get(...)``, which is
-    # ``None`` when unset. ``None`` must be an answer, never a crash on the cache path.
-    # AIDEV-NOTE: this models the ENVIRONMENT branch only. When a secret-manager client
-    # is configured LiteLLM resolves the value somewhere this process cannot see, which
-    # is why that state is its own refusal in ``_has_unsafe_openai_runtime_state``
-    # rather than something this helper pretends to model.
-    """
-    return isinstance(value, str) and value.strip().lower() == "true"
-
-
-def _has_unsafe_openai_runtime_state(litellm: Any) -> bool:
-    """The fail-closed verdict on ambient state — MODEL-FREE.
-
-    # INVARIANT (OME-884): ONE core, TWO readers — ``participates_in_global_cache`` and
-    # ``chat_completion``. The cache is a SECOND route to this provider's answers: a
-    # stored row needs neither a registered model nor a credential to be replayed, and
-    # the cache stage runs ahead of both checks, so a dispatch-only guard would keep
-    # serving rows from a runtime it refuses to dispatch into. Sharing the predicate is
-    # what makes the two verdicts incapable of drifting apart.
-    # INVARIANT: fail CLOSED. Every read is a defensive ``getattr``, so a LiteLLM whose
-    # globals have MOVED costs a bypass, not a request.
-    # AIDEV-NOTE: this function is NOT total on its own, and deliberately so. A global
-    # that answers by RAISING — ``get_config()``, a hostile ``__bool__`` — still escapes
-    # here; totality is enforced once, by its only caller
-    # ``_has_unsafe_litellm_global_state``, which converts any such escape into the same
-    # "unsafe" verdict. Do not add a second try/except here: two of them would let a
-    # future reader believe either one alone is sufficient.
-    # WHY each state disqualifies the runtime:
-    #   OpenAIConfig            — its entries are merged into ``optional_params`` for
-    #                             every OpenAI call, so an operator-set temperature
-    #                             changes the answer while the key cannot see it.
-    #   OPENAI_CUSTOM_HEADERS   — ambient headers ride along on the request.
-    #   secret_manager_client   — an ambient resolver can supply the flag below and
-    #                             other values from outside this process, so no
-    #                             environment read is authoritative any more.
-    #   experimental handler    — swaps the dispatch handler, and therefore the wire
-    #                             behaviour this plugin's adapter revision pins.
-    #   fallbacks/headers/proxy_auth/rules/callbacks (OME-864) — process-global routing
-    #                             and observation that could redirect an account-scoped
-    #                             credential or mutate the call.
-    """
-    if os.environ.get("OPENAI_CUSTOM_HEADERS"):
-        return True
-    if getattr(litellm, "secret_manager_client", None) is not None:
-        return True
-    if litellm_env_flag_is_true(os.environ.get(_EXPERIMENTAL_HANDLER_ENV)):
-        return True
-    if getattr(litellm, "proxy_auth", None) is not None:
-        return True
-    get_config = getattr(getattr(litellm, "OpenAIConfig", None), "get_config", None)
-    if callable(get_config) and get_config():
-        return True
-    if any(bool(getattr(litellm, field, None)) for field in _LITELLM_GLOBAL_TRUTHY_FIELDS):
-        return True
-    return any(
-        callbacks and any(callback != "cache" for callback in callbacks)
-        for callbacks in (
-            getattr(litellm, field, None) for field in _LITELLM_GLOBAL_CALLBACK_FIELDS
-        )
-    )
-
-
-def _model_is_ambiently_aliased(litellm: Any, model: object) -> bool:
-    """Whether a process-global LiteLLM alias REDIRECTS this exact requested model.
-
-    # WHY this is per-model and not folded into the core above: an alias silently sends
-    # one id somewhere else, so a row stored under the requested id would be replayed
-    # while a miss dispatched something different — a wrong-hit class for THAT model and
-    # no reason at all to abandon every other model's cache.
-    # INVARIANT: EXACT key match only. An alias for a different model, or for another
-    # provider entirely, must leave direct OpenAI fully working.
-    """
-    aliases = getattr(litellm, "model_alias_map", None)
-    return isinstance(model, str) and isinstance(aliases, Mapping) and model in aliases
-
-
-def _has_unsafe_litellm_global_state(litellm: Any, model: object) -> bool:
-    """The verdict both readers share: the ambient core plus this request's own alias.
-
-    # INVARIANT: TOTAL. An ambient read that RAISES counts as unsafe, exactly like one
-    # that answers with a poisoned value. The reads below are all defensive about a
-    # MISSING attribute, but a LiteLLM global can also answer BY raising —
-    # ``OpenAIConfig.get_config()`` is a call, ``model in aliases`` runs a hostile
-    # ``__contains__``, and ``bool(...)`` runs a hostile ``__bool__``. Before this guard
-    # such a runtime escaped as an ordinary exception, and the two paths degraded
-    # differently: the cache stage absorbed it into its own catch-all (reporting this
-    # provider's projection bypass for something that was not a projection decision),
-    # while dispatch surfaced a generic 502 ``provider_error`` — blaming OpenAI for a
-    # runtime the GATEWAY could not certify.
-    # WHY one try/except here rather than one per read: this function is the single
-    # junction both ``participates_in_global_cache`` and ``chat_completion`` pass
-    # through, so guarding it makes BOTH total and keeps the two verdicts structurally
-    # incapable of diverging. Guarding each read would be eight places to forget.
-    # WHY the verdict is UNSAFE and not merely "unknown": the gate certifies that the
-    # process-global state cannot change the answer. A runtime it could not inspect has
-    # not been certified, and a cache row may not be filled or replayed on the strength
-    # of an inspection that did not complete.
-    """
-    try:
-        return _model_is_ambiently_aliased(litellm, model) or _has_unsafe_openai_runtime_state(
-            litellm
-        )
-    except Exception:
-        # Deliberately broad, and deliberately not narrowed: the hazard is arbitrary
-        # third-party code reached through ``getattr``, so the set of exception types is
-        # open by construction. ``BaseException`` is NOT caught — a ``KeyboardInterrupt``
-        # or ``SystemExit`` must still propagate.
-        logger.warning("direct OpenAI ambient-state inspection failed; treating runtime as unsafe")
-        return True
 
 
 class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
@@ -283,12 +137,18 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
         return project_global_cache_request(body)
 
     def participates_in_global_cache(self, model: object = None) -> bool:
-        # OME-884: the same fail-closed verdict dispatch uses, checked HERE too because
-        # the cache stage runs before model resolution and before any credential is read
-        # — so the dispatch-side 503 never gets a chance to refuse a replayed row.
+        """Whether a row may be read or filled for this model in this runtime.
+
+        # WHY the verdict is checked here at all, and not left to dispatch: the cache stage
+        # runs ahead of model resolution and of any credential read, so the dispatch-side
+        # 503 never gets the chance to refuse a replayed row.
+        # The verdict itself — the shared ambient hazards, the exact-model alias rule and
+        # the asymmetric ``modify_params`` exception — belongs to ``runtime_guard``. Its
+        # reasoning is documented there once, rather than in two copies that can drift.
+        """
         import litellm
 
-        return not _has_unsafe_litellm_global_state(litellm, model)
+        return certifies_global_cache_participation(litellm, model)
 
     def cache_reference_from_cached_response(
         self, cached_response: Mapping[str, Any]
@@ -320,7 +180,14 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         import litellm
 
-        if _has_unsafe_litellm_global_state(litellm, body.get("model")):
+        if has_unsafe_litellm_global_state(litellm, body.get("model")):
+            raise _unsafe_environment_error()
+        # OME-884 cycle 2: the PRECISE half of the modifier asymmetry — see
+        # ``runtime_guard.modifier_refuses_dispatch``. What matters HERE is the position:
+        # both refusals precede API-key removal, client construction and ``acompletion``,
+        # so a refused request does no upstream work and builds no client. The effective
+        # body is what gets inspected, so a profile-defaulted ceiling counts.
+        if modifier_refuses_dispatch(litellm, body.get("max_tokens")):
             raise _unsafe_environment_error()
 
         dispatch_body = dict(body)

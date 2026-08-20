@@ -2,7 +2,10 @@
 
 ## Status
 
-Approved implementation contract. No OME-884 production implementation has started.
+Approved implementation contract. IMPLEMENTED — see the work ledger for the outcome. This file
+is retained verbatim as the contract that was approved, so the pre-implementation wording below
+describes intent at approval time rather than current state; where the two differ, the ledger
+and the spec are authoritative.
 
 `plan_review.md` and `plan_review_v2.md` reviewed superseded drafts. They remain historical evidence,
 not the active implementation contract.
@@ -436,7 +439,12 @@ Fill the ledger Outcome with actual files, gates, deviations, and commit status 
   in participation and dispatch.
 - Ambient aliases affect only the exact requested model; unrelated aliases do not disable OpenAI.
 - `max_tokens` is keyed for every route-valid model and different models/values isolate.
-- All fourteen default models pin LiteLLM token-field mapping at final HTTP wire.
+- All fourteen default models pin LiteLLM token-field mapping at final HTTP wire. Cycle 2
+  strengthened this: each of the fourteen now has an EXPLICIT committed expected spelling
+  (`_EXPECTED_TOKEN_FIELD`), observed against installed LiteLLM 1.95.0 and asserted with the
+  other spelling's absence. Before that, only four were pinned by name and the remaining ten
+  were covered by a spelling-agnostic "exactly one token field exists" assertion, which a
+  single-model move between spellings would have passed.
 - Eligible identical requests produce `miss -> hit`; unsupported misses never store.
 - Hits perform no OpenAI provider-credential work, dispatch, provider availability check, or caller
   access check and emit truthful metadata.

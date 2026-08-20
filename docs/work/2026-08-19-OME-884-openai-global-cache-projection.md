@@ -149,19 +149,27 @@ B. `test_openai_persistence.py::test_chat_selects_named_openai_profile`
   weakening, and each carries an `OME-884 (authorized contract change)` comment stating the old
   contract and why it changed.
 
-- **Actual files** (matches Planned changes exactly; no unplanned file touched):
+- **Actual files** — a CYCLE-0 SNAPSHOT, not a running inventory. Cycle 1 and cycle 2 both
+  added files and changed sizes; the authoritative list is always
+  `git diff --name-only origin/main`. Physical line counts have been removed on purpose:
+  they were stale within one cycle and stated as fact, which is worse than not stating them.
+  Two files below were NOT in Planned changes and should have been listed as deviations at
+  the time — `test_openai_route_global_cache.py` (new) and `test_openai_persistence.py`
+  (modified under the cycle-1 test-isolation authorization); the earlier claim that the set
+  "matches Planned changes exactly" was wrong. `tests/unit/openrouter/`
+  `test_openrouter_global_cache_projection.py` was also modified and omitted.
 
   Production — modified:
   - `apps/aigateway/src/aigateway/core/plugin_base/_provider.py`
   - `apps/aigateway/src/aigateway/core/request_cache/global_plan.py`
   - `apps/aigateway/src/aigateway/plugins/openrouter_provider/plugin.py`
-  - `apps/aigateway/src/aigateway/plugins/openai_provider/plugin.py` (327 lines)
-  - `apps/aigateway/src/aigateway/plugins/openai_provider/settings.py` (133 lines)
-  - `apps/aigateway/src/aigateway/plugins/openai_provider/api_key_validation.py` (220 lines)
-  - `apps/aigateway/src/aigateway/plugins/openai_provider/parameters.py` (54 lines)
+  - `apps/aigateway/src/aigateway/plugins/openai_provider/plugin.py`
+  - `apps/aigateway/src/aigateway/plugins/openai_provider/settings.py`
+  - `apps/aigateway/src/aigateway/plugins/openai_provider/api_key_validation.py`
+  - `apps/aigateway/src/aigateway/plugins/openai_provider/parameters.py`
 
   Production — new:
-  - `apps/aigateway/src/aigateway/plugins/openai_provider/global_cache.py` (135 lines)
+  - `apps/aigateway/src/aigateway/plugins/openai_provider/global_cache.py`
 
   Tests — modified:
   - `apps/aigateway/tests/unit/openai/test_openai_provider.py`
@@ -171,11 +179,13 @@ B. `test_openai_persistence.py::test_chat_selects_named_openai_profile`
   - `apps/aigateway/tests/unit/test_global_cache_plan.py`
 
   Tests — new:
-  - `apps/aigateway/tests/unit/openai/test_openai_global_cache_projection.py` (593 lines)
-  - `apps/aigateway/tests/unit/openai/test_openai_route_global_cache.py` (607 lines)
+  - `apps/aigateway/tests/unit/openai/test_openai_global_cache_projection.py`
+  - `apps/aigateway/tests/unit/openai/test_openai_route_global_cache.py`
 
-  Every new production file is at or under 450 lines. No schema, migration, dependency, lockfile,
-  route-order or persistence change; `routes/chat.py` and `routes/chat_cache_stage.py` untouched.
+  No schema, migration, dependency, lockfile, route-order or persistence change;
+  `routes/chat.py` and `routes/chat_cache_stage.py` untouched. (File-size note: `plugin.py`
+  grew past 450 lines in cycle 2 — see that cycle's outcome, where it is disclosed rather
+  than quietly absorbed.)
   Stack rule S1 does not apply — no model or schema was touched.
 
 - **Commit:** this OME-884 implementation commit (`feat(aigateway): cache direct OpenAI responses`;
@@ -220,7 +230,9 @@ B. `test_openai_persistence.py::test_chat_selects_named_openai_profile`
        13 route tests failed.
      - relaxing `is_route_valid_model_id` to a bare prefix check → the 13th (the malformed-model
        test, which is a bypass either way) failed.
-  5. **A pre-existing test-isolation defect was found and worked around, not fixed.**
+  5. **A pre-existing test-isolation defect was found.** *(SUPERSEDED by Review cycle 1, which
+     fixed it at source under owner authorization — the "recommend a follow-up ticket" conclusion
+     below is no longer the outcome. Retained for the diagnosis, which is still accurate.)*
      `tests/unit/openai/test_openai_persistence.py` calls
      `monkeypatch.setattr(plugin, "chat_completion", …)` on the module-level `PLUGIN` singleton.
      pytest reads the old value with `getattr` (which resolves through the class) and restores it
@@ -229,7 +241,9 @@ B. `test_openai_persistence.py::test_chat_selects_named_openai_profile`
      new route tests pass alone and fail 401 when run after that file. Fixed on my side only — the
      new suite patches the plugin INSTANCE the app dispatches through via `mock.patch.object`,
      which restores correctly — because repairing the prior test would itself be an unauthorized
-     append-only violation. **Recommend a follow-up ticket** to convert that call site.
+     append-only violation. ~~**Recommend a follow-up ticket** to convert that call site.~~ —
+     DONE in cycle 1: both call sites now use scoped `patch.object` and assert
+     `"chat_completion" not in vars(plugin)` afterwards.
 
 ## Review cycle 1 — owner findings addressed
 
@@ -310,8 +324,282 @@ B. `test_openai_persistence.py::test_chat_selects_named_openai_profile`
   the same regions reported in the previous cycle.
 - `run_gates.py aigateway --skip-append-only` — **ALL GATES GREEN** (ruff, ruff format, pyright 0
   errors, check_no_enterprise, pytest with `--cov-fail-under=80`).
-- `git diff --check` — clean. `plugin.py` is 366 lines, still under the 450 limit.
+- `git diff --check` — clean. (`plugin.py` was 366 lines at the end of this cycle; cycle 2 changed that — see below.)
 - The owner authorized the implementation commit after review. Nothing was pushed, stashed or
   rebased; no branch change; unrelated worktree state (`.claude/commands/asana.md`,
   `.claude/skills/working-in-this-repo/SKILL.md`, the staged `web/.gitignore` deletion, all untracked
   files, all three stashes) remains exactly as found.
+
+## Review cycle 2 — post-commit review findings (planned)
+
+Commit `d8821343` was reviewed post-commit by a seven-lens adversarially-verified sweep. The
+review confirmed the unit MEETS `initial_task_description.md` and found one genuine
+correctness gap plus a set of test and documentation defects. This cycle addresses them
+WITHOUT amending `d8821343` — the fix lands as a separate change on the same branch, still
+unpushed, and OME-884 stays `In Progress` until merge.
+
+### The finding
+
+`litellm.modify_params` is a process-global LiteLLM flag that this plugin's ambient-state
+guard did not read. Installed LiteLLM 1.95.0 defines it as
+`bool(os.getenv("LITELLM_MODIFY_PARAMS", False))`, so ANY non-empty string enables it —
+including `"false"` and `"0"`. When enabled, `litellm/utils.py:1655-1685` replaces
+`kwargs["max_tokens"]` with a locally computed ceiling before provider dispatch, on the
+`acompletion` path, for every provider. `max_tokens` is direct OpenAI's ONE keyed
+parameter, so the exact value the cache key records is the value this flag rewrites: a
+process with the flag set would store a clamped answer under a key advertising the caller's
+original ceiling, and a process without it would then be served that row for a request its
+own wire could not have produced.
+
+### Owner decision — balanced handling, NOT the shared guard
+
+The review's first recommendation was to add `modify_params` to
+`_LITELLM_GLOBAL_TRUTHY_FIELDS`. The owner rejected that and it is superseded. That tuple
+feeds BOTH participation and dispatch, so it would 503 every direct OpenAI request —
+including requests with no `max_tokens`, which LiteLLM demonstrably never modifies
+(`utils.py:1656` requires `kwargs.get("max_tokens") is not None`). The approved behaviour
+is asymmetric:
+
+- `modify_params=False` — unchanged in every respect: participation, `miss -> store -> hit`,
+  dispatch.
+- `modify_params=True` — direct OpenAI declines cache PARTICIPATION entirely (no row read,
+  no row written, existing rows preserved and reachable again once the flag is cleared).
+- `modify_params=True` and effective `max_tokens is None` — live dispatch is ALLOWED. LiteLLM
+  does not modify such a request, so refusing it would be a fabricated outage.
+- `modify_params=True` and effective `max_tokens is not None` — refused with the existing
+  sanitized non-retryable `503 unsafe_openai_environment`, before client construction and
+  before `acompletion`. The gateway does not silently accept one ceiling and send another.
+
+### WHY the asymmetry is correct and safe
+
+Participation is COARSE because its port receives only the raw model and cannot see
+`max_tokens`; dispatch is PRECISE because it receives the effective body. Widening the port
+to carry the body is explicitly out of scope, so the coarse side errs toward declining.
+Enumerated, the asymmetry runs in the SAFE direction: participation is strictly stricter
+than dispatch, so there is no state in which a stored row is read for a request dispatch
+would refuse. Over-declining participation costs cache reuse; over-permitting it would cost
+correctness.
+
+### WHY `GLOBAL_CACHE_ADAPTER_REVISION` does not change
+
+`d8821343` is unpushed and has never been deployed, so no poisoned production rows can
+exist. The fix also makes the modifying runtime NON-PARTICIPATING rather than changing any
+wire semantics of the safe runtime, so rows keyed under the current revision remain exactly
+correct. A bump would abandon a generation for no reason. This rationale is limited to the
+undeployed state and does not license skipping a bump later.
+
+### Planned changes
+
+- `plugins/openai_provider/plugin.py` — add a total, fail-closed `modify_params` reader;
+  gate `participates_in_global_cache` on it; add the conditional dispatch refusal in
+  `chat_completion` before API-key removal and client construction; emit an operator
+  `logger.warning` naming `litellm.modify_params` / `LITELLM_MODIFY_PARAMS` on both
+  decisions, with no caller-controlled data; remove the inert `additional_drop_params`
+  tuple entry; correct the in-code invariants that claim one identical predicate produces
+  every cache and dispatch decision.
+- `plugins/openai_provider/api_key_validation.py` — drop the private `_API_BASE` twin and
+  use `settings.OFFICIAL_API_BASE`, which is now global-cache key material.
+- Tests — modifier behaviour (participation both ways, fail-closed on a raising read, no
+  read while enabled, no write while enabled, dispatch allowed without a ceiling, 503 with
+  an explicit and a profile-defaulted ceiling, `None` treated as absent, row reachable
+  again once cleared, other providers unchanged, both warnings safe); a guard-inventory
+  contract test proving every `_LITELLM_GLOBAL_TRUTHY_FIELDS` member exists on installed
+  LiteLLM; a bidirectional dispatch/projection coupling assertion; an explicit token-field
+  table for all fourteen default models; the dangling comment reference corrected.
+- The four OME-884 durable documents.
+
+### Authorized prior-test edits this cycle
+
+Recorded separately from the seven OME-864 contract replacements (cycle 0) and the two
+test-isolation fixes (cycle 1). The owner authorized only the minimal edits needed to
+neutralize `modify_params` in shared setup and to correct the dangling comment reference.
+
+### Review cycle 2 — outcome
+
+**Status: implemented, gates green, awaiting owner review. Nothing staged, committed, amended
+or pushed; `d8821343` was NOT amended.**
+
+- **Actual files (after the cycle-2b split, 25 all OME-884):**
+  - Production, modified: `plugins/openai_provider/plugin.py`,
+    `plugins/openai_provider/api_key_validation.py`.
+  - Production, new: `plugins/openai_provider/runtime_guard.py`.
+  - Tests, modified: the five listed in the split table below that kept their names, plus
+    `tests/unit/openai/test_openai_gateway_acceptance.py`.
+  - Tests, new: the eight new suites and five helper modules in the split table below.
+  - Docs: this ledger, `docs/spec/…`, `docs/plan/…`, `docs/tasks/…`.
+  - `git diff --name-only HEAD` plus the untracked list shows only these and pre-existing
+    unrelated entries that were NOT touched: `.claude/commands/asana.md`,
+    `.claude/skills/working-in-this-repo/SKILL.md`, the staged `web/.gitignore` deletion, and
+    `apps/aigateway/charts/aigateway/values-prod.yaml` (an OME-921 `extraEnv` change that
+    appeared in this shared checkout from another session).
+
+- **Authorized prior-test edits this cycle — exactly two, and the normal gate names both:**
+  - `tests/unit/openai/test_openai_gateway_acceptance.py` — old lines 76-78, the dangling
+    comment reference to a test that existed nowhere. Comment only; the protected assertion is
+    untouched.
+  - `tests/unit/openai/test_openai_global_cache_projection.py` — old lines 325-330, the
+    `_safe_runtime` body, replaced by an iteration over the new independent
+    `_AMBIENT_SAFE_STATE` inventory (which adds `modify_params`, both call-rule fields and all
+    seven callback fields). No prior assertion changed anywhere.
+
+- **`_safe_runtime` hardening — why it is two halves.** The inventory is written out by hand
+  rather than derived from the production tuples, because a field the GUARD forgets would
+  otherwise be a field the SETUP forgets, and the pair would keep passing together — which is
+  exactly how `modify_params` stayed invisible through cycle 0 and cycle 1.
+  `test_the_safe_runtime_helper_covers_every_field_the_guard_reads` closes the other direction,
+  so a field added to the guard fails loudly here.
+
+- **New guard-inventory contract.**
+  `test_every_guarded_global_still_exists_on_installed_litellm` asserts every member of
+  `_LITELLM_GLOBAL_TRUTHY_FIELDS`, `_LITELLM_GLOBAL_CALLBACK_FIELDS` and `_MODIFY_PARAMS_FIELD`
+  is a real attribute of installed LiteLLM, pinned explicitly at 1.95.0. This closes a genuine
+  fail-open: the guard reads with `getattr(litellm, field, None)`, so an upstream RENAME would
+  read `None`, pass, and silently stop guarding that hazard. It asserts existence only, never
+  current default values — "what is safe" stays the guard's decision.
+  `additional_drop_params` was removed because it is the one member that never existed as a
+  module global (verified: `hasattr` is `False` on 1.95.0), so it could never fire.
+
+- **Non-vacuity evidence, observed not assumed.** With
+  `dispatch_body["stray_control"] = 1` inserted beside the shared
+  `.update(gateway_dispatch_controls())`, the new
+  `test_no_gateway_added_dispatch_kwarg_escapes_the_projection` FAILED while the pre-existing
+  forward-only coupling test stayed green — which is precisely the gap cycle 2 closed. The
+  tripwire was removed and the file restored byte-identically (`plugin.py` back to 461 lines,
+  57/57 dispatch tests green).
+
+- **Token-field table.** All fourteen expectations were OBSERVED by dispatching each seed
+  through the real plugin over `MockTransport` and reading the final payload: ten send
+  `max_completion_tokens` (`gpt-5.6-sol/terra/luna`, `gpt-5.5`, `gpt-5.1`, `gpt-5`,
+  `gpt-5-mini`, `gpt-5-nano`, `o3`, `o4-mini`) and four send `max_tokens` (`gpt-4.1`,
+  `gpt-4.1-mini`, `gpt-4o`, `gpt-4o-mini`). Committed as a literal table, not computed at
+  runtime from the same litellm under test, plus a coverage assertion tying the table to
+  `register_models()`.
+
+- **Checks actually run:**
+  - `pytest tests/unit/openai -q` — **228 passed** (211 before the inventory additions).
+  - `pytest` over the eight global-cache suites named in the fix prompt — **208 passed**
+    (the earlier 260 counted `test_chat_global_cache_*`, which are not among the eight).
+  - `pytest tests/unit/openai tests/unit/openrouter -q` — **1097 passed** (1080 + 17).
+  - The focused post-split suites — runtime guard, runtime modifier, dispatch controls, dispatch
+    wire, route modifier, OpenRouter participation — **100 passed**.
+  - Normal gate `run_gates.py aigateway` — fails ONLY the append-only check. It now names FIVE
+    files rather than two: the two authorized comment/body edits above, plus the three files the
+    split moved tests OUT of (`test_openai_dispatch.py`,
+    `test_openai_route_global_cache.py`, `test_openrouter_global_cache_projection.py`). This is
+    intrinsic to the owner's split requirement — to a line diff, relocating a test is a removal
+    inside a protected range, and the checker has no notion of a move. The verbatim-relocation
+    measurement above is the evidence that nothing was weakened: zero assertions, test signatures
+    or parametrizations changed.
+  - `run_gates.py aigateway --skip-append-only` — **ALL GATES GREEN**: ruff, ruff format,
+    pyright, `check_no_enterprise`, and pytest with `--cov-fail-under=80` (3712 passed, 49
+    skipped, coverage 92.44%).
+  - Observed and disclosed, NOT caused here: one run of that gate failed
+    `tests/unit/auth/test_login.py::test_unknown_user_timing_close_to_wrong_password`, which
+    asserts an unknown-user vs wrong-password bcrypt-12 timing delta under 10% over 20 medians.
+    It failed and passed on repeated identical invocations with no intervening change, is in an
+    area this branch does not touch, and fails in isolation where no OpenAI test module is even
+    imported. Load-sensitive flake, left alone rather than weakened.
+  - `git diff --check` — clean.
+  - Direct probe (`litellm` 1.95.0, live): participation `True` with the flag off; `False` with
+    it on; flag on + no `max_tokens` dispatched successfully with no token field on the wire;
+    flag on + `max_tokens=999999` raised `503 unsafe_openai_environment` with
+    `is_retryable_status` `False` and no client constructed. Both operator warnings appeared,
+    naming `litellm.modify_params` and `LITELLM_MODIFY_PARAMS`.
+
+- **DEVIATION — RESOLVED by the cycle-2b behaviour-preserving split (owner ruling).** The owner
+  declined the file-size deviation: the project does not waive or defer branch-authored
+  violations. The five oversized files were split BY RESPONSIBILITY, not into line-count shards,
+  and every resulting hand-maintained source/test file is now at or below 450 physical lines.
+
+  Production — the ambient-runtime certification became its own module:
+
+  | file | before | after |
+  |---|---|---|
+  | `plugins/openai_provider/plugin.py` | 461 | **233** |
+  | `plugins/openai_provider/runtime_guard.py` (new) | — | **289** |
+  | `plugins/openai_provider/api_key_validation.py` | 228 | 228 |
+  | `plugins/openai_provider/global_cache.py` | 135 | 135 (untouched, still pure) |
+
+  `runtime_guard.py` holds both LiteLLM global tuples, `_MODIFY_PARAMS_FIELD`, the
+  experimental-handler constant and its parser, the shared ambient certification, the exact-model
+  alias check, the total `modify_params` reader, the three diagnostic messages, and the three
+  public verdicts `has_unsafe_litellm_global_state` / `certifies_global_cache_participation` /
+  `modifier_refuses_dispatch`. `plugin.py` keeps provider wiring and the HTTP error shapes and
+  calls in for verdicts. No compatibility re-exports were added: the implementation is unpushed,
+  so the internal tests import the sibling module directly. The two operator warnings now emit
+  from the `…openai_provider.runtime_guard` logger, and the two `caplog.at_level(logger=…)`
+  arguments were repointed to match the emitter (they passed either way, because caplog's handler
+  sits on the root logger — but the argument was naming a logger that no longer emits).
+
+  Tests — five files became fifteen, plus five small shared helper modules following the repo's
+  existing `_global_cache_registry_sweep` idiom (public names in a `_`-prefixed module, aliased
+  back to the local private name at the import site so every relocated test body reads unchanged):
+
+  | responsibility | file | lines |
+  |---|---|---|
+  | pure projection, model grammar, key material | `openai/test_openai_global_cache_projection.py` | 330 |
+  | the keyed `max_tokens` contract through the real plan | `openai/test_openai_keyed_max_tokens.py` | 187 |
+  | shared ambient hazards, aliases, raising reads, inventory | `openai/test_openai_runtime_guard.py` | 379 |
+  | the `modify_params` asymmetry, both readers together | `openai/test_openai_runtime_modifier.py` | 274 |
+  | dispatch fail-closed + model grammar | `openai/test_openai_dispatch.py` | 403 |
+  | final URL/headers/payload + all fourteen token fields | `openai/test_openai_dispatch_wire.py` | 221 |
+  | projection/dispatch coupling, both directions | `openai/test_openai_dispatch_controls.py` | 180 |
+  | route: miss/store/replay and refusals | `openai/test_openai_route_global_cache.py` | 311 |
+  | route: defaults in, identity out | `openai/test_openai_route_global_cache_key_material.py` | 179 |
+  | route: the ambient modifier end to end | `openai/test_openai_route_global_cache_modifier.py` | 135 |
+  | OpenRouter: projected shape and refusals | `openrouter/test_openrouter_global_cache_projection.py` | 332 |
+  | OpenRouter: the same equivalences at the hash | `openrouter/test_openrouter_global_cache_keys.py` | 251 |
+  | OpenRouter: the operator gate, incl. modifier isolation | `openrouter/test_openrouter_global_cache_participation.py` | 157 |
+
+  Shared helpers: `openai/_ambient_state.py` (63) — the hand-written ambient inventory and the
+  neutralizer, used by four suites; `openai/_dispatch_harness.py` (71) — the mock-transport client
+  factory, four suites; `openai/_route_harness.py` (165) — the recording store, dispatch double and
+  posting helpers, three suites; `openai/conftest.py` (33) — the two fixtures pytest must resolve
+  by name; `openrouter/_projection_harness.py` (68) — three suites. `openai/__init__.py` (7) was
+  added because relative imports need a package and it was the only provider test directory
+  without one.
+
+- **Behaviour preservation, measured three ways.**
+  - **Node IDs:** `pytest tests/unit/openai tests/unit/openrouter --collect-only` went from 1080
+    to 1097. Comparing the sets of test names (node id minus file path): **zero lost**, and
+    exactly the **17 intentional guard-inventory additions** below.
+  - **Verbatim relocation:** for each of the four split files, every non-blank stripped line of
+    the pre-split version was searched for across its successors. The 114 residual lines are all
+    per-file module docstrings, helper DEFINITION lines whose name went private→public in a
+    harness, the two repointed `caplog` logger names, and the `_safe_runtime`/`_AMBIENT_SAFE_STATE`
+    definitions that moved into `_ambient_state.py`. **Zero residual `assert` lines, zero
+    `def test_…` lines, zero `@pytest.mark.parametrize` decorators** — no assertion, test
+    signature or parametrization changed while moving.
+  - **Production:** no production behaviour was altered during the extraction. `plugin.py`'s
+    verdict call sites are the same three questions in the same order, both refusals still precede
+    API-key removal and client construction, and the `acompletion` kwarg set is still exactly
+    `dict(body) − api_key + gateway_dispatch_controls() + client`.
+
+- **Guard-inventory omission gap — closed in BOTH directions (requirement 4).** The pre-existing
+  check proved only `production guarded fields ⊆ neutralized fields`, which cannot see a
+  production REMOVAL: drop `post_call_rules` from the guard tuple and the setup still neutralizes
+  it, the existence sweep stops looking at it, and everything stays green. Added, written by hand
+  from the spec and NOT derived from the production tuples so the two sides can disagree:
+  `_EXPECTED_TRUTHY_FIELDS` and `_EXPECTED_CALLBACK_FIELDS`, plus five new tests —
+  `test_the_shared_truthy_inventory_matches_the_expectation_exactly`,
+  `test_the_shared_callback_inventory_matches_the_expectation_exactly`,
+  `test_the_request_modifier_stays_outside_the_shared_inventory`,
+  `test_every_expected_global_exists_on_installed_litellm`,
+  `test_the_neutralizer_covers_every_expected_field`, and
+  `test_every_expected_global_actually_disables_participation` parametrized over all twelve
+  guarded fields (17 new node ids in total). The last one is the detector with teeth: it poisons
+  each field with `[object()]` — truthy for the truthy members, a non-`"cache"` callback list for
+  the callback members — and demands a refusal.
+  **Injection evidence, observed:** with `post_call_rules` deleted from
+  `_LITELLM_GLOBAL_TRUTHY_FIELDS`, exactly two tests failed
+  (`…inventory_matches_the_expectation_exactly` and
+  `…actually_disables_participation[post_call_rules]`) where the whole package was previously
+  green. `runtime_guard.py` was restored byte-identically and 48/48 passed again.
+
+- **Not changed, as required:** `GLOBAL_CACHE_ADAPTER_REVISION`, the cache-key schema,
+  persistence format, database models, migrations, retention, dependencies, lockfiles,
+  `routes/chat*.py`, the caller-visible cache reason vocabulary, and every other provider's
+  cache or dispatch behaviour (OpenRouter's participation is positively pinned unchanged under
+  both flag states by
+  `test_the_ambient_litellm_modifier_is_not_this_providers_concern`). Task status stays
+  `In Progress` until merge.

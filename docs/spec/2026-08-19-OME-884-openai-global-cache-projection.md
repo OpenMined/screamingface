@@ -114,13 +114,60 @@ alias refusal. An unrelated alias must not disable OpenAI.
 
 Any exception inside participation is non-participation, never a request failure.
 
+### The ambient request modifier — the one deliberate asymmetry (owner decision, cycle 2)
+
+`litellm.modify_params` is NOT part of the shared core above, and that is a decision rather than an
+omission. Installed LiteLLM 1.95.0 defines it as `bool(os.getenv("LITELLM_MODIFY_PARAMS", False))`,
+so any non-empty value enables it — `"false"` and `"0"` included. When enabled it replaces
+`kwargs["max_tokens"]` with a locally computed ceiling on the `acompletion` path, for every
+provider, *after* this gateway has built the cache key. Since `max_tokens` is direct OpenAI's one
+enabled and KEYED parameter, an enabled modifier means the number in the key is not the number that
+reaches OpenAI.
+
+Crucially, LiteLLM's modifier branch requires `kwargs.get("max_tokens") is not None`. A request
+without a ceiling is therefore untouched, and refusing it would be an outage this gateway invented.
+So the two decisions are scoped differently:
+
+- **Cache participation — always declined while the flag is enabled.** The participation port
+  receives only the raw model and cannot see whether this request carries a ceiling, so it declines
+  for the whole provider. No row is read and no row is written.
+- **Live dispatch — refused only when the effective `max_tokens` is not `None`.** That refusal is
+  the existing sanitized, non-retryable `503 unsafe_openai_environment`, raised before API-key
+  removal, before client construction and before `acompletion`. A profile-defaulted ceiling counts
+  as present, because profile defaults are merged into the body before the cache stage (OME-305
+  ruling 57). An explicit `max_tokens: null` counts as absent, matching LiteLLM's own test.
+- **Live dispatch with no effective ceiling — still served**, merely uncached.
+
+These two are *cache bypass* and *conditional dispatch refusal*: different decisions with different
+triggers, not one predicate read twice. The asymmetry runs in the safe direction by construction —
+participation ends up strictly stricter than dispatch, so no state exists in which a stored row
+answers a request dispatch would have refused. Over-declining participation costs cache reuse;
+over-permitting it would cost correctness.
+
+Existing rows are preserved, not deleted or re-keyed: they remain exactly correct for any runtime
+that is not modifying anything, and become reachable again as soon as the flag is cleared. An
+unreadable or missing flag counts as ENABLED — the opposite of the sibling ambient reads, whose
+missing values default to safe — because this flag's absence from the guard was the original defect.
+
+Both decisions emit an operator `logger.warning` naming `litellm.modify_params` and the
+`LITELLM_MODIFY_PARAMS` truthiness trap. The caller-facing 503 stays sanitized, so the log is the
+only diagnostic an operator gets; it carries no model, message, profile, account or credential.
+
+`GLOBAL_CACHE_ADAPTER_REVISION` does NOT change for this fix. The commit that introduced direct
+OpenAI caching is unpushed and has never been deployed, so no poisoned rows can exist anywhere, and
+the fix makes a modifying runtime non-participating rather than altering the wire semantics of a
+safe one. That rationale is limited to the undeployed state and does not license skipping a bump
+later.
+
 ## 6. Parameter contract
 
 `max_tokens` becomes `cache_behavior="keyed"` for every route-valid `openai/*` model, in the same
 increment as the real projection, with a bumped projection revision. The key therefore carries
 both the model and the effective `max_tokens`, so requests cannot collide even though LiteLLM
 maps the field to `max_tokens` for GPT-4/4o and to `max_completion_tokens` for GPT-5/o-series.
-That mapping is pinned at the final HTTP wire for all fourteen default models.
+That mapping is pinned at the final HTTP wire for all fourteen default models, each with an
+explicit committed expectation rather than a spelling-agnostic check, so a LiteLLM upgrade that
+moves even one model between the two spellings fails by name.
 
 `max_tokens` is also a stored `ProfileDefaults` field, and the body-wins defaults merge runs
 before cache planning, so the key already sees the effective value. Explicit and defaulted equal

@@ -13,9 +13,17 @@ from aigateway.core.api_key_validation_http import (
     ValidationHttpSession,
 )
 
-from .settings import OpenAIPluginSettings, is_route_valid_model_id, upstream_model_id
+from .settings import (
+    OFFICIAL_API_BASE,
+    OpenAIPluginSettings,
+    is_route_valid_model_id,
+    upstream_model_id,
+)
 
-_API_BASE = "https://api.openai.com/v1"
+# OME-884 cycle 2: ONE origin for this provider, not two. ``OFFICIAL_API_BASE`` is now
+# global-cache KEY MATERIAL — ``gateway_dispatch_controls`` reports it as ``api_base`` —
+# so a private duplicate here would be a second copy of a load-bearing constant that
+# nothing keeps in step with the first.
 # WHY: OpenAI rejects 1 with HTTP 400 for gpt-5-nano; 16 is the live-verified bounded budget that
 # returns a structurally valid length-limited Chat Completions response.
 _READINESS_MAX_COMPLETION_TOKENS = 16
@@ -178,7 +186,7 @@ class OpenAIApiKeyValidator:
             try:
                 auth_response = await session.request_json(
                     "GET",
-                    f"{_API_BASE}/models",
+                    f"{OFFICIAL_API_BASE}/models",
                     headers=headers,
                 )
             except ApiKeyValidationTransportError:
@@ -198,7 +206,7 @@ class OpenAIApiKeyValidator:
             try:
                 readiness_response = await session.request_json(
                     "POST",
-                    f"{_API_BASE}/chat/completions",
+                    f"{OFFICIAL_API_BASE}/chat/completions",
                     headers=headers,
                     json_body={
                         "model": upstream_model,

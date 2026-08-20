@@ -1,9 +1,25 @@
-"""No-network characterization of direct OpenAI's final outbound request."""
+"""OME-884 — direct OpenAI dispatch: what it forwards, and what it REFUSES.
+
+FEATURE: one global exact-request cache (OME-305). The cache is a SECOND route to this
+provider's answers — a stored row needs neither a registered model nor a credential — so
+the ambient-runtime verdict the cache reader uses has to be the same one dispatch uses.
+This suite is that verdict seen from the 503 side.
+
+INVARIANT under test: every refusal lands BEFORE the API key is read, before the HTTP
+client exists and before ``litellm.acompletion``, and it is the sanitized, non-retryable
+``503 unsafe_openai_environment`` in every case. A request the gateway cannot certify does
+no upstream work at all.
+
+Scope of THIS file: model-grammar validation and the fail-closed ambient sweep. Siblings:
+  ``test_openai_dispatch_wire.py``     — the final URL, headers and payload.
+  ``test_openai_dispatch_controls.py`` — the projection/dispatch coupling, both ways.
+  ``test_openai_runtime_guard.py``     — the same verdict seen from the cache side.
+  ``test_openai_runtime_modifier.py``  — the one asymmetric hazard.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
@@ -17,151 +33,15 @@ from aigateway.core.retry import is_retryable_status
 from aigateway.plugins.openai_provider import plugin as plugin_module
 from aigateway.plugins.openai_provider.plugin import PLUGIN
 
-_SELECTED_KEY = "sk-synthetic-selected-account-key"
+# Bound to the original private names so every relocated test body below reads unchanged.
+from ._dispatch_harness import SELECTED_KEY as _SELECTED_KEY
+from ._dispatch_harness import capture_client_factory as _capture_client_factory
+from ._dispatch_harness import completion_response as _completion_response
 
 
 class _FalseyProxyAuth:
     def __bool__(self) -> bool:
         return False
-
-
-def _completion_response(model: str) -> dict[str, Any]:
-    return {
-        "id": "chatcmpl-test",
-        "object": "chat.completion",
-        "created": 1,
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "ok"},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-    }
-
-
-def _capture_client_factory(
-    monkeypatch: pytest.MonkeyPatch,
-    handler: Callable[[httpx.Request], httpx.Response],
-) -> tuple[list[AsyncOpenAI], list[dict[str, Any]], httpx.AsyncClient]:
-    clients: list[AsyncOpenAI] = []
-    constructor_kwargs: list[dict[str, Any]] = []
-    http_client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler),
-        trust_env=False,
-        follow_redirects=False,
-    )
-
-    def factory(**kwargs: Any) -> AsyncOpenAI:
-        constructor_kwargs.append(dict(kwargs))
-        client = AsyncOpenAI(**kwargs)
-        clients.append(client)
-        return client
-
-    monkeypatch.setattr(plugin_module, "_openai_http_client", lambda: http_client)
-    monkeypatch.setattr(plugin_module, "AsyncOpenAI", factory)
-    return clients, constructor_kwargs, http_client
-
-
-@pytest.mark.parametrize(
-    ("model", "expected_token_field"),
-    [
-        ("openai/gpt-4o", "max_tokens"),
-        ("openai/gpt-5.6-sol", "max_completion_tokens"),
-        ("openai/gpt-5.6-terra", "max_completion_tokens"),
-        ("openai/gpt-5.6-luna", "max_completion_tokens"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_dispatch_pins_chat_completions_and_selected_account_context(
-    monkeypatch: pytest.MonkeyPatch,
-    model: str,
-    expected_token_field: str,
-) -> None:
-    requests: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, json=_completion_response(model.split("/", 1)[1]))
-
-    clients, constructor_kwargs, http_client = _capture_client_factory(monkeypatch, handler)
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-ambient-wrong-key")
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://ambient.invalid/v1")
-    monkeypatch.setenv("OPENAI_ORGANIZATION", "org-ambient")
-    monkeypatch.setenv("OPENAI_ORG_ID", "org-ambient-fallback")
-    monkeypatch.setenv("OPENAI_PROJECT_ID", "proj-ambient")
-    monkeypatch.delenv("OPENAI_CUSTOM_HEADERS", raising=False)
-    monkeypatch.setattr(litellm, "api_key", "sk-litellm-wrong-key")
-    monkeypatch.setattr(litellm, "openai_key", "sk-litellm-openai-wrong-key")
-    monkeypatch.setattr(litellm, "api_base", "https://litellm.invalid/v1")
-    monkeypatch.setattr(litellm, "headers", None)
-    monkeypatch.setattr(litellm, "route_all_chat_openai_to_responses", True)
-
-    body = PLUGIN.prepare_chat_body(
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 7,
-        }
-    )
-    body["api_key"] = _SELECTED_KEY
-
-    result = await PLUGIN.chat_completion(body)
-    # LiteLLM schedules best-effort success logging; let its queue drain before
-    # pytest closes this parametrized case's event loop.
-    await asyncio.sleep(0.05)
-
-    assert result["choices"][0]["message"]["content"] == "ok"
-    assert len(requests) == 1
-    request = requests[0]
-    assert str(request.url) == "https://api.openai.com/v1/chat/completions"
-    assert request.headers["authorization"] == f"Bearer {_SELECTED_KEY}"
-    assert "openai-organization" not in request.headers
-    assert "openai-project" not in request.headers
-    assert "x-ambient" not in request.headers
-    payload = json.loads(request.content)
-    assert payload["model"] == model.split("/", 1)[1]
-    assert payload[expected_token_field] == 7
-    assert ({"max_tokens", "max_completion_tokens"} - {expected_token_field}).isdisjoint(payload)
-    assert "ssl_verify" not in payload
-    assert _SELECTED_KEY not in request.content.decode()
-    assert constructor_kwargs[0]["api_key"] == _SELECTED_KEY
-    assert constructor_kwargs[0]["base_url"] == "https://api.openai.com/v1"
-    assert constructor_kwargs[0]["max_retries"] == 0
-    assert constructor_kwargs[0]["http_client"] is http_client
-    assert clients[0].is_closed() is True
-
-
-def test_prepare_chat_body_keeps_only_gateway_owned_origin() -> None:
-    prepared = PLUGIN.prepare_chat_body(
-        {
-            "model": "openai/gpt-5.6-sol",
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 7,
-            "api_key": "caller-key",
-            "api_base": "https://caller.invalid/v1",
-            "base_url": "https://caller.invalid/v1",
-            "headers": {"Authorization": "caller"},
-            "extra_headers": {"X-Custom": "caller"},
-            "fallbacks": ["attacker/model"],
-            "model_list": [{"model_name": "attacker/model"}],
-            "callbacks": ["caller"],
-            "success_callback": ["caller"],
-            "failure_callback": ["caller"],
-            "custom_llm_provider": "attacker",
-            "azure": True,
-            "text_completion": True,
-        }
-    )
-
-    assert prepared == {
-        "model": "openai/gpt-5.6-sol",
-        "messages": [{"role": "user", "content": "ping"}],
-        "max_tokens": 7,
-        "api_base": "https://api.openai.com/v1",
-    }
 
 
 def test_prepare_chat_body_forwards_any_route_valid_model_and_refuses_malformed_ids() -> None:
@@ -424,101 +304,6 @@ async def test_an_alias_for_another_model_leaves_this_one_dispatchable(
 
     assert result["choices"][0]["message"]["content"] == "ok"
     assert len(requests) == 1
-
-
-@pytest.mark.asyncio
-async def test_dispatch_sends_exactly_the_controls_the_cache_key_projects(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The coupling that makes "the key describes what dispatch sends" checkable.
-
-    INVARIANT: ``gateway_dispatch_controls()`` has exactly two readers — the projection
-    and ``chat_completion``. This asserts the second one actually applies the table, so
-    a control added to the wire cannot quietly stay out of the key.
-
-    Captured at the ``litellm.acompletion`` boundary rather than at the HTTP wire on
-    purpose: these are LiteLLM CONTROLS, most of which never appear as payload fields.
-    The final wire is a separate observation layer with its own tests.
-    """
-    captured: list[dict[str, Any]] = []
-    real_acompletion = litellm.acompletion
-
-    async def capturing(**kwargs: Any) -> Any:
-        captured.append(dict(kwargs))
-        return await real_acompletion(**kwargs)
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_completion_response("gpt-5.6-sol"))
-
-    _capture_client_factory(monkeypatch, handler)
-    monkeypatch.delenv("OPENAI_CUSTOM_HEADERS", raising=False)
-    monkeypatch.setattr(litellm, "headers", None)
-    monkeypatch.setattr(litellm, "acompletion", capturing)
-
-    body = PLUGIN.prepare_chat_body(
-        {"model": "openai/gpt-5.6-sol", "messages": [{"role": "user", "content": "ping"}]}
-    )
-    body["api_key"] = _SELECTED_KEY
-    await PLUGIN.chat_completion(body)
-    await asyncio.sleep(0.05)
-
-    projected = PLUGIN.global_cache_projection(
-        {"model": "openai/gpt-5.6-sol", "messages": [{"role": "user", "content": "ping"}]}
-    )
-    assert isinstance(projected, dict)
-    prepared = projected["prepared"]
-    assert len(captured) == 1
-    for field, value in prepared.items():
-        assert captured[0][field] == value, field
-    # The caller's key is NOT among them: it is transport, injected into the client and
-    # deliberately absent from both the projected controls and the acompletion kwargs.
-    assert "api_key" not in captured[0]
-    assert "api_key" not in prepared
-
-
-@pytest.mark.parametrize("model", [entry.model_name for entry in PLUGIN.register_models()])
-@pytest.mark.asyncio
-async def test_every_default_model_pins_its_token_field_at_the_final_http_wire(
-    monkeypatch: pytest.MonkeyPatch, model: str
-) -> None:
-    """All fourteen seeds, at the wire — an adapter-revision input, not a nicety.
-
-    INVARIANT (OME-884): ``max_tokens`` is KEYED, and LiteLLM decides on its own whether
-    the ceiling reaches OpenAI as ``max_tokens`` (GPT-4/4o) or ``max_completion_tokens``
-    (GPT-5/o-series). Both spellings mean one ceiling, so one key is correct — but only
-    while the mapping is the one this revision was pinned against. A LiteLLM upgrade
-    that moves a model between the two spellings changes what an unchanged request
-    sends, and MUST bump ``GLOBAL_CACHE_ADAPTER_REVISION`` before rows are reused.
-
-    WHY the wire and not the ``litellm.acompletion`` kwargs: the mapping happens INSIDE
-    litellm, so the boundary above it shows ``max_tokens`` for every model and would
-    pin nothing at all.
-    """
-    requests: list[httpx.Request] = []
-    upstream = model.split("/", 1)[1]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, json=_completion_response(upstream))
-
-    _capture_client_factory(monkeypatch, handler)
-    monkeypatch.delenv("OPENAI_CUSTOM_HEADERS", raising=False)
-    monkeypatch.setattr(litellm, "headers", None)
-
-    body = PLUGIN.prepare_chat_body(
-        {"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 7}
-    )
-    body["api_key"] = _SELECTED_KEY
-    await PLUGIN.chat_completion(body)
-    await asyncio.sleep(0.05)
-
-    assert len(requests) == 1
-    assert str(requests[0].url) == "https://api.openai.com/v1/chat/completions"
-    payload = json.loads(requests[0].content)
-    assert payload["model"] == upstream
-    fields = {"max_tokens", "max_completion_tokens"} & set(payload)
-    assert len(fields) == 1, (model, sorted(fields))
-    assert payload[fields.pop()] == 7
 
 
 # --- OME-884 review: an ambient read that RAISES must still refuse -------------

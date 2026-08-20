@@ -16,21 +16,16 @@ Everything output-affecting that the boundary adds is either described in ``prep
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterator, Mapping
 from typing import Any
 
-import litellm
 import pytest
-from litellm.secret_managers.main import get_secret_bool
 from pydantic import ValidationError
 
 from aigateway.core.cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
-from aigateway.core.request_cache.global_controls import parse_global_cache_controls
 from aigateway.core.request_cache.global_keys import (
     GlobalCacheKeyResult,
     build_global_cache_key,
 )
-from aigateway.core.request_cache.global_plan import build_global_cache_plan
 from aigateway.plugins.openai_provider import global_cache as global_cache_module
 from aigateway.plugins.openai_provider.global_cache import (
     GLOBAL_CACHE_ADAPTER_REVISION,
@@ -38,16 +33,15 @@ from aigateway.plugins.openai_provider.global_cache import (
     project_global_cache_request,
 )
 from aigateway.plugins.openai_provider.parameters import openai_chat_parameter_rules
-from aigateway.plugins.openai_provider.plugin import (
-    _EXPERIMENTAL_HANDLER_ENV,
-    PLUGIN,
-    litellm_env_flag_is_true,
-)
+from aigateway.plugins.openai_provider.plugin import PLUGIN
 from aigateway.plugins.openai_provider.settings import (
     OFFICIAL_API_BASE,
     OpenAIPluginSettings,
     is_route_valid_model_id,
 )
+
+# Bound to the original private name so the relocated hook test below reads unchanged.
+from ._ambient_state import safe_runtime as _safe_runtime
 
 # A model the deployment seeds, and one that is route-valid but deliberately NOT in
 # ``default_models`` — the whole point of OME-884 is that these two behave identically
@@ -310,126 +304,6 @@ def test_a_malformed_validation_model_is_still_refused() -> None:
         OpenAIPluginSettings(default_models=[_SEEDED], validation_model="openrouter/openai/gpt-5")
 
 
-# --- participation: the deployment-local gate, kept OUT of the key -------------
-#
-# WHY these live beside the projection tests rather than with dispatch: participation
-# and projection are the two halves of ONE decision — may this provider take part, and
-# what would its key be. Keeping them in one file is what makes the asymmetry between
-# them (the gate may read the environment; the projection may not) readable in one pass.
-
-
-def _safe_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Neutralize every ambient global this provider fails closed on."""
-    monkeypatch.delenv("OPENAI_CUSTOM_HEADERS", raising=False)
-    monkeypatch.delenv("EXPERIMENTAL_OPENAI_BASE_LLM_HTTP_HANDLER", raising=False)
-    monkeypatch.setattr(litellm, "secret_manager_client", None)
-    monkeypatch.setattr(litellm, "model_alias_map", {})
-    monkeypatch.setattr(litellm, "headers", None)
-    monkeypatch.setattr(litellm, "model_fallbacks", None)
-    monkeypatch.setattr(litellm, "proxy_auth", None)
-    monkeypatch.setattr(litellm, "drop_params", False)
-
-
-_UNSAFE_RUNTIME_STATES: list[tuple[str, Any]] = [
-    ("openai_config", lambda mp: mp.setattr(litellm.OpenAIConfig, "temperature", 1)),
-    ("custom_headers", lambda mp: mp.setenv("OPENAI_CUSTOM_HEADERS", '{"X-Leak":"ambient"}')),
-    (
-        "experimental_handler",
-        lambda mp: mp.setenv("EXPERIMENTAL_OPENAI_BASE_LLM_HTTP_HANDLER", "true"),
-    ),
-    ("secret_manager", lambda mp: mp.setattr(litellm, "secret_manager_client", object())),
-    ("headers", lambda mp: mp.setattr(litellm, "headers", {"X-Leak": "ambient"})),
-    ("fallbacks", lambda mp: mp.setattr(litellm, "model_fallbacks", ["openai/gpt-4o-mini"])),
-    ("proxy_auth", lambda mp: mp.setattr(litellm, "proxy_auth", object())),
-    ("drop_params", lambda mp: mp.setattr(litellm, "drop_params", True)),
-    ("callbacks", lambda mp: mp.setattr(litellm, "callbacks", [object()])),
-    ("pre_call_rules", lambda mp: mp.setattr(litellm, "pre_call_rules", [object()])),
-]
-
-
-def test_a_safe_runtime_participates(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Anti-vacuity for every refusal below: without it a hook that returned False
-    # unconditionally would pass the whole parametrized sweep.
-    _safe_runtime(monkeypatch)
-
-    assert PLUGIN.participates_in_global_cache(_SEEDED) is True
-    assert PLUGIN.participates_in_global_cache(_UNLISTED) is True
-
-
-@pytest.mark.parametrize(
-    "name,poison", _UNSAFE_RUNTIME_STATES, ids=[name for name, _ in _UNSAFE_RUNTIME_STATES]
-)
-def test_unsafe_ambient_state_refuses_participation(
-    monkeypatch: pytest.MonkeyPatch, name: str, poison: Any
-) -> None:
-    """INVARIANT: the cache is a SECOND route to this provider's answers.
-
-    A stored row needs no model entry and no credential to be replayed, and the cache
-    stage runs ahead of both — so the dispatch-side 503 cannot protect it. Every state
-    that makes DISPATCH unsafe must therefore also stop the READ, or a poisoned runtime
-    would keep serving rows the dispatch guard refuses to refill.
-    """
-    _safe_runtime(monkeypatch)
-    poison(monkeypatch)
-
-    assert PLUGIN.participates_in_global_cache(_SEEDED) is False, name
-
-
-def test_an_ambient_alias_stands_down_only_for_the_model_it_redirects(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Deliberate asymmetry: an alias is a per-MODEL hazard, not a provider-wide one.
-
-    An entry in ``litellm.model_alias_map`` silently redirects one id to another, so a
-    row stored for the requested id would be replayed while a miss dispatched something
-    else. That is a wrong-hit class for THAT model — and no reason at all to abandon
-    every other model's cache, which is what a provider-wide refusal would do.
-    """
-    _safe_runtime(monkeypatch)
-    monkeypatch.setattr(litellm, "model_alias_map", {_SEEDED: "openai/gpt-4o-mini"})
-
-    assert PLUGIN.participates_in_global_cache(_SEEDED) is False
-    assert PLUGIN.participates_in_global_cache(_UNLISTED) is True
-    assert PLUGIN.participates_in_global_cache("openai/gpt-4o") is True
-
-
-def test_participation_is_total_for_a_non_string_or_hostile_model(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The gate runs before the request's shape is adjudicated, so it must survive a
-    # model that is not a string — and a ``model_alias_map`` that is not a mapping.
-    _safe_runtime(monkeypatch)
-    for value in (None, 7, ["openai/gpt-4o"], {"a": 1}):
-        assert PLUGIN.participates_in_global_cache(value) is True
-
-    monkeypatch.setattr(litellm, "model_alias_map", "not-a-mapping")
-    assert PLUGIN.participates_in_global_cache(_SEEDED) is True
-
-
-@pytest.mark.parametrize(
-    "value",
-    [None, "true", "TRUE", "True", "  true  ", "false", "FALSE", "yes", "1", "0", "", "on"],
-)
-def test_the_flag_helper_matches_installed_litellm_semantics(
-    monkeypatch: pytest.MonkeyPatch, value: str | None
-) -> None:
-    """Parity with the ACTUAL branch LiteLLM takes, measured rather than assumed.
-
-    ``get_secret_bool`` -> ``str_to_bool`` recognizes only ``"true"``/``"false"`` after
-    ``.strip().lower()`` and answers ``None`` for everything else, INCLUDING unset. The
-    secret-manager branch is a different code path entirely, which is why a configured
-    secret-manager client is its own refusal above rather than something this helper
-    tries to model.
-    """
-    monkeypatch.setattr(litellm, "secret_manager_client", None)
-    if value is None:
-        monkeypatch.delenv(_EXPERIMENTAL_HANDLER_ENV, raising=False)
-    else:
-        monkeypatch.setenv(_EXPERIMENTAL_HANDLER_ENV, value)
-
-    assert litellm_env_flag_is_true(value) is (get_secret_bool(_EXPERIMENTAL_HANDLER_ENV) is True)
-
-
 # --- the plugin's own hooks ----------------------------------------------------
 
 
@@ -454,210 +328,3 @@ def test_a_cache_hit_certifies_no_historical_accounting_evidence() -> None:
         )
         is None
     )
-
-
-# --- OME-884 Unit 3: the keyed ``max_tokens`` contract -------------------------
-#
-# WHY these proofs run through ``build_global_cache_plan`` rather than calling the key
-# builder directly: the plan is what the route actually uses, so it exercises the real
-# provider auth modes, the real participation gate, the real rule table and the real
-# projection together. A key proof that bypassed it could stay green while the request
-# path bypassed every time.
-
-
-def _plan(body: dict[str, Any]) -> Any:
-    return build_global_cache_plan(
-        body=body,
-        plugin=PLUGIN,
-        controls=parse_global_cache_controls({}),
-        cache_enabled=True,
-    )
-
-
-def _planned_key(body: dict[str, Any]) -> str:
-    planned = _plan(body)
-    assert isinstance(planned, GlobalCacheKeyResult), planned
-    return planned.key_hash
-
-
-@pytest.mark.parametrize("model", [_SEEDED, _UNLISTED, "openai/gpt-4o", "openai/o3"])
-def test_max_tokens_is_keyed_for_every_route_valid_model(model: str) -> None:
-    """Promoted from ``bypass`` — and only now that a real projection backs it.
-
-    A keyed rule on a provider with no projection is unobservable: the missing
-    projection bypasses the request regardless of what its rules declare. That is why
-    the promotion had to wait for the projection rather than shipping with OME-864.
-    """
-    rules = PLUGIN.chat_parameter_rules(model=model, auth_type=None)
-
-    assert len(rules) == 1
-    assert rules[0].request_path == "max_tokens"
-    assert rules[0].cache_behavior == "keyed"
-    # INVARIANT (ruling 59): the pre-auth key cannot honor a mode-restricted promise, so
-    # a keyed rule must apply in EVERY mode the provider offers.
-    assert set(PLUGIN.available_auth_modes()) <= set(rules[0].applicable_auth_modes)
-
-
-def test_a_request_carrying_max_tokens_is_now_keyed_rather_than_bypassed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _safe_runtime(monkeypatch)
-
-    assert _planned_key(_body(_SEEDED, max_tokens=64))
-
-
-def test_equal_effective_ceilings_share_one_entry(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The body-wins profile-default merge runs BEFORE the cache stage, so by the time a
-    # plan is built there is no difference between "the caller sent 64" and "the profile
-    # defaulted to 64". One upstream call, one row.
-    _safe_runtime(monkeypatch)
-
-    assert _planned_key(_body(_SEEDED, max_tokens=64)) == _planned_key(
-        _body(_SEEDED, max_tokens=64)
-    )
-
-
-@pytest.mark.parametrize(
-    ("left", "right"),
-    [
-        ({"max_tokens": 64}, {"max_tokens": 65}),
-        ({"max_tokens": 64}, {}),
-    ],
-)
-def test_different_effective_ceilings_never_collide(
-    monkeypatch: pytest.MonkeyPatch, left: dict[str, Any], right: dict[str, Any]
-) -> None:
-    """The wrong-hit class this promotion exists to close.
-
-    ``chat_cache_stage._is_a_whole_answer`` STORES a ``finish_reason: "length"``
-    response, on the stated grounds that a truncation is the correct answer to the
-    request that asked for it. That is sound ONLY while the ceiling is keyed: with
-    ``bypass``, a caller asking for 4000 tokens would be served the answer that stopped
-    at 20. An absent ceiling is its own case — it is not "unlimited equals some number".
-    """
-    _safe_runtime(monkeypatch)
-
-    assert _planned_key(_body(_SEEDED, **left)) != _planned_key(_body(_SEEDED, **right))
-
-
-def test_the_same_ceiling_on_two_models_never_collides(monkeypatch: pytest.MonkeyPatch) -> None:
-    # LiteLLM maps the ceiling to ``max_tokens`` for GPT-4/4o and to
-    # ``max_completion_tokens`` for GPT-5/o-series. Two spellings, one meaning — and the
-    # model is keyed independently, so the difference can never be papered over.
-    _safe_runtime(monkeypatch)
-
-    assert _planned_key(_body("openai/gpt-4o", max_tokens=64)) != _planned_key(
-        _body(_SEEDED, max_tokens=64)
-    )
-
-
-def test_an_unlisted_model_reaches_a_key_through_the_real_plan(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # End to end through the plan: participation, rules, auth modes and projection all
-    # have to agree before an unlisted model produces a key at all.
-    _safe_runtime(monkeypatch)
-
-    assert _planned_key(_body(_UNLISTED, max_tokens=8)) != _planned_key(
-        _body(_SEEDED, max_tokens=8)
-    )
-
-
-def test_a_malformed_model_produces_no_plan_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    _safe_runtime(monkeypatch)
-
-    assert _plan(_body("openai/gpt 5", max_tokens=8)) == CacheBypass(
-        reason=PROJECTION_BYPASS_REASON
-    )
-
-
-def test_an_unsafe_runtime_produces_no_plan_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The participation gate reached through the real plan, not called directly.
-    _safe_runtime(monkeypatch)
-    monkeypatch.setattr(litellm, "headers", {"X-Leak": "ambient"})
-
-    assert _plan(_body(_SEEDED, max_tokens=8)) == CacheBypass(reason=PROJECTION_BYPASS_REASON)
-
-
-def test_a_caller_opt_out_bypasses_a_request_that_would_otherwise_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _safe_runtime(monkeypatch)
-    body = _body(_SEEDED, max_tokens=8)
-    controls = parse_global_cache_controls({"cache": {"use-cache": False}})
-
-    decision = build_global_cache_plan(
-        body=body, plugin=PLUGIN, controls=controls, cache_enabled=True
-    )
-
-    assert isinstance(decision, CacheBypass)
-    assert decision.reason == controls.bypass_reason
-
-
-# --- OME-884 review: a RAISING ambient read is itself an unsafe runtime ---------
-#
-# WHY this is a distinct class from the poisons above: those set a value the guard then
-# READS successfully. Here the read itself explodes. The guard's docstring promised
-# "fail CLOSED and never raise", but every read was only defensive about a MISSING
-# attribute (``getattr(..., None)``) — not about one that answers by raising. A hostile
-# or merely broken LiteLLM global therefore escaped as an ordinary exception.
-
-
-class _ExplodingAliasMap(Mapping[str, str]):
-    """A ``model_alias_map`` whose membership test raises instead of answering."""
-
-    def __contains__(self, key: object) -> bool:
-        raise RuntimeError("hostile alias map")
-
-    def __getitem__(self, key: str) -> str:
-        raise KeyError(key)
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(())
-
-    def __len__(self) -> int:
-        return 0
-
-
-class _ExplodingTruthiness:
-    """An ambient global that cannot even be asked whether it is set."""
-
-    def __bool__(self) -> bool:
-        raise RuntimeError("hostile truthiness")
-
-
-def _raising_get_config() -> dict[str, Any]:
-    raise RuntimeError("ambient config read exploded")
-
-
-_RAISING_AMBIENT_READS: list[tuple[str, Any]] = [
-    (
-        "get_config",
-        lambda mp: mp.setattr(
-            litellm.OpenAIConfig, "get_config", staticmethod(_raising_get_config)
-        ),
-    ),
-    ("alias_lookup", lambda mp: mp.setattr(litellm, "model_alias_map", _ExplodingAliasMap())),
-    ("truthiness", lambda mp: mp.setattr(litellm, "headers", _ExplodingTruthiness())),
-    ("callback_truthiness", lambda mp: mp.setattr(litellm, "callbacks", _ExplodingTruthiness())),
-]
-
-
-@pytest.mark.parametrize(
-    "name,poison", _RAISING_AMBIENT_READS, ids=[name for name, _ in _RAISING_AMBIENT_READS]
-)
-def test_a_raising_ambient_read_refuses_participation(
-    monkeypatch: pytest.MonkeyPatch, name: str, poison: Any
-) -> None:
-    """INVARIANT: unreadable is treated exactly like unsafe.
-
-    The gate cannot certify a runtime it was unable to inspect, so the only sound answer
-    is to stand down. Letting the exception escape instead was doubly wrong: it broke the
-    hook's own documented totality, and it moved the decision to
-    ``build_global_cache_plan``'s catch-all — which reports the outcome as this
-    provider's projection bypass whether or not that is what actually happened.
-    """
-    _safe_runtime(monkeypatch)
-    poison(monkeypatch)
-
-    assert PLUGIN.participates_in_global_cache(_SEEDED) is False, name

@@ -25,6 +25,11 @@ Completions. This is gateway response replay, not OpenAI prompt caching.
   projection exists.
 - Fail closed for unsafe ambient OpenAI/LiteLLM state and for ambient LiteLLM model redirects
   of the exact requested model.
+- Post-commit review addition (owner decision, cycle 2): handle `litellm.modify_params`, the
+  ambient LiteLLM flag that rewrites `max_tokens` after the cache key is built. It declines
+  direct OpenAI cache participation outright, and refuses live dispatch ONLY when the effective
+  `max_tokens` is not `None` — a request without a ceiling is one LiteLLM never modifies and
+  stays live-dispatchable, merely uncached.
 - Ensure a cache hit performs no OpenAI provider-credential work and no provider dispatch; the
   existing `aigateway:index` profile-index read remains an accepted pre-cache cost.
 - Add purity, custom-model miss/hit, key-difference, malformed-model, cross-account, and
