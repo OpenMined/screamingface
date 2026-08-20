@@ -62,6 +62,17 @@ def test_port_configuration_prefers_flags_then_environment(
     assert config.scoreboard_port == 9106
 
 
+def test_recovery_commands_ignore_invalid_port_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SCREAMINGFACE_GATEWAY_PORT", "invalid")
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path), "down"])
+
+    config = cli._config(args)
+
+    assert config.gateway_port == 9105
+
+
 def test_owned_state_is_removed_but_foreign_state_is_preserved(tmp_path: Path) -> None:
     config = RuntimeConfig(data_dir=tmp_path)
     config.state_path.write_text(json.dumps({"pid": 42, "owner_token": "ours"}))
@@ -128,6 +139,24 @@ def test_json_status_is_stable_and_redacts_the_owner_token(
     output = capsys.readouterr().out
     assert "secret" not in output
     assert json.loads(output)["schema"] == "screamingface.runtime-status.v1"
+
+
+def test_status_rejects_owned_state_without_services(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    cli._write_state(config, {"schema_version": 1, "pid": 42, "owner_token": "secret"})
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: True)
+    monkeypatch.setattr(cli, "_health", lambda services: dict.fromkeys(services, True))
+
+    assert cli._print_status(config, json_output=True) == 1
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "invalid_runtime_state"
+    assert output["ownership_verified"] is False
+    assert output["state_valid"] is False
 
 
 def test_down_never_signals_an_unverified_pid(

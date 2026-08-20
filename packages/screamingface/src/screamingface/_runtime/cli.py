@@ -127,9 +127,19 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
 
 def _config(args: argparse.Namespace) -> RuntimeConfig:
     values: dict[str, int] = {}
+    use_port_environment = args.command in {
+        "up",
+        "restart",
+        "status",
+        "doctor",
+        "_serve",
+        "_scoreboard",
+    }
     for service, fallback in _PORT_DEFAULTS.items():
         argument = getattr(args, f"{service}_port", None)
-        configured = os.getenv(f"SCREAMINGFACE_{service.upper()}_PORT")
+        configured = (
+            os.getenv(f"SCREAMINGFACE_{service.upper()}_PORT") if use_port_environment else None
+        )
         values[service] = (
             argument if argument is not None else _environment_port(configured, fallback)
         )
@@ -305,10 +315,11 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
 
 def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     state = _read_state(config)
-    state_valid = not config.state_path.exists() or state is not None
-    services = _state_services(state) if state else config.services
+    stored_services = _state_services(state)
+    state_valid = not config.state_path.exists() or bool(state and stored_services)
+    services = stored_services if state_valid and state else config.services
     health = _health(services)
-    owned = bool(state and _verify_owner(state))
+    owned = bool(state_valid and state and _verify_owner(state))
     if not state_valid:
         label, code = "invalid runtime state", 1
     elif owned and all(health.values()):
