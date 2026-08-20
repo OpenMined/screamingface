@@ -111,7 +111,17 @@ RED first, per the plan's §2 table:
      mean one of the two. That rewired ~30 mechanical call sites in
      `test_healthbench_{runtime,check_surface,definition}.py`. worst30's rendered resource
      was re-verified byte-identical to `main` afterwards, and both revisions are unmoved.
-  4. Added beyond the plan: an end-to-end test that resolves the BUILT professional
+  4. **The identity tests mirror the merged source (owner call, 2026-08-20).**
+     `test_healthbench_professional.py` folded into `test_healthbench_definition.py`,
+     matching `definition.py` 1:1: what both boards share is asserted once (grader
+     template bytes, judge pinning, retrieval-free Candidate, expression size — the last
+     three looped over both boards, so a third board cannot ship a different judge), then
+     one section per board. Four test names existed IDENTICALLY in both files
+     (`test_the_exam_is_registered_under_its_id` and friends), so `pytest -k` matched two
+     boards and a failure report named neither — every test now says its board.
+     Deliberately NOT renamed: `test_healthbench_aggregate.py`, whose 16 tests pass a
+     synthetic `benchmark_id="hb"` and exercise the SHARED reducer, not either board.
+  5. Added beyond the plan: an end-to-end test that resolves the BUILT professional
      expression against a fake judge and proves the official clip reaches the reported
      score (-3.0 per Case → 0.0 exam score), plus a privacy assertion that the new board's
      cases route leaks no rubric text.
