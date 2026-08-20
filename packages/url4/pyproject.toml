@@ -23,8 +23,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://screamingface.ai"
-Repository = "https://github.com/OpenMined/screamingface"
-Issues = "https://github.com/OpenMined/screamingface/issues"
+Repository = "https://github.com/ScreamingFace/screamingface"
+Issues = "https://github.com/ScreamingFace/screamingface/issues"
 
 [project.optional-dependencies]
 # Url4Node.serve() and `url4 serve` — the ASGI app itself is framework-free; only
