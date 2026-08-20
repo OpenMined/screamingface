@@ -48,8 +48,10 @@ comparable.
 
 - **Actual files:** as planned; RUNBOOK.md updated in the main checkout only (the
   `draco-cache-seed/` directory is untracked local ops data and is not part of the PR).
-- **Commits:** <sha — message>
+- **Commits:** `4f072b21` — feat(screamingface-engine): add the draco-3pass DRACO board for
+  cache-seeded replays (PR #671, branch `draco-3pass-variant`)
 - **Gates:** `run_gates.py screamingface-engine --skip-append-only` → ALL GATES GREEN.
   Append-only check flagged the two planned prior-test edits; that change surface was
   named in the owner-approved spec/plan (Confidence-Gate decision at approval).
+  Engine unit suite: 1850 passed, 5 skipped; SDK benchmark/catalog + scoreboard green.
 - **Deviations:** none.
