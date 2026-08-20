@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -100,6 +100,9 @@ class LeaderboardScore:
     verified_by_screamingface: bool
     metadata: Mapping[str, object] | None
     scoreboard_url: str | None = None
+    # Ephemeral UI context: a submitted score can carry a notebook-only advisory without
+    # polluting the persisted Scoreboard response, repr, or value equality (OME-922).
+    _partial_submission: bool = field(default=False, repr=False, compare=False, kw_only=True)
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -148,6 +151,8 @@ class LeaderboardScore:
                 "metadata",
                 freeze_mapping(self.metadata, "Leaderboard score metadata"),
             )
+        if not isinstance(self._partial_submission, bool):
+            raise TypeError("Leaderboard score partial-submission marker must be a boolean")
 
     def __repr__(self) -> str:
         # WHY custom: the dataclass auto-repr printed the ENTIRE compiled url4

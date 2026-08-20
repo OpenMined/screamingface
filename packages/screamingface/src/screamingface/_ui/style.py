@@ -11,7 +11,8 @@ _LIGHT = (
     "--sf-blind:#b23b3b;--sf-blind-bg:#f6e7e6;"
     "--sf-accent:#4b91f0;--sf-accent-hover:#3a7ddb;--sf-accent-contrast:#ffffff;"
     "--sf-success:#14722a;--sf-success-solid:#64e47d;--sf-success-bg:#f0f9f2;"
-    "--sf-warning:#7a5e12;--sf-warning-solid:#efbd41;--sf-warning-bg:#fdf6e6"
+    "--sf-warning:#9c4828;--sf-warning-solid:#f1622d;--sf-warning-bg:#fdf4f1;"
+    "--sf-warning-border:#d7aa9b"
 )
 _DARK = (
     "--sf-bg:#0a0b0d;--sf-surface:#131519;--sf-surface-2:#1a1d22;"
@@ -20,7 +21,8 @@ _DARK = (
     "--sf-blind:#f0726f;--sf-blind-bg:#2a1715;"
     "--sf-accent:#75affe;--sf-accent-hover:#8fbeff;--sf-accent-contrast:#0a0b0d;"
     "--sf-success:#97db9d;--sf-success-solid:#7cdf8c;--sf-success-bg:#0c100d;"
-    "--sf-warning:#e2ca91;--sf-warning-solid:#efbd41;--sf-warning-bg:#151005"
+    "--sf-warning:#ffbca5;--sf-warning-solid:#e36f48;--sf-warning-bg:#130e0c;"
+    "--sf-warning-border:#735248"
 )
 
 # The one sanctioned SFDS gradient (fusion-grad), as the brand repo renders it on a

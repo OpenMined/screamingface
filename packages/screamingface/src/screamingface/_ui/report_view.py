@@ -43,6 +43,14 @@ _STYLE = (
   border:1px solid var(--sf-success);background:var(--sf-success-bg)}}
 .sf-report__tick--bad{{color:var(--sf-blind);border-color:var(--sf-blind);
   background:var(--sf-blind-bg)}}
+.sf-report__submission-warning{{display:grid;grid-template-columns:8px minmax(0,1fr);
+  gap:10px;align-items:start;margin-top:14px;padding:10px 12px;
+  color:var(--sf-warning);background:var(--sf-warning-bg);
+  border:1px solid var(--sf-warning-border);border-left:2px solid var(--sf-warning-solid)}}
+.sf-report__submission-warning-mark{{width:8px;height:8px;margin-top:5px;
+  background:var(--sf-warning-solid)}}
+.sf-report__submission-warning-title{{font-size:13px;font-weight:600;line-height:1.35}}
+.sf-report__submission-warning-copy{{font-size:13px;line-height:1.45;margin-top:2px}}
 .sf-report__strip-id{{font-size:14px;font-weight:600}}
 .sf-report__strip-when,.sf-report__receipt{{font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:13px;color:var(--sf-ink-3)}}

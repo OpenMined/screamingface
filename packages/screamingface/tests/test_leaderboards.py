@@ -1359,3 +1359,80 @@ async def test_async_submit_warns_for_a_limited_run_and_still_posts_it() -> None
             await client.leaderboards.submit(candidate)
 
     assert len(seen) == 1
+
+
+@pytest.mark.filterwarnings("error")
+def test_notebook_partial_submission_moves_warning_into_published_score_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT (OME-922): Jupyter must not paint this advisory as a red traceback-like
+    warning. The successful publication card carries the ranking caveat itself, using the
+    canonical ScreamingFace persimmon warning state in both colour schemes."""
+    from screamingface._scoreboard import leaderboards as leaderboards_module  # noqa: PLC0415
+
+    monkeypatch.setattr(leaderboards_module, "_in_notebook", lambda: True)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=3,
+        case_scores=(1.0, 0.0),
+    )
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(candidate)
+
+    html = cast(Any, submitted)._repr_html_()
+    assert "<div class='sf-report__submission-warning' role='status'>" in html
+    assert "Partial submission" in html
+    assert "The public leaderboard ranks only scores for full runs." in html
+    assert "--sf-warning:#9c4828" in html
+    assert "--sf-warning-solid:#f1622d" in html
+    assert "--sf-warning-bg:#fdf4f1" in html
+    assert "--sf-warning-border:#d7aa9b" in html
+    assert "--sf-warning:#ffbca5" in html
+    assert "--sf-warning-solid:#e36f48" in html
+    assert "--sf-warning-bg:#130e0c" in html
+    assert "--sf-warning-border:#735248" in html
+
+
+@pytest.mark.filterwarnings("error")
+def test_notebook_full_submission_omits_partial_status_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from screamingface._scoreboard import leaderboards as leaderboards_module  # noqa: PLC0415
+
+    monkeypatch.setattr(leaderboards_module, "_in_notebook", lambda: True)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+    # The selector always exists in the shared stylesheet; the rendered notice must not.
+    assert "<div class='sf-report__submission-warning' role='status'>" not in html
+
+
+@pytest.mark.asyncio
+@pytest.mark.filterwarnings("error")
+async def test_async_notebook_partial_submission_uses_the_score_card_carrier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from screamingface._scoreboard import leaderboards as leaderboards_module  # noqa: PLC0415
+
+    monkeypatch.setattr(leaderboards_module, "_in_notebook", lambda: True)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=3,
+        case_scores=(1.0, 0.0),
+    )
+    async with _async_client(handler) as client:
+        submitted = await client.leaderboards.submit(candidate)
+
+    html = cast(Any, submitted)._repr_html_()
+    assert "<div class='sf-report__submission-warning' role='status'>" in html

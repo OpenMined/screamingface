@@ -56,11 +56,25 @@ def leaderboard_score_html(value: LeaderboardScore) -> str:
         f"<span class='sf-report__strip-id'>{escape(identity)}</span>"
         f"<span class='sf-report__strip-when'>{escape(_stamp(value.submitted_at))}</span>"
         f"<span class='sf-report__receipt'>{escape(receipt)}</span></div>"
+        f"{_partial_submission_html(value)}"
         "<div class='sf-report__card'>"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
         "<details class='sf-report__det'><summary>URL4</summary>"
         f"<pre class='sf-report__pre'>{escape(_clip(str(value.url4), 1200))}</pre>"
         "</details></div></div>"
+    )
+
+
+def _partial_submission_html(value: LeaderboardScore) -> str:
+    if not value._partial_submission:
+        return ""
+    return (
+        "<div class='sf-report__submission-warning' role='status'>"
+        "<span class='sf-report__submission-warning-mark' aria-hidden='true'></span>"
+        "<div><div class='sf-report__submission-warning-title'>Partial submission</div>"
+        "<div class='sf-report__submission-warning-copy'>"
+        "The public leaderboard ranks only scores for full runs."
+        "</div></div></div>"
     )
 
 

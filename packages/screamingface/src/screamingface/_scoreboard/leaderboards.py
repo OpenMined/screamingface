@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import math
 import platform
+import sys
 import warnings
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
 from typing import NoReturn
@@ -69,18 +71,21 @@ class Leaderboards:
 
     def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
-        return _decode_score(
-            scoreboard_url=self._scoreboard_url,
-            payload=_sync_json(
-                self._request,
-                self._scoreboard_url,
-                "POST",
-                _SCORES_PATH,
-                json=payload,
-                headers={"Idempotency-Key": candidate_result.run_id},
-                replay_safe=True,
-                operation="submit a score to",
+        return _submitted_score(
+            _decode_score(
+                scoreboard_url=self._scoreboard_url,
+                payload=_sync_json(
+                    self._request,
+                    self._scoreboard_url,
+                    "POST",
+                    _SCORES_PATH,
+                    json=payload,
+                    headers={"Idempotency-Key": candidate_result.run_id},
+                    replay_safe=True,
+                    operation="submit a score to",
+                ),
             ),
+            candidate_result,
         )
 
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
@@ -137,18 +142,21 @@ class AsyncLeaderboards:
 
     async def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
-        return _decode_score(
-            scoreboard_url=self._scoreboard_url,
-            payload=await _async_json(
-                self._request,
-                self._scoreboard_url,
-                "POST",
-                _SCORES_PATH,
-                json=payload,
-                headers={"Idempotency-Key": candidate_result.run_id},
-                replay_safe=True,
-                operation="submit a score to",
+        return _submitted_score(
+            _decode_score(
+                scoreboard_url=self._scoreboard_url,
+                payload=await _async_json(
+                    self._request,
+                    self._scoreboard_url,
+                    "POST",
+                    _SCORES_PATH,
+                    json=payload,
+                    headers={"Idempotency-Key": candidate_result.run_id},
+                    replay_safe=True,
+                    operation="submit a score to",
+                ),
             ),
+            candidate_result,
         )
 
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
@@ -358,13 +366,6 @@ def _submission(candidate_result: CandidateResult) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
     score = _score_value(candidate_result)
-    # INVARIANT (OME-922): coverage measures grading within the selected Cases, so a
-    # limit= run can have coverage=1.0 while still omitting most of the Benchmark.
-    if (
-        len(candidate_result.cases) < candidate_result.benchmark.case_count
-        or candidate_result.coverage < 1.0
-    ):
-        warnings.warn(_PARTIAL_SUBMISSION_WARNING, UserWarning, stacklevel=3)
     return {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
@@ -385,6 +386,37 @@ def _submission(candidate_result: CandidateResult) -> dict[str, object]:
             "run_id": candidate_result.run_id,
         },
     }
+
+
+def _submitted_score(
+    score: LeaderboardScore,
+    candidate_result: CandidateResult,
+) -> LeaderboardScore:
+    """Choose the least alarming carrier available for the ranking advisory.
+
+    The returned score owns notebook display, so it can carry the message there without
+    Jupyter turning a successful publication into a red warning block. Headless callers
+    have no such surface and retain the ordinary Python warning.
+    """
+    if not _is_partial_submission(candidate_result):
+        return score
+    if _in_notebook():
+        return replace(score, _partial_submission=True)
+    warnings.warn(_PARTIAL_SUBMISSION_WARNING, UserWarning, stacklevel=4)
+    return score
+
+
+def _is_partial_submission(candidate_result: CandidateResult) -> bool:
+    # INVARIANT (OME-922): coverage measures grading within the selected Cases, so a
+    # limit= run can have coverage=1.0 while still omitting most of the Benchmark.
+    return (
+        len(candidate_result.cases) < candidate_result.benchmark.case_count
+        or candidate_result.coverage < 1.0
+    )
+
+
+def _in_notebook() -> bool:
+    return "ipykernel" in sys.modules
 
 
 def _score_value(candidate_result: CandidateResult) -> float:

@@ -1,9 +1,9 @@
 ---
 ticket: OME-922
 stack: screamingface
-status: done
+status: in_progress
 started: 2026-08-20
-finished: 2026-08-20
+finished:
 ---
 
 # OME-922 — Warn that partial submissions are not ranked
@@ -49,3 +49,12 @@ advisory-only behavior and sends valid partial scores unchanged.
   resolve the declared notebook dependencies. The first green test refactor touched inherited
   fixture lines; the append-only gate rejected it, so those lines were restored and all new
   fixtures/tests were appended. No gate was skipped and no inherited test remains changed.
+
+## Brand presentation follow-up
+
+The first implementation correctly warned but Jupyter rendered the `UserWarning` as a
+large red, path-heavy block above a successful green receipt. Reopen this task to move the
+advisory into the notebook score card, while retaining a Python warning in headless code.
+Use the canonical persimmon warning tokens and square status treatment from
+`OpenMined/screamingface-brand` commit `7ea35a1`. The four locally executed example
+notebooks are user-owned working-tree changes and must remain untouched.
