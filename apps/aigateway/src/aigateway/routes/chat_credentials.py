@@ -8,7 +8,7 @@ Phase 1) behind characterization tests; behavior is unchanged.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException, Request
 
@@ -43,7 +43,10 @@ def auth_mode_for_target(
     disagree about which mode a profile uses.
     """
     if connection is not None:
-        return connection.auth_type or "oauth"
+        # WHY: tortoise-orm >=1.1.8 types CharField as `str`; the stored column is a bare
+        # CharField, so narrowing it back to AuthType is ours to assert. `or "oauth"`
+        # keeps the documented fallback for an empty stored value.
+        return cast(AuthType, connection.auth_type or "oauth")
     if profile is not None:
         return profile.auth_type
     return "oauth"
