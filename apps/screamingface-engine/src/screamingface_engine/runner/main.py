@@ -67,6 +67,19 @@ def _int_from_env(env: Mapping[str, str], name: str, default: int) -> int:
         return default
 
 
+def bridge_budget_from_env(env: Mapping[str, str]) -> int:
+    """The Runner's event-bridge memory budget: the bytes the backlog may cost before the
+    run fails with ``BridgeOverflowError`` (OME-906).
+
+    Deploy-time like the result caps, tolerant fallback the same: of the two wrong answers
+    to an unparseable value ("crash every run at boot" vs "run with the shipped default")
+    the default is the one that costs nothing.
+    """
+    return _int_from_env(
+        env, job_env.BRIDGE_MEMORY_BUDGET_BYTES, job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES
+    )
+
+
 def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, ArtifactStore]:
     """The Runner's result-delivery wiring: (inline cap, hard cap, spill store).
 
@@ -265,6 +278,7 @@ def build_executor(
         world_factory=_world,
         result_cap=inline_cap,
         hard_cap=hard_cap,
+        memory_budget=bridge_budget_from_env(env),
         artifact_store=artifact_store,
     )
 

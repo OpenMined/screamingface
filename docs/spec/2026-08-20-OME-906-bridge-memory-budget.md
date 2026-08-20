@@ -2,7 +2,7 @@
 
 - **Linear:** https://linear.app/openmined/issue/OME-906
 - **Landing:** `apps/screamingface-engine`
-- **Status:** spec — awaiting approval
+- **Status:** implemented — stacked on PR #667, awaiting review
 - **Supersedes:** `docs/spec/2026-08-20-OME-906-pipelined-frame-publishing.md`, whose premise
   was disproven by measurement. That work shipped on its own merits; it does not fix this.
 

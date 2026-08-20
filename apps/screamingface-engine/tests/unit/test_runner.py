@@ -12,6 +12,7 @@ from screamingface_engine import job_env
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.main import (
     RunnerConfigError,
+    bridge_budget_from_env,
     build_executor,
     params_from_env,
     result_delivery_from_env,
@@ -478,3 +479,35 @@ def test_result_delivery_from_env_tolerates_unreadable_numbers() -> None:
     )
     assert inline_cap == job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
     assert hard_cap == job_env.DEFAULT_RESULT_HARD_CAP_BYTES
+
+
+# FEATURE: bound the event bridge by memory, not by event count (OME-906). Same
+# env-driven shape as the result caps: a deploy-time knob with a tolerant fallback.
+
+
+def test_bridge_budget_from_env_defaults() -> None:
+    assert bridge_budget_from_env({}) == job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES
+
+
+def test_bridge_budget_from_env_reads_the_name() -> None:
+    assert bridge_budget_from_env({job_env.BRIDGE_MEMORY_BUDGET_BYTES: "1048576"}) == 1_048_576
+
+
+def test_bridge_budget_from_env_tolerates_unreadable_numbers() -> None:
+    assert (
+        bridge_budget_from_env({job_env.BRIDGE_MEMORY_BUDGET_BYTES: "a lot"})
+        == job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES
+    )
+
+
+def test_build_executor_wires_the_bridge_budget_from_env() -> None:
+    # The one hop the `_Bridge` units cannot prove: `build_executor` handing the budget to
+    # the executor. A declared-empty world keeps this synchronous — the world is only
+    # built on first `execute`, which this test never runs.
+    executor = build_executor({job_env.BRIDGE_MEMORY_BUDGET_BYTES: "2048"}, WorldConfig())
+    assert executor._memory_budget == 2048
+
+
+def test_build_executor_defaults_the_bridge_budget() -> None:
+    executor = build_executor({}, WorldConfig())
+    assert executor._memory_budget == job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES

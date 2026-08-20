@@ -60,12 +60,26 @@ reader finds the pair by prefix. The soft cap travels WITH the mark because the 
 uninterpretable — 3000 is alarming against a cap of 1024 and impossible against 8192.
 """
 
+EVENT_SIZE_ESTIMATE_BYTES = 512
+"""The per-event cost the bridge's memory budget is divided by to get its hard cap.
+
+Deliberately about DOUBLE the largest measured event (278 B, OME-906), so the real ceiling
+stays under the budget rather than over it. `sys.getsizeof` per event on the hot path would
+cost more than the bound is worth; the estimate only has to be the right order of magnitude.
+"""
+
 
 class BridgeOverflowError(RuntimeError):
-    """Raised by `_Bridge.on_event` when the backlog still exceeds the hard cap after the
-    eviction policy has run — eviction only removes a `Log` when one happens to be buffered,
-    so a backlog made up of non-Log events can grow unchecked past the soft cap all the way
-    to the hard cap, where the streaming consumer is deemed not keeping up with the engine."""
+    """Raised by `_Bridge.on_event` when the backlog still exceeds the cap derived from the
+    bridge's memory budget after the eviction policy has run — eviction only removes a `Log`
+    when one happens to be buffered, so a backlog of non-Log events grows unchecked to the
+    budget cap.
+
+    The message separates the two shapes a full buffer can take: a drain count above zero
+    means ONE DAG burst outran the budget (the engine gathers over `deps` unbounded and emits
+    each node's events before it awaits anything, so a wide fan-in lands in a single
+    event-loop slice); a drain count of zero means the consumer never ran at all.
+    """
 
 
 class _Bridge:
@@ -76,17 +90,26 @@ class _Bridge:
     an incoming non-Log event instead evicts the oldest buffered `Log` to make room (or, if no
     `Log` is buffered, evicts nothing and the buffer grows toward the hard cap) — since a `Log`
     is the only event kind safe to lose without corrupting the run's span/cost accounting.
-    Only past `_HARD_CAP_MULTIPLIER * maxsize` does it give up and raise `BridgeOverflowError`.
+    Only past the hard cap does it give up and raise `BridgeOverflowError`.
+
+    The HARD cap is not a count of events: it is `memory_budget // EVENT_SIZE_ESTIMATE_BYTES`,
+    so an operator bounds what the backlog may COST in bytes, not how wide a DAG may be —
+    the count-derived cap was a ceiling on DAG width (OME-906).
     """
 
-    _HARD_CAP_MULTIPLIER = 8
-
-    def __init__(self, maxsize: int) -> None:
+    def __init__(
+        self,
+        maxsize: int,
+        *,
+        memory_budget: int = job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES,
+    ) -> None:
         self._buf: deque[ObservationEvent] = deque()
         self._max = maxsize
-        self._hard_cap = maxsize * self._HARD_CAP_MULTIPLIER
+        self._budget_bytes = memory_budget
+        self._hard_cap = max(1, memory_budget // EVENT_SIZE_ESTIMATE_BYTES)
         self._dropped = 0
         self._high_water = 0
+        self._drained = 0
         self._closed = False
         self._wake = asyncio.Event()
 
@@ -109,6 +132,17 @@ class _Bridge:
         return self._high_water
 
     @property
+    def drained(self) -> int:
+        """How many events the consumer has taken off the buffer.
+
+        INVARIANT: the honest signal for "is the consumer running at all?" — the overflow
+        message keys on it to tell a wide-DAG burst (drained above zero) from a consumer
+        that never ran (drained zero). A count that merely lagged would say "behind";
+        only zero says "stuck".
+        """
+        return self._drained
+
+    @property
     def backlogged(self) -> bool:
         """Whether the backlog ever passed the SOFT cap.
 
@@ -126,20 +160,36 @@ class _Bridge:
         accounting. Only once the backlog still exceeds the hard cap after that eviction does
         this raise `BridgeOverflowError`.
         """
-        # INVARIANT: _hard_cap > _max (_HARD_CAP_MULTIPLIER > 1) gives the buffer headroom to
-        # grow past the soft cap before it hits the hard cap — NOT a guarantee that a Log is
-        # available to evict. A backlog with no buffered Log at all is exactly the state that
-        # runs out that headroom and raises BridgeOverflowError.
+        # INVARIANT: with the default budget the hard cap sits far above `_max`, giving the
+        # buffer headroom past the soft cap before the budget binds — NOT a guarantee that a
+        # Log is available to evict. A backlog with no buffered Log at all is exactly the
+        # state that runs out that headroom and raises BridgeOverflowError. A budget below
+        # `_max` events' worth makes the hard cap bind first; the policy stays correct, the
+        # soft cap simply never gets to help.
         if len(self._buf) >= self._max:
             if isinstance(event, Log):
                 self._dropped += 1
                 return
             self._evict_oldest_log()
         if len(self._buf) >= self._hard_cap:
+            # WHY keyed on `drained`: a consumer that HAS taken events is running, so a
+            # full buffer is one producer burst wider than the budget — the DAG is the
+            # driver. Zero drained events is the only shape where the consumer itself is
+            # the suspect, and the message must say which of the two fired (OME-906).
+            if self._drained:
+                raise BridgeOverflowError(
+                    f"event backlog exceeded the memory budget "
+                    f"({self._budget_bytes:,} bytes ≈ {self._hard_cap:,} events; "
+                    f"peak {self._high_water}, {self._dropped} Log(s) dropped, "
+                    f"{self._drained:,} event(s) already drained) — one DAG burst wider "
+                    f"than the budget: increase {job_env.BRIDGE_MEMORY_BUDGET_BYTES} "
+                    "or narrow the DAG"
+                )
             raise BridgeOverflowError(
-                f"event backlog exceeded the hard cap ({self._hard_cap} events, "
-                f"peak {self._high_water}, {self._dropped} Log(s) already dropped) "
-                "— the consumer is not keeping up"
+                f"event backlog exceeded the memory budget "
+                f"({self._budget_bytes:,} bytes ≈ {self._hard_cap:,} events; "
+                f"peak {self._high_water}, {self._dropped} Log(s) dropped) and the "
+                "consumer never drained one event — the consumer is stuck, not merely behind"
             )
         self._buf.append(event)
         if len(self._buf) > self._high_water:
@@ -160,6 +210,7 @@ class _Bridge:
     async def drain(self) -> AsyncIterator[ObservationEvent]:
         while True:
             if self._buf:
+                self._drained += 1
                 yield self._buf.popleft()
                 continue
             if self._closed:
@@ -651,6 +702,7 @@ class Url4Executor(Executor):
         queue_cap: int = 1024,
         result_cap: int = job_env.DEFAULT_RESULT_INLINE_CAP_BYTES,
         hard_cap: int = job_env.DEFAULT_RESULT_HARD_CAP_BYTES,
+        memory_budget: int = job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES,
         artifact_store: ArtifactStore | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
@@ -663,6 +715,10 @@ class Url4Executor(Executor):
         # copy ≈ 2-3× its size), so operators size hard_cap to pod RAM, not disk.
         self._result_cap = result_cap
         self._hard_cap = hard_cap
+        # WHY bytes, not a count: the bridge's hard cap is this budget divided by
+        # `EVENT_SIZE_ESTIMATE_BYTES`, so an operator bounds what the backlog may COST —
+        # a count cap was a ceiling on DAG width (OME-906).
+        self._memory_budget = memory_budget
         self._artifact_store = artifact_store
         self._world_aclose = world_aclose
         self._world_factory = world_factory
@@ -686,7 +742,7 @@ class Url4Executor(Executor):
         # Terminated. Resolving inside `execute` puts config and connect failures inside
         # `run`'s try, where they become Terminated(status="failed") with a real error code.
         await self._resolve_world()
-        bridge = _Bridge(self._queue_cap)
+        bridge = _Bridge(self._queue_cap, memory_budget=self._memory_budget)
         state = _RunState()
 
         async def _drive() -> str:

@@ -1,7 +1,7 @@
 ---
 ticket: OME-906
 stack: screamingface-engine
-status: planned
+status: in_progress
 started: 2026-08-20
 finished:
 ---
@@ -51,6 +51,34 @@ The six criteria in `docs/spec/2026-08-20-OME-906-bridge-memory-budget.md`.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+  - `apps/screamingface-engine/src/screamingface_engine/job_env.py` —
+    `BRIDGE_MEMORY_BUDGET_BYTES` name + `DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES` (64 MiB),
+    `DEPLOY_TIME` + `__all__` membership.
+  - `apps/screamingface-engine/src/screamingface_engine/runner/executor.py` —
+    `EVENT_SIZE_ESTIMATE_BYTES = 512`; `_Bridge(maxsize, *, memory_budget)` with
+    `hard_cap = max(1, budget // 512)`; `_HARD_CAP_MULTIPLIER` removed; `drained` counter
+    in `drain()`; two-variant overflow message keyed on `drained`; `BridgeOverflowError`
+    docstring rewritten; `Url4Executor(memory_budget=...)` plumbed to the bridge.
+  - `apps/screamingface-engine/src/screamingface_engine/runner/main.py` —
+    `bridge_budget_from_env` (tolerant, like the result caps) wired into
+    `build_executor`.
+  - `apps/screamingface-engine/tests/unit/test_url4_executor.py` — RED-first: wide
+    fan-in (9 000 deps) completes through the real engine; budget-derived cap;
+    never-stopping producer fails at the budget; burst message names the budget and
+    the DAG, stuck message says "never drained"; two pre-existing hard-cap tests given
+    explicit small budgets (the default cap moved 8 192 → 131 072 and made them
+    pathological — one took 838 s).
+  - `apps/screamingface-engine/tests/unit/test_runner.py` — env resolution defaults,
+    override, tolerance, and the `build_executor` wiring hop.
+- **Commits:** conventional, `Refs: OME-906`; branch stacked on PR #667
+  (`OME-906-pipelined-frame-publishing`) because the drained counter sits beside the
+  high-water mark that PR introduces — a `main` base would duplicate the feature and
+  guarantee a conflict. Deviation from the branch-from-`origin/main` rule is deliberate
+  and recorded here.
+- **Gates:** `screamingface-engine` stack — ruff check, ruff format --check, pyright,
+  `check_layering.py`, pytest with coverage: 1 890 passed, 5 skipped, 93.57 % (≥ 80 %).
+  No other stack touched.
+- **Deviations:** the 64 MB budget stands as specced (owner did not name a tighter
+  number; it is env-tunable at deploy time). Open item for the owner: PR #667's
+  split-out Linear issue and OME-906's root-cause correction still need Linear MCP,
+  which is unavailable in this session — payloads remain blocked on credentials.
