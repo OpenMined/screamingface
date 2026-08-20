@@ -56,16 +56,16 @@ from aigateway.plugins.openrouter_provider.routing_policy import (
     STRICT_ROUTING_KEY,
 )
 
-# The shared arrangement; see ``_projection_harness``. Bound to the original private
+# The shared arrangement; see ``projection_harness``. Bound to the original private
 # names so every relocated test body below reads unchanged.
-from ._projection_harness import MODEL as _MODEL
-from ._projection_harness import STRICT as _STRICT
-from ._projection_harness import UPSTREAM as _UPSTREAM
-from ._projection_harness import body as _body
-from ._projection_harness import plugin as _plugin
-from ._projection_harness import policy as _policy
-from ._projection_harness import projected as _projected
-from ._projection_harness import reason as _reason
+from .projection_harness import MODEL as _MODEL
+from .projection_harness import STRICT as _STRICT
+from .projection_harness import UPSTREAM as _UPSTREAM
+from .projection_harness import body as _body
+from .projection_harness import plugin as _plugin
+from .projection_harness import policy as _policy
+from .projection_harness import projected as _projected
+from .projection_harness import reason as _reason
 
 # --- the projected shape ------------------------------------------------------
 

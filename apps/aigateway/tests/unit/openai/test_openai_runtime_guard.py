@@ -38,11 +38,11 @@ from aigateway.plugins.openai_provider.runtime_guard import (
 )
 
 # The neutralizer is shared with the projection, keyed-parameter and modifier suites; see
-# ``_ambient_state`` for WHY the inventory there is hand-written rather than derived.
+# ``ambient_state`` for WHY the inventory there is hand-written rather than derived.
 # Bound to the original private names so every relocated test body below reads unchanged.
-from ._ambient_state import AMBIENT_SAFE_ENV
-from ._ambient_state import AMBIENT_SAFE_STATE as _AMBIENT_SAFE_STATE
-from ._ambient_state import safe_runtime as _safe_runtime
+from .ambient_state import AMBIENT_SAFE_ENV
+from .ambient_state import AMBIENT_SAFE_STATE as _AMBIENT_SAFE_STATE
+from .ambient_state import safe_runtime as _safe_runtime
 
 # A model the deployment seeds, and one that is route-valid but deliberately NOT in
 # ``default_models``. Participation must answer identically for both: the catalog

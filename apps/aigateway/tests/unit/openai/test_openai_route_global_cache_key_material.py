@@ -22,16 +22,16 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-# The route arrangement is shared with the sibling suites; see ``_route_harness``. Bound
+# The route arrangement is shared with the sibling suites; see ``route_harness``. Bound
 # to the original private names so every relocated test body below reads unchanged.
-from ._route_harness import Dispatch as _Dispatch
-from ._route_harness import Store as _Store
-from ._route_harness import body as _body
-from ._route_harness import dispatching as _dispatching
-from ._route_harness import install as _install
-from ._route_harness import post as _post
-from ._route_harness import seed_profile as _seed_profile
-from ._route_harness import system_contents as _system_contents
+from .route_harness import Dispatch as _Dispatch
+from .route_harness import Store as _Store
+from .route_harness import body as _body
+from .route_harness import dispatching as _dispatching
+from .route_harness import install as _install
+from .route_harness import post as _post
+from .route_harness import seed_profile as _seed_profile
+from .route_harness import system_contents as _system_contents
 
 # --- profile defaults enter the key, provenance does not ----------------------
 

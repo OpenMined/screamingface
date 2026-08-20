@@ -34,7 +34,7 @@ from aigateway.core.request_cache.global_plan import build_global_cache_plan
 from aigateway.plugins.openai_provider.plugin import PLUGIN
 
 # Bound to the original private name so every relocated test body below reads unchanged.
-from ._ambient_state import safe_runtime as _safe_runtime
+from .ambient_state import safe_runtime as _safe_runtime
 
 _SEEDED = "openai/gpt-5.6-sol"
 _UNLISTED = "openai/gpt-4o-2024-11-20"

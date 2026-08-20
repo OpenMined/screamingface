@@ -3,7 +3,7 @@
 WHY these two are fixtures in a conftest while the rest of the route arrangement is a
 plain helper module: they are the only pieces pytest itself has to resolve by NAME from a
 test signature. Everything else (the store double, the dispatch double, the body and
-posting helpers) is ordinary code and lives in ``_route_harness``, imported explicitly so
+posting helpers) is ordinary code and lives in ``route_harness``, imported explicitly so
 each suite's dependencies are visible in its own header.
 """
 

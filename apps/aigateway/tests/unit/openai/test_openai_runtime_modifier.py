@@ -38,10 +38,10 @@ from aigateway.plugins.openai_provider import plugin as plugin_module
 from aigateway.plugins.openai_provider.plugin import PLUGIN
 
 # Bound to the original private names so every relocated test body below reads unchanged.
-from ._ambient_state import safe_runtime as _safe_runtime
-from ._dispatch_harness import SELECTED_KEY as _SELECTED_KEY
-from ._dispatch_harness import capture_client_factory as _capture_client_factory
-from ._dispatch_harness import completion_response as _completion_response
+from .ambient_state import safe_runtime as _safe_runtime
+from .dispatch_harness import SELECTED_KEY as _SELECTED_KEY
+from .dispatch_harness import capture_client_factory as _capture_client_factory
+from .dispatch_harness import completion_response as _completion_response
 
 _SEEDED = "openai/gpt-5.6-sol"
 _UNLISTED = "openai/gpt-4o-2024-11-20"

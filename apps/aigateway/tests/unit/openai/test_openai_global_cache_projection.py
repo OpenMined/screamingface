@@ -41,7 +41,7 @@ from aigateway.plugins.openai_provider.settings import (
 )
 
 # Bound to the original private name so the relocated hook test below reads unchanged.
-from ._ambient_state import safe_runtime as _safe_runtime
+from .ambient_state import safe_runtime as _safe_runtime
 
 # A model the deployment seeds, and one that is route-valid but deliberately NOT in
 # ``default_models`` — the whole point of OME-884 is that these two behave identically

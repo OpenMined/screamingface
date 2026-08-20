@@ -30,9 +30,9 @@ import pytest
 from aigateway.plugins.openai_provider.plugin import PLUGIN
 
 # Bound to the original private names so every relocated test body below reads unchanged.
-from ._dispatch_harness import SELECTED_KEY as _SELECTED_KEY
-from ._dispatch_harness import capture_client_factory as _capture_client_factory
-from ._dispatch_harness import completion_response as _completion_response
+from .dispatch_harness import SELECTED_KEY as _SELECTED_KEY
+from .dispatch_harness import capture_client_factory as _capture_client_factory
+from .dispatch_harness import completion_response as _completion_response
 
 
 @pytest.mark.parametrize(

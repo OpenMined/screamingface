@@ -532,7 +532,7 @@ or pushed; `d8821343` was NOT amended.**
   sits on the root logger — but the argument was naming a logger that no longer emits).
 
   Tests — five files became fifteen, plus five small shared helper modules following the repo's
-  existing `_global_cache_registry_sweep` idiom (public names in a `_`-prefixed module, aliased
+  existing shared-test-support idiom (public helper names aliased
   back to the local private name at the import site so every relocated test body reads unchanged):
 
   | responsibility | file | lines |
@@ -551,11 +551,11 @@ or pushed; `d8821343` was NOT amended.**
   | OpenRouter: the same equivalences at the hash | `openrouter/test_openrouter_global_cache_keys.py` | 251 |
   | OpenRouter: the operator gate, incl. modifier isolation | `openrouter/test_openrouter_global_cache_participation.py` | 157 |
 
-  Shared helpers: `openai/_ambient_state.py` (63) — the hand-written ambient inventory and the
-  neutralizer, used by four suites; `openai/_dispatch_harness.py` (71) — the mock-transport client
-  factory, four suites; `openai/_route_harness.py` (165) — the recording store, dispatch double and
+  Shared helpers: `openai/ambient_state.py` (63) — the hand-written ambient inventory and the
+  neutralizer, used by four suites; `openai/dispatch_harness.py` (71) — the mock-transport client
+  factory, four suites; `openai/route_harness.py` (165) — the recording store, dispatch double and
   posting helpers, three suites; `openai/conftest.py` (33) — the two fixtures pytest must resolve
-  by name; `openrouter/_projection_harness.py` (68) — three suites. `openai/__init__.py` (7) was
+  by name; `openrouter/projection_harness.py` (68) — three suites. `openai/__init__.py` (7) was
   added because relative imports need a package and it was the only provider test directory
   without one.
 
@@ -567,7 +567,7 @@ or pushed; `d8821343` was NOT amended.**
     the pre-split version was searched for across its successors. The 114 residual lines are all
     per-file module docstrings, helper DEFINITION lines whose name went private→public in a
     harness, the two repointed `caplog` logger names, and the `_safe_runtime`/`_AMBIENT_SAFE_STATE`
-    definitions that moved into `_ambient_state.py`. **Zero residual `assert` lines, zero
+    definitions that moved into `ambient_state.py`. **Zero residual `assert` lines, zero
     `def test_…` lines, zero `@pytest.mark.parametrize` decorators** — no assertion, test
     signature or parametrization changed while moving.
   - **Production:** no production behaviour was altered during the extraction. `plugin.py`'s
@@ -603,3 +603,43 @@ or pushed; `d8821343` was NOT amended.**
   both flag states by
   `test_the_ambient_litellm_modifier_is_not_this_providers_concern`). Task status stays
   `In Progress` until merge.
+
+## Review Cycle 3 — Public test-support module names
+
+### Intent
+
+Remove private leading underscores from every OME-884 test-support module while preserving the
+special Python package marker `openai/__init__.py`, as explicitly approved by the owner.
+
+### Planned changes
+
+- Rename `openai/_ambient_state.py`, `openai/_dispatch_harness.py`,
+  `openai/_route_harness.py`, and `openrouter/_projection_harness.py` to the same names without a
+  leading underscore.
+- Update only import sites, explanatory references, and this ledger; do not alter test assertions,
+  production behavior, cache semantics, or dependencies.
+
+### Test plan and acceptance
+
+- Observe an import failure after the moves and before import-site updates.
+- Run the affected OpenAI/OpenRouter suites, the normal append-only check, the full AIGateway gate,
+  and `git diff --check`.
+- Accept when no OME-884 helper filename starts with a private leading underscore, all prior tests
+  remain green, and unrelated worktree/index/stash state remains untouched.
+
+### Outcome
+
+- Renamed the four test-support modules exactly as planned. The owner explicitly retained the
+  special Python package marker `openai/__init__.py`; no OME-884 helper filename now starts with a
+  private leading underscore.
+- RED: after the file moves and before import updates,
+  `test_openai_runtime_guard.py` failed collection with
+  `ModuleNotFoundError: tests.unit.openai._ambient_state`.
+- GREEN: updated only relative import paths and explanatory filename references. OpenAI plus
+  OpenRouter returned `1097 passed`; the full AIGateway gate with the authorized append-only skip
+  returned `ALL GATES GREEN`; `git diff --check` was clean.
+- The normal append-only gate names exactly the four deleted pre-rename helper paths. This is the
+  owner-authorized rename itself, not removed test behavior; no test function, parametrization, or
+  assertion changed.
+- No production file, dependency, cache contract, unrelated worktree file, staged deletion, stash,
+  commit, remote branch, or pull request was changed by this cycle.

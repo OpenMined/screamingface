@@ -28,13 +28,13 @@ from aigateway.plugins.openrouter_provider.plugin import (
 )
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
-# The shared arrangement; see ``_projection_harness``. Bound to the original private
+# The shared arrangement; see ``projection_harness``. Bound to the original private
 # names so every relocated test body below reads unchanged.
-from ._projection_harness import MODEL as _MODEL
-from ._projection_harness import STRICT as _STRICT
-from ._projection_harness import UPSTREAM as _UPSTREAM
-from ._projection_harness import body as _body
-from ._projection_harness import projected as _projected
+from .projection_harness import MODEL as _MODEL
+from .projection_harness import STRICT as _STRICT
+from .projection_harness import UPSTREAM as _UPSTREAM
+from .projection_harness import body as _body
+from .projection_harness import projected as _projected
 
 # --- the operator gate decides PARTICIPATION, not KEY MATERIAL (review MEDIUM-1) --
 

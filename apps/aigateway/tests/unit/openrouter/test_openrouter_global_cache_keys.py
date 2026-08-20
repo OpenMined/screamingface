@@ -33,13 +33,13 @@ from aigateway.plugins.openrouter_provider.routing_policy import (
     ROUTING_CONTROLS,
 )
 
-# The shared arrangement; see ``_projection_harness``. Bound to the original private
+# The shared arrangement; see ``projection_harness``. Bound to the original private
 # names so every relocated test body below reads unchanged.
-from ._projection_harness import MODEL as _MODEL
-from ._projection_harness import STRICT as _STRICT
-from ._projection_harness import body as _body
-from ._projection_harness import key as _key
-from ._projection_harness import plugin as _plugin
+from .projection_harness import MODEL as _MODEL
+from .projection_harness import STRICT as _STRICT
+from .projection_harness import body as _body
+from .projection_harness import key as _key
+from .projection_harness import plugin as _plugin
 
 # --- the promotion to `keyed`: the same pins, at the HASH ----------------------
 #
