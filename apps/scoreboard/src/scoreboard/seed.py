@@ -74,6 +74,11 @@ class _CatalogEntry(BaseModel):
 
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=255)
+    # INVARIANT: an empty description fails the whole entry, so the benchmark is not registered
+    # at all — no row, no board, and a submission against it is refused rather than merely
+    # looking plain. That is deliberate (an undescribed benchmark is not ready to publish) but
+    # the consequence is much larger than "missing text", so it is stated here. Existing rows
+    # survive it, because seeding upserts and never deletes; only a NEW benchmark is affected.
     description: str = Field(min_length=1)
     revision: str = Field(min_length=1, max_length=64)
     focus: str | None = Field(default=None, max_length=120)
@@ -171,6 +176,12 @@ def fetch_engine_benchmarks(
     Raises:
         EngineCatalogUnavailable: the catalogue could not be reached, answered an error status,
             or was not a readable catalogue document at all.
+
+    AIDEV-NOTE: this is SYNCHRONOUS on purpose and blocks its caller — `httpx.Client` plus
+    `time.sleep`, up to roughly 49s worst case (3 attempts x 15s timeout + 2 x 2s backoff).
+    That is harmless in the one-shot seed Job it was written for, where nothing else shares the
+    event loop, but `seed_from_sources` is `async` and could tempt a caller into running this
+    from a live server. Do not: convert to `httpx.AsyncClient` first.
     """
 
     url = engine_url.rstrip("/") + _CATALOG_PATH
@@ -193,6 +204,26 @@ def fetch_engine_benchmarks(
         except ValidationError:
             read.rejected.append(_entry_label(entry, position))
     return read
+
+
+def _unreadable_body(url: str, response: httpx.Response, exc: Exception) -> str:
+    """Explain a 200 that is not JSON, naming the cause an operator is most likely hitting.
+
+    WHY this is worth a function: the obvious address to put in ``engineUrl`` is the Engine's
+    PUBLIC hostname, and that host sits behind Cloudflare Access, which answers **200 with an
+    HTML sign-in page**. Every layer below then behaves correctly — the status check passes,
+    the parse fails, the failure is survivable, the job exits zero — and the feature is
+    silently off. This message is the only thing between an operator and a long afternoon.
+    """
+
+    content_type = response.headers.get("content-type", "unknown")
+    detail = f"{url} answered content-type {content_type} instead of JSON ({exc})"
+    if "html" in content_type.lower():
+        return (
+            f"{detail}. A public hostname behind an authentication proxy answers 200 with a "
+            "sign-in page: engineUrl must name the in-cluster Engine address, not the public one."
+        )
+    return detail
 
 
 def _entry_label(entry: object, position: int) -> str:
@@ -235,7 +266,7 @@ def _read_catalog(
             # not valid UTF-8, and both types are ValueErrors — an uncaught one used to surface
             # from the CLI as a command-line usage error, blaming the operator's arguments for a
             # mangled Engine response.
-            raise EngineCatalogUnavailable(f"{url} did not answer readable JSON: {exc}") from exc
+            raise EngineCatalogUnavailable(_unreadable_body(url, response, exc)) from exc
         if attempt < attempts:
             time.sleep(retry_delay)
     raise (
@@ -403,7 +434,14 @@ def _print_report(report: SeedReport) -> None:
     for benchmark_id in report.rejected:
         print(f"REJECTED catalog entry {benchmark_id}: the board could not read it")
     if report.engine_error is not None:
-        print(f"engine catalog unavailable: {report.engine_error}")
+        # WHY loud: this is the path where the feature is OFF. The deploy still succeeds and
+        # the board still serves whatever it held, so nothing else here would tell anyone that
+        # benchmark text just stopped being refreshed.
+        print(f"WARNING engine catalog unavailable: {report.engine_error}")
+        print(
+            "WARNING benchmark text was NOT refreshed this deploy; the board is serving "
+            "whatever the last successful seed wrote"
+        )
 
 
 async def _run(

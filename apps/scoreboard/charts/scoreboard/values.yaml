@@ -114,8 +114,16 @@ seedBenchmarks:
   # copy that used to live here was silently lost. An entry whose id the Engine publishes is
   # ignored by the seed job and named in its output.
   #
-  # Deployment-owned: set this to the Engine this board ranks submissions against. Left empty,
-  # the job seeds only the entries listed below.
+  # Deployment-owned: the Engine this board ranks submissions against.
+  #
+  # AIDEV-NOTE: this MUST be the Engine's in-cluster address (its Service DNS name), never the
+  # public hostname. The public host sits behind Cloudflare Access, which answers 200 with an
+  # HTML sign-in page rather than a 401 — verified 2026-08-20. The seed job then fails to parse
+  # it, falls back, refuses the stale configured entries, and exits zero, so the deploy looks
+  # clean while benchmark text silently stops being refreshed. The job logs a WARNING naming
+  # the content type when this happens.
+  #
+  # Left empty, the job seeds only the entries listed below.
   engineUrl: ""
   # Retained legacy demo entries (OME-775 D2). They predate the Engine benchmark catalogue and
   # have no Engine definition, so their text has nowhere else to live.

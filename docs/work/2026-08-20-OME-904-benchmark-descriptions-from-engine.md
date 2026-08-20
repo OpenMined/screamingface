@@ -125,6 +125,30 @@ Process lesson: three stacks in this repo import `scoreboard.seed`, and I ran ga
 Changing a signature means grepping for callers across the whole monorepo, not across the app
 that owns the file.
 
+## Second review round (PR #657, 2026-08-20) — approved with four notes
+
+All four verified before acting; the first by executing a request against the live host.
+
+- **The obvious `engineUrl` value silently disables the feature.**
+  `https://fusion.dev.screamingface.ai/v1/benchmarks` answers **HTTP 200 with `content-type:
+  text/html`** — a Cloudflare Access sign-in page, not a 401. Every layer then behaves as
+  designed: status check passes, parse fails, failure is survivable, stale configured entries
+  are refused, job exits zero. Deploy looks clean, text never refreshes. Fixed three ways: the
+  parse error now names the content type and says the address must be in-cluster; the fallback
+  logs at WARNING and states that text was not refreshed; the chart comment records why the
+  public hostname is the wrong value.
+- **Nothing exercised a real Engine response.** Every test fed the parser a payload written in
+  this repo, so they proved the parser agrees with itself — the same shape as the bug being
+  fixed. Added `tests/fixtures/engine_catalog.json`, captured from the actual producer
+  (`catalog_entry()` over the real registry), and a test that parses it. It passed first run,
+  which is the confirmation that was missing rather than a fix.
+- **Blocking I/O inside an async caller** — sync `httpx.Client` + `time.sleep`, ~49s worst
+  case. Correct for a one-shot Job; documented as an AIDEV-NOTE because `seed_from_sources` is
+  `async` and would tempt a caller into running it from a live server.
+- **An empty description drops the whole benchmark**, not just its text — no row, no board,
+  submissions refused. Intended, but a much larger consequence than the field suggests, so it
+  is now stated at the field.
+
 Owner-approved prior-test edits (sdlc rule 5, 2026-08-20): 18 lines across two committed test
 files — five mechanical (the fetch returns a `CatalogRead` so it can report unreadable
 entries), eight adding `retry_delay=0` so failure tests do not sleep through the real backoff

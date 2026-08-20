@@ -6,6 +6,7 @@ STORY: as a leaderboard reader, I see what a benchmark tests without leaving the
 
 from __future__ import annotations
 
+import json
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -506,3 +507,56 @@ async def test_supplied_registry_rows_are_used_instead_of_fetching(tortoise_db: 
         )
 
     assert [row.id for row in report.seeded] == ["draco"]
+
+
+# --- review findings: the catalogue this parser will actually meet ---------------------------
+
+
+async def test_the_real_engine_response_parses_into_every_board_row() -> None:
+    # WHY a recorded fixture: every other test here feeds this parser a payload written in this
+    # repo, so they prove the parser agrees with ITSELF. The bug this ticket fixes lived in a
+    # deploy-time path no test executed. `engine_catalog.json` is the actual body
+    # `rest/benchmarks.py` assembles from the real registry — regenerate it with the header in
+    # that file when the Engine's catalogue shape changes.
+    payload = json.loads(
+        (Path(__file__).resolve().parents[1] / "fixtures" / "engine_catalog.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    with _serving(payload) as client:
+        read = fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
+
+    assert read.rejected == []
+    assert [row.id for row in read.rows] == [
+        "draco",
+        "healthbench-professional",
+        "healthbench-worst30",
+        "ifeval",
+    ]
+    draco = read.rows[0]
+    assert draco.display_name == "DRACO"
+    assert draco.description is not None
+    assert draco.description.startswith("A 100-task DRACO reproduction")
+    assert draco.revision
+    assert draco.focus == "Research reports with citations"
+    # INVARIANT: the Engine publishes keys this board does not store (case_count, href,
+    # check_surface). Meeting one must never cost a benchmark its row.
+    assert {"case_count", "href", "check_surface"} <= set(payload["data"][0])
+
+
+async def test_an_auth_proxy_sign_in_page_is_diagnosed_rather_than_just_rejected() -> None:
+    # WHY: the obvious hostname to paste into engineUrl is the PUBLIC one, and that host sits
+    # behind Cloudflare Access — verified 2026-08-20, it answers 200 with an HTML sign-in page.
+    # Every layer then behaves correctly and the feature is silently off, so the error message
+    # is the only thing standing between an operator and a long afternoon.
+    page = "<!DOCTYPE html><html><head><title>Sign in ・ Cloudflare Access</title></head></html>"
+    with _client(
+        lambda request: httpx.Response(
+            200, text=page, headers={"content-type": "text/html; charset=utf-8"}
+        )
+    ) as client:
+        with pytest.raises(EngineCatalogUnavailable, match="text/html") as raised:
+            fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
+
+    assert "in-cluster" in str(raised.value)
