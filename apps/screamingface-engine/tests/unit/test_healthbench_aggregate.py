@@ -20,6 +20,7 @@ from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     RUBRIC_EVALUATION_SCHEMA,
 )
 from screamingface_engine.benchmarks.healthbench.records import CASE_SCHEMA, RUBRIC_SCHEMA
+from screamingface_engine.benchmarks.healthbench.scoring import clipped_mean, unclipped_mean
 from screamingface_engine.benchmarks.healthbench.verdict import SCHEMA as VERDICT_SCHEMA
 
 
@@ -139,7 +140,14 @@ def test_fully_judged_cases_score_and_mean_unclipped(tmp_path: Path) -> None:
             _case_row(2, {1: True}),  # 1.0
         ]
     )
-    result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
+    result = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1, 2),
+        mean=unclipped_mean,
+    )
     assert result["score"] == pytest.approx((1.0 - 0.4) / 2)
     assert result["coverage"] == 1.0
     assert result["metrics"].get("scored_cases") == 2
@@ -205,7 +213,14 @@ def test_canonical_contract_metrics_map_healthbench_semantics(tmp_path: Path) ->
             _case_row(2, {1: True}),
         ]
     )
-    result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
+    result = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1, 2),
+        mean=unclipped_mean,
+    )
     # 2 of 4 judged criteria met (case 1: only the penalty item; case 2: its one item).
     assert result["metrics"]["pass_rate"] == pytest.approx(0.5)
     assert result["coverage"] == result["metrics"]["verdict_coverage"] == 1.0
@@ -220,7 +235,14 @@ def test_a_negative_unclipped_mean_survives_the_contract(tmp_path: Path) -> None
 
     _write_rubric(tmp_path, 1, [2, -8])
     rows = json.dumps([_case_row(1, {1: True, 2: True})])  # (2-8)/2 = -3.0
-    result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,))
+    result = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1,),
+        mean=unclipped_mean,
+    )
     assert result["score"] == pytest.approx(-3.0)
     assert result["metrics"]["pass_rate"] == 1.0  # every criterion judged MET — yet negative
 
@@ -238,6 +260,7 @@ def test_duplicate_rubric_entries_abort_as_protocol_corruption(tmp_path: Path) -
             benchmark_id="hb",
             benchmark_revision="rev",
             case_ids=(1,),
+            mean=unclipped_mean,
         )
 
 
@@ -247,7 +270,14 @@ def test_a_missing_rubric_asset_lowers_coverage_without_erasing_valid_scores(
     _write_rubric(tmp_path, 1, [7])
     _write_case(tmp_path, 2)
     rows = json.dumps([_case_row(1, {1: True}), _case_row(2, {1: True})])
-    result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
+    result = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1, 2),
+        mean=unclipped_mean,
+    )
     assert result["score"] == 1.0
     assert result["coverage"] == 0.5
     assert _failure_codes(result) == {1: None, 2: "missing_rubric_asset"}
@@ -272,7 +302,14 @@ def test_an_error_collected_row_fails_its_case(tmp_path: Path) -> None:
             },
         ]
     )
-    result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1, 2))
+    result = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1, 2),
+        mean=unclipped_mean,
+    )
     assert result["score"] == 1.0
     assert result["coverage"] == 0.5
     assert _failure_codes(result)[2] == "case_error"
@@ -292,7 +329,14 @@ def test_partial_verdicts_never_score(tmp_path: Path) -> None:
     # missing any verdict must fail, never score from the items that did parse.
     _write_rubric(tmp_path, 1, [7, -6])
     rows = json.dumps([_case_row(1, {1: True})])  # the -6 item was never judged
-    result = aggregate(rows, tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,))
+    result = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1,),
+        mean=unclipped_mean,
+    )
     assert result["score"] is None
     assert _failure_codes(result) == {1: "incomplete_verdicts"}
     # The judged item's evidence is still auditable via grade.checks even though
@@ -316,6 +360,7 @@ def test_a_malformed_case_envelope_aborts_as_protocol_corruption(tmp_path: Path)
             benchmark_id="hb",
             benchmark_revision="rev",
             case_ids=(1, 2),
+            mean=unclipped_mean,
         )
 
 
@@ -333,7 +378,12 @@ def test_invalid_judge_evidence_counts_and_fails_the_case(tmp_path: Path) -> Non
         "raw_output": "not json",
     }
     result = aggregate(
-        json.dumps([row]), tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,)
+        json.dumps([row]),
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1,),
+        mean=unclipped_mean,
     )
     assert result["score"] is None
     assert result["metrics"] == {}  # unscored → empty (SDK report rule)
@@ -354,6 +404,7 @@ def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Pa
         benchmark_id="hb",
         benchmark_revision="rev",
         case_ids=(1, 2),
+        mean=unclipped_mean,
     )
 
     assert result["score"] == 0.5
@@ -382,6 +433,7 @@ def test_corrective_execution_provenance_reaches_the_case_result(tmp_path: Path)
         benchmark_id="hb",
         benchmark_revision="rev",
         case_ids=(1,),
+        mean=unclipped_mean,
     )
 
     case = result["cases"][0]
@@ -398,6 +450,7 @@ def test_a_missing_case_row_is_visible(tmp_path: Path) -> None:
         benchmark_id="hb",
         benchmark_revision="rev",
         case_ids=(1, 2),
+        mean=unclipped_mean,
     )
     assert result["score"] == 1.0
     assert result["coverage"] == 0.5
@@ -406,12 +459,26 @@ def test_a_missing_case_row_is_visible(tmp_path: Path) -> None:
 
 def test_unusable_row_payloads_raise_before_scoring(tmp_path: Path) -> None:
     with pytest.raises(AggregateError):
-        aggregate("not json", tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,))
+        aggregate(
+            "not json",
+            tmp_path,
+            benchmark_id="hb",
+            benchmark_revision="rev",
+            case_ids=(1,),
+            mean=unclipped_mean,
+        )
 
 
 def test_no_rows_retains_every_selected_case_as_failed(tmp_path: Path) -> None:
     _write_rubric(tmp_path, 1, [7])
-    result = aggregate("[]", tmp_path, benchmark_id="hb", benchmark_revision="rev", case_ids=(1,))
+    result = aggregate(
+        "[]",
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1,),
+        mean=unclipped_mean,
+    )
 
     assert result["score"] is None
     assert result["cases"][0]["failures"][0]["code"] == "missing_case_row"
@@ -431,3 +498,61 @@ def test_load_rubric_points_rejects_malformed_assets(tmp_path: Path) -> None:
         json.dumps({"items": [{"rubric_id": 2, "points": 7}]}), encoding="utf-8"
     )
     assert load_rubric_points(tmp_path, 9) is None  # ids must be consecutive from 1
+
+
+def test_the_official_board_floors_a_negative_mean_at_zero(tmp_path: Path) -> None:
+    """INVARIANT (OME-903): one reduction, two exam-level metrics.
+
+    The SAME graded Cases must produce the challenge number on the worst-30% board and the
+    official number on the professional board — the clip is the ONLY difference. A run
+    dominated by safety penalties averages -3.0 here; the official HealthBench aggregate
+    reports 0.0 for it, which is what makes the number comparable to published figures.
+    """
+
+    _write_rubric(tmp_path, 1, [2, -8])
+    rows = json.dumps([_case_row(1, {1: True, 2: True})])  # (2-8)/2 = -3.0
+
+    challenge = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1,),
+        mean=unclipped_mean,
+    )
+    official = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1,),
+        mean=clipped_mean,
+    )
+
+    assert challenge["score"] == pytest.approx(-3.0)
+    assert official["score"] == 0.0
+    # Only the exam-level number moves: the per-Case grade keeps its unclamped truth, so a
+    # reader can still see WHY the board says zero.
+    assert official["cases"][0]["grade"]["score"] == pytest.approx(-3.0)
+    assert official["coverage"] == challenge["coverage"] == 1.0
+    assert official["metrics"]["pass_rate"] == challenge["metrics"]["pass_rate"]
+
+
+def test_the_official_board_leaves_an_ordinary_mean_alone(tmp_path: Path) -> None:
+    _write_rubric(tmp_path, 1, [7, 8, -6])
+    _write_rubric(tmp_path, 2, [5])
+    rows = json.dumps(
+        [
+            _case_row(1, {1: True, 2: True, 3: False}),  # 15/15 = 1.0
+            _case_row(2, {1: False}),  # 0.0
+        ]
+    )
+    result = aggregate(
+        rows,
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1, 2),
+        mean=clipped_mean,
+    )
+    assert result["score"] == pytest.approx(0.5)

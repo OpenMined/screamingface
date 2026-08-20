@@ -2,6 +2,7 @@
 
 from screamingface_engine.benchmarks.draco.definition import DRACO
 from screamingface_engine.benchmarks.healthbench.definition import (
+    HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
 )
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
@@ -16,6 +17,7 @@ BUILTIN_BENCHMARKS = BenchmarkRegistry(
         DRACO,
         IFEVAL,
         HEALTHBENCH_WORST30,
+        HEALTHBENCH_PROFESSIONAL,
     )
 )
 

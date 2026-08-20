@@ -18,6 +18,7 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
 )
 from screamingface_engine.benchmarks.healthbench.scoring import (
     case_score,
+    clipped_mean,
     sample_stdev,
     unclipped_mean,
     verdict_coverage,
@@ -150,3 +151,19 @@ def test_stdev_is_sample_not_population() -> None:
 def test_verdict_coverage() -> None:
     assert verdict_coverage(3, 4) == pytest.approx(0.75)
     assert verdict_coverage(0, 0) == 0.0
+
+
+def test_the_official_aggregate_clips_only_where_the_reference_clips() -> None:
+    """The official HealthBench exam metric — the reference's ``np.clip(mean, 0, 1)``.
+
+    Worked example: two Cases scoring ``[0.8, -1.4]`` average to -0.3; a published
+    HealthBench figure would report 0.0, never a negative. The upper bound is structurally
+    unreachable (a Case score is earned/best-possible with earned <= best possible), but it
+    is kept so this function IS the reference's clip rather than half of it.
+    """
+
+    assert clipped_mean([0.8, -1.4]) == 0.0
+    assert clipped_mean([0.25, 0.75]) == pytest.approx(0.5)
+    assert clipped_mean([1.0, 1.0]) == 1.0
+    # Unscorable exam: "we could not score this" is not "the answer scored zero".
+    assert clipped_mean([]) is None
