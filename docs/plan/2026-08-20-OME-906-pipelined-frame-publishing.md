@@ -1,4 +1,9 @@
-# OME-906 — Implementation plan
+# Implementation plan — pipelined frame publishing
+
+> **Steps 1 to 4 are delivered. Step 5 is NOT, and must not be attempted as written.** The
+> reproduction it asks for disproved the spec's premise: pipelining does not raise the
+> overflow ceiling. See the correction at the top of the spec and the evidence in the work
+> ledger. The real fix needs its own spec and plan.
 
 - **Spec:** `docs/spec/2026-08-20-OME-906-pipelined-frame-publishing.md`
 - **Linear:** https://linear.app/openmined/issue/OME-906
@@ -264,5 +269,9 @@ import `screamingface_engine.metrics`.
 
 ## Definition of done
 
-All six acceptance criteria of OME-906 hold. Both gate sets are green. The work ledger
-records the commits and the gate output.
+**Not met, and correctly so.** Steps 1 to 4 are delivered with both gate sets green. Step 5
+stopped the unit: it showed that acceptance criteria 1, 2, 3 and 5 of OME-906 cannot be met
+by this design, because the design targets the wrong mechanism.
+
+Delivered here: the two-phase publish contract (a 50x wall-clock gain at a 10 ms round trip)
+and the bridge high-water mark (acceptance criterion 6). Everything else stays open.

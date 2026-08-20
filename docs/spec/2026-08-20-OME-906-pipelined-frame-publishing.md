@@ -1,8 +1,29 @@
-# OME-906 — Pipelined frame publishing for the Runner event bridge
+# Pipelined frame publishing for the Runner event bridge
 
-- **Linear:** https://linear.app/openmined/issue/OME-906
+- **Linear:** https://linear.app/openmined/issue/OME-906 (investigation origin — NOT closed by this)
 - **Landing:** `apps/screamingface-engine` and `packages/url4`
-- **Status:** spec — approved for planning
+- **Status:** delivered — but see the correction below
+
+> ## CORRECTION — read this first
+>
+> Sections 1 to 4 record the design as it was approved. The premise of section 1 was
+> **measured to be wrong** during implementation.
+>
+> The bridge backlog does NOT depend on how fast the publisher drains it. Across a 100x
+> range of publish latency (0 ms to 10 ms per frame) the peak backlog stays flat. The cap
+> bounds how many events the engine emits **between two chances for the drain to run**, and
+> `url4/dag/executor.py:182` emits `NodeStarted` before it awaits anything while `:186` fans
+> out over `node.deps` with an unbounded `asyncio.gather`. A DAG of width W therefore
+> buffers about W events in ONE event-loop slice. The cap is a ceiling on DAG width.
+>
+> The full evidence is in
+> `docs/work/2026-08-20-OME-906-pipelined-frame-publishing.md`.
+>
+> **What this spec delivered is still correct and still valuable on its own terms:** a
+> two-phase publish contract that cuts wall-clock time by about 50x at a 10 ms round trip,
+> and the high-water reporting that made the real cause measurable. It does NOT fix
+> OME-906. Acceptance criteria 1, 2, 3 and 5 in section 8 remain open, and the real fix
+> needs its own spec.
 
 ## 1. Problem
 
@@ -73,6 +94,10 @@ The solution must obey these constraints.
 C2 is the strongest constraint. It removes most candidate designs.
 
 ## 3. Rejected options
+
+> Row 1 of this table is wrong. See the correction above: raising the cap is the correct
+> direction, because the cap is the binding constraint and the publisher is not. 8192
+> buffered events measure 2.1 MB, in a process that accepts a 1 GiB result.
 
 | Option | Reason for rejection |
 |---|---|
