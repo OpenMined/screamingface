@@ -31,6 +31,7 @@ References:
 from __future__ import annotations
 
 from screamingface_engine.benchmarks.draco.exam import (
+    ASSET_BUNDLE_ID,
     CASE_COUNT,
     CHECK_CRITERION,
     DATASET,
@@ -92,6 +93,7 @@ CHECK_SURFACE_ROUTE = CANONICAL_EXAM.routes.check_surface
 
 __all__ = [
     "AGGREGATE_ROUTE",
+    "ASSET_BUNDLE_ID",
     "BENCHMARK_ID",
     "CASE_COUNT",
     "CASE_EVALUATION_ROUTE",

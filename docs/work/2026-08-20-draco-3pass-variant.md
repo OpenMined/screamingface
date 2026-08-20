@@ -55,3 +55,27 @@ comparable.
   named in the owner-approved spec/plan (Confidence-Gate decision at approval).
   Engine unit suite: 1850 passed, 5 skipped; SDK benchmark/catalog + scoreboard green.
 - **Deviations:** none.
+
+## Merge resolution (2026-08-20, main → this branch)
+
+PR #674 (OME-875 benchmark image assets) landed on main hours after this branch
+opened and collided in `builtins.py` + `draco/definition.py`. Resolution keeps both
+intents:
+
+- `draco/definition.py` — this branch's board-factory rewrite kept; `ASSET_BUNDLE_ID`
+  re-export added (declared in `exam.py` beside the shared pins) so OME-875's
+  `builtins.py`/`draco/prepare.py` imports resolve. `exam.py`'s install closure now
+  appends `ASSET_BUNDLE_ID` instead of the hardcoded `"draco"` (same directory).
+- `builtins.py` — main's `BUILTIN_DEPLOYMENT` machinery kept; `DRACO_3PASS` registered
+  beside `DRACO` on the shared `DRACO_ASSETS` bundle (same pattern as the HealthBench
+  pair: two boards, one physical asset set, prepared once).
+- `test_benchmark_deployment.py` (new on main) — the exact-map assertion gains
+  `"draco-3pass": "draco"`. Third prior-test edit, NOT in the approved spec (the
+  test postdates it); same category as the two approved edits (exact-set catalogue
+  assertion gains the new board) and unavoidable — the suite is red without it.
+  Confidence-Gate decision taken on that pattern-match basis.
+
+Gates after merge: `run_gates.py screamingface-engine --base origin/main
+--skip-append-only` ALL GATES GREEN (skip covers the two approved edits + the one
+above). Engine unit suite: 1891 passed, 5 skipped (main added jetstream/publish/url4
+streaming tests since the branch opened).

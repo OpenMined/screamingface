@@ -253,6 +253,16 @@ RESULT_HARD_CAP_BYTES = "URL4_CLOUD_RESULT_HARD_CAP_BYTES"
 spilling. The result is already in Runner RAM when checked (string + encoded copy ≈ 2-3× its
 size), so size this to pod memory, not disk."""
 
+BRIDGE_MEMORY_BUDGET_BYTES = "URL4_CLOUD_BRIDGE_MEMORY_BUDGET_BYTES"
+"""Memory ceiling for the runner's event-bridge backlog: past it the run FAILS with
+``BridgeOverflowError`` instead of buffering on. Converted to an event count at 512 B per
+event (see ``runner.executor.EVENT_SIZE_ESTIMATE_BYTES``) — a bound on what the backlog may
+COST, not on how wide a DAG may be (OME-906)."""
+
+DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES = 67_108_864
+"""64 MiB ≈ 131 072 events at the 512 B estimate — 30× the widest burst measured (OME-906)
+and 1/16 of :data:`DEFAULT_RESULT_HARD_CAP_BYTES`, in the same process."""
+
 DEFAULT_RESULT_HARD_CAP_BYTES = 1_073_741_824
 """1 GiB — clears a plausible full-benchmark-scale report while catching runaway output."""
 
@@ -305,6 +315,7 @@ DEPLOY_TIME = frozenset(
         ARTIFACTS_DIR,
         RESULT_INLINE_CAP_BYTES,
         RESULT_HARD_CAP_BYTES,
+        BRIDGE_MEMORY_BUDGET_BYTES,
     }
 )
 """Helm owns these end-to-end. The App writing one would make it two sources of truth again."""
@@ -314,9 +325,11 @@ __all__ = [
     "AIGATEWAY_MODEL",
     "AIGATEWAY_PROFILE",
     "ARTIFACTS_DIR",
+    "BRIDGE_MEMORY_BUDGET_BYTES",
     "CACHE_MAX_AGE_S",
     "CACHE_PARTICIPATE",
     "DEFAULT_ARTIFACTS_DIR",
+    "DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES",
     "DEFAULT_NATS_URL",
     "DEFAULT_RESULT_HARD_CAP_BYTES",
     "DEFAULT_RESULT_INLINE_CAP_BYTES",

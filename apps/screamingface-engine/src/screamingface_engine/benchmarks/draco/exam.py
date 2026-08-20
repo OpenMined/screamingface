@@ -46,6 +46,10 @@ DATASET = "perplexity-ai/draco"
 DATASET_REVISION = "ce076749809027649ebd331bcb70f42bf720d387"
 DATASET_PREPARER_REVISION = "datasets-5.0.0"
 CASE_COUNT = 100
+# The one physical asset directory every DRACO board reads — one immutable case/rubric
+# bake, never a per-board one. The deployment names this id when it prepares the bundle
+# (OME-875); definition.py re-exports it for the image build.
+ASSET_BUNDLE_ID = "draco"
 # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09. Google designated
 # Gemini-3.1-Pro Preview as its replacement, so this reproduction uses that successor model.
 JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
@@ -308,7 +312,7 @@ def draco_benchmark(
 
         # INVARIANT: every board reads the SAME baked asset directory — one immutable
         # case/rubric set, never a per-board bake.
-        install_runtime(node, assets / "draco", exam)
+        install_runtime(node, assets / ASSET_BUNDLE_ID, exam)
 
     benchmark = Benchmark(
         id=id,
@@ -370,6 +374,7 @@ def _url4_text(value: str) -> str:
 
 
 __all__ = [
+    "ASSET_BUNDLE_ID",
     "CASE_COUNT",
     "CHECK_CRITERION",
     "DATASET",

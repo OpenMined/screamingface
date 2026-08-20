@@ -11,7 +11,33 @@ class EventPublisher(ABC):
 
     @abstractmethod
     async def publish(self, topic: str, event: OutboundFrame) -> None:
-        pass
+        """Hand one frame to the transport.
+
+        The frames reach the broker in CALL ORDER. An adapter MAY defer the durability
+        acknowledgement to :meth:`flush` — so a return from here means "accepted, in
+        order", not yet "durable".
+
+        INVARIANT: exactly ONE task calls this per topic. A deferring adapter can only
+        order the writes it performs itself, and the consumer finds gaps by the sequence
+        the broker assigns from that order, so concurrent callers void both guarantees.
+
+        Raises when a PREVIOUSLY deferred publish has since failed, so a broken transport
+        stops a run promptly instead of after the whole in-flight window drains.
+        """
+
+    async def flush(self) -> None:
+        """Wait until every frame published so far is durable.
+
+        Raises the first deferred failure, then DISCARDS the remaining deferred state, so
+        the termination path's own flush does not re-raise an error already reported —
+        every exit from a run must still get its terminal frame out.
+
+        Does nothing by default: an adapter whose :meth:`publish` is already durable when
+        it returns has nothing to wait for. Only a DEFERRING adapter overrides this, which
+        is why this is not abstract — making it so would break every in-process adapter
+        and test fake to serve one broker-backed implementation.
+        """
+        return None
 
     async def close(self) -> None:
         pass
