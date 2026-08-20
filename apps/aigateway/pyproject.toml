@@ -10,7 +10,7 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "litellm>=1.55",
-    "tortoise-orm[asyncpg]==1.1.7",
+    "tortoise-orm[asyncpg]==1.1.8",
     "PyJWT==2.13.0",
     "bcrypt==5.0.0",
     "asyncpg==0.31.0",
