@@ -132,13 +132,25 @@ def run_scoreboard(config: RuntimeConfig) -> None:
     import uvicorn  # pyright: ignore[reportMissingImports]
     from scoreboard.config import Settings
     from scoreboard.main import create_app
-    from scoreboard.seed import _run
+    from scoreboard.seed import _run, load_benchmarks_json
     from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 
     # The Engine owns benchmark identity and revision. Deriving the local Scoreboard catalogue
     # from that same registry prevents retired aliases or stale revisions from making a completed
     # local evaluation impossible to publish.
-    asyncio.run(_run(scoreboard_seed_json(BUILTIN_BENCHMARKS)))
+    #
+    # WHY `engine_rows` and not `configured`: these ARE the Engine's benchmarks, read by import
+    # because a local stack runs both in one virtualenv. Handing them in as configuration would
+    # trip the seeder's rule that configuration may not assert a revision the Engine did not
+    # publish — every row would be refused and the local leaderboard would come up empty
+    # (OME-904).
+    asyncio.run(
+        _run(
+            configured=[],
+            engine_url=None,
+            engine_rows=load_benchmarks_json(scoreboard_seed_json(BUILTIN_BENCHMARKS)),
+        )
+    )
     settings = Settings(
         host="127.0.0.1",
         port=9106,

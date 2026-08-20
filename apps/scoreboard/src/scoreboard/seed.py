@@ -249,6 +249,7 @@ async def seed_from_sources(
     *,
     engine_url: str | None,
     configured: Sequence[SeedBenchmark],
+    engine_rows: Sequence[SeedBenchmark] | None = None,
     client: httpx.Client | None = None,
     retry_delay: float = _RETRY_DELAY_SECONDS,
 ) -> SeedReport:
@@ -262,9 +263,12 @@ async def seed_from_sources(
     Stage 1 — ask whether this board has ever been seeded from a catalogue, BEFORE writing
     anything. Reading this afterwards would let the pass count its own writes and call an empty
     board healthy.
-    Stage 2 — read the Engine catalogue when one is configured. A failure here is recorded, not
-    raised: re-seeding refreshes a populated board, so failing a Scoreboard deploy on an
-    unrelated service's health would cost availability and buy nothing.
+    Stage 2 — obtain the Engine's catalogue. There are two adapters for the same thing: a
+    deployment fetches it over HTTP, and a local stack — where the board and the Engine share
+    one virtualenv — hands its imported registry straight in as ``engine_rows``. Either way
+    those rows are Engine-owned. A fetch failure is recorded, not raised: re-seeding refreshes
+    a populated board, so failing a Scoreboard deploy on an unrelated service's health would
+    cost availability and buy nothing.
     Stage 3 — decide what configuration is allowed to write. Two entries are refused outright:
     one asserting a ``revision`` the Engine did not publish in this same pass (a revision is
     the Engine's claim about its own benchmark, and configuration restating it is the second
@@ -284,6 +288,10 @@ async def seed_from_sources(
         engine_url: the Engine to read, or None for a deployment that runs without one.
         configured: entries from deployment configuration — the retained legacy demos, plus
             anything the Engine does not publish.
+        engine_rows: the Engine's benchmarks supplied directly, for a caller that already has
+            the registry in process. Given these, nothing is fetched and ``engine_url`` is
+            unused. Passing registry rows as ``configured`` instead would be a bug: they carry
+            revisions, so the Stage 3 refusal would reject every one of them.
         client: an HTTP client to use instead of opening one (see
             :func:`fetch_engine_benchmarks`).
         retry_delay: seconds between catalogue attempts (see
@@ -300,17 +308,17 @@ async def seed_from_sources(
     engine_owned = {row.id for row in await store.list_benchmarks() if row.revision is not None}
 
     report = SeedReport()
-    engine_rows: list[SeedBenchmark] = []
-    if engine_url:
+    published_rows: list[SeedBenchmark] = list(engine_rows) if engine_rows is not None else []
+    if engine_rows is None and engine_url:
         try:
             read = fetch_engine_benchmarks(engine_url, client=client, retry_delay=retry_delay)
         except EngineCatalogUnavailable as exc:
             report.engine_error = str(exc)
         else:
-            engine_rows = read.rows
+            published_rows = read.rows
             report.rejected = read.rejected
 
-    published = {row.id for row in engine_rows}
+    published = {row.id for row in published_rows}
     allowed: list[SeedBenchmark] = []
     for row in configured:
         if row.id in published:
@@ -322,7 +330,7 @@ async def seed_from_sources(
     report.shadowed.sort()
     report.refused.sort()
 
-    report.seeded = await seed_benchmarks([*engine_rows, *allowed])
+    report.seeded = await seed_benchmarks([*published_rows, *allowed])
     report.bootstrap_failed = report.engine_error is not None and not seeded_before
     return report
 
@@ -398,15 +406,21 @@ def _print_report(report: SeedReport) -> None:
         print(f"engine catalog unavailable: {report.engine_error}")
 
 
-async def _run(configured: Sequence[SeedBenchmark], engine_url: str | None) -> int:
-    if not configured and not engine_url:
+async def _run(
+    configured: Sequence[SeedBenchmark],
+    engine_url: str | None,
+    engine_rows: Sequence[SeedBenchmark] | None = None,
+) -> int:
+    if not configured and not engine_url and not engine_rows:
         print("no benchmarks configured")
         return 0
 
     settings = Settings()
     await init_db(settings.database_url)
     try:
-        report = await seed_from_sources(engine_url=engine_url, configured=configured)
+        report = await seed_from_sources(
+            engine_url=engine_url, configured=configured, engine_rows=engine_rows
+        )
         _print_report(report)
         if report.bootstrap_failed:
             print("no benchmark carries an Engine revision: this board has never been seeded")

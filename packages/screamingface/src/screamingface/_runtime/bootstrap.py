@@ -26,7 +26,13 @@ def enable_local_providers(environment: MutableMapping[str, str]) -> None:
 
 
 def scoreboard_seed_json(benchmarks: Iterable[BenchmarkDefinition]) -> str:
-    """Project the Engine-owned registry onto Scoreboard's registration contract."""
+    """Project the Engine-owned registry onto Scoreboard's registration contract.
+
+    This is the local twin of what a deployment does over HTTP: the same fields the Engine's
+    ``/v1/benchmarks`` catalogue publishes, read by import because a local stack runs the
+    Engine and the board in one virtualenv (OME-904). Keeping the two projections in step is
+    what makes a local leaderboard look like the deployed one.
+    """
 
     return json.dumps(
         [
@@ -35,6 +41,13 @@ def scoreboard_seed_json(benchmarks: Iterable[BenchmarkDefinition]) -> str:
                 "display_name": benchmark.title,
                 "description": benchmark.description,
                 "revision": benchmark.revision,
+                # Optional in the Engine, so absent stays absent rather than becoming null.
+                **({"focus": focus} if (focus := getattr(benchmark, "focus", None)) else {}),
+                **(
+                    {"dataset_url": dataset_url}
+                    if (dataset_url := getattr(benchmark, "dataset_url", None))
+                    else {}
+                ),
             }
             for benchmark in benchmarks
         ]

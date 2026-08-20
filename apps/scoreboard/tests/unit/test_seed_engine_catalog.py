@@ -456,3 +456,53 @@ async def test_a_client_error_is_not_retried() -> None:
             fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
 
     assert len(attempts) == 1
+
+
+# --- the in-process adapter: a local stack imports the registry instead of fetching it -------
+
+
+async def test_registry_rows_are_engine_rows_not_configuration(tortoise_db: None) -> None:
+    # INVARIANT: a local stack (the pip-installable runtime) runs Engine and board in one venv,
+    # so it reads the registry by import rather than over HTTP. Those rows are just as
+    # Engine-owned as fetched ones — passing them as `configured` would trip the refusal rule
+    # (they carry revisions) and seed an empty local leaderboard.
+    engine_rows = load_benchmarks_json(
+        '[{"id":"draco","display_name":"DRACO","description":"From the registry",'
+        '"revision":"rev-draco","focus":"Research reports with citations"}]'
+    )
+
+    report = await seed_from_sources(engine_url=None, engine_rows=engine_rows, configured=[])
+
+    draco = await Benchmark.get(id="draco")
+    assert draco.description == "From the registry"
+    assert draco.revision == "rev-draco"
+    assert draco.focus == "Research reports with citations"
+    assert report.refused == []
+    assert report.engine_error is None
+
+
+async def test_supplied_registry_rows_still_win_over_configuration(tortoise_db: None) -> None:
+    engine_rows = load_benchmarks_json('[{"id":"draco","display_name":"DRACO"}]')
+    configured = load_benchmarks_json('[{"id":"draco","display_name":"Stale"}]')
+
+    report = await seed_from_sources(
+        engine_url=None, engine_rows=engine_rows, configured=configured
+    )
+
+    assert (await Benchmark.get(id="draco")).display_name == "DRACO"
+    assert report.shadowed == ["draco"]
+
+
+async def test_supplied_registry_rows_are_used_instead_of_fetching(tortoise_db: None) -> None:
+    # WHY: the local stack has no Engine URL at all, and must never reach the network to seed.
+    def _explode(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("the in-process adapter must not make an HTTP request")
+
+    engine_rows = load_benchmarks_json('[{"id":"draco","display_name":"DRACO"}]')
+
+    with _client(_explode) as client:
+        report = await seed_from_sources(
+            engine_url=ENGINE_URL, engine_rows=engine_rows, configured=[], client=client
+        )
+
+    assert [row.id for row in report.seeded] == ["draco"]

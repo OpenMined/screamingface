@@ -106,6 +106,25 @@ not `JSONDecodeError`, on a non-UTF-8 body).
   and 5xx (never a 4xx or a mangled body); and `parser.error` no longer wraps the whole run, so
   an unrelated `ValueError` can no longer surface as a command-line usage error.
 
+## CI round (PR #657, 2026-08-20)
+
+CI caught a caller I never looked for: `packages/screamingface/_runtime/server.py:141` imports
+`scoreboard.seed._run`, whose signature this work changed. Pyright reported the missing
+argument, but the signature was the smaller half — that local runtime seeds its board from
+`scoreboard_seed_json(BUILTIN_BENCHMARKS)`, whose rows carry revisions, so under the new
+refusal rule every one of them would have been refused and a local leaderboard would have come
+up EMPTY. A green type-check would still have shipped a broken local stack.
+
+The root cause was the API, not the call site. That path is doing exactly what this ticket
+does — derive the board's catalogue from the Engine registry — in process rather than over
+HTTP, because a local stack runs both in one virtualenv. It had no door. `seed_from_sources`
+and `_run` now take `engine_rows`, the in-process adapter beside the HTTP one, and the local
+projection also carries `focus`/`dataset_url` so a local board matches the deployed one.
+
+Process lesson: three stacks in this repo import `scoreboard.seed`, and I ran gates for two.
+Changing a signature means grepping for callers across the whole monorepo, not across the app
+that owns the file.
+
 Owner-approved prior-test edits (sdlc rule 5, 2026-08-20): 18 lines across two committed test
 files — five mechanical (the fetch returns a `CatalogRead` so it can report unreadable
 entries), eight adding `retry_delay=0` so failure tests do not sleep through the real backoff

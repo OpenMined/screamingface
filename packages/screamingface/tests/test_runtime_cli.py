@@ -85,3 +85,39 @@ def test_scoreboard_seed_is_derived_from_engine_benchmark_identity() -> None:
             "revision": "revision-from-engine",
         }
     ]
+
+
+def test_the_local_projection_carries_the_leaderboard_display_fields() -> None:
+    # INVARIANT: the local board must show what the deployed board shows (OME-904). The Engine
+    # publishes focus and dataset_url in its catalogue; a local stack reads the same registry by
+    # import, so dropping them here would make a local leaderboard quietly poorer than the real
+    # one — the two projections have to stay in step.
+    class Benchmark:
+        id = "draco"
+        title = "DRACO"
+        description = "Research reports"
+        revision = "revision-from-engine"
+        focus = "Research reports with citations"
+        dataset_url = "https://huggingface.co/datasets/perplexity-ai/draco"
+
+    projected = json.loads(scoreboard_seed_json([Benchmark()]))[0]
+
+    assert projected["focus"] == "Research reports with citations"
+    assert projected["dataset_url"] == "https://huggingface.co/datasets/perplexity-ai/draco"
+
+
+def test_the_local_projection_omits_display_fields_a_benchmark_did_not_declare() -> None:
+    # WHY omit rather than send null: the seed contract forbids unknown keys and treats an
+    # absent optional as "leave it alone", which is what an undeclared focus line means.
+    class Benchmark:
+        id = "ifeval"
+        title = "IFEval"
+        description = "Deterministic instruction following"
+        revision = "revision-from-engine"
+        focus = None
+        dataset_url = None
+
+    projected = json.loads(scoreboard_seed_json([Benchmark()]))[0]
+
+    assert "focus" not in projected
+    assert "dataset_url" not in projected
