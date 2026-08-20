@@ -10,7 +10,7 @@ from screamingface_engine.benchmarks.deployment import (
 from screamingface_engine.benchmarks.draco.definition import (
     ASSET_BUNDLE_ID as DRACO_ASSET_BUNDLE_ID,
 )
-from screamingface_engine.benchmarks.draco.definition import DRACO
+from screamingface_engine.benchmarks.draco.definition import DRACO, DRACO_3PASS
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
@@ -52,11 +52,14 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
 )
 
 # WHY: this composition is the single source for both runtime discovery and image construction.
-# The two HealthBench boards are independent benchmark identities over one physical answer key,
-# so they intentionally share HEALTHBENCH_ASSETS and the deployment prepares it once.
+# Boards that read one physical asset set intentionally share a bundle and the deployment
+# prepares it once: the two HealthBench boards are independent identities over one baked
+# answer key, and the two DRACO boards re-run the same archived case/rubric assets with
+# different judge-pass counts.
 BUILTIN_DEPLOYMENT = BenchmarkDeployment(
     (
         BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),
+        BenchmarkRegistration(benchmark=DRACO_3PASS, asset_bundle=DRACO_ASSETS),
         BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
         BenchmarkRegistration(
             benchmark=HEALTHBENCH_WORST30,

@@ -84,6 +84,7 @@ def test_builtins_are_registered_with_their_physical_asset_bundles() -> None:
     assert BUILTIN_DEPLOYMENT.benchmarks is BUILTIN_BENCHMARKS
     assert registrations == {
         "draco": "draco",
+        "draco-3pass": "draco",
         "ifeval": "ifeval",
         "healthbench-worst30": "healthbench",
         "healthbench-professional": "healthbench",

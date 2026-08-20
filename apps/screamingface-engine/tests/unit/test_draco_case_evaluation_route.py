@@ -13,6 +13,7 @@ from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_criterion_evaluation,
 )
 from screamingface_engine.benchmarks.draco.definition import (
+    CANONICAL_EXAM,
     CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
     CRITERION_EVALUATION_ROUTE,
@@ -76,7 +77,7 @@ def test_draco_builds_exact_criterion_and_case_evaluations() -> None:
 async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Path) -> None:
     _canonical_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path)
+    install(node, tmp_path, CANONICAL_EXAM)
     case = {
         "schema": CASE_SCHEMA,
         "case_id": 1,
@@ -175,7 +176,7 @@ def test_install_fails_atomically_when_assets_are_missing(tmp_path: Path) -> Non
     node = Url4Node("test")
 
     with pytest.raises(ResolutionError, match="could not read DRACO cases"):
-        install(node, tmp_path)
+        install(node, tmp_path, CANONICAL_EXAM)
 
     assert CASES_ROUTE not in node.processor_routes()
 
@@ -184,8 +185,8 @@ def test_canonical_install_rejects_a_truncated_case_set_atomically(tmp_path: Pat
     _one_case_assets(tmp_path)
     node = Url4Node("test")
 
-    with pytest.raises(ResolutionError, match="expected 100 canonical DRACO cases"):
-        install(node, tmp_path)
+    with pytest.raises(ResolutionError, match="expected 100 DRACO cases"):
+        install(node, tmp_path, CANONICAL_EXAM)
 
     assert CASES_ROUTE not in node.processor_routes()
 
