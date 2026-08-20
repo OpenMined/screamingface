@@ -51,6 +51,15 @@ from url4.streaming.protocol.taxonomy import CostBreakdown
 
 _logger = logging.getLogger(__name__)
 
+BRIDGE_HIGH_WATER = "bridge.high_water"
+BRIDGE_SOFT_CAP = "bridge.soft_cap"
+"""Attribute keys for the bridge's closing diagnostic.
+
+Named as one `bridge.*` family, exactly as `RunCacheCounters` names its `cache.*` keys, so a
+reader finds the pair by prefix. The soft cap travels WITH the mark because the mark alone is
+uninterpretable — 3000 is alarming against a cap of 1024 and impossible against 8192.
+"""
+
 
 class BridgeOverflowError(RuntimeError):
     """Raised by `_Bridge.on_event` when the backlog still exceeds the hard cap after the
@@ -77,12 +86,36 @@ class _Bridge:
         self._max = maxsize
         self._hard_cap = maxsize * self._HARD_CAP_MULTIPLIER
         self._dropped = 0
+        self._high_water = 0
         self._closed = False
         self._wake = asyncio.Event()
 
     @property
     def dropped(self) -> int:
         return self._dropped
+
+    @property
+    def soft_cap(self) -> int:
+        return self._max
+
+    @property
+    def high_water(self) -> int:
+        """The deepest this backlog ever got.
+
+        INVARIANT: a MARK, never a gauge — draining does not lower it. A figure that fell
+        back with the queue would read as healthy on every run that recovered, which is
+        every run an operator would still want to know about.
+        """
+        return self._high_water
+
+    @property
+    def backlogged(self) -> bool:
+        """Whether the backlog ever passed the SOFT cap.
+
+        The threshold worth reporting: below it the eviction policy never engaged, so there
+        is nothing to say — and `_closing_logs` must stay silent when that is true.
+        """
+        return self._high_water > self._max
 
     def on_event(self, event: ObservationEvent) -> None:
         """Called synchronously by the engine for every observation event.
@@ -105,9 +138,12 @@ class _Bridge:
         if len(self._buf) >= self._hard_cap:
             raise BridgeOverflowError(
                 f"event backlog exceeded the hard cap ({self._hard_cap} events, "
-                f"{self._dropped} Log(s) already dropped) — the consumer is not keeping up"
+                f"peak {self._high_water}, {self._dropped} Log(s) already dropped) "
+                "— the consumer is not keeping up"
             )
         self._buf.append(event)
+        if len(self._buf) > self._high_water:
+            self._high_water = len(self._buf)
         self._wake.set()
 
     def _evict_oldest_log(self) -> None:
@@ -520,28 +556,54 @@ class _RunState:
         return "mixed", "mixed"
 
 
-def _closing_logs(dropped: int, counters: RunCacheCounters) -> list[Traced]:
+def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
     """The log frames a run emits about ITSELF, after its last span and before `Completed`.
 
-    Both are statements about the whole run rather than about any node, so both carry
-    ``span=None`` and neither can be made until every event has been folded. Extracted from
+    All are statements about the whole run rather than about any node, so all carry
+    ``span=None`` and none can be made until every event has been folded. Extracted from
     `Url4Executor.execute` so the generator stays a straight line — the run loop's shape is what
     a reader checks for correctness, and a growing tail of end-of-run bookkeeping obscures it.
 
     Args:
-        dropped: Log events the bridge discarded under backpressure.
+        bridge: The run's event bridge, for its dropped count and its high-water mark.
         counters: The run's cache tallies.
 
     Returns:
-        Only the frames that have something to say. A run that dropped nothing and touched no
-        cache — the overwhelming majority, since most expressions call no gateway at all —
-        produces neither, rather than two lines reporting that nothing happened.
+        Only the frames that have something to say. A run that dropped nothing, never
+        backlogged, and touched no cache — the overwhelming majority, since most expressions
+        call no gateway at all — produces none, rather than three lines reporting that
+        nothing happened.
     """
     frames: list[Traced] = []
-    if dropped:
+    if bridge.dropped:
         frames.append(
             Traced(
-                payload=LogData.at("WARN", f"dropped {dropped} log event(s) (telemetry overflow)"),
+                payload=LogData.at(
+                    "WARN", f"dropped {bridge.dropped} log event(s) (telemetry overflow)"
+                ),
+                span=None,
+            )
+        )
+    # FEATURE: bridge high-water reporting (OME-906). Emitted only PAST the soft cap: a run
+    # that never queued has nothing to report, and an always-on line would bury the signal in
+    # the runs that are fine. The pair answers "how close did this run come?" — which the
+    # overflow error can only answer for runs that already failed.
+    #
+    # WHY not Prometheus: same two reasons as `RunCacheCounters` — the run mode is a one-shot
+    # Job with no scrape endpoint, and `check_layering.py` forbids `runner.*` to import
+    # `screamingface_engine.metrics`. The run's own telemetry stream is the only channel.
+    if bridge.backlogged:
+        frames.append(
+            Traced(
+                payload=LogData.at(
+                    "WARN",
+                    f"event backlog peaked at {bridge.high_water} events "
+                    f"(soft cap {bridge.soft_cap})",
+                    {
+                        BRIDGE_HIGH_WATER: bridge.high_water,
+                        BRIDGE_SOFT_CAP: bridge.soft_cap,
+                    },
+                ),
                 span=None,
             )
         )
@@ -647,7 +709,7 @@ class Url4Executor(Executor):
                 for frame in state.map(ev):
                     yield frame
             result_str = await task
-            for frame in _closing_logs(bridge.dropped, state.cache_counters):
+            for frame in _closing_logs(bridge, state.cache_counters):
                 yield frame
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
             # bytes — synchronous disk work that would otherwise stall the very loop that

@@ -9,10 +9,14 @@ from typing import cast
 import pytest
 
 from screamingface_engine.artifacts import ArtifactStore
+from screamingface_engine.runner.cache_counters import RunCacheCounters
 from screamingface_engine.runner.executor import (
+    BRIDGE_HIGH_WATER,
+    BRIDGE_SOFT_CAP,
     BridgeOverflowError,
     Url4Executor,
     _Bridge,
+    _closing_logs,
     _RunState,
     deny_by_default_world,
 )
@@ -669,3 +673,110 @@ async def test_hard_cap_governs_even_when_knobs_are_inverted(tmp_path: Path) -> 
 
     assert excinfo.value.code == "result_too_large"
     assert "30" in str(excinfo.value)
+
+
+def test_the_bridge_records_its_high_water_mark() -> None:
+    # FEATURE: bridge high-water reporting (OME-906). A run that overflowed told an operator
+    # only THAT it overflowed; a run that came close told them nothing at all. The mark is
+    # the difference between "this is fine" and "this is one cached Fusion from failing".
+    bridge = _Bridge(maxsize=4)
+    for i in range(3):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+    assert bridge.high_water == 3
+
+
+@pytest.mark.asyncio
+async def test_the_high_water_mark_is_a_mark_not_a_gauge() -> None:
+    # INVARIANT: draining does NOT lower it. The peak is the diagnostic; a mark that fell
+    # back with the queue would read as healthy on every run that recovered.
+    bridge = _Bridge(maxsize=4)
+    for i in range(3):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+    bridge.close()
+
+    drained = [event async for event in bridge.drain()]
+
+    assert len(drained) == 3
+    assert bridge.high_water == 3
+
+
+def test_a_backlog_within_the_soft_cap_is_not_reported_as_backlogged() -> None:
+    bridge = _Bridge(maxsize=4)
+    for i in range(4):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+    assert bridge.high_water == 4
+    assert not bridge.backlogged
+
+
+def test_a_backlog_past_the_soft_cap_is_reported_as_backlogged() -> None:
+    bridge = _Bridge(maxsize=4)
+    for i in range(6):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+    assert bridge.high_water == 6
+    assert bridge.backlogged
+
+
+def test_the_overflow_error_names_the_high_water_mark() -> None:
+    bridge = _Bridge(maxsize=2)
+    with pytest.raises(BridgeOverflowError) as excinfo:
+        for i in range(bridge._hard_cap + 1):
+            bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+    # Asserts the PHRASE, not just the number: the hard cap is already in this message, and
+    # at the moment of the raise the peak equals it — so a bare digit check passes on a
+    # message that never learned to report the mark.
+    assert f"peak {bridge.high_water}" in str(excinfo.value)
+
+
+def _backlogged_bridge(*, events: int, maxsize: int = 4) -> _Bridge:
+    """A bridge whose backlog is made of NON-Log events, which is the shape that matters.
+
+    A Log-only burst pins the buffer AT the soft cap — `on_event` drops an incoming Log
+    outright rather than appending it — so it never raises the mark and is already reported by
+    the dropped-count line. Only lossless events climb toward the hard cap, which is the
+    condition OME-906 exists to make visible.
+    """
+    bridge = _Bridge(maxsize=maxsize)
+    for i in range(events):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+    return bridge
+
+
+def test_a_backlogged_run_reports_its_high_water_mark_in_a_closing_log() -> None:
+    bridge = _backlogged_bridge(events=9, maxsize=4)
+
+    frames = _closing_logs(bridge, RunCacheCounters())
+
+    marks = [
+        f.payload
+        for f in frames
+        if isinstance(f.payload, LogData) and BRIDGE_HIGH_WATER in (f.payload.attributes or {})
+    ]
+    assert len(marks) == 1
+    attributes = marks[0].attributes or {}
+    assert attributes[BRIDGE_HIGH_WATER] == 9
+    assert attributes[BRIDGE_SOFT_CAP] == 4
+    # INVARIANT: a run-level statement, so it belongs to no span.
+    assert all(f.span is None for f in frames)
+
+
+def test_a_run_that_never_backlogged_reports_no_high_water_log() -> None:
+    # WHY: `_closing_logs` stays silent when there is nothing to say — most expressions call
+    # no gateway and never queue. An always-on line would make the signal worthless.
+    bridge = _backlogged_bridge(events=3, maxsize=4)
+
+    frames = _closing_logs(bridge, RunCacheCounters())
+
+    assert frames == []
+
+
+def test_a_backlog_exactly_at_the_soft_cap_is_not_yet_worth_reporting() -> None:
+    # Boundary: `backlogged` is strictly GREATER than the soft cap. Reaching the cap is the
+    # eviction policy working as designed, not a diagnosis.
+    bridge = _backlogged_bridge(events=4, maxsize=4)
+
+    assert bridge.high_water == 4
+    assert _closing_logs(bridge, RunCacheCounters()) == []
