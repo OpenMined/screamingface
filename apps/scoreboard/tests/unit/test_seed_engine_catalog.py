@@ -560,3 +560,51 @@ async def test_an_auth_proxy_sign_in_page_is_diagnosed_rather_than_just_rejected
             fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
 
     assert "in-cluster" in str(raised.value)
+
+
+# --- owner decision: a missing description costs text, never the whole benchmark -------------
+
+
+@pytest.mark.parametrize("prose", ["", "   "])
+async def test_a_benchmark_without_prose_still_registers(prose: str) -> None:
+    # WHY not reject it: the consequence of rejecting is a benchmark MISSING from the board —
+    # no row, and a submission against it refused — which is far worse than a row that reads
+    # plain. The Engine already refuses to define a benchmark without a description, so this
+    # side is deliberately the lenient one: require it where it is written, tolerate it where
+    # it is read.
+    payload = {
+        "object": "list",
+        "data": [{"id": "draco", "title": "DRACO", "description": prose, "revision": "rev"}],
+    }
+    with _serving(payload) as client:
+        read = fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
+
+    assert read.rejected == []
+    assert [row.id for row in read.rows] == ["draco"]
+    # INVARIANT: stored as absent, NOT as a placeholder sentence. The reader-facing wording
+    # ("No description published.") belongs to the client that renders it, in one place — a
+    # placeholder written into the database could never be told apart from real text later.
+    assert read.rows[0].description is None
+
+
+async def test_a_benchmark_with_no_description_field_at_all_still_registers() -> None:
+    payload = {
+        "object": "list",
+        "data": [{"id": "draco", "title": "DRACO", "revision": "rev"}],
+    }
+    with _serving(payload) as client:
+        read = fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
+
+    assert read.rejected == []
+    assert read.rows[0].description is None
+
+
+async def test_an_entry_missing_its_identity_is_still_rejected() -> None:
+    # INVARIANT: leniency stops at the fields that make a row addressable. Without an id, a
+    # title or a revision there is nothing to register or rank; those still fail the entry.
+    payload = {"object": "list", "data": [{"title": "DRACO", "description": "Text."}]}
+    with _serving(payload) as client:
+        read = fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
+
+    assert read.rows == []
+    assert read.rejected == ["entry #0"]

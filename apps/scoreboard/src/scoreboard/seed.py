@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from .config import Settings
 from .db import close_db, init_db
@@ -62,6 +62,13 @@ class SeedBenchmark(BaseModel):
 class _CatalogEntry(BaseModel):
     """One benchmark as the Engine publishes it at ``GET /v1/benchmarks``.
 
+    AIDEV-NOTE: this is one half of a cross-app contract that no single test can run, because
+    the two apps have separate virtualenvs and neither may import the other. The producer half
+    is pinned by ``test_the_catalog_keeps_the_field_names_the_leaderboard_seeds_from`` in
+    apps/screamingface-engine — rename a field here or there and BOTH must change together, in
+    one pull request. ``tests/fixtures/engine_catalog.json`` is a recorded real response that
+    keeps this side honest between such changes.
+
     AIDEV-NOTE: ``extra="ignore"`` deliberately, opposite to :class:`SeedBenchmark`'s
     ``extra="forbid"``. A configured entry is written by hand here, so a typo must fail the
     deploy; the catalogue is written by another service that will keep growing fields
@@ -74,15 +81,28 @@ class _CatalogEntry(BaseModel):
 
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=255)
-    # INVARIANT: an empty description fails the whole entry, so the benchmark is not registered
-    # at all — no row, no board, and a submission against it is refused rather than merely
-    # looking plain. That is deliberate (an undescribed benchmark is not ready to publish) but
-    # the consequence is much larger than "missing text", so it is stated here. Existing rows
-    # survive it, because seeding upserts and never deletes; only a NEW benchmark is affected.
-    description: str = Field(min_length=1)
+    # WHY optional here while the Engine requires it: rejecting an entry costs the benchmark
+    # its whole ROW — no board entry, and a submission against it refused — which is a far
+    # bigger failure than a row that reads plain (owner decision, 2026-08-20). The Engine
+    # already refuses to define a benchmark without a description, so requiring it again here
+    # buys nothing and can only turn missing text into a missing benchmark. Require it where
+    # it is written; tolerate it where it is read.
+    #
+    # INVARIANT: blank normalizes to None, never to a placeholder sentence. The reader-facing
+    # wording lives in the client that renders it (`leaderboard_view.py` prints "No description
+    # published." for an absent one) — prose written into this database could never be told
+    # apart from prose an author actually wrote.
+    description: str | None = None
     revision: str = Field(min_length=1, max_length=64)
     focus: str | None = Field(default=None, max_length=120)
     dataset_url: str | None = None
+
+    @field_validator("description", "focus", mode="after")
+    @classmethod
+    def _blank_is_absent(cls, value: str | None) -> str | None:
+        """Treat whitespace-only display text as absent, so the client's fallback renders."""
+
+        return value if value is not None and value.strip() else None
 
     def as_seed(self) -> SeedBenchmark:
         # The Engine calls it `title`; this board's column is `display_name`. One mapping site.

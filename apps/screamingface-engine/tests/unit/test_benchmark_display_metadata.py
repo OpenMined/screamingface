@@ -177,3 +177,33 @@ async def test_text_too_long_for_the_board_to_store_is_refused_at_authoring_time
             _benchmark(title=value)
         else:
             _benchmark(revision=value)
+
+
+async def test_the_catalog_keeps_the_field_names_the_leaderboard_seeds_from() -> None:
+    """The catalogue is a PUBLISHED contract; the leaderboard reads these exact names.
+
+    INVARIANT: `apps/scoreboard/src/scoreboard/seed.py` fetches this document at deploy and
+    maps `title` onto its own `display_name` column. Rename or drop one of the required names
+    here and the board stops registering that benchmark — it lands in the seed job's `rejected`
+    list, so the benchmark quietly vanishes from the leaderboard while the Engine's own tests
+    stay green.
+
+    WHY assert it on this side: the two apps have separate virtualenvs and neither can import
+    the other, so no single test can run both halves of the handshake. The producer is the side
+    that can break the contract, so the producer is the side that pins it.
+
+    AIDEV-NOTE: changing anything here means changing `_CatalogEntry` in the Scoreboard's
+    `seed.py` in the same pull request. `focus` and `dataset_url` are optional on both sides,
+    so an older Engine that omits them still seeds correctly.
+    """
+
+    required = {"id", "title", "description", "revision"}
+    optional_display = {"focus", "dataset_url"}
+
+    for benchmark in BUILTIN_BENCHMARKS:
+        entry = await _catalog(benchmark)
+        assert required <= set(entry), f"{benchmark.id} lost a field the leaderboard seeds from"
+        for name in required:
+            assert isinstance(entry[name], str) and entry[name]
+        for name in optional_display & set(entry):
+            assert isinstance(entry[name], str) and entry[name]

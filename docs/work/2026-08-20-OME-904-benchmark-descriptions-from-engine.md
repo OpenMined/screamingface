@@ -146,8 +146,32 @@ All four verified before acting; the first by executing a request against the li
   case. Correct for a one-shot Job; documented as an AIDEV-NOTE because `seed_from_sources` is
   `async` and would tempt a caller into running it from a live server.
 - **An empty description drops the whole benchmark**, not just its text — no row, no board,
-  submissions refused. Intended, but a much larger consequence than the field suggests, so it
-  is now stated at the field.
+  submissions refused. Owner reversed the original intent (2026-08-20): a missing board is a
+  far worse failure than a plain-looking row, so the consumer now tolerates absent prose and
+  stores it as NULL. Not a placeholder sentence — `leaderboard_view.py` already renders "No
+  description published." for an absent one, and prose written into the database could never
+  be told apart later from prose an author actually wrote. Leniency stops at id/title/revision,
+  without which there is nothing to register or rank. The Engine still REFUSES to define a
+  benchmark without a description: require it where it is written, tolerate it where it is
+  read.
+
+### Testing the contract for real
+
+Filip's "nothing exercises a real Engine response" was the sharpest note, and the obvious fix —
+one test running both halves in process — turned out to be impossible: the two apps have
+separate virtualenvs by design, and the Client SDK's venv carries their source on its path but
+none of their dependencies (not even pydantic), because its local runtime installs those at use
+time. Verified, not assumed.
+
+What was done instead: the producer pins the contract on its own side
+(`test_the_catalog_keeps_the_field_names_the_leaderboard_seeds_from` asserts the catalogue keeps
+the exact field names the board seeds from, and says so), the consumer keeps the recorded real
+response as a fixture, and each half's docstring names the other so a rename finds both. The
+producer is the side that can break the contract, so the producer is the side that pins it.
+
+Still open, and an owner call because it is CI configuration: the SDK lane is path-filtered to
+`packages/**`, so an Engine-only pull request never runs the seam tests. Adding
+`apps/screamingface-engine/**` to that filter would close it.
 
 Owner-approved prior-test edits (sdlc rule 5, 2026-08-20): 18 lines across two committed test
 files — five mechanical (the fetch returns a `CatalogRead` so it can report unreadable
