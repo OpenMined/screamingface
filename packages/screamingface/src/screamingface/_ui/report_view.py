@@ -761,12 +761,26 @@ def _case_state(case: CaseResult) -> str:
     return "passed" if _case_passed(case) else "incorrect"
 
 
+def _check_negative(check: Any) -> bool:
+    """A negative criterion, in either Benchmark vocabulary (OME-900).
+
+    DRACO names polarity outright (`criterion_type: negative`); HealthBench carries it
+    as the sign of the rubric item's `points`. One rule reads both so no rubric
+    benchmark's penalties can masquerade as positives.
+    """
+
+    metadata = check.metadata or {}
+    if str(metadata.get("criterion_type", "")).lower() == "negative":
+        return True
+    points = metadata.get("points")
+    return isinstance(points, int | float) and not isinstance(points, bool) and points < 0
+
+
 def _check_good(check: Any) -> bool:
     """MET is only good news on a POSITIVE criterion; a negative criterion inverts it."""
 
     met = ("" if check.outcome is None else str(check.outcome)).upper() == "MET"
-    kind = str((check.metadata or {}).get("criterion_type", "")).lower()
-    return not met if kind == "negative" else met
+    return not met if _check_negative(check) else met
 
 
 def _check_html(check: Any) -> str:
@@ -777,7 +791,19 @@ def _check_html(check: Any) -> str:
     if check.outcome is None:
         badge = _badge("unjudged", good=False, warn=True)
     else:
-        badge = _badge(str(check.outcome), good=_check_good(check))
+        # INVARIANT (OME-900): the chip TEXT is the score consequence (PASS helped,
+        # FAIL hurt) so word and color always agree — the judge's polarity-blind
+        # MET/UNMET stays in the tooltip, because that raw verdict is what archives
+        # store and the paper's vocabulary; it is derived here, never rewritten.
+        good = _check_good(check)
+        gloss = ""
+        if _check_negative(check):
+            gloss = " (avoided)" if good else " (did the thing to avoid)"
+        badge = _badge(
+            "PASS" if good else "FAIL",
+            good=good,
+            title=f"judge: {check.outcome}{gloss}",
+        )
     judge = next(
         (item.producer.id for item in check.evidence if getattr(item, "producer", None)),
         None,
@@ -791,9 +817,10 @@ def _check_html(check: Any) -> str:
     )
 
 
-def _badge(text: str, *, good: bool, warn: bool = False) -> str:
+def _badge(text: str, *, good: bool, warn: bool = False, title: str | None = None) -> str:
     variant = "sf-badge--warn" if warn else ("sf-badge--ok" if good else "sf-badge--bad")
-    return f"<span class='sf-badge {variant}'><i class='sq'></i>{escape(text)}</span>"
+    tooltip = f" title='{escape(title)}'" if title else ""
+    return f"<span class='sf-badge {variant}'{tooltip}><i class='sq'></i>{escape(text)}</span>"
 
 
 def _metric(metrics: Any, name: str) -> float | None:
