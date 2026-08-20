@@ -78,7 +78,9 @@ The six criteria in `docs/spec/2026-08-20-OME-906-bridge-memory-budget.md`.
 - **Gates:** `screamingface-engine` stack — ruff check, ruff format --check, pyright,
   `check_layering.py`, pytest with coverage: 1 890 passed, 5 skipped, 93.57 % (≥ 80 %).
   No other stack touched.
-- **Deviations:** the 64 MB budget stands as specced (owner did not name a tighter
+- **Deviations:** PR #667 and this unit's PR #672 are linked as a native GitHub stack
+  (stack #673, `gh stack link`) — merging #667 auto-rebases/retargets #672 to `main`;
+  no manual retarget. The 64 MB budget stands as specced (owner did not name a tighter
   number; it is env-tunable at deploy time). Open item for the owner: PR #667's
   split-out Linear issue and OME-906's root-cause correction still need Linear MCP,
   which is unavailable in this session — payloads remain blocked on credentials.
