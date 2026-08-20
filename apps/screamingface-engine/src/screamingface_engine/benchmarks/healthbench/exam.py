@@ -261,6 +261,8 @@ def healthbench_benchmark(
     scoring: str,
     mean: ExamMean,
     selection_sha: str,
+    focus: str | None = None,
+    dataset_url: str | None = None,
 ) -> tuple[Exam, Benchmark]:
     """Wire one HealthBench board: identity → addresses → expression → private routes.
 
@@ -274,6 +276,9 @@ def healthbench_benchmark(
         scoring: this board's scoring-rule name (hashed) — the metric's identity.
         mean: the exam-level reduction over per-Case scores.
         selection_sha: the fingerprint of the case selection (hashed).
+        focus: the short editorial line the leaderboard shows in its "Focus" column. It has
+            to separate this board from its siblings at a glance, since they share a dataset.
+        dataset_url: where a reader can go and look at the source data.
 
     Returns:
         ``(exam, benchmark)`` — the ``Exam`` for the runtime's private routes, and the
@@ -314,6 +319,10 @@ def healthbench_benchmark(
         case_count=len(case_ids),
         build=build,
         install=install,
+        # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the
+        # only place the board's text is written; it is seeded from the catalogue at deploy.
+        focus=focus,
+        dataset_url=dataset_url,
         # Every check is a Judge call over the case rubric, so the loop's cost is real.
         check_surface=CheckSurface(
             check_route=exam.routes.check_surface,

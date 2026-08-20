@@ -19,6 +19,10 @@ type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type CheckCost = Literal["free", "paid"]
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
+# WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
+# scheme a browser will not follow (or a bare host that resolves relative to the board) is a
+# broken link published under the Engine's name.
+_WEB_URL = re.compile(r"https?://\S+")
 
 
 def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
@@ -74,12 +78,25 @@ class Benchmark:
     build: Callable[[int], Node]
     install: BenchmarkInstaller = _no_routes
     check_surface: CheckSurface | None = None
+    # FEATURE: benchmark descriptions on the leaderboard (OME-904). `title`, `description`,
+    # `focus` and `dataset_url` are the four fields the public board displays, and this
+    # definition is their ONLY authoring site — the board seeds them from the catalogue rather
+    # than from hand-copied deployment configuration.
+    # INVARIANT: neither field enters `revision`, which is computed from dataset and protocol
+    # constants alone. Editing editorial text must never make a recorded submission look
+    # incomparable.
+    focus: str | None = None
+    dataset_url: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Benchmark {name} must be non-empty text")
+        if self.focus is not None and (not isinstance(self.focus, str) or not self.focus.strip()):
+            raise ValueError("Benchmark focus must be non-empty text when declared")
+        if self.dataset_url is not None and not _WEB_URL.fullmatch(self.dataset_url):
+            raise ValueError("Benchmark dataset_url must be an absolute http(s) URL when declared")
         if not isinstance(self.id, str) or _BENCHMARK_ID.fullmatch(self.id) is None:
             raise ValueError("Benchmark id must be one lowercase identifier")
         if (
@@ -106,6 +123,10 @@ class Benchmark:
             "revision": self.revision,
             "case_count": self.case_count,
         }
+        if self.focus is not None:
+            metadata["focus"] = self.focus
+        if self.dataset_url is not None:
+            metadata["dataset_url"] = self.dataset_url
         if self.check_surface is not None:
             metadata["check_surface"] = self.check_surface.as_block()
         return metadata

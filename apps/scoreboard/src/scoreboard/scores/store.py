@@ -323,6 +323,16 @@ class ScoreStore:
         )
         return benchmark_to_schema(benchmark)
 
+    async def has_registered_revision(self) -> bool:
+        """Has any benchmark row ever been registered with an Engine revision?
+
+        INVARIANT: only a benchmark the Engine publishes carries a revision — the retained
+        legacy demo entries have none — so a False answer means no successful Engine seed has
+        ever run against this database (OME-904).
+        """
+
+        return await Benchmark.filter(revision__isnull=False).exists()
+
     async def list_benchmarks(self) -> list[BenchmarkSchema]:
         rows = await Benchmark.all().order_by("id")
         return [benchmark_to_schema(benchmark) for benchmark in rows]
