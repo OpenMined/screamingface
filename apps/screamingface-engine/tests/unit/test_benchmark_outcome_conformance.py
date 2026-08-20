@@ -13,6 +13,7 @@ from screamingface_engine.benchmarks.case_execution import case_execution_payloa
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco.aggregate import aggregate as aggregate_draco
 from screamingface_engine.benchmarks.healthbench.aggregate import aggregate as aggregate_healthbench
+from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
 from screamingface_engine.benchmarks.ifeval.aggregate import aggregate as aggregate_ifeval
 
 AggregateFixture = Callable[[Path, dict[str, object]], dict[str, Any]]
@@ -49,6 +50,7 @@ def _healthbench(root: Path, row: dict[str, object]) -> dict[str, Any]:
         benchmark_id="healthbench-worst30",
         benchmark_revision="fixture",
         case_ids=(1,),
+        mean=unclipped_mean,
     )
 
 

@@ -32,8 +32,8 @@ from screamingface_engine.benchmarks.healthbench.check_policy import (
 from screamingface_engine.benchmarks.healthbench.definition import (
     CHECK_SURFACE_ROUTE,
     HEALTHBENCH_WORST30,
-    JUDGE_MODEL,
 )
+from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.rubric_check import RubricCheck, check_surface
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError

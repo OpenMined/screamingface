@@ -24,7 +24,7 @@ steer a loop, the honest fix is richer prepared rubric metadata, not leaking cri
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.healthbench.definition import (
+from screamingface_engine.benchmarks.healthbench.pins import (
     CHECK_CRITERION,
     JUDGE_MODEL,
     JUDGE_PARAMS,

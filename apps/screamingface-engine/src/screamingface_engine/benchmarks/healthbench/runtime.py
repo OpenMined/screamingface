@@ -1,8 +1,9 @@
 """Install HealthBench's private assets and deterministic functions into one Runner world.
 
-If ``definition.py`` writes the recipe (the expression tree that names six routes),
+If ``exam.py`` writes the recipe (the expression tree that names six routes),
 this module is the kitchen: it registers a handler behind each of those routes so the
-recipe can actually resolve. Data flows through them in exam order:
+recipe can actually resolve. Every board installs its own copy of them under its own
+revision prefix, all reading one baked answer key. Data flows through them in exam order:
 
     /cases             → serve the selected question booklet (from the baked assets)
     /rubric-tasks      → Candidate answered one Case: fetch its private rubric, render
@@ -40,19 +41,8 @@ from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     bind_rubric_evaluation,
 )
 from screamingface_engine.benchmarks.healthbench.check_policy import HEALTHBENCH_CHECK
-from screamingface_engine.benchmarks.healthbench.definition import (
-    AGGREGATE_ROUTE,
-    BENCHMARK_ID,
-    CASE_EVALUATION_ROUTE,
-    CASES_ROUTE,
-    CHECK_SURFACE_ROUTE,
-    JUDGE_MODEL,
-    REVISION,
-    RUBRIC_EVALUATION_ROUTE,
-    TASKS_ROUTE,
-    VERDICT_ROUTE,
-    WORST30_CASE_IDS,
-)
+from screamingface_engine.benchmarks.healthbench.exam import Exam, ExamMean
+from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prompts import (
     build_grader_prompt,
     render_rubric_item,
@@ -63,27 +53,38 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path) -> None:
-    """Register every route referenced by the HealthBench expressions.
+def install(node: Url4Node, root: Path, exam: Exam) -> None:
+    """Register every route one HealthBench board's expressions reference.
 
     Providers read lazily so a general-purpose Runner can carry the installed
     definition without HealthBench's private image assets — until an expression
     actually selects HealthBench, which is when the preflight below runs.
+
+    INVARIANT: every board is namespaced by its own id AND revision, so several boards
+    install into ONE Runner world over ONE ``root`` without colliding — which is exactly
+    how the worst-30% challenge and the full professional exam coexist over a single
+    baked answer key.
+
+    Args:
+        node: the Runner world to register the routes in.
+        root: the baked HealthBench asset directory (shared by every board).
+        exam: which Cases this board serves, at which addresses, under which final mean.
     """
     # Install the six routes that implement the exam's protocol.
     _install_protocol_once(
         node,
         root,
-        cases_route=CASES_ROUTE,
-        tasks_route=TASKS_ROUTE,
-        verdict_route=VERDICT_ROUTE,
-        rubric_evaluation_route=RUBRIC_EVALUATION_ROUTE,
-        case_evaluation_route=CASE_EVALUATION_ROUTE,
-        aggregate_route=AGGREGATE_ROUTE,
-        check_surface_route=CHECK_SURFACE_ROUTE,
-        benchmark_id=BENCHMARK_ID,
-        benchmark_revision=REVISION,
-        case_ids=WORST30_CASE_IDS,
+        cases_route=exam.routes.cases,
+        tasks_route=exam.routes.tasks,
+        verdict_route=exam.routes.verdict,
+        rubric_evaluation_route=exam.routes.rubric_evaluation,
+        case_evaluation_route=exam.routes.case_evaluation,
+        aggregate_route=exam.routes.aggregate,
+        check_surface_route=exam.routes.check_surface,
+        benchmark_id=exam.id,
+        benchmark_revision=exam.revision,
+        case_ids=exam.case_ids,
+        mean=exam.mean,
     )
 
 
@@ -101,6 +102,7 @@ def _install_protocol_once(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
+    mean: ExamMean,
 ) -> None:
     if cases_route not in getattr(node, "_data", {}):
         node.data(cases_route, _cases(root, case_ids), media_type="application/json")
@@ -127,7 +129,7 @@ def _install_protocol_once(
             aggregate_endpoint(
                 label="HealthBench",
                 available_case_count=len(case_ids),
-                aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids),
+                aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids, mean),
             ),
         ),
     )
@@ -168,7 +170,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 def _cases(root: Path, case_ids: tuple[int, ...]):
     # Reference counterpart: the example selection at the top of the reference's
     # eval loop (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py)
-    # — here the selection is the frozen worst-30% subset served from baked assets.
+    # — here the selection is this board's case list, served from the baked assets.
     def cases() -> str:
         preflight(root, case_ids)
         raw = _read(root / "cases.json", "HealthBench cases")
@@ -288,6 +290,7 @@ def _aggregate(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
+    mean: ExamMean,
 ):
     def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         return reducing.aggregate(
@@ -296,6 +299,7 @@ def _aggregate(
             benchmark_id=benchmark_id,
             benchmark_revision=benchmark_revision,
             case_ids=case_ids[:selected_case_count],
+            mean=mean,
         )
 
     return aggregate_handler

@@ -1,8 +1,10 @@
-"""Reduce trustworthy HealthBench Case evaluations into one challenge result.
+"""Reduce trustworthy HealthBench Case evaluations into one board's result.
 
 Think of this as the exam office totalling a stack of graded papers into one
 final grade. It receives one row per Case (the graded paper), scores each, and
-returns the exam score: the unclipped mean of the Case scores.
+returns the exam score: the ``mean`` the calling board chose — the official clip
+for the professional board, the unclipped challenge metric for worst-30%. Every
+step before that reduction is identical for both.
 
 Every selected Case stays visible. Cases with complete rubric Evidence carry
 their normal penalty-bearing grade; infrastructure failures carry no numeric
@@ -11,8 +13,8 @@ grade, lower top-level coverage, and are excluded from the official mean.
 Why so strict? Two ways a lenient reducer would quietly CHEAT in the
 submitter's favor:
 
-1. **Dropping a failed Case inflates the mean.** These are the 157 *hardest*
-   Cases — most score low. Example: scores ``[0.9, 0.1, <failed>]``. Averaging
+1. **Dropping a failed Case inflates the mean.** On the worst-30% board these are
+   the *hardest* Cases — most score low. Example: scores ``[0.9, 0.1, <failed>]``. Averaging
    the survivors gives 0.50; the honest three-Case run would likely land near
    0.35. The failure deleted a hard row and the score went UP (review finding
    B1 against DRACO's reducer).
@@ -30,7 +32,7 @@ run because their identities or contents cannot be trusted.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +56,6 @@ from screamingface_engine.benchmarks.healthbench.case_evaluation import decode_c
 from screamingface_engine.benchmarks.healthbench.scoring import (
     case_score,
     sample_stdev,
-    unclipped_mean,
     verdict_coverage,
 )
 
@@ -125,17 +126,33 @@ def aggregate(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
+    mean: Callable[[Sequence[float]], float | None],
 ) -> dict[str, Any]:
-    """Score every selected Case, then the exam — unclipped mean (see scoring.py).
+    """Score every selected Case, then the exam with the board's own mean.
 
     ``case_ids`` is authoritative. Missing or explicitly error-collected Cases
     remain visible without a grade; valid Cases are scored with the unchanged
     HealthBench math. The shared finalizer publishes their factual coverage.
 
+    Args:
+        raw_rows: the JSON array of Case execution rows, in selected order.
+        root: the baked asset directory both boards read (cases + private rubrics).
+        benchmark_id: the board publishing this result.
+        benchmark_revision: that board's revision, stamped into the result.
+        case_ids: the Cases this run selected — the authoritative roll call.
+        mean: the exam-level reduction. INVARIANT: this is the ONLY place the two
+            HealthBench boards differ in scoring — ``scoring.clipped_mean`` for the
+            official professional number, ``scoring.unclipped_mean`` for the worst-30%
+            challenge metric. Per-Case grades are identical either way.
+
+    Returns:
+        The Candidate result payload: every selected Case, its grade or its failure, the
+        exam score, and the run's factual coverage.
+
     Reference counterpart: the metric aggregation in ``HealthBenchEval``
     (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py) —
-    deliberately DIVERGING on the clip (unclipped mean, see module docstring)
-    and on spread (sample stdev, see ``scoring.sample_stdev``).
+    matching it on the clip when ``mean`` is ``clipped_mean``, and deliberately
+    diverging on spread (sample stdev, see ``scoring.sample_stdev``).
     """
 
     selected_cases = _selected_cases(root, case_ids)
@@ -165,36 +182,43 @@ def aggregate(
         benchmark_revision=benchmark_revision,
         selected_cases=selected_cases,
         cases=case_results,
-        scorer=_healthbench_score,
+        scorer=_healthbench_scorer(mean),
     ).as_payload()
 
 
-def _healthbench_score(cases: Sequence[CaseResult]) -> CandidateScore:
-    """Apply HealthBench's unclipped penalty-bearing reduction to gradeable Cases."""
+def _healthbench_scorer(
+    mean: Callable[[Sequence[float]], float | None],
+) -> Callable[[Sequence[CaseResult]], CandidateScore]:
+    """Bind one board's exam-level mean into the shared penalty-bearing reduction."""
 
-    grades = [case.grade for case in cases]
-    if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
-        raise AssertionError("HealthBench scorer requires complete graded Cases")
-    typed_grades = [grade for grade in grades if grade is not None and grade.score is not None]
-    scores = [float(grade.score) for grade in typed_grades if grade.score is not None]
-    judged_items = sum(int(grade.metrics["judged"]) for grade in typed_grades)
-    total_items = sum(int(grade.metrics["expected"]) for grade in typed_grades)
-    invalid_replies = sum(int(grade.metrics["invalid_replies"]) for grade in typed_grades)
-    met_items = sum(1 for grade in typed_grades for check in grade.checks if check.outcome == "MET")
-    coverage = round(verdict_coverage(judged_items, total_items), 4)
-    mean = unclipped_mean(scores)
-    if mean is None:  # pragma: no cover - a Benchmark always selects at least one Case
-        raise AssertionError("HealthBench scorer requires at least one Case")
-    return CandidateScore(
-        score=round(mean, 4),
-        metrics={
-            "pass_rate": round(met_items / judged_items, 4) if judged_items else 0.0,
-            "scored_cases": len(scores),
-            "score_sd": round(sample_stdev(scores), 4),
-            "verdict_coverage": coverage,
-            "judge_invalid_replies": invalid_replies,
-        },
-    )
+    def score(cases: Sequence[CaseResult]) -> CandidateScore:
+        grades = [case.grade for case in cases]
+        if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
+            raise AssertionError("HealthBench scorer requires complete graded Cases")
+        typed_grades = [grade for grade in grades if grade is not None and grade.score is not None]
+        scores = [float(grade.score) for grade in typed_grades if grade.score is not None]
+        judged_items = sum(int(grade.metrics["judged"]) for grade in typed_grades)
+        total_items = sum(int(grade.metrics["expected"]) for grade in typed_grades)
+        invalid_replies = sum(int(grade.metrics["invalid_replies"]) for grade in typed_grades)
+        met_items = sum(
+            1 for grade in typed_grades for check in grade.checks if check.outcome == "MET"
+        )
+        coverage = round(verdict_coverage(judged_items, total_items), 4)
+        exam_score = mean(scores)
+        if exam_score is None:  # pragma: no cover - a Benchmark always selects one Case
+            raise AssertionError("HealthBench scorer requires at least one Case")
+        return CandidateScore(
+            score=round(exam_score, 4),
+            metrics={
+                "pass_rate": round(met_items / judged_items, 4) if judged_items else 0.0,
+                "scored_cases": len(scores),
+                "score_sd": round(sample_stdev(scores), 4),
+                "verdict_coverage": coverage,
+                "judge_invalid_replies": invalid_replies,
+            },
+        )
+
+    return score
 
 
 def _case_result(

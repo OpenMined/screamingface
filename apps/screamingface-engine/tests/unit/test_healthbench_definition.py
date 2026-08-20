@@ -12,9 +12,9 @@ import hashlib
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
-    JUDGE_MODEL,
     REVISION,
 )
+from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS, WORST30_HF_IDS
 from url4.core.grammar import parse
@@ -74,6 +74,18 @@ def test_the_judge_call_shape_is_the_official_one() -> None:
 def test_the_candidate_is_invoked_without_retrieval() -> None:
     rendered = _url4(HEALTHBENCH_WORST30)
     assert "/benchmarks/candidate?web_search=false" in rendered
+
+
+def test_the_worst30_revision_is_frozen_against_refactors() -> None:
+    """INVARIANT: the worst-30% board's address may not move by accident.
+
+    Every route this board serves carries this hash, and the scoreboard seeds it by hand
+    (`apps/scoreboard/charts/scoreboard/values.yaml`). A refactor that reshuffles how the
+    revision is computed must land on the SAME value; a deliberate protocol change updates
+    this literal AND re-seeds the board in the same breath.
+    """
+
+    assert REVISION == "39cfd96b068f7230"
 
 
 def test_case_selection_limits_slice_the_worst30() -> None:

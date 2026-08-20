@@ -97,3 +97,24 @@ def test_conversations_must_carry_usable_turns() -> None:
         case_messages({"conversation": {"messages": [{"role": "user"}]}}, 1)
     with pytest.raises(PrepareError, match="no messages"):
         case_messages({"conversation": {"messages": []}}, 1)
+
+
+def test_a_dataset_that_gained_a_row_fails_the_build(tmp_path: Path) -> None:
+    """INVARIANT: the professional board declares exactly 525 Cases (OME-903).
+
+    The frozen-position check above only proves the worst-30% rows did not MOVE. A row
+    appended at the END leaves every frozen position intact, so it sails through — and the
+    image would then bake a 526-Case exam under a 525-Case identity. The count is its own
+    gate.
+    """
+
+    rows = _synthetic_rows()
+    rows.append(
+        {
+            "id": "one-row-too-many",
+            "conversation": {"messages": [{"role": "user", "content": "question 526"}]},
+            "rubric_items": [{"criterion_text": "criterion 526", "points": 5}],
+        }
+    )
+    with pytest.raises(PrepareError, match="525"):
+        emit(rows, tmp_path)

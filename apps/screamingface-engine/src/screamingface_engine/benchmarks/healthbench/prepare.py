@@ -53,7 +53,10 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.benchmarks.healthbench.definition import DATASET, DATASET_REVISION
+from screamingface_engine.benchmarks.healthbench.pins import DATASET, DATASET_REVISION
+from screamingface_engine.benchmarks.healthbench.professional import (
+    CASE_COUNT as PROFESSIONAL_CASE_COUNT,
+)
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS, WORST30_HF_IDS
 
 
@@ -178,6 +181,16 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
     so the build refuses to bake a silently different answer key.
     """
 
+    # The professional board declares exactly this many Cases, so the file must hold
+    # exactly this many rows. WHY its own check: the frozen-position assertion below only
+    # proves the worst-30% rows did not MOVE — a row appended at the END passes it, and the
+    # image would bake a 526-Case exam under a 525-Case identity.
+    if len(rows) != PROFESSIONAL_CASE_COUNT:
+        raise PrepareError(
+            f"{DATASET}@{DATASET_REVISION} holds {len(rows)} rows, but the professional "
+            f"board declares {PROFESSIONAL_CASE_COUNT} Cases; refusing to bake a "
+            "differently-sized exam under that identity"
+        )
     # Where does each frozen HF row id sit in TODAY'S file? (1-based position)
     positions = {
         hf_id: index for index, hf_id in enumerate((str(row.get("id")) for row in rows), start=1)
@@ -224,7 +237,10 @@ def main(argv: list[str] | None = None) -> int:
     except PrepareError as exc:
         print(f"healthbench prepare failed: {exc}", file=sys.stderr)
         return 1
-    print(f"healthbench: baked {total} cases ({subset} in worst30) into {args.out}")
+    print(
+        f"healthbench: baked {total} cases into {args.out} "
+        f"— the professional board serves all {total}, worst30 serves {subset}"
+    )
     return 0
 
 
