@@ -37,3 +37,7 @@ board. Spec `docs/spec/2026-08-20-OME-903-healthbench-professional.md`, plan
 `docs/work/2026-08-20-OME-903-healthbench-professional.md`.
 
 Computed revision for the scoreboard seed (scoreboard sub-issue): `d8fb037307f35415`.
+
+Scope extended by the owner (2026-08-20): the SDK example notebook ships in the same PR —
+`08_healthbench_worst30.ipynb` becomes `08_healthbench.ipynb` and covers both boards.
+`OME-905` was filed for that and canceled back into this issue.

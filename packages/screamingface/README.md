@@ -469,8 +469,9 @@ or introduce a separate discovery operation.
   nine-Fusion canonical DRACO experiment and audit workflow, with execution disabled by default.
 - [`examples/07_ifeval_e2e.ipynb`](examples/07_ifeval_e2e.ipynb): canonical deterministic
   IFEval across the solo/panel × plain/corrective Recipe grid.
-- [`examples/08_healthbench_worst30.ipynb`](examples/08_healthbench_worst30.ipynb): the
-  HealthBench worst-30% open-Fusion challenge, rehearsed cheaply with `limit=1` first.
+- [`examples/08_healthbench.ipynb`](examples/08_healthbench.ipynb): both HealthBench
+  boards — the worst-30% open-Fusion challenge and the full 525-case exam with the
+  official score — rehearsed cheaply with `limit=1` first.
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
 ## Development

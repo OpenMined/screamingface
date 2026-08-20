@@ -48,7 +48,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "02_connection.ipynb": _connection(),
         "06_draco.ipynb": _draco_full_e2e(),
         "07_ifeval.ipynb": _ifeval_e2e(),
-        "08_healthbench_worst30.ipynb": _healthbench_worst30_e2e(),
+        "08_healthbench.ipynb": _healthbench_e2e(),
         "09_corrective_loops.ipynb": _corrective_loops(),
     }
 
@@ -874,13 +874,28 @@ _HEALTH_SYNTHESIS_PROMPT_PARTS = (
 )
 
 
-def _healthbench_worst30_e2e() -> NotebookNode:
+def _healthbench_e2e() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell("""\
-# HealthBench worst-30% open-Fusion challenge
+# HealthBench — two boards over one exam
 
-Can a fusion of open-weights models improve on the baseline across the 157 hardest
-[HealthBench](https://openai.com/index/healthbench/) Professional conversations? """),
+Can a fusion of open-weights models improve on a strong single model across
+[HealthBench](https://openai.com/index/healthbench/) Professional conversations?
+
+The Engine serves this exam as **two** boards. Same conversations pool, same
+physician-written rubrics, same pinned Judge — they differ in exactly two places:
+
+| | `healthbench-worst30` | `healthbench-professional` |
+|---|---|---|
+| Conversations asked | the 157 hardest (the 30% top models score worst on) | all 525 |
+| Final score | plain average, **negatives kept** | the **official** average, floored at 0 |
+| Answers | "how does this do on the hard tail?" | "how does this compare to published numbers?" |
+
+Per-case scoring is identical on both: satisfying a rubric item adds its points, tripping a
+safety item subtracts them, so one case can score below zero. The boards only disagree on
+what to do with that at the end. On the hardest 157, flooring at 0 would flatten every
+entrant to 0.00 — so worst30 keeps the negative. The full board floors it, because that is
+what published HealthBench figures do."""),
         nbformat.v4.new_markdown_cell("""\
 <img src="assets/healthbench-worst30-benchmark.svg" width="900"
   alt="HealthBench worst-30 at a glance: 157 hardest conversations, physician-written
@@ -903,7 +918,10 @@ import screamingface as sf
 
 sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
-## 1. Run the benchmark with 1 model"""),
+## 1. Run the hard board with 1 model
+
+`limit=1` runs a single Case — a cheap rehearsal that exercises the whole pipeline. Drop
+the argument to sit the whole exam."""),
         nbformat.v4.new_code_cell("""\
 PARAMS = {"max_tokens": 16384, "temperature": 0.0}
 
@@ -912,8 +930,8 @@ deepseek = sf.Model(
     params=PARAMS,
 )"""),
         nbformat.v4.new_code_cell("""\
-report = sf.evaluate(deepseek, benchmark="healthbench-worst30", limit=1)
-report"""),
+deepseek_report = sf.evaluate(deepseek, benchmark="healthbench-worst30", limit=1)
+deepseek_report"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Define the Fusion with open source models and evaluate it"""),
         nbformat.v4.new_code_cell("""\
@@ -955,11 +973,29 @@ best_open_source = sf.Fusion(
     members=[deepseek, qwen, glm], name="best_open_source", synthesizer=kimi
 )"""),
         nbformat.v4.new_code_cell("""\
-report = sf.evaluate(best_open_source, benchmark="healthbench-worst30", limit=1)
-report"""),
+worst30_report = sf.evaluate(best_open_source, benchmark="healthbench-worst30", limit=1)
+worst30_report"""),
         nbformat.v4.new_markdown_cell("""\
-## 4. Send the score to the Scoreboard
+## 3. Run the same Fusion on the full exam
 
+Nothing about the Candidate changes — only the board it sits. This one asks all 525
+conversations and reports the official HealthBench score, so its number is the one to put
+beside a published figure.
+
+Two things worth knowing before dropping `limit`:
+
+- A full run costs roughly **3.3x** a full worst-30% run per candidate (525 conversations
+  instead of 157, each with one Judge call per rubric item).
+- The score is floored at 0. A candidate that trips enough safety items lands at 0.00
+  here while still ranking above another entrant on the worst-30% board — that is the
+  clip doing its job, not a bug."""),
+        nbformat.v4.new_code_cell("""\
+professional_report = sf.evaluate(best_open_source, benchmark="healthbench-professional", limit=1)
+professional_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Send the scores to the Scoreboard
+
+Each board has its own Leaderboard, so a Candidate is submitted to each separately.
 Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
 score** exactly as the Engine graded it — fractional or negative values included — and the
 Scoreboard stores and ranks it without recalculating. Opt-in so **Run All** never changes
@@ -967,8 +1003,15 @@ the public Leaderboard."""),
         nbformat.v4.new_code_cell("""\
 PUBLISH_RESULT = False
 
-submission = sf.leaderboards.submit(report.candidates.only) if PUBLISH_RESULT else None
-submission"""),
+submissions = (
+    [
+        sf.leaderboards.submit(report.candidates.only)
+        for report in (worst30_report, professional_report)
+    ]
+    if PUBLISH_RESULT
+    else None
+)
+submissions"""),
     )
 
 
@@ -989,6 +1032,7 @@ Every installed Benchmark advertises whether its check surface is free or paid:
 |---|---|---|
 | `ifeval` | vendored official verifier (deterministic) | free |
 | `healthbench-worst30` | pinned GPT-5.4 rubric Judge | **paid — every round spends judge tokens** |
+| `healthbench-professional` | the same pinned Judge | **paid — and 525 Cases, not 157** |
 | `draco` | pinned Gemini rubric Judge | **paid — every round spends judge tokens** |"""),
         nbformat.v4.new_markdown_cell("""\
 ## Before running

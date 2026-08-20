@@ -116,6 +116,34 @@ RED first, per the plan's §2 table:
      score (-3.0 per Case → 0.0 exam score), plus a privacy assertion that the new board's
      cases route leaks no rubric text.
 
+## Folded in — the SDK example notebook (owner call, 2026-08-20)
+
+`OME-905` was filed for this and then folded back into this unit at the owner's direction:
+one PR, one review. `OME-905` is canceled in Linear pointing here.
+
+The only HealthBench example was named and written as if the worst-30% challenge were the
+whole benchmark, so shipping the professional board would have left it invisible in the
+examples — and the filename would have implied it did not exist.
+
+- `08_healthbench_worst30.ipynb` → `08_healthbench.ipynb`, regenerated from
+  `scripts/build_notebooks.py` (never hand-edited); `_healthbench_worst30_e2e()` →
+  `_healthbench_e2e()`.
+- The notebook opens with what actually differs between the boards (which conversations
+  are asked; floored vs unfloored average) and what does not (same rubrics, same judge),
+  then evaluates the SAME Fusion on both — each at `limit=1`, publication still behind
+  `PUBLISH_RESULT = False`, so **Run All** spends nothing unexpected.
+- `09_corrective_loops.ipynb`'s check-cost table gains the professional row (same paid
+  judge, 525 Cases instead of 157).
+- One README line named the old file.
+- Gates: `run_gates.py screamingface` — ALL GREEN (ruff · format · pyright · pytest 95%
+  floor · check_notebooks · uv build · check_distribution).
+- **No new graphic.** The existing `healthbench-worst30-benchmark.svg` still illustrates
+  the worst-30% board and the comparison is a markdown table; a companion SVG is a design
+  decision, flagged not invented.
+- **Notebook cell formatting is enforced by `ruff format` THROUGH the generated file**, so
+  the builder must emit code cells already in ruff's preferred shape — a wrapped
+  `sf.evaluate(...)` call failed the gate until written on one line.
+
 ## Follow-ups (not in this unit)
 
 - **Scoreboard seed entry** — `apps/scoreboard/charts/scoreboard/values.yaml` needs a
@@ -124,5 +152,14 @@ RED first, per the plan's §2 table:
   worst30 revision there is `6cd57aee171fbdc4`, while `main` now computes
   `39cfd96b068f7230` — that board's seed is stale and should be re-copied in the same
   change.
-- SDK example notebook for the new board — optional.
+- **Pre-existing generated-notebook drift, deliberately kept out of this PR:** rebuilding
+  regenerates `00_quickstart.ipynb` and `01_client_tour.ipynb` with shifted cell ids
+  (`cell-05` → `cell-04` …) — the committed files came from an older builder that emitted
+  one extra early cell. `check_notebooks.py` misses it because it compares authored cell
+  SOURCES, not ids. Reverted out here to keep the diff scoped; the drift AND the gate's
+  blind spot deserve their own ticket, since the next rebuild hits the same noise.
+- **Pre-existing README drift, untouched:** the same list names
+  `examples/06_draco_full_e2e.ipynb` and `examples/07_ifeval_e2e.ipynb`, but the generated
+  files are `06_draco.ipynb` and `07_ifeval.ipynb` — two broken links predating this
+  change.
 - The first paid full-525 run is owner-executed.
