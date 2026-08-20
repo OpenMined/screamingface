@@ -22,8 +22,9 @@ from screamingface_engine.runner.executor import (
 )
 from screamingface_engine.testing import InMemoryEventStream
 from url4.core.errors import ParseError, ResolutionError
+from url4.dag.nodes import TextNode
 from url4.io.static import StaticIOLayer
-from url4.observe import Log, NodeFinished, NodeStarted, RunStarted, Usage
+from url4.observe import Log, NodeFinished, NodeStarted, ObservationEvent, RunStarted, Usage
 from url4.streaming.interfaces import Completed, ExecStep, Traced
 from url4.streaming.lifecycle import run as publish_run
 from url4.streaming.protocol import (
@@ -325,12 +326,95 @@ def test_bridge_on_event_drop_policy_never_drops_span_usage_lifecycle() -> None:
 
 
 def test_bridge_raises_on_a_span_only_burst_past_the_hard_cap() -> None:
-    bridge = _Bridge(maxsize=2)
+    # WHY the tiny budget: the hard cap is `budget // EVENT_SIZE_ESTIMATE_BYTES`, so a
+    # small budget keeps this unit's burst short instead of buffering the 131 072-event
+    # default cap (OME-906).
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
     bridge.on_event(RunStarted("t" * 32, "s" * 16, "hash"))
     bridge.on_event(NodeStarted("span-1", None, "WebFetchNode", ""))
     with pytest.raises(BridgeOverflowError):
         for i in range(bridge._hard_cap):
             bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+
+# FEATURE: bound the event bridge by memory, not by event count (OME-906).
+#
+# The old count cap (`8 x soft cap` = 8 192) was a ceiling on DAG width: the engine fans
+# out over `deps` with an unbounded gather and emits each node's `NodeStarted` before it
+# awaits anything, so a wide fan-in lands its whole event burst in one event-loop slice,
+# before the drain can run at all. These tests pin the budget-bound behaviors the spec
+# requires: a wide DAG completes, the bound follows a byte budget, and the error names
+# which of the two failure shapes fired.
+
+
+def test_the_hard_cap_is_derived_from_the_memory_budget() -> None:
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    assert bridge._hard_cap == 10_240 // 512  # 20 events at 512 B per event
+
+
+def test_a_producer_that_never_stops_fails_at_the_budget() -> None:
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    bridge.on_event(RunStarted("t" * 32, "s" * 16, "hash"))
+    with pytest.raises(BridgeOverflowError):
+        for i in range(25):
+            bridge.on_event(NodeStarted(f"span-{i}", None, "TextNode", ""))
+
+
+@pytest.mark.asyncio
+async def test_overflow_with_drain_progress_names_the_budget_not_the_consumer() -> None:
+    # A drain count above zero is PROOF the consumer runs: the backlog is one burst that
+    # outran the budget, so the message must name the budget and the DAG shape, and must
+    # not accuse the consumer (the old message's claim, disproven by measurement).
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    bridge.on_event(RunStarted("t" * 32, "s" * 16, "hash"))
+    events = cast("AsyncGenerator[ObservationEvent, None]", bridge.drain())
+    await events.__anext__()  # one event drained: the consumer IS running
+    with pytest.raises(BridgeOverflowError) as excinfo:
+        for i in range(25):
+            bridge.on_event(NodeStarted(f"span-{i}", None, "TextNode", ""))
+    await events.aclose()
+    message = str(excinfo.value)
+    assert "URL4_CLOUD_BRIDGE_MEMORY_BUDGET_BYTES" in message
+    assert "DAG" in message
+    assert "consumer" not in message
+
+
+def test_overflow_with_zero_drained_says_the_consumer_never_ran() -> None:
+    # Zero drained events is the ONE case where the old accusation was right: the
+    # consumer never ran at all, which is a stuck consumer, not a wide DAG.
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    with pytest.raises(BridgeOverflowError) as excinfo:
+        for i in range(25):
+            bridge.on_event(NodeStarted(f"span-{i}", None, "TextNode", ""))
+    message = str(excinfo.value)
+    assert "never drained" in message
+    assert "stuck" in message
+
+
+class _WideFanIn:
+    """A node with `width` dependencies: the engine gathers over them unbounded, so the
+    whole width's events land in one event-loop slice before the drain can run."""
+
+    def __init__(self, width: int) -> None:
+        self.deps: dict[str, TextNode] = {f"dep{i}": TextNode("x") for i in range(width)}
+
+    async def resolve(self, inputs, ctx) -> str:
+        return "done"
+
+
+@pytest.mark.asyncio
+async def test_a_wide_dag_burst_completes_instead_of_overflowing() -> None:
+    # RED against the count cap: 9 000 deps put ~18 000 events (NodeStarted plus
+    # NodeFinished per node) in one slice, past the old hard cap of 8 192, and the run
+    # died with BridgeOverflowError. The default budget (64 MiB / 512 B = 131 072
+    # events) holds the same burst — a legitimately wide DAG must complete.
+    executor = Url4Executor(StaticIOLayer())
+
+    frames = await _drain(executor, _WideFanIn(9_000))
+
+    completed = frames[-1]
+    assert isinstance(completed, Completed)
+    assert completed.result.body == "done"
 
 
 class _LoggyNode:
@@ -720,7 +804,10 @@ def test_a_backlog_past_the_soft_cap_is_reported_as_backlogged() -> None:
 
 
 def test_the_overflow_error_names_the_high_water_mark() -> None:
-    bridge = _Bridge(maxsize=2)
+    # WHY the tiny budget: the hard cap is `budget // EVENT_SIZE_ESTIMATE_BYTES` (OME-906),
+    # so a small budget keeps this unit's burst short instead of buffering the 131 072-event
+    # default cap.
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
     with pytest.raises(BridgeOverflowError) as excinfo:
         for i in range(bridge._hard_cap + 1):
             bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
