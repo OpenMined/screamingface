@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import platform
+import warnings
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
@@ -28,6 +29,9 @@ from screamingface.url4 import Url4
 _BENCHMARKS_PATH = "/v1/benchmarks"
 _LEADERBOARD_PATH = "/v1/leaderboard"
 _SCORES_PATH = "/v1/scores"
+_PARTIAL_SUBMISSION_WARNING = (
+    "Your submission is partial. The public leaderboard ranks only scores for full runs."
+)
 
 
 class Leaderboards:
@@ -353,12 +357,20 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
 def _submission(candidate_result: CandidateResult) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
+    score = _score_value(candidate_result)
+    # INVARIANT (OME-922): coverage measures grading within the selected Cases, so a
+    # limit= run can have coverage=1.0 while still omitting most of the Benchmark.
+    if (
+        len(candidate_result.cases) < candidate_result.benchmark.case_count
+        or candidate_result.coverage < 1.0
+    ):
+        warnings.warn(_PARTIAL_SUBMISSION_WARNING, UserWarning, stacklevel=3)
     return {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
         "spec_id": candidate_result.name,
         "url4_expression": candidate_result.url4,
-        "score": _score_value(candidate_result),
+        "score": score,
         "total_questions": len(candidate_result.cases),
         "ran_with_providers": list(_providers(candidate_result.models)),
         "ran_at_local": _timestamp_text(candidate_result.completed_at),

@@ -1227,3 +1227,135 @@ def test_submitted_score_renders_as_an_sfds_card() -> None:
     assert f"href='{SCOREBOARD_URL}/spec.html?benchmark=draco&amp;spec=fusion%2Falpha'" in html, (
         "links to the portal spec page on the originating Scoreboard"
     )
+
+
+def _partial_submission_candidate(
+    *,
+    benchmark_case_count: int,
+    case_scores: tuple[float | None, ...],
+) -> sf.CandidateResult:
+    base = _candidate_result()
+    cases = []
+    for case_id, score in enumerate(case_scores, start=1):
+        failures = (
+            ()
+            if score is not None
+            else (
+                sf.Failure(
+                    stage="grading",
+                    code="fixture_ungraded",
+                    message="the fixture Case could not be graded",
+                    case_id=case_id,
+                ),
+            )
+        )
+        cases.append(
+            sf.CaseResult(
+                case_id=case_id,
+                input=f"Question {case_id}",
+                output=f"Answer {case_id}",
+                finish_reason="stop",
+                grade=sf.CaseGrade(method="fixture", score=score, metrics={}, checks=()),
+                failures=failures,
+                metadata={},
+            )
+        )
+    return sf.CandidateResult(
+        benchmark=sf.BenchmarkInfo(
+            id=base.benchmark.id,
+            revision=base.benchmark.revision,
+            case_count=benchmark_case_count,
+        ),
+        run_id=base.run_id,
+        started_at=base.started_at,
+        completed_at=base.completed_at,
+        name=base.name,
+        kind=base.kind,
+        url4=base.url4,
+        models=base.models,
+        operations=base.operations,
+        score=base.score,
+        coverage=round(sum(score is not None for score in case_scores) / len(case_scores), 4),
+        metrics=base.metrics,
+        cases=cases,
+        members=base.members,
+        failures=base.failures,
+        usage=base.usage,
+    )
+
+
+# INVARIANT (OME-922): selection coverage and grading coverage are independent. A
+# `limit`ed run can grade every selected Case and still not be a rankable full run.
+def test_submit_warns_for_a_limited_run_and_still_posts_it() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_score_response())
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=3,
+        case_scores=(1.0, 0.0),
+    )
+    with (
+        _sync_client(handler) as client,
+        pytest.warns(
+            UserWarning,
+            match=(
+                "Your submission is partial. "
+                "The public leaderboard ranks only scores for full runs."
+            ),
+        ),
+    ):
+        client.leaderboards.submit(candidate)
+
+    assert len(seen) == 1
+    assert '"total_questions":2' in seen[0].read().decode()
+
+
+def test_submit_warns_for_incomplete_grading_and_still_posts_it() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_score_response())
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=2,
+        case_scores=(1.0, None),
+    )
+    with (
+        _sync_client(handler) as client,
+        pytest.warns(UserWarning, match="Your submission is partial"),
+    ):
+        client.leaderboards.submit(candidate)
+
+    assert len(seen) == 1
+
+
+@pytest.mark.filterwarnings("error")
+def test_submit_does_not_warn_for_a_fully_graded_full_run() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    with _sync_client(handler) as client:
+        client.leaderboards.submit(_candidate_result())
+
+
+@pytest.mark.asyncio
+async def test_async_submit_warns_for_a_limited_run_and_still_posts_it() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_score_response())
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=3,
+        case_scores=(1.0, 0.0),
+    )
+    async with _async_client(handler) as client:
+        with pytest.warns(UserWarning, match="Your submission is partial"):
+            await client.leaderboards.submit(candidate)
+
+    assert len(seen) == 1
