@@ -1,9 +1,9 @@
 ---
 ticket: OME-922
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-08-20
-finished:
+finished: 2026-08-20
 ---
 
 # OME-922 — Warn that partial submissions are not ranked
@@ -58,3 +58,17 @@ advisory into the notebook score card, while retaining a Python warning in headl
 Use the canonical persimmon warning tokens and square status treatment from
 `OpenMined/screamingface-brand` commit `7ea35a1`. The four locally executed example
 notebooks are user-owned working-tree changes and must remain untouched.
+
+### Follow-up outcome
+
+- Notebook submissions now carry a `Partial submission` status notice inside the published
+  score card and do not emit a duplicate Python warning; headless sync and async callers
+  retain the warning.
+- The notice uses the canonical persimmon light/dark tokens, solid status square, square
+  edges, and no decorative effects from brand commit `7ea35a1`.
+- RED was confirmed by two missing notebook-carrier failures. The complete leaderboard
+  module passes 52 tests.
+- The official gate suite is fully green from a clean worktree: append-only, Ruff check and
+  format, Pyright, full pytest with the 95% coverage floor, notebook check, build, and
+  distribution check. The first clean-worktree attempt required the repository's declared
+  `notebook` extra before Pyright could resolve IPython and ipywidgets.
