@@ -53,10 +53,8 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from screamingface_engine.benchmarks.healthbench.definition import PROFESSIONAL_CASE_COUNT
 from screamingface_engine.benchmarks.healthbench.pins import DATASET, DATASET_REVISION
-from screamingface_engine.benchmarks.healthbench.professional import (
-    CASE_COUNT as PROFESSIONAL_CASE_COUNT,
-)
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS, WORST30_HF_IDS
 
 

@@ -12,7 +12,7 @@ import hashlib
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
-    REVISION,
+    WORST30_EXAM,
 )
 from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
@@ -46,7 +46,7 @@ def test_the_subset_is_the_frozen_157() -> None:
 
 
 def test_the_exam_routes_are_revision_pinned() -> None:
-    assert REVISION in _url4(HEALTHBENCH_WORST30)
+    assert WORST30_EXAM.revision in _url4(HEALTHBENCH_WORST30)
 
 
 def test_the_expression_renders_and_reparses() -> None:
@@ -85,7 +85,7 @@ def test_the_worst30_revision_is_frozen_against_refactors() -> None:
     this literal AND re-seeds the board in the same breath.
     """
 
-    assert REVISION == "39cfd96b068f7230"
+    assert WORST30_EXAM.revision == "39cfd96b068f7230"
 
 
 def test_case_selection_limits_slice_the_worst30() -> None:

@@ -100,7 +100,18 @@ RED first, per the plan's §2 table:
   2. `build_exam_protocol` fixes a latent defect carried over with the moved code: in
      `definition._build` the docstring sat AFTER the first statement, so Python treated it
      as a no-op string expression, not a docstring. It is now the first statement.
-  3. Added beyond the plan: an end-to-end test that resolves the BUILT professional
+  3. **Both boards live in one `definition.py`; `professional.py` was folded in and
+     deleted (owner call, 2026-08-20).** Reviewing the branch, the split read wrong: a
+     reader looking for the full board opened `definition.py` and found only worst30,
+     because that generic filename historically meant "the worst30 board". One file with
+     two clearly-headed sections matches the sibling packages (`draco/definition.py`,
+     `ifeval/definition.py`) and puts the difference between the boards on one screen.
+     Consequence: the module-level route/id/revision aliases are gone — a board is reached
+     through `<BOARD>_EXAM.routes.*` / `.revision`, so no unprefixed name can silently
+     mean one of the two. That rewired ~30 mechanical call sites in
+     `test_healthbench_{runtime,check_surface,definition}.py`. worst30's rendered resource
+     was re-verified byte-identical to `main` afterwards, and both revisions are unmoved.
+  4. Added beyond the plan: an end-to-end test that resolves the BUILT professional
      expression against a fake judge and proves the official clip reaches the reported
      score (-3.0 per Case → 0.0 exam score), plus a privacy assertion that the new board's
      cases route leaks no rubric text.

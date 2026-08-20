@@ -17,19 +17,14 @@ from __future__ import annotations
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.healthbench.definition import (
+    HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
-)
-from screamingface_engine.benchmarks.healthbench.definition import (
-    REVISION as WORST30_REVISION,
+    PROFESSIONAL_CASE_COUNT,
+    PROFESSIONAL_CASE_IDS,
+    PROFESSIONAL_EXAM,
+    WORST30_EXAM,
 )
 from screamingface_engine.benchmarks.healthbench.pins import CHECK_CRITERION, JUDGE_MODEL
-from screamingface_engine.benchmarks.healthbench.professional import (
-    BENCHMARK_ID,
-    CASE_COUNT,
-    CASE_IDS,
-    HEALTHBENCH_PROFESSIONAL,
-    REVISION,
-)
 from url4.core.grammar import parse
 
 
@@ -41,29 +36,29 @@ def _url4(benchmark, limit=None) -> str:
 
 def test_the_exam_is_registered_under_its_id() -> None:
     assert BUILTIN_BENCHMARKS.get("healthbench-professional") is HEALTHBENCH_PROFESSIONAL
-    assert BENCHMARK_ID == "healthbench-professional"
+    assert PROFESSIONAL_EXAM.id == "healthbench-professional"
 
 
 def test_the_exam_serves_every_baked_professional_case() -> None:
     # WHY 1..525 with no gaps: prepare.py numbers Cases by their 1-based position in the
     # HF file, so "the whole exam" IS the contiguous range — any hole would mean a filter.
-    assert CASE_COUNT == 525
-    assert CASE_IDS == tuple(range(1, 526))
+    assert PROFESSIONAL_CASE_COUNT == 525
+    assert PROFESSIONAL_CASE_IDS == tuple(range(1, 526))
     assert HEALTHBENCH_PROFESSIONAL.case_count == 525
 
 
 def test_the_two_boards_have_separate_addresses() -> None:
     # INVARIANT: worst30 keeps its own revision and routes — an existing submission can
     # never be re-interpreted as a professional-board submission, or vice versa.
-    assert REVISION != WORST30_REVISION
+    assert PROFESSIONAL_EXAM.revision != WORST30_EXAM.revision
     professional = _url4(HEALTHBENCH_PROFESSIONAL)
-    assert f"/benchmarks/healthbench-professional/{REVISION}" in professional
+    assert f"/benchmarks/healthbench-professional/{PROFESSIONAL_EXAM.revision}" in professional
     assert "healthbench-worst30" not in professional
-    assert WORST30_REVISION not in professional
+    assert WORST30_EXAM.revision not in professional
 
 
 def test_the_exam_routes_are_revision_pinned() -> None:
-    assert REVISION in _url4(HEALTHBENCH_PROFESSIONAL)
+    assert PROFESSIONAL_EXAM.revision in _url4(HEALTHBENCH_PROFESSIONAL)
 
 
 def test_the_expression_renders_and_reparses() -> None:
@@ -101,7 +96,7 @@ def test_the_check_surface_is_advertised_under_this_boards_prefix() -> None:
     surface = HEALTHBENCH_PROFESSIONAL.check_surface
     assert surface is not None
     assert surface.check_route == (
-        f"/benchmarks/{BENCHMARK_ID}/{REVISION}/check-surface/{CHECK_CRITERION}"
+        f"/benchmarks/{PROFESSIONAL_EXAM.id}/{PROFESSIONAL_EXAM.revision}/check-surface/{CHECK_CRITERION}"
     )
     assert surface.expected_check_cost == "paid"
     worst30_surface = HEALTHBENCH_WORST30.check_surface

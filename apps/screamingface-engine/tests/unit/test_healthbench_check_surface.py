@@ -30,14 +30,17 @@ from screamingface_engine.benchmarks.healthbench.check_policy import (
     HEALTHBENCH_CHECK,
 )
 from screamingface_engine.benchmarks.healthbench.definition import (
-    CHECK_SURFACE_ROUTE,
     HEALTHBENCH_WORST30,
+    WORST30_EXAM,
 )
 from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.rubric_check import RubricCheck, check_surface
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
+
+# The board under test here is worst30; its check route is read off its Exam.
+_CHECK_ROUTE = WORST30_EXAM.routes.check_surface
 
 _TURN = "I have had a headache for three days. What should I do?"
 _ENVELOPE = json.dumps(
@@ -79,7 +82,7 @@ def _node(
         seen.append(request)
         return replies.pop(0) if replies else "[]"
 
-    node.endpoint(CHECK_SURFACE_ROUTE)(check_surface(node, tmp_path / "healthbench", config))
+    node.endpoint(_CHECK_ROUTE)(check_surface(node, tmp_path / "healthbench", config))
     return node, seen
 
 
@@ -98,7 +101,7 @@ async def _call(node: Url4Node, payload: object, intent: str) -> str:
                     name="payload",
                     weight=0.0,
                 ),
-                RelExpr(path=CHECK_SURFACE_ROUTE, context="$payload", intent=Text(intent)),
+                RelExpr(path=_CHECK_ROUTE, context="$payload", intent=Text(intent)),
                 intent=Text(""),
             )
         )
@@ -194,9 +197,7 @@ async def test_a_rubric_with_nothing_to_win_is_unscorable(tmp_path: Path) -> Non
     )
     node = Url4Node("test")
     node.endpoint(_MODEL_ROUTE)(lambda request: json.dumps([{"id": 1, "status": "UNMET"}]))
-    node.endpoint(CHECK_SURFACE_ROUTE)(
-        check_surface(node, tmp_path / "healthbench", HEALTHBENCH_CHECK)
-    )
+    node.endpoint(_CHECK_ROUTE)(check_surface(node, tmp_path / "healthbench", HEALTHBENCH_CHECK))
     with pytest.raises(ResolutionError, match="no positively weighted criterion"):
         await _check(node, "an answer")
 

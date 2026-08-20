@@ -2,10 +2,8 @@
 
 from screamingface_engine.benchmarks.draco.definition import DRACO
 from screamingface_engine.benchmarks.healthbench.definition import (
-    HEALTHBENCH_WORST30,
-)
-from screamingface_engine.benchmarks.healthbench.professional import (
     HEALTHBENCH_PROFESSIONAL,
+    HEALTHBENCH_WORST30,
 )
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry

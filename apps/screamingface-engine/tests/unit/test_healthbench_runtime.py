@@ -22,21 +22,13 @@ from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     RUBRIC_EVALUATION_SCHEMA,
 )
 from screamingface_engine.benchmarks.healthbench.definition import (
-    AGGREGATE_ROUTE,
-    CASE_EVALUATION_ROUTE,
-    CASES_ROUTE,
+    HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
-    RUBRIC_EVALUATION_ROUTE,
-    TASKS_ROUTE,
-    VERDICT_ROUTE,
+    PROFESSIONAL_EXAM,
     WORST30_EXAM,
 )
 from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prepare import envelope
-from screamingface_engine.benchmarks.healthbench.professional import (
-    HEALTHBENCH_PROFESSIONAL,
-    PROFESSIONAL_EXAM,
-)
 from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
 from screamingface_engine.benchmarks.healthbench.runtime import install, preflight
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS
@@ -114,7 +106,7 @@ async def test_the_worst30_cases_route_preflights_all_157(tmp_path: Path) -> Non
     node = Url4Node("test")
     install(node, tmp_path, WORST30_EXAM)
     with pytest.raises(ResolutionError, match="failed preflight"):
-        await node.fetch(CASES_ROUTE, relative=True)
+        await node.fetch(WORST30_EXAM.routes.cases, relative=True)
 
 
 @pytest.mark.asyncio
@@ -122,7 +114,7 @@ async def test_the_cases_route_serves_the_frozen_subset(tmp_path: Path) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")
     install(node, tmp_path, WORST30_EXAM)
-    cases = json.loads(await node.fetch(CASES_ROUTE, relative=True))
+    cases = json.loads(await node.fetch(WORST30_EXAM.routes.cases, relative=True))
     assert [case["id"] for case in cases] == list(WORST30_CASE_IDS)
     # Privacy: the public rows carry the chat envelope and NOTHING of the rubric.
     assert "rubric" not in json.dumps(cases)
@@ -136,7 +128,7 @@ async def test_rubric_tasks_render_the_reference_prompt_bytes(tmp_path: Path) ->
     install(node, tmp_path, WORST30_EXAM)
     rows = await _call(
         node,
-        TASKS_ROUTE,
+        WORST30_EXAM.routes.tasks,
         encode_candidate_invocation(_ANSWER, "stop", None),
         str(_CASE_ID),
     )
@@ -169,7 +161,7 @@ async def test_rubric_tasks_grade_exact_refusal_text_through_the_normal_judge(
 
     rows = await _call(
         node,
-        TASKS_ROUTE,
+        WORST30_EXAM.routes.tasks,
         encode_candidate_invocation("", "content_filter", exact),
         str(_CASE_ID),
     )
@@ -190,7 +182,7 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     install(node, tmp_path, WORST30_EXAM)
     tasks = await _call(
         node,
-        TASKS_ROUTE,
+        WORST30_EXAM.routes.tasks,
         encode_candidate_invocation(_ANSWER, None, None),
         str(_CASE_ID),
     )
@@ -198,7 +190,7 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     task = tasks[0]
     verdict = await _call(
         node,
-        VERDICT_ROUTE,
+        WORST30_EXAM.routes.verdict,
         '{"explanation": "asks which study", "criteria_met": true}',
         f"{_CASE_ID}:1",
     )
@@ -207,7 +199,7 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     assert verdict["case_id"] == _CASE_ID
     rubric_evaluation = await _call(
         node,
-        RUBRIC_EVALUATION_ROUTE,
+        WORST30_EXAM.routes.rubric_evaluation,
         {
             "case": task["case_record"],
             "rubric": task["rubric_record"],
@@ -219,7 +211,7 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     assert rubric_evaluation["schema"] == RUBRIC_EVALUATION_SCHEMA
     case_evaluation = await _call(
         node,
-        CASE_EVALUATION_ROUTE,
+        WORST30_EXAM.routes.case_evaluation,
         [json.dumps(rubric_evaluation)],
         str(_CASE_ID),
     )
@@ -227,7 +219,7 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     assert case_evaluation["schema"] == CASE_EVALUATION_SCHEMA
     result = await _call(
         node,
-        AGGREGATE_ROUTE,
+        WORST30_EXAM.routes.aggregate,
         json.dumps(
             [
                 case_execution_payload(
@@ -271,7 +263,7 @@ async def test_a_malformed_judge_reply_retries_with_a_fresh_sample(tmp_path: Pat
             judge_call,
             case_id=str(_CASE_ID),
             rubric_id="1",
-            route=VERDICT_ROUTE,
+            route=WORST30_EXAM.routes.verdict,
             retry=2,
         ),
         intent=Text("$verdict"),
@@ -300,7 +292,7 @@ async def test_exhausted_judge_retries_fail_loudly(tmp_path: Path) -> None:
             judge_call,
             case_id=str(_CASE_ID),
             rubric_id="1",
-            route=VERDICT_ROUTE,
+            route=WORST30_EXAM.routes.verdict,
             retry=2,
         ),
         intent=Text("$verdict"),
@@ -316,7 +308,7 @@ async def test_the_aggregate_route_rejects_other_operations(tmp_path: Path) -> N
     node = Url4Node("test")
     install(node, tmp_path, WORST30_EXAM)
     with pytest.raises(ResolutionError, match="unsupported HealthBench operation"):
-        await _call(node, AGGREGATE_ROUTE, "[]", "score")
+        await _call(node, WORST30_EXAM.routes.aggregate, "[]", "score")
 
 
 @pytest.mark.asyncio
@@ -399,9 +391,9 @@ async def test_both_boards_serve_one_answer_key_from_separate_addresses(tmp_path
     install(node, tmp_path, PROFESSIONAL_EXAM)
 
     professional_routes = PROFESSIONAL_EXAM.routes
-    assert professional_routes.cases != CASES_ROUTE
+    assert professional_routes.cases != WORST30_EXAM.routes.cases
 
-    worst30_cases = json.loads(await node.fetch(CASES_ROUTE, relative=True))
+    worst30_cases = json.loads(await node.fetch(WORST30_EXAM.routes.cases, relative=True))
     professional_cases = json.loads(await node.fetch(professional_routes.cases, relative=True))
     assert [case["id"] for case in worst30_cases] == list(WORST30_CASE_IDS)
     assert [case["id"] for case in professional_cases] == list(range(1, 526))
