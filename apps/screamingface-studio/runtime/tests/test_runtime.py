@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from pathlib import Path
 
+import pytest
+
+from screamingface._runtime import server
 from screamingface._runtime.config import bundled_runner_config
 from screamingface_runtime.runtime import RuntimeConfig, run
 
@@ -13,6 +18,17 @@ def test_studio_uses_the_shared_runtime() -> None:
         "scoreboard": "http://127.0.0.1:9106",
         "engine": "http://127.0.0.1:9108",
     }
+
+
+def test_external_shutdown_waiter_can_be_cancelled_before_event_is_set() -> None:
+    async def cancel_waiter() -> None:
+        task = asyncio.create_task(server._wait_for_thread_event(threading.Event()))
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1)
+
+    asyncio.run(cancel_waiter())
 
 
 def test_runtime_config_uses_persistent_databases(tmp_path: Path) -> None:
