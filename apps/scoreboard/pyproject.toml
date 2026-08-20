@@ -7,7 +7,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
-    "tortoise-orm[asyncpg]==1.1.7",
+    "tortoise-orm[asyncpg]==1.1.8",
     "uvicorn[standard]>=0.52.1",
 ]
 
