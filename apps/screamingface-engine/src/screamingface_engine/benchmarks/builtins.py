@@ -1,6 +1,6 @@
 """Concrete Benchmarks selected by the URL4 Cloud deployment."""
 
-from screamingface_engine.benchmarks.draco.definition import DRACO
+from screamingface_engine.benchmarks.draco.definition import DRACO, DRACO_3PASS
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
@@ -15,6 +15,7 @@ from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 BUILTIN_BENCHMARKS = BenchmarkRegistry(
     (
         DRACO,
+        DRACO_3PASS,
         IFEVAL,
         HEALTHBENCH_WORST30,
         HEALTHBENCH_PROFESSIONAL,

@@ -26,11 +26,13 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def test_public_catalogue_contains_exactly_the_four_product_benchmarks() -> None:
-    # OME-903 added the professional board beside the worst-30% challenge; both are
-    # complete, independently meaningful benchmark identities over one baked answer key.
+def test_public_catalogue_contains_exactly_the_five_product_benchmarks() -> None:
+    # OME-903 added the professional board beside the worst-30% challenge; the 3-pass DRACO
+    # board joined the canonical one; all are complete, independently meaningful benchmark
+    # identities over one baked answer key.
     assert tuple(benchmark.id for benchmark in BUILTIN_BENCHMARKS) == (
         "draco",
+        "draco-3pass",
         "healthbench-professional",
         "healthbench-worst30",
         "ifeval",
