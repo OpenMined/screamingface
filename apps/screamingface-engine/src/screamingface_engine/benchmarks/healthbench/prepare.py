@@ -226,12 +226,22 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
     return len(cases), len(WORST30_CASE_IDS)
 
 
+def _prepare(out: Path) -> tuple[int, int]:
+    return emit(load_rows(), out)
+
+
+def prepare(out: Path) -> None:
+    """Prepare the complete HealthBench assets shared by both registered boards."""
+
+    _prepare(out)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        total, subset = emit(load_rows(), args.out)
+        total, subset = _prepare(args.out)
     except PrepareError as exc:
         print(f"healthbench prepare failed: {exc}", file=sys.stderr)
         return 1
@@ -246,4 +256,12 @@ if __name__ == "__main__":  # pragma: no cover - CLI entry
     raise SystemExit(main())
 
 
-__all__ = ["PrepareError", "case_messages", "emit", "envelope", "load_rows", "rubric_items"]
+__all__ = [
+    "PrepareError",
+    "case_messages",
+    "emit",
+    "envelope",
+    "load_rows",
+    "prepare",
+    "rubric_items",
+]

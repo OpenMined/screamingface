@@ -227,6 +227,20 @@ def write_policy(out: Path) -> Path:
     return path
 
 
+def _prepare(out: Path, limit: int | None) -> dict[str, Any]:
+    return build(
+        load_rows(limit),
+        out,
+        expected_count=CASE_COUNT if limit is None else limit,
+    )
+
+
+def prepare(out: Path) -> None:
+    """Prepare the complete deployable DRACO asset bundle."""
+
+    _prepare(out, None)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="draco-prepare", description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("/opt/benchmarks/draco"))
@@ -234,11 +248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        summary = build(
-            load_rows(args.limit),
-            args.out,
-            expected_count=CASE_COUNT if args.limit is None else args.limit,
-        )
+        summary = _prepare(args.out, args.limit)
     except PrepareError as exc:
         print(f"prepare failed: {exc}", file=sys.stderr)
         return 1
