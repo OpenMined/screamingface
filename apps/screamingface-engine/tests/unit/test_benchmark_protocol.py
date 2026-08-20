@@ -100,6 +100,8 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
         aggregate_route="/example/aggregate",
     )
 
+    assert "iteration.concurrency=1" in render(protocol)
+
     result = json.loads((await node.evaluate(render(protocol))).text)
 
     assert result == {
@@ -159,11 +161,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        (DRACO, "6a9e0deb13a9e88868dc5452cce46527f89236be2aa34da3fbaa7afb413ecefa"),
-        (IFEVAL, "c01431240e88cbe76fcbebfa3cab9fb36f36f70e8fa28807a070bbe5fb3f21eb"),
+        (DRACO, "fe91990b18cf4672d9eccc412fca7bf533de1cb33de38bee589d37302c04d8dc"),
+        (IFEVAL, "c272779623671772ad8c2629e320e283837f34e3b270c693643285174794e4f8"),
         (
             HEALTHBENCH_WORST30,
-            "a5a729e1fcc53c7bb4c506f8a29a577ad4c68e983dcc32c6a9edcd33a443054c",
+            "963cbe2cbffed4ff4123adf6b667af4191ab5337f774bbd43e0ec547d3f6b3e9",
         ),
     ),
 )

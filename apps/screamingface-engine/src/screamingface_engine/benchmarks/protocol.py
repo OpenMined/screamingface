@@ -90,6 +90,7 @@ def build_evaluation_protocol(
         cases_route,
         body=(src(case_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
+        concurrency=1,
         slice=(None if selected_case_count == available_case_count else (0, selected_case_count)),
         on_error="collect",
     )
