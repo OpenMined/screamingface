@@ -55,14 +55,13 @@ WORKDIR /app/apps/screamingface-engine
 # WHY: `uv` is copied in because the base image's uv-created venv has no pip and its runtime
 # stage does not install uv. Reusing the base image's package manager keeps one installer across
 # both Dockerfiles.
-# Keep this digest and the exact datasets version synchronized with DRACO's preparer revision.
-# Changing either changes the bytes that may be baked into an image.
+# Keep this digest and the exact datasets version synchronized with the pinned preparer inputs.
+# Changing either may change the benchmark bytes baked into an image.
 COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 /usr/local/bin/uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /app/apps/screamingface-engine/.venv/bin/python --quiet "datasets==5.0.0"
-RUN mkdir -p /opt/benchmarks/draco \
- && /app/apps/screamingface-engine/.venv/bin/python -m screamingface_engine.benchmarks.draco.prepare \
-      --out /opt/benchmarks/draco
+RUN /app/apps/screamingface-engine/.venv/bin/python \
+      -m screamingface_engine.benchmarks.prepare --root /opt/benchmarks
 
 # --- runtime: the base image + the prepared assets -------------------------------------------
 FROM ${BASE} AS runtime

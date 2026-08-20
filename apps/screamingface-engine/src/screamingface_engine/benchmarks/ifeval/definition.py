@@ -16,6 +16,7 @@ from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Url4Node
 
 BENCHMARK_ID = "ifeval"
+ASSET_BUNDLE_ID = BENCHMARK_ID
 CASE_COUNT = 541
 DATASET = "google/IFEval"
 DATASET_REVISION = "966cd89545d6b6acfd7638bc708b98261ca58e84"
@@ -100,7 +101,7 @@ def install_ifeval(node: Url4Node, assets: Path) -> None:
     # Lazy import keeps the resource-only control plane from loading verifier runtime deps.
     from screamingface_engine.benchmarks.ifeval.runtime import install
 
-    install(node, assets / BENCHMARK_ID)
+    install(node, assets / ASSET_BUNDLE_ID)
 
 
 IFEVAL = Benchmark(
@@ -126,4 +127,4 @@ IFEVAL = Benchmark(
     ),
 )
 
-__all__ = ["IFEVAL", "install_ifeval"]
+__all__ = ["ASSET_BUNDLE_ID", "IFEVAL", "install_ifeval"]
