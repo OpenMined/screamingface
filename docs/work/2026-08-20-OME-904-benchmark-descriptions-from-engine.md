@@ -76,7 +76,41 @@ seeds only the configured rows.
   `description`, `focus`, `dataset_url`, and `revision` columns, so S1 does not apply.
 - **Commits:** see the OME-904 branch.
 - **Gates:** `run_gates.py screamingface-engine` ALL GATES GREEN; `run_gates.py scoreboard` ALL
-  GATES GREEN.
+  GATES GREEN. The review round ran with `--skip-append-only` under owner approval (below).
+
+## Review round (PR #657, 2026-08-20)
+
+Eight findings, all verified before any fix — two of them by executing the behaviour rather
+than reading it (`follow_redirects` defaults to False; `.json()` raises `UnicodeDecodeError`,
+not `JSONDecodeError`, on a non-UTF-8 body).
+
+- **Release-breaking:** `httpx` was declared under `[dependency-groups].dev` while the image is
+  built with `uv sync --frozen --no-dev`, so `import httpx` in `scoreboard.seed` would have
+  been a `ModuleNotFoundError` on every deploy. No test could see it, because tests install the
+  dev group. Moved to `[project.dependencies]`, relocked, and pinned by a test that reads
+  `pyproject.toml` — the only kind of test that can defend this.
+- **"Engine is the only copy" held on the happy path only.** With the catalogue unreadable
+  there is nothing to shadow with, so the deploy's own stale entries would have overwritten
+  good rows with null descriptions — OME-904 reproduced by its own fix. Configuration may now
+  never write an entry asserting a `revision` the Engine did not publish this pass, nor one
+  naming an existing Engine-owned row.
+- **The bootstrap guard read the database after writing to it**, so a configured entry carrying
+  a revision satisfied the guard with the row it had just written. The prior state is now read
+  before anything is seeded.
+- **The likeliest misconfiguration was silent** (chart upgraded without `engineUrl`). Those
+  entries are now refused and named loudly.
+- One unreadable catalogue entry rejected the whole batch; entries are now validated
+  independently, and the Engine enforces the board's column widths so over-long text fails
+  where it is written instead of at deploy.
+- Redirects are followed; `UnicodeDecodeError` is caught; the fetch retries transport failures
+  and 5xx (never a 4xx or a mangled body); and `parser.error` no longer wraps the whole run, so
+  an unrelated `ValueError` can no longer surface as a command-line usage error.
+
+Owner-approved prior-test edits (sdlc rule 5, 2026-08-20): 18 lines across two committed test
+files — five mechanical (the fetch returns a `CatalogRead` so it can report unreadable
+entries), eight adding `retry_delay=0` so failure tests do not sleep through the real backoff
+(28s -> 0.07s), three widening a fixture helper, and one changed expectation, because finding 5
+proved batch-rejection wrong. A new test covers the case that must still raise.
 - **Deviations:**
   - The plan's step 1 included pinning each installed benchmark's revision as a literal. That
     test was written, went red, and was replaced rather than satisfied: the three revisions the

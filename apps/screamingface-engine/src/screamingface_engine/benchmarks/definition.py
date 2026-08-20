@@ -23,6 +23,12 @@ _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # scheme a browser will not follow (or a bare host that resolves relative to the board) is a
 # broken link published under the Engine's name.
 _WEB_URL = re.compile(r"https?://\S+")
+# WHY the Engine enforces the leaderboard's column widths: this definition is the ONE place a
+# benchmark's text is written (OME-904), which means an author here never runs the board's
+# validation. Without a cap, over-long text passes every Engine test and is only discovered at
+# the next deploy, where the board can do no better than skip that benchmark and keep its old
+# text. Fail where the text is written instead.
+_DISPLAY_LIMITS = {"title": 255, "revision": 64, "focus": 120}
 
 
 def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
@@ -93,10 +99,7 @@ class Benchmark:
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Benchmark {name} must be non-empty text")
-        if self.focus is not None and (not isinstance(self.focus, str) or not self.focus.strip()):
-            raise ValueError("Benchmark focus must be non-empty text when declared")
-        if self.dataset_url is not None and not _WEB_URL.fullmatch(self.dataset_url):
-            raise ValueError("Benchmark dataset_url must be an absolute http(s) URL when declared")
+        self._validate_display_metadata()
         if not isinstance(self.id, str) or _BENCHMARK_ID.fullmatch(self.id) is None:
             raise ValueError("Benchmark id must be one lowercase identifier")
         if (
@@ -105,6 +108,21 @@ class Benchmark:
             or self.case_count < 1
         ):
             raise ValueError("Benchmark case_count must be a positive integer")
+
+    def _validate_display_metadata(self) -> None:
+        """Refuse text the leaderboard could not show (OME-904)."""
+
+        if self.focus is not None and (not isinstance(self.focus, str) or not self.focus.strip()):
+            raise ValueError("Benchmark focus must be non-empty text when declared")
+        if self.dataset_url is not None and not _WEB_URL.fullmatch(self.dataset_url):
+            raise ValueError("Benchmark dataset_url must be an absolute http(s) URL when declared")
+        for name, limit in _DISPLAY_LIMITS.items():
+            value = getattr(self, name)
+            if isinstance(value, str) and len(value) > limit:
+                raise ValueError(
+                    f"Benchmark {name} must be at most {limit} characters "
+                    "so the leaderboard can store it"
+                )
 
     def catalog_entry(self) -> dict[str, object]:
         """Return metadata sufficient for one-request Benchmark discovery."""

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -24,6 +25,13 @@ ENGINE_URL_ENV = "SCOREBOARD_SEED_ENGINE_URL"
 _CATALOG_PATH = "/v1/benchmarks"
 # The catalogue is a small static document behind an ETag; a deploy hook should not hang on it.
 _FETCH_TIMEOUT_SECONDS = 15.0
+# WHY retry at all: an unreachable Engine is survivable and exits zero, which means Kubernetes
+# never retries this Job — `backoffLimit` only fires on a non-zero exit. A Helm upgrade that
+# rolls Scoreboard and Engine together can land this single GET inside the Engine's restart
+# window, and without an in-process retry that release's benchmark changes silently miss the
+# board until somebody deploys again.
+_FETCH_ATTEMPTS = 3
+_RETRY_DELAY_SECONDS = 2.0
 
 
 class EngineCatalogUnavailable(RuntimeError):
@@ -86,7 +94,18 @@ class _CatalogEntry(BaseModel):
 class _Catalog(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    data: list[_CatalogEntry]
+    data: list[object]
+
+
+@dataclass(slots=True)
+class CatalogRead:
+    """One catalogue response, split into what this board can use and what it cannot."""
+
+    rows: list[SeedBenchmark] = field(default_factory=list)
+    """Entries this board can register, in the Engine's own order."""
+
+    rejected: list[str] = field(default_factory=list)
+    """Entries the board could not read — reported rather than silently dropped."""
 
 
 @dataclass(slots=True)
@@ -99,6 +118,12 @@ class SeedReport:
     shadowed: list[str] = field(default_factory=list)
     """Configured ids the Engine also publishes; the configured copy was ignored."""
 
+    refused: list[str] = field(default_factory=list)
+    """Configured ids not written at all, because writing them could undo an Engine seed."""
+
+    rejected: list[str] = field(default_factory=list)
+    """Catalogue entries the board could not read."""
+
     engine_error: str | None = None
     """Why the catalogue could not be read, when it could not."""
 
@@ -110,53 +135,114 @@ def fetch_engine_benchmarks(
     engine_url: str,
     *,
     client: httpx.Client | None = None,
-) -> list[SeedBenchmark]:
+    attempts: int = _FETCH_ATTEMPTS,
+    retry_delay: float = _RETRY_DELAY_SECONDS,
+) -> CatalogRead:
     """Read the Engine's benchmark catalogue and return it as rows this board can register.
 
-    Think of it as copying a menu from the kitchen that cooks the food, rather than retyping
-    it at the front desk: the Engine defines each benchmark and writes the words describing
-    it, and this function carries those words across unchanged.
+    Think of it as copying a menu from the kitchen that cooks the food, rather than retyping it
+    at the front desk: the Engine defines each benchmark and writes the words describing it,
+    and this function carries those words across unchanged.
 
     Stage 1 — address the catalogue: ``{engine_url}/v1/benchmarks``. Public and read-only, so
     the seed job holds no Engine credential.
-    Stage 2 — fetch it, converting every transport failure, error status, and non-JSON body
-    into :class:`EngineCatalogUnavailable`.
-    Stage 3 — validate the payload, ignoring fields this board does not display.
-    Stage 4 — map each entry onto a seed row, renaming ``title`` to ``display_name``.
+    Stage 2 — fetch it, following redirects, retrying only what a retry can fix: a transport
+    failure or a 5xx. A 4xx will not become a 200 by asking again, and neither will a mangled
+    body, so both fail immediately.
+    Stage 3 — read the envelope, then each entry INDEPENDENTLY. One unusable entry is reported
+    and skipped; it does not reject its siblings. Refusing the batch would mean every untouched
+    benchmark silently keeps its old text because one of them outgrew a column.
+    Stage 4 — map each usable entry onto a seed row, renaming ``title`` to ``display_name``.
+
+    Worked example: a catalogue of two entries where DRACO carries a 200-character focus line
+    (the board stores 120) returns ``rows=[ifeval]`` and ``rejected=["draco"]`` — IFEval's text
+    still refreshes, and DRACO's problem is named in the deploy log rather than swallowed.
 
     Args:
         engine_url: origin of the Engine to ask, with or without a trailing slash.
         client: an HTTP client to use instead of opening one — the injection seam the tests
             drive; production passes nothing and gets a timeout-bounded client.
+        attempts: how many times to ask before calling the Engine unreachable.
+        retry_delay: seconds to wait between attempts.
 
     Returns:
-        One row per published benchmark, in the Engine's own order.
+        A :class:`CatalogRead` holding the usable rows and the ids of any unusable entries.
 
     Raises:
-        EngineCatalogUnavailable: the catalogue could not be read or could not be understood.
+        EngineCatalogUnavailable: the catalogue could not be reached, answered an error status,
+            or was not a readable catalogue document at all.
     """
 
     url = engine_url.rstrip("/") + _CATALOG_PATH
     http = client if client is not None else httpx.Client(timeout=_FETCH_TIMEOUT_SECONDS)
     try:
-        response = http.get(url)
-        response.raise_for_status()
-        payload = response.json()
-    except httpx.HTTPStatusError as exc:
-        raise EngineCatalogUnavailable(f"{url} answered HTTP {exc.response.status_code}") from exc
-    except httpx.HTTPError as exc:
-        raise EngineCatalogUnavailable(f"{url} could not be reached: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise EngineCatalogUnavailable(f"{url} did not answer JSON: {exc.msg}") from exc
+        payload = _read_catalog(http, url, attempts=attempts, retry_delay=retry_delay)
     finally:
         if client is None:
             http.close()
 
     try:
-        catalog = _Catalog.model_validate(payload)
+        entries = _Catalog.model_validate(payload).data
     except ValidationError as exc:
         raise EngineCatalogUnavailable(f"{url} answered an unreadable catalog: {exc}") from exc
-    return [entry.as_seed() for entry in catalog.data]
+
+    read = CatalogRead()
+    for position, entry in enumerate(entries):
+        try:
+            read.rows.append(_CatalogEntry.model_validate(entry).as_seed())
+        except ValidationError:
+            read.rejected.append(_entry_label(entry, position))
+    return read
+
+
+def _entry_label(entry: object, position: int) -> str:
+    """Name an unusable entry the way a human reading the deploy log would look for it."""
+
+    if isinstance(entry, dict):
+        identifier = entry.get("id")
+        if isinstance(identifier, str) and identifier:
+            return identifier
+    return f"entry #{position}"
+
+
+def _read_catalog(
+    http: httpx.Client,
+    url: str,
+    *,
+    attempts: int,
+    retry_delay: float,
+) -> object:
+    """Fetch and decode the catalogue document, retrying only what a retry can fix."""
+
+    unreachable: EngineCatalogUnavailable | None = None
+    for attempt in range(1, max(attempts, 1) + 1):
+        try:
+            # WHY follow_redirects: httpx defaults to False, so an ordinary http->https or
+            # trailing-slash redirect at the ingress would be reported as a permanent outage and
+            # the board would never update again.
+            response = http.get(url, follow_redirects=True)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            unreachable = EngineCatalogUnavailable(f"{url} answered HTTP {status}")
+            if status < 500:
+                raise unreachable from exc
+        except httpx.HTTPError as exc:
+            unreachable = EngineCatalogUnavailable(f"{url} could not be reached: {exc}")
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # INVARIANT: BOTH belong here. `.json()` raises UnicodeDecodeError on a body that is
+            # not valid UTF-8, and both types are ValueErrors — an uncaught one used to surface
+            # from the CLI as a command-line usage error, blaming the operator's arguments for a
+            # mangled Engine response.
+            raise EngineCatalogUnavailable(f"{url} did not answer readable JSON: {exc}") from exc
+        if attempt < attempts:
+            time.sleep(retry_delay)
+    raise (
+        unreachable
+        if unreachable is not None
+        else EngineCatalogUnavailable(f"{url} was never asked")
+    )
 
 
 async def seed_from_sources(
@@ -164,23 +250,35 @@ async def seed_from_sources(
     engine_url: str | None,
     configured: Sequence[SeedBenchmark],
     client: httpx.Client | None = None,
+    retry_delay: float = _RETRY_DELAY_SECONDS,
 ) -> SeedReport:
     """Register every benchmark this board should show, with the Engine as the only copy.
 
-    Think of it as a merge with a fixed winner: whatever the Engine publishes is the truth,
-    and configuration may only fill gaps the Engine leaves.
+    Think of it as a merge with a fixed winner: whatever the Engine publishes is the truth, and
+    configuration may only fill gaps the Engine leaves. The subtle part is what happens when
+    the Engine says nothing — because "the Engine wins" is vacuous when there is nothing to
+    win with, and that is exactly when stale configuration would walk back in.
 
-    Stage 1 — read the Engine catalogue when one is configured. A failure here is recorded,
-    not raised: re-seeding refreshes a populated board, so failing a Scoreboard deploy on an
+    Stage 1 — ask whether this board has ever been seeded from a catalogue, BEFORE writing
+    anything. Reading this afterwards would let the pass count its own writes and call an empty
+    board healthy.
+    Stage 2 — read the Engine catalogue when one is configured. A failure here is recorded, not
+    raised: re-seeding refreshes a populated board, so failing a Scoreboard deploy on an
     unrelated service's health would cost availability and buy nothing.
-    Stage 2 — Engine rows win over any configured entry sharing their id, and the shadowed ids
-    are reported. This precedence is what makes the Engine the ONLY copy rather than merely
-    the preferred one — prose reintroduced by a deploy is ignored rather than applied.
-    Stage 3 — write every row through the same idempotent registration as before.
-    Stage 4 — decide whether an unreadable catalogue was survivable. It was, unless no row in
-    the database carries a revision at all: only Engine-published benchmarks carry one, so
-    that case means no successful seed has ever run, and exiting zero would publish a board
-    holding nothing but legacy demo entries and call it a success.
+    Stage 3 — decide what configuration is allowed to write. Two entries are refused outright:
+    one asserting a ``revision`` the Engine did not publish in this same pass (a revision is
+    the Engine's claim about its own benchmark, and configuration restating it is the second
+    copy this ticket deletes), and one whose id names an existing Engine-owned row (any row
+    carrying a revision). Without this, one transient Engine blip would let the deploy's own
+    stale entries overwrite good rows with null descriptions — OME-904 reproduced by its fix.
+    Stage 4 — Engine rows win over any surviving configured entry sharing their id.
+    Stage 5 — write every row through the same idempotent registration as before.
+    Stage 6 — an unreadable catalogue was survivable unless Stage 1 found no seeded row at all.
+
+    Worked example: the Engine is down, and configuration still lists draco (revision
+    ``1c58b30…``, no description) plus hle (no revision). draco is refused twice over — it
+    asserts a revision, and it names an Engine-owned row — so the good draco row keeps its
+    text; hle is written; the pass exits zero because Stage 1 saw a seeded row.
 
     Args:
         engine_url: the Engine to read, or None for a deployment that runs without one.
@@ -188,27 +286,44 @@ async def seed_from_sources(
             anything the Engine does not publish.
         client: an HTTP client to use instead of opening one (see
             :func:`fetch_engine_benchmarks`).
+        retry_delay: seconds between catalogue attempts (see
+            :func:`fetch_engine_benchmarks`).
 
     Returns:
-        A :class:`SeedReport`; ``bootstrap_failed`` is the caller's non-zero exit signal.
+        A :class:`SeedReport`; ``bootstrap_failed`` is the caller's non-zero exit signal, and
+        ``refused``/``rejected`` are what the deploy log must show a human.
     """
+
+    store = ScoreStore()
+    # Stage 1 — read the prior state before this pass can contribute to it.
+    seeded_before = await store.has_registered_revision()
+    engine_owned = {row.id for row in await store.list_benchmarks() if row.revision is not None}
 
     report = SeedReport()
     engine_rows: list[SeedBenchmark] = []
     if engine_url:
         try:
-            engine_rows = fetch_engine_benchmarks(engine_url, client=client)
+            read = fetch_engine_benchmarks(engine_url, client=client, retry_delay=retry_delay)
         except EngineCatalogUnavailable as exc:
             report.engine_error = str(exc)
+        else:
+            engine_rows = read.rows
+            report.rejected = read.rejected
 
     published = {row.id for row in engine_rows}
-    report.shadowed = sorted(row.id for row in configured if row.id in published)
-    merged = [*engine_rows, *(row for row in configured if row.id not in published)]
+    allowed: list[SeedBenchmark] = []
+    for row in configured:
+        if row.id in published:
+            report.shadowed.append(row.id)
+        elif row.revision is not None or row.id in engine_owned:
+            report.refused.append(row.id)
+        else:
+            allowed.append(row)
+    report.shadowed.sort()
+    report.refused.sort()
 
-    report.seeded = await seed_benchmarks(merged)
-    report.bootstrap_failed = (
-        report.engine_error is not None and not await ScoreStore().has_registered_revision()
-    )
+    report.seeded = await seed_benchmarks([*engine_rows, *allowed])
+    report.bootstrap_failed = report.engine_error is not None and not seeded_before
     return report
 
 
@@ -262,8 +377,28 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _run(raw_json: str, engine_url: str | None) -> int:
-    configured = load_benchmarks_json(raw_json)
+def _print_report(report: SeedReport) -> None:
+    """Say what happened, in the terms an operator reading the deploy log needs."""
+
+    for benchmark in report.seeded:
+        print(f"seeded benchmark {benchmark.id}")
+    for benchmark_id in report.shadowed:
+        # Named rather than silent: an operator who added prose to the deploy values needs to
+        # know it was ignored, and where the text they see actually comes from.
+        print(f"ignored configured entry {benchmark_id}: the Engine publishes it")
+    for benchmark_id in report.refused:
+        print(
+            f"REFUSED configured entry {benchmark_id}: it claims an Engine benchmark this run "
+            "did not read from the Engine. Set seedBenchmarks.engineUrl, and keep revisions "
+            "and descriptions out of deployment configuration."
+        )
+    for benchmark_id in report.rejected:
+        print(f"REJECTED catalog entry {benchmark_id}: the board could not read it")
+    if report.engine_error is not None:
+        print(f"engine catalog unavailable: {report.engine_error}")
+
+
+async def _run(configured: Sequence[SeedBenchmark], engine_url: str | None) -> int:
     if not configured and not engine_url:
         print("no benchmarks configured")
         return 0
@@ -272,14 +407,7 @@ async def _run(raw_json: str, engine_url: str | None) -> int:
     await init_db(settings.database_url)
     try:
         report = await seed_from_sources(engine_url=engine_url, configured=configured)
-        for benchmark in report.seeded:
-            print(f"seeded benchmark {benchmark.id}")
-        for benchmark_id in report.shadowed:
-            # Named rather than silent: an operator who added prose to the deploy values needs
-            # to know it was ignored, and where the text they see actually comes from.
-            print(f"ignored configured entry {benchmark_id}: the Engine publishes it")
-        if report.engine_error is not None:
-            print(f"engine catalog unavailable: {report.engine_error}")
+        _print_report(report)
         if report.bootstrap_failed:
             print("no benchmark carries an Engine revision: this board has never been seeded")
             return 1
@@ -293,10 +421,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     raw_json = args.benchmarks_json or os.getenv(SEED_BENCHMARKS_ENV, "[]")
     engine_url = args.engine_url or os.getenv(ENGINE_URL_ENV) or None
+    # WHY parse here rather than inside the run: `parser.error` must only ever describe a bad
+    # argument. Wrapping the whole run in `except ValueError` swallowed unrelated ValueErrors
+    # from deep inside it — a mangled Engine response surfaced as a command-line usage error.
     try:
-        exit_code = asyncio.run(_run(raw_json, engine_url))
+        configured = load_benchmarks_json(raw_json)
     except ValueError as exc:
         parser.error(str(exc))
+    exit_code = asyncio.run(_run(configured, engine_url))
     if exit_code:
         raise SystemExit(exit_code)
 

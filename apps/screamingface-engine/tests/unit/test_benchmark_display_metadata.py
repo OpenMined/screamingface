@@ -19,12 +19,18 @@ from screamingface_engine.testing import InMemoryEventStream
 pytestmark = pytest.mark.asyncio
 
 
-def _benchmark(*, focus: str | None = None, dataset_url: str | None = None) -> Benchmark:
+def _benchmark(
+    *,
+    focus: str | None = None,
+    dataset_url: str | None = None,
+    title: str = "Example Smoke",
+    revision: str = "example-smoke-v1",
+) -> Benchmark:
     return Benchmark(
         id="example-smoke",
-        title="Example Smoke",
+        title=title,
         description="One non-comparable structural probe.",
-        revision="example-smoke-v1",
+        revision=revision,
         case_count=3,
         build=lambda selected: candidate(
             f"Explain why the sky looks blue. Selected cases: {selected}.",
@@ -147,3 +153,27 @@ async def test_the_catalog_publishes_every_installed_benchmarks_own_revision() -
         entry = await _catalog(benchmark)
         assert entry["revision"] == benchmark.revision
         assert entry["revision"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("focus", "x" * 121),
+        ("title", "x" * 256),
+        ("revision", "x" * 65),
+    ],
+)
+async def test_text_too_long_for_the_board_to_store_is_refused_at_authoring_time(
+    field: str, value: str
+) -> None:
+    # WHY the Engine enforces the board's limits: "one authoring site" means an Engine author
+    # never runs the board's validation. Without a cap here, a 130-character focus line passes
+    # every Engine test and is only discovered at the next deploy, where the board can do
+    # nothing better than skip that benchmark and keep its old text. Fail where it is written.
+    with pytest.raises(ValueError, match=field):
+        if field == "focus":
+            _benchmark(focus=value)
+        elif field == "title":
+            _benchmark(title=value)
+        else:
+            _benchmark(revision=value)
