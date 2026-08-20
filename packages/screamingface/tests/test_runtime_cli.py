@@ -209,6 +209,22 @@ def test_benchmark_manifest_distinguishes_prepared_stale_and_incomplete(
     assert cli._benchmark_status(config, "draco") == "prepared"
 
 
+@pytest.mark.parametrize("name", ("draco", "ifeval", "healthbench"))
+def test_benchmark_fingerprint_uses_engine_preparation_revision(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    imported: list[str] = []
+
+    def import_module(module: str) -> object:
+        imported.append(module)
+        return type("Preparation", (), {"DATASET_REVISION": "revision"})
+
+    monkeypatch.setattr(cli.importlib, "import_module", import_module)
+
+    assert cli._benchmark_fingerprint(name) == f"{name}:revision"
+    assert imported == [f"screamingface_engine.benchmarks.{name}.prepare"]
+
+
 def test_prepare_list_rejects_mutating_options(tmp_path: Path) -> None:
     config = RuntimeConfig(data_dir=tmp_path)
 

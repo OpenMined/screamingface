@@ -589,8 +589,8 @@ def _benchmark_manifest_path(destination: Path) -> Path:
 
 
 def _benchmark_fingerprint(name: str) -> str:
-    definition = importlib.import_module(f"url4_cloud.benchmarks.{name}.definition")
-    revision = getattr(definition, "DATASET_REVISION", None)
+    preparation = importlib.import_module(f"screamingface_engine.benchmarks.{name}.prepare")
+    revision = getattr(preparation, "DATASET_REVISION", None)
     if not isinstance(revision, str) or not revision:
         raise RuntimeError(f"{name} does not declare a dataset revision")
     return f"{name}:{revision}"
