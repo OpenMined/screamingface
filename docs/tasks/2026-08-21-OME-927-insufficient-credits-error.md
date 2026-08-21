@@ -22,4 +22,4 @@ embedded-in-200-body error mapping (`openrouter_provider/dispatch_errors.py`), s
 Canonical artifacts:
 
 - Ledger: `docs/work/2026-08-21-OME-927-insufficient-credits-error.md`
-- PR: (opened once implementation lands)
+- PR: https://github.com/ScreamingFace/screamingface/pull/679 (open, CI pending)
