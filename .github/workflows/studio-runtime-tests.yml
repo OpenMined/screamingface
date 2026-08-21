@@ -1,0 +1,68 @@
+name: Studio Runtime Tests
+
+on:
+  pull_request:
+    paths:
+      - "apps/screamingface-studio/**"
+      - "apps/aigateway/**"
+      - "apps/scoreboard/**"
+      - "apps/screamingface-engine/**"
+      - "packages/screamingface/**"
+      - "packages/url4/**"
+      - ".github/workflows/studio-runtime-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/screamingface-studio/**"
+      - "apps/aigateway/**"
+      - "apps/scoreboard/**"
+      - "apps/screamingface-engine/**"
+      - "packages/screamingface/**"
+      - "packages/url4/**"
+      - ".github/workflows/studio-runtime-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify macOS sidecar and supervisor
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/screamingface-studio/runtime
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/screamingface-studio/runtime/uv.lock
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Install the Studio runtime
+        run: uv sync --frozen --python 3.12
+
+      - name: Test the shared runtime adapter
+        run: uv run --frozen pytest -q
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/screamingface-studio/src-tauri -> target
+
+      - name: Check the Tauri supervisor
+        working-directory: apps/screamingface-studio/src-tauri
+        run: cargo check
+
+      - name: Build the frozen sidecar
+        run: ./build-sidecar.sh
+
+      - name: Verify frozen startup and shutdown
+        run: ./verify-sidecar.sh
