@@ -224,7 +224,7 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
         scoreboard_log_task = asyncio.create_task(_relay_scoreboard_output(scoreboard))
         stop_task = asyncio.create_task(stop.wait())
         external_stop_task = (
-            asyncio.create_task(asyncio.to_thread(shutdown_event.wait))
+            asyncio.create_task(_wait_for_thread_event(shutdown_event))
             if shutdown_event is not None
             else None
         )
@@ -270,6 +270,11 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
             scoreboard_log_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await scoreboard_log_task
+
+
+async def _wait_for_thread_event(event: threading.Event) -> None:
+    while not event.is_set():
+        await asyncio.sleep(0.05)
 
 
 async def _serve_service(server: Server) -> None:
