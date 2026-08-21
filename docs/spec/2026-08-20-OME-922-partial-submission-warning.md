@@ -15,8 +15,8 @@ scores from full runs.
 - `sf.leaderboards.submit(candidate)` and its async equivalent surface this message after
   successfully publishing a partial but otherwise valid score:
 
-  > This score is based on fewer benchmark cases. It may appear on the public leaderboard,
-  > but it is not directly comparable with scores from full runs.
+  > Partial submission. This score may appear on the public leaderboard, but it is based on
+  > fewer benchmark cases and is not directly comparable with a full-run score.
 
 - A Candidate is full only when both conditions hold:
   - its Case count equals `candidate.benchmark.case_count`; and

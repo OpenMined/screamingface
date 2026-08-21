@@ -73,8 +73,8 @@ def _partial_submission_html(value: LeaderboardScore) -> str:
         "<span class='sf-report__submission-warning-mark' aria-hidden='true'></span>"
         "<div><div class='sf-report__submission-warning-title'>Partial submission</div>"
         "<div class='sf-report__submission-warning-copy'>"
-        "This score is based on fewer benchmark cases. It may appear on the public "
-        "leaderboard, but it is not directly comparable with scores from full runs."
+        "This score may appear on the public leaderboard, but it is based on fewer "
+        "benchmark cases and is not directly comparable with a full-run score."
         "</div></div></div>"
     )
 

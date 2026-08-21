@@ -78,5 +78,5 @@ notebooks are user-owned working-tree changes and must remain untouched.
 Review established that the Scoreboard does not currently exclude partial submissions from
 ranking. The notice now states the behavior that exists: a partial score may appear on the
 public leaderboard, but because it is based on fewer benchmark Cases it is not directly
-comparable with scores from full runs. Full-coverage-only ranking remains separate Scoreboard
-policy scope.
+comparable with a full-run score. Full-coverage-only ranking remains separate Scoreboard policy
+scope.

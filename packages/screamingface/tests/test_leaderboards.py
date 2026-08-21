@@ -1303,9 +1303,9 @@ def test_submit_warns_for_a_limited_run_and_still_posts_it() -> None:
         pytest.warns(
             UserWarning,
             match=(
-                "This score is based on fewer benchmark cases. It may appear on the "
-                "public leaderboard, but it is not directly comparable with scores "
-                "from full runs."
+                "Partial submission. This score may appear on the public leaderboard, "
+                "but it is based on fewer benchmark cases and is not directly "
+                "comparable with a full-run score."
             ),
         ),
     ):
@@ -1328,7 +1328,7 @@ def test_submit_warns_for_incomplete_grading_and_still_posts_it() -> None:
     )
     with (
         _sync_client(handler) as client,
-        pytest.warns(UserWarning, match="This score is based on fewer benchmark cases"),
+        pytest.warns(UserWarning, match="Partial submission"),
     ):
         client.leaderboards.submit(candidate)
 
@@ -1357,7 +1357,7 @@ async def test_async_submit_warns_for_a_limited_run_and_still_posts_it() -> None
         case_scores=(1.0, 0.0),
     )
     async with _async_client(handler) as client:
-        with pytest.warns(UserWarning, match="This score is based on fewer benchmark cases"):
+        with pytest.warns(UserWarning, match="Partial submission"):
             await client.leaderboards.submit(candidate)
 
     assert len(seen) == 1
@@ -1387,9 +1387,9 @@ def test_notebook_partial_submission_moves_warning_into_published_score_card(
     html = cast(Any, submitted)._repr_html_()
     assert "<div class='sf-report__submission-warning' role='status'>" in html
     assert "Partial submission" in html
-    assert "This score is based on fewer benchmark cases." in html
-    assert "It may appear on the public leaderboard" in html
-    assert "not directly comparable with scores from full runs." in html
+    assert "This score may appear on the public leaderboard" in html
+    assert "based on fewer benchmark cases" in html
+    assert "not directly comparable with a full-run score." in html
     assert "--sf-warning:#9c4828" in html
     assert "--sf-warning-solid:#f1622d" in html
     assert "--sf-warning-bg:#fdf4f1" in html
