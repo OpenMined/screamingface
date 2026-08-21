@@ -46,6 +46,33 @@ gap is in scope and is transport-independent.
 | D3 | **Local/`inprocess` keeps the filesystem store** | One process, one disk: the existing behaviour is correct there and stays byte-identical. |
 | D4 | **The App streams artifacts through**; no presigned-URL redirect | Keeps `GET /artifacts/{id}` unchanged, so the SDK's existing size + sha256 verification and retry survive untouched and the blob store stays cluster-internal. Also keeps this a single-landing unit (no SDK change, no epic split). |
 | D5 | **`httpx` + hand-rolled SigV4**; no new dependency | Bounded to PUT and GET of one object — no multipart, and D4 means no presigning. We sign, Garage verifies, so a signer bug fails **closed** (our request is rejected; nothing forged is accepted). The payload sha256 is already computed — it *is* the artifact id. Testable against AWS's published SigV4 vectors. **Bound: if the signer ever needs multipart or presigning, revisit and take a real S3 client.** |
+| D6 | **The deployment configures itself — no bootstrap Job, no operator commands** (owner, 2026-08-21) | See §4.5. |
+
+### 4.5 Self-configuration (D6)
+
+Garage ≥ 2.3.0 provides three `garage server` flags that remove the bootstrap entirely:
+`--single-node` (creates its own layout), `--default-access-key` (adopts
+`GARAGE_DEFAULT_ACCESS_KEY`/`_SECRET_KEY`), `--default-bucket` (creates `GARAGE_DEFAULT_BUCKET`).
+The chart generates a stable key pair when none is supplied — reused across upgrades via `lookup`,
+the pattern already used for the JWT secret — and Garage **adopts** it.
+
+WHY adopt rather than mint: a `post-install` hook running `garage key create` makes Garage produce
+the credential, which the chart must then discover and write back into a Secret. That needs
+`create secrets` RBAC and makes the chart two-phase, so `helm template` no longer describes the
+result. Adopting a chart-stated key keeps the data flowing one way and the chart declarative.
+
+WHY not script the layout: Garage's own operations guide warns that repeating
+`layout apply --version N` can leave a cluster **inconsistent**, and that the version must be
+exactly one past the current one — which is what a hook re-running on every `helm upgrade` gets
+wrong. `--single-node` removes the operation instead of automating it.
+
+INVARIANT: one Secret, three consumers — the App (Deployment `envFrom`), every Runner Job
+(`envFrom.secretRef`), and Garage itself (`env` → `GARAGE_DEFAULT_*`). The store therefore cannot
+hold a key the engine does not present.
+
+INVARIANT: the pair is NOT rotated by an upgrade. Garage adopts a default key only on first boot,
+so minting a new pair later would leave the engine signing with credentials the store has never
+seen — a 403 on every artifact, which reads as a code bug rather than a config change.
 
 ## 4. Design
 

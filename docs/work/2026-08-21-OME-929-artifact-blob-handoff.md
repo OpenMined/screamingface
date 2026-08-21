@@ -135,16 +135,55 @@ a writer/reader storage mismatch can no longer reach fetch time.
      the TEST DATA was corrected against AWS's published `aws-sig-v4-test-suite` `get-vanilla`
      files, whose provenance is now recorded in the test.
 
+## Iteration 4 — the deployment configures itself (owner requirement, 2026-08-21)
+
+Owner: bundled Garage, **no manual commands — everything configured automatically.** This
+retired known-limitation 2 below rather than documenting it.
+
+Verified against Garage's docs before designing (the SigV4 episode earlier in this unit is why):
+
+- `garage server` gained `--single-node`, `--default-access-key` and `--default-bucket` in
+  **v2.3.0**. Confirmed the `dxflrs/garage:v2.3.0` tag exists in the registry (v2.3.1 / v2.4.0 do
+  not), so the image floor is real and pinned.
+- **My `key import` assumption was WRONG** — the CLI has no documented way to supply your own key
+  id and secret. The v2.3.0 env-var path replaced that idea entirely.
+- Garage's layout guide states that repeating `layout apply --version N` can leave a cluster
+  **inconsistent**, and the version must be exactly one past the current. That is worse than the
+  "just fails" risk originally recorded, and it is decisive against a hook that re-runs on every
+  upgrade. `--single-node` removes the operation instead.
+
+Implementation:
+- `secret-artifact-storage.yaml` now holds BOTH halves of the pair and GENERATES them when unset,
+  in Garage's own formats (`GK` + 24 hex; 64 hex), reusing the existing `lookup` pattern so an
+  upgrade never rotates them.
+- The access key moved out of both ConfigMaps into that Secret — it must be stable, and `lookup`
+  only works against an object the chart owns.
+- `garage.yaml` gains the three flags and maps the Secret to `GARAGE_DEFAULT_*`.
+- `values.schema.json`: the `accessKey`-required rule was REMOVED; requiring it would forbid the
+  fully-automatic path.
+- Tests: the three flags are present, `GARAGE_DEFAULT_*` reads the same Secret keys the engine
+  reads, and the pinned image is ≥ v2.3.0.
+
+Verified: `helm template` with `backend=s3 garage.enabled=true` and **no credentials supplied**
+renders 12 documents; the generated pair reaches all three consumers from one Secret.
+
+✚ Also documented a limitation found while explaining the design, not while writing it: the
+adapter uses **path-style** addressing, which excludes real AWS S3 (virtual-hosted-style) and
+Azure Blob (not S3-compatible at all). Recorded in `s3.py` and the chart README.
+
 ## Known limitations (carried, not fixed)
 
 1. **Object expiry depends on a bucket lifecycle rule.** `S3ArtifactStore.sweep` is a deliberate
    no-op: listing objects needs query-string signing, which would push the signer past the
    PUT/GET bound spec D5 sets on it. A bucket configured without a lifecycle rule never expires
    artifacts, and nothing in the App will notice. Documented in the chart README and in the code.
-2. **Garage bootstrap is a manual step.** The chart deploys Garage but does not assign a layout,
-   create the bucket, or mint a key — those are imperative CLI steps. Commands are in the README
-   and in `templates/garage.yaml`.
-3. **Not exercised against a live cluster.** The engine side is fully covered by tests, and the
-   chart is verified to render; the Garage manifests and the end-to-end round trip on real pods
-   still need the owner's live-run check (the ticket's cheap repro: force a spill with
-   `URL4_CLOUD_RESULT_INLINE_CAP_BYTES=1024`).
+   **This is now the only operational gap in the bundled path** — worth its own ticket.
+2. **Path-style addressing only** — fine for Garage/MinIO/SeaweedFS/Ceph/R2, likely broken against
+   real AWS S3, impossible for Azure Blob. Choosing the style per endpoint is the fix if needed.
+3. **Not exercised against a live cluster.** The engine side is fully covered by tests and the
+   chart is verified to render, but the Garage manifests and the end-to-end round trip on real
+   pods still need the owner's live-run check (cheap repro: force a spill with
+   `URL4_CLOUD_RESULT_INLINE_CAP_BYTES=1024`). Two things to watch first: whether
+   `--default-access-key` + `--default-bucket` also GRANT the key access to the bucket (the docs
+   do not say so explicitly; if not, the first PUT 403s), and whether Garage accepts a
+   caller-supplied key in these formats.

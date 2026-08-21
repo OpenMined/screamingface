@@ -135,28 +135,32 @@ artifactStorage:
     # Signing region. Arbitrary, but must match what the endpoint expects — Garage uses its own
     # configured region name, NOT an AWS one.
     region: garage
+    # Both may be left EMPTY. With the bundled Garage the chart generates a stable pair (reused
+    # across upgrades via `lookup`) and Garage adopts it on first boot — so `garage.enabled: true`
+    # needs no operator input at all. Set them only to use credentials you already have.
     accessKey: ""
-    # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
-    # / Sealed Secrets flow). Empty + `backend: s3` => the chart creates one from `secretKey`.
-    # NOTE: the credential must be keyed `URL4_CLOUD_ARTIFACT_S3_SECRET_KEY` in the Secret; both
-    # the App and each Runner Job attach it with `envFrom.secretRef`, which injects keys under
-    # their own names and cannot rename.
-    existingSecret: ""
     # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
     # pass it with `--set` / `--set-file`, or use `existingSecret`.
     secretKey: ""
+    # Bring your own Secret (recommended when pointing at storage you already run — created
+    # out-of-band or by an External Secrets / Sealed Secrets flow). It must carry BOTH
+    # `URL4_CLOUD_ARTIFACT_S3_ACCESS_KEY` and `URL4_CLOUD_ARTIFACT_S3_SECRET_KEY`: they are
+    # delivered by `envFrom.secretRef`, which injects keys under their own names and cannot rename.
+    existingSecret: ""
 
 # The bundled S3-compatible object store (OME-929, spec D2). Default-disabled so an existing
 # endpoint can be used instead by setting `artifactStorage.s3.endpointUrl`.
 #
-# AIDEV-NOTE: Garage needs a ONE-TIME bootstrap after first install — a layout assignment, then a
-# bucket and an access key — which this chart does NOT perform, because those are imperative
-# `garage` CLI steps whose failure modes are much worse when hidden inside a hook. See
-# deploy/helm/README.md for the exact commands, and feed the resulting key into
-# `artifactStorage.s3.accessKey` / `.secretKey`.
+# SELF-CONFIGURING: Garage >=2.3.0 creates its own single-node layout, adopts the access key the
+# chart generates, and creates the bucket — so enabling this is the only step. No bootstrap Job, no
+# operator commands. See templates/garage.yaml for why that beats a post-install hook.
 garage:
   enabled: false
-  image: dxflrs/garage:v1.0.1
+  # MINIMUM v2.3.0 — that release added the --single-node / --default-access-key /
+  # --default-bucket server flags this chart relies on to configure itself. On an
+  # earlier tag those flags do not exist, Garage starts with no layout and no bucket,
+  # and every artifact PUT fails.
+  image: dxflrs/garage:v2.3.0
   # One replica: this is a single-consumer hand-off store for objects that live <48h, not a
   # durability tier. Replication would add a failure domain for no benefit at this size.
   replicaCount: 1

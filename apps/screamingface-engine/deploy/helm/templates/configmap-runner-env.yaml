@@ -54,7 +54,9 @@ data:
   URL4_CLOUD_ARTIFACT_S3_ENDPOINT_URL: {{ include "screamingface-engine.artifactEndpointUrl" . | quote }}
   URL4_CLOUD_ARTIFACT_S3_BUCKET: {{ .Values.artifactStorage.s3.bucket | quote }}
   URL4_CLOUD_ARTIFACT_S3_REGION: {{ .Values.artifactStorage.s3.region | quote }}
-  URL4_CLOUD_ARTIFACT_S3_ACCESS_KEY: {{ .Values.artifactStorage.s3.accessKey | quote }}
+  # NOTE: the ACCESS KEY is not here either. It is auto-generated when unset, so it must be
+  # stable across upgrades — which means living in the Secret the chart can `lookup`. Both
+  # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
   {{- end }}
   # NOTE: URL4_CLOUD_ARTIFACT_S3_SECRET_KEY is deliberately ABSENT here. It travels by Secret
   # (`secret-artifact-storage.yaml`), attached to each Job with `envFrom.secretRef` — a ConfigMap

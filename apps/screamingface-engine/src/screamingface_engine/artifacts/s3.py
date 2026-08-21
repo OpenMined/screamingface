@@ -19,6 +19,12 @@ AIDEV-NOTE: reclamation is NOT done here. `sweep` is a deliberate no-op — obje
 bucket lifecycle rule, because listing objects would need query-string signing and push the
 signer past the bound spec D5 sets on it. A bucket with no lifecycle rule never expires
 artifacts.
+
+AIDEV-NOTE: objects are addressed PATH-STYLE (`{endpoint}/{bucket}/{key}`). Garage, MinIO,
+SeaweedFS, Ceph RGW and Cloudflare R2 all accept that. AWS S3 proper has deprecated path-style in
+favour of virtual-hosted-style (`bucket.s3.region.amazonaws.com`), so this adapter may not reach
+real AWS S3 — and the failure looks like a signing or credential problem rather than an addressing
+one. Supporting it means choosing the style per endpoint, not patching `_url_path`.
 """
 
 from __future__ import annotations

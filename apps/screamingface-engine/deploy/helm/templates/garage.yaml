@@ -14,21 +14,28 @@ WHY single-node, RWO, no replication: the objects are single-consumer hand-offs 
 48h and are re-derivable by re-running the evaluation. This is a hand-off buffer, not a durability
 tier — replication would add a failure domain and buy nothing at ~3 MiB per run.
 
-AIDEV-NOTE — ONE-TIME BOOTSTRAP REQUIRED, NOT PERFORMED HERE. After first install Garage needs a
-layout assignment, then a bucket and an access key. Those are imperative `garage` CLI steps whose
-failure modes are considerably worse when buried in a Helm hook (a half-applied layout is harder
-to diagnose than a documented manual step), so the chart deliberately stops short. Run:
+SELF-CONFIGURING — no bootstrap step, no Helm hook, no operator commands. Garage v2.3.0 added
+three `server` flags that replace the whole manual sequence:
 
-  kubectl exec -it sts/<release>-garage -- /garage status              # note the node id
-  kubectl exec -it sts/<release>-garage -- /garage layout assign -z dc1 -c 10G <node-id>
-  kubectl exec -it sts/<release>-garage -- /garage layout apply --version 1
-  kubectl exec -it sts/<release>-garage -- /garage bucket create screamingface-artifacts
-  kubectl exec -it sts/<release>-garage -- /garage key create artifacts-rw
-  kubectl exec -it sts/<release>-garage -- /garage bucket allow --read --write screamingface-artifacts --key artifacts-rw
+  --single-node          creates the cluster layout itself, so nothing has to run
+                         `layout assign` / `layout apply`
+  --default-access-key   adopts GARAGE_DEFAULT_ACCESS_KEY / GARAGE_DEFAULT_SECRET_KEY
+  --default-bucket       creates GARAGE_DEFAULT_BUCKET
 
-Then set `artifactStorage.s3.accessKey` / `.secretKey` from the key create output and upgrade.
-Until that is done the App refuses to start with `backend: s3` — which is the intended behaviour:
-a misconfigured store must fail at boot, not at a redemption that follows a paid run.
+WHY that matters beyond convenience: it inverts the data flow. The alternative — a post-install
+Job running `garage key create` — makes Garage MINT the credential, which the chart would then
+have to discover and write back into a Secret, needing `create secrets` RBAC and turning a
+declarative chart into a two-phase one. Here the CHART states the key and Garage adopts it, so
+credentials flow one way and `helm template` fully describes the result.
+
+WHY no scripted layout: Garage's own docs warn that repeating `layout apply --version N` can leave
+the cluster INCONSISTENT, and that a version number must be exactly one past the current one. A
+hook re-running on every `helm upgrade` is precisely the shape that gets that wrong.
+`--single-node` removes the operation instead of automating it.
+
+INVARIANT: the key pair comes from the SAME Secret the App and the Runner read (see
+`secret-artifact-storage.yaml`). One source, three consumers — so the store cannot end up holding
+a key the engine does not present.
 */}}
 {{- if .Values.garage.enabled }}
 {{- $name := printf "%s-garage" (include "screamingface-engine.fullname" .) -}}
@@ -98,6 +105,29 @@ spec:
       containers:
         - name: garage
           image: {{ .Values.garage.image | quote }}
+          # The three self-configuration flags (see the header). `server` is the subcommand; the
+          # image's entrypoint is the `garage` binary itself.
+          args:
+            - server
+            - --single-node
+            - --default-access-key
+            - --default-bucket
+          env:
+            # Garage ADOPTS this pair on first boot rather than minting its own, which is what
+            # keeps the chart declarative. Read from the same Secret the engine reads, so the
+            # store and its clients cannot drift onto different credentials.
+            - name: GARAGE_DEFAULT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.artifactSecretName" . }}
+                  key: URL4_CLOUD_ARTIFACT_S3_ACCESS_KEY
+            - name: GARAGE_DEFAULT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.artifactSecretName" . }}
+                  key: URL4_CLOUD_ARTIFACT_S3_SECRET_KEY
+            - name: GARAGE_DEFAULT_BUCKET
+              value: {{ .Values.artifactStorage.s3.bucket | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

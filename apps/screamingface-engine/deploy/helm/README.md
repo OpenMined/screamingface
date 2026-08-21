@@ -181,13 +181,17 @@ DRACO 3-pass run is 11,902 calls and a ~3 MiB result, so it spills every time. T
 ```yaml
 artifactStorage:
   backend: s3
-  s3:
-    bucket: screamingface-artifacts
-    accessKey: GK...
-    existingSecret: my-artifact-creds   # keyed URL4_CLOUD_ARTIFACT_S3_SECRET_KEY
 garage:
   enabled: true
 ```
+
+That is the whole configuration. No credentials to invent, no bucket to create, no commands to
+run: the chart generates a stable key pair (reused across upgrades via `lookup`) and Garage
+**adopts** it on first boot via its `--single-node`, `--default-access-key` and `--default-bucket`
+server flags (Garage ≥ 2.3.0).
+
+Set `artifactStorage.s3.accessKey` / `.secretKey`, or `existingSecret`, only to use credentials
+you already have — e.g. when pointing at storage you already run.
 
 Both halves are rendered from this one stanza — the Runner's copy in `configmap-runner-env.yaml`
 and the App's in `configmap.yaml` — so a one-sided edit cannot point the writer and the reader at
@@ -197,28 +201,44 @@ fell back to its own pod-local `/tmp`.
 The read path goes **through the App**, not via a presigned URL, so the object store stays
 cluster-internal and the SDK's existing size + sha256 verification is unchanged.
 
-### Bundled Garage: one-time bootstrap
+### Why there is no bootstrap Job
 
-`garage.enabled` deploys a single-node store, but Garage needs an imperative first-run setup that
-this chart deliberately does **not** perform (a half-applied layout is far harder to diagnose than
-a documented manual step):
+The obvious alternative — a `post-install` hook running `garage key create` — was rejected. It
+makes Garage **mint** the credential, which the chart then has to discover and write back into a
+Secret: that needs `create secrets` RBAC and turns a declarative chart into a two-phase one where
+`helm template` no longer describes the result. Adopting a chart-stated key keeps the data flowing
+one way.
 
-```sh
-R=<release>-garage
-kubectl exec -it sts/$R -- /garage status                       # note the node id
-kubectl exec -it sts/$R -- /garage layout assign -z dc1 -c 10G <node-id>
-kubectl exec -it sts/$R -- /garage layout apply --version 1
-kubectl exec -it sts/$R -- /garage bucket create screamingface-artifacts
-kubectl exec -it sts/$R -- /garage key create artifacts-rw
-kubectl exec -it sts/$R -- /garage bucket allow --read --write screamingface-artifacts --key artifacts-rw
-```
+Scripted layout is worse still. Garage's
+[layout operations guide](https://garagehq.deuxfleurs.fr/documentation/operations/layout/) warns
+that repeating `layout apply --version N` can leave a cluster **inconsistent**, and that the
+version must be exactly one past the current one — precisely what a hook re-running on every
+`helm upgrade` gets wrong. `--single-node` removes the operation rather than automating it.
 
-Feed the `key create` output into `artifactStorage.s3.accessKey` / `.secretKey` (or a Secret named
-by `existingSecret`) and upgrade. Objects expire by **bucket lifecycle rule**, not by the App's
-sweeper — which is a no-op in `s3` mode. A bucket with no lifecycle rule never expires artifacts.
+### Credential rotation
 
-To use storage you already run, set `artifactStorage.s3.endpointUrl` and leave `garage.enabled`
-off. Any S3-compatible endpoint works; only PUT and GET of a single object are used.
+The key pair is reused across upgrades on purpose: Garage adopts a default key only on **first
+boot**, so minting a new pair later would leave the engine signing with credentials the store has
+never seen — a 403 on every artifact, which reads like a code bug. To rotate deliberately, add the
+new key to Garage (`garage key create` / `bucket allow`) and then set
+`artifactStorage.s3.accessKey` / `.secretKey` to it.
+
+### Expiry
+
+Objects expire by **bucket lifecycle rule**, not by the App's sweeper — which is a no-op in `s3`
+mode, because listing objects would need query-string signing beyond what the adapter's signer
+supports. **A bucket with no lifecycle rule never expires artifacts.**
+
+### Using storage you already run
+
+Set `artifactStorage.s3.endpointUrl` (plus `accessKey`/`secretKey` or `existingSecret`) and leave
+`garage.enabled` off. Only single-part PUT, streaming GET, HEAD and DELETE of one object are used.
+
+**Caveat — path-style addressing.** The adapter addresses objects as `{endpoint}/{bucket}/{key}`.
+That works with Garage, MinIO, SeaweedFS, Ceph RGW and Cloudflare R2. AWS S3 proper has deprecated
+path-style in favour of virtual-hosted-style (`bucket.s3.region.amazonaws.com`), so pointing this
+at real AWS S3 may fail — and it fails as a signing/404 error that looks like a credential
+problem. Azure Blob is **not** S3-compatible at all and would need a new adapter behind the port.
 
 ## Workload hardening
 

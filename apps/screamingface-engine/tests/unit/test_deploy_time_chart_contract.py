@@ -22,6 +22,7 @@ the template text, and a check that always runs beats a richer one that gets ski
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -128,3 +129,61 @@ def test_the_secret_key_is_assigned_in_the_secret_template() -> None:
     secret = _CHART / "secret-artifact-storage.yaml"
 
     assert job_env.ARTIFACT_S3_SECRET_KEY in _yaml_keys(secret)
+
+
+# --- the bundled store configures itself (OME-929) ---------------------------------------
+
+
+def _garage() -> str:
+    return (_CHART / "garage.yaml").read_text(encoding="utf-8")
+
+
+def test_garage_self_configures_with_all_three_server_flags() -> None:
+    """INVARIANT: no bootstrap Job, no operator commands, no scripted layout.
+
+    `--single-node` REMOVES the layout operation rather than automating it, which matters because
+    Garage's own docs warn that repeating `layout apply --version N` can leave a cluster
+    INCONSISTENT — exactly the shape a hook re-running on every `helm upgrade` would produce.
+    The other two adopt the credentials and bucket the chart states.
+    """
+    garage = _garage()
+
+    for flag in ("--single-node", "--default-access-key", "--default-bucket"):
+        assert flag in garage, f"{flag} missing — the deployment would need manual bootstrapping"
+
+
+@pytest.mark.parametrize(
+    ("garage_var", "secret_key"),
+    [
+        ("GARAGE_DEFAULT_ACCESS_KEY", job_env.ARTIFACT_S3_ACCESS_KEY),
+        ("GARAGE_DEFAULT_SECRET_KEY", job_env.ARTIFACT_S3_SECRET_KEY),
+    ],
+)
+def test_garage_adopts_the_same_credentials_the_engine_presents(
+    garage_var: str, secret_key: str
+) -> None:
+    """INVARIANT: one source, three consumers — the App, every Runner Job, and Garage itself.
+
+    Garage ADOPTS the pair the chart generates rather than minting its own. If these ever read
+    from a different place than the engine does, the store holds a key the engine never presents
+    and every artifact request 403s — which reads as a signing bug, not a config one.
+    """
+    garage = _garage()
+
+    assert garage_var in garage
+    # The `key:` of the secretKeyRef must be the variable the engine reads, because `envFrom`
+    # injects under the key's own name and cannot rename.
+    assert f"key: {secret_key}" in garage
+
+
+def test_the_bundled_store_pins_a_version_that_has_the_self_configuration_flags() -> None:
+    """The three flags landed in Garage 2.3.0. An older tag starts with no layout and no bucket,
+    and every artifact PUT fails — so the floor is part of the contract, not a preference."""
+    values = (_CHART.parent / "values.yaml").read_text(encoding="utf-8")
+    match = re.search(r"image:\s*dxflrs/garage:v(\d+)\.(\d+)\.(\d+)", values)
+
+    assert match is not None, "the bundled Garage image is no longer a pinned dxflrs/garage tag"
+    assert (int(match[1]), int(match[2])) >= (2, 3), (
+        f"garage.image is v{match[1]}.{match[2]}.{match[3]}, below the v2.3.0 floor that "
+        "introduced --single-node / --default-access-key / --default-bucket"
+    )

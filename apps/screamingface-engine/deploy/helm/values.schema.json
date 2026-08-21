@@ -450,7 +450,7 @@
     },
     "artifactStorage": {
       "type": "object",
-      "description": "Where over-cap results are parked between the Runner Job that writes one and the App that serves it (OME-929). 'filesystem' is single-process only; separate pods need 's3'.",
+      "description": "Where over-cap results are parked between the Runner Job that writes one and the App that serves it (OME-929). 'filesystem' is single-process only; separate pods need 's3'. With garage.enabled the credentials are generated and adopted automatically.",
       "properties": {
         "backend": {
           "type": "string",
@@ -489,35 +489,6 @@
           "additionalProperties": false
         }
       },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "backend": {
-                "const": "s3"
-              }
-            },
-            "required": [
-              "backend"
-            ]
-          },
-          "then": {
-            "properties": {
-              "s3": {
-                "properties": {
-                  "accessKey": {
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "accessKey"
-                ]
-              }
-            },
-            "description": "artifactStorage.backend=s3 needs artifactStorage.s3.accessKey, plus either .existingSecret or .secretKey"
-          }
-        }
-      ],
       "additionalProperties": false
     },
     "garage": {
