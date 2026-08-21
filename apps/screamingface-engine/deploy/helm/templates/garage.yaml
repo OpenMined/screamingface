@@ -105,8 +105,12 @@ spec:
       containers:
         - name: garage
           image: {{ .Values.garage.image | quote }}
-          # The three self-configuration flags (see the header). `server` is the subcommand; the
-          # image's entrypoint is the `garage` binary itself.
+          # The three self-configuration flags (see the header). `command` is NOT optional
+          # decoration: dxflrs/garage:v2.3.0 ships NO Entrypoint — only
+          # `Cmd: ["/garage", "server"]` — so bare `args` would REPLACE that Cmd wholesale and
+          # the kubelet would try to exec the literal string "server"
+          # (`exec: "server": executable file not found in $PATH`, CrashLoopBackOff).
+          command: ["/garage"]
           args:
             - server
             - --single-node
