@@ -49,6 +49,22 @@ _STYLE = (
 .sf-eval__stat-v{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:18px;
   margin-top:3px;font-variant-numeric:tabular-nums;color:var(--sf-ink);
   overflow:hidden;text-overflow:ellipsis}}
+/* cache provenance: its own full-width row, because a 4th stat cell is ~206px at the panel's
+   920px cap and the reason breakdown cannot fit there at any width. WHY no `nowrap`: a fixed
+   top-N of reasons is wrong at some width (1 fits at 680px, 2 at 760px, 3 at 920px), so this
+   wraps instead of truncating — an ellipsised diagnostic reads as fact while hiding the number
+   that mattered. Body text is --sf-ink-2: --sf-ink-3 is not a text color and is below AA. */
+.sf-eval__cache{{border:1px solid var(--sf-line);border-top:0;display:flex;flex-wrap:wrap;
+  align-items:baseline;gap:6px 14px;padding:9px 12px}}
+.sf-eval__cache-k{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
+  text-transform:uppercase;letter-spacing:.08em;color:var(--sf-ink-2);flex:0 0 auto}}
+.sf-eval__cache-v{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:18px;
+  font-variant-numeric:tabular-nums;color:var(--sf-ink);flex:0 0 auto}}
+.sf-eval__cache-of{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
+  color:var(--sf-ink-2);font-variant-numeric:tabular-nums;flex:0 0 auto}}
+.sf-eval__cache-why{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
+  color:var(--sf-ink-2);font-variant-numeric:tabular-nums;min-width:0}}
+.sf-eval__cache-sep{{color:var(--sf-ink-3)}}
 .sf-eval__act{{margin-top:10px;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:12px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}}
@@ -103,6 +119,7 @@ def evaluation_panel_html(
         f"{_activity_html(progress)}"
         f"{_note_html(check_disclosure)}"
         f"{_stats_html(progress)}"
+        f"{_cache_html(progress)}"
         f"{_feed_html(progress)}"
         f"{_error_html(progress)}</div>"
     )
@@ -181,6 +198,39 @@ def _stats_html(progress: _EvaluationProgress) -> str:
         for key, value in cells
     )
     return f"<div class='sf-eval__stats'>{body}</div>"
+
+
+def _cache_html(progress: _EvaluationProgress) -> str:
+    """The provenance band: what the cache did, and — only when it matters — why it did not.
+
+    INVARIANT: the bypass segment is absent from the markup when no bypass occurred. A healthy run
+    is one number; the band grows only when it has something to report.
+    """
+
+    rate = progress.cache_hit_rate
+    value = "—" if rate is None else f"{rate:.1%}"
+    counts = progress.cache_totals
+    if counts is None:
+        detail = "no cache activity reported"
+        why = ""
+    else:
+        hits, misses, bypasses = counts
+        detail = f"{hits:,} hit · {misses:,} miss"
+        why = ""
+        if bypasses:
+            # INVARIANT: Engine vocabulary verbatim. The Client never groups, renames or ranks
+            # these by severity — a second copy of the gateway's closed set would drift from
+            # PUBLISHED_CACHE_REASONS, which is published in exactly one place for that reason.
+            reasons = " · ".join(
+                f"{escape(reason)} {count:,}" for reason, count in progress.cache_bypass_breakdown
+            )
+            tail = f" <span class='sf-eval__cache-sep'>—</span> {reasons}" if reasons else ""
+            why = f"<div class='sf-eval__cache-why'>{bypasses:,} bypassed{tail}</div>"
+    return (
+        "<div class='sf-eval__cache'><span class='sf-eval__cache-k'>cache</span>"
+        f"<span class='sf-eval__cache-v'>{escape(value)}</span>"
+        f"<span class='sf-eval__cache-of'>{escape(detail)}</span>{why}</div>"
+    )
 
 
 def _feed_html(progress: _EvaluationProgress, limit: int = 12) -> str:
