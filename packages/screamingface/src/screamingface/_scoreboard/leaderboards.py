@@ -400,12 +400,12 @@ def _submitted_score(
         return score
     if _in_notebook():
         return replace(score, _notices=(*score._notices, PARTIAL_SUBMISSION_NOTICE))
-    warnings.warn(PARTIAL_SUBMISSION_NOTICE.message, UserWarning, stacklevel=4)
+    warnings.warn(PARTIAL_SUBMISSION_NOTICE.message, UserWarning, stacklevel=3)
     return score
 
 
 def _is_partial_submission(candidate_result: CandidateResult) -> bool:
-    # INVARIANT (OME-922): coverage measures grading within the selected Cases, so a
+    # INVARIANT: OME-922 coverage measures grading within the selected Cases, so a
     # limit= run can have coverage=1.0 while still omitting most of the Benchmark.
     return (
         len(candidate_result.cases) != candidate_result.benchmark.case_count

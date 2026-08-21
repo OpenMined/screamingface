@@ -1284,7 +1284,7 @@ def _partial_submission_candidate(
     )
 
 
-# INVARIANT (OME-922): selection coverage and grading coverage are independent. A
+# INVARIANT: OME-922 selection coverage and grading coverage are independent. A
 # `limit`ed run can grade every selected Case and still produce a score that is not
 # directly comparable with one from a full run.
 def test_submit_warns_for_a_limited_run_and_still_posts_it() -> None:
@@ -1367,9 +1367,9 @@ async def test_async_submit_warns_for_a_limited_run_and_still_posts_it() -> None
 def test_notebook_partial_submission_moves_warning_into_published_score_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """INVARIANT (OME-922): Jupyter must not paint this advisory as a red traceback-like
-    warning. The successful publication card carries the comparison caveat itself, using the
-    canonical ScreamingFace persimmon warning state in both colour schemes."""
+    # INVARIANT: OME-922 Jupyter must not paint this advisory as a red traceback-like
+    # warning. The successful publication card carries the comparison caveat itself, using
+    # the canonical ScreamingFace persimmon warning state in both colour schemes.
     from screamingface._scoreboard import leaderboards as leaderboards_module  # noqa: PLC0415
 
     monkeypatch.setattr(leaderboards_module, "_in_notebook", lambda: True)
@@ -1415,7 +1415,8 @@ def test_notebook_full_submission_omits_partial_status_notice(
         submitted = client.leaderboards.submit(_candidate_result())
 
     html = cast(Any, submitted)._repr_html_()
-    # The selector always exists in the shared stylesheet; the rendered notice must not.
+    # WHY: the selector always exists in the shared stylesheet; only the element proves that
+    # a notice was rendered.
     assert "<div class='sf-report__submission-warning' role='status'>" not in html
 
 
@@ -1498,3 +1499,22 @@ def test_failed_submission_does_not_emit_a_success_advisory() -> None:
     )
     with _sync_client(handler) as client, pytest.raises(sf.LeaderboardError):
         client.leaderboards.submit(candidate)
+
+
+# INVARIANT: OME-922 headless advisories identify the caller's submission site so Python's
+# location-based warning filter cannot collapse unrelated submissions into one warning.
+def test_headless_partial_submission_warning_points_to_the_caller() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=3,
+        case_scores=(1.0, 0.0),
+    )
+    with (
+        _sync_client(handler) as client,
+        pytest.warns(UserWarning, match="Partial submission") as caught,
+    ):
+        client.leaderboards.submit(candidate)
+
+    assert caught[0].filename == __file__

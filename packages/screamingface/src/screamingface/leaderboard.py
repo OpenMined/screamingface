@@ -101,7 +101,7 @@ class LeaderboardScore:
     verified_by_screamingface: bool
     metadata: Mapping[str, object] | None
     scoreboard_url: str | None = None
-    # Ephemeral client context: a submitted score can carry advisories without polluting
+    # WHY: a submitted score can carry ephemeral client advisories without polluting
     # the persisted Scoreboard response, repr, or value equality (OME-922).
     _notices: tuple[ClientNotice, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 

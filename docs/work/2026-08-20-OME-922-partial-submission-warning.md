@@ -1,9 +1,9 @@
 ---
 ticket: OME-922
 stack: screamingface
-status: done
+status: in_progress
 started: 2026-08-20
-finished: 2026-08-20
+finished:
 ---
 
 # OME-922 — Warn that partial-submission scores are not directly comparable
@@ -38,9 +38,12 @@ preserves the existing advisory-only behavior and sends valid partial scores unc
 
 ## Outcome
 
-- **Actual files:** the shared Client Scoreboard adapter, append-only leaderboard tests, and
-  the task/spec/plan/work records listed above.
-- **Commits:** this commit — `fix(screamingface): warn on partial leaderboard submissions`.
+- **Actual files:** the task/spec/plan/work records; the Scoreboard adapter; shared host
+  environment and notice modules; access/progress integration; published-score value and UI;
+  shared warning tokens; and leaderboard, notice, and runtime tests.
+- **Commits:** six implementation and policy/presentation follow-ups through
+  `fix(screamingface): structure submission notices`, followed by the review correction
+  `fix(screamingface): correct partial-submission review findings`.
 - **Gates:** RED confirmed three missing-warning failures; focused suite 49 passed; 959 tests
   collected; official `run_gates.py screamingface` completed with ALL GATES GREEN (append-only,
   Ruff check/format, Pyright, full pytest with 95% coverage floor, notebook check, build, and
@@ -80,3 +83,39 @@ ranking. The notice now states the behavior that exists: a partial score may app
 public leaderboard, but because it is based on fewer benchmark Cases it is not directly
 comparable with a full-run score. Full-coverage-only ranking remains separate Scoreboard policy
 scope.
+
+## Review correction follow-up
+
+Review found that the headless warning skips past the user's submission frame. Review also
+surfaced an ambiguity between the Report-rendering non-goal and the intentional shared
+persimmon warning-token migration; the owner confirmed that every warning surface should use
+the brand-accurate palette.
+
+### Planned changes
+
+- Append a regression proving a headless warning is attributed to the caller.
+- Correct the warning stack level without changing submission or response behavior.
+- Clarify that the shared Report warning-palette correction is intentional and preserve it.
+- Correct semantic comment anchors and bring this ledger's outcome up to date.
+
+### Test plan
+
+- RED: the warning-origin regression observes the current synthetic `<sys>` location.
+- GREEN: the same regression points to the caller after the stack-level correction.
+- Regression: submission payload, notebook carrier, shared Report tokens, sync/async behavior,
+  and all existing tests remain correct.
+- Run the complete official `screamingface` gate suite from a clean worktree.
+
+### Review correction outcome
+
+- RED reproduced the warning at pytest's internal frame; changing `stacklevel` from 4 to 3
+  makes it identify the caller's source file.
+- The owner confirmed that shared persimmon warning tokens should recolor every warning
+  surface; the spec now records that intentional brand migration.
+- Focused leaderboard/notice/runtime verification passes: 68 tests.
+- Ruff, formatting, Pyright, the full pytest suite with 95% coverage, notebook validation,
+  build, and distribution checks are green. The pre-commit run used `--skip-append-only`
+  solely for approved comment-anchor corrections inside existing tests; no inherited
+  assertion, fixture, or behavior changed. The PR description disclosure is prepared for
+  publication with this commit.
+- The task mirror and ledger remain `in_progress` together until review and merge.

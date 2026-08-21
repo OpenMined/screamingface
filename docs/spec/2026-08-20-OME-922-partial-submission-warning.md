@@ -33,7 +33,8 @@ scores from full runs.
 ## Non-goals
 
 - Enforcing full-run ranking in `apps/scoreboard`.
-- Changing report rendering or the public `CandidateResult` API.
+- Changing Report structure, content, or the public `CandidateResult` API. The shared warning
+  palette migration below is an intentional brand-token correction, not a new Report feature.
 - Introducing a custom warning class or warning-filter configuration.
 
 ## Presentation
@@ -42,6 +43,8 @@ scores from full runs.
   persimmon warning semantics, a solid status square, square edges, no shadow, and no
   decorative gradient.
 - Use the canonical light and dark warning tokens rather than the SDK's older amber aliases.
+- Apply that canonical warning-token migration consistently to existing Report warning states;
+  all warning surfaces should use the same brand-accurate palette.
 - Keep `Score published` and the success receipt: the partial score was persisted; the
   adjacent notice explains why it is not directly comparable with a full-run score.
 
