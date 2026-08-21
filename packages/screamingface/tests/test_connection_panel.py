@@ -1331,3 +1331,38 @@ def test_interrupting_the_login_wait_leaves_the_row_usable() -> None:
     assert panel._state.access_authorization_url is None
     assert [button.description for button in _buttons(root)] == ["Log in"]
     root.close()
+
+
+def test_the_panel_subscribes_through_a_real_client() -> None:
+    # WHY a real Client and not a double: every other panel test stubs
+    # _subscribe_authorization, so nothing exercised the actual seam to the auth object. If
+    # that wiring broke, the panel would silently never receive an authorization URL — the
+    # exact failure this work exists to fix — and no test would notice.
+    client = _client(Engine())
+    panel = _panel(client)
+
+    root = panel.widget()
+
+    assert panel._unsubscribe_authorization is not None
+    panel.close()
+    assert panel._unsubscribe_authorization is None
+    root.close()
+
+
+@pytest.mark.asyncio
+async def test_async_client_exposes_the_same_authorization_subscription() -> None:
+    # INVARIANT: parity with Client. AsyncClient declares the same private surface the panel
+    # relies on; an unexercised async path is what produced the coroutine-read-as-bool bug.
+    client = sf.AsyncClient(
+        engine_url="http://127.0.0.1:9108",
+        http_transport=httpx.MockTransport(Engine()),
+    )
+    seen: list[str] = []
+
+    unsubscribe = client._subscribe_authorization(seen.append)
+
+    assert callable(unsubscribe)
+    unsubscribe()
+    # Idempotent, like the auth-state subscription it mirrors.
+    unsubscribe()
+    await client.aclose()
