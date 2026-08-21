@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.0](https://github.com/OpenMined/screamingface/compare/url4-v1.4.1...url4-v1.5.0) (2026-08-19)
+
+
+### Features
+
+* deliver large Evaluation results in full instead of cutting them off at 1 MiB ([0712043](https://github.com/OpenMined/screamingface/commit/07120439865973cff99c5c280fc990bf9b5cb0d0))
+* report real run cost from provider-authored OpenRouter evidence ([05d85f1](https://github.com/OpenMined/screamingface/commit/05d85f1fb136b24c8d8b43f4bf656e6c93a93f20))
+* **screamingface-engine:** rename apps/url4-cloud to apps/screamingface-engine ([3246d96](https://github.com/OpenMined/screamingface/commit/3246d96d05673e0707cf938cae65de2e696154c8))
+* **url4:** allow a total-only cost and widen the usage seam ([f51d3d3](https://github.com/OpenMined/screamingface/commit/f51d3d37d6d82717687d2be5829fcb0c4739d35c))
+* **url4:** result frames carry an inline body or an artifact claim ticket ([63cbf96](https://github.com/OpenMined/screamingface/commit/63cbf96f7a65872aa38fe73aed8fa51c1874cc74))
+
+
+### Documentation
+
+* **screamingface-engine:** update agent config, diagrams and stale paths ([1d2c047](https://github.com/OpenMined/screamingface/commit/1d2c047b2c522dee3df2dc9ea920d36f05584eea))
+
 ## [1.4.1](https://github.com/OpenMined/screamingface/compare/url4-v1.4.0...url4-v1.4.1) (2026-08-12)
 
 
