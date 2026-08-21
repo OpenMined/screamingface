@@ -409,8 +409,6 @@ class ConnectionPanel:
         self._state.connections = ()
         self._render_rows()
 
-    def _cancel_access_login(self) -> None:
-        self._client._cancel_login()
         self._state.access_pending = False
         self._state.connections = ()
         self._render_rows()

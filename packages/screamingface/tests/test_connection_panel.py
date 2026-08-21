@@ -1386,3 +1386,44 @@ async def test_async_client_exposes_the_same_authorization_subscription() -> Non
     # Idempotent, like the auth-state subscription it mirrors.
     unsubscribe()
     await client.aclose()
+
+
+def test_no_cancel_is_offered_while_the_login_blocks() -> None:
+    # WHY: the login handler blocks, so a queued Cancel click cannot run until the wait is
+    # already over. A button that looks live and does nothing is worse than no button — the
+    # notebook stop button is the escape, and it leaves a clean row.
+    during: list[list[str]] = []
+
+    class Client:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticated = False
+        authenticating = False
+
+        def __init__(self) -> None:
+            self.connections = _EmptyConnections()
+            self.presenters: list[Callable[[str], None]] = []
+
+        def _access_required(self) -> bool:
+            return True
+
+        def _subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]:
+            self.presenters.append(presenter)
+            return lambda: self.presenters.remove(presenter)
+
+        def login(self, *, timeout: float = 300.0) -> None:
+            del timeout
+            for presenter in tuple(self.presenters):
+                presenter("https://engine.example/cdn-cgi/access/login?key=k")
+            during.append([button.description for button in _buttons(root)])
+            self.authenticated = True
+
+        def _cancel_login(self) -> None:
+            self.authenticating = False
+
+    panel = _panel(Client())
+    root = panel.widget()
+    _button(root, "Log in").click()
+
+    # Only the Authorize link is offered while the wait is in progress.
+    assert during == [[]]
+    root.close()

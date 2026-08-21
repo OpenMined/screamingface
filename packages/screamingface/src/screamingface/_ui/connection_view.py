@@ -27,8 +27,6 @@ class _PanelController(Protocol):
 
     def _attempt(self, action: Any) -> None: ...
 
-    def _cancel_access_login(self) -> None: ...
-
     def _cancel_flow(self, provider: str) -> None: ...
 
     def _cancel_mode(self, provider: str) -> None: ...
@@ -243,13 +241,15 @@ class _NotebookConnectionView:
             button = self._button("Checking…", "Checking whether this Engine requires Access")
             button.disabled = True
         elif status == "waiting":
-            button = self._button("Cancel", "Cancel the Cloudflare Access login")
-            button.on_click(
-                lambda _: self._controller._attempt(self._controller._cancel_access_login)
-            )
+            # AIDEV-NOTE: no Cancel here, deliberately. Login blocks the click handler, so a
+            # queued Cancel click cannot run until the wait is already over — a control that
+            # looks live and does nothing is worse than none. The notebook stop button is the
+            # escape, and it leaves a clean row. Re-adding it means restoring the controller's
+            # _cancel_access_login too, and making the wait pump the kernel so a click can
+            # actually be delivered mid-login.
             authorization_url = self._state.access_authorization_url
-            if authorization_url:
-                return self._row(meta, [self._authorization_link(authorization_url), button])
+            controls = [self._authorization_link(authorization_url)] if authorization_url else []
+            return self._row(meta, controls)
         elif status == "authenticated":
             button = self._button("Log out", "Log out of this Client and Cloudflare Access")
             button.on_click(lambda _: self._controller._attempt(self._controller._logout_access))
