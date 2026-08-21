@@ -72,11 +72,12 @@ anchor beside **Cancel**, reusing the OAuth row's treatment (`:364-369`):
 
 Reuse `_oauth_html` if it generalises cleanly; duplicate only if forcing reuse distorts it.
 
-### 6. `_access/contract.py` — recognise Colab
+### ~~6. Colab detection~~ — DROPPED
 
-`_running_in_notebook()` (`:180-188`) currently requires the shell module to start with
-`ipykernel`. Accept `google.colab` too. Secondary: it stops a pointless `webbrowser.open`
-on the notebook host; it does not by itself fix the button.
+The original plan added Colab to `_running_in_notebook()`. **Not needed:**
+`running_in_notebook()` already walks the MRO and returns `True` in Colab, because Colab's
+shell subclasses `ipykernel.zmqshell.ZMQInteractiveShell`. See the spec's correction
+section. `_environment.py` is untouched.
 
 ## Test plan (RED first, append-only)
 
@@ -88,8 +89,6 @@ that fixture style.
 - The presenter fires from a worker thread and still reaches the widget (via the dispatcher).
 - URL cleared on success, on cancel, and on error — three cases.
 - A presenter that raises does not fail the login.
-- `_running_in_notebook()` is True for a `google.colab._shell`-style shell and for
-  `ipykernel`, False otherwise (parametrized).
 - Terminal path unchanged: `webbrowser.open` still called when not in a notebook.
 - The URL is HTML-escaped in the rendered anchor.
 - `_access` does not import `_ui` — assert on the module's imports.
@@ -103,8 +102,9 @@ Gates: `uv run .claude/scripts/run_gates.py screamingface` (coverage floor 95%).
   showed what an unexercised async path costs.
 - **Anchor placement is a design call** — see the spec's open question. Defaulting to the
   OAuth row's precedent.
-- **Colab detection is a guess about a shell class name.** Confirmed for today's Colab
-  (`google.colab._shell`); a prefix match on `google.colab` is the tolerant form.
+- ~~Colab detection~~ — dropped, see above. `running_in_notebook()` already handles it.
+- **Anchor clicks in Colab: verified** by the owner. The selectable-URL fallback is kept
+  for browser-level popup blocking, not for the sandbox.
 
 ## Owner-verify
 

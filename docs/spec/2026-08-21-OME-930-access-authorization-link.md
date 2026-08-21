@@ -12,17 +12,44 @@ session.
 This blocks onboarding. `sf.connect()` is the entrypoint in six shipped notebooks including
 `examples/00_quickstart.ipynb`, and is the only auth surface a non-power user meets.
 
-## Why it fails
+## Why it fails — one fault
 
-`_present_access_authorization` (`_access/contract.py:101`) does two things, and in Colab
-both miss:
+`_present_access_authorization` (`_access/contract.py:101`):
 
-1. **`print()`s the URL.** Login runs on the `screamingface-access-login` worker thread,
-   started from an ipywidgets button callback. That output does not reach the cell in Colab.
-2. **Calls `webbrowser.open` when `_running_in_notebook()` is False** — which it is in
-   Colab, because that check requires the shell class module to start with `ipykernel`
-   (`contract.py:180-188`) and Colab's is `google.colab._shell`. **Confirmed by the owner.**
-   The browser is therefore opened on the Colab VM.
+```python
+def _present_access_authorization(authorization_url: str) -> None:
+    print(f"Complete Cloudflare Access login in your browser:\n\n{authorization_url}\n")
+    if _running_in_notebook():
+        return
+    webbrowser.open(authorization_url, new=2)
+```
+
+**The URL is printed where nobody can see it.** Login runs on the
+`screamingface-access-login` worker thread, started from an ipywidgets button callback.
+That output does not reach the cell in Colab, so the URL is generated correctly and
+discarded. There is no other channel to the user.
+
+### CORRECTION — there is no Colab-detection fault
+
+An earlier revision of this spec (and of the Linear issue) claimed a second fault: that
+`_running_in_notebook()` fails to recognise Colab and therefore calls `webbrowser.open` on
+the Colab VM. **That was wrong.** `running_in_notebook()`
+(`src/screamingface/_environment.py`) walks the **MRO**, and already handles this
+deliberately:
+
+```python
+# WHY inspect the MRO: hosted notebooks such as Colab and Databricks subclass the
+# ipykernel shell from their own modules, so the concrete class name alone lies.
+return any(cls.__module__.startswith("ipykernel") for cls in type(shell).__mro__)
+```
+
+Colab's shell subclasses `ipykernel.zmqshell.ZMQInteractiveShell`, so the MRO is
+`['google.colab._shell', 'ipykernel.zmqshell', 'builtins']` and the function returns
+`True`. No browser is opened on the notebook host today.
+
+The bad evidence: `type(get_ipython()).__module__` returns `google.colab._shell`, which
+shows only the **leaf** class and is fully consistent with the MRO containing ipykernel.
+It was misread as confirming the fault. **No change to `_environment.py` is needed.**
 
 ## The constraint that decides the design
 
@@ -112,25 +139,24 @@ Two clicks is one more interaction in exchange for not generating a keypair and 
 authorization URL on every render. Rejected one-click for that reason; revisit only if the
 extra click proves to be a real drop-off.
 
-### UNVERIFIED ASSUMPTION — anchor clicks inside Colab's output iframe
+### VERIFIED — anchor clicks work inside Colab's output iframe
 
 Colab renders widget output in a **sandboxed iframe**. A sandbox without `allow-popups`
 blocks `target="_blank"`, in which case the link renders but clicking it does nothing —
 the same class of failure as the bug this issue fixes.
 
-The provider-OAuth row already uses this pattern (`_ui/connection_view.py:364-369`), but
-there is no evidence it has ever been clicked in Colab. **Verify before relying on it:**
+The provider-OAuth row already uses this pattern (`_ui/connection_view.py:364-369`).
+**Confirmed by the owner in real Colab** — the rendered link opens a new tab as intended,
+so the sandbox permits it and this design holds. Reproduction:
 
 ```python
 from IPython.display import HTML
 HTML('<a href="https://example.com" target="_blank" rel="noopener noreferrer">Authorize</a>')
 ```
 
-**Mitigation, applied regardless of the outcome:** render the authorization URL as
+**Mitigation, kept anyway:** render the authorization URL as
 selectable text alongside the link. Then a blocked popup degrades to copy-paste rather than
-a dead end, which also covers users whose own browser blocks the popup. If the anchor turns
-out not to work in Colab at all, the selectable URL becomes the primary affordance and this
-spec needs revisiting.
+a dead end — which still matters for users whose own browser blocks popups.
 
 ### Contract
 
@@ -144,8 +170,6 @@ spec needs revisiting.
 - The URL is cleared when login completes, is cancelled, or errors.
 - The URL is **also** rendered as selectable text, so a blocked popup degrades to
   copy-paste. See the unverified-assumption section above.
-- `_running_in_notebook()` additionally recognises Colab — secondary, and only to stop a
-  useless call on the notebook host.
 - **A terminal is unchanged:** `webbrowser.open` is correct there and must keep working.
 - `_access` must not import `_ui` (hexagonal rule). The presenter is passed *in*.
 
@@ -167,8 +191,7 @@ spec needs revisiting.
 5. The link is cleared on completion, cancellation, and error.
 6. Access login and provider OAuth present an authorization URL through the same mechanism.
 7. `_access` does not import `_ui`.
-8. Notebook detection covers Colab as well as ipykernel.
-9. The **panel** behaves identically in Colab, Jupyter and VS Code. Note this is not total
+8. The **panel** behaves identically in Colab, Jupyter and VS Code. Note this is not total
    uniformity: presenters are additive, so the pre-existing `print` still runs and may be
    visible in local Jupyter but not in Colab. That difference is pre-existing and out of
    scope; it is called out so nobody reads "identical" as stronger than it is.
