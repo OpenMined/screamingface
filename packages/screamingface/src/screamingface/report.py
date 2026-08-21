@@ -256,7 +256,10 @@ class CandidateResult:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "benchmark": self.benchmark._result_dict(len(self.cases)),
+            # INVARIANT: the Candidate owns the complete Benchmark identity; the enclosing
+            # Report records the selected Case count separately. Preserving the catalogue
+            # size here keeps exported limited Evaluations recognisably partial on reload.
+            "benchmark": self.benchmark._result_dict(self.benchmark.case_count),
             "run_id": self.run_id,
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),

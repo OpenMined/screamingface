@@ -11,13 +11,13 @@ closed:
 
 # Warn that partial-submission scores are not directly comparable
 
-Warn at `sf.leaderboards.submit(...)` when a Candidate covers fewer than all Benchmark
-Cases or has incomplete grading coverage. The warning is advisory: the Client still sends
-the submission, which may appear on the public leaderboard, while explaining that its score
-is not directly comparable with scores from full runs.
+Warn at `sf.leaderboards.submit(...)` when a Candidate covers fewer than all Benchmark Cases or
+has incomplete grading coverage. With ordinary warning policy the Client still sends the valid
+submission unchanged; warnings-as-errors abort before the Scoreboard write.
 
-In notebooks, render that advisory inside the published-score card using the canonical
-ScreamingFace warning treatment. Preserve a `UserWarning` for headless callers.
+In notebooks, explicitly display the branded advisory after publication so assignment and
+notebook automation cannot hide it. Preserve `sf.EvaluationWarning` for headless callers and the
+full Benchmark Case count when a Candidate Result is exported for later publication.
 
 Canonical artifacts:
 

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import urlsplit
 from uuid import UUID
 
 from screamingface._immutable_json import freeze_mapping
-from screamingface._notices import ClientNotice
 from screamingface.url4 import Url4
 
 
@@ -101,9 +100,6 @@ class LeaderboardScore:
     verified_by_screamingface: bool
     metadata: Mapping[str, object] | None
     scoreboard_url: str | None = None
-    # WHY: a submitted score can carry ephemeral client advisories without polluting
-    # the persisted Scoreboard response, repr, or value equality (OME-922).
-    _notices: tuple[ClientNotice, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -152,10 +148,6 @@ class LeaderboardScore:
                 "metadata",
                 freeze_mapping(self.metadata, "Leaderboard score metadata"),
             )
-        if not isinstance(self._notices, tuple) or not all(
-            isinstance(notice, ClientNotice) for notice in self._notices
-        ):
-            raise TypeError("Leaderboard score notices must be a tuple of ClientNotice values")
 
     def __repr__(self) -> str:
         # WHY custom: the dataclass auto-repr printed the ENTIRE compiled url4

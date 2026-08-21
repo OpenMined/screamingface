@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from screamingface._notices import ClientNotice
+from screamingface._notices import PARTIAL_SUBMISSION_NOTICE, ClientNotice
+from screamingface._ui.notice_view import client_notice_html
 
 
 def test_client_notice_has_stable_machine_and_human_representations() -> None:
@@ -41,3 +42,32 @@ def test_client_notice_rejects_empty_identity_or_copy(field: str) -> None:
 
     with pytest.raises(ValueError, match=field):
         ClientNotice(**values)  # type: ignore[arg-type]
+
+
+def test_client_notice_normalises_machine_identity_and_display_copy() -> None:
+    notice = ClientNotice(
+        code=" partial_submission\n",
+        severity="warning",
+        title=" Partial submission ",
+        body=" Comparison caveat.\n",
+    )
+
+    assert notice.code == "partial_submission"
+    assert notice.title == "Partial submission"
+    assert notice.body == "Comparison caveat."
+
+
+def test_partial_notice_uses_its_own_canonical_persimmon_palette() -> None:
+    html = client_notice_html(PARTIAL_SUBMISSION_NOTICE)
+
+    for token in (
+        "--sf-notice-ink:#9c4828",
+        "--sf-notice-solid:#f1622d",
+        "--sf-notice-bg:#fdf4f1",
+        "--sf-notice-border:#d7aa9b",
+        "--sf-notice-ink:#ffbca5",
+        "--sf-notice-solid:#e36f48",
+        "--sf-notice-bg:#130e0c",
+        "--sf-notice-border:#735248",
+    ):
+        assert token in html

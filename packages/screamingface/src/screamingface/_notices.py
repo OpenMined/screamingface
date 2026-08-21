@@ -24,8 +24,10 @@ class ClientNotice:
             value = getattr(self, name)
             if not isinstance(value, str):
                 raise TypeError(f"Client notice {name} must be a string")
-            if not value.strip():
+            selected = value.strip()
+            if not selected:
                 raise ValueError(f"Client notice {name} must not be empty")
+            object.__setattr__(self, name, selected)
         if not isinstance(self.severity, str):
             raise TypeError("Client notice severity must be a string")
         if self.severity not in _SEVERITIES:

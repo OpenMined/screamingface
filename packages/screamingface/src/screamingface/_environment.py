@@ -14,8 +14,12 @@ def running_in_notebook() -> bool:
     try:
         shell = get_ipython()
     except Exception:  # pragma: no cover - defensive around a host-provided hook
+        shell = None
+    if shell is None:
         return False
-    return shell is not None and shell.__class__.__module__.startswith("ipykernel")
+    # WHY inspect the MRO: hosted notebooks such as Colab and Databricks subclass the
+    # ipykernel shell from their own modules, so the concrete class name alone lies.
+    return any(cls.__module__.startswith("ipykernel") for cls in type(shell).__mro__)
 
 
 def ipykernel_loaded() -> bool:

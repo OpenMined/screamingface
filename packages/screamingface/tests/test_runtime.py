@@ -37,3 +37,22 @@ def test_running_in_notebook_tolerates_a_broken_host_hook(
     monkeypatch.setattr("builtins.get_ipython", broken_hook, raising=False)
 
     assert running_in_notebook() is False
+
+
+@pytest.mark.parametrize("host_module", ["google.colab._shell", "dbruntime.display"])
+def test_running_in_notebook_recognises_ipykernel_based_hosted_shells(
+    monkeypatch: pytest.MonkeyPatch,
+    host_module: str,
+) -> None:
+    class KernelShell:
+        pass
+
+    KernelShell.__module__ = "ipykernel.zmqshell"
+
+    class HostedShell(KernelShell):
+        pass
+
+    HostedShell.__module__ = host_module
+    monkeypatch.setattr("builtins.get_ipython", lambda: HostedShell(), raising=False)
+
+    assert running_in_notebook() is True
