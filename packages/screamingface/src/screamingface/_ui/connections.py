@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import threading
-import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
@@ -26,6 +24,13 @@ if TYPE_CHECKING:
     from ipywidgets import Widget
 
     from screamingface.connections import Connection, OAuthFlow
+
+
+# WHY bounded rather than the Engine's full 300s login window: login now blocks the click
+# handler, and a queued Cancel click cannot run until it returns. Sixty seconds is long enough
+# to complete a browser login and short enough that a user who wandered off gets the panel
+# back.
+_LOGIN_WAIT_SECONDS = 60.0
 
 
 class _ConnectionCatalog(Protocol):
@@ -102,8 +107,6 @@ class ConnectionPanel:
             except (ScreamingFaceError, ValueError) as exc:
                 self._state.notice = _user_message(exc)
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._access_check_thread: threading.Thread | None = None
-        self._login_thread: threading.Thread | None = None
         self._dispatcher = _CompletionDispatcher()
         self._unsubscribe_auth: Callable[[], None] | None = None
         self._unsubscribe_authorization: Callable[[], None] | None = None
@@ -185,8 +188,6 @@ class ConnectionPanel:
         if self._unsubscribe_authorization is not None:
             self._unsubscribe_authorization()
             self._unsubscribe_authorization = None
-        self._login_thread = None
-        self._access_check_thread = None
         for task in tuple(self._tasks.values()):
             task.cancel()
         self._tasks.clear()
@@ -283,12 +284,13 @@ class ConnectionPanel:
         self._unsubscribe_authorization = typed_subscribe(self._authorization_announced)
 
     def _authorization_announced(self, authorization_url: str) -> None:
-        # WHY: this arrives on the login worker thread, so it goes through the dispatcher
-        # for the same reason every completion does — the loop that rendered the widget may
-        # be gone, and a dropped announcement leaves the user with no link at all (OME-930).
+        # WHY: applied INLINE, never through the dispatcher. Login now runs on the clicking
+        # thread, and a hosted notebook delivers a widget update only from a cell body or a
+        # click handler — a loop callback or worker thread after the cell ends is silently
+        # dropped. Rendering here, mid-handler, is what puts the link on screen (OME-930).
         if self._closed:
             return
-        self._dispatcher(self._apply_authorization_url, authorization_url)
+        self._apply_authorization_url(authorization_url)
 
     def _apply_authorization_url(self, authorization_url: str | None) -> None:
         if self._closed:
@@ -301,17 +303,33 @@ class ConnectionPanel:
         if self._access_waiting():
             self._render_rows()
             return
-        if self._dispatcher.running_loop() is None:
-            self._attempt(self._login_access)
-            if self._client.authenticated:
-                self.refresh()
-            else:
-                self._render_rows()
-            return
-
+        # WHY: deliberately synchronous, on the clicking thread. A hosted notebook delivers
+        # a widget update only from a cell body or a click handler; the login worker thread
+        # this replaced announced its authorization URL into a channel Colab drops, so the
+        # link never appeared. Rendering mid-handler is the only thing that reaches the
+        # browser, which also means the panel needs no deferred repaint to finish.
+        # AIDEV-NOTE: the trade-off is that Cancel cannot be clicked while this blocks — its
+        # handler queues behind this one. Hence the bounded wait rather than the full
+        # 300s login window.
         self._state.access_pending = True
         self._render_rows()
-        self._start_login_thread()
+        self._set_notice(None)
+        try:
+            self._client.login(timeout=_LOGIN_WAIT_SECONDS)
+        except (ScreamingFaceError, RuntimeError, ValueError) as exc:
+            # WHY: a cancelled login is the user's own action, not a failure to report at
+            # them. Preserved from the completion handler this replaced.
+            if getattr(exc, "code", None) != "access_login_cancelled":
+                self._set_notice(_user_message(exc))
+        finally:
+            self._state.access_pending = False
+            self._state.access_authorization_url = None
+        if self._client.authenticated:
+            self._attempt(self.refresh)
+        # INVARIANT: the row is always re-rendered after login returns. refresh() renders on
+        # success but raises before doing so on failure, and _set_notice only repaints the
+        # notice — without this the row would keep showing Cancel after the wait ended.
+        self._render_rows()
 
     def _start_access_check(self) -> None:
         if not self._state.access_check_pending or self._state.access_check_started:
@@ -322,13 +340,12 @@ class ConnectionPanel:
             self._render_rows()
             return
         self._state.access_check_started = True
-        # WHY: "checking" is only shown once the probe is in flight, so the row has to be
-        # re-rendered here — the view was built before the check started.
-        self._render_rows()
-        if self._dispatcher.loop is None:
-            self._run_access_check_sync(check)
-            return
-        self._start_access_check_thread(check)
+        # WHY: resolved synchronously, never on a worker thread. A hosted notebook cannot
+        # repaint from a background completion, so a threaded probe leaves the row reading
+        # "checking" forever even though the state is correct. Probing here means the view
+        # is built already showing the answer, and no "checking" state ever reaches a user.
+        # Measured at ~0.2s against the hosted Engine.
+        self._run_access_check_sync(check)
 
     def _run_access_check_sync(self, check: Callable[[], bool]) -> None:
         try:
@@ -338,33 +355,10 @@ class ConnectionPanel:
         else:
             self._complete_access_check(required, None)
 
-    def _start_access_check_thread(self, check: Callable[[], bool]) -> None:
-        panel_ref = weakref.ref(self)
-
-        def run() -> None:
-            required = True
-            error: Exception | None = None
-            try:
-                required = check()
-            except Exception as exc:
-                error = exc
-            panel = panel_ref()
-            if panel is None or panel._closed:
-                return
-            panel._dispatcher(panel._complete_access_check, required, error)
-
-        self._access_check_thread = threading.Thread(
-            target=run,
-            name="screamingface-access-discovery",
-            daemon=True,
-        )
-        self._access_check_thread.start()
-
     def _complete_access_check(self, required: bool, error: Exception | None) -> None:
         if self._closed:
             return
         self._state.access_check_pending = False
-        self._access_check_thread = None
         if error is not None:
             self._set_notice(_user_message(error))
         elif not required:
@@ -375,45 +369,6 @@ class ConnectionPanel:
                 self._state.connections = ()
                 self._set_notice(_user_message(exc))
         self._render_rows()
-
-    def _start_login_thread(self) -> None:
-        client = self._client
-        panel_ref = weakref.ref(self)
-
-        def run() -> None:
-            error: Exception | None = None
-            try:
-                client.login()
-            except Exception as exc:
-                error = exc
-            panel = panel_ref()
-            if panel is None or panel._closed:
-                return
-            panel._dispatcher(panel._complete_login_access, error)
-
-        self._login_thread = threading.Thread(
-            target=run,
-            name="screamingface-access-login",
-            daemon=True,
-        )
-        self._login_thread.start()
-
-    def _complete_login_access(self, error: Exception | None) -> None:
-        if self._closed:
-            return
-        self._state.access_pending = False
-        self._state.access_authorization_url = None
-        self._login_thread = None
-        if error is not None and getattr(error, "code", None) != "access_login_cancelled":
-            self._set_notice(_user_message(error))
-        if self._client.authenticated:
-            try:
-                self.refresh()
-            except (ScreamingFaceError, ValueError) as exc:
-                self._set_notice(_user_message(exc))
-                self._render_rows()
-        else:
-            self._render_rows()
 
     def _auth_state_changed(self) -> None:
         if self._closed:
