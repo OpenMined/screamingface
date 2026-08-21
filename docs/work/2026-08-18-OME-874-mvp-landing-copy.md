@@ -131,7 +131,7 @@ leaves `OME-768`'s open question ("what should the catalogue subtitle be?") stil
 **D8 — Focus ships with authored placeholder copy (owner, option C1).** draco → *"Research reports
 with citations"*; ifeval → *"Instruction following"*; healthbench-worst30 → *"Clinical safety,
 hardest cases"*. Not brand-approved — editable in `values.yaml` without a code change, subject to the
-deployed-values caveat above.
+deployed-values caveat in Owner-verify below.
 
 ## Test plan
 
@@ -178,8 +178,10 @@ Written RED first, then made green:
 
 ### Deviations
 
-1. **The forward-looking copy was reverted in review.** D1–D3 are superseded — see the review
-   finding above. Net brand-copy deviation: one word, two deletions.
+1. **The forward-looking copy was reverted in review.** D1–D3 are superseded: review (Dmitry,
+   2026-08-19) showed the board never filters on the verified flag, so S1 and S3 described a default
+   filter and a toggle that do not exist. Both deleted; S2 keeps the SOTA payoff with one word
+   changed, `verified` → `submitted`. Net brand-copy deviation: one word, two deletions.
 2. **A DRY fix outside the plan.** `routes/leaderboard.py` carried a second hand-written
    `BenchmarkSchema` projection; adding `focus` broke that copy and not the store's. One mapper now.
 3. **D5 was under-enforced and review caught it** — `PROVENANCE.md` shipped publicly with a ticket
