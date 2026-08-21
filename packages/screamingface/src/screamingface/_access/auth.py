@@ -163,7 +163,14 @@ class _CloudflareAccessAuth(_ClientAuth):
 
         return unsubscribe
 
-    def _announce_authorization(self, authorization_url: str) -> None:
+    def _announce_authorization(self, authorization_url: str) -> bool:
+        """Hand the URL to every subscriber; True if any took responsibility for it.
+
+        WHY the return value: a subscriber renders the URL itself, so the built-in stdout
+        narration becomes duplication the user has to read past. The terminal path has no
+        subscriber and keeps printing, because there stdout IS the presentation.
+        """
+
         with self._lock:
             subscribers = tuple(self._authorization_subscribers)
         for presenter in subscribers:
@@ -173,6 +180,7 @@ class _CloudflareAccessAuth(_ClientAuth):
                 # INVARIANT: presentation never fails the login it is announcing. One bad
                 # subscriber must not strand a login that is otherwise fine.
                 continue
+        return bool(subscribers)
 
     def login(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None:
         _require_positive_timeout(timeout)
@@ -467,9 +475,10 @@ class _CloudflareAccessAuth(_ClientAuth):
             _raise_if_cancelled(attempt.cancel)
             self._require_open()
             self._browser_session_started = True
-        self._present_browser(authorization_url)
-        self._announce_authorization(authorization_url)
-        print("Waiting for Cloudflare Access login to complete...")
+        presented = self._announce_authorization(authorization_url)
+        if not presented:
+            self._present_browser(authorization_url)
+            print("Waiting for Cloudflare Access login to complete...")
         token = self._poll_transfer(private_key, public_key, timeout, attempt.cancel)
         access_token = _access_token(token, self._clock(), self._wall_clock())
         with self._lock:
@@ -485,7 +494,8 @@ class _CloudflareAccessAuth(_ClientAuth):
             self._audience = audience
             self._token_store.put(audience, access_token)
             self._generation += 1
-        print("Cloudflare Access login complete.")
+        if not presented:
+            print("Cloudflare Access login complete.")
 
     def _poll_transfer(
         self,

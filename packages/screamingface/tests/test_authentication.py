@@ -1256,9 +1256,15 @@ def test_a_replay_safe_request_still_retries_after_a_login() -> None:
     assert len(fixture.browser_urls) == 1
 
 
-def test_subscribed_presenters_receive_the_authorization_url_additively() -> None:
-    # INVARIANT: subscribers are ADDITIVE — the fixture's own presenter still runs, so the
-    # terminal browser-open path is unchanged by a UI registering for the URL.
+def test_a_subscribed_presenter_takes_over_from_the_built_in_one() -> None:
+    """A subscriber replaces the stdout presenter rather than adding to it.
+
+    WHY this changed from additive: the connection panel renders the authorization URL as a
+    link, so also printing it — plus "Waiting for..." and "complete." — is duplication the
+    user reads past. Where nothing subscribes, the built-in presenter still runs, because in
+    a terminal stdout IS the presentation and it is what opens the browser.
+    """
+
     fixture = _AccessFixture()
     auth = fixture.auth()
     subscriber_urls: list[str] = []
@@ -1266,17 +1272,16 @@ def test_subscribed_presenters_receive_the_authorization_url_additively() -> Non
     unsubscribe = auth.subscribe_authorization(subscriber_urls.append)
     auth.login()
 
-    assert fixture.browser_urls != []
-    assert subscriber_urls == fixture.browser_urls
+    assert subscriber_urls != []
+    assert fixture.browser_urls == []
 
     unsubscribe()
     auth.logout()
-    fixture.browser_urls.clear()
     subscriber_urls.clear()
     auth.login()
 
-    assert fixture.browser_urls != []
     assert subscriber_urls == []
+    assert fixture.browser_urls != []
 
 
 def test_a_raising_authorization_subscriber_does_not_fail_the_login() -> None:
@@ -1308,3 +1313,33 @@ def test_access_never_imports_the_notebook_ui() -> None:
     ]
 
     assert offenders == []
+
+
+def test_a_registered_presenter_silences_the_stdout_narration(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # WHY: when a UI is presenting the authorization URL itself, printing it again is
+    # duplication the user has to read past — and in a notebook the whole narration
+    # ("Waiting for...", "complete.") is noise beside a panel that shows the same state.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    auth.subscribe_authorization(lambda url: None)
+
+    auth.login()
+
+    printed = capsys.readouterr().out
+    assert printed == ""
+
+
+def test_without_a_presenter_the_narration_is_unchanged(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # INVARIANT: a terminal has no UI to render the link, so stdout IS the presentation.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+
+    auth.login()
+
+    printed = capsys.readouterr().out
+    assert "Waiting for Cloudflare Access login to complete" in printed
+    assert "Cloudflare Access login complete." in printed

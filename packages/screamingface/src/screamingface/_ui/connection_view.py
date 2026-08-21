@@ -273,11 +273,15 @@ class _NotebookConnectionView:
         """
 
         href = escape(authorization_url, quote=True)
+        # AIDEV-NOTE: the URL is deliberately NOT rendered as text beside the link. It is
+        # hundreds of characters of Cloudflare token and it collided with the provider and
+        # status columns. Clicking the anchor is confirmed working inside Colab's sandboxed
+        # output iframe, so the link alone is the affordance; the title carries the target.
         return self._widgets.HTML(
             value=(
                 "<a class='sf-connections__authorize' "
-                f"href='{href}' target='_blank' rel='noopener noreferrer'>Authorize</a>"
-                f"<span class='sf-connections__authorize-url'>{href}</span>"
+                f"href='{href}' target='_blank' rel='noopener noreferrer' "
+                "title='Complete Cloudflare Access login in a new tab'>Authorize</a>"
             )
         )
 
