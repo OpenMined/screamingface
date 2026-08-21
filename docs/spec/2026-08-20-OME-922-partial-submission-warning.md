@@ -44,3 +44,15 @@ scores from full runs.
 - Use the canonical light and dark warning tokens rather than the SDK's older amber aliases.
 - Keep `Score published` and the success receipt: the partial score was persisted; the
   adjacent notice explains why it is not directly comparable with a full-run score.
+
+## Design note
+
+- The submission result remains the existing public `LeaderboardScore`. Notebook-only
+  context is carried by private, equality-neutral `ClientNotice` values so it cannot alter
+  the persisted Scoreboard payload, public repr, or value semantics.
+- `ClientNotice` is a reusable internal primitive with a stable code, `info` or `warning`
+  severity, title, and body. OME-922 migrates only its own advisory; converting unrelated
+  client warnings is deliberately separate scope.
+- Notebook presentation uses the shared host-environment capability detector. Evaluation
+  progress retains its established, separately named `ipykernel_loaded` capability because
+  it can safely fall back when a rich panel cannot be constructed.

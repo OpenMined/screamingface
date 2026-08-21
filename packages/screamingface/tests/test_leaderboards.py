@@ -1440,3 +1440,61 @@ async def test_async_notebook_partial_submission_uses_the_score_card_carrier(
 
     html = cast(Any, submitted)._repr_html_()
     assert "<div class='sf-report__submission-warning' role='status'>" in html
+
+
+def test_submit_warns_when_case_count_does_not_equal_the_benchmark() -> None:
+    """OME-922 defines a full run by equality, including defensive over-counting."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=1,
+        case_scores=(1.0, 0.0),
+    )
+    with (
+        _sync_client(handler) as client,
+        pytest.warns(UserWarning, match="Partial submission"),
+    ):
+        client.leaderboards.submit(candidate)
+
+
+@pytest.mark.filterwarnings("error")
+def test_notebook_submission_notice_is_value_neutral_and_stays_off_the_wire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from screamingface._scoreboard import leaderboards as leaderboards_module  # noqa: PLC0415
+
+    monkeypatch.setattr(leaderboards_module, "_in_notebook", lambda: True)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_score_response())
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=3,
+        case_scores=(1.0, 0.0),
+    )
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(candidate)
+
+    plain = replace(submitted, _notices=())
+    assert submitted == plain
+    assert repr(submitted) == repr(plain)
+    payload = seen[0].read().decode()
+    assert "notice" not in payload
+    assert "partial_submission" not in payload
+
+
+@pytest.mark.filterwarnings("error")
+def test_failed_submission_does_not_emit_a_success_advisory() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"detail": "unavailable"})
+
+    candidate = _partial_submission_candidate(
+        benchmark_case_count=3,
+        case_scores=(1.0, 0.0),
+    )
+    with _sync_client(handler) as client, pytest.raises(sf.LeaderboardError):
+        client.leaderboards.submit(candidate)

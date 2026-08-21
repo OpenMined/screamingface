@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import platform
-import sys
 import warnings
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
@@ -16,6 +15,8 @@ from uuid import UUID
 
 import httpx
 
+from screamingface._environment import running_in_notebook as _in_notebook
+from screamingface._notices import PARTIAL_SUBMISSION_NOTICE
 from screamingface._ui.leaderboard_view import LeaderboardCatalog
 from screamingface.errors import LeaderboardError
 from screamingface.leaderboard import (
@@ -31,10 +32,6 @@ from screamingface.url4 import Url4
 _BENCHMARKS_PATH = "/v1/benchmarks"
 _LEADERBOARD_PATH = "/v1/leaderboard"
 _SCORES_PATH = "/v1/scores"
-_PARTIAL_SUBMISSION_WARNING = (
-    "Partial submission. This score may appear on the public leaderboard, but it is "
-    "based on fewer benchmark cases and is not directly comparable with a full-run score."
-)
 
 
 class Leaderboards:
@@ -402,8 +399,8 @@ def _submitted_score(
     if not _is_partial_submission(candidate_result):
         return score
     if _in_notebook():
-        return replace(score, _partial_submission=True)
-    warnings.warn(_PARTIAL_SUBMISSION_WARNING, UserWarning, stacklevel=4)
+        return replace(score, _notices=(*score._notices, PARTIAL_SUBMISSION_NOTICE))
+    warnings.warn(PARTIAL_SUBMISSION_NOTICE.message, UserWarning, stacklevel=4)
     return score
 
 
@@ -411,13 +408,9 @@ def _is_partial_submission(candidate_result: CandidateResult) -> bool:
     # INVARIANT (OME-922): coverage measures grading within the selected Cases, so a
     # limit= run can have coverage=1.0 while still omitting most of the Benchmark.
     return (
-        len(candidate_result.cases) < candidate_result.benchmark.case_count
+        len(candidate_result.cases) != candidate_result.benchmark.case_count
         or candidate_result.coverage < 1.0
     )
-
-
-def _in_notebook() -> bool:
-    return "ipykernel" in sys.modules
 
 
 def _score_value(candidate_result: CandidateResult) -> float:

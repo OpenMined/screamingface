@@ -6,6 +6,8 @@ from html import escape
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
+from screamingface._notices import ClientNotice
+
 # WHY private imports from report_view: the score card is the Report panel's sibling —
 # same tokens, same grid, same disclosure — and duplicating that CSS here is how two
 # cards drift apart. One stylesheet, two renderers.
@@ -56,7 +58,7 @@ def leaderboard_score_html(value: LeaderboardScore) -> str:
         f"<span class='sf-report__strip-id'>{escape(identity)}</span>"
         f"<span class='sf-report__strip-when'>{escape(_stamp(value.submitted_at))}</span>"
         f"<span class='sf-report__receipt'>{escape(receipt)}</span></div>"
-        f"{_partial_submission_html(value)}"
+        f"{_notices_html(value)}"
         "<div class='sf-report__card'>"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
         "<details class='sf-report__det'><summary>URL4</summary>"
@@ -65,16 +67,20 @@ def leaderboard_score_html(value: LeaderboardScore) -> str:
     )
 
 
-def _partial_submission_html(value: LeaderboardScore) -> str:
-    if not value._partial_submission:
-        return ""
+def _notices_html(value: LeaderboardScore) -> str:
+    return "".join(_notice_html(notice) for notice in value._notices)
+
+
+def _notice_html(notice: ClientNotice) -> str:
     return (
         "<div class='sf-report__submission-warning' role='status'>"
-        "<span class='sf-report__submission-warning-mark' aria-hidden='true'></span>"
-        "<div><div class='sf-report__submission-warning-title'>Partial submission</div>"
+        f"<span class='sf-report__submission-warning-mark' aria-hidden='true' "
+        f"data-notice-code='{escape(notice.code, quote=True)}' "
+        f"data-notice-severity='{escape(notice.severity, quote=True)}'></span>"
+        "<div><div class='sf-report__submission-warning-title'>"
+        f"{escape(notice.title)}</div>"
         "<div class='sf-report__submission-warning-copy'>"
-        "This score may appear on the public leaderboard, but it is based on fewer "
-        "benchmark cases and is not directly comparable with a full-run score."
+        f"{escape(notice.body)}"
         "</div></div></div>"
     )
 
