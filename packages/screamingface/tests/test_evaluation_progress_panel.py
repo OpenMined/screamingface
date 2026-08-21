@@ -389,9 +389,10 @@ def test_model_spans_update_live_cache_counts_and_exclude_bypasses_from_rate() -
     assert progress.cache_hit_rate == 0.5
 
     html = evaluation_panel_html(progress)
-    assert "cache hit rate" in html
+    assert "sf-eval__cache" in html
     assert "50.0%" in html
-    assert "1 hit · 1 miss · 1 bypass" in html
+    assert "1 hit · 1 miss" in html
+    assert "1 bypassed" in html
 
 
 def test_final_cache_summary_replaces_live_counts_and_runs_still_aggregate() -> None:
@@ -433,7 +434,163 @@ def test_cache_metric_stays_unavailable_without_hit_or_miss_evidence() -> None:
     assert progress.cache_hit_rate is None
 
     html = evaluation_panel_html(progress)
-    assert "cache hit rate" in html
-    assert "2 bypasses" in html
-    cache_cell = html.split("cache hit rate", 1)[1]
-    assert "<div class='sf-eval__stat-v'>—</div>" in cache_cell
+    band = html.split("class='sf-eval__cache'", 1)[1]
+    assert "<span class='sf-eval__cache-v'>—</span>" in band
+    assert "0 hit · 0 miss" in band
+    assert "2 bypassed" in band
+    assert "unstated 2" in band
+
+
+def test_the_stat_row_keeps_three_cells_so_nothing_truncates() -> None:
+    """WHY: a fourth cell is ~206px at the panel's 920px cap — about 32 characters before its
+    label and value — so the diagnostic half would ellipsise at every width the panel gets."""
+
+    progress = _EvaluationProgress(total_candidates=1)
+    progress.observe(model_span(1, cache_status="hit"))
+
+    html = evaluation_panel_html(progress)
+    assert "grid-template-columns:repeat(3,1fr)" in html
+    assert "repeat(4,1fr)" not in html
+
+
+def test_the_band_reads_bypass_reasons_from_the_authoritative_summary() -> None:
+    progress = _EvaluationProgress(total_candidates=1)
+
+    progress.observe(
+        sf.events.Log(
+            **envelope(1),
+            severity_number=9,
+            severity_text="INFO",
+            body="gateway response cache: 6 hit, 3 miss, 91 bypass",
+            attributes={
+                "cache.hits": 6,
+                "cache.misses": 3,
+                "cache.bypasses": 91,
+                "cache.bypass.unsupported_control": 74,
+                "cache.bypass.opted_out": 17,
+            },
+        )
+    )
+
+    assert progress.cache_bypass_breakdown == (("unsupported_control", 74), ("opted_out", 17))
+    html = evaluation_panel_html(progress)
+    assert "91 bypassed" in html
+    assert "unsupported_control 74" in html
+    assert "opted_out 17" in html
+
+
+def test_a_summary_replaces_rather_than_doubles_span_derived_reasons() -> None:
+    """INVARIANT: the summary is a reconciliation, never an addition."""
+
+    progress = _EvaluationProgress(total_candidates=1)
+    progress.observe(model_span(1, cache_status="bypass", cache_reason="opted_out"))
+    progress.observe(model_span(2, cache_status="bypass", cache_reason="opted_out"))
+
+    assert progress.cache_bypass_breakdown == (("opted_out", 2),)
+
+    progress.observe(
+        sf.events.Log(
+            **envelope(3),
+            severity_number=9,
+            severity_text="INFO",
+            body="gateway response cache: 0 hit, 0 miss, 5 bypass",
+            attributes={
+                "cache.hits": 0,
+                "cache.misses": 0,
+                "cache.bypasses": 5,
+                "cache.bypass.opted_out": 5,
+            },
+        )
+    )
+
+    assert progress.cache_bypass_breakdown == (("opted_out", 5),)
+
+
+def test_a_bypass_naming_no_reason_is_counted_as_unstated() -> None:
+    """WHY: the breakdown must always sum to the bypass total, or neither number is trustworthy."""
+
+    progress = _EvaluationProgress(total_candidates=1)
+    progress.observe(model_span(1, cache_status="bypass"))
+    progress.observe(model_span(2, cache_status="bypass"))
+
+    assert progress.cache_bypass_breakdown == (("unstated", 2),)
+
+    # The strict Event contract is what makes a blank reason unreachable in the fold.
+    with pytest.raises(ValueError, match="cache_reason must be a non-empty string"):
+        model_span(3, cache_status="bypass", cache_reason="   ")
+
+
+def test_unstated_and_other_stay_distinct_buckets() -> None:
+    progress = _EvaluationProgress(total_candidates=1)
+    progress.observe(
+        sf.events.Log(
+            **envelope(1),
+            severity_number=9,
+            severity_text="INFO",
+            body="gateway response cache: 0 hit, 0 miss, 9 bypass",
+            attributes={
+                "cache.hits": 0,
+                "cache.misses": 0,
+                "cache.bypasses": 9,
+                "cache.bypass.unstated": 4,
+                "cache.bypass.other": 5,
+            },
+        )
+    )
+
+    assert progress.cache_bypass_breakdown == (("other", 5), ("unstated", 4))
+
+
+def test_a_healthy_run_renders_no_bypass_segment_at_all() -> None:
+    """WHY: the band only grows when it has something to report."""
+
+    progress = _EvaluationProgress(total_candidates=1)
+    progress.observe(model_span(1, cache_status="hit"))
+    progress.observe(model_span(2, cache_status="miss"))
+
+    html = evaluation_panel_html(progress)
+    assert "1 hit · 1 miss" in html
+    assert "bypassed" not in html
+
+
+def test_reason_maps_from_two_runs_aggregate_without_overwriting() -> None:
+    progress = _EvaluationProgress(total_candidates=2)
+    progress.observe(model_span(1, cache_status="bypass", cache_reason="stream"))
+    progress.observe(
+        sf.events.Span(
+            **envelope(1, run_id="run_2"),
+            name="chat",
+            operation="chat",
+            start=_START,
+            end=_START + timedelta(seconds=1),
+            request_model="openrouter/example/model",
+            cache_status="bypass",
+            cache_reason="metadata",
+        )
+    )
+
+    assert progress.cache_bypass_breakdown == (("metadata", 1), ("stream", 1))
+
+
+def test_the_band_says_so_when_no_provenance_arrives() -> None:
+    progress = _EvaluationProgress(total_candidates=1)
+    progress.observe(model_span(1))
+
+    html = evaluation_panel_html(progress)
+    band = html.split("class='sf-eval__cache'")[1].split("</div>")[0]
+    assert "no cache activity reported" in html
+    assert "—" in band
+    assert "%" not in band
+
+
+def test_the_band_body_uses_a_contracted_text_token() -> None:
+    """--sf-ink-3 measures 3.20:1 light and 3.83:1 dark against the panel ground: below AA,
+    and SFDS states it is not a text color."""
+
+    progress = _EvaluationProgress(total_candidates=1)
+    progress.observe(model_span(1, cache_status="hit"))
+
+    html = evaluation_panel_html(progress)
+    band = html.split(".sf-eval__cache-of{")[1].split("}")[0]
+    assert "var(--sf-ink-2)" in band
+    assert "--sf-ink-3" not in band

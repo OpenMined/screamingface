@@ -9,7 +9,7 @@ from decimal import Decimal
 from html import escape
 from typing import Any
 
-from screamingface._ui.evaluation_state import _cache_count, _EvaluationProgress
+from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.style import FUSION_GRADIENT, STYLE
 from screamingface.events import Event
 
@@ -40,7 +40,7 @@ _STYLE = (
 .sf-eval__state.failed .sq,.sf-eval__state.timed_out .sq,
 .sf-eval__state.stopped .sq{{background:var(--sf-blind)}}
 /* stat table: hairline cells, mono figures, tabular so digits stop jittering as they tick */
-.sf-eval__stats{{display:grid;grid-template-columns:repeat(4,1fr);
+.sf-eval__stats{{display:grid;grid-template-columns:repeat(3,1fr);
   border:1px solid var(--sf-line);margin-top:14px}}
 .sf-eval__stat{{padding:10px 12px;border-right:1px solid var(--sf-line);min-width:0}}
 .sf-eval__stat:last-child{{border-right:0}}
@@ -49,9 +49,22 @@ _STYLE = (
 .sf-eval__stat-v{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:18px;
   margin-top:3px;font-variant-numeric:tabular-nums;color:var(--sf-ink);
   overflow:hidden;text-overflow:ellipsis}}
-.sf-eval__stat-d{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
-  margin-top:2px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;font-variant-numeric:tabular-nums}}
+/* cache provenance: its own full-width row, because a 4th stat cell is ~206px at the panel's
+   920px cap and the reason breakdown cannot fit there at any width. WHY no `nowrap`: a fixed
+   top-N of reasons is wrong at some width (1 fits at 680px, 2 at 760px, 3 at 920px), so this
+   wraps instead of truncating — an ellipsised diagnostic reads as fact while hiding the number
+   that mattered. Body text is --sf-ink-2: --sf-ink-3 is not a text color and is below AA. */
+.sf-eval__cache{{border:1px solid var(--sf-line);border-top:0;display:flex;flex-wrap:wrap;
+  align-items:baseline;gap:6px 14px;padding:9px 12px}}
+.sf-eval__cache-k{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
+  text-transform:uppercase;letter-spacing:.08em;color:var(--sf-ink-3);flex:0 0 auto}}
+.sf-eval__cache-v{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:18px;
+  font-variant-numeric:tabular-nums;color:var(--sf-ink);flex:0 0 auto}}
+.sf-eval__cache-of{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
+  color:var(--sf-ink-2);font-variant-numeric:tabular-nums;flex:0 0 auto}}
+.sf-eval__cache-why{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
+  color:var(--sf-ink-2);font-variant-numeric:tabular-nums;min-width:0}}
+.sf-eval__cache-sep{{color:var(--sf-ink-3)}}
 .sf-eval__act{{margin-top:10px;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:12px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}}
@@ -106,6 +119,7 @@ def evaluation_panel_html(
         f"{_activity_html(progress)}"
         f"{_note_html(check_disclosure)}"
         f"{_stats_html(progress)}"
+        f"{_cache_html(progress)}"
         f"{_feed_html(progress)}"
         f"{_error_html(progress)}</div>"
     )
@@ -173,33 +187,49 @@ def _stats_html(progress: _EvaluationProgress) -> str:
         else "—"
     )
     cost = "—" if progress.cost_usd is None else _money(progress.cost_usd)
-    cache_rate = progress.cache_hit_rate
-    cache = "—" if cache_rate is None else f"{cache_rate:.1%}"
-    cache_detail = _cache_detail(progress.cache_totals)
     cells = (
-        ("model calls", calls, ""),
-        ("tokens in / out", tokens, ""),
-        ("cost", cost, ""),
-        ("cache hit rate", cache, cache_detail),
+        ("model calls", calls),
+        ("tokens in / out", tokens),
+        ("cost", cost),
     )
-    body = "".join(_stat_html(key, value, detail) for key, value, detail in cells)
+    body = "".join(
+        f"<div class='sf-eval__stat'><div class='sf-eval__stat-k'>{escape(key)}</div>"
+        f"<div class='sf-eval__stat-v'>{escape(value)}</div></div>"
+        for key, value in cells
+    )
     return f"<div class='sf-eval__stats'>{body}</div>"
 
 
-def _stat_html(key: str, value: str, detail: str) -> str:
-    receipt = f"<div class='sf-eval__stat-d'>{escape(detail)}</div>" if detail else ""
-    return (
-        f"<div class='sf-eval__stat'><div class='sf-eval__stat-k'>{escape(key)}</div>"
-        f"<div class='sf-eval__stat-v'>{escape(value)}</div>{receipt}</div>"
-    )
+def _cache_html(progress: _EvaluationProgress) -> str:
+    """The provenance band: what the cache did, and — only when it matters — why it did not.
 
+    INVARIANT: the bypass segment is absent from the markup when no bypass occurred. A healthy run
+    is one number; the band grows only when it has something to report.
+    """
 
-def _cache_detail(counts: tuple[int, int, int] | None) -> str:
+    rate = progress.cache_hit_rate
+    value = "—" if rate is None else f"{rate:.1%}"
+    counts = progress.cache_totals
     if counts is None:
-        return ""
-    return " · ".join(
-        _cache_count(name, count)
-        for name, count in zip(("hit", "miss", "bypass"), counts, strict=True)
+        detail = "no cache activity reported"
+        why = ""
+    else:
+        hits, misses, bypasses = counts
+        detail = f"{hits:,} hit · {misses:,} miss"
+        why = ""
+        if bypasses:
+            # INVARIANT: Engine vocabulary verbatim. The Client never groups, renames or ranks
+            # these by severity — a second copy of the gateway's closed set would drift from
+            # PUBLISHED_CACHE_REASONS, which is published in exactly one place for that reason.
+            reasons = " · ".join(
+                f"{escape(reason)} {count:,}" for reason, count in progress.cache_bypass_breakdown
+            )
+            tail = f" <span class='sf-eval__cache-sep'>—</span> {reasons}" if reasons else ""
+            why = f"<div class='sf-eval__cache-why'>{bypasses:,} bypassed{tail}</div>"
+    return (
+        "<div class='sf-eval__cache'><span class='sf-eval__cache-k'>cache</span>"
+        f"<span class='sf-eval__cache-v'>{escape(value)}</span>"
+        f"<span class='sf-eval__cache-of'>{escape(detail)}</span>{why}</div>"
     )
 
 

@@ -19,6 +19,15 @@ from screamingface.events import Event, Log, Span, Started, Terminated, Usage
 # signal — model Spans fire many times per candidate and cannot stand in for it.
 _TERMINAL_ORDER = ("failed", "timed_out", "stopped", "succeeded")
 
+# WHY a prefix rather than a fixed key list: the gateway owns the reason vocabulary and publishes
+# one attribute per reason it saw. INVARIANT: the `cache.bypasses` total does not start with this
+# prefix, so the total can never be harvested as a reason bucket.
+_BYPASS_REASON_PREFIX = "cache.bypass."
+
+UNSTATED_BYPASS_REASON = "unstated"
+"""The Engine's bucket for a bypass that named no reason. Kept distinct from its `other` bucket:
+`other` is a cardinality overflow, this is an absent value, and merging them would erase which."""
+
 
 @dataclass(slots=True)
 class _EvaluationProgress:
@@ -29,6 +38,7 @@ class _EvaluationProgress:
     candidate_urls: frozenset[str] = field(default_factory=frozenset)
     root_sources: set[str] = field(default_factory=set)
     cache_counts: dict[str, tuple[int, int, int]] = field(default_factory=dict)
+    cache_bypass_reasons: dict[str, dict[str, int]] = field(default_factory=dict)
     completed: int = 0
     terminal_counts: dict[str, int] = field(default_factory=dict)
     model_calls: int = 0
@@ -120,6 +130,21 @@ class _EvaluationProgress:
         )
 
     @property
+    def cache_bypass_breakdown(self) -> tuple[tuple[str, int], ...]:
+        """Bypass reasons across every Candidate Run, most frequent first.
+
+        Ties break on the reason name so a live re-render cannot reorder equal counts.
+        AIDEV-NOTE: `other` summed across runs collapses different reason sets — honest per run,
+        imprecise in aggregate. Deliberately not surfaced; explaining it costs more than it buys.
+        """
+
+        totals: dict[str, int] = {}
+        for reasons in self.cache_bypass_reasons.values():
+            for reason, count in reasons.items():
+                totals[reason] = totals.get(reason, 0) + count
+        return tuple(sorted(totals.items(), key=lambda item: (-item[1], item[0])))
+
+    @property
     def cache_hit_rate(self) -> float | None:
         counts = self.cache_totals
         if counts is None:
@@ -174,8 +199,20 @@ class _EvaluationProgress:
     def _observe_cache_log(self, event: Log) -> None:
         names = ("cache.hits", "cache.misses", "cache.bypasses")
         values = tuple(event.attributes.get(name) for name in names)
-        if all(isinstance(value, int) and not isinstance(value, bool) for value in values):
-            self.cache_counts[event.run_id] = cast(tuple[int, int, int], values)
+        if not all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+            return
+        self.cache_counts[event.run_id] = cast(tuple[int, int, int], values)
+        # INVARIANT: the summary is a reconciliation, so it REPLACES this run's reason map rather
+        # than adding to it — including replacing it with nothing when the run had no bypasses.
+        # WHY the prefix is safe: `cache.bypasses` (the total) does not start with `cache.bypass.`,
+        # so the total can never be read as a reason bucket.
+        self.cache_bypass_reasons[event.run_id] = {
+            key[len(_BYPASS_REASON_PREFIX) :]: value
+            for key, value in event.attributes.items()
+            if key.startswith(_BYPASS_REASON_PREFIX)
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+        }
 
     def _observe_span(self, event: Span, elapsed_seconds: float | None) -> None:
         # Structural URL4 spans carry no request_model; only paid model work counts.
@@ -214,6 +251,14 @@ class _EvaluationProgress:
         counts = list(self.cache_counts.get(event.run_id, (0, 0, 0)))
         counts[{"hit": 0, "miss": 1, "bypass": 2}[event.cache_status]] += 1
         self.cache_counts[event.run_id] = cast(tuple[int, int, int], tuple(counts))
+        if event.cache_status != "bypass":
+            return
+        # WHY tally live rather than wait for the summary: the band is a diagnostic during the run,
+        # and a bypass storm is worth seeing before the run ends. INVARIANT: a bypass naming no
+        # reason still lands in a bucket, so the breakdown always sums to the bypass total.
+        reason = (event.cache_reason or "").strip() or UNSTATED_BYPASS_REASON
+        observed = self.cache_bypass_reasons.setdefault(event.run_id, {})
+        observed[reason] = observed.get(reason, 0) + 1
 
     def _observe_usage(self, event: Usage) -> None:
         # 'subtree' repeats what its children already reported — summing both double counts.
