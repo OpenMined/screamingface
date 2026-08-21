@@ -514,8 +514,7 @@ def test_hosted_panel_prompts_for_engine_login_before_loading_providers() -> Non
             self.logouts = 0
 
         def login(self, *, timeout: float = 300.0) -> None:
-            # Bounded: login blocks the click handler, so it cannot hold the full 300s.
-            assert timeout == 60
+            assert timeout == 300
             self.logins += 1
             self.authenticated = True
 
@@ -592,9 +591,9 @@ def test_hosted_panel_login_is_synchronous_and_bounded() -> None:
     screen, nor show its own result. Login therefore runs on the clicking thread.
 
     The cost, stated rather than hidden: the Cancel button rendered while waiting cannot be
-    clicked, because its handler queues behind this one. That is why the wait is bounded to
-    _LOGIN_WAIT_SECONDS instead of the Engine's full 300s window — a user who wanders off
-    gets the panel back.
+    clicked, because its handler queues behind this one, for up to _LOGIN_WAIT_SECONDS. That
+    is accepted deliberately — Cloudflare Access can involve an emailed OTP, and cutting a
+    first-time user off mid-login is worse than a briefly unavailable Cancel.
     """
 
     class Connections:
@@ -635,7 +634,7 @@ def test_hosted_panel_login_is_synchronous_and_bounded() -> None:
 
     _button(root, "Log in").click()
 
-    assert client.timeouts == [60.0]
+    assert client.timeouts == [300.0]
     # INVARIANT: a cancelled login is the user's own action, not an error to report at them.
     assert "cancelled" not in _text(root)
     assert client.logouts == 0

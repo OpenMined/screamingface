@@ -26,11 +26,12 @@ if TYPE_CHECKING:
     from screamingface.connections import Connection, OAuthFlow
 
 
-# WHY bounded rather than the Engine's full 300s login window: login now blocks the click
-# handler, and a queued Cancel click cannot run until it returns. Sixty seconds is long enough
-# to complete a browser login and short enough that a user who wandered off gets the panel
-# back.
-_LOGIN_WAIT_SECONDS = 60.0
+# Deliberately the same 300s the Client documents as its login default — one notion of how
+# long a login may take, rather than a panel-specific number that drifts from it.
+# WHY it is this long: the wait blocks the click handler, so a queued Cancel cannot run until
+# it returns — but Cloudflare Access can involve an emailed OTP, and cutting a first-time
+# user off mid-login is worse than a Cancel button that is briefly unavailable.
+_LOGIN_WAIT_SECONDS = 300.0
 
 
 class _ConnectionCatalog(Protocol):
@@ -309,8 +310,7 @@ class ConnectionPanel:
         # link never appeared. Rendering mid-handler is the only thing that reaches the
         # browser, which also means the panel needs no deferred repaint to finish.
         # AIDEV-NOTE: the trade-off is that Cancel cannot be clicked while this blocks — its
-        # handler queues behind this one. Hence the bounded wait rather than the full
-        # 300s login window.
+        # handler queues behind this one, for up to _LOGIN_WAIT_SECONDS.
         self._state.access_pending = True
         self._render_rows()
         self._set_notice(None)
