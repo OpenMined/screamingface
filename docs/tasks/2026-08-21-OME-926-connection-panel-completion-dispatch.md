@@ -5,7 +5,7 @@ status: In Review
 priority: High
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-21
-closed:
+closed: 2026-08-21
 ---
 
 # Keep sf.connect() from getting stuck on "checking" when a notebook event loop changes
@@ -31,4 +31,12 @@ removes the dependency on loop identity instead of branching on the host.
 Canonical artifacts:
 
 - Ledger: `docs/work/2026-08-21-OME-926-connection-panel-completion-dispatch.md`
-- PR: (pending)
+- PR: #680 (merged as `7a2f7e48`)
+
+Verified in Colab by the owner: the panel left "checking" and reached "login required",
+which also retired the open risk that an inline completion might not repaint from a worker
+thread. Two changes rode along with owner approval — an unrelated `_runtime/server.py`
+annotation, and a guard so an `async def` Access probe is never read as a boolean.
+
+Follow-up `OME-930` covers the **Log in** button, which is still dead in Colab: this issue
+got the panel *to* a working button, not through it.
