@@ -181,7 +181,7 @@ This pass **modifies and deletes** existing assertions, so `run_gates.py` runs w
 - **Colab dark theme** — `notice_view.py` reaches its dark palette only through
   `prefers-color-scheme` and the JupyterLab/VS Code hooks; Colab sets none of them and its theme is
   independent of the OS preference, so a dark-theme Colab user on a light OS may get the light box.
-  Not verifiable without a real Colab session → **owner-verify**.
+  **Resolved: the owner confirmed it renders correctly in a real Colab session (2026-08-21).**
 - `_STYLE` re-emitted per notice (~1.5 KB into every saved output cell), and the two parallel
   warning presentation systems (`sf-report__warn` amber vs `sf-notice` persimmon, each with its own
   theme-detection CSS) → follow-up tickets. Keeping them separate is what kept the review's #6 fixed.
@@ -219,9 +219,11 @@ This pass **modifies and deletes** existing assertions, so `run_gates.py` runs w
 3. **A `_warn()` helper was extracted.** The warning is now emitted from two places (headless, and
    inside the recording context), so the call and its `skip_file_prefixes` rationale live once.
 
-### Still open for the owner
+### Owner-verify — closed
 
-- **Colab dark theme** — unverified, needs a real Colab session. See the scope note above.
+- **Colab dark theme: confirmed good by the owner in a real Colab session (2026-08-21).** This was
+  the one item this pass could not verify locally, since Colab sets neither the JupyterLab nor the
+  VS Code theme hooks and its theme is independent of the OS preference. No code change needed.
 
 ### Correction (2026-08-21, later)
 
@@ -232,3 +234,15 @@ fallbacks. The owner clarified that only *legacy* fallbacks were in scope. The `
 invariant it protects holds again — a display failure after a successful POST degrades to stderr
 and still returns the persisted score id. The `report.v1` in-place replacement stands: a
 dual-shape loader would have been a genuine legacy fallback.
+
+### Report styles — verified untouched
+
+Filip's item 6 (the global persimmon migration crushing the warning/error hue gap) and the
+duplicated `.sf-report__warn` rules were both fixed by withdrawing them from the diff, before this
+pass. Re-verified against `origin/main` at the end of this pass: `_ui/style.py` and
+`_ui/report_view.py` are byte-identical to main, neither appears in the PR, and the Report's amber
+`--sf-warning-solid:#efbd41` is intact in both light and dark. The new notice ships its own
+`--sf-notice-*` tokens scoped to its own element, so nothing overrides Report surfaces.
+
+The residual is duplication, not override: two warning presentation systems now carry their own
+theme-detection CSS. That is what keeps item 6 fixed, and it is the follow-up noted above.
