@@ -335,6 +335,8 @@ def _span(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Span:
             "span finish reasons",
         ),
         refusal=_optional_text(data.get("refusal"), "span refusal"),
+        cache_status=_cache_status(data.get("cache_status")),
+        cache_reason=_optional_text(data.get("cache_reason"), "span cache_reason"),
     )
 
 
@@ -449,6 +451,14 @@ def _span_kind(value: str) -> events.SpanKind:
     if value == "server":
         return "server"
     raise ExecutionError("SF Engine span kind is invalid")
+
+
+def _cache_status(value: object) -> events.CacheStatus | None:
+    if value is None:
+        return None
+    if value not in {"hit", "miss", "bypass"}:
+        raise ExecutionError("SF Engine span cache_status is invalid")
+    return cast(events.CacheStatus, value)
 
 
 def _usage_scope(value: str) -> events.UsageScope:

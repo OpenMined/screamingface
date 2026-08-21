@@ -9,7 +9,7 @@ from decimal import Decimal
 from html import escape
 from typing import Any
 
-from screamingface._ui.evaluation_state import _EvaluationProgress
+from screamingface._ui.evaluation_state import _cache_count, _EvaluationProgress
 from screamingface._ui.style import FUSION_GRADIENT, STYLE
 from screamingface.events import Event
 
@@ -40,7 +40,7 @@ _STYLE = (
 .sf-eval__state.failed .sq,.sf-eval__state.timed_out .sq,
 .sf-eval__state.stopped .sq{{background:var(--sf-blind)}}
 /* stat table: hairline cells, mono figures, tabular so digits stop jittering as they tick */
-.sf-eval__stats{{display:grid;grid-template-columns:repeat(3,1fr);
+.sf-eval__stats{{display:grid;grid-template-columns:repeat(4,1fr);
   border:1px solid var(--sf-line);margin-top:14px}}
 .sf-eval__stat{{padding:10px 12px;border-right:1px solid var(--sf-line);min-width:0}}
 .sf-eval__stat:last-child{{border-right:0}}
@@ -49,6 +49,9 @@ _STYLE = (
 .sf-eval__stat-v{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:18px;
   margin-top:3px;font-variant-numeric:tabular-nums;color:var(--sf-ink);
   overflow:hidden;text-overflow:ellipsis}}
+.sf-eval__stat-d{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
+  margin-top:2px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;font-variant-numeric:tabular-nums}}
 .sf-eval__act{{margin-top:10px;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:12px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}}
@@ -170,17 +173,34 @@ def _stats_html(progress: _EvaluationProgress) -> str:
         else "—"
     )
     cost = "—" if progress.cost_usd is None else _money(progress.cost_usd)
+    cache_rate = progress.cache_hit_rate
+    cache = "—" if cache_rate is None else f"{cache_rate:.1%}"
+    cache_detail = _cache_detail(progress.cache_totals)
     cells = (
-        ("model calls", calls),
-        ("tokens in / out", tokens),
-        ("cost", cost),
+        ("model calls", calls, ""),
+        ("tokens in / out", tokens, ""),
+        ("cost", cost, ""),
+        ("cache hit rate", cache, cache_detail),
     )
-    body = "".join(
-        f"<div class='sf-eval__stat'><div class='sf-eval__stat-k'>{escape(key)}</div>"
-        f"<div class='sf-eval__stat-v'>{escape(value)}</div></div>"
-        for key, value in cells
-    )
+    body = "".join(_stat_html(key, value, detail) for key, value, detail in cells)
     return f"<div class='sf-eval__stats'>{body}</div>"
+
+
+def _stat_html(key: str, value: str, detail: str) -> str:
+    receipt = f"<div class='sf-eval__stat-d'>{escape(detail)}</div>" if detail else ""
+    return (
+        f"<div class='sf-eval__stat'><div class='sf-eval__stat-k'>{escape(key)}</div>"
+        f"<div class='sf-eval__stat-v'>{escape(value)}</div>{receipt}</div>"
+    )
+
+
+def _cache_detail(counts: tuple[int, int, int] | None) -> str:
+    if counts is None:
+        return ""
+    return " · ".join(
+        _cache_count(name, count)
+        for name, count in zip(("hit", "miss", "bypass"), counts, strict=True)
+    )
 
 
 def _feed_html(progress: _EvaluationProgress, limit: int = 12) -> str:

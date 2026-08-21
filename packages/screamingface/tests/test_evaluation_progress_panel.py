@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+import pytest
+
 import screamingface as sf
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import (
@@ -374,3 +376,64 @@ def test_candidate_completion_surfaces_the_engine_cache_summary() -> None:
     progress.observe(sf.events.Terminated(**envelope(3), status="succeeded"))
 
     assert progress.feed[0][2] == "candidate 1/2 finished · cache: 21 hits"
+
+
+def test_model_spans_update_live_cache_counts_and_exclude_bypasses_from_rate() -> None:
+    progress = _EvaluationProgress(total_candidates=1)
+
+    progress.observe(model_span(1, cache_status="hit"))
+    progress.observe(model_span(2, cache_status="miss"))
+    progress.observe(model_span(3, cache_status="bypass"))
+
+    assert progress.cache_totals == (1, 1, 1)
+    assert progress.cache_hit_rate == 0.5
+
+    html = evaluation_panel_html(progress)
+    assert "cache hit rate" in html
+    assert "50.0%" in html
+    assert "1 hit · 1 miss · 1 bypass" in html
+
+
+def test_final_cache_summary_replaces_live_counts_and_runs_still_aggregate() -> None:
+    progress = _EvaluationProgress(total_candidates=2)
+    progress.observe(model_span(1, cache_status="hit"))
+    progress.observe(model_span(2, cache_status="miss"))
+    progress.observe(
+        sf.events.Log(
+            **envelope(3),
+            severity_number=9,
+            severity_text="INFO",
+            body="gateway response cache: 10 hit, 2 miss, 0 bypass",
+            attributes={"cache.hits": 10, "cache.misses": 2, "cache.bypasses": 0},
+        )
+    )
+    progress.observe(
+        sf.events.Span(
+            **envelope(1, run_id="run_2"),
+            name="chat",
+            operation="chat",
+            start=_START,
+            end=_START + timedelta(seconds=1),
+            request_model="openrouter/example/model",
+            cache_status="bypass",
+        )
+    )
+
+    assert progress.cache_counts == {"run_1": (10, 2, 0), "run_2": (0, 0, 1)}
+    assert progress.cache_totals == (10, 2, 1)
+    assert progress.cache_hit_rate == pytest.approx(10 / 12)
+
+
+def test_cache_metric_stays_unavailable_without_hit_or_miss_evidence() -> None:
+    progress = _EvaluationProgress(total_candidates=1)
+    progress.observe(model_span(1, cache_status="bypass"))
+    progress.observe(model_span(2, cache_status="bypass"))
+
+    assert progress.cache_totals == (0, 0, 2)
+    assert progress.cache_hit_rate is None
+
+    html = evaluation_panel_html(progress)
+    assert "cache hit rate" in html
+    assert "2 bypasses" in html
+    cache_cell = html.split("cache hit rate", 1)[1]
+    assert "<div class='sf-eval__stat-v'>—</div>" in cache_cell

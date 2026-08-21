@@ -107,6 +107,27 @@ class _EvaluationProgress:
             return self.arrival_elapsed_seconds
         return max(self.arrival_elapsed_seconds, event_elapsed)
 
+    @property
+    def cache_totals(self) -> tuple[int, int, int] | None:
+        """Latest authoritative hit, miss, and bypass totals across Candidate Runs."""
+
+        if not self.cache_counts:
+            return None
+        return (
+            sum(counts[0] for counts in self.cache_counts.values()),
+            sum(counts[1] for counts in self.cache_counts.values()),
+            sum(counts[2] for counts in self.cache_counts.values()),
+        )
+
+    @property
+    def cache_hit_rate(self) -> float | None:
+        counts = self.cache_totals
+        if counts is None:
+            return None
+        hits, misses, _ = counts
+        cacheable = hits + misses
+        return None if cacheable == 0 else hits / cacheable
+
     def _note(
         self,
         event: Event,
@@ -160,6 +181,7 @@ class _EvaluationProgress:
         # Structural URL4 spans carry no request_model; only paid model work counts.
         if event.request_model is None:
             return
+        self._observe_cache_status(event)
         self.model_calls += 1
         if event.request_model in self.candidate_models:
             self.candidate_calls += 1
@@ -185,6 +207,13 @@ class _EvaluationProgress:
             f"{role} · {_span_text(event)}",
             elapsed_seconds,
         )
+
+    def _observe_cache_status(self, event: Span) -> None:
+        if event.cache_status is None:
+            return
+        counts = list(self.cache_counts.get(event.run_id, (0, 0, 0)))
+        counts[{"hit": 0, "miss": 1, "bypass": 2}[event.cache_status]] += 1
+        self.cache_counts[event.run_id] = cast(tuple[int, int, int], tuple(counts))
 
     def _observe_usage(self, event: Usage) -> None:
         # 'subtree' repeats what its children already reported — summing both double counts.
@@ -228,11 +257,16 @@ class _EvaluationProgress:
         if counts is None:
             return ""
         parts = [
-            f"{count} {name if count == 1 else f'{name}s'}"
+            _cache_count(name, count)
             for name, count in zip(("hit", "miss", "bypass"), counts, strict=True)
             if count
         ]
         return f" · cache: {', '.join(parts)}" if parts else ""
+
+
+def _cache_count(name: str, count: int) -> str:
+    plural = {"hit": "hits", "miss": "misses", "bypass": "bypasses"}[name]
+    return f"{count:,} {name if count == 1 else plural}"
 
 
 def _calls_activity(phase: str, count: int) -> str:
