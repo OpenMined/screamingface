@@ -100,3 +100,49 @@ assertions; the reason is this, recorded here.
   existing precedent in the same widget.
 - Whether the copy reads correctly to a researcher. Worth putting in front of Irina, who raised the
   request and said she was unsure of the shape.
+
+## Review follow-up — strict decoding and label contrast
+
+### Intent
+
+Close the two merge-readiness findings the owner selected: keep malformed JSON cache-status values
+inside the Client's established `ExecutionError` boundary, and make the visible cache label use the
+canonical SFDS contracted secondary-text role.
+
+### Planned changes
+
+- `_engine/contract.py` — reject every non-string, non-null `cache_status` as `ExecutionError`
+  before closed-vocabulary membership.
+- `_ui/evaluation_view.py` — change the visible cache label from decorative `--sf-ink-3` to
+  contracted `--sf-ink-2`, matching `OpenMined/screamingface-brand` commit `7ea35a1`.
+- `tests/test_engine_contract.py` — append array/object malformed-wire cases.
+- `tests/test_evaluation_progress_panel.py` — append a focused cache-label text-role assertion.
+
+### Test plan
+
+RED first: prove array/object status values currently leak `TypeError`, and prove the cache label
+currently uses the decorative token. GREEN with the smallest decoder guard and token substitution,
+then run both focused files and the full `screamingface` gate matrix.
+
+### Acceptance
+
+- Invalid string, array, and object cache-status values all raise `ExecutionError`.
+- The cache label uses `--sf-ink-2`; no readable text in the new cache band uses `--sf-ink-3`.
+- Existing cache provenance, progress-panel, package, notebook, build, and distribution tests remain
+  green.
+
+### Follow-up outcome
+
+- **RED:** 3 expected failures — array and object `cache_status` values leaked raw `TypeError`;
+  the cache-label CSS rule used `--sf-ink-3`.
+- **GREEN:** the decoder now type-checks before closed-vocabulary membership, and the cache label
+  uses `--sf-ink-2`. The two focused files pass: **79 passed**.
+- **Brand verification:** cloned `https://github.com/OpenMined/screamingface-brand.git` at
+  `7ea35a12608776ba3f811811578cec9fd5193b4f`; `SYSTEM.md` and `components/style.css` both define
+  the single label role with `--ink-2` and reserve `--ink-3` from readable text.
+- **Full gates:** ruff check ✓ · ruff format ✓ · pyright ✓ · pytest with the 95% coverage floor ✓ ·
+  notebook determinism ✓ · wheel build ✓ · distribution check ✓ — **ALL GREEN**, retaining the
+  branch's documented `--skip-append-only` exception for its earlier superseded assertions.
+- **Actual files:** `_engine/contract.py`, `_ui/evaluation_view.py`, `test_engine_contract.py`,
+  `test_evaluation_progress_panel.py`, and this ledger.
+- **Deviations:** none.

@@ -811,3 +811,26 @@ def test_state_rejects_unknown_span_cache_status() -> None:
                 sequence=1,
             )
         )
+
+
+@pytest.mark.parametrize("cache_status", [[], {}])
+def test_state_rejects_non_scalar_span_cache_status(cache_status: object) -> None:
+    """INVARIANT: malformed JSON stays inside the Client's ExecutionError boundary."""
+
+    with pytest.raises(ExecutionError, match="cache_status"):
+        _RunState(URL4).accept(
+            frame(
+                "ai.url4.span",
+                {
+                    "name": "model",
+                    "kind": "client",
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.request.model": "openrouter/example/model",
+                    "start": "2026-07-25T16:00:00Z",
+                    "end": "2026-07-25T16:00:01Z",
+                    "status": "ok",
+                    "cache_status": cache_status,
+                },
+                sequence=1,
+            )
+        )

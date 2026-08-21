@@ -594,3 +594,13 @@ def test_the_band_body_uses_a_contracted_text_token() -> None:
     band = html.split(".sf-eval__cache-of{")[1].split("}")[0]
     assert "var(--sf-ink-2)" in band
     assert "--sf-ink-3" not in band
+
+
+def test_the_cache_label_uses_the_canonical_contracted_text_role() -> None:
+    """INVARIANT: visible labels use ink-2; ink-3 is decoration, never readable text."""
+
+    html = evaluation_panel_html(_EvaluationProgress(total_candidates=1))
+    label = html.split(".sf-eval__cache-k{")[1].split("}")[0]
+
+    assert "color:var(--sf-ink-2)" in label
+    assert "--sf-ink-3" not in label

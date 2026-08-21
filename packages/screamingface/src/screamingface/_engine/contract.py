@@ -456,7 +456,7 @@ def _span_kind(value: str) -> events.SpanKind:
 def _cache_status(value: object) -> events.CacheStatus | None:
     if value is None:
         return None
-    if value not in {"hit", "miss", "bypass"}:
+    if not isinstance(value, str) or value not in {"hit", "miss", "bypass"}:
         raise ExecutionError("SF Engine span cache_status is invalid")
     return cast(events.CacheStatus, value)
 

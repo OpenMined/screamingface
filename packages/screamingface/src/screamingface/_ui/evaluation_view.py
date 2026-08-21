@@ -57,7 +57,7 @@ _STYLE = (
 .sf-eval__cache{{border:1px solid var(--sf-line);border-top:0;display:flex;flex-wrap:wrap;
   align-items:baseline;gap:6px 14px;padding:9px 12px}}
 .sf-eval__cache-k{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
-  text-transform:uppercase;letter-spacing:.08em;color:var(--sf-ink-3);flex:0 0 auto}}
+  text-transform:uppercase;letter-spacing:.08em;color:var(--sf-ink-2);flex:0 0 auto}}
 .sf-eval__cache-v{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:18px;
   font-variant-numeric:tabular-nums;color:var(--sf-ink);flex:0 0 auto}}
 .sf-eval__cache-of{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
