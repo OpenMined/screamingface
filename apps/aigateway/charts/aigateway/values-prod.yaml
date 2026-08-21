@@ -40,6 +40,11 @@ config:
   requestCache:
     enabled: true
 
+extraEnv:
+  # OME-921: finite headroom above Engine's ~32-call fan-out; never set this to 0 in prod.
+  - name: AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES
+    value: '{"openrouter": 50}'
+
 # Internal-only. There is no public route to the gateway, and that is load-bearing rather than
 # incidental — it is what makes the injected identity headers unforgeable.
 ingress:

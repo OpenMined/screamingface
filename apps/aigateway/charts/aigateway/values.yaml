@@ -145,7 +145,11 @@ auth:
 
 # Extra environment variables appended verbatim to the container (e.g. provider
 # enablement flags such as AIGW_OPENROUTER_ENABLED). List of EnvVar objects.
-extraEnv: []
+extraEnv:
+  # OME-921: finite headroom above Engine's ~32-call fan-out; never set this to 0 in prod.
+  - name: AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES
+    value: '{"openrouter": 50}'
+
 
 service:
   type: ClusterIP

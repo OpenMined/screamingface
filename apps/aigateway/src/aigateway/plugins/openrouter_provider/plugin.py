@@ -424,7 +424,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # separate decisions, and only the latter belongs to a pure projection.
         return project_global_cache_request(body)
 
-    def participates_in_global_cache(self) -> bool:
+    def participates_in_global_cache(self, model: object = None) -> bool:
         # D2, extended to the cache path. `register_models` and `api_key_strategy_for`
         # already fail closed when disabled, but the global cache is a SECOND way to
         # serve this provider's responses — a stored row needs no model entry and no
@@ -432,6 +432,12 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # neither the 404 nor the 400 ever gets a chance to refuse the request.
         # Without this gate a disabled OpenRouter keeps answering from rows an enabled
         # deployment filled, indefinitely (current rows never expire).
+        #
+        # OME-884: the port now carries the raw requested model. This provider has no
+        # per-model reason to stand down — its `:online` refusal is KEY MATERIAL and is
+        # already handled by the projection's bypass — so the argument is ignored and
+        # the operator gate is the whole answer, exactly as before.
+        del model
         return self.settings.enabled
 
     def usage_accounting_strategy(self) -> UsageAccountingStrategy:
