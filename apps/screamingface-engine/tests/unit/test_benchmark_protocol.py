@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 
@@ -21,7 +22,7 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
-from url4 import RelExpr, Text, render, src
+from url4 import RelExpr, Text, expr, render, src, struct
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -114,6 +115,79 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
 
 
 @pytest.mark.asyncio
+async def test_protocol_evaluates_only_one_complete_case_at_a_time() -> None:
+    node = Url4Node("benchmark-sequential-cases")
+    node.data(
+        "/example/cases",
+        json.dumps([{"id": "case-1"}, {"id": "case-2"}, {"id": "case-3"}]),
+        media_type="application/json",
+    )
+    active_cases: set[str] = set()
+    active_branches = max_active_cases = max_active_branches = 0
+
+    @node.endpoint("/example/case-branch")
+    async def case_branch(request: Request) -> str:
+        nonlocal active_branches, max_active_branches, max_active_cases
+        active_cases.add(request.context)
+        active_branches += 1
+        max_active_cases = max(max_active_cases, len(active_cases))
+        max_active_branches = max(max_active_branches, active_branches)
+        try:
+            await asyncio.sleep(0.01)
+            return request.intent
+        finally:
+            active_branches -= 1
+
+    @node.endpoint("/example/complete-case")
+    def complete_case(request: Request) -> str:
+        payload = json.loads(request.context)
+        active_cases.remove(payload["case_id"])
+        return json.dumps({"case_id": payload["case_id"]})
+
+    @node.endpoint("/example/aggregate")
+    def aggregate(request: Request) -> str:
+        return request.context
+
+    case_evaluation = expr(
+        src(
+            RelExpr(path="/example/case-branch", context="$item.id", intent=Text("left")),
+            name="left",
+            weight=0.0,
+        ),
+        src(
+            RelExpr(path="/example/case-branch", context="$item.id", intent=Text("right")),
+            name="right",
+            weight=0.0,
+        ),
+        src(
+            RelExpr(
+                path="/example/complete-case",
+                context=render(struct({"case_id": "$item.id", "left": "$left", "right": "$right"})),
+                intent=Text(""),
+            ),
+            name="completed",
+            weight=0.0,
+        ),
+        intent=Text("$completed"),
+    )
+    protocol = build_evaluation_protocol(
+        cases_route="/example/cases",
+        case_evaluation=case_evaluation,
+        selected_case_count=3,
+        available_case_count=3,
+        aggregate_route="/example/aggregate",
+    )
+    rendered = render(protocol)
+
+    await node.evaluate(rendered)
+
+    # INVARIANT: whole Cases are serial, while independent work inside one Case stays parallel.
+    assert max_active_cases == 1
+    assert max_active_branches == 2
+    assert "iteration.concurrency=1" in rendered
+
+
+@pytest.mark.asyncio
 async def test_case_execution_preserves_candidate_invocation_when_grading_fails() -> None:
     node = Url4Node("benchmark-case-execution")
 
@@ -161,11 +235,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        (DRACO, "6a9e0deb13a9e88868dc5452cce46527f89236be2aa34da3fbaa7afb413ecefa"),
-        (IFEVAL, "c01431240e88cbe76fcbebfa3cab9fb36f36f70e8fa28807a070bbe5fb3f21eb"),
+        (DRACO, "fe91990b18cf4672d9eccc412fca7bf533de1cb33de38bee589d37302c04d8dc"),
+        (IFEVAL, "c272779623671772ad8c2629e320e283837f34e3b270c693643285174794e4f8"),
         (
             HEALTHBENCH_WORST30,
-            "a5a729e1fcc53c7bb4c506f8a29a577ad4c68e983dcc32c6a9edcd33a443054c",
+            "963cbe2cbffed4ff4123adf6b667af4191ab5337f774bbd43e0ec547d3f6b3e9",
         ),
     ),
 )
