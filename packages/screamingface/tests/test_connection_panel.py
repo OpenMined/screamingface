@@ -1161,3 +1161,47 @@ def test_access_discovery_resolves_when_the_widget_renders_without_a_loop() -> N
     assert "login required" in text
     assert [button.description for button in _buttons(root)] == ["Log in"]
     root.close()
+
+
+def test_an_async_access_probe_is_never_read_as_a_result() -> None:
+    # INVARIANT: an ``async def _access_required`` must never be invoked as if it were
+    # synchronous. A coroutine object is truthy, so its return value would report "access
+    # required" for every Engine while the coroutine itself was silently never awaited.
+    #
+    # WHY the assertion is a warning check: an un-awaited coroutine never executes its
+    # body, so no counter inside the probe can observe the call. The leaked coroutine is
+    # the only observable, and it surfaces as a RuntimeWarning when it is collected.
+    import gc
+    import warnings
+
+    class AsyncProbeClient:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticated = False
+        authenticating = False
+
+        def __init__(self) -> None:
+            self.connections = _EmptyConnections()
+
+        async def _access_required(self) -> bool:
+            return False
+
+    client = AsyncProbeClient()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        panel = _panel(client)
+        root = panel.widget()
+        gc.collect()
+
+    never_awaited = [
+        entry
+        for entry in caught
+        if issubclass(entry.category, RuntimeWarning) and "never awaited" in str(entry.message)
+    ]
+    assert never_awaited == []
+
+    text = _text(root)
+    assert "checking" not in text
+    assert "login required" in text
+    assert [button.description for button in _buttons(root)] == ["Log in"]
+    root.close()

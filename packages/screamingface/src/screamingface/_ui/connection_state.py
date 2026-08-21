@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     from screamingface.connections import Connection
@@ -44,6 +46,22 @@ class _ConnectionPanelState:
 def _user_message(error: Exception) -> str:
     message = getattr(error, "user_message", None)
     return message if isinstance(message, str) else str(error)
+
+
+def _sync_access_probe(client: object) -> Callable[[], bool] | None:
+    """The client's synchronous Access probe, or None when it has none usable here.
+
+    WHY: ``AsyncClient._access_required`` is ``async def``. Calling it returns a coroutine
+    — which is truthy — so a bare ``callable()`` check reports "access required" for every
+    Engine and leaves the coroutine un-awaited. ConnectionPanel is a synchronous surface,
+    so an async probe is treated as absent rather than mis-read.
+    INVARIANT: only a probe that returns a real bool synchronously is ever invoked.
+    """
+
+    probe = getattr(client, "_access_required", None)
+    if not callable(probe) or inspect.iscoroutinefunction(probe):
+        return None
+    return cast(Callable[[], bool], probe)
 
 
 __all__: list[str] = []

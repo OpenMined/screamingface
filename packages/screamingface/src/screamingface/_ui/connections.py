@@ -8,7 +8,11 @@ import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
-from screamingface._ui.connection_state import _ConnectionPanelState, _user_message
+from screamingface._ui.connection_state import (
+    _ConnectionPanelState,
+    _sync_access_probe,
+    _user_message,
+)
 from screamingface._ui.connection_view import (
     _NotebookConnectionView,
     _provider_status,
@@ -89,9 +93,7 @@ class ConnectionPanel:
             # reports that it does not require Cloudflare Access.
             provider_mutations_enabled=not hosted,
             access_check_pending=(
-                hosted
-                and not client.authenticated
-                and callable(getattr(client, "_access_required", None))
+                hosted and not client.authenticated and _sync_access_probe(client) is not None
             ),
         )
         if not hosted or client.authenticated:
@@ -284,8 +286,8 @@ class ConnectionPanel:
     def _start_access_check(self) -> None:
         if not self._state.access_check_pending or self._state.access_check_started:
             return
-        check = getattr(self._client, "_access_required", None)
-        if not callable(check):
+        check = _sync_access_probe(self._client)
+        if check is None:
             self._state.access_check_pending = False
             self._render_rows()
             return
@@ -293,11 +295,10 @@ class ConnectionPanel:
         # WHY: "checking" is only shown once the probe is in flight, so the row has to be
         # re-rendered here — the view was built before the check started.
         self._render_rows()
-        typed_check = cast(Callable[[], bool], check)
         if self._dispatcher.loop is None:
-            self._run_access_check_sync(typed_check)
+            self._run_access_check_sync(check)
             return
-        self._start_access_check_thread(typed_check)
+        self._start_access_check_thread(check)
 
     def _run_access_check_sync(self, check: Callable[[], bool]) -> None:
         try:
