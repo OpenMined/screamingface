@@ -10,6 +10,7 @@ from decimal import Decimal
 from html import escape
 from typing import TYPE_CHECKING, Any
 
+from screamingface._ui.markdown import render_markdown
 from screamingface._ui.style import FUSION_GRADIENT_Y, STYLE
 
 if TYPE_CHECKING:
@@ -101,6 +102,27 @@ _STYLE = (
   border:1px solid var(--sf-line);font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:12px;color:var(--sf-ink-2);white-space:pre-wrap;overflow-wrap:anywhere;
   max-height:280px;overflow:auto}}
+/* the answer is prose — rendered markdown, tamed to the panel: small headings, tight lists,
+   hairline code, accent links. No gold: this is a product surface, not the win. */
+.sf-report__md{{max-height:280px;overflow:auto;font-size:13px;line-height:1.5;
+  color:var(--sf-ink)}}
+.sf-report__md>:first-child{{margin-top:0}}.sf-report__md>:last-child{{margin-bottom:0}}
+.sf-report__md h4,.sf-report__md h5,.sf-report__md h6{{margin:14px 0 6px;font-weight:600;
+  line-height:1.25;color:var(--sf-ink)}}
+.sf-report__md h4{{font-size:15px}}.sf-report__md h5{{font-size:14px}}
+.sf-report__md h6{{font-size:13px}}
+.sf-report__md p{{margin:8px 0}}
+.sf-report__md ul,.sf-report__md ol{{margin:8px 0;padding-left:20px}}
+.sf-report__md li{{margin:3px 0}}
+.sf-report__md blockquote{{margin:8px 0;padding:2px 0 2px 10px;
+  border-left:2px solid var(--sf-line-2);color:var(--sf-ink-2)}}
+.sf-report__md a{{color:var(--sf-accent);text-decoration:underline}}
+.sf-report__md code{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+  background:var(--sf-surface);border:1px solid var(--sf-line);padding:0 4px}}
+.sf-md__pre{{margin:8px 0;padding:8px;background:var(--sf-surface);
+  border:1px solid var(--sf-line);overflow:auto}}
+.sf-md__pre code{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+  background:none;border:0;padding:0;color:var(--sf-ink-2);white-space:pre}}
 .sf-report__fail{{margin-top:14px;padding:8px 10px;border-left:2px solid var(--sf-blind);
   background:var(--sf-blind-bg);color:var(--sf-blind);
   font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;white-space:pre-wrap}}
@@ -128,8 +150,12 @@ _STYLE = (
 .sf-pane{{display:none;padding:12px 14px;min-width:0}}
 .sf-pane__h{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}}
 .sf-pane__q{{font-size:15px;line-height:1.45;color:var(--sf-ink)}}
+/* the domain/meta chips take their own row — clear air between the tag and the question */
+.sf-pane__tags{{margin:10px 0 14px}}
+/* section labels (answer · criteria · failures) — a calmer inter-section rhythm + a small
+   label-to-content gap, so case / answer / criteria read as distinct blocks */
 .sf-detail__k{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
-  text-transform:uppercase;letter-spacing:.08em;color:var(--sf-ink-3);margin-top:14px}}
+  text-transform:uppercase;letter-spacing:.08em;color:var(--sf-ink-3);margin:18px 0 6px}}
 .sf-check__who{{display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11px;color:var(--sf-ink-3);margin-top:2px}}
 .sf-report__run{{margin-left:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;
@@ -166,6 +192,16 @@ _STYLE = (
 .sf-step__k{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
   text-transform:uppercase;letter-spacing:.08em;color:var(--sf-ink-3)}}
 .sf-step__l{{font-size:12px;color:var(--sf-ink-2)}}
+/* URL4 expression: inset from the disclosure edges, spaced off the step chips, and copyable.
+   The copy carries the FULL expression even though the visible <pre> is clipped. */
+.sf-report__url4{{padding:0 12px 12px;margin-top:12px}}
+.sf-report__url4 .sf-report__pre{{margin-top:0}}
+.sf-report__url4-h{{display:flex;align-items:center;margin-bottom:6px}}
+.sf-report__copy{{margin-left:auto;cursor:pointer;border-radius:0;
+  border:1px solid var(--sf-line-2);background:var(--sf-bg);color:var(--sf-ink-2);
+  padding:2px 8px;font:11px/1 "IBM Plex Mono",ui-monospace,monospace}}
+.sf-report__copy:hover{{color:var(--sf-ink);border-color:var(--sf-ink-2);
+  background:var(--sf-surface)}}
 @media(max-width:680px){{.sf-report__receipt{{margin-left:0;width:100%}}
   .sf-member{{grid-template-columns:1fr 70px}}
   .sf-member__m,.sf-member__d,.sf-member__u{{display:none}}
@@ -470,9 +506,20 @@ def _recipe_html(candidate: CandidateResult) -> str:
         for op in candidate.operations
     )
     steps_html = f"<div class='sf-steps'>{steps}</div>" if steps else ""
+    # The copy carries the FULL expression (the <pre> below is clipped for display). The
+    # onclick mirrors the leaderboard's fork button — it runs in a trusted notebook and is a
+    # harmless inert button where the host sanitises event handlers. data-u4 is attribute-safe.
+    copy = (
+        "<div class='sf-report__url4-h'>"
+        f'<button class="sf-report__copy" type="button" '
+        f'data-u4="{escape(candidate.url4, quote=True)}" '
+        "onclick=\"navigator.clipboard.writeText(this.dataset.u4);this.textContent='copied';"
+        "setTimeout(()=>this.textContent='copy',1200)\">copy</button></div>"
+    )
     return (
         "<details class='sf-report__det sf-report__det--tight'><summary>URL4</summary>"
-        f"{steps_html}<pre class='sf-report__pre'>{escape(_clip(candidate.url4, 1200))}</pre>"
+        f"{steps_html}<div class='sf-report__url4'>{copy}"
+        f"<pre class='sf-report__pre'>{escape(_clip(candidate.url4, 1200))}</pre></div>"
         "</details>"
     )
 
@@ -664,9 +711,12 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
         if checks
         else ""
     )
+    # FEATURE: the answer is prose — rendered as (safe) markdown, not a monospace dump.
+    # render_markdown escapes the untrusted output first, so this stays XSS-safe.
     answer = _clip(case.output)
     answer_html = (
-        f"<div class='sf-detail__k'>answer</div><pre class='sf-report__pre'>{escape(answer)}</pre>"
+        f"<div class='sf-detail__k'>answer</div>"
+        f"<div class='sf-report__md'>{render_markdown(answer)}</div>"
         if answer
         else ""
     )
@@ -692,7 +742,7 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
         f"<span class='sf-chip'>{escape(str(key))} · {escape(str(value))}</span>"
         for key, value in (case.metadata or {}).items()
     )
-    tags_html = f"<div class='sf-chips' style='margin-top:8px'>{tags}</div>" if tags else ""
+    tags_html = f"<div class='sf-chips sf-pane__tags'>{tags}</div>" if tags else ""
     if case.input is not None:
         question = f"<div class='sf-pane__q'>{escape(_clip(case.display_input, 600))}</div>"
     else:

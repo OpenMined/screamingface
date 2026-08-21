@@ -19,6 +19,7 @@ from screamingface._ui.report_view import (
     _grading_html,
     _money,
     _number,
+    _recipe_html,
     _tokens,
     _tokens_total,
     report_html,
@@ -577,6 +578,67 @@ def test_empty_cases_and_untrusted_failures_have_safe_markup() -> None:
     assert "1 failure" in html
     assert "aggregation · unsafe_text — &lt;script&gt;failed&lt;/script&gt;" in html
     assert "<script>" not in html
+
+
+# A local, additive fixture — the shared case()/candidate() stay untouched (sdlc rule 5).
+def _answer_case(output: str, *, metadata: dict[str, object] | None = None) -> CaseResult:
+    return CaseResult(
+        case_id=1,
+        input="the prompt",
+        output=output,
+        finish_reason="stop",
+        grade=CaseGrade(method="rubric", score=0.0, metrics={}, checks=[]),
+        failures=[],
+        metadata=metadata or {},
+    )
+
+
+# FEATURE: the model answer is prose — it renders as markdown, not a monospace dump.
+def test_the_answer_renders_markdown_not_raw_text() -> None:
+    markdown = "## Findings\n\n- **DiD** assumes *parallel trends*\n- see `estimator.py`"
+    html = body(report_html(report(candidate("m", 0.0, cases=(_answer_case(markdown),)))))
+
+    assert "sf-report__md" in html
+    assert "<h5>Findings</h5>" in html
+    assert "<strong>DiD</strong>" in html
+    assert "<em>parallel trends</em>" in html
+    assert "<code>estimator.py</code>" in html
+    # the literal markdown punctuation must NOT survive as text.
+    assert "## Findings" not in html
+
+
+# INVARIANT: an untrusted answer stays XSS-safe even while rendering markdown.
+def test_answer_markdown_is_xss_safe() -> None:
+    payload = "<script>alert('x')</script>\n\n**still bold**"
+    html = body(report_html(report(candidate("m", 0.0, cases=(_answer_case(payload),)))))
+
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "<strong>still bold</strong>" in html
+
+
+# FEATURE: the URL4 expression is copyable in full — the display clips, the copy does not.
+def test_the_url4_expression_has_a_copy_button_carrying_the_full_expression() -> None:
+    # A raw URL4 string (SimpleNamespace bypasses Candidate grammar validation) long enough
+    # to trip the 1200-char display clip, with a recognizable tail past the clip boundary.
+    long_url4 = "(candidate:0.0:" + "x" * 1_400 + "TAIL)"
+    html = _recipe_html(cast(CandidateResult, SimpleNamespace(operations=[], url4=long_url4)))
+
+    assert "sf-report__copy" in html
+    assert "sf-report__url4" in html  # the inset wrapper
+    assert 'data-u4="' in html
+    # the copy carries the FULL expression (its tail), while the visible <pre> is clipped.
+    assert "TAIL)" in html
+    assert "more characters" in html
+
+
+# WHY: the domain tag pressed against the question read as one block — give it its own row.
+def test_the_domain_tag_is_separated_from_the_question() -> None:
+    tagged = _answer_case("the answer", metadata={"domain": "Academic"})
+    html = body(report_html(report(candidate("m", 0.0, cases=(tagged,)))))
+
+    assert "sf-pane__tags" in html
+    assert "domain · Academic" in html
 
 
 def test_an_envelope_input_renders_as_a_transcript_not_wire_json() -> None:
