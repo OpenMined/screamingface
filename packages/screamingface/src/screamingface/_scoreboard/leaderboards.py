@@ -363,13 +363,12 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
 def _submission(candidate_result: CandidateResult) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
-    score = _score_value(candidate_result)
     return {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
         "spec_id": candidate_result.name,
         "url4_expression": candidate_result.url4,
-        "score": score,
+        "score": _score_value(candidate_result),
         "total_questions": len(candidate_result.cases),
         "ran_with_providers": list(_providers(candidate_result.models)),
         "ran_at_local": _timestamp_text(candidate_result.completed_at),

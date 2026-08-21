@@ -131,3 +131,99 @@ the brand-accurate palette.
   literally, notice existence is asserted from captured display output, palette tests are
   independent of behavior tests, and warning filters are scoped to `sf.EvaluationWarning`.
 - The task mirror and ledger remain `in_progress` together until review and merge.
+
+## Second review pass (2026-08-21) — planned
+
+Filip's `CHANGES_REQUESTED` items are all resolved by the work above. A follow-up read of the
+merged branch found four residual defects and one piece of diff noise. Same ticket, same branch,
+same unit.
+
+### Owner decisions taken during this pass
+
+- **`report.v1` is replaced in place** — the candidate block's `case_count` changes meaning; the
+  schema version is NOT bumped and no consumer reads the old shape.
+- **No legacy or fallback code anywhere.** No dual-shape loaders, no back-compat branches, and the
+  defensive `try/except` around notebook display is removed.
+
+**Accepted risk, recorded deliberately:** with that `except` gone, a failing IPython display
+publisher raises *after* the POST succeeded, so the caller loses the returned score id — the same
+shape as the review's blocking #4. `display()` on a live shell does not realistically fail, so
+fail-fast is the owner's accepted trade rather than an oversight.
+
+### Planned changes
+
+- `_scoreboard/submission_notice.py` — three changes: emit the warning in the notebook branch too
+  (inside `warnings.catch_warnings(record=True)`, so `-W error` aborts before the POST and
+  `-W ignore` genuinely suppresses); drop the display `try/except`; replace the rounded
+  `coverage < 1.0` test with an exact ungraded-Case count.
+- `_notices.py` — the advisory no longer asserts publication, because it is emitted before the POST.
+- `_scoreboard/leaderboards.py` — revert a behaviour-neutral `score = _score_value(...)` hoist.
+- `report.py` — comment only: name both sides of the root/candidate `case_count` split.
+- `tests/test_partial_submission_notice.py`, `tests/test_notices.py` — see below.
+
+### Test plan
+
+- RED: notebook + `error` filter raises `sf.EvaluationWarning` with **zero** POSTs; notebook +
+  `ignore` posts and displays nothing; notebook + `default` displays exactly one notice; a
+  candidate whose `coverage` rounds to `1.0` but holds one ungraded Case is still partial.
+- GREEN: the above pass and every prior test still passes.
+- Mutation check: force `prepare_submission_notice` to return `None` and confirm the notebook and
+  headless tests fail.
+
+### Prior-test changes — rule 5 exception, owner-approved
+
+This pass **modifies and deletes** existing assertions, so `run_gates.py` runs with
+`--skip-append-only`. Both changes are forced by the behaviour change, not fitted to it:
+
+- `_run_notebook_cell` sets `simplefilter("error", ...)`; under the new uniform policy that now
+  aborts, so the helper takes the filter as a parameter.
+- `test_notebook_display_failure_cannot_hide_an_already_saved_score` asserts the fallback that the
+  owner decided to remove, so it is deleted rather than weakened.
+
+### Deliberately out of scope
+
+- **Colab dark theme** — `notice_view.py` reaches its dark palette only through
+  `prefers-color-scheme` and the JupyterLab/VS Code hooks; Colab sets none of them and its theme is
+  independent of the OS preference, so a dark-theme Colab user on a light OS may get the light box.
+  Not verifiable without a real Colab session → **owner-verify**.
+- `_STYLE` re-emitted per notice (~1.5 KB into every saved output cell), and the two parallel
+  warning presentation systems (`sf-report__warn` amber vs `sf-notice` persimmon, each with its own
+  theme-detection CSS) → follow-up tickets. Keeping them separate is what kept the review's #6 fixed.
+
+### Second review pass — outcome
+
+- **Actual files:** as planned — `_scoreboard/submission_notice.py` (rewritten),
+  `_scoreboard/leaderboards.py`, `_notices.py`, `report.py` (comment only),
+  `tests/test_partial_submission_notice.py`. `tests/test_notices.py` needed **no** change: its
+  message test builds its own `ClientNotice` and its palette test asserts only colours, so
+  neither was coupled to the advisory copy.
+- **Gates:** ruff check ✓ · ruff format ✓ · pyright ✓ · pytest --cov (95% floor) ✓ ·
+  check_notebooks ✓ · uv build ✓ · check_distribution ✓ — **ALL GREEN**, with
+  `--skip-append-only` for the rule 5 exception recorded above.
+- **Full suite:** 989 passed, 1 skipped.
+- **Mutation-verified.** Forcing `prepare_submission_notice` to return `None` fails **13 of 17**
+  tests in the module. The 4 survivors are all legitimately no-op assertions — full submission
+  headless, full submission in a notebook, failed POST displays nothing, and the `ignore` filter
+  suppressing the notice. Contrast the pre-review state, where a survivor was a test named for
+  proving the notice exists.
+- **Gate ran on a pristine tree.** In the working worktree `check_notebooks.py` reports
+  `00_quickstart.ipynb` and `06_draco.ipynb` stale. That is the owner's four locally executed
+  notebooks, whose stored **outputs** carry the old advisory text; the authored cells and the
+  deterministic builder contain none of this copy. Verified by running the checker at pristine
+  `HEAD` (exit 0) and then re-running the complete suite on a detached worktree carrying only
+  this pass's five source files. The notebooks were not regenerated, staged, or modified.
+
+### Deviations from the plan
+
+1. **`_run_notebook_cell`'s new parameter needed a `Literal` type, not `str`.** pyright rejected
+   `str` against `warnings.simplefilter`'s `_ActionKind`. Typed as
+   `Literal["default", "error", "ignore"]`; caught by the gate, not by the test run.
+2. **`tests/test_notices.py` was left untouched** — the plan expected a copy update there, but
+   neither of its tests was coupled to `PARTIAL_SUBMISSION_NOTICE.body`.
+3. **A `_warn()` helper was extracted.** The warning is now emitted from two places (headless, and
+   inside the recording context), so the call and its `skip_file_prefixes` rationale live once.
+
+### Still open for the owner
+
+- **Colab dark theme** — unverified, needs a real Colab session. See the scope note above.
+- The accepted fail-fast risk from removing the display `try/except`, recorded above.

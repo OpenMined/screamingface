@@ -43,9 +43,11 @@ PARTIAL_SUBMISSION_NOTICE = ClientNotice(
     code="partial_submission",
     severity="warning",
     title="Partial submission",
+    # WHY no claim about publication: the advisory is emitted before the POST, so a failed
+    # write must not have already told the researcher their score is on the board.
     body=(
-        "This score may appear on the public leaderboard, but it is based on fewer "
-        "benchmark cases and is not directly comparable with a full-run score."
+        "This score is based on fewer benchmark cases and is not directly comparable "
+        "with a full-run score."
     ),
 )
 

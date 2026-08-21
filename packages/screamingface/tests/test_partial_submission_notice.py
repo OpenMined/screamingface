@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from runpy import run_path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 import pytest
@@ -18,8 +18,8 @@ from screamingface._evaluation.model import _compiled_operation
 
 _SCORE_ID = "af95892d-7438-4ac3-9b47-5e06f62c8251"
 _MESSAGE = (
-    "Partial submission. This score may appear on the public leaderboard, but it is based on "
-    "fewer benchmark cases and is not directly comparable with a full-run score."
+    "Partial submission. This score is based on fewer benchmark cases and is not directly "
+    "comparable with a full-run score."
 )
 
 
@@ -261,6 +261,7 @@ def _run_notebook_cell(
     source: str,
     *,
     candidate: sf.CandidateResult,
+    filter_action: Literal["default", "error", "ignore"] = "default",
 ) -> tuple[Any, Any]:
     from IPython.core.interactiveshell import InteractiveShell
     from IPython.utils.capture import capture_output
@@ -273,7 +274,7 @@ def _run_notebook_cell(
     monkeypatch.setitem(shell.user_ns, "sf", sf)
     monkeypatch.setitem(shell.user_ns, "candidate", candidate)
     with warnings.catch_warnings(), capture_output(display=True) as captured:
-        warnings.simplefilter("error", sf.EvaluationWarning)
+        warnings.simplefilter(filter_action, sf.EvaluationWarning)
         execution = shell.run_cell(source)
     return execution, captured
 
@@ -362,7 +363,7 @@ async def test_async_notebook_submission_displays_the_same_notice(
         lambda _request: httpx.Response(201, json=_score_response())
     ) as client:
         with warnings.catch_warnings(), capture_output(display=True) as captured:
-            warnings.simplefilter("error", sf.EvaluationWarning)
+            warnings.simplefilter("default", sf.EvaluationWarning)
             submitted = await client.leaderboards.submit(_candidate())
 
     assert submitted.id.hex == _SCORE_ID.replace("-", "")
@@ -370,20 +371,92 @@ async def test_async_notebook_submission_displays_the_same_notice(
     assert "Partial submission" in captured.outputs[0].data["text/html"]
 
 
-def test_notebook_display_failure_cannot_hide_an_already_saved_score(
+def test_notebook_warning_as_error_prevents_the_post(
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from screamingface._scoreboard import submission_notice
+    """INVARIANT: the advisory policy is uniform — a notebook is not an escape hatch."""
 
-    def broken_display(_notice: object) -> None:
-        raise RuntimeError("display publisher closed")
+    seen: list[httpx.Request] = []
 
-    monkeypatch.setattr(submission_notice, "running_in_notebook", lambda: True)
-    monkeypatch.setattr(submission_notice, "display_notebook_notice", broken_display)
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_score_response())
+
+    with _client(handler) as client:
+        execution, captured = _run_notebook_cell(
+            monkeypatch,
+            client,
+            "saved_score = sf.leaderboards.submit(candidate)",
+            candidate=_candidate(),
+            filter_action="error",
+        )
+
+    assert execution.success is False
+    assert isinstance(execution.error_in_exec, sf.EvaluationWarning)
+    assert seen == []
+    assert captured.outputs == []
+
+
+def test_notebook_ignored_warning_suppresses_the_branded_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WHY: a researcher running deliberate limit=N sweeps must be able to opt out."""
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_score_response())
+
+    with _client(handler) as client:
+        execution, captured = _run_notebook_cell(
+            monkeypatch,
+            client,
+            "saved_score = sf.leaderboards.submit(candidate)",
+            candidate=_candidate(),
+            filter_action="ignore",
+        )
+
+    assert execution.success is True
+    assert len(seen) == 1
+    assert captured.outputs == []
+
+
+def test_notebook_default_policy_shows_the_notice_and_nothing_on_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WHY: the branded notice replaces Python's red block, it does not accompany it."""
 
     with _client(lambda _request: httpx.Response(201, json=_score_response())) as client:
-        submitted = client.leaderboards.submit(_candidate())
+        execution, captured = _run_notebook_cell(
+            monkeypatch,
+            client,
+            "saved_score = sf.leaderboards.submit(candidate)",
+            candidate=_candidate(),
+            filter_action="default",
+        )
 
-    assert submitted.id.hex == _SCORE_ID.replace("-", "")
-    assert capsys.readouterr().err == _MESSAGE + "\n"
+    assert execution.success is True
+    assert len(captured.outputs) == 1
+    assert "Partial submission" in captured.outputs[0].data["text/html"]
+    assert captured.stderr == ""
+
+
+def test_one_ungraded_case_is_partial_even_when_coverage_rounds_to_one() -> None:
+    """INVARIANT: coverage is a 4-dp wire metric; the Cases themselves are the authority.
+
+    WHY: the Engine reports round(gradeable / case_count, 4), so on a large Benchmark a
+    handful of missing grades rounds to exactly 1.0 and would read as a complete run.
+    """
+
+    graded = (1.0,) * 19_999
+    candidate = _candidate(benchmark_case_count=20_000, case_scores=(*graded, None))
+
+    assert candidate.coverage == 1.0
+    with (
+        _client(lambda _request: httpx.Response(201, json=_score_response())) as client,
+        pytest.warns(sf.EvaluationWarning) as caught,
+    ):
+        client.leaderboards.submit(candidate)
+
+    assert str(caught[0].message) == _MESSAGE
