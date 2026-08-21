@@ -233,13 +233,52 @@ which ``GET /artifacts/{id}`` serves them (OME-892). One name read by BOTH the R
 side, via :func:`runner.main.build_executor`) and the App's ``Settings.artifacts_dir`` (serve
 side) so the two halves cannot be pointed at different directories by a one-sided edit.
 
-AIDEV-NOTE: in the `k8s` backend the Runner Job and the App are separate pods — this must
-name a SHARED volume there, which the chart does not yet mount (flagged on OME-892); local
-mode (one process) shares it by construction."""
+AIDEV-NOTE: this is the LOCAL-mode store only. In the `k8s` backend the Runner Job and the
+App are separate pods with separate disks, so a filesystem store there loses every over-cap
+result (OME-929) — which is why that pairing is now refused at startup. Deployed artifact
+storage is object storage; see :data:`ARTIFACT_STORE`."""
 
 DEFAULT_ARTIFACTS_DIR = str(Path(tempfile.gettempdir()) / "screamingface-engine" / "artifacts")
 """Fallback for an unset :data:`ARTIFACTS_DIR`. A temp path on purpose: artifacts are
-short-lived hand-offs (deleted on fetch, swept by TTL), not an archive."""
+short-lived hand-offs (swept by TTL), not an archive.
+
+AIDEV-NOTE: fetching does NOT delete them — that was removed on OME-892 review (content
+addressing means one file backs many tickets, and a Range request must leave the rest
+fetchable). TTL is the only cleanup."""
+
+# --- artifact storage backend (OME-929) -----------------------------------------------------
+# WHY these are DEPLOY_TIME and not derived: the Runner cannot see the cluster topology it runs
+# in, so the chart states it. The App CAN see it (`Settings.runner`), and refuses to start when
+# `runner="k8s"` is paired with filesystem storage — the combination that IS the OME-929 bug.
+#
+# INVARIANT: each name here must equal `Settings`' env alias for the same value, i.e.
+# `URL4_CLOUD_` + the field name, uppercased. `test_artifact_storage_selection.py` pins that,
+# because a one-sided rename would point the writer and the reader at different buckets — the
+# same class of failure as OME-929, in a form the 404 message would not even hint at.
+ARTIFACT_STORE = "URL4_CLOUD_ARTIFACT_STORE"
+"""filesystem" (local: one process, one disk) or "s3" (deployed: separate pods).
+
+Absent means "filesystem", which is right for local and WRONG for `k8s` — so the App refuses
+that pairing rather than defaulting into it silently, the way OME-929 did."""
+
+ARTIFACT_S3_ENDPOINT_URL = "URL4_CLOUD_ARTIFACT_S3_ENDPOINT_URL"
+"""Base URL of the S3-compatible endpoint, e.g. the bundled Garage Service."""
+
+ARTIFACT_S3_BUCKET = "URL4_CLOUD_ARTIFACT_S3_BUCKET"
+"""Bucket holding the content-addressed result objects."""
+
+ARTIFACT_S3_REGION = "URL4_CLOUD_ARTIFACT_S3_REGION"
+"""Signing region. Arbitrary but must match what the endpoint expects; Garage's default is
+its own configured region name, NOT an AWS one."""
+
+DEFAULT_ARTIFACT_S3_REGION = "garage"
+
+ARTIFACT_S3_ACCESS_KEY = "URL4_CLOUD_ARTIFACT_S3_ACCESS_KEY"
+"""Access key id. Travels by Secret, like :data:`TAVILY_API_KEY`."""
+
+ARTIFACT_S3_SECRET_KEY = "URL4_CLOUD_ARTIFACT_S3_SECRET_KEY"
+"""Secret access key. INVARIANT: Secret only — never a ConfigMap, never logged. A ConfigMap is
+readable by anything with `get` on it and is printed in plain text by `helm get manifest`."""
 
 RESULT_INLINE_CAP_BYTES = "URL4_CLOUD_RESULT_INLINE_CAP_BYTES"
 """Largest result body (UTF-8 bytes) that rides the result frame inline; anything larger is
@@ -302,8 +341,15 @@ WRITTEN_BY_APP = frozenset(
         *IDENTITY_HEADER_ENV.values(),
     }
 )
-"""The per-run subset. A key the App writes that is NOT in here reaches nothing — the direction
-that breaks silently is an unread WRITE, not an unwritten READ (which simply falls back)."""
+"""The per-run subset. A key the App writes that is NOT in here reaches nothing.
+
+AIDEV-NOTE (corrected on OME-929): this used to claim "the direction that breaks silently is an
+unread WRITE, not an unwritten READ (which simply falls back)". That reasoning is what let
+`ARTIFACTS_DIR` sit in `DEPLOY_TIME` — documented as Helm-owned — while Helm set nothing, and
+both halves fell back to their own pod-local `/tmp`. An unwritten READ falls back SILENTLY, and
+whether that is benign depends entirely on what the fallback means: a byte count has a safe
+default, a storage LOCATION does not. Both directions are now checked —
+`test_deploy_time_chart_contract.py` asserts the chart actually writes these."""
 
 DEPLOY_TIME = frozenset(
     {
@@ -316,6 +362,12 @@ DEPLOY_TIME = frozenset(
         RESULT_INLINE_CAP_BYTES,
         RESULT_HARD_CAP_BYTES,
         BRIDGE_MEMORY_BUDGET_BYTES,
+        ARTIFACT_STORE,
+        ARTIFACT_S3_ENDPOINT_URL,
+        ARTIFACT_S3_BUCKET,
+        ARTIFACT_S3_REGION,
+        ARTIFACT_S3_ACCESS_KEY,
+        ARTIFACT_S3_SECRET_KEY,
     }
 )
 """Helm owns these end-to-end. The App writing one would make it two sources of truth again."""
@@ -334,6 +386,13 @@ __all__ = [
     "DEFAULT_RESULT_HARD_CAP_BYTES",
     "DEFAULT_RESULT_INLINE_CAP_BYTES",
     "DEFAULT_STREAM_GRACE_S",
+    "ARTIFACT_S3_ACCESS_KEY",
+    "ARTIFACT_S3_BUCKET",
+    "ARTIFACT_S3_ENDPOINT_URL",
+    "ARTIFACT_S3_REGION",
+    "ARTIFACT_S3_SECRET_KEY",
+    "ARTIFACT_STORE",
+    "DEFAULT_ARTIFACT_S3_REGION",
     "DEPLOY_TIME",
     "EXPRESSION",
     "EXTRA_MODELS",
