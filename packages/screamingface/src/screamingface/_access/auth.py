@@ -173,6 +173,7 @@ class _CloudflareAccessAuth(_ClientAuth):
 
         with self._lock:
             subscribers = tuple(self._authorization_subscribers)
+        presented = False
         for presenter in subscribers:
             try:
                 presenter(authorization_url)
@@ -180,7 +181,11 @@ class _CloudflareAccessAuth(_ClientAuth):
                 # INVARIANT: presentation never fails the login it is announcing. One bad
                 # subscriber must not strand a login that is otherwise fine.
                 continue
-        return bool(subscribers)
+            presented = True
+        # INVARIANT: only a presenter that actually ran counts. Reporting success for a
+        # subscriber that raised would suppress the stdout fallback too, leaving the user
+        # with no link and no printed URL — worse than the duplication that motivated it.
+        return presented
 
     def login(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None:
         _require_positive_timeout(timeout)

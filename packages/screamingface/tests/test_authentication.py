@@ -1343,3 +1343,17 @@ def test_without_a_presenter_the_narration_is_unchanged(
     printed = capsys.readouterr().out
     assert "Waiting for Cloudflare Access login to complete" in printed
     assert "Cloudflare Access login complete." in printed
+
+
+def test_a_raising_presenter_falls_back_to_the_built_in_one() -> None:
+    # INVARIANT: suppression of the stdout narration keys off a presenter having actually
+    # succeeded. A subscriber that raises must not swallow the URL — no link AND no print
+    # would be worse than the duplication the suppression exists to remove.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    auth.subscribe_authorization(lambda url: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    auth.login()
+
+    assert auth.authenticated
+    assert fixture.browser_urls != []

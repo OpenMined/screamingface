@@ -17,7 +17,6 @@ from screamingface._ui.connection_view import (
     static_panel_html,
 )
 from screamingface._ui.engine_origin import _is_hosted_engine
-from screamingface._ui.loop_dispatch import _CompletionDispatcher
 from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:
@@ -108,7 +107,7 @@ class ConnectionPanel:
             except (ScreamingFaceError, ValueError) as exc:
                 self._state.notice = _user_message(exc)
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._dispatcher = _CompletionDispatcher()
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._unsubscribe_auth: Callable[[], None] | None = None
         self._unsubscribe_authorization: Callable[[], None] | None = None
         self._view: _NotebookConnectionView | None = None
@@ -136,7 +135,12 @@ class ConnectionPanel:
         return self._state.connections
 
     def widget(self) -> Widget:
-        self._dispatcher.capture()
+        # WHY kept: _start_oauth needs a loop to create its polling task on. Nothing else
+        # defers work any more — Access discovery is synchronous and login runs in the click.
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
         subscribe = getattr(self._client, "_subscribe_auth", None)
         if callable(subscribe) and self._unsubscribe_auth is None:
             typed_subscribe = cast(
@@ -239,10 +243,10 @@ class ConnectionPanel:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            loop = self._dispatcher.loop
+            loop = self._loop
         if loop is None or loop.is_closed():
             return
-        self._dispatcher.adopt(loop)
+        self._loop = loop
         self._tasks[provider] = loop.create_task(self._poll_oauth(provider, flow))
 
     async def _poll_oauth(self, provider: str, flow: object) -> None:
@@ -324,12 +328,15 @@ class ConnectionPanel:
         finally:
             self._state.access_pending = False
             self._state.access_authorization_url = None
-        if self._client.authenticated:
-            self._attempt(self.refresh)
-        # INVARIANT: the row is always re-rendered after login returns. refresh() renders on
-        # success but raises before doing so on failure, and _set_notice only repaints the
-        # notice — without this the row would keep showing Cancel after the wait ended.
-        self._render_rows()
+            if self._client.authenticated:
+                self._attempt(self.refresh)
+            # INVARIANT: the row is always re-rendered, including on KeyboardInterrupt. The
+            # stop button is the user's only escape from the wait — Cancel cannot be clicked
+            # while the handler blocks — so an interrupt is an expected exit path, and it
+            # must not leave the row showing Cancel with no channel left to repaint it.
+            # refresh() renders on success but raises before doing so on failure, and
+            # _set_notice only repaints the notice, so this render is not redundant.
+            self._render_rows()
 
     def _start_access_check(self) -> None:
         if not self._state.access_check_pending or self._state.access_check_started:
@@ -373,7 +380,11 @@ class ConnectionPanel:
     def _auth_state_changed(self) -> None:
         if self._closed:
             return
-        self._dispatcher(self._apply_auth_state)
+        # WHY inline, not deferred: a hosted notebook delivers a widget update only from a
+        # cell body or a click handler. Login is synchronous now, so this always arrives on
+        # the thread that can render — and posting it to an event loop would repeat exactly
+        # the bug this work removed (OME-930).
+        self._apply_auth_state()
 
     def _apply_auth_state(self) -> None:
         if self._closed:

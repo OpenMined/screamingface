@@ -263,20 +263,20 @@ class _NotebookConnectionView:
         return self._row(meta, [button])
 
     def _authorization_link(self, authorization_url: str) -> Any:
-        """The Access authorization URL as a link plus the raw URL beside it.
+        """The Access authorization URL as a single link.
 
-        WHY: nothing running in the kernel can open a tab on the user's machine — a hosted
-        notebook executes in a datacenter, so `webbrowser.open` would open a browser there.
-        An anchor rendered in the user's own browser is the only channel that reaches them.
-        The raw URL stays on screen so a browser-blocked popup degrades to copy-paste
-        rather than a dead end (OME-930).
+        WHY a link at all: nothing running in the kernel can open a tab on the user's
+        machine — a hosted notebook executes in a datacenter, so `webbrowser.open` would
+        open a browser there. An anchor rendered in the user's own browser is the only
+        channel that reaches them (OME-930).
+
+        WHY the URL is not also shown as text: it is hundreds of characters of Cloudflare
+        token, and it collided with the provider and status columns. It existed as a
+        fallback against a blocked popup, and clicking the anchor is confirmed working
+        inside Colab's sandboxed output iframe, so the link alone is the affordance.
         """
 
         href = escape(authorization_url, quote=True)
-        # AIDEV-NOTE: the URL is deliberately NOT rendered as text beside the link. It is
-        # hundreds of characters of Cloudflare token and it collided with the provider and
-        # status columns. Clicking the anchor is confirmed working inside Colab's sandboxed
-        # output iframe, so the link alone is the affordance; the title carries the target.
         return self._widgets.HTML(
             value=(
                 "<a class='sf-connections__authorize' "
