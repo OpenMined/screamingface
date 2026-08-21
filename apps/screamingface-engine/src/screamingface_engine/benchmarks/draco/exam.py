@@ -273,6 +273,8 @@ def draco_benchmark(
     description: str,
     judge_passes: int,
     protocol_revision: str,
+    focus: str | None = None,
+    dataset_url: str | None = None,
 ) -> tuple[DracoExam, Benchmark]:
     """Wire one DRACO board: identity → addresses → expression → private routes.
 
@@ -284,6 +286,9 @@ def draco_benchmark(
         judge_passes: how many times the Judge grades each answer (the pass seeds
             derive from it).
         protocol_revision: this board's own protocol version string (hashed).
+        focus: the short editorial line the leaderboard shows in its "Focus" column. It has
+            to separate this board from its siblings at a glance, since they share a dataset.
+        dataset_url: where a reader can go and look at the source data.
 
     Returns:
         ``(exam, benchmark)`` — the ``DracoExam`` for the runtime's private routes, and
@@ -322,6 +327,10 @@ def draco_benchmark(
         case_count=CASE_COUNT,
         build=build,
         install=install,
+        # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the
+        # only place the board's text is written; it is seeded from the catalogue at deploy.
+        focus=focus,
+        dataset_url=dataset_url,
         # The mid-run check is a real Judge call over the case rubric, so a corrective
         # loop's check budget is paid (same surface as canonical).
         check_surface=CheckSurface(

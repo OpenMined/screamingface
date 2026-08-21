@@ -114,6 +114,9 @@ IFEVAL = Benchmark(
         "official IFEval keys; one pinned-dataset row (key 2785) is patched to the "
         "official harness prompt, whose text matches its graded constraints."
     ),
+    focus="Instruction following",
+    # WHY no dataset_url: the IFEval dataset is vendored inside this Engine
+    # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
     revision=REVISION,
     case_count=CASE_COUNT,
     build=_build,

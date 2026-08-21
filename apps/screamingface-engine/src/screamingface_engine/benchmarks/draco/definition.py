@@ -44,6 +44,10 @@ from screamingface_engine.benchmarks.draco.exam import (
     draco_benchmark,
 )
 
+# Both boards replay the same 100 DRACO tasks over the same public dataset; they differ only in
+# how many times each answer is judged.
+DRACO_DATASET_URL = "https://huggingface.co/datasets/perplexity-ai/draco"
+
 # ── Board 1 — the canonical five-pass reproduction ──────────────────────────────────
 CANONICAL_EXAM, DRACO = draco_benchmark(
     id="draco",
@@ -56,6 +60,8 @@ CANONICAL_EXAM, DRACO = draco_benchmark(
     ),
     judge_passes=5,
     protocol_revision="five-pass-reproduction-v1",
+    focus="Research reports with citations",
+    dataset_url=DRACO_DATASET_URL,
 )
 
 # ── Board 2 — the three-pass cache-seeded replay ────────────────────────────────────
@@ -71,6 +77,10 @@ THREE_PASS_EXAM, DRACO_3PASS = draco_benchmark(
         "against five-pass results."
     ),
     judge_passes=3,
+    # The dataset and the subject are identical to the canonical board; the pass count is the
+    # only thing a reader needs to tell them apart, so that is what the Focus column says.
+    focus="Research reports, three judge passes",
+    dataset_url=DRACO_DATASET_URL,
     protocol_revision="three-pass-reproduction-v1",
 )
 
