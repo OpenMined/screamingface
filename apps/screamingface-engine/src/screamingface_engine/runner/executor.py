@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Literal, cast
 
 from screamingface_engine import job_env
-from screamingface_engine.artifacts import ArtifactStore
+from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
 from url4.core.errors import ResolutionError
@@ -540,7 +540,7 @@ class _RunState:
         *,
         inline_cap: int,
         hard_cap: int,
-        store: ArtifactStore | None,
+        store: ArtifactWriter | None,
     ) -> ResultData:
         """Build the final `ResultData`: inline, spilled whole, or refused — never cut.
 
@@ -703,7 +703,7 @@ class Url4Executor(Executor):
         result_cap: int = job_env.DEFAULT_RESULT_INLINE_CAP_BYTES,
         hard_cap: int = job_env.DEFAULT_RESULT_HARD_CAP_BYTES,
         memory_budget: int = job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES,
-        artifact_store: ArtifactStore | None = None,
+        artifact_store: ArtifactWriter | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
     ) -> None:

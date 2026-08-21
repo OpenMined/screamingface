@@ -15,6 +15,7 @@ from screamingface_engine.artifacts.ports import (
     LocalFile,
     RemoteStream,
 )
+from screamingface_engine.artifacts.s3 import S3ArtifactStore, S3Config, S3StorageError
 
 # AIDEV-NOTE: an alias, not a subclass. A subclass would be a second type that
 # `isinstance` and `is` comparisons could tell apart, which is exactly the drift the
@@ -29,4 +30,7 @@ __all__ = [
     "FilesystemArtifactStore",
     "LocalFile",
     "RemoteStream",
+    "S3ArtifactStore",
+    "S3Config",
+    "S3StorageError",
 ]
