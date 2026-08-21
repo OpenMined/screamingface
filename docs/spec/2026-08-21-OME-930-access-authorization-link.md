@@ -112,6 +112,26 @@ Two clicks is one more interaction in exchange for not generating a keypair and 
 authorization URL on every render. Rejected one-click for that reason; revisit only if the
 extra click proves to be a real drop-off.
 
+### UNVERIFIED ASSUMPTION — anchor clicks inside Colab's output iframe
+
+Colab renders widget output in a **sandboxed iframe**. A sandbox without `allow-popups`
+blocks `target="_blank"`, in which case the link renders but clicking it does nothing —
+the same class of failure as the bug this issue fixes.
+
+The provider-OAuth row already uses this pattern (`_ui/connection_view.py:364-369`), but
+there is no evidence it has ever been clicked in Colab. **Verify before relying on it:**
+
+```python
+from IPython.display import HTML
+HTML('<a href="https://example.com" target="_blank" rel="noopener noreferrer">Authorize</a>')
+```
+
+**Mitigation, applied regardless of the outcome:** render the authorization URL as
+selectable text alongside the link. Then a blocked popup degrades to copy-paste rather than
+a dead end, which also covers users whose own browser blocks the popup. If the anchor turns
+out not to work in Colab at all, the selectable URL becomes the primary affordance and this
+spec needs revisiting.
+
 ### Contract
 
 - The panel supplies a `browser_presenter` that records the URL and re-renders, instead of
@@ -122,6 +142,8 @@ extra click proves to be a real drop-off.
   `target="_blank" rel="noopener noreferrer"` treatment as the OAuth row, and keeps
   **Cancel** available.
 - The URL is cleared when login completes, is cancelled, or errors.
+- The URL is **also** rendered as selectable text, so a blocked popup degrades to
+  copy-paste. See the unverified-assumption section above.
 - `_running_in_notebook()` additionally recognises Colab — secondary, and only to stop a
   useless call on the notebook host.
 - **A terminal is unchanged:** `webbrowser.open` is correct there and must keep working.
@@ -138,7 +160,7 @@ extra click proves to be a real drop-off.
 ## Acceptance
 
 1. Clicking **Log in** renders a clickable authorization link in the panel that opens in a
-   new tab on the user's own machine.
+   new tab on the user's own machine, **and** shows the URL as selectable text beside it.
 2. The authorization URL is never delivered *only* via `print` from a worker thread.
 3. No browser is opened on the notebook host.
 4. A terminal still opens a browser directly.
@@ -146,6 +168,10 @@ extra click proves to be a real drop-off.
 6. Access login and provider OAuth present an authorization URL through the same mechanism.
 7. `_access` does not import `_ui`.
 8. Notebook detection covers Colab as well as ipykernel.
+9. The **panel** behaves identically in Colab, Jupyter and VS Code. Note this is not total
+   uniformity: presenters are additive, so the pre-existing `print` still runs and may be
+   visible in local Jupyter but not in Colab. That difference is pre-existing and out of
+   scope; it is called out so nobody reads "identical" as stronger than it is.
 
 ## Open question for the owner
 
