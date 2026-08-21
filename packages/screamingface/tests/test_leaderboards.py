@@ -1285,7 +1285,8 @@ def _partial_submission_candidate(
 
 
 # INVARIANT (OME-922): selection coverage and grading coverage are independent. A
-# `limit`ed run can grade every selected Case and still not be a rankable full run.
+# `limit`ed run can grade every selected Case and still produce a score that is not
+# directly comparable with one from a full run.
 def test_submit_warns_for_a_limited_run_and_still_posts_it() -> None:
     seen: list[httpx.Request] = []
 
@@ -1302,8 +1303,9 @@ def test_submit_warns_for_a_limited_run_and_still_posts_it() -> None:
         pytest.warns(
             UserWarning,
             match=(
-                "Your submission is partial. "
-                "The public leaderboard ranks only scores for full runs."
+                "This score is based on fewer benchmark cases. It may appear on the "
+                "public leaderboard, but it is not directly comparable with scores "
+                "from full runs."
             ),
         ),
     ):
@@ -1326,7 +1328,7 @@ def test_submit_warns_for_incomplete_grading_and_still_posts_it() -> None:
     )
     with (
         _sync_client(handler) as client,
-        pytest.warns(UserWarning, match="Your submission is partial"),
+        pytest.warns(UserWarning, match="This score is based on fewer benchmark cases"),
     ):
         client.leaderboards.submit(candidate)
 
@@ -1355,7 +1357,7 @@ async def test_async_submit_warns_for_a_limited_run_and_still_posts_it() -> None
         case_scores=(1.0, 0.0),
     )
     async with _async_client(handler) as client:
-        with pytest.warns(UserWarning, match="Your submission is partial"):
+        with pytest.warns(UserWarning, match="This score is based on fewer benchmark cases"):
             await client.leaderboards.submit(candidate)
 
     assert len(seen) == 1
@@ -1366,7 +1368,7 @@ def test_notebook_partial_submission_moves_warning_into_published_score_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """INVARIANT (OME-922): Jupyter must not paint this advisory as a red traceback-like
-    warning. The successful publication card carries the ranking caveat itself, using the
+    warning. The successful publication card carries the comparison caveat itself, using the
     canonical ScreamingFace persimmon warning state in both colour schemes."""
     from screamingface._scoreboard import leaderboards as leaderboards_module  # noqa: PLC0415
 
@@ -1385,7 +1387,9 @@ def test_notebook_partial_submission_moves_warning_into_published_score_card(
     html = cast(Any, submitted)._repr_html_()
     assert "<div class='sf-report__submission-warning' role='status'>" in html
     assert "Partial submission" in html
-    assert "The public leaderboard ranks only scores for full runs." in html
+    assert "This score is based on fewer benchmark cases." in html
+    assert "It may appear on the public leaderboard" in html
+    assert "not directly comparable with scores from full runs." in html
     assert "--sf-warning:#9c4828" in html
     assert "--sf-warning-solid:#f1622d" in html
     assert "--sf-warning-bg:#fdf4f1" in html

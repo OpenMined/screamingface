@@ -32,7 +32,8 @@ _BENCHMARKS_PATH = "/v1/benchmarks"
 _LEADERBOARD_PATH = "/v1/leaderboard"
 _SCORES_PATH = "/v1/scores"
 _PARTIAL_SUBMISSION_WARNING = (
-    "Your submission is partial. The public leaderboard ranks only scores for full runs."
+    "This score is based on fewer benchmark cases. It may appear on the public "
+    "leaderboard, but it is not directly comparable with scores from full runs."
 )
 
 

@@ -6,14 +6,17 @@ Status: approved by owner, 2026-08-20 · Stack: screamingface
 
 `sf.evaluate(..., limit=N)` can produce a valid score with 100% coverage of the selected
 Cases even though it covers only part of the Benchmark. Submitting that Candidate currently
-looks identical to submitting a full run, but the public leaderboard ranks only full runs.
+looks identical to submitting a full run. The public leaderboard currently accepts and ranks
+partial submissions, but their scores cover fewer Cases and are not directly comparable with
+scores from full runs.
 
 ## Contract
 
 - `sf.leaderboards.submit(candidate)` and its async equivalent surface this message after
   successfully publishing a partial but otherwise valid score:
 
-  > Your submission is partial. The public leaderboard ranks only scores for full runs.
+  > This score is based on fewer benchmark cases. It may appear on the public leaderboard,
+  > but it is not directly comparable with scores from full runs.
 
 - A Candidate is full only when both conditions hold:
   - its Case count equals `candidate.benchmark.case_count`; and
@@ -40,4 +43,4 @@ looks identical to submitting a full run, but the public leaderboard ranks only 
   decorative gradient.
 - Use the canonical light and dark warning tokens rather than the SDK's older amber aliases.
 - Keep `Score published` and the success receipt: the partial score was persisted; the
-  adjacent notice explains that it is not eligible for public ranking.
+  adjacent notice explains why it is not directly comparable with a full-run score.

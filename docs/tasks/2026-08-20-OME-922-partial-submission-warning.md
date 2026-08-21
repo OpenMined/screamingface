@@ -9,11 +9,12 @@ created: 2026-08-20
 closed:
 ---
 
-# Warn that partial submissions are not ranked
+# Warn that partial-submission scores are not directly comparable
 
 Warn at `sf.leaderboards.submit(...)` when a Candidate covers fewer than all Benchmark
 Cases or has incomplete grading coverage. The warning is advisory: the Client still sends
-the submission, while the public leaderboard ranks only full runs.
+the submission, which may appear on the public leaderboard, while explaining that its score
+is not directly comparable with scores from full runs.
 
 In notebooks, render that advisory inside the published-score card using the canonical
 ScreamingFace warning treatment. Preserve a `UserWarning` for headless callers.

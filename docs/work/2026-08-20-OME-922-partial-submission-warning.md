@@ -6,13 +6,13 @@ started: 2026-08-20
 finished: 2026-08-20
 ---
 
-# OME-922 — Warn that partial submissions are not ranked
+# OME-922 — Warn that partial-submission scores are not directly comparable
 
 ## Intent
 
 Prevent a user from mistaking a limited or incompletely graded benchmark submission for a
-rankable full run. The Client warns at the submission seam but preserves the existing
-advisory-only behavior and sends valid partial scores unchanged.
+score directly comparable with a full run. The Client warns at the submission seam but
+preserves the existing advisory-only behavior and sends valid partial scores unchanged.
 
 ## Planned changes
 
@@ -72,3 +72,11 @@ notebooks are user-owned working-tree changes and must remain untouched.
   format, Pyright, full pytest with the 95% coverage floor, notebook check, build, and
   distribution check. The first clean-worktree attempt required the repository's declared
   `notebook` extra before Pyright could resolve IPython and ipywidgets.
+
+## Policy correction follow-up
+
+Review established that the Scoreboard does not currently exclude partial submissions from
+ranking. The notice now states the behavior that exists: a partial score may appear on the
+public leaderboard, but because it is based on fewer benchmark Cases it is not directly
+comparable with scores from full runs. Full-coverage-only ranking remains separate Scoreboard
+policy scope.

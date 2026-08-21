@@ -4,9 +4,9 @@ Spec: `docs/spec/2026-08-20-OME-922-partial-submission-warning.md` · Stack: scr
 
 ## Shape
 
-Keep the policy at the Scoreboard submission seam in
+Keep the advisory at the Scoreboard submission seam in
 `packages/screamingface/src/screamingface/_scoreboard/leaderboards.py`. A private result
-decorator shared by synchronous and asynchronous submission preserves one policy decision:
+decorator shared by synchronous and asynchronous submission preserves one presentation decision:
 headless callers get a Python warning, while notebooks get the advisory on the returned
 score card. A private, comparison-neutral field carries this transient display fact without
 changing the HTTP payload or public constructor behavior.
