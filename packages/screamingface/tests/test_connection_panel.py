@@ -360,7 +360,7 @@ async def test_panel_starts_oauth_and_polls_without_blocking_the_notebook() -> N
     # Jupyter can dispatch a later widget click on a different loop from the one that
     # rendered it. The OAuth poller must use the loop active for the click.
     stale_loop = asyncio.new_event_loop()
-    panel._loop = stale_loop
+    panel._dispatcher.adopt(stale_loop)
 
     started = time.monotonic()
     _button(root, "OAuth").click()
@@ -934,4 +934,230 @@ def test_loopback_provider_rows_keep_byok_controls(engine_url: str) -> None:
     root = panel.widget()
 
     assert [button.description for button in _buttons(root)] == ["Connect"]
+    root.close()
+
+
+def _render_on_a_disposable_loop(panel: sf.ConnectionPanel) -> widgets.Widget:
+    """Render on a loop that is then closed, reproducing the Colab lifecycle.
+
+    WHY: Colab may close or replace the asyncio loop that was live when the widget
+    rendered. The panel must not depend on that loop still existing when a background
+    completion arrives. A plain ``asyncio.run`` cannot be nested inside an async test,
+    so these cases stay synchronous.
+    """
+
+    async def render() -> widgets.Widget:
+        return panel.widget()
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(render())
+    finally:
+        loop.close()
+
+
+def _settle(root: widgets.Widget, *, until: Callable[[str], bool]) -> str:
+    for _ in range(200):
+        text = _text(root)
+        if until(text):
+            return text
+        time.sleep(0.01)
+    return _text(root)
+
+
+class _GatedAccessClient:
+    """Holds Access discovery open until the test releases it."""
+
+    engine_url = "https://fusion.dev.screamingface.ai"
+    authenticated = False
+    authenticating = False
+
+    def __init__(self, *, required: bool = True, error: Exception | None = None) -> None:
+        self.connections = _EmptyConnections()
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self._required = required
+        self._error = error
+
+    def _access_required(self) -> bool:
+        self.started.set()
+        assert self.release.wait(1)
+        if self._error is not None:
+            raise self._error
+        return self._required
+
+
+def test_access_discovery_still_lands_when_the_rendering_loop_closed() -> None:
+    # STORY: as a Colab user, sf.connect() reaches "Log in" instead of a permanent "checking".
+    client = _GatedAccessClient(required=True)
+    panel = _panel(client)
+
+    root = _render_on_a_disposable_loop(panel)
+    assert client.started.wait(1)
+    assert "checking" in _text(root)
+
+    client.release.set()
+    text = _settle(root, until=lambda value: "checking" not in value)
+
+    assert "checking" not in text
+    assert "login required" in text
+    assert [button.description for button in _buttons(root)] == ["Log in"]
+    root.close()
+
+
+def test_unprotected_engine_discovery_lands_when_the_rendering_loop_closed() -> None:
+    connection = sf.Connection(
+        provider="openrouter",
+        display_name="OpenRouter",
+        auth_methods=("api_key",),
+        status="not_connected",
+        auth_method=None,
+        account_label=None,
+    )
+
+    class Connections:
+        def list(self) -> tuple[sf.Connection, ...]:
+            return (connection,)
+
+    client = _GatedAccessClient(required=False)
+    client.connections = cast(Any, Connections())
+    panel = _panel(client)
+
+    root = _render_on_a_disposable_loop(panel)
+    assert client.started.wait(1)
+    client.release.set()
+    text = _settle(root, until=lambda value: "OpenRouter" in value)
+
+    assert "OpenRouter" in text
+    assert "checking" not in text
+    assert "Hosted Engine" not in text
+    root.close()
+
+
+def test_access_discovery_error_lands_when_the_rendering_loop_closed() -> None:
+    client = _GatedAccessClient(error=RuntimeError("Engine unreachable during discovery"))
+    panel = _panel(client)
+
+    root = _render_on_a_disposable_loop(panel)
+    assert client.started.wait(1)
+    client.release.set()
+    text = _settle(root, until=lambda value: "checking" not in value)
+
+    assert "Engine unreachable during discovery" in text
+    assert "checking" not in text
+    assert [button.description for button in _buttons(root)] == ["Log in"]
+    root.close()
+
+
+def test_login_completion_lands_when_the_rendering_loop_closed() -> None:
+    # INVARIANT: login completion never strands the panel on "Cancel" because the
+    # rendering loop changed.
+    client = _SharedAuthClient()
+    panel = _panel(client)
+
+    # WHY: Access login is long-lived — the user leaves for a browser — so the loop live
+    # when "Log in" was clicked is the one most likely to be gone by completion. Render
+    # AND click on that loop, then close it, so the login thread is holding a dead loop.
+    async def render_and_click() -> widgets.Widget:
+        root = panel.widget()
+        _button(root, "Log in").click()
+        return root
+
+    loop = asyncio.new_event_loop()
+    try:
+        root = loop.run_until_complete(render_and_click())
+    finally:
+        loop.close()
+
+    assert client.started.wait(1)
+    assert [button.description for button in _buttons(root)] == ["Cancel"]
+
+    client.release.set()
+    _settle(root, until=lambda value: "Log out" in value)
+
+    assert [button.description for button in _buttons(root)] == ["Log out"]
+    root.close()
+
+
+def test_module_level_connect_reaches_a_terminal_state_after_the_loop_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WHY: the issue's acceptance requires the documented module-level entrypoint to be
+    # covered, not only the internal ConnectionPanel helper.
+    client = _GatedAccessClient(required=True)
+    monkeypatch.setattr("screamingface._default_client.default_client", lambda: cast(Any, client))
+
+    async def render() -> widgets.Widget:
+        return sf.connect().widget()
+
+    loop = asyncio.new_event_loop()
+    try:
+        root = loop.run_until_complete(render())
+    finally:
+        loop.close()
+
+    assert client.started.wait(1)
+    client.release.set()
+    text = _settle(root, until=lambda value: "checking" not in value)
+
+    assert "checking" not in text
+    assert [button.description for button in _buttons(root)] == ["Log in"]
+    root.close()
+
+
+def test_static_html_does_not_claim_checking_when_no_probe_is_running() -> None:
+    # INVARIANT: "checking" means a probe is in flight. _repr_html_ never starts one,
+    # so it must render the resolved state instead of a status nothing will clear.
+    client = _GatedAccessClient(required=True)
+    panel = _panel(client)
+
+    html = panel._repr_html_()
+
+    assert "checking" not in html
+    assert "login required" in html
+    assert not client.started.is_set()
+
+
+def test_completion_runs_inline_when_a_live_loop_rejects_the_post() -> None:
+    # WHY: a loop can pass the is_running() check and still reject the post — it may be
+    # closed in the window between the two. The completion must land anyway.
+    class _RacingLoop:
+        def is_closed(self) -> bool:
+            return False
+
+        def is_running(self) -> bool:
+            return True
+
+        def call_soon_threadsafe(self, callback: Callable[..., None], *args: Any) -> None:
+            del callback, args
+            raise RuntimeError("Event loop is closed")
+
+    client = _GatedAccessClient(required=True)
+    panel = _panel(client)
+
+    root = _render_on_a_disposable_loop(panel)
+    assert client.started.wait(1)
+    panel._dispatcher.adopt(cast(Any, _RacingLoop()))
+    client.release.set()
+    text = _settle(root, until=lambda value: "checking" not in value)
+
+    assert "checking" not in text
+    assert [button.description for button in _buttons(root)] == ["Log in"]
+    root.close()
+
+
+def test_access_discovery_resolves_when_the_widget_renders_without_a_loop() -> None:
+    # WHY: a plain script or an older kernel renders with no running loop at all, so the
+    # probe runs synchronously; that branch must still reach a terminal state.
+    client = _GatedAccessClient(required=True)
+    client.release.set()
+    panel = _panel(client)
+
+    root = panel.widget()
+
+    assert client.started.is_set()
+    text = _text(root)
+    assert "checking" not in text
+    assert "login required" in text
+    assert [button.description for button in _buttons(root)] == ["Log in"]
     root.close()

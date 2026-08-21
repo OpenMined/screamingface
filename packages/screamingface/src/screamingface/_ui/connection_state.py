@@ -27,7 +27,10 @@ class _ConnectionPanelState:
     flows: dict[str, object] = field(default_factory=dict)
 
     def access_status(self, *, authenticated: bool, authenticating: bool) -> str:
-        if self.access_check_pending:
+        # INVARIANT: "checking" means a probe is in flight. A pending-but-unstarted
+        # check has nothing driving it (the static _repr_html_ path never starts one),
+        # so it must report the resolved state rather than a status nothing will clear.
+        if self.access_check_pending and self.access_check_started:
             status = "checking"
         elif self.access_pending or authenticating:
             status = "waiting"
