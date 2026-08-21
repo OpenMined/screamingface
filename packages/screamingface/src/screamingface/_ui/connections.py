@@ -141,8 +141,11 @@ class ConnectionPanel:
             )
             self._unsubscribe_auth = typed_subscribe(self._auth_state_changed)
         self._subscribe_authorization()
-        self._view = _NotebookConnectionView(self, self._state)
+        # WHY: the access check starts BEFORE the view is built. _render_rows() no-ops while
+        # `_view` is None, so the first render already reflects the probe instead of
+        # flickering login_required -> checking -> login_required.
         self._start_access_check()
+        self._view = _NotebookConnectionView(self, self._state)
         return self._view.root
 
     def _repr_html_(self) -> str:
@@ -298,9 +301,7 @@ class ConnectionPanel:
         if self._access_waiting():
             self._render_rows()
             return
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
+        if self._dispatcher.running_loop() is None:
             self._attempt(self._login_access)
             if self._client.authenticated:
                 self.refresh()

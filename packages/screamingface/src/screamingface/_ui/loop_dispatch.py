@@ -31,7 +31,7 @@ class _CompletionDispatcher:
     def capture(self) -> None:
         """Adopt the loop live on this thread — called when the panel renders."""
 
-        self._loop = self._running_loop()
+        self._loop = self.running_loop()
 
     def adopt(self, loop: asyncio.AbstractEventLoop) -> None:
         """Adopt a loop resolved by a caller that already knows the live one."""
@@ -48,7 +48,7 @@ class _CompletionDispatcher:
         actually drain the callback.
         """
 
-        for candidate in (self._running_loop(), self._loop):
+        for candidate in (self.running_loop(), self._loop):
             if candidate is not None and not candidate.is_closed() and candidate.is_running():
                 return candidate
         return None
@@ -66,11 +66,19 @@ class _CompletionDispatcher:
             # WHY: the loop can pass the checks above and still reject the post — it may
             # close in that window. Running inline keeps the panel truthful.
             callback(*args)
-        else:
-            self._loop = loop
+        # AIDEV-NOTE: deliberately does NOT adopt `loop`. usable() re-resolves a running
+        # loop on every call, so the latch bought nothing — and a completion arriving from
+        # a thread that owns an unrelated running loop would have aimed every later widget
+        # mutation at that foreign loop. Post to a loop; never attach to it.
 
     @staticmethod
-    def _running_loop() -> asyncio.AbstractEventLoop | None:
+    def running_loop() -> asyncio.AbstractEventLoop | None:
+        """The loop running on the calling thread, or None.
+
+        Named on the surface because callers also need to ask whether they may schedule
+        work at all rather than block.
+        """
+
         try:
             return asyncio.get_running_loop()
         except RuntimeError:

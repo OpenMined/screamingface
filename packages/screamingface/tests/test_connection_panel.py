@@ -1398,3 +1398,32 @@ def test_an_authorization_announced_after_close_is_ignored() -> None:
 
     assert panel._state.access_authorization_url is None
     root.close()
+
+
+@pytest.mark.asyncio
+async def test_the_dispatcher_does_not_adopt_a_loop_it_merely_posted_to() -> None:
+    # WHY: usable() prefers the loop running on the CALLING thread over the captured render
+    # loop. If a completion ever arrives from a thread that owns an unrelated running loop,
+    # latching it would aim every later widget mutation at that foreign loop. Post to a
+    # loop; never attach to it.
+    from screamingface._ui.loop_dispatch import _CompletionDispatcher
+
+    class _RenderLoop:
+        def is_closed(self) -> bool:
+            return False
+
+        def is_running(self) -> bool:
+            return False
+
+    dispatcher = _CompletionDispatcher()
+    render_loop = _RenderLoop()
+    dispatcher.adopt(cast(Any, render_loop))
+
+    seen: list[str] = []
+    dispatcher(seen.append, "delivered")
+    await asyncio.sleep(0)
+
+    assert seen == ["delivered"]
+    # The live loop here is this test's loop, not the captured one. It must be used for
+    # delivery without replacing what the panel captured at render time.
+    assert dispatcher.loop is render_loop

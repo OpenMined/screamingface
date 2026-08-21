@@ -205,3 +205,24 @@ def test_operation_info_is_a_constructible_public_report_value() -> None:
 
     assert operation.depends_on == ()
     assert not hasattr(sf, "Operation")
+
+
+def test_the_notebook_extra_stays_lean_enough_for_a_hosted_notebook() -> None:
+    """INVARIANT: `screamingface[notebook]` is safe to install inside Colab.
+
+    WHY: the connection panel's ImportError tells users to install this extra, and
+    `sf.connect()` is the documented entrypoint. An extra that drags in JupyterLab also
+    upgrades ipywidgets out from under Colab's own widget manager, which stops the panel
+    rendering at all. Notebook-authoring tooling belongs in the dev dependency group.
+    """
+
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    extras = tomllib.loads(pyproject.read_text())["project"]["optional-dependencies"]
+    names = [
+        requirement.split(">=")[0].split("==")[0].strip() for requirement in extras["notebook"]
+    ]
+
+    assert names == ["ipywidgets"], names
