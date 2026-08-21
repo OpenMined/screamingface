@@ -174,7 +174,11 @@ def run_scoreboard(config: RuntimeConfig) -> None:
     )
 
 
-def _server(app: object, port: int, name: str) -> Server:
+def _server(app: Any, port: int, name: str) -> Server:
+    # WHY: the ASGI app comes from _build_apps via the optional "runtime" extra, so its
+    # static type is unavailable whenever that extra is not installed (as in CI). `object`
+    # typechecked only while uvicorn was absent — with the extra installed, pyright
+    # rejected it against uvicorn.Config's ASGIApplication parameter.
     import uvicorn  # pyright: ignore[reportMissingImports]
 
     return _EmbeddedServer(

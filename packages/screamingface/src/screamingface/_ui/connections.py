@@ -8,13 +8,18 @@ import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
-from screamingface._ui.connection_state import _ConnectionPanelState, _user_message
+from screamingface._ui.connection_state import (
+    _ConnectionPanelState,
+    _sync_access_probe,
+    _user_message,
+)
 from screamingface._ui.connection_view import (
     _NotebookConnectionView,
     _provider_status,
     static_panel_html,
 )
 from screamingface._ui.engine_origin import _is_hosted_engine
+from screamingface._ui.loop_dispatch import _CompletionDispatcher
 from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:
@@ -88,9 +93,7 @@ class ConnectionPanel:
             # reports that it does not require Cloudflare Access.
             provider_mutations_enabled=not hosted,
             access_check_pending=(
-                hosted
-                and not client.authenticated
-                and callable(getattr(client, "_access_required", None))
+                hosted and not client.authenticated and _sync_access_probe(client) is not None
             ),
         )
         if not hosted or client.authenticated:
@@ -101,7 +104,7 @@ class ConnectionPanel:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._access_check_thread: threading.Thread | None = None
         self._login_thread: threading.Thread | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
+        self._dispatcher = _CompletionDispatcher()
         self._unsubscribe_auth: Callable[[], None] | None = None
         self._view: _NotebookConnectionView | None = None
         self._closed = False
@@ -128,10 +131,7 @@ class ConnectionPanel:
         return self._state.connections
 
     def widget(self) -> Widget:
-        try:
-            self._loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._loop = None
+        self._dispatcher.capture()
         subscribe = getattr(self._client, "_subscribe_auth", None)
         if callable(subscribe) and self._unsubscribe_auth is None:
             typed_subscribe = cast(
@@ -229,10 +229,10 @@ class ConnectionPanel:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            loop = self._loop
+            loop = self._dispatcher.loop
         if loop is None or loop.is_closed():
             return
-        self._loop = loop
+        self._dispatcher.adopt(loop)
         self._tasks[provider] = loop.create_task(self._poll_oauth(provider, flow))
 
     async def _poll_oauth(self, provider: str, flow: object) -> None:
@@ -270,7 +270,7 @@ class ConnectionPanel:
             self._render_rows()
             return
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             self._attempt(self._login_access)
             if self._client.authenticated:
@@ -281,22 +281,24 @@ class ConnectionPanel:
 
         self._state.access_pending = True
         self._render_rows()
-        self._start_login_thread(loop)
+        self._start_login_thread()
 
     def _start_access_check(self) -> None:
         if not self._state.access_check_pending or self._state.access_check_started:
             return
-        check = getattr(self._client, "_access_required", None)
-        if not callable(check):
+        check = _sync_access_probe(self._client)
+        if check is None:
             self._state.access_check_pending = False
             self._render_rows()
             return
         self._state.access_check_started = True
-        typed_check = cast(Callable[[], bool], check)
-        if self._loop is None:
-            self._run_access_check_sync(typed_check)
+        # WHY: "checking" is only shown once the probe is in flight, so the row has to be
+        # re-rendered here — the view was built before the check started.
+        self._render_rows()
+        if self._dispatcher.loop is None:
+            self._run_access_check_sync(check)
             return
-        self._start_access_check_thread(typed_check, self._loop)
+        self._start_access_check_thread(check)
 
     def _run_access_check_sync(self, check: Callable[[], bool]) -> None:
         try:
@@ -306,11 +308,7 @@ class ConnectionPanel:
         else:
             self._complete_access_check(required, None)
 
-    def _start_access_check_thread(
-        self,
-        check: Callable[[], bool],
-        loop: asyncio.AbstractEventLoop,
-    ) -> None:
+    def _start_access_check_thread(self, check: Callable[[], bool]) -> None:
         panel_ref = weakref.ref(self)
 
         def run() -> None:
@@ -323,10 +321,7 @@ class ConnectionPanel:
             panel = panel_ref()
             if panel is None or panel._closed:
                 return
-            try:
-                loop.call_soon_threadsafe(panel._complete_access_check, required, error)
-            except RuntimeError:
-                return
+            panel._dispatcher(panel._complete_access_check, required, error)
 
         self._access_check_thread = threading.Thread(
             target=run,
@@ -351,7 +346,7 @@ class ConnectionPanel:
                 self._set_notice(_user_message(exc))
         self._render_rows()
 
-    def _start_login_thread(self, loop: asyncio.AbstractEventLoop) -> None:
+    def _start_login_thread(self) -> None:
         client = self._client
         panel_ref = weakref.ref(self)
 
@@ -364,10 +359,7 @@ class ConnectionPanel:
             panel = panel_ref()
             if panel is None or panel._closed:
                 return
-            try:
-                loop.call_soon_threadsafe(panel._complete_login_access, error)
-            except RuntimeError:
-                return
+            panel._dispatcher(panel._complete_login_access, error)
 
         self._login_thread = threading.Thread(
             target=run,
@@ -395,13 +387,7 @@ class ConnectionPanel:
     def _auth_state_changed(self) -> None:
         if self._closed:
             return
-        if self._loop is not None:
-            try:
-                self._loop.call_soon_threadsafe(self._apply_auth_state)
-            except RuntimeError:
-                return
-        else:
-            self._apply_auth_state()
+        self._dispatcher(self._apply_auth_state)
 
     def _apply_auth_state(self) -> None:
         if self._closed:
