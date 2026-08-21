@@ -247,6 +247,9 @@ class _NotebookConnectionView:
             button.on_click(
                 lambda _: self._controller._attempt(self._controller._cancel_access_login)
             )
+            authorization_url = self._state.access_authorization_url
+            if authorization_url:
+                return self._row(meta, [self._authorization_link(authorization_url), button])
         elif status == "authenticated":
             button = self._button("Log out", "Log out of this Client and Cloudflare Access")
             button.on_click(lambda _: self._controller._attempt(self._controller._logout_access))
@@ -258,6 +261,25 @@ class _NotebookConnectionView:
             )
             button.on_click(lambda _: self._controller._start_login_access())
         return self._row(meta, [button])
+
+    def _authorization_link(self, authorization_url: str) -> Any:
+        """The Access authorization URL as a link plus the raw URL beside it.
+
+        WHY: nothing running in the kernel can open a tab on the user's machine — a hosted
+        notebook executes in a datacenter, so `webbrowser.open` would open a browser there.
+        An anchor rendered in the user's own browser is the only channel that reaches them.
+        The raw URL stays on screen so a browser-blocked popup degrades to copy-paste
+        rather than a dead end (OME-930).
+        """
+
+        href = escape(authorization_url, quote=True)
+        return self._widgets.HTML(
+            value=(
+                "<a class='sf-connections__authorize' "
+                f"href='{href}' target='_blank' rel='noopener noreferrer'>Authorize</a>"
+                f"<span class='sf-connections__authorize-url'>{href}</span>"
+            )
+        )
 
     def _interactive_row(self, connection: Connection):
         widgets = self._widgets

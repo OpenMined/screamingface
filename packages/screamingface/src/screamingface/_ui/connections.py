@@ -106,6 +106,7 @@ class ConnectionPanel:
         self._login_thread: threading.Thread | None = None
         self._dispatcher = _CompletionDispatcher()
         self._unsubscribe_auth: Callable[[], None] | None = None
+        self._unsubscribe_authorization: Callable[[], None] | None = None
         self._view: _NotebookConnectionView | None = None
         self._closed = False
 
@@ -139,6 +140,7 @@ class ConnectionPanel:
                 subscribe,
             )
             self._unsubscribe_auth = typed_subscribe(self._auth_state_changed)
+        self._subscribe_authorization()
         self._view = _NotebookConnectionView(self, self._state)
         self._start_access_check()
         return self._view.root
@@ -177,6 +179,9 @@ class ConnectionPanel:
         if self._unsubscribe_auth is not None:
             self._unsubscribe_auth()
             self._unsubscribe_auth = None
+        if self._unsubscribe_authorization is not None:
+            self._unsubscribe_authorization()
+            self._unsubscribe_authorization = None
         self._login_thread = None
         self._access_check_thread = None
         for task in tuple(self._tasks.values()):
@@ -263,6 +268,30 @@ class ConnectionPanel:
 
     def _access_waiting(self) -> bool:
         return self._state.access_pending or self._client.authenticating
+
+    def _subscribe_authorization(self) -> None:
+        subscribe = getattr(self._client, "_subscribe_authorization", None)
+        if not callable(subscribe) or self._unsubscribe_authorization is not None:
+            return
+        typed_subscribe = cast(
+            Callable[[Callable[[str], None]], Callable[[], None]],
+            subscribe,
+        )
+        self._unsubscribe_authorization = typed_subscribe(self._authorization_announced)
+
+    def _authorization_announced(self, authorization_url: str) -> None:
+        # WHY: this arrives on the login worker thread, so it goes through the dispatcher
+        # for the same reason every completion does — the loop that rendered the widget may
+        # be gone, and a dropped announcement leaves the user with no link at all (OME-930).
+        if self._closed:
+            return
+        self._dispatcher(self._apply_authorization_url, authorization_url)
+
+    def _apply_authorization_url(self, authorization_url: str | None) -> None:
+        if self._closed:
+            return
+        self._state.access_authorization_url = authorization_url
+        self._render_rows()
 
     def _start_login_access(self) -> None:
         self._set_notice(None)
@@ -372,6 +401,7 @@ class ConnectionPanel:
         if self._closed:
             return
         self._state.access_pending = False
+        self._state.access_authorization_url = None
         self._login_thread = None
         if error is not None and getattr(error, "code", None) != "access_login_cancelled":
             self._set_notice(_user_message(error))
@@ -393,6 +423,8 @@ class ConnectionPanel:
         if self._closed:
             return
         self._state.access_pending = self._client.authenticating
+        if not self._client.authenticating:
+            self._state.access_authorization_url = None
         if self._client.authenticated:
             try:
                 self._state.connections = self._client.connections.list()

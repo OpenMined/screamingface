@@ -25,6 +25,9 @@ class _ConnectionPanelState:
     access_pending: bool = False
     access_check_pending: bool = False
     access_check_started: bool = False
+    # The pending Cloudflare Access authorization URL, rendered as a link while a
+    # login is in flight. Mirrors `flows` for provider OAuth.
+    access_authorization_url: str | None = None
     modes: dict[str, PanelMode] = field(default_factory=dict)
     flows: dict[str, object] = field(default_factory=dict)
 

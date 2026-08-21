@@ -1254,3 +1254,57 @@ def test_a_replay_safe_request_still_retries_after_a_login() -> None:
     assert response.status_code == 200
     assert len(seen) == 2
     assert len(fixture.browser_urls) == 1
+
+
+def test_subscribed_presenters_receive_the_authorization_url_additively() -> None:
+    # INVARIANT: subscribers are ADDITIVE — the fixture's own presenter still runs, so the
+    # terminal browser-open path is unchanged by a UI registering for the URL.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    subscriber_urls: list[str] = []
+
+    unsubscribe = auth.subscribe_authorization(subscriber_urls.append)
+    auth.login()
+
+    assert fixture.browser_urls != []
+    assert subscriber_urls == fixture.browser_urls
+
+    unsubscribe()
+    auth.logout()
+    fixture.browser_urls.clear()
+    subscriber_urls.clear()
+    auth.login()
+
+    assert fixture.browser_urls != []
+    assert subscriber_urls == []
+
+
+def test_a_raising_authorization_subscriber_does_not_fail_the_login() -> None:
+    # INVARIANT: presentation never fails the login it is announcing.
+    def explode(url: str) -> None:
+        del url
+        raise RuntimeError("presenter exploded")
+
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    auth.subscribe_authorization(explode)
+
+    auth.login()
+
+    assert auth.authenticated
+
+
+def test_access_never_imports_the_notebook_ui() -> None:
+    # INVARIANT: hexagonal boundary — `_access` defines how an authorization URL is
+    # presented and takes an implementation in; it must never reach for the UI itself.
+    import pathlib
+
+    access = pathlib.Path(access_auth_module.__file__).parent
+    offenders = [
+        path.name
+        for path in sorted(access.glob("*.py"))
+        if "screamingface._ui" in path.read_text()
+        or "from screamingface import _ui" in path.read_text()
+    ]
+
+    assert offenders == []

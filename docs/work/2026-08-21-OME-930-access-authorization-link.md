@@ -1,9 +1,9 @@
 ---
 ticket: OME-930
 stack: screamingface
-status: planned
+status: done
 started: 2026-08-21
-finished:
+finished: 2026-08-21
 ---
 
 # OME-930 — present the Access authorization URL in the panel
@@ -62,9 +62,52 @@ RED first, append-only. Reuse the `browser_presenter=` fixture style already in
 The spec's eight acceptance criteria, and
 `uv run .claude/scripts/run_gates.py screamingface` green including the 95% coverage floor.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** TBD
-- **Commits:** TBD
-- **Gates:** TBD
-- **Deviations:** TBD
+- **Actual files:**
+  - `_access/auth.py` — `subscribe_authorization()` + `_announce_authorization()`, notified at
+    the existing `_present_browser` call site. **Additive**: the constructor presenter still
+    runs, so the terminal browser-open path and every existing test are untouched.
+  - `_access/base.py` — declared on the `_ClientAuth` protocol.
+  - `client.py` — `_subscribe_authorization()` on **both** `Client` and `AsyncClient`.
+    `login()`'s signature untouched; no public surface change.
+  - `_ui/connection_state.py` — `access_authorization_url: str | None`.
+  - `_ui/connections.py` — subscribe in `widget()`, release in `close()`, route the
+    announcement through `self._dispatcher` (it arrives on the login worker thread), clear
+    on every login outcome and when the shared auth state stops authenticating.
+  - `_ui/connection_view.py` — `_authorization_link()` renders the anchor plus the URL as
+    text, reusing the OAuth row's `target="_blank" rel="noopener noreferrer"` treatment.
+  - `tests/test_connection_panel.py` (+8), `tests/test_authentication.py` (+3).
+
+- **Gates:** `run_gates.py screamingface` — ALL GATES GREEN, including the append-only check
+  (no prior test was touched this time). 1027 passed, 1 skipped; coverage ≥95%.
+
+- **Deviations:**
+  1. **`_environment.py` untouched — planned step dropped.** The plan and the issue both
+     claimed `_running_in_notebook()` fails to recognise Colab. **Wrong.**
+     `running_in_notebook()` walks the MRO and already returns `True` there, because Colab's
+     shell subclasses `ipykernel.zmqshell.ZMQInteractiveShell`; the function carries a
+     comment saying exactly that. The bad evidence was
+     `type(get_ipython()).__module__ == "google.colab._shell"`, which shows only the leaf
+     class. Retracted in the spec and on the issue. No browser was ever being opened on the
+     notebook host, so that acceptance criterion was void, not met.
+  2. **Anchor-in-Colab verified** by the owner before implementation: an
+     `<a target="_blank">` rendered via `IPython.display.HTML` does open a tab from inside
+     Colab's sandboxed output iframe. This was the load-bearing assumption; had it failed,
+     the whole design would have needed replacing. The selectable-URL fallback was kept
+     anyway, now justified by browser-level popup blocking rather than the sandbox.
+  3. **`connections.py` is 472 lines, over the ≤450 guideline.** No clean seam presents
+     itself: the three new methods are controller glue over `_state` and `_dispatcher`, and
+     `_authorization_announced`/`_apply_authorization_url` deliberately mirror the existing
+     `_auth_state_changed`/`_apply_auth_state` pair. Extracting them would manufacture an
+     abstraction to satisfy a line count. Noted for the reviewer rather than forced — see
+     also `connection_view.py`, which was already 528 lines on `main` before this change.
+  4. **The pre-existing `print`s in the login path are untouched** — the URL banner and the
+     "Waiting for…" / "…complete." lines. Presenters being additive means a local Jupyter
+     user may now see both a printed URL and the panel link. Redundant but harmless, and
+     changing it would alter behaviour that currently works for terminal users.
+
+- **Not verified by me:** the end-to-end Colab click-through. The anchor mechanism is
+  owner-confirmed and the panel transitions are covered by tests, but nobody has yet run
+  Log in → Authorize → authenticated against the live hosted Engine in Colab. See
+  Owner-verify.

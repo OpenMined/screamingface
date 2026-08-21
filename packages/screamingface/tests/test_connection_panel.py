@@ -1205,3 +1205,196 @@ def test_an_async_access_probe_is_never_read_as_a_result() -> None:
     assert "login required" in text
     assert [button.description for button in _buttons(root)] == ["Log in"]
     root.close()
+
+
+_ACCESS_URL = "https://engine.example/cdn-cgi/access/login?key=abc123&next=%2F"
+
+
+class _AuthorizingClient:
+    """Hosted client whose login announces an authorization URL, then blocks."""
+
+    engine_url = "https://fusion.dev.screamingface.ai"
+    authenticated = False
+    authenticating = False
+
+    def __init__(self, *, url: str = _ACCESS_URL, fail: Exception | None = None) -> None:
+        self.connections = _EmptyConnections()
+        self.presenters: list[Callable[[str], None]] = []
+        self.release = threading.Event()
+        self.announced = threading.Event()
+        self._url = url
+        self._fail = fail
+
+    def _subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]:
+        self.presenters.append(presenter)
+
+        def unsubscribe() -> None:
+            if presenter in self.presenters:
+                self.presenters.remove(presenter)
+
+        return unsubscribe
+
+    def login(self, *, timeout: float = 300.0) -> None:
+        del timeout
+        self.authenticating = True
+        for presenter in tuple(self.presenters):
+            presenter(self._url)
+        self.announced.set()
+        assert self.release.wait(1)
+        self.authenticating = False
+        if self._fail is not None:
+            raise self._fail
+        self.authenticated = True
+
+    def _cancel_login(self) -> None:
+        self.authenticating = False
+        self.release.set()
+
+
+def _render_click_login(panel: sf.ConnectionPanel) -> tuple[Any, widgets.Widget]:
+    """Render and click Log in on one loop, returning that loop so it can be pumped.
+
+    WHY: the presenter fires on the login worker thread and is delivered through the
+    panel's dispatcher, so the loop it posts to has to keep running for the callback to
+    land. A plain sleep would never drain it.
+    """
+
+    async def render_and_click() -> widgets.Widget:
+        root = panel.widget()
+        _button(root, "Log in").click()
+        return root
+
+    loop = asyncio.new_event_loop()
+    return loop, loop.run_until_complete(render_and_click())
+
+
+def _settle_on_loop(loop: Any, root: widgets.Widget, *, until: Callable[[str], bool]) -> str:
+    for _ in range(200):
+        text = _text(root)
+        if until(text):
+            return text
+        loop.run_until_complete(asyncio.sleep(0.01))
+    return _text(root)
+
+
+def test_access_login_renders_an_authorization_link_in_the_panel() -> None:
+    # STORY: as a Colab user clicking Log in, I get a link I can click plus the raw URL to
+    # copy, because nothing in the kernel can open a tab on my machine.
+    client = _AuthorizingClient()
+    panel = _panel(client)
+    loop, root = _render_click_login(panel)
+    try:
+        assert client.announced.wait(1)
+        text = _settle_on_loop(loop, root, until=lambda value: "Authorize" in value)
+
+        assert "Authorize" in text
+        assert 'target="_blank"' in text or "target='_blank'" in text
+        assert "noopener" in text
+        # INVARIANT: the URL stays on screen (HTML-escaped) so a blocked popup degrades
+        # to copy-paste rather than a dead end.
+        assert "cdn-cgi/access/login?key=abc123" in text
+        assert "Cancel" in [button.description for button in _buttons(root)]
+    finally:
+        client.release.set()
+        loop.close()
+    root.close()
+
+
+def test_the_authorization_link_is_escaped() -> None:
+    client = _AuthorizingClient(url='https://e.example/login?a=1&b="x"')
+    panel = _panel(client)
+    loop, root = _render_click_login(panel)
+    try:
+        assert client.announced.wait(1)
+        text = _settle_on_loop(loop, root, until=lambda value: "Authorize" in value)
+
+        assert "&amp;" in text
+        assert "&quot;" in text or "&#x27;" in text
+    finally:
+        client.release.set()
+        loop.close()
+    root.close()
+
+
+def test_the_authorization_link_clears_when_login_completes() -> None:
+    client = _AuthorizingClient()
+    panel = _panel(client)
+    loop, root = _render_click_login(panel)
+    try:
+        assert client.announced.wait(1)
+        # Assert it appeared first, or the "cleared" assertion below passes vacuously.
+        assert "Authorize" in _settle_on_loop(loop, root, until=lambda value: "Authorize" in value)
+        client.release.set()
+        text = _settle_on_loop(loop, root, until=lambda value: "Authorize" not in value)
+
+        assert "Authorize" not in text
+        assert "cdn-cgi/access/login" not in text
+    finally:
+        client.release.set()
+        loop.close()
+    root.close()
+
+
+def test_the_authorization_link_clears_when_login_is_cancelled() -> None:
+    client = _AuthorizingClient()
+    panel = _panel(client)
+    loop, root = _render_click_login(panel)
+    try:
+        assert client.announced.wait(1)
+        # Assert it appeared first, or the "cleared" assertion below passes vacuously.
+        assert "Authorize" in _settle_on_loop(loop, root, until=lambda value: "Authorize" in value)
+        _button(root, "Cancel").click()
+        text = _settle_on_loop(loop, root, until=lambda value: "Authorize" not in value)
+
+        assert "Authorize" not in text
+        assert "cdn-cgi/access/login" not in text
+    finally:
+        client.release.set()
+        loop.close()
+    root.close()
+
+
+def test_the_authorization_link_clears_when_login_fails() -> None:
+    client = _AuthorizingClient(fail=RuntimeError("Access login rejected"))
+    panel = _panel(client)
+    loop, root = _render_click_login(panel)
+    try:
+        assert client.announced.wait(1)
+        # Assert it appeared first, or the "cleared" assertion below passes vacuously.
+        assert "Authorize" in _settle_on_loop(loop, root, until=lambda value: "Authorize" in value)
+        client.release.set()
+        text = _settle_on_loop(loop, root, until=lambda value: "Authorize" not in value)
+
+        assert "Authorize" not in text
+        assert "Access login rejected" in text
+    finally:
+        client.release.set()
+        loop.close()
+    root.close()
+
+
+def test_the_authorization_subscription_is_released_when_the_panel_closes() -> None:
+    client = _AuthorizingClient()
+    panel = _panel(client)
+    root = panel.widget()
+
+    assert client.presenters != []
+    panel.close()
+
+    assert client.presenters == []
+    root.close()
+
+
+def test_an_authorization_announced_after_close_is_ignored() -> None:
+    # A login can still be in flight when the panel closes; the late announcement must not
+    # resurrect state on a dead panel.
+    client = _AuthorizingClient()
+    panel = _panel(client)
+    root = panel.widget()
+    presenter = client.presenters[0]
+
+    panel.close()
+    presenter(_ACCESS_URL)
+
+    assert panel._state.access_authorization_url is None
+    root.close()
