@@ -3,7 +3,7 @@ environment variables."""
 
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env
@@ -15,6 +15,7 @@ from screamingface_engine import job_env
 _TTL_SKEW_MARGIN_S = 60
 
 RunnerBackend = Literal["none", "k8s"]
+ArtifactStoreBackend = Literal["filesystem", "s3"]
 """Which ``JobRunner`` substrate the deployed App schedules runs on (spec §9).
 
 ``k8s`` is prod (namespace-scoped batch/v1 Jobs) and ``none`` a stream-only App that mints tokens
@@ -54,6 +55,25 @@ class Settings(BaseSettings):
     # Same env var (URL4_CLOUD_ARTIFACTS_DIR) the Runner's spill side reads — one name, so the
     # writer and the `GET /artifacts/{id}` server cannot be pointed at different directories.
     artifacts_dir: str = job_env.DEFAULT_ARTIFACTS_DIR
+    # FEATURE: over-cap results survive the Runner Job on a multi-pod deployment (OME-929).
+    #
+    # INVARIANT: every field below reads the env var `job_env` declares for it, by construction —
+    # `env_prefix` + the field name, uppercased. `test_artifact_storage_selection.py` pins that
+    # equality, because a one-sided rename would point the Runner's writer and the App's reader at
+    # different buckets, which is OME-929 again in a shape the 404 would not hint at.
+    #
+    # WHY a choice and not derived from `runner`: the Runner cannot see its own cluster topology,
+    # so the chart states this for both halves. The App CAN see it, and `create_app` refuses
+    # `runner="k8s"` paired with filesystem storage — that pairing IS the bug, and it used to be
+    # the default.
+    artifact_store: ArtifactStoreBackend = "filesystem"
+    artifact_s3_endpoint_url: str = ""
+    artifact_s3_bucket: str = ""
+    artifact_s3_region: str = job_env.DEFAULT_ARTIFACT_S3_REGION
+    artifact_s3_access_key: str = ""
+    # AIDEV-NOTE: credential material. Never logged, never rendered into a ConfigMap — it
+    # reaches the pod from a Secret, the same way `TAVILY_API_KEY` does.
+    artifact_s3_secret_key: str = ""
     # WHY 48h: long enough for any client that survived its run to come back for the parcel
     # (a run itself is bounded by job_deadline_s = 16h), short enough that crashed runs
     # cannot pool disk for more than two days. Swept at App startup AND periodically.
@@ -115,6 +135,11 @@ class Settings(BaseSettings):
     # `envFrom.secretRef`, never a literal copied into the manifest (see
     # ``K8sJobRunner._env_from``). The name of the Secret the Runner Job's env references:
     tavily_secret_name: str | None = None
+    # The Secret carrying URL4_CLOUD_ARTIFACT_S3_SECRET_KEY into each Runner Job (OME-929).
+    # A reference for the same reason `tavily_secret_name` is one: a `batch/v1` Job object is not
+    # a secret, so the credential travels via `envFrom.secretRef` and never as a literal in the
+    # manifest. The App reads the same Secret through its own Deployment `envFrom`.
+    artifact_s3_secret_name: str | None = None
     # WHY: the Runner drives the url4 DAG engine and buffers model responses — it is the
     # workload that actually consumes CPU/memory here. Without requests it schedules into the
     # BestEffort QoS class (placed blind, evicted first, free to OOM its node), so the chart
@@ -209,6 +234,21 @@ class Settings(BaseSettings):
         if self.job_ttl_s is not None:
             return self.job_ttl_s
         return self.iat_window_s + _TTL_SKEW_MARGIN_S
+
+    @field_validator("artifacts_dir", mode="before")
+    @classmethod
+    def _blank_artifacts_dir_means_unset(cls, value: object) -> object:
+        """An empty or whitespace value falls back to the default instead of becoming `Path("")`.
+
+        WHY (OME-929): `Path("")` is the WORKING DIRECTORY, not an error — so a ConfigMap that
+        renders the key with no value would silently relocate the store to wherever the process
+        happens to be, which for a read-only rootfs also fails at write time rather than here.
+        The chart omits the key when it has no value; this makes the same intent safe even if
+        some other deployment path renders it blank.
+        """
+        if isinstance(value, str) and not value.strip():
+            return job_env.DEFAULT_ARTIFACTS_DIR
+        return value
 
     @model_validator(mode="after")
     def _reject_replayable_job_ttl(self) -> Self:

@@ -72,7 +72,14 @@ def build_job_runner(
             image=settings.runner_image,
             namespace=settings.namespace,
             env_configmap=settings.runner_env_configmap,
-            env_secrets=(settings.tavily_secret_name,) if settings.tavily_secret_name else (),
+            # WHY built as a filtered tuple rather than two conditionals: a Job may need both
+            # credentials (Tavily to search, object storage to park its result), and `envFrom`
+            # takes a list — so the two are independent, not alternatives.
+            env_secrets=tuple(
+                name
+                for name in (settings.tavily_secret_name, settings.artifact_s3_secret_name)
+                if name
+            ),
             resources=settings.runner_resources,
             job_ttl_s=settings.effective_job_ttl_s,
             extra_models=extra_models,

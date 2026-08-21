@@ -111,6 +111,69 @@ config:
   # away from the port actually being listened on. Use `service.port` to change what the cluster
   # dials; the container side is fixed.
 
+# Where over-cap Evaluation results are parked between the Runner Job that produces one and the
+# App that serves it back (OME-929).
+#
+# WHY this must not be a local directory when `config.runner: k8s`: each run is a separate Job pod
+# whose disk is destroyed with it, so a result spilled there can never be served — the run
+# succeeds, then the client's redemption 404s, after every model call has been paid for. That was
+# the DEFAULT before OME-929 and nothing about it looked wrong. The App now REFUSES to start in
+# that combination, so a k8s deployment must set `backend: s3` here.
+artifactStorage:
+  # Spill directory for filesystem mode. Ignored when `backend: s3`. Empty => the code's default
+  # (a temp path), which is fine for a single process and catastrophic across pods — hence the
+  # startup refusal described above.
+  filesystemDir: ""
+  # "filesystem" — one process, one disk. Correct for local/single-process only.
+  # "s3"         — any S3-compatible endpoint. Required whenever runs are separate pods.
+  backend: filesystem
+  s3:
+    # Base URL of the endpoint. With `garage.enabled` below, leave empty to use the bundled
+    # instance's in-cluster Service.
+    endpointUrl: ""
+    bucket: screamingface-artifacts
+    # Signing region. Arbitrary, but must match what the endpoint expects — Garage uses its own
+    # configured region name, NOT an AWS one.
+    region: garage
+    accessKey: ""
+    # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
+    # / Sealed Secrets flow). Empty + `backend: s3` => the chart creates one from `secretKey`.
+    # NOTE: the credential must be keyed `URL4_CLOUD_ARTIFACT_S3_SECRET_KEY` in the Secret; both
+    # the App and each Runner Job attach it with `envFrom.secretRef`, which injects keys under
+    # their own names and cannot rename.
+    existingSecret: ""
+    # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
+    # pass it with `--set` / `--set-file`, or use `existingSecret`.
+    secretKey: ""
+
+# The bundled S3-compatible object store (OME-929, spec D2). Default-disabled so an existing
+# endpoint can be used instead by setting `artifactStorage.s3.endpointUrl`.
+#
+# AIDEV-NOTE: Garage needs a ONE-TIME bootstrap after first install — a layout assignment, then a
+# bucket and an access key — which this chart does NOT perform, because those are imperative
+# `garage` CLI steps whose failure modes are much worse when hidden inside a hook. See
+# deploy/helm/README.md for the exact commands, and feed the resulting key into
+# `artifactStorage.s3.accessKey` / `.secretKey`.
+garage:
+  enabled: false
+  image: dxflrs/garage:v1.0.1
+  # One replica: this is a single-consumer hand-off store for objects that live <48h, not a
+  # durability tier. Replication would add a failure domain for no benefit at this size.
+  replicaCount: 1
+  persistence:
+    enabled: true
+    # RWO is sufficient — only the Garage pod mounts this. It is precisely NOT the shared volume
+    # the App and the Runner would have needed, which is why object storage was chosen instead.
+    accessModes: [ReadWriteOnce]
+    size: 10Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
 # Tavily web tools (spec 2026-07-23) — lets the aigateway connector declare web_search/web_fetch
 # and run its bounded tool-calling loop. Disabled => the Runner never sees TAVILY_API_KEY and the
 # connector stays deny-by-default (dec:W5), with a request body identical to the no-tools shape.

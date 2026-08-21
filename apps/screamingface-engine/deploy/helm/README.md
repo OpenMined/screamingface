@@ -167,6 +167,59 @@ Job controller. Past roughly tens of requests per second the replay guard would 
 the Job name onto a cheap keyed store (e.g. a NATS KV of spent `jti`s), trading the App's
 statelessness for throughput.
 
+## Artifact storage (OME-929)
+
+A Run whose serialized result exceeds the inline cap (1 MiB) is parked under its content address,
+and the terminal frame carries only a claim ticket the client redeems over `GET /artifacts/{id}`.
+
+**With `config.runner: k8s` this store cannot be a local directory.** Each run is a separate Job
+pod whose disk is destroyed with it, so a result spilled there can never be served back: the run
+succeeds, and then the client's redemption 404s — after every model call has been paid for. A full
+DRACO 3-pass run is 11,902 calls and a ~3 MiB result, so it spills every time. The App therefore
+**refuses to start** when `runner: k8s` is paired with `artifactStorage.backend: filesystem`.
+
+```yaml
+artifactStorage:
+  backend: s3
+  s3:
+    bucket: screamingface-artifacts
+    accessKey: GK...
+    existingSecret: my-artifact-creds   # keyed URL4_CLOUD_ARTIFACT_S3_SECRET_KEY
+garage:
+  enabled: true
+```
+
+Both halves are rendered from this one stanza — the Runner's copy in `configmap-runner-env.yaml`
+and the App's in `configmap.yaml` — so a one-sided edit cannot point the writer and the reader at
+different stores. That was the original defect: both read one variable that nothing set, and each
+fell back to its own pod-local `/tmp`.
+
+The read path goes **through the App**, not via a presigned URL, so the object store stays
+cluster-internal and the SDK's existing size + sha256 verification is unchanged.
+
+### Bundled Garage: one-time bootstrap
+
+`garage.enabled` deploys a single-node store, but Garage needs an imperative first-run setup that
+this chart deliberately does **not** perform (a half-applied layout is far harder to diagnose than
+a documented manual step):
+
+```sh
+R=<release>-garage
+kubectl exec -it sts/$R -- /garage status                       # note the node id
+kubectl exec -it sts/$R -- /garage layout assign -z dc1 -c 10G <node-id>
+kubectl exec -it sts/$R -- /garage layout apply --version 1
+kubectl exec -it sts/$R -- /garage bucket create screamingface-artifacts
+kubectl exec -it sts/$R -- /garage key create artifacts-rw
+kubectl exec -it sts/$R -- /garage bucket allow --read --write screamingface-artifacts --key artifacts-rw
+```
+
+Feed the `key create` output into `artifactStorage.s3.accessKey` / `.secretKey` (or a Secret named
+by `existingSecret`) and upgrade. Objects expire by **bucket lifecycle rule**, not by the App's
+sweeper — which is a no-op in `s3` mode. A bucket with no lifecycle rule never expires artifacts.
+
+To use storage you already run, set `artifactStorage.s3.endpointUrl` and leave `garage.enabled`
+off. Any S3-compatible endpoint works; only PUT and GET of a single object are used.
+
 ## Workload hardening
 
 Both workloads — the same image, entered in its two modes — run non-root (uid 1000, the image's

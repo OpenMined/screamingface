@@ -75,9 +75,76 @@ scope — the App is pinned to one replica for the in-process subscriber gate).
 Spec §6, items 1-8. Headline: a >1 MiB result round-trips end to end on the deployed pods, and
 a writer/reader storage mismatch can no longer reach fetch time.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files** (as planned, plus the four marked ✚):
+  - `artifacts/{__init__,ports,filesystem,s3,sigv4}.py` — ports + both adapters + the signer
+  - ✚ `artifacts/wiring.py` — the shared `S3Config` builder. Not planned: the validation is
+    needed by BOTH halves, and `adapters/factory.py` (where the plan put selection) is
+    control-plane, so the Runner cannot import it. It belongs in the shared leaf.
+  - `rest/artifacts.py` — renders `LocalFile` (FileResponse, keeps Range) or `RemoteStream`
+    (StreamingResponse + explicit Content-Length); `response_model=None` + `response_class`
+    so FastAPI stops inferring a Pydantic field from a union of Starlette responses
+  - `runner/executor.py` — `artifact_store` retyped to the `ArtifactWriter` PORT (pyright found
+    the leftover coupling to the concrete filesystem class)
+  - `runner/main.py` — `result_delivery_from_env` selects the store; refuses a half-configured one
+  - `app.py` — `_build_artifact_reader` + the startup refusal; stale sweeper comment corrected
+  - `config.py` — `ArtifactStoreBackend`, six `artifact_*` settings, `artifact_s3_secret_name`,
+    ✚ a validator normalising a blank `artifacts_dir` (see deviation 4)
+  - `job_env.py` — six new DEPLOY_TIME names; the inverted "unwritten READ simply falls back"
+    reasoning corrected; ARTIFACTS_DIR redocumented as local-only
+  - `adapters/factory.py` — Jobs now receive both Secrets (Tavily and artifact storage)
+  - `deploy/helm/` — `artifactStorage` + `garage` values stanzas, both ConfigMaps,
+    `secret-artifact-storage.yaml`, `garage.yaml` (StatefulSet + Service + ConfigMap),
+    two `_helpers.tpl` helpers, Deployment `envFrom`, ✚ `values.schema.json`
+    (`additionalProperties: false` rejected the new stanzas), ✚ `README.md` operator section
+  - tests: `test_artifact_ports.py` (9), `test_sigv4.py` (9), `test_s3_artifact_store.py` (11),
+    `test_artifact_spill_is_store_agnostic.py` (5), `test_artifact_storage_selection.py` (16),
+    `test_deploy_time_chart_contract.py` (14)
+- **Commits:**
+  - f9c3f795 refactor(screamingface-engine): split artifact storage into writer and reader ports
+  - 1d8f4ef1 feat(screamingface-engine): store spilled results in S3-compatible object storage
+  - (this) feat(screamingface-engine): provision object storage and fail loudly on mismatch
+- **Gates:** ALL GREEN — 1989 passed, 5 skipped, coverage 93.40% (floor 80); ruff check + format,
+  pyright, layering. `helm template` renders in filesystem and s3+garage modes; `helm lint` clean.
+  Final run used the documented `--skip-append-only` (deviation 3).
+- **Deviations:**
+  1. **`artifacts.py` header corrected in iteration 1, not 3.** The plan scheduled all comment
+     fixes for iteration 3, but iteration 1 rewrites that header while moving the module —
+     committing a known-false statement in order to fix it two commits later is worse.
+  2. **`write_text` added to the `ArtifactWriter` port.** A PRIOR test (`test_runner.py:469`)
+     calls it on the value `result_delivery_from_env` returns. Retyping that return to the port
+     made pyright fail. Fixed in the PORT rather than the test, so no prior test was touched.
+  3. **One prior test modified, with owner approval** (2026-08-21):
+     `test_catalog_wiring.py::test_no_setting_holds_an_aigateway_credential` pins the set of
+     secret-shaped `Settings` fields as a deliberate tripwire. Three names were added
+     (`artifact_s3_access_key`, `artifact_s3_secret_key`, `artifact_s3_secret_name`) with the
+     provenance and blast radius of each recorded inline. The App must hold the S3 secret to
+     sign its own GETs when streaming artifacts back, so a name-only reference cannot work the
+     way it does for Tavily. No assertion was weakened; the tripwire still fires on the next
+     addition.
+  4. **Extra hardening not in the plan:** a blank `URL4_CLOUD_ARTIFACTS_DIR` used to become
+     `Path("")` — the working directory — silently relocating the store. Now normalised to the
+     default in `Settings`, and the chart omits the key rather than rendering an empty value.
+  5. **A second unrendered `DEPLOY_TIME` member surfaced:** the new chart contract test caught
+     `URL4_RUNNER_CONFIG`, which is also declared Helm-owned and set by nobody. Its fallback is
+     a path the image guarantees, so it is genuinely safe — allowlisted with that reason rather
+     than papered over.
+  6. **AWS SigV4 vectors:** the constants recalled from memory were wrong (one was from a
+     different AWS example). The implementation independently produced the correct signature, and
+     the TEST DATA was corrected against AWS's published `aws-sig-v4-test-suite` `get-vanilla`
+     files, whose provenance is now recorded in the test.
+
+## Known limitations (carried, not fixed)
+
+1. **Object expiry depends on a bucket lifecycle rule.** `S3ArtifactStore.sweep` is a deliberate
+   no-op: listing objects needs query-string signing, which would push the signer past the
+   PUT/GET bound spec D5 sets on it. A bucket configured without a lifecycle rule never expires
+   artifacts, and nothing in the App will notice. Documented in the chart README and in the code.
+2. **Garage bootstrap is a manual step.** The chart deploys Garage but does not assign a layout,
+   create the bucket, or mint a key — those are imperative CLI steps. Commands are in the README
+   and in `templates/garage.yaml`.
+3. **Not exercised against a live cluster.** The engine side is fully covered by tests, and the
+   chart is verified to render; the Garage manifests and the end-to-end round trip on real pods
+   still need the owner's live-run check (the ticket's cheap repro: force a spill with
+   `URL4_CLOUD_RESULT_INLINE_CAP_BYTES=1024`).

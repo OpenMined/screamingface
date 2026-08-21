@@ -19,7 +19,8 @@ import httpx
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
-from screamingface_engine.artifacts import ArtifactStore
+from screamingface_engine.artifacts import ArtifactStore, ArtifactWriter, S3ArtifactStore
+from screamingface_engine.artifacts.wiring import s3_config_from_values
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
@@ -80,12 +81,22 @@ def bridge_budget_from_env(env: Mapping[str, str]) -> int:
     )
 
 
-def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, ArtifactStore]:
+def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, ArtifactWriter]:
     """The Runner's result-delivery wiring: (inline cap, hard cap, spill store).
 
-    FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892).
-    Reads the same URL4_CLOUD_* names the App's `Settings` serve side reads, so the writer
-    and the `GET /artifacts/{id}` server resolve one directory by construction.
+    FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892),
+    and have them survive this Job's own disk (OME-929).
+
+    Reads the same URL4_CLOUD_* names the App's `Settings` serve side reads, so the writer and
+    the `GET /artifacts/{id}` server resolve ONE store by construction.
+
+    INVARIANT: an object store selected but not fully configured raises HERE. That surfaces as
+    a Terminated(failed) frame on the run's topic — loudly, before any model call — rather than
+    as a claim ticket that redeems to a 404 once the whole run has been paid for.
+
+    AIDEV-NOTE: the caps fall back tolerantly (a byte count has a safe default) while the
+    STORE does not. That asymmetry is the OME-929 lesson: an unwritten value falls back
+    silently, and only some fallbacks are harmless.
     """
     inline_cap = _int_from_env(
         env, job_env.RESULT_INLINE_CAP_BYTES, job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
@@ -93,6 +104,8 @@ def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, Artifact
     hard_cap = _int_from_env(
         env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES
     )
+    if (env.get(job_env.ARTIFACT_STORE) or "filesystem").strip() == "s3":
+        return inline_cap, hard_cap, S3ArtifactStore(s3_config_from_values(env))
     artifacts_dir = env.get(job_env.ARTIFACTS_DIR) or job_env.DEFAULT_ARTIFACTS_DIR
     return inline_cap, hard_cap, ArtifactStore(Path(artifacts_dir))
 

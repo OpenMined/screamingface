@@ -67,6 +67,16 @@ class ArtifactWriter(Protocol):
 
     def write_bytes(self, encoded: bytes) -> ResultArtifact: ...
 
+    def write_text(self, body: str) -> ResultArtifact:
+        """Encode `body` as UTF-8 and park it.
+
+        WHY on the port and not just on the adapters: callers legitimately hold a `str` (the
+        executor is the exception — it encodes once to measure the size, then hands over bytes so
+        a gigabyte-scale result is not copied twice). Leaving it off the port only pushed those
+        callers back onto a concrete class, which is the coupling the port exists to remove.
+        """
+        ...
+
 
 @runtime_checkable
 class ArtifactReader(Protocol):
