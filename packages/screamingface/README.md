@@ -19,8 +19,28 @@ screamingface up
 ```
 
 `screamingface up` starts AI Gateway, Scoreboard, and the Engine in the background. Use
-`screamingface status`, `screamingface logs`, and `screamingface down` to manage them. Runtime
-state is stored under `~/.screamingface` by default; set `SCREAMINGFACE_DATA_DIR` to override it.
+`screamingface status`, `screamingface doctor`, `screamingface logs`, `screamingface restart`, and
+`screamingface down` to manage them. Runtime state is stored under `~/.screamingface` by default;
+set `SCREAMINGFACE_DATA_DIR` or pass `--data-dir` to override it.
+
+The default service ports are Gateway `9105`, Scoreboard `9106`, and Engine `9108`. Override them
+with `--gateway-port`, `--scoreboard-port`, and `--engine-port`, or the corresponding
+`SCREAMINGFACE_GATEWAY_PORT`, `SCREAMINGFACE_SCOREBOARD_PORT`, and `SCREAMINGFACE_ENGINE_PORT`
+environment variables. `screamingface up` prints the resolved SDK environment variables; the SDK
+does not switch away from its hosted defaults automatically.
+
+For scripts and troubleshooting:
+
+```bash
+screamingface status --json
+screamingface doctor
+screamingface logs --service engine --tail 100 --no-follow
+screamingface prepare --list
+```
+
+Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. Benchmark
+preparation records a versioned manifest, skips current assets, and supports `--force` when a
+fresh download is required.
 
 ## Target v1 workflow
 
