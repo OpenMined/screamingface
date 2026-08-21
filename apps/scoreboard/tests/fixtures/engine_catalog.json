@@ -5,7 +5,7 @@
       "object": "benchmark",
       "id": "draco",
       "title": "DRACO",
-      "description": "A 100-task DRACO reproduction with official score arithmetic. It uses the successor Judge model, provider-default reasoning, mixed native/Tavily retrieval, and a host-only approximation of the reference blocklist, so its scores are not paper-identical.",
+      "description": "A 100-task DRACO reproduction with official score arithmetic. It uses the successor Judge model, provider-default reasoning, mixed native/Tavily retrieval, and a host-only approximation of the reference blocklist, so its scores are not paper-identical. Every answer is judged five times — the paper's stability protocol.",
       "revision": "66a463248586b277",
       "case_count": 100,
       "focus": "Research reports with citations",
@@ -16,6 +16,22 @@
         "expected_check_cost": "paid"
       },
       "href": "/v1/benchmarks/draco"
+    },
+    {
+      "object": "benchmark",
+      "id": "draco-3pass",
+      "title": "DRACO 3-Pass",
+      "description": "The DRACO 100-case reproduction judged three times per answer instead of five. Identical dataset, criteria, Judge, and retrieval policy to the canonical board — only the judge-pass count differs. The draco-cache-seed archive covers exactly these three passes, so re-running its candidates is served fully from the shared response cache; scores carry their own benchmark revision and are not compared against five-pass results.",
+      "revision": "b8c8afd8f9dddca0",
+      "case_count": 100,
+      "focus": "Research reports, three judge passes",
+      "dataset_url": "https://huggingface.co/datasets/perplexity-ai/draco",
+      "check_surface": {
+        "check_route": "/benchmarks/draco-3pass/b8c8afd8f9dddca0/check-surface/draco-pass.v1",
+        "feedback_intent": "feedback",
+        "expected_check_cost": "paid"
+      },
+      "href": "/v1/benchmarks/draco-3pass"
     },
     {
       "object": "benchmark",

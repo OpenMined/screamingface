@@ -527,14 +527,13 @@ async def test_the_real_engine_response_parses_into_every_board_row() -> None:
     with _serving(payload) as client:
         read = fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
 
+    # WHY not a hardcoded id list: benchmarks get added, and a test that names them turns every
+    # new board into a failure here. The invariant is that EVERY published benchmark survives
+    # the trip — that is what breaks when the Engine renames or outgrows a field.
     assert read.rejected == []
-    assert [row.id for row in read.rows] == [
-        "draco",
-        "healthbench-professional",
-        "healthbench-worst30",
-        "ifeval",
-    ]
-    draco = read.rows[0]
+    assert len(read.rows) == len(payload["data"])
+    assert {row.id for row in read.rows} == {entry["id"] for entry in payload["data"]}
+    draco = next(row for row in read.rows if row.id == "draco")
     assert draco.display_name == "DRACO"
     assert draco.description is not None
     assert draco.description.startswith("A 100-task DRACO reproduction")

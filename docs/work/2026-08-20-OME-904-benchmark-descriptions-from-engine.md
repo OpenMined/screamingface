@@ -173,6 +173,26 @@ Still open, and an owner call because it is CI configuration: the SDK lane is pa
 `packages/**`, so an Engine-only pull request never runs the seam tests. Adding
 `apps/screamingface-engine/**` to that filter would close it.
 
+### Second rebase (2026-08-21)
+
+`main` moved 24 commits ahead and DRACO went the way HealthBench had: refactored into a
+`draco_benchmark()` factory producing two boards (canonical five-pass, plus `draco-3pass` for
+cache-seeded replays). Resolved identically — `focus`/`dataset_url` threaded through the
+factory, both call sites passing them, one shared `DRACO_DATASET_URL` constant. The two boards
+share a dataset and a subject, so the Focus line carries the only difference a reader can see:
+"Research reports with citations" against "Research reports, three judge passes".
+
+Third new benchmark to land mid-branch, which made a testing mistake visible: the recorded-
+response test asserted a hardcoded roster of benchmark ids, so every added board failed it for
+no reason. Replaced (owner-approved, sdlc rule 5) with the invariant it was reaching for —
+every benchmark in the response survives the trip, whatever they are. A test that goes red for
+ordinary work teaches people to edit the test, which is the last reflex you want when it
+eventually goes red for a real one.
+
+Known limit of that trade: a benchmark silently DISAPPEARING from the Engine no longer fails
+this test, because both sides shrink together. It shows up as a deletion in the regenerated
+fixture instead, which is visible in review.
+
 Owner-approved prior-test edits (sdlc rule 5, 2026-08-20): 18 lines across two committed test
 files — five mechanical (the fetch returns a `CatalogRead` so it can report unreadable
 entries), eight adding `retry_delay=0` so failure tests do not sleep through the real backoff
