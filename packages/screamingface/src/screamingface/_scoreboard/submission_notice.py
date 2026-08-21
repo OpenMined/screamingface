@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import warnings
 from pathlib import Path
 
@@ -44,7 +45,13 @@ def display_submission_notice(notice: ClientNotice | None) -> None:
     """Publish a reserved notebook notice after the Scoreboard confirms the write."""
 
     if notice is not None:
-        display_notebook_notice(notice)
+        try:
+            display_notebook_notice(notice)
+        except Exception:
+            # INVARIANT: presentation happens after persistence and therefore must not raise.
+            # The score already exists on the Scoreboard; letting a display failure propagate
+            # would discard the returned id and leave the caller unable to recover the write.
+            print(notice.message, file=sys.stderr)
 
 
 def _warn() -> None:

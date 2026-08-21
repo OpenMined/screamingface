@@ -142,20 +142,17 @@ same unit.
 
 - **`report.v1` is replaced in place** — the candidate block's `case_count` changes meaning; the
   schema version is NOT bumped and no consumer reads the old shape.
-- **No legacy or fallback code anywhere.** No dual-shape loaders, no back-compat branches, and the
-  defensive `try/except` around notebook display is removed.
-
-**Accepted risk, recorded deliberately:** with that `except` gone, a failing IPython display
-publisher raises *after* the POST succeeded, so the caller loses the returned score id — the same
-shape as the review's blocking #4. `display()` on a live shell does not realistically fail, so
-fail-fast is the owner's accepted trade rather than an oversight.
+- **No legacy code anywhere.** No dual-shape loaders and no back-compat branches. Clarified by the
+  owner mid-pass: this means *legacy* fallbacks only. Defensive error handling stays — the
+  `try/except` around notebook display was removed on a first reading of the instruction and then
+  restored, together with its test, once the owner clarified the scope.
 
 ### Planned changes
 
-- `_scoreboard/submission_notice.py` — three changes: emit the warning in the notebook branch too
+- `_scoreboard/submission_notice.py` — two changes: emit the warning in the notebook branch too
   (inside `warnings.catch_warnings(record=True)`, so `-W error` aborts before the POST and
-  `-W ignore` genuinely suppresses); drop the display `try/except`; replace the rounded
-  `coverage < 1.0` test with an exact ungraded-Case count.
+  `-W ignore` genuinely suppresses); replace the rounded `coverage < 1.0` test with an exact
+  ungraded-Case count. The display `try/except` is unchanged from the first pass.
 - `_notices.py` — the advisory no longer asserts publication, because it is emitted before the POST.
 - `_scoreboard/leaderboards.py` — revert a behaviour-neutral `score = _score_value(...)` hoist.
 - `report.py` — comment only: name both sides of the root/candidate `case_count` split.
@@ -176,9 +173,8 @@ This pass **modifies and deletes** existing assertions, so `run_gates.py` runs w
 `--skip-append-only`. Both changes are forced by the behaviour change, not fitted to it:
 
 - `_run_notebook_cell` sets `simplefilter("error", ...)`; under the new uniform policy that now
-  aborts, so the helper takes the filter as a parameter.
-- `test_notebook_display_failure_cannot_hide_an_already_saved_score` asserts the fallback that the
-  owner decided to remove, so it is deleted rather than weakened.
+  aborts, so the helper takes the filter as a parameter. This is the only prior-test change that
+  survives the pass.
 
 ### Deliberately out of scope
 
@@ -226,4 +222,13 @@ This pass **modifies and deletes** existing assertions, so `run_gates.py` runs w
 ### Still open for the owner
 
 - **Colab dark theme** — unverified, needs a real Colab session. See the scope note above.
-- The accepted fail-fast risk from removing the display `try/except`, recorded above.
+
+### Correction (2026-08-21, later)
+
+The owner's "no fallback code" instruction was applied too broadly on first reading: the defensive
+`try/except` in `display_submission_notice` was removed along with the legacy back-compat
+fallbacks. The owner clarified that only *legacy* fallbacks were in scope. The `try/except` and
+`test_notebook_display_failure_cannot_hide_an_already_saved_score` are both restored, so the
+invariant it protects holds again — a display failure after a successful POST degrades to stderr
+and still returns the persisted score id. The `report.v1` in-place replacement stands: a
+dual-shape loader would have been a genuine legacy fallback.

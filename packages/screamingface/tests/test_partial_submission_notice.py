@@ -460,3 +460,24 @@ def test_one_ungraded_case_is_partial_even_when_coverage_rounds_to_one() -> None
         client.leaderboards.submit(candidate)
 
     assert str(caught[0].message) == _MESSAGE
+
+
+def test_notebook_display_failure_cannot_hide_an_already_saved_score(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """INVARIANT: rich display is presentation, never authority over a persisted write."""
+
+    from screamingface._scoreboard import submission_notice
+
+    def broken_display(_notice: object) -> None:
+        raise RuntimeError("display publisher closed")
+
+    monkeypatch.setattr(submission_notice, "running_in_notebook", lambda: True)
+    monkeypatch.setattr(submission_notice, "display_notebook_notice", broken_display)
+
+    with _client(lambda _request: httpx.Response(201, json=_score_response())) as client:
+        submitted = client.leaderboards.submit(_candidate())
+
+    assert submitted.id.hex == _SCORE_ID.replace("-", "")
+    assert capsys.readouterr().err == _MESSAGE + "\n"
