@@ -380,6 +380,17 @@ def failed_case(case_id: int | str = 153) -> CaseResult:
     )
 
 
+def test_existing_report_warnings_keep_the_distinct_amber_palette() -> None:
+    html = report_html(multi_case_report(case(score=None), score=None, coverage=0.0))
+
+    assert "--sf-warning:#7a5e12" in html
+    assert "--sf-warning-solid:#efbd41" in html
+    assert "--sf-warning-bg:#fdf6e6" in html
+    assert "--sf-warning:#e2ca91" in html
+    assert "--sf-warning-bg:#151005" in html
+    assert "--sf-warning:#9c4828" not in html
+
+
 def refused_case(case_id: int = 154) -> CaseResult:
     """A provider refusal is a scored zero outcome, not missing infrastructure."""
 

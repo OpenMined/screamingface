@@ -459,7 +459,12 @@ or negative included — without asking the caller to repeat its Benchmark, URL4
 models, or run identity; `get_score(id)` retrieves the resulting immutable
 `LeaderboardScore`. Its `.url4` property is a string-compatible `Url4` value:
 `.to_python()` produces an editable fork, while passing the value to `sf.evaluate(...)` replays it
-through the configured Engine. A Scoreboard deployment may
+through the configured Engine. Submitting a limited or incompletely graded Candidate surfaces a
+`Partial submission` advisory because its score is not directly comparable with a full run. In a
+notebook the Client displays a branded notice even when the score is assigned to a variable;
+headless callers receive `sf.EvaluationWarning` attributed to their submission line. If that
+warning category is configured as an error, submission stops before the Scoreboard is changed.
+A Scoreboard deployment may
 keep writes closed, in which case `submit()` raises a typed `LeaderboardError`. Explicit Clients
 expose the same interface at `client.leaderboards`; asynchronous Clients use `await`. The
 Scoreboard is the deployed data system, while a Leaderboard is the ranked domain resource returned

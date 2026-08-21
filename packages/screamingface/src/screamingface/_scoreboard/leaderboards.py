@@ -13,6 +13,10 @@ from uuid import UUID
 
 import httpx
 
+from screamingface._scoreboard.submission_notice import (
+    display_submission_notice,
+    prepare_submission_notice,
+)
 from screamingface._ui.leaderboard_view import LeaderboardCatalog
 from screamingface.errors import LeaderboardError
 from screamingface.leaderboard import (
@@ -65,7 +69,8 @@ class Leaderboards:
 
     def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
-        return _decode_score(
+        notebook_notice = prepare_submission_notice(candidate_result)
+        score = _decode_score(
             scoreboard_url=self._scoreboard_url,
             payload=_sync_json(
                 self._request,
@@ -78,6 +83,8 @@ class Leaderboards:
                 operation="submit a score to",
             ),
         )
+        display_submission_notice(notebook_notice)
+        return score
 
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
@@ -133,7 +140,8 @@ class AsyncLeaderboards:
 
     async def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
-        return _decode_score(
+        notebook_notice = prepare_submission_notice(candidate_result)
+        score = _decode_score(
             scoreboard_url=self._scoreboard_url,
             payload=await _async_json(
                 self._request,
@@ -146,6 +154,8 @@ class AsyncLeaderboards:
                 operation="submit a score to",
             ),
         )
+        display_submission_notice(notebook_notice)
+        return score
 
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)

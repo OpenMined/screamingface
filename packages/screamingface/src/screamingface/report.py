@@ -256,7 +256,12 @@ class CandidateResult:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "benchmark": self.benchmark._result_dict(len(self.cases)),
+            # INVARIANT: the two case_count values in a serialized Report mean different
+            # things, and both are load-bearing. This candidate block carries the COMPLETE
+            # Benchmark size; the Report root (see Report.to_dict) carries the SELECTED
+            # Evaluation size. Their difference is what makes an exported limited run
+            # recognisably partial on reload, which the submission advisory depends on.
+            "benchmark": self.benchmark._result_dict(self.benchmark.case_count),
             "run_id": self.run_id,
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),

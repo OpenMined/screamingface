@@ -8,6 +8,7 @@ import unicodedata
 from collections.abc import Callable
 from typing import TextIO
 
+from screamingface._environment import ipykernel_loaded as _in_notebook
 from screamingface.events import Event, Log, Span, Started, Terminated
 
 _logger = logging.getLogger(__name__)
@@ -148,10 +149,6 @@ def _terminal_text(value: str) -> str:
         " " if unicodedata.category(character).startswith("C") else character for character in value
     )
     return " ".join(inert.split())
-
-
-def _in_notebook() -> bool:
-    return "ipykernel" in sys.modules
 
 
 __all__: list[str] = []
