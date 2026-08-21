@@ -27,8 +27,6 @@ class _PanelController(Protocol):
 
     def _attempt(self, action: Any) -> None: ...
 
-    def _cancel_access_login(self) -> None: ...
-
     def _cancel_flow(self, provider: str) -> None: ...
 
     def _cancel_mode(self, provider: str) -> None: ...
@@ -243,10 +241,15 @@ class _NotebookConnectionView:
             button = self._button("Checking…", "Checking whether this Engine requires Access")
             button.disabled = True
         elif status == "waiting":
-            button = self._button("Cancel", "Cancel the Cloudflare Access login")
-            button.on_click(
-                lambda _: self._controller._attempt(self._controller._cancel_access_login)
-            )
+            # AIDEV-NOTE: no Cancel here, deliberately. Login blocks the click handler, so a
+            # queued Cancel click cannot run until the wait is already over — a control that
+            # looks live and does nothing is worse than none. The notebook stop button is the
+            # escape, and it leaves a clean row. Re-adding it means restoring the controller's
+            # _cancel_access_login too, and making the wait pump the kernel so a click can
+            # actually be delivered mid-login.
+            authorization_url = self._state.access_authorization_url
+            controls = [self._authorization_link(authorization_url)] if authorization_url else []
+            return self._row(meta, controls)
         elif status == "authenticated":
             button = self._button("Log out", "Log out of this Client and Cloudflare Access")
             button.on_click(lambda _: self._controller._attempt(self._controller._logout_access))
@@ -258,6 +261,29 @@ class _NotebookConnectionView:
             )
             button.on_click(lambda _: self._controller._start_login_access())
         return self._row(meta, [button])
+
+    def _authorization_link(self, authorization_url: str) -> Any:
+        """The Access authorization URL as a single link.
+
+        WHY a link at all: nothing running in the kernel can open a tab on the user's
+        machine — a hosted notebook executes in a datacenter, so `webbrowser.open` would
+        open a browser there. An anchor rendered in the user's own browser is the only
+        channel that reaches them (OME-930).
+
+        WHY the URL is not also shown as text: it is hundreds of characters of Cloudflare
+        token, and it collided with the provider and status columns. It existed as a
+        fallback against a blocked popup, and clicking the anchor is confirmed working
+        inside Colab's sandboxed output iframe, so the link alone is the affordance.
+        """
+
+        href = escape(authorization_url, quote=True)
+        return self._widgets.HTML(
+            value=(
+                "<a class='sf-connections__authorize' "
+                f"href='{href}' target='_blank' rel='noopener noreferrer' "
+                "title='Complete Cloudflare Access login in a new tab'>Authorize</a>"
+            )
+        )
 
     def _interactive_row(self, connection: Connection):
         widgets = self._widgets

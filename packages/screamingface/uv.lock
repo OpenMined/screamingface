@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -2144,7 +2144,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -3031,11 +3031,7 @@ dependencies = [
 
 [package.optional-dependencies]
 notebook = [
-    { name = "ipykernel" },
     { name = "ipywidgets" },
-    { name = "jupyterlab" },
-    { name = "nbclient" },
-    { name = "nbformat" },
 ]
 runtime = [
     { name = "aiosqlite" },
@@ -3058,6 +3054,10 @@ runtime = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "ipykernel" },
+    { name = "jupyterlab" },
+    { name = "nbclient" },
+    { name = "nbformat" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -3074,15 +3074,11 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "immutabledict", marker = "extra == 'runtime'", specifier = ">=4.2.0" },
-    { name = "ipykernel", marker = "extra == 'notebook'", specifier = ">=6.29" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
-    { name = "jupyterlab", marker = "extra == 'notebook'", specifier = ">=4.6.3" },
     { name = "kubernetes", marker = "extra == 'runtime'", specifier = ">=31.0.0" },
     { name = "langdetect", marker = "extra == 'runtime'", specifier = ">=1.0.9" },
     { name = "litellm", marker = "extra == 'runtime'", specifier = "==1.97.0" },
     { name = "nats-py", marker = "extra == 'runtime'", specifier = ">=2.9.0" },
-    { name = "nbclient", marker = "extra == 'notebook'", specifier = ">=0.10" },
-    { name = "nbformat", marker = "extra == 'notebook'", specifier = ">=5.11.0" },
     { name = "nltk", marker = "extra == 'runtime'", specifier = ">=3.9.1" },
     { name = "prometheus-client", marker = "extra == 'runtime'", specifier = ">=0.26.0" },
     { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.14.2" },
@@ -3097,6 +3093,10 @@ provides-extras = ["notebook", "runtime"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "ipykernel", specifier = ">=6.29" },
+    { name = "jupyterlab", specifier = ">=4.6.3" },
+    { name = "nbclient", specifier = ">=0.10" },
+    { name = "nbformat", specifier = ">=5.11.0" },
     { name = "pyright", specifier = ">=1.1.409" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.3,<2" },

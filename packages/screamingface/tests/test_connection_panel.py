@@ -102,6 +102,17 @@ async def _wait_for_button(widget: widgets.Widget, description: str) -> None:
         await asyncio.sleep(0.01)
 
 
+class _CountingConnections:
+    """Records whether providers were reloaded, so an interrupt path can prove it was not."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def list(self) -> tuple[sf.Connection, ...]:
+        self.calls += 1
+        return ()
+
+
 class _EmptyConnections:
     def list(self) -> tuple[sf.Connection, ...]:
         return ()
@@ -135,7 +146,6 @@ class _SharedAuthClient:
         self.authenticating = True
         self._notify()
         self.started.set()
-        assert self.release.wait(1)
         self.authenticating = False
         self.authenticated = True
         self._notify()
@@ -360,7 +370,7 @@ async def test_panel_starts_oauth_and_polls_without_blocking_the_notebook() -> N
     # Jupyter can dispatch a later widget click on a different loop from the one that
     # rendered it. The OAuth poller must use the loop active for the click.
     stale_loop = asyncio.new_event_loop()
-    panel._dispatcher.adopt(stale_loop)
+    panel._loop = stale_loop
 
     started = time.monotonic()
     _button(root, "OAuth").click()
@@ -582,8 +592,21 @@ def test_hosted_panel_shows_login_errors_without_loading_providers() -> None:
     root.close()
 
 
-@pytest.mark.asyncio
-async def test_hosted_panel_login_is_non_blocking_and_waiting_can_be_cancelled() -> None:
+def test_hosted_panel_login_is_synchronous_and_bounded() -> None:
+    """Login completes inside the click handler, within a bounded wait.
+
+    WHY this replaced "login is non-blocking and waiting can be cancelled": a hosted
+    notebook delivers a widget update only from a cell body or a click handler. Measured in
+    Colab, a completion posted from a worker thread or an event-loop callback after the cell
+    ends is silently dropped — so a threaded login could never put its authorization link on
+    screen, nor show its own result. Login therefore runs on the clicking thread.
+
+    The cost, stated rather than hidden: the Cancel button rendered while waiting cannot be
+    clicked, because its handler queues behind this one, for up to _LOGIN_WAIT_SECONDS. That
+    is accepted deliberately — Cloudflare Access can involve an emailed OTP, and cutting a
+    first-time user off mid-login is worse than a briefly unavailable Cancel.
+    """
+
     class Connections:
         def list(self) -> tuple[sf.Connection, ...]:
             return ()
@@ -595,16 +618,12 @@ async def test_hosted_panel_login_is_non_blocking_and_waiting_can_be_cancelled()
         connections = Connections()
 
         def __init__(self) -> None:
-            self.started = threading.Event()
-            self.cancelled = threading.Event()
+            self.timeouts: list[float] = []
             self.cancellations = 0
             self.logouts = 0
 
         def login(self, *, timeout: float = 300.0) -> None:
-            del timeout
-            self.authenticating = True
-            self.started.set()
-            self.cancelled.wait(1)
+            self.timeouts.append(timeout)
             self.authenticating = False
             raise sf.AuthenticationError(
                 "Cloudflare Access login was cancelled",
@@ -615,7 +634,6 @@ async def test_hosted_panel_login_is_non_blocking_and_waiting_can_be_cancelled()
         def _cancel_login(self) -> None:
             self.cancellations += 1
             self.authenticating = False
-            self.cancelled.set()
 
         def logout(self) -> None:
             self.logouts += 1
@@ -625,31 +643,15 @@ async def test_hosted_panel_login_is_non_blocking_and_waiting_can_be_cancelled()
     panel = _panel(client)
     root = panel.widget()
 
-    started = time.monotonic()
     _button(root, "Log in").click()
-    elapsed = time.monotonic() - started
 
-    assert elapsed < 0.1
-    assert client.started.wait(1)
-    assert [button.description for button in _buttons(root)] == ["Cancel"]
-
-    second_root = _panel(client).widget()
-    assert [button.description for button in _buttons(second_root)] == ["Cancel"]
-
-    _button(second_root, "Cancel").click()
-    for _ in range(100):
-        if [button.description for button in _buttons(root)] == ["Log in"]:
-            break
-        await asyncio.sleep(0.01)
-
-    assert client.authenticating is False
-    assert client.cancellations == 1
-    assert client.logouts == 0
+    assert client.timeouts == [300.0]
+    # INVARIANT: a cancelled login is the user's own action, not an error to report at them.
     assert "cancelled" not in _text(root)
+    assert client.logouts == 0
+    # The wait is over by the time the click returns, so the row is back to its resting state.
     assert [button.description for button in _buttons(root)] == ["Log in"]
-    assert [button.description for button in _buttons(second_root)] == ["Log in"]
     root.close()
-    second_root.close()
 
 
 @pytest.mark.asyncio
@@ -752,28 +754,28 @@ def test_authenticated_panel_renders_even_when_initial_provider_loading_fails() 
     root.close()
 
 
-@pytest.mark.asyncio
-async def test_all_open_panels_follow_shared_login_and_logout_state() -> None:
+def test_all_open_panels_follow_shared_login_and_logout_state() -> None:
+    # Login now completes within the click, so a second panel opened afterwards starts from
+    # the shared authenticated state, and the broadcast keeps both in step on logout.
     client = _SharedAuthClient()
     first = _panel(client)
     first_root = first.widget()
-    _button(first_root, "Log in").click()
-    assert client.started.wait(1)
-    second = _panel(client)
-    second_root = second.widget()
-    assert [button.description for button in _buttons(second_root)] == ["Cancel"]
 
-    client.release.set()
-    await _wait_for_button(second_root, "Log out")
+    _button(first_root, "Log in").click()
 
     assert [button.description for button in _buttons(first_root)] == ["Log out"]
+    second = _panel(client)
+    second_root = second.widget()
     assert [button.description for button in _buttons(second_root)] == ["Log out"]
+
     _button(first_root, "Log out").click()
-    await _wait_for_button(second_root, "Log in")
+
     assert [button.description for button in _buttons(first_root)] == ["Log in"]
     assert [button.description for button in _buttons(second_root)] == ["Log in"]
     first_root.close()
     second_root.close()
+    first.close()
+    second.close()
     assert client.listeners == []
 
 
@@ -987,98 +989,6 @@ class _GatedAccessClient:
         return self._required
 
 
-def test_access_discovery_still_lands_when_the_rendering_loop_closed() -> None:
-    # STORY: as a Colab user, sf.connect() reaches "Log in" instead of a permanent "checking".
-    client = _GatedAccessClient(required=True)
-    panel = _panel(client)
-
-    root = _render_on_a_disposable_loop(panel)
-    assert client.started.wait(1)
-    assert "checking" in _text(root)
-
-    client.release.set()
-    text = _settle(root, until=lambda value: "checking" not in value)
-
-    assert "checking" not in text
-    assert "login required" in text
-    assert [button.description for button in _buttons(root)] == ["Log in"]
-    root.close()
-
-
-def test_unprotected_engine_discovery_lands_when_the_rendering_loop_closed() -> None:
-    connection = sf.Connection(
-        provider="openrouter",
-        display_name="OpenRouter",
-        auth_methods=("api_key",),
-        status="not_connected",
-        auth_method=None,
-        account_label=None,
-    )
-
-    class Connections:
-        def list(self) -> tuple[sf.Connection, ...]:
-            return (connection,)
-
-    client = _GatedAccessClient(required=False)
-    client.connections = cast(Any, Connections())
-    panel = _panel(client)
-
-    root = _render_on_a_disposable_loop(panel)
-    assert client.started.wait(1)
-    client.release.set()
-    text = _settle(root, until=lambda value: "OpenRouter" in value)
-
-    assert "OpenRouter" in text
-    assert "checking" not in text
-    assert "Hosted Engine" not in text
-    root.close()
-
-
-def test_access_discovery_error_lands_when_the_rendering_loop_closed() -> None:
-    client = _GatedAccessClient(error=RuntimeError("Engine unreachable during discovery"))
-    panel = _panel(client)
-
-    root = _render_on_a_disposable_loop(panel)
-    assert client.started.wait(1)
-    client.release.set()
-    text = _settle(root, until=lambda value: "checking" not in value)
-
-    assert "Engine unreachable during discovery" in text
-    assert "checking" not in text
-    assert [button.description for button in _buttons(root)] == ["Log in"]
-    root.close()
-
-
-def test_login_completion_lands_when_the_rendering_loop_closed() -> None:
-    # INVARIANT: login completion never strands the panel on "Cancel" because the
-    # rendering loop changed.
-    client = _SharedAuthClient()
-    panel = _panel(client)
-
-    # WHY: Access login is long-lived — the user leaves for a browser — so the loop live
-    # when "Log in" was clicked is the one most likely to be gone by completion. Render
-    # AND click on that loop, then close it, so the login thread is holding a dead loop.
-    async def render_and_click() -> widgets.Widget:
-        root = panel.widget()
-        _button(root, "Log in").click()
-        return root
-
-    loop = asyncio.new_event_loop()
-    try:
-        root = loop.run_until_complete(render_and_click())
-    finally:
-        loop.close()
-
-    assert client.started.wait(1)
-    assert [button.description for button in _buttons(root)] == ["Cancel"]
-
-    client.release.set()
-    _settle(root, until=lambda value: "Log out" in value)
-
-    assert [button.description for button in _buttons(root)] == ["Log out"]
-    root.close()
-
-
 def test_module_level_connect_reaches_a_terminal_state_after_the_loop_closes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1116,34 +1026,6 @@ def test_static_html_does_not_claim_checking_when_no_probe_is_running() -> None:
     assert "checking" not in html
     assert "login required" in html
     assert not client.started.is_set()
-
-
-def test_completion_runs_inline_when_a_live_loop_rejects_the_post() -> None:
-    # WHY: a loop can pass the is_running() check and still reject the post — it may be
-    # closed in the window between the two. The completion must land anyway.
-    class _RacingLoop:
-        def is_closed(self) -> bool:
-            return False
-
-        def is_running(self) -> bool:
-            return True
-
-        def call_soon_threadsafe(self, callback: Callable[..., None], *args: Any) -> None:
-            del callback, args
-            raise RuntimeError("Event loop is closed")
-
-    client = _GatedAccessClient(required=True)
-    panel = _panel(client)
-
-    root = _render_on_a_disposable_loop(panel)
-    assert client.started.wait(1)
-    panel._dispatcher.adopt(cast(Any, _RacingLoop()))
-    client.release.set()
-    text = _settle(root, until=lambda value: "checking" not in value)
-
-    assert "checking" not in text
-    assert [button.description for button in _buttons(root)] == ["Log in"]
-    root.close()
 
 
 def test_access_discovery_resolves_when_the_widget_renders_without_a_loop() -> None:
@@ -1204,4 +1086,344 @@ def test_an_async_access_probe_is_never_read_as_a_result() -> None:
     assert "checking" not in text
     assert "login required" in text
     assert [button.description for button in _buttons(root)] == ["Log in"]
+    root.close()
+
+
+_ACCESS_URL = "https://engine.example/cdn-cgi/access/login?key=abc123&next=%2F"
+
+
+class _AuthorizingClient:
+    """Hosted client whose login announces an authorization URL, then blocks."""
+
+    engine_url = "https://fusion.dev.screamingface.ai"
+    authenticated = False
+    authenticating = False
+
+    def __init__(self, *, url: str = _ACCESS_URL, fail: Exception | None = None) -> None:
+        self.connections = _EmptyConnections()
+        self.presenters: list[Callable[[str], None]] = []
+        self.release = threading.Event()
+        self.announced = threading.Event()
+        self._url = url
+        self._fail = fail
+
+    def _subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]:
+        self.presenters.append(presenter)
+
+        def unsubscribe() -> None:
+            if presenter in self.presenters:
+                self.presenters.remove(presenter)
+
+        return unsubscribe
+
+    def login(self, *, timeout: float = 300.0) -> None:
+        del timeout
+        self.authenticating = True
+        for presenter in tuple(self.presenters):
+            presenter(self._url)
+        self.announced.set()
+        assert self.release.wait(1)
+        self.authenticating = False
+        if self._fail is not None:
+            raise self._fail
+        self.authenticated = True
+
+    def _cancel_login(self) -> None:
+        self.authenticating = False
+        self.release.set()
+
+
+def _render_click_login(panel: sf.ConnectionPanel) -> tuple[Any, widgets.Widget]:
+    """Render and click Log in on one loop, returning that loop so it can be pumped.
+
+    WHY: the presenter fires on the login worker thread and is delivered through the
+    panel's dispatcher, so the loop it posts to has to keep running for the callback to
+    land. A plain sleep would never drain it.
+    """
+
+    async def render_and_click() -> widgets.Widget:
+        root = panel.widget()
+        _button(root, "Log in").click()
+        return root
+
+    loop = asyncio.new_event_loop()
+    return loop, loop.run_until_complete(render_and_click())
+
+
+def _settle_on_loop(loop: Any, root: widgets.Widget, *, until: Callable[[str], bool]) -> str:
+    for _ in range(200):
+        text = _text(root)
+        if until(text):
+            return text
+        loop.run_until_complete(asyncio.sleep(0.01))
+    return _text(root)
+
+
+def test_the_authorization_link_is_escaped() -> None:
+    seen: list[str] = []
+
+    class Client:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticated = False
+        authenticating = False
+
+        def __init__(self) -> None:
+            self.connections = _EmptyConnections()
+            self.presenters: list[Callable[[str], None]] = []
+
+        def _access_required(self) -> bool:
+            return True
+
+        def _subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]:
+            self.presenters.append(presenter)
+            return lambda: self.presenters.remove(presenter)
+
+        def login(self, *, timeout: float = 300.0) -> None:
+            del timeout
+            for presenter in tuple(self.presenters):
+                presenter('https://e.example/login?a=1&b="x"')
+            seen.append(_text(root))
+            self.authenticated = True
+
+        def _cancel_login(self) -> None:
+            self.authenticating = False
+
+    panel = _panel(Client())
+    root = panel.widget()
+    _button(root, "Log in").click()
+
+    assert seen != []
+    assert "&amp;" in seen[0]
+    assert "&quot;" in seen[0] or "&#x27;" in seen[0]
+    root.close()
+
+
+def test_the_authorization_subscription_is_released_when_the_panel_closes() -> None:
+    client = _AuthorizingClient()
+    panel = _panel(client)
+    root = panel.widget()
+
+    assert client.presenters != []
+    panel.close()
+
+    assert client.presenters == []
+    root.close()
+
+
+def test_an_authorization_announced_after_close_is_ignored() -> None:
+    # A login can still be in flight when the panel closes; the late announcement must not
+    # resurrect state on a dead panel.
+    client = _AuthorizingClient()
+    panel = _panel(client)
+    root = panel.widget()
+    presenter = client.presenters[0]
+
+    panel.close()
+    presenter(_ACCESS_URL)
+
+    assert panel._state.access_authorization_url is None
+    root.close()
+
+
+def test_access_discovery_resolves_before_the_widget_is_displayed() -> None:
+    # WHY: a hosted notebook delivers a widget update only from a cell body or a click
+    # handler — never from a loop callback or a worker thread after the cell ends. So the
+    # probe must resolve while `widget()` is still running, and no "checking" state may
+    # survive into the displayed panel. Measured in Colab; see the PR.
+    probe_threads: list[str] = []
+
+    class Client:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticated = False
+        authenticating = False
+
+        def __init__(self) -> None:
+            self.connections = _EmptyConnections()
+
+        def _access_required(self) -> bool:
+            probe_threads.append(threading.current_thread().name)
+            return True
+
+    async def render() -> widgets.Widget:
+        # A running loop must NOT push the probe onto a worker thread any more.
+        return _panel(Client()).widget()
+
+    loop = asyncio.new_event_loop()
+    try:
+        root = loop.run_until_complete(render())
+    finally:
+        loop.close()
+
+    assert probe_threads == ["MainThread"]
+    text = _text(root)
+    assert "checking" not in text
+    assert "login required" in text
+    root.close()
+
+
+def test_the_authorization_link_appears_from_within_the_login_click() -> None:
+    # INVARIANT: the link must be rendered before login starts waiting, and on the clicking
+    # thread — a mid-handler render reaches a hosted notebook, a later one does not.
+    seen_during_login: list[str] = []
+    url = "https://engine.example/cdn-cgi/access/login?key=mid-handler"
+
+    class Client:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticating = False
+
+        def __init__(self) -> None:
+            self.connections = _EmptyConnections()
+            self.authenticated = False
+            self.presenters: list[Callable[[str], None]] = []
+
+        def _access_required(self) -> bool:
+            return True
+
+        def _subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]:
+            self.presenters.append(presenter)
+            return lambda: self.presenters.remove(presenter)
+
+        def login(self, *, timeout: float = 300.0) -> None:
+            del timeout
+            for presenter in tuple(self.presenters):
+                presenter(url)
+            # Whatever the panel has rendered by now is what a hosted notebook will show
+            # while the user completes the browser flow.
+            seen_during_login.append(_text(root))
+            self.authenticated = True
+
+        def _cancel_login(self) -> None:
+            self.authenticating = False
+
+    client = Client()
+    panel = _panel(client)
+    root = panel.widget()
+    _button(root, "Log in").click()
+
+    assert seen_during_login != []
+    assert "Authorize" in seen_during_login[0]
+    assert "cdn-cgi/access/login?key=mid-handler" in seen_during_login[0]
+    # And once login returns, the panel has already moved on — no deferred repaint needed.
+    final = _text(root)
+    assert "Authorize" not in final
+    assert [button.description for button in _buttons(root)] == ["Log out"]
+    root.close()
+
+
+def test_interrupting_the_login_wait_leaves_the_row_usable() -> None:
+    # WHY: the stop button is the user's only escape from the wait, since Cancel provably
+    # cannot be clicked while the handler blocks. KeyboardInterrupt is therefore an expected
+    # exit path, and it must not leave the row showing Cancel with no channel left to repaint.
+    class Client:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticated = False
+        authenticating = False
+
+        def __init__(self) -> None:
+            self.connections = _CountingConnections()
+
+        def _access_required(self) -> bool:
+            return True
+
+        def login(self, *, timeout: float = 300.0) -> None:
+            del timeout
+            # The token can land just before the user hits stop.
+            self.authenticated = True
+            raise KeyboardInterrupt
+
+        def _cancel_login(self) -> None:
+            self.authenticating = False
+
+    client = Client()
+    panel = _panel(client)
+    root = panel.widget()
+
+    with pytest.raises(KeyboardInterrupt):
+        _button(root, "Log in").click()
+
+    # INVARIANT: no network call during the unwind — reloading providers would delay the
+    # very interrupt the user reached for.
+    assert client.connections.calls == 0
+    assert panel._state.access_pending is False
+    assert panel._state.access_authorization_url is None
+    # The token did land, so the row tells the truth about that — what it must not do is
+    # sit on Cancel with no channel left to repaint it.
+    assert [button.description for button in _buttons(root)] == ["Log out"]
+    assert "Cancel" not in _text(root)
+    root.close()
+
+
+def test_the_panel_subscribes_through_a_real_client() -> None:
+    # WHY a real Client and not a double: every other panel test stubs
+    # _subscribe_authorization, so nothing exercised the actual seam to the auth object. If
+    # that wiring broke, the panel would silently never receive an authorization URL — the
+    # exact failure this work exists to fix — and no test would notice.
+    client = _client(Engine())
+    panel = _panel(client)
+
+    root = panel.widget()
+
+    assert panel._unsubscribe_authorization is not None
+    panel.close()
+    assert panel._unsubscribe_authorization is None
+    root.close()
+
+
+@pytest.mark.asyncio
+async def test_async_client_exposes_the_same_authorization_subscription() -> None:
+    # INVARIANT: parity with Client. AsyncClient declares the same private surface the panel
+    # relies on; an unexercised async path is what produced the coroutine-read-as-bool bug.
+    client = sf.AsyncClient(
+        engine_url="http://127.0.0.1:9108",
+        http_transport=httpx.MockTransport(Engine()),
+    )
+    seen: list[str] = []
+
+    unsubscribe = client._subscribe_authorization(seen.append)
+
+    assert callable(unsubscribe)
+    unsubscribe()
+    # Idempotent, like the auth-state subscription it mirrors.
+    unsubscribe()
+    await client.aclose()
+
+
+def test_no_cancel_is_offered_while_the_login_blocks() -> None:
+    # WHY: the login handler blocks, so a queued Cancel click cannot run until the wait is
+    # already over. A button that looks live and does nothing is worse than no button — the
+    # notebook stop button is the escape, and it leaves a clean row.
+    during: list[list[str]] = []
+
+    class Client:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticated = False
+        authenticating = False
+
+        def __init__(self) -> None:
+            self.connections = _EmptyConnections()
+            self.presenters: list[Callable[[str], None]] = []
+
+        def _access_required(self) -> bool:
+            return True
+
+        def _subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]:
+            self.presenters.append(presenter)
+            return lambda: self.presenters.remove(presenter)
+
+        def login(self, *, timeout: float = 300.0) -> None:
+            del timeout
+            for presenter in tuple(self.presenters):
+                presenter("https://engine.example/cdn-cgi/access/login?key=k")
+            during.append([button.description for button in _buttons(root)])
+            self.authenticated = True
+
+        def _cancel_login(self) -> None:
+            self.authenticating = False
+
+    panel = _panel(Client())
+    root = panel.widget()
+    _button(root, "Log in").click()
+
+    # Only the Authorize link is offered while the wait is in progress.
+    assert during == [[]]
     root.close()
