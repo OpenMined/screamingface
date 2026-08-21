@@ -38,20 +38,24 @@ preserves the existing advisory-only behavior and sends valid partial scores unc
 
 ## Outcome
 
-- **Actual files:** the task/spec/plan/work records; the Scoreboard adapter; shared host
-  environment and notice modules; access/progress integration; published-score value and UI;
-  shared warning tokens; and leaderboard, notice, and runtime tests.
-- **Commits:** six implementation and policy/presentation follow-ups through
-  `fix(screamingface): structure submission notices`, followed by the review correction
-  `fix(screamingface): correct partial-submission review findings`.
-- **Gates:** RED confirmed three missing-warning failures; focused suite 49 passed; 959 tests
-  collected; official `run_gates.py screamingface` completed with ALL GATES GREEN (append-only,
-  Ruff check/format, Pyright, full pytest with 95% coverage floor, notebook check, build, and
-  distribution check).
-- **Deviations:** the fresh worktree needed `uv sync --extra notebook` before Pyright could
-  resolve the declared notebook dependencies. The first green test refactor touched inherited
-  fixture lines; the append-only gate rejected it, so those lines were restored and all new
-  fixtures/tests were appended. No gate was skipped and no inherited test remains changed.
+- **Actual files:** task/spec/plan/work records and the SDK README; the Scoreboard adapter plus
+  focused submission-notice policy; shared environment and notice values; standalone notebook
+  notice presentation; Candidate Result serialization; and focused notice, public-workflow,
+  Report, and environment tests. The abandoned score-field/card CSS/global-palette approach is
+  removed from the final diff.
+- **Commits:** the original implementation/policy/presentation series through `44f3d31e`, plus
+  `c6f3b9a2 fix(screamingface): make partial notices follow documented workflows`.
+- **Gates:** every reviewer reproduction first failed at its public seam, then passed. The final
+  public-workflow module has 14 tests. A clean temporary merge with current `origin/main`
+  collected 1,006 tests and passed the complete official stack: Ruff check/format, Pyright,
+  1,005 pytest passes with one skip and the 95% coverage floor, deterministic notebook check,
+  build, and distribution verification.
+- **Deviations:** a fresh worktree needs the declared `uv sync --extra notebook` before Pyright
+  can resolve IPython/ipywidgets. The integrated append-only check was skipped because current
+  main's already-landed PR #607 changes `test_runtime_cli.py` relative to this older PR head; the
+  final OME-922 diff restores `test_leaderboards.py` exactly to main, adds one focused test file,
+  and only appends tests elsewhere. Four locally executed notebooks remain user-owned unstaged
+  changes and were not regenerated, staged, or overwritten.
 
 ## Brand presentation follow-up
 
@@ -108,14 +112,22 @@ the brand-accurate palette.
 
 ### Review correction outcome
 
-- RED reproduced the warning at pytest's internal frame; changing `stacklevel` from 4 to 3
-  makes it identify the caller's source file.
-- The owner confirmed that shared persimmon warning tokens should recolor every warning
-  surface; the spec now records that intentional brand migration.
-- Focused leaderboard/notice/runtime verification passes: 68 tests.
-- Ruff, formatting, Pyright, the full pytest suite with 95% coverage, notebook validation,
-  build, and distribution checks are green. The pre-commit run used `--skip-append-only`
-  solely for approved comment-anchor corrections inside existing tests; no inherited
-  assertion, fixture, or behavior changed. The PR description disclosure is prepared for
-  publication with this commit.
+- The documented `sf.leaderboards.submit()` facade now skips every SDK frame rather than relying
+  on one fixed `stacklevel`; three submissions on three user lines produce three independently
+  attributed `sf.EvaluationWarning` values with exact copy.
+- Headless advisories run before the POST, so warnings-as-errors cannot persist a score and then
+  hide its id. Sync and async behavior are covered independently.
+- Notebook submissions explicitly publish one branded display event after success, including
+  assignment, lists, papermill, and nbconvert. The returned score remains unchanged, final
+  expressions do not repeat the notice, failed POSTs display nothing, and a broken display
+  publisher falls back to stderr without hiding an already persisted id.
+- Exported Candidate Results retain the full Benchmark Case count while the Report root retains
+  the selected count, so the documented saved-result loader still identifies a limited run.
+- Colab and Databricks shells are recognised through their ipykernel base class.
+- Persimmon is scoped to the new submission notice; existing Report warnings keep their distinct
+  amber palette. Severity is visible in the class/data contract and warning notices use
+  `role="alert"`.
+- The weak test block was replaced by a focused public-workflow module. Exact strings are compared
+  literally, notice existence is asserted from captured display output, palette tests are
+  independent of behavior tests, and warning filters are scoped to `sf.EvaluationWarning`.
 - The task mirror and ledger remain `in_progress` together until review and merge.
