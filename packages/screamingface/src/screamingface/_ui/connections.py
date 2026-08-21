@@ -328,15 +328,16 @@ class ConnectionPanel:
         finally:
             self._state.access_pending = False
             self._state.access_authorization_url = None
-            if self._client.authenticated:
-                self._attempt(self.refresh)
             # INVARIANT: the row is always re-rendered, including on KeyboardInterrupt. The
             # stop button is the user's only escape from the wait — Cancel cannot be clicked
             # while the handler blocks — so an interrupt is an expected exit path, and it
             # must not leave the row showing Cancel with no channel left to repaint it.
-            # refresh() renders on success but raises before doing so on failure, and
-            # _set_notice only repaints the notice, so this render is not redundant.
             self._render_rows()
+        # WHY outside the finally: refresh() makes a network call, and on KeyboardInterrupt
+        # that would run during the unwind and delay the very interrupt the user reached for.
+        # Reloading providers is only meaningful when login actually returned.
+        if self._client.authenticated:
+            self._attempt(self.refresh)
 
     def _start_access_check(self) -> None:
         if not self._state.access_check_pending or self._state.access_check_started:

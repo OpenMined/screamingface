@@ -102,6 +102,17 @@ async def _wait_for_button(widget: widgets.Widget, description: str) -> None:
         await asyncio.sleep(0.01)
 
 
+class _CountingConnections:
+    """Records whether providers were reloaded, so an interrupt path can prove it was not."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def list(self) -> tuple[sf.Connection, ...]:
+        self.calls += 1
+        return ()
+
+
 class _EmptyConnections:
     def list(self) -> tuple[sf.Connection, ...]:
         return ()
@@ -1309,27 +1320,36 @@ def test_interrupting_the_login_wait_leaves_the_row_usable() -> None:
         authenticating = False
 
         def __init__(self) -> None:
-            self.connections = _EmptyConnections()
+            self.connections = _CountingConnections()
 
         def _access_required(self) -> bool:
             return True
 
         def login(self, *, timeout: float = 300.0) -> None:
             del timeout
+            # The token can land just before the user hits stop.
+            self.authenticated = True
             raise KeyboardInterrupt
 
         def _cancel_login(self) -> None:
             self.authenticating = False
 
-    panel = _panel(Client())
+    client = Client()
+    panel = _panel(client)
     root = panel.widget()
 
     with pytest.raises(KeyboardInterrupt):
         _button(root, "Log in").click()
 
+    # INVARIANT: no network call during the unwind — reloading providers would delay the
+    # very interrupt the user reached for.
+    assert client.connections.calls == 0
     assert panel._state.access_pending is False
     assert panel._state.access_authorization_url is None
-    assert [button.description for button in _buttons(root)] == ["Log in"]
+    # The token did land, so the row tells the truth about that — what it must not do is
+    # sit on Cancel with no channel left to repaint it.
+    assert [button.description for button in _buttons(root)] == ["Log out"]
+    assert "Cancel" not in _text(root)
     root.close()
 
 
