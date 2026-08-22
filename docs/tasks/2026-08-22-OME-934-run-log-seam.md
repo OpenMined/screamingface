@@ -1,7 +1,7 @@
 ---
 id: OME-934
 linear_url: https://linear.app/openmined/issue/OME-934/expose-generic-run-scoped-structured-log-seam
-status: in_progress
+status: in_review
 type: improvement
 priority: 2
 labels: [screamingface-engine, agentic, autonomous]
