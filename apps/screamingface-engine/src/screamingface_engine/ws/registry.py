@@ -104,6 +104,16 @@ class ConnectionRegistry:
         session = self._sessions.get(topic)
         return session is not None and session.subscribers > 0
 
+    def topics(self) -> frozenset[str]:
+        """A snapshot of every topic with a live connection.
+
+        FEATURE: run-stall watch (OME-948). A snapshot, never a live view: the sweep awaits a
+        status probe per topic, so the set must be stable for the duration of a sweep — a socket
+        closing mid-sweep must not raise during iteration. A topic that vanished simply reads
+        `not_found` on its probe and is dropped by the watcher's own pruning.
+        """
+        return frozenset(self._sessions)
+
     def declare_cache_policy(self, topic: str, policy: CachePolicy | None) -> bool:
         """Record ``policy`` as ``topic``'s cache intent — FIRST ATTACH WINS (spec §5.2).
 

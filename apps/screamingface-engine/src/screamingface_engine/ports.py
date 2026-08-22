@@ -69,3 +69,15 @@ class IdentityAwareJobRunner(JobRunner):
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
     ) -> str: ...
+
+
+class RunnerScheduleUnavailable(Exception):
+    """The scheduler could not accept this run NOW — retry later, unchanged.
+
+    The substrate-transient sibling of :class:`JobRunnerAtCapacity`, but engine-local rather
+    than a url4 port type, for one reason: `JobRunnerAtCapacity`'s own contract says a
+    cluster-backed runner NEVER raises it ("lets the scheduler absorb the load"), and a k8s
+    apiserver refusal is exactly the case that contract excludes. This type is raised by
+    adapters on a transient substrate failure (apiserver 5xx/429) and mapped by the REST layer
+    to the same generic retryable 503 + `Retry-After` the capacity branch already produces.
+    """
