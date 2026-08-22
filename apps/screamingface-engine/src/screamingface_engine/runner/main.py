@@ -25,6 +25,7 @@ from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry,
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
+from screamingface_engine.benchmarks.run_logs import BenchmarkRunLogAdapter
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
 from screamingface_engine.world_config import WorldConfig, WorldConfigError, load_config
@@ -293,6 +294,7 @@ def build_executor(
         hard_cap=hard_cap,
         memory_budget=bridge_budget_from_env(env),
         artifact_store=artifact_store,
+        run_log_scope_factory=BenchmarkRunLogAdapter(benchmarks),
     )
 
 
