@@ -1,7 +1,7 @@
 # OME-934 — Generic run-scoped structured Log seam
 
-Status: READY FOR IMPLEMENTATION APPROVAL 2026-08-22. The owner approved the issue split and the
-grilled architecture. Production implementation still requires explicit approval in plain words.
+Status: APPROVED 2026-08-22. The owner approved the issue split, grilled architecture, and OME-934
+implementation in plain words.
 
 ## Purpose
 

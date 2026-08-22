@@ -24,6 +24,11 @@ from screamingface_engine import job_env
 from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
+from screamingface_engine.runner.run_logs import (
+    RunLogScope,
+    RunLogScopeFactory,
+    StructuredLog,
+)
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
@@ -82,6 +87,13 @@ class BridgeOverflowError(RuntimeError):
     """
 
 
+type BridgeEvent = ObservationEvent | StructuredLog
+
+
+def _is_log_event(event: BridgeEvent) -> bool:
+    return isinstance(event, (Log, StructuredLog))
+
+
 class _Bridge:
     """A bounded async event queue between the engine's synchronous `url4.observe` callback
     and the async streaming loop draining it.
@@ -103,7 +115,7 @@ class _Bridge:
         *,
         memory_budget: int = job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES,
     ) -> None:
-        self._buf: deque[ObservationEvent] = deque()
+        self._buf: deque[BridgeEvent] = deque()
         self._max = maxsize
         self._budget_bytes = memory_budget
         self._hard_cap = max(1, memory_budget // EVENT_SIZE_ESTIMATE_BYTES)
@@ -151,7 +163,7 @@ class _Bridge:
         """
         return self._high_water > self._max
 
-    def on_event(self, event: ObservationEvent) -> None:
+    def on_event(self, event: BridgeEvent) -> None:
         """Called synchronously by the engine for every observation event.
 
         Policy at the soft cap (`maxsize`): a `Log` is dropped outright (counted in
@@ -167,7 +179,7 @@ class _Bridge:
         # `_max` events' worth makes the hard cap bind first; the policy stays correct, the
         # soft cap simply never gets to help.
         if len(self._buf) >= self._max:
-            if isinstance(event, Log):
+            if _is_log_event(event):
                 self._dropped += 1
                 return
             self._evict_oldest_log()
@@ -198,7 +210,7 @@ class _Bridge:
 
     def _evict_oldest_log(self) -> None:
         for i, buffered in enumerate(self._buf):
-            if isinstance(buffered, Log):
+            if _is_log_event(buffered):
                 del self._buf[i]
                 self._dropped += 1
                 return
@@ -207,7 +219,7 @@ class _Bridge:
         self._closed = True
         self._wake.set()
 
-    async def drain(self) -> AsyncIterator[ObservationEvent]:
+    async def drain(self) -> AsyncIterator[BridgeEvent]:
         while True:
             if self._buf:
                 self._drained += 1
@@ -341,7 +353,7 @@ class _RunState:
         self._subtree_cost: Decimal | None = None
         self._subtree_unpriced = False
 
-    def map(self, event: ObservationEvent) -> list[Traced]:
+    def map(self, event: BridgeEvent) -> list[Traced]:
         """Fold one observation event into run state, returning the wire frames it produces.
 
         Dispatches on event type: `RunStarted` records the trace/root ids (no frame);
@@ -357,11 +369,11 @@ class _RunState:
             self.spans[event.span_id] = _SpanState(
                 event.node_kind, event.detail, datetime.now(UTC), event.parent_span_id
             )
-        elif isinstance(event, Log):
+        elif isinstance(event, (Log, StructuredLog)):
             # The engine attributes each log line to the span that emitted it; carry that through
             # so a consumer can tell WHICH node logged. A span-less line (logged outside any
             # node) legitimately has none and falls back to the run root.
-            return [Traced(payload=_log_frame(event), span=self._span_ref(event.span_id))]
+            return [self._map_log(event)]
         elif isinstance(event, Usage):
             self._fold_usage(event)
         elif isinstance(event, ModelResponse):
@@ -369,6 +381,14 @@ class _RunState:
         elif isinstance(event, NodeFinished):
             return self._finish(event)
         return []
+
+    def _map_log(self, event: Log | StructuredLog) -> Traced:
+        if isinstance(event, StructuredLog):
+            return Traced(
+                payload=LogData.at("INFO", event.body, event.attributes),
+                span=None,
+            )
+        return Traced(payload=_log_frame(event), span=self._span_ref(event.span_id))
 
     def _span_ref(self, span_id: str | None) -> SpanRef | None:
         """A `SpanRef` for a live span, or None when the frame belongs to the run itself.
@@ -706,6 +726,7 @@ class Url4Executor(Executor):
         artifact_store: ArtifactWriter | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
+        run_log_scope_factory: RunLogScopeFactory | None = None,
     ) -> None:
         self._io = io
         self._queue_cap = queue_cap
@@ -722,6 +743,7 @@ class Url4Executor(Executor):
         self._artifact_store = artifact_store
         self._world_aclose = world_aclose
         self._world_factory = world_factory
+        self._run_log_scope_factory = run_log_scope_factory
 
     async def execute(
         self, url4: str, *, trace: TraceContext | None = None
@@ -747,15 +769,7 @@ class Url4Executor(Executor):
 
         async def _drive() -> str:
             try:
-                if trace is not None:
-                    return await url4_run(
-                        url4,
-                        self._io,
-                        observer=bridge,
-                        trace_id=trace.trace_id,
-                        root_span_id=trace.root_span_id,
-                    )
-                return await url4_run(url4, self._io, observer=bridge)
+                return await self._run_with_log_scope(url4, bridge, trace)
             finally:
                 bridge.close()
 
@@ -786,6 +800,30 @@ class Url4Executor(Executor):
             elif not task.cancelled():
                 task.exception()
             await self._aclose_world()
+
+    async def _run_with_log_scope(
+        self,
+        rendered_url4: str,
+        bridge: _Bridge,
+        trace: TraceContext | None,
+    ) -> str:
+        async def invoke() -> str:
+            if trace is not None:
+                return await url4_run(
+                    rendered_url4,
+                    self._io,
+                    observer=bridge,
+                    trace_id=trace.trace_id,
+                    root_span_id=trace.root_span_id,
+                )
+            return await url4_run(rendered_url4, self._io, observer=bridge)
+
+        with RunLogScope(
+            self._run_log_scope_factory,
+            rendered_url4,
+            bridge.on_event,
+        ):
+            return await invoke()
 
     async def _resolve_world(self) -> None:
         """Build the world on first execute. Idempotent; a failure leaves nothing to close.

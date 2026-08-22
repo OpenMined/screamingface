@@ -4,9 +4,8 @@ Spec: `docs/spec/2026-08-22-OME-934-run-log-seam.md`
 Stack: `screamingface-engine`
 Ledger: `docs/work/2026-08-22-OME-934-run-log-seam.md`
 
-Production code starts only after explicit owner approval in plain words. Each iteration follows
-the `sdlc-python` RED → GREEN → review loop and appends coverage rather than weakening inherited
-tests.
+Owner implementation approval received 2026-08-22. Each iteration follows the `sdlc-python`
+RED → GREEN → review loop and appends coverage rather than weakening inherited tests.
 
 ## Iteration 1 — define the generic run-scope port
 

@@ -36,7 +36,8 @@ through one dormant Benchmark adapter so the first consumer requires no second c
 - No Benchmark schema or semantics in generic Runner modules.
 - No `screamingface.evaluation-progress.v1` records in OME-934.
 - No generated URL4 or `packages/url4` change.
-- No production code before explicit approval of this issue's spec and plan.
+- Owner approved the revised specification, plan, and implementation on 2026-08-22 before
+  production code began.
 
 ## Outcome (fill at the end — required before COMMIT)
 
