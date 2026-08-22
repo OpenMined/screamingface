@@ -107,7 +107,7 @@ generic and covers any cause of Pod-creation failure.
     canonical suite with the shared fakes)
   - `apps/screamingface-engine/tests/unit/test_app_factory.py` (wiring-gate tests)
   - `apps/screamingface-engine/tests/integration/test_run_stall_spine.py`
-- **Commits:** <sha — message>
+- **Commits:** `dbc11162` — feat(engine): warn attached client when a Runner Job cannot be scheduled
 - **Gates:** ruff clean · format clean · pyright 0 errors · `check_layering.py` OK · pytest
   2006 passed / 5 skipped, coverage 92.14% ≥ 80%
 - **Deviations:** module renamed `runner_stall` → `run_stall` (layering-test prefix collision);
