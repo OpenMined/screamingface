@@ -110,6 +110,8 @@ not recognize.
 ## Architecture invariants
 
 - Generic executor modules depend only on the generic run-scope port.
+- The generic port is a dependency-free app-owned leaf; the Benchmark adapter never imports the
+  Runner implementation.
 - Only the production composition root imports and wires the concrete Benchmark adapter.
 - Runner code recognizes no Benchmark, Candidate, model, grading, or progress vocabulary.
 - URL4 source, rendered expressions, execution graphs, protocol/revision/cache identity, results,

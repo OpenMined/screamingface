@@ -18,7 +18,8 @@ through one dormant Benchmark adapter so the first consumer requires no second c
 
 - `docs/spec/2026-08-22-OME-934-run-log-seam.md`
 - `docs/plan/2026-08-22-OME-934-run-log-seam.md`
-- one generic Runner port, local structured-Log bridge input, and executor lifecycle integration
+- one dependency-free generic port, local structured-Log bridge input, and Runner lifecycle
+  implementation
 - one task-local Benchmark recorder and registry adapter wired only at the composition root
 - focused isolation, ordering, failure, composition, regression, and layering tests
 
@@ -41,7 +42,19 @@ through one dormant Benchmark adapter so the first consumer requires no second c
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** pending
-- **Commits:** pending
-- **Gates:** pending
-- **Deviations:** pending
+- **Actual files:** added the dependency-free port in
+  `apps/screamingface-engine/src/screamingface_engine/run_log_contract.py`; generic lifecycle,
+  validation, expiry, and bridge delivery in `runner/run_logs.py` + `runner/executor.py`; the
+  task-local registry adapter in `benchmarks/run_logs.py`; production composition in
+  `runner/main.py`; 22 focused behavioral tests across `test_run_log_seam.py` and
+  `test_benchmark_run_logs.py`; and the approved spec/plan/task/work artifacts.
+- **Commits:** `83d9de64` — `docs: finalize OME-934 run log seam design`; `f204d2df` —
+  `feat(screamingface-engine): add generic run Log scope`; the Benchmark adapter, production
+  wiring, and this outcome land in this branch's final implementation commit.
+- **Gates:** focused generic suite 55 passed; focused adapter/composition/regression suite 132
+  passed; `python3 .claude/scripts/run_gates.py screamingface-engine` passed Ruff check, Ruff
+  format, Pyright, layering, append-only verification, and the complete coverage suite twice.
+- **Deviations:** the dependency-free factory/emitter/scalar port vocabulary moved from the Runner
+  implementation module into an app-owned shared leaf after the layering gate correctly rejected
+  a Benchmark adapter importing `screamingface_engine.runner`. Runner lifecycle implementation
+  remains in `runner/run_logs.py`; no scope or external contract changed.

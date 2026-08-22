@@ -7,11 +7,15 @@ from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Literal, Protocol
+from typing import Literal
+
+from screamingface_engine.run_log_contract import (
+    LogScalar,
+    RunLogScopeFactory,
+    StructuredLogEmitter,
+)
 
 _logger = logging.getLogger(__name__)
-
-type LogScalar = str | int | float | bool | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,22 +24,6 @@ class StructuredLog:
 
     body: str
     attributes: dict[str, LogScalar]
-
-
-class StructuredLogEmitter(Protocol):
-    """Synchronous, non-blocking submission into one execution's existing bridge."""
-
-    def __call__(self, body: str, attributes: Mapping[str, LogScalar]) -> None: ...
-
-
-class RunLogScopeFactory(Protocol):
-    """The one generic lifecycle operation an observational adapter implements."""
-
-    def open_run_scope(
-        self,
-        rendered_url4: str,
-        emit_structured_log: StructuredLogEmitter,
-    ) -> AbstractContextManager[None] | None: ...
 
 
 class RunLogEmitter:

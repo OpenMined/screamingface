@@ -18,8 +18,8 @@ RED → GREEN → review loop and appends coverage rather than weakening inherit
 
 ### GREEN
 
-- Define the smallest generic factory, scope, structured-Log emitter, and scalar types in the
-  Runner adapter layer.
+- Define the smallest generic factory, structured-Log emitter, and scalar types in a
+  dependency-free app-owned port leaf; keep lifecycle implementation in the Runner adapter.
 - Add one optional factory dependency to `Url4Executor`.
 - Keep the port internal Python dependency injection: no env, HTTP, Client, or URL4 option.
 
