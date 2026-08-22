@@ -1,9 +1,9 @@
 ---
 ticket: OME-874
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-08-18
-finished:
+finished: 2026-08-19
 ---
 
 # OME-874 — Replicate the leaderboard-mvp landing copy and UI on the portal
@@ -131,7 +131,7 @@ leaves `OME-768`'s open question ("what should the catalogue subtitle be?") stil
 **D8 — Focus ships with authored placeholder copy (owner, option C1).** draco → *"Research reports
 with citations"*; ifeval → *"Instruction following"*; healthbench-worst30 → *"Clinical safety,
 hardest cases"*. Not brand-approved — editable in `values.yaml` without a code change, subject to the
-deployed-values caveat above.
+deployed-values caveat in Owner-verify below.
 
 ## Test plan
 
@@ -159,61 +159,50 @@ Written RED first, then made green:
 - `index.html` and `benchmark.html` no longer contradict each other. ✓
 - Full gates green. ✓
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Merged:** `bf0d95f8` — squash of 8 commits, PR #631, approved by @HupBaHa 2026-08-19 15:56.
+  Merged under the new org: the repo transferred from `OpenMined/` to `ScreamingFace/` mid-flight
+  and the PR, its number and its history carried across intact.
+- **Actual files:** as planned, plus four not in the plan — `portal/benchmark.html` (the
+  cross-page contradiction, D6), `models/score.py` (the copy invariant), `tests/smoke/` (the drift
+  lane), and `routes/leaderboard.py` (the duplicate projection).
+- **Gates:** ruff ✓ · ruff format ✓ · pyright ✓ · pytest --cov **324 passed, 2 skipped** ✓ ·
+  portal JS **25 passed** ✓. Run with `--skip-append-only`, owner-approved under rule 5: exactly one
+  prior assertion changed (the hero-copy string this unit replaces), rewritten structurally so the
+  next copy edit will not break it again.
+- **Rebased twice** — once onto the engine rename (`url4-cloud` → `screamingface-engine`), which
+  merged cleanly but would otherwise have reintroduced stale paths into comments main had just
+  fixed; once before merge. Verified at merge time that main's 10 newer commits touched no
+  scoreboard file, so the `OME-852` semantic-conflict shape did not apply.
 
-## Review finding (Dmitry, 2026-08-19): two mockup sentences describe machinery we do not have
+### Deviations
 
-Both points were correct and both are fixed with the smallest possible edit to the brand copy.
+1. **The forward-looking copy was reverted in review.** D1–D3 are superseded: review (Dmitry,
+   2026-08-19) showed the board never filters on the verified flag, so S1 and S3 described a default
+   filter and a toggle that do not exist. Both deleted; S2 keeps the SOTA payoff with one word
+   changed, `verified` → `submitted`. Net brand-copy deviation: one word, two deletions.
+2. **A DRY fix outside the plan.** `routes/leaderboard.py` carried a second hand-written
+   `BenchmarkSchema` projection; adding `focus` broke that copy and not the store's. One mapper now.
+3. **D5 was under-enforced and review caught it** — `PROVENANCE.md` shipped publicly with a ticket
+   id and a `.claude/` path. Fixed, and a guard test now fetches every `*.md` under `portal/` and
+   fails on internal references.
+4. **`tests/smoke/` and the `smoke` marker are new to this app.** Opt-in, excluded from CI, so an
+   editor at another company cannot turn our build red.
 
-**Verified against the query, not the wording.** `_build_leaderboard_query` selects
-`verified_by_screamingface` but never filters on it, and orders by `score DESC` — so an unverified
-`0.99` genuinely outranks a verified `0.40`.
+### Owner-verify
 
-The mockup's note is three sentences. Two of them describe *mechanisms*, and no rewording makes a
-missing mechanism present:
+- **`index.html` S1 and S3 were copy @Irina approved verbatim on 2026-08-18** and were removed
+  because review showed they describe a filter and a toggle the board does not have. Flagged in the
+  PR body; **still unconfirmed by her.**
+- `Focus` values are placeholder copy, not brand-approved, and `values.yaml` does not propagate —
+  deployed environments keep their own file, so the platform team must sync it.
+- Visual check on the deployed board: light and dark, and the `.kv` glossary at the 620px breakpoint.
 
-| | Mockup sentence | Outcome |
-|---|---|---|
-| S1 | *"By default, the leaderboard only shows results we've reproduced ourselves."* | **Deleted** — describes a default filter that does not exist |
-| S2 | *"The top of each leaderboard is the best **verified** result: the current SOTA."* | **One word**: `verified` → `submitted`. Now true, and the SOTA payoff survives |
-| S3 | *"Toggle on self-reported runs…"* | **Deleted** — names a control that exists nowhere; `OME-771` is Blocked |
+### Follow-ups left open
 
-Net deviation from the brand copy: **one word changed, two sentences removed, nothing invented.**
-
-`benchmark.html` carries the **same two sentences as the landing page**. Two facts settled this:
-the mockup has no note box on its benchmark page at all — it conveys the same meaning through a row
-legend, a per-row Status column, a "SOTA (reproducible)" stat and the pool toggle, every one of
-which needs the filter we lack — and Irina's instruction was scoped to *"the copy from the landing
-page"* (2026-08-14, repeated 2026-08-18). So there is no brand copy for that page to deviate from;
-its note was ours before this PR and stays ours.
-
-Matching the landing wording also fixes a gap the single-sentence version left: `benchmark.html`
-has **no glossary** (0 `kv defs` vs 1 on index), and deep links — the `Open →` column, spec pages,
-anything shared — land there directly. Without the second sentence that page offered a reader no
-context at all for what the numbers mean.
-
-### What was tried and rejected first
-
-An earlier pass rewrote both notes into honest-but-defensive prose ("we do not re-run submissions
-yet", "nothing has been independently reproduced", "verified ranking arrives with re-run
-verification"). Owner rejected it: it buried the ambition under a disclaimer and used the
-"not yet / until that lands" construction throughout. The lesson recorded for next time — when copy
-asserts something untrue, cut the assertion, do not add a confession.
-
-**The aspiration never left the page.** The glossary is untouched and still carries Irina's
-vocabulary verbatim: *"Reproducible — Ran on shared compute and stored on the global cache. Anyone
-can re-run it and get the same score"* and *"Unverified — Self-reported… Not yet reproduced on the
-global cache."* The note does not need to restate it.
-
-### Owner action
-
-S1 and S3 were verbatim mockup copy @Irina locked on 2026-08-18. Removing them is a deviation from
-that instruction, made because review showed they describe behaviour the board does not have — her
-call was a wording decision on what turned out to be an implementability question. The copy and the
-pool filter (`OME-771` → `OME-821` → `OME-414`) are one change, not two. She should confirm before
-merge.
+- `OME-885` — ~42 internal references still public in `benchmark.js` / `main.js` /
+  `leaderboard-logic.js` / `portal.css`.
+- `OME-871` (Khoa's hero reword) is superseded by this unit and should be closed by its owner.
+- Unfiled: unauthenticated `POST /v1/scores` in the shipped prod config; and the OpenMined link
+  sweep, now that the org transfer has landed.
