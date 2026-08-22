@@ -291,3 +291,35 @@ def test_only_composition_root_imports_concrete_benchmark_run_log_adapter() -> N
     ]
 
     assert offenders == []
+
+
+def _recursive_concrete_adapter_importers(runner: Path) -> list[Path]:
+    adapter_module = "screamingface_engine.benchmarks.run_logs"
+    composition_root = runner / "main.py"
+    return [
+        path
+        for path in runner.rglob("*.py")
+        if path != composition_root and adapter_module in _imported_modules(path)
+    ]
+
+
+def test_recursive_layering_guard_exempts_only_the_root_composition_module(
+    tmp_path: Path,
+) -> None:
+    runner = tmp_path / "runner"
+    nested = runner / "nested"
+    nested.mkdir(parents=True)
+    import_line = "import screamingface_engine.benchmarks.run_logs\n"
+    (runner / "main.py").write_text(import_line, encoding="utf-8")
+    nested_main = nested / "main.py"
+    nested_main.write_text(import_line, encoding="utf-8")
+
+    assert _recursive_concrete_adapter_importers(runner) == [nested_main]
+
+
+def test_runner_tree_imports_concrete_benchmark_adapter_only_at_composition_root() -> None:
+    runner = _SRC / "runner"
+
+    offenders = [path.relative_to(_SRC) for path in _recursive_concrete_adapter_importers(runner)]
+
+    assert offenders == []

@@ -34,12 +34,16 @@ open_run_scope(rendered_url4, emit_structured_log) -> context manager | None
 
 - `rendered_url4` is the exact input string, passed once. The Runner neither parses nor rewrites it.
 - The factory and returned context manager are synchronous and perform no I/O or paid work.
+- A returned context manager must unwind partial acquisition inside a failing `__enter__`; Python
+  does not call `__exit__` after entry fails, and neither does the Runner's fail-open wrapper.
 - Returning `None` declines instrumentation for that execution.
 - The scope opens after world resolution and surrounds only `url4_run`.
 - Scope teardown completes before the bridge closes, so teardown may submit its final Log.
-- `emit_structured_log` is synchronous, non-blocking, and event-loop-local.
+- `emit_structured_log` is synchronous, non-blocking, and event-loop-thread-local. An off-thread
+  call is invalid and is dropped before it can mutate the Runner bridge.
 - The emitter accepts a non-empty string body plus flat attributes whose values already satisfy
-  `LogData`: `str | int | float | bool | None`.
+  the JSON wire meaning of `LogData`: `str | int | finite float | bool | None`. `nan` and positive
+  or negative infinity are malformed rather than being serialized as `null`.
 - A valid submission enters the same `_Bridge` immediately and is mapped to an ordinary INFO
   `LogData` on the run root. There is no second queue, poller, sequence, wire type, or Client path.
 

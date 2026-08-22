@@ -10,13 +10,23 @@ type LogScalar = str | int | float | bool | None
 
 
 class StructuredLogEmitter(Protocol):
-    """Synchronous, non-blocking submission into one execution's existing bridge."""
+    """Synchronous, non-blocking submission into one execution's existing bridge.
+
+    Calls must remain on the event-loop thread that received the emitter. Off-thread calls are
+    invalid and are ignored by the Runner rather than mutating its non-thread-safe bridge.
+    Attribute floats must be finite; non-finite values are rejected as malformed records.
+    """
 
     def __call__(self, body: str, attributes: Mapping[str, LogScalar]) -> None: ...
 
 
 class RunLogScopeFactory(Protocol):
-    """The one generic lifecycle operation an observational adapter implements."""
+    """The one generic lifecycle operation an observational adapter implements.
+
+    The returned context manager owns partial-acquisition rollback: when its ``__enter__`` raises,
+    it must unwind anything already acquired before re-raising because the Runner will not call
+    ``__exit__`` afterward, following Python's context-manager protocol.
+    """
 
     def open_run_scope(
         self,

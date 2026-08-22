@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import threading
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -34,14 +36,25 @@ class RunLogEmitter:
     local to the Runner adapter and cannot be inconsistently recreated by every producer.
     """
 
-    __slots__ = ("_active", "_expired_warned", "_submit")
+    __slots__ = (
+        "_active",
+        "_expired_warned",
+        "_owner_thread_id",
+        "_submit",
+    )
 
     def __init__(self, submit: Callable[[StructuredLog], None]) -> None:
         self._submit = submit
+        self._owner_thread_id = threading.get_ident()
         self._active = True
         self._expired_warned = False
 
     def __call__(self, body: str, attributes: Mapping[str, LogScalar]) -> None:
+        # INVARIANT: `_Bridge` owns an asyncio.Event and a deque with no cross-thread
+        # synchronization. Reject at this outer seam before any of that state can be touched.
+        if threading.get_ident() != self._owner_thread_id:
+            _logger.warning("run Log off-thread submission ignored")
+            return
         if not self._active:
             if not self._expired_warned:
                 _logger.warning("run Log expired emitter ignored")
@@ -68,11 +81,13 @@ class RunLogEmitter:
                 raise _InvalidStructuredLog
             snapshot: dict[str, LogScalar] = {}
             for key, value in attributes.items():
-                # INVARIANT: exact built-in scalar types only. Pydantic coercion would turn a
-                # producer defect into a plausible-looking wire claim; membership over arbitrary
-                # JSON would raise TypeError for arrays/objects (the OME-928 regression shape).
-                if type(key) is not str or (
-                    value is not None and type(value) not in {str, int, float, bool}
+                # INVARIANT: exact built-in scalar types and finite floats only. Pydantic coercion
+                # would turn a producer defect into a plausible-looking wire claim; its JSON
+                # encoder also rewrites nan and infinities to null, erasing their original meaning.
+                if (
+                    type(key) is not str
+                    or (value is not None and type(value) not in {str, int, float, bool})
+                    or (type(value) is float and not math.isfinite(value))
                 ):
                     raise _InvalidStructuredLog
                 snapshot[key] = value
@@ -153,6 +168,9 @@ def _log_scope_failure(phase: str, error: Exception) -> None:
 
 __all__ = [
     "LogScalar",
+    "RunLogEmitter",
+    "RunLogScope",
     "RunLogScopeFactory",
+    "StructuredLog",
     "StructuredLogEmitter",
 ]

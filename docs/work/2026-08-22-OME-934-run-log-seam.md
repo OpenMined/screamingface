@@ -40,6 +40,37 @@ through one dormant Benchmark adapter so the first consumer requires no second c
 - Owner approved the revised specification, plan, and implementation on 2026-08-22 before
   production code began.
 
+## Follow-up iteration — review hardening
+
+### Intent
+
+Close the approved PR review findings without expanding the seam: preserve exact scalar meaning,
+make its event-loop affinity enforceable, state standard failed-entry cleanup ownership, keep
+documentation and exports honest, and make the layering guard recursive.
+
+### Planned changes
+
+- Reject `nan` and positive/negative infinity as malformed structured-Log attributes.
+- State and enforce that the emitter may run only on its owning event-loop thread.
+- Document that a returned context manager must unwind partial acquisition inside a failing
+  `__enter__`, because the Runner will not call `__exit__` afterward.
+- Correct root-versus-span log documentation and align `runner.run_logs.__all__` with its public
+  names.
+- Recursively guard the complete Runner tree against concrete Benchmark-adapter imports.
+
+### Test plan
+
+- RED parametrized wire-seam tests for all non-finite float values and whole-record rejection.
+- RED cross-thread submission test proving the record is dropped without touching the bridge.
+- RED contract/export assertions and a nested Runner-package layering fixture.
+- Focused run-log suites, then the complete `screamingface-engine` quality gate.
+
+### Acceptance
+
+- Invalid or off-thread submissions remain observational and cannot change execution.
+- The generic port carries every lifecycle/threading constraint an adapter author must know.
+- Existing URL4 Logs, wire types, bridge ordering, and Benchmark behavior remain unchanged.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** added the dependency-free port in
@@ -58,3 +89,19 @@ through one dormant Benchmark adapter so the first consumer requires no second c
   implementation module into an app-owned shared leaf after the layering gate correctly rejected
   a Benchmark adapter importing `screamingface_engine.runner`. Runner lifecycle implementation
   remains in `runner/run_logs.py`; no scope or external contract changed.
+
+### Follow-up outcome
+
+- **Actual files:** hardened scalar and thread-affinity validation in `runner/run_logs.py`; made
+  adapter lifecycle requirements explicit in `run_log_contract.py` and the approved spec; corrected
+  root/log-like documentation in `runner/executor.py`; and appended finite-value, cross-thread,
+  export, and recursive-layering coverage to the two existing OME-934 test modules.
+- **Tests:** each behavioral change was observed RED before implementation; the complete focused
+  run-log suite passed with 28 tests.
+- **Gates:** `python3 .claude/scripts/run_gates.py screamingface-engine` passed append-only
+  verification, Ruff check, Ruff format, Pyright, layering, and the complete coverage suite.
+- **Deviations:** the append-only gate refused an in-place strengthening of the existing flat
+  layering test, so that test remains byte-identical and a separate recursive guard now covers the
+  complete Runner tree. No production scope or contract was weakened.
+- **Commit:** the follow-up hardening lands in this branch's next `fix(screamingface-engine)`
+  commit with `Refs: OME-934`.

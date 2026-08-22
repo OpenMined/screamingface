@@ -76,8 +76,8 @@ cost more than the bound is worth; the estimate only has to be the right order o
 
 class BridgeOverflowError(RuntimeError):
     """Raised by `_Bridge.on_event` when the backlog still exceeds the cap derived from the
-    bridge's memory budget after the eviction policy has run — eviction only removes a `Log`
-    when one happens to be buffered, so a backlog of non-Log events grows unchecked to the
+    bridge's memory budget after the eviction policy has run — eviction only removes a log-like
+    event when one happens to be buffered, so a backlog of non-log events grows unchecked to the
     budget cap.
 
     The message separates the two shapes a full buffer can take: a drain count above zero
@@ -95,14 +95,14 @@ def _is_log_event(event: BridgeEvent) -> bool:
 
 
 class _Bridge:
-    """A bounded async event queue between the engine's synchronous `url4.observe` callback
-    and the async streaming loop draining it.
+    """A bounded async event queue between synchronous run-event producers and the async
+    streaming loop draining them.
 
-    Buffers up to `maxsize` events; beyond that, an incoming `Log` is dropped outright, while
-    an incoming non-Log event instead evicts the oldest buffered `Log` to make room (or, if no
-    `Log` is buffered, evicts nothing and the buffer grows toward the hard cap) — since a `Log`
-    is the only event kind safe to lose without corrupting the run's span/cost accounting.
-    Only past the hard cap does it give up and raise `BridgeOverflowError`.
+    Buffers up to `maxsize` events; beyond that, an incoming log-like event (`Log` or
+    `StructuredLog`) is dropped outright, while any other event instead evicts the oldest
+    buffered log-like event to make room (or, if none is buffered, evicts nothing and the buffer
+    grows toward the hard cap). Logs are the only events safe to lose without corrupting the
+    run's span/cost accounting. Only past the hard cap does it raise `BridgeOverflowError`.
 
     The HARD cap is not a count of events: it is `memory_budget // EVENT_SIZE_ESTIMATE_BYTES`,
     so an operator bounds what the backlog may COST in bytes, not how wide a DAG may be —
@@ -164,17 +164,16 @@ class _Bridge:
         return self._high_water > self._max
 
     def on_event(self, event: BridgeEvent) -> None:
-        """Called synchronously by the engine for every observation event.
+        """Called synchronously for every URL4 observation or injected structured Log.
 
-        Policy at the soft cap (`maxsize`): a `Log` is dropped outright (counted in
-        `dropped`); anything else evicts the oldest buffered `Log` to make room, since a
-        `Log` is the only event kind safe to lose without corrupting the run's span/cost
-        accounting. Only once the backlog still exceeds the hard cap after that eviction does
-        this raise `BridgeOverflowError`.
+        Policy at the soft cap (`maxsize`): a log-like event is dropped outright (counted in
+        `dropped`); anything else evicts the oldest buffered log-like event to make room. Only
+        once the backlog still exceeds the hard cap after that eviction does this raise
+        `BridgeOverflowError`.
         """
         # INVARIANT: with the default budget the hard cap sits far above `_max`, giving the
         # buffer headroom past the soft cap before the budget binds — NOT a guarantee that a
-        # Log is available to evict. A backlog with no buffered Log at all is exactly the
+        # log-like event is available to evict. A backlog with no buffered log at all is exactly the
         # state that runs out that headroom and raises BridgeOverflowError. A budget below
         # `_max` events' worth makes the hard cap bind first; the policy stays correct, the
         # soft cap simply never gets to help.
@@ -357,10 +356,11 @@ class _RunState:
         """Fold one observation event into run state, returning the wire frames it produces.
 
         Dispatches on event type: `RunStarted` records the trace/root ids (no frame);
-        `NodeStarted` opens a span (no frame); `Log` maps straight to a `Traced` log frame;
-        `Usage` folds token counts into the owning span and the run totals (no frame);
-        `NodeFinished` closes the span and returns its `SpanData` frame, plus a `CostUsageData`
-        frame when the span carried usage. Any other event type produces nothing.
+        `NodeStarted` opens a span (no frame); `Log` maps to its emitting span while injected
+        `StructuredLog` maps to the run root; `Usage` folds token counts into the owning span and
+        the run totals (no frame); `NodeFinished` closes the span and returns its `SpanData` frame,
+        plus a `CostUsageData` frame when the span carried usage. Any other event type produces
+        nothing.
         """
         if isinstance(event, RunStarted):
             self.trace_id = event.trace_id
@@ -370,9 +370,8 @@ class _RunState:
                 event.node_kind, event.detail, datetime.now(UTC), event.parent_span_id
             )
         elif isinstance(event, (Log, StructuredLog)):
-            # The engine attributes each log line to the span that emitted it; carry that through
-            # so a consumer can tell WHICH node logged. A span-less line (logged outside any
-            # node) legitimately has none and falls back to the run root.
+            # INVARIANT: URL4 Logs retain their emitting span; injected StructuredLogs deliberately
+            # attach to the run root because their semantic identity lives in attributes.
             return [self._map_log(event)]
         elif isinstance(event, Usage):
             self._fold_usage(event)

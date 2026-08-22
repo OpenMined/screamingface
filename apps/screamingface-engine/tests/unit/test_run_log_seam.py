@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
@@ -11,9 +12,11 @@ from typing import cast
 import pytest
 
 import screamingface_engine.runner.executor as executor_module
+import screamingface_engine.runner.run_logs as run_logs_module
 from screamingface_engine.runner.executor import BridgeEvent, Url4Executor, _Bridge
 from screamingface_engine.runner.run_logs import (
     LogScalar,
+    RunLogEmitter,
     RunLogScopeFactory,
     StructuredLog,
     StructuredLogEmitter,
@@ -366,3 +369,56 @@ def test_run_scope_factory_interface_has_one_method() -> None:
     }
 
     assert public == {"open_run_scope"}
+
+
+def test_run_log_module_exports_its_complete_public_interface() -> None:
+    assert set(run_logs_module.__all__) == {
+        "LogScalar",
+        "RunLogEmitter",
+        "RunLogScope",
+        "RunLogScopeFactory",
+        "StructuredLog",
+        "StructuredLogEmitter",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "non_finite",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=["nan", "positive-infinity", "negative-infinity"],
+)
+async def test_non_finite_float_drops_the_complete_record(
+    caplog: pytest.LogCaptureFixture,
+    non_finite: float,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    executor = Url4Executor(
+        _io(),
+        run_log_scope_factory=_MalformedFactory(non_finite),
+    )
+
+    frames = await _drain(executor)
+
+    assert [log.body for log in _logs(frames)] == ["valid"]
+    assert "run Log submission rejected" in caplog.text
+    assert isinstance(frames[-1], Completed)
+
+
+@pytest.mark.asyncio
+async def test_off_thread_submission_is_dropped_before_it_reaches_the_bridge(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    submitted: list[StructuredLog] = []
+    emitter = RunLogEmitter(submitted.append)
+    caplog.set_level(logging.WARNING)
+
+    await asyncio.to_thread(
+        emitter,
+        "private off-thread body",
+        {"progress.completed": 1},
+    )
+
+    assert submitted == []
+    assert "off-thread submission ignored" in caplog.text
+    assert "private off-thread body" not in caplog.text
