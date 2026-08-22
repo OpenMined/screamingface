@@ -81,6 +81,7 @@ Instrumentation is observational and fail-open:
   than coercing or partially publishing it;
 - a factory may decline by returning `None` without a diagnostic;
 - an expired emitter is inert and may produce at most one operator diagnostic;
+- off-thread submissions are inert and may produce at most one operator diagnostic per emitter;
 - diagnostics use the normal internal logger, never this Log seam, so reporting a seam failure
   cannot recurse; and
 - diagnostics identify only a stable seam phase and safe exception information. They never include

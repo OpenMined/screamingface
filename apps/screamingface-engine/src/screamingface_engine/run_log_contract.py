@@ -13,7 +13,8 @@ class StructuredLogEmitter(Protocol):
     """Synchronous, non-blocking submission into one execution's existing bridge.
 
     Calls must remain on the event-loop thread that received the emitter. Off-thread calls are
-    invalid and are ignored by the Runner rather than mutating its non-thread-safe bridge.
+    invalid and are ignored by the Runner rather than mutating its non-thread-safe bridge; repeated
+    violations produce at most one operator diagnostic per emitter.
     Attribute floats must be finite; non-finite values are rejected as malformed records.
     """
 

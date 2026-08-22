@@ -39,6 +39,8 @@ class RunLogEmitter:
     __slots__ = (
         "_active",
         "_expired_warned",
+        "_off_thread_lock",
+        "_off_thread_warned",
         "_owner_thread_id",
         "_submit",
     )
@@ -46,6 +48,8 @@ class RunLogEmitter:
     def __init__(self, submit: Callable[[StructuredLog], None]) -> None:
         self._submit = submit
         self._owner_thread_id = threading.get_ident()
+        self._off_thread_lock = threading.Lock()
+        self._off_thread_warned = False
         self._active = True
         self._expired_warned = False
 
@@ -53,7 +57,11 @@ class RunLogEmitter:
         # INVARIANT: `_Bridge` owns an asyncio.Event and a deque with no cross-thread
         # synchronization. Reject at this outer seam before any of that state can be touched.
         if threading.get_ident() != self._owner_thread_id:
-            _logger.warning("run Log off-thread submission ignored")
+            with self._off_thread_lock:
+                should_warn = not self._off_thread_warned
+                self._off_thread_warned = True
+            if should_warn:
+                _logger.warning("run Log off-thread submission ignored")
             return
         if not self._active:
             if not self._expired_warned:

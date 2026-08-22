@@ -422,3 +422,23 @@ async def test_off_thread_submission_is_dropped_before_it_reaches_the_bridge(
     assert submitted == []
     assert "off-thread submission ignored" in caplog.text
     assert "private off-thread body" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_repeated_off_thread_submissions_warn_only_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    submitted: list[StructuredLog] = []
+    emitter = RunLogEmitter(submitted.append)
+    caplog.set_level(logging.WARNING)
+
+    await asyncio.to_thread(emitter, "first private body", {"progress.completed": 1})
+    await asyncio.to_thread(emitter, "second private body", {"progress.completed": 2})
+
+    warnings = [
+        record for record in caplog.records if "off-thread submission ignored" in record.message
+    ]
+    assert submitted == []
+    assert len(warnings) == 1
+    assert "first private body" not in caplog.text
+    assert "second private body" not in caplog.text

@@ -105,3 +105,32 @@ documentation and exports honest, and make the layering guard recursive.
   complete Runner tree. No production scope or contract was weakened.
 - **Commit:** the follow-up hardening lands in this branch's next `fix(screamingface-engine)`
   commit with `Refs: OME-934`.
+
+## Follow-up iteration — rate-limit off-thread diagnostics
+
+### Intent
+
+Keep repeated invalid worker-thread submissions fail-open without flooding the operator log.
+
+### Planned changes and test plan
+
+- Append a RED regression test proving repeated off-thread calls produce one safe diagnostic.
+- Add the same one-shot guard already used by expired-emitter rejection.
+- Rerun the focused run-log suite and complete `screamingface-engine` quality gate.
+
+### Acceptance
+
+- Every off-thread record remains dropped before bridge access.
+- At most one off-thread diagnostic is written per run-scoped emitter, without payload disclosure.
+
+### Outcome
+
+- **Implementation:** added a thread-safe one-shot diagnostic guard used only by invalid off-thread
+  calls; the normal event-loop submission path remains lock-free.
+- **Tests:** the appended regression observed two warnings RED, then passed with one; the complete
+  focused OME-934 suite passed with 30 tests.
+- **Gates:** `python3 .claude/scripts/run_gates.py screamingface-engine` passed append-only
+  verification, Ruff check, Ruff format, Pyright, layering, and the complete coverage suite.
+- **Deviations:** none.
+- **Commit:** this rate-limit correction lands in the branch's next
+  `fix(screamingface-engine)` commit with `Refs: OME-934`.
