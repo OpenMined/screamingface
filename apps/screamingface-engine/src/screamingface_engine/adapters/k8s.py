@@ -15,7 +15,7 @@ from typing import Protocol
 from kubernetes.client import ApiException
 
 from screamingface_engine import job_env
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, RunnerScheduleUnavailable
 from url4.streaming.interfaces import JobAlreadyExists, JobStatus, job_name
 from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import valid_traceparent
@@ -196,6 +196,15 @@ class K8sJobRunner(IdentityAwareJobRunner):
         except ApiException as exc:
             if exc.status == _CONFLICT:
                 raise JobAlreadyExists(name) from exc
+            # OME-948: a transient substrate refusal is a retry-later, not a crash. Map it to
+            # the engine-local `RunnerScheduleUnavailable`, which the REST layer renders as the
+            # same generic 503 + Retry-After as a full local runner. `JobRunnerAtCapacity` is
+            # deliberately NOT reused — its own contract says a cluster-backed runner never
+            # raises it. A permanent 4xx is an engine manifest bug and propagates unchanged
+            # (today's behavior: surfaces as 500).
+            status = exc.status
+            if status is not None and (status == 429 or status >= 500):
+                raise RunnerScheduleUnavailable(f"runner schedule refused: {status}") from exc
             raise
         return name
 

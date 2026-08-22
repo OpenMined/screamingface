@@ -93,6 +93,16 @@ class Settings(BaseSettings):
     # INVARIANT: this bounds SPEND, not correctness — job_deadline_s (16h) remains the backstop.
     # Raising it costs money per orphaned run; lowering it risks stopping a live one.
     orphan_grace_s: float = Field(default=120.0, ge=0.0)
+    # FEATURE: surface a generic capacity warning when a Runner Job cannot be scheduled
+    # (OME-948).
+    #
+    # WHY 60s: a Job whose Pod cannot be created retries `FailedCreate` with backoff and shows
+    # `scheduled` (no active Pod, no terminal condition) the whole time; a Pending Pod counts as
+    # `active`, so image pulls and normal creation latency never look stalled. 60s of
+    # `scheduled` therefore genuinely means "no Pod has ever been created". The watch warns the
+    # attached client once per stall episode; it never touches the run itself. 0 disables the
+    # watch (the sweep loop is skipped entirely).
+    run_stall_warn_after_s: float = Field(default=60.0, ge=0.0)
     # INVARIANT: stateless iat window (seconds) — start rejected when now - iat exceeds it (§4).
     iat_window_s: int = 60
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).

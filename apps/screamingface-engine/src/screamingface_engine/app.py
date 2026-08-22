@@ -38,6 +38,7 @@ from screamingface_engine.metrics import (
     build_metrics,
     register_catalog_metrics,
     register_reaper_metrics,
+    register_stall_metrics,
 )
 from screamingface_engine.ops import router as ops_router
 from screamingface_engine.reaper import RunReaper
@@ -49,6 +50,7 @@ from screamingface_engine.rest import (
     connection_router,
 )
 from screamingface_engine.rest import router as rest_router
+from screamingface_engine.run_stall import RunStallWatcher
 from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
@@ -77,7 +79,11 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def create_app(
+# WHY `noqa: PLR0915` (composition root): every installed watcher/feature is one honest call
+# in this builder — the orphan reaper, then the run-stall watch. Shrinking statements would
+# mean hiding an installer behind a forwarding helper, which is the layer this file exists to
+# avoid. The repo's idiom for entry points that legitimately grow is a named suppression.
+def create_app(  # noqa: PLR0915
     settings: Settings | None = None,
     *,
     stream: EventConsumer | None = None,
@@ -128,6 +134,9 @@ def create_app(
     app.state.interest = interest if interest is not None else registry
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     _install_orphan_reaper(app, registry, job_runner, settings)
+    # FEATURE: surface a generic capacity warning when a Runner Job cannot be scheduled
+    # (OME-948).
+    _install_run_stall_watch(app, registry, job_runner, settings)
     if clock is not None:
         app.state.clock = clock
     install_problem_handlers(app)
@@ -280,6 +289,82 @@ def _install_orphan_reaper(
 
     async def _stop() -> None:
         task = app.state.reaper_task
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    app.router.on_startup.append(_start)
+    app.router.on_shutdown.append(_stop)
+
+
+def _install_run_stall_watch(
+    app: FastAPI,
+    registry: ConnectionRegistry,
+    job_runner: JobRunner | None,
+    settings: Settings,
+) -> None:
+    """Wire the run-stall watch: warn a run whose Job never gets a Pod, on a cadence.
+
+    FEATURE: surface a generic capacity warning when a Runner Job cannot be scheduled (OME-948).
+    Modelled on `_install_orphan_reaper` — the policy object owns no task, the loop is an
+    asyncio task on the App's own event loop, and shutdown cancels it so nothing outlives the
+    App. No sweep at startup, unlike the artifact sweeper: nothing can be stuck before a run has
+    been scheduled, so a boot sweep would have nothing to look at.
+
+    INVARIANT: k8s-only. Local mode cannot stall silently — an in-process run either runs or
+    fails fast at accept time (`JobRunnerAtCapacity` → 503) — so a non-k8s runner never gets
+    the task, and no background work appears on every local boot.
+
+    INVARIANT: the watcher is handed `registry` — the REAL one — never `app.state.interest`,
+    for the same reason as the reaper: a gate that answers "nobody is listening" for every
+    topic would warn-and-drop every run in the process.
+    """
+    app.state.stall_watcher = None
+    app.state.stall_task = None
+    # WHY registered unconditionally, and via a getter: the collector reads whatever
+    # `app.state.stall_watcher` holds at scrape time, so a stream-only App exposes no stall
+    # series rather than a stale zero, and `/metrics` never depends on wiring order.
+    register_stall_metrics(app.state.metrics, lambda: app.state.stall_watcher)
+    if job_runner is None or settings.runner != "k8s" or settings.run_stall_warn_after_s <= 0:
+        # WHY the early return: a non-k8s runner cannot stall silently, and an operator may turn
+        # the watch off with `URL4_CLOUD_RUN_STALL_WARN_AFTER_S=0`. Either way, no task is
+        # created — the many tests that inject no runner must not grow a background task.
+        return
+    watcher = RunStallWatcher(
+        job_runner,
+        registry,
+        warn_after_s=settings.run_stall_warn_after_s,
+    )
+    app.state.stall_watcher = watcher
+
+    async def _sweep_forever() -> None:
+        while True:
+            await asyncio.sleep(watcher.tick_s)
+            # INVARIANT: one failed sweep must not kill the watcher. An unhandled exception here
+            # would end the task silently and every stuck run would stay silent until the 16h
+            # ceiling — worse than the bug this fixes, because it would LOOK fixed. Log and
+            # keep the cadence. `CancelledError` is a BaseException and still propagates, so
+            # shutdown is unaffected.
+            try:
+                await watcher.sweep()
+            except Exception:
+                _logger.exception("run-stall sweep failed; retrying next interval")
+
+    async def _start() -> None:
+        app.state.stall_task = asyncio.get_running_loop().create_task(_sweep_forever())
+        # AIDEV-NOTE: the single-replica assumption is LOGGED, not merely noted in the chart. The
+        # live-topic set lives in this process's memory, so a second replica would warn about
+        # runs another replica is streaming — advisory-only, but duplicate WARNs would read as
+        # noise. Multi-replica needs the same shared SubscriberGate the reaper waits on.
+        _logger.info(
+            "run-stall watch armed warn_after_s=%.0f tick_s=%.0f (assumes a single replica)",
+            settings.run_stall_warn_after_s,
+            watcher.tick_s,
+        )
+
+    async def _stop() -> None:
+        task = app.state.stall_task
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

@@ -99,6 +99,12 @@ config:
   # detection it depends on. This bounds SPEND on runs whose client died; `jobDeadlineS` above
   # remains the backstop.
   orphanGraceS: 120
+  # Seconds a run may stay stuck as `scheduled` (Job exists, no Pod ever created) before the
+  # App warns its attached client that the runner service is at capacity (OME-948). A Pending
+  # Pod counts as active, so image pulls and normal creation latency never look stalled; 60s of
+  # `scheduled` genuinely means the Pod was refused. 0 disables the watch. Advisory only — it
+  # never stops or reschedules the run.
+  runStallWarnAfterS: 60
   # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
   # image's own default. Must be one of the models that url4.toml declares.
   aigatewayModel: ""

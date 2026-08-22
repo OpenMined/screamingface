@@ -62,6 +62,11 @@
           "minimum": 0,
           "description": "Seconds a run may keep going with no WebSocket subscriber before the App stops it (OME-890); 0 disables the reaper. INVARIANT: the audience count is in-process, so replicaCount must stay 1 while this is non-zero \u2014 a second replica would answer \"nobody is listening\" for runs another replica is streaming. Keep it above uvicorn's WS ping window (~40s), which is what closes a partitioned client's socket in the first place."
         },
+        "runStallWarnAfterS": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds a run may stay stuck as `scheduled` (Job exists, no Pod ever created) before the App warns its attached client that the runner service is at capacity (OME-948); 0 disables the watch. A Pending Pod counts as active, so normal pod delays never look stalled. Advisory only: the watch never stops or reschedules the run. INVARIANT: the live-topic set is in-process, so replicaCount must stay 1 while this is non-zero."
+        },
         "aigatewayBaseUrl": {
           "type": "string"
         },

@@ -6,6 +6,7 @@ from kubernetes.client import ApiException
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.k8s import K8sJobRunner
+from screamingface_engine.ports import RunnerScheduleUnavailable
 from url4.streaming.interfaces import JobAlreadyExists, JobRunner, job_name
 
 pytestmark = pytest.mark.asyncio
@@ -245,12 +246,35 @@ async def test_status_reraises_non_404_api_errors() -> None:
         await runner.status(TOPIC)
 
 
-async def test_schedule_reraises_non_409_api_errors() -> None:
-    class Boom(FakeBatchV1):
+async def test_schedule_maps_transient_api_errors_to_runner_schedule_unavailable() -> None:
+    """OME-948: a transient apiserver refusal is a retry-later, not a crash (503 on the wire)."""
+
+    class Boom500(FakeBatchV1):
         def create_namespaced_job(
             self, namespace: str, body, *, _request_timeout: float | None = None
         ) -> FakeCreatedJob:
             raise ApiException(status=500)
+
+    class Boom429(FakeBatchV1):
+        def create_namespaced_job(
+            self, namespace: str, body, *, _request_timeout: float | None = None
+        ) -> FakeCreatedJob:
+            raise ApiException(status=429)
+
+    for boom in (Boom500(), Boom429()):
+        runner = _runner(boom)
+        with pytest.raises(RunnerScheduleUnavailable):
+            await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+
+
+async def test_schedule_reraises_a_permanent_4xx_api_error() -> None:
+    """A permanent 4xx is an engine manifest bug, not a capacity signal — unchanged."""
+
+    class Boom(FakeBatchV1):
+        def create_namespaced_job(
+            self, namespace: str, body, *, _request_timeout: float | None = None
+        ) -> FakeCreatedJob:
+            raise ApiException(status=400)
 
     runner = _runner(Boom())
     with pytest.raises(ApiException):

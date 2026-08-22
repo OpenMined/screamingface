@@ -195,3 +195,34 @@ class _ReaperCollector:
 def register_reaper_metrics(metrics: Metrics, get_reaper: Callable[[], Any]) -> None:
     """Register a `_ReaperCollector` for `get_reaper` on `metrics.registry`."""
     metrics.registry.register(_ReaperCollector(get_reaper))
+
+
+class _StallCollector:
+    """A `prometheus_client` custom collector for the run-stall watcher's counters (OME-948)."""
+
+    def __init__(self, get_watcher: Callable[[], Any]) -> None:
+        self._get_watcher = get_watcher
+
+    def collect(self) -> Iterable[Any]:
+        """Called by `prometheus_client` once per `/metrics` scrape."""
+        watcher = self._get_watcher()
+        if watcher is None:
+            return
+        yield CounterMetricFamily(
+            "screamingface_engine_run_stalls_warned",
+            "Runs warned that their Runner Job could not be scheduled (at capacity).",
+            value=watcher.warned_total,
+        )
+        # WHY a gauge beside the counter: a value that never returns to zero is the only signal
+        # that distinguishes "the sweep task died" from "no stalls happened" — the same argument
+        # as the reaper's `armed` gauge.
+        yield GaugeMetricFamily(
+            "screamingface_engine_run_stalls_stuck",
+            "Runs currently tracked as stuck (Job scheduled but no Pod has ever been created).",
+            value=float(watcher.stuck_count),
+        )
+
+
+def register_stall_metrics(metrics: Metrics, get_watcher: Callable[[], Any]) -> None:
+    """Register a `_StallCollector` for `get_watcher` on `metrics.registry`."""
+    metrics.registry.register(_StallCollector(get_watcher))

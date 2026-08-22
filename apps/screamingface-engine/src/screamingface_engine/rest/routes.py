@@ -28,7 +28,7 @@ from screamingface_engine.auth import (
     new_topic,
 )
 from screamingface_engine.config import Settings
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, RunnerScheduleUnavailable
 from screamingface_engine.rest.cache_header import parse_cache_control
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
@@ -204,6 +204,16 @@ async def _schedule(
             status=503,
             title="Service Unavailable",
             detail="the runner is at capacity — retry shortly",
+            headers={"Retry-After": "1"},
+        ) from exc
+    except RunnerScheduleUnavailable as exc:
+        # OME-948: a transient substrate refusal at schedule time gets the same generic retryable
+        # answer as a full local runner — never a naked 500. The detail is deliberately generic;
+        # the adapter's cause is logged, not echoed.
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the runner could not schedule this run — retry later",
             headers={"Retry-After": "1"},
         ) from exc
 
@@ -385,6 +395,7 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: _problem("The url4 expression query parameter `q` is required."),
     409: _problem("A run already exists for this topic (single-shot)."),
     428: _problem("Attach a WebSocket to the topic before starting the run."),
+    503: _problem("The runner is at capacity or could not schedule the run — retry later."),
     502: _problem("The run failed."),
     504: _problem("The run exceeded its 16 h deadline."),
 }
